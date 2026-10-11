@@ -402,7 +402,7 @@ def _warn_low_vram_pyannote():
         return None
     # diagnostics_torch imports this module, so it can only be imported at call time.
     import diagnostics_torch
-    gpu = diagnostics_torch.get_gpu_status()
+    gpu = diagnostics_torch.get_gpu_status_isolated()
     total = gpu.get("vram_total_gb") if gpu.get("available") else None
     if total is not None and total < PYANNOTE_MIN_VRAM_GB - PYANNOTE_VRAM_MARGIN_GB:
         return ("This GPU has less than 12 GB of memory, so speaker detection may run out "

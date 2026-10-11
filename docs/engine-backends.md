@@ -43,14 +43,20 @@ The `deepseek` engine needs the `openai` package, which is why
 `diagnostics.OPTIONAL_DEPENDENCIES["openai"]` is described as "DeepSeek
 translation engine".
 
-**No other engines exist.** DeepL, Google Cloud Translation and LibreTranslate
+**Echo (testing)** (`echo`, `engine_backends/echo.py`) is the one test engine in the
+app: no model, no key, output `[EN] <text>`. Developer Mode only: it is added to
+`ENGINES`, `FREE_ENGINES` and `KEYLESS_ENGINES` when the setting is saved on (and at
+server start) and removed when it is saved off, so a run naming it then gets the
+usual refusal with a Developer Mode hint. Bulk translate needs a batch provider
+(Claude, Gemini), so it does not accept Echo.
+
+**No other real engines exist.** DeepL, Google Cloud Translation and LibreTranslate
 were removed. `engine_registry.REMOVED_ENGINES` keeps their ids so a saved
 preset, routing rule or fallback chain that still names one is refused with
 `unknown_engine_message()` ("The X engine was removed") instead of a bare
 KeyError. The only trace left is a DeepL key pattern in
-`shared._SECRET_PATTERNS`, which is harmless. There is also no "test mode"
-engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
-(id `fake`, output `[TEST] <text>`), is installed by `tests/conftest.py` and by
+`shared._SECRET_PATTERNS`, which is harmless. The key-free `FakeEngine` lives in `tests/fake_engine.py`
+(id `fake`, output `[TEST] <text>`), is `EchoEngine` with a different prefix, is installed by `tests/conftest.py` and by
 `frontend/e2e/serve_seeded_api.py`, and is never in the shipped `ENGINES`.
 
 ### What `shared.py` provides
@@ -74,8 +80,11 @@ engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
   (`_is_rate_limit_error`: status 429, a `RateLimit` class name, or "429" in
   the text when no status was given) back off exponentially; any other error
   gets one quick retry, then raises. Sleeps go through `_cancellable_sleep`, so
-  a cancelled job stops waiting (`TranslationCancelled`).
-  `FreeTierDailyLimitReached` is never retried.
+  a cancelled job stops waiting (`TranslationCancelled`). These are re-raised
+  at once, never retried: `TranslationCancelled`, `FreeTierDailyLimitReached`,
+  `HeadroomError`, `LLMTaskTimeout` and `ProviderResponseTooLarge` (the reply
+  was already billed), and a rate-limit error from a fallback chain that has
+  tried every engine.
 - **`redact_secrets(text)`, `redact_for_storage`, `safe_url`,
   `strip_url_queries`.** Pattern-based scrubbing of keys (`sk-`, `AIza`,
   `key=`, `Authorization`/`Bearer`, DeepL, URL userinfo) from any error text.
@@ -308,7 +317,7 @@ language. A line is given a `lang` only when it differs from the title's, and
 one that still can't be confirmed gets the `language_uncertain` flag.
 
 **Model folders and offline use.** Settings > "Offline Whisper model folder"
-(`whisper_model_path`, read by `settings_service.get_whisper_model_path`) is
+(`whisper_model_path`, read by `settings_service.get("whisper_model_path")`) is
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects
 `HF_HOME`, `TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` under one

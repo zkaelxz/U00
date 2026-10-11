@@ -1,7 +1,8 @@
 import itertools
 
-import numpy as np
 import pytest
+
+np = pytest.importorskip("numpy")
 
 import stereo_cues as sc
 from tests.stereo_fixtures import SR, delayed_varying, in_band_bands, place, speech_like

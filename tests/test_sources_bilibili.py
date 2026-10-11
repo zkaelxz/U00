@@ -163,6 +163,7 @@ class TestMultipart:
         assert seen_urls and all(u == "https://www.bilibili.com/video/BV1yy411c7wxyz?p=2"
                                  for u in seen_urls)
         assert result["title"] == "Part Two"
+        assert seen_urls and set(seen_urls) == {"https://www.bilibili.com/video/BV1yy411c7wxyz?p=2"}
         assert result["part_title"] is None  # no "entries" in the response -- not multipart-expanded
         assert os.path.exists(result["path"])
 

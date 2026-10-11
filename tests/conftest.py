@@ -6,6 +6,7 @@ temp directory for each test, so running the test suite never reads,
 writes, or deletes anything in your actual library.
 """
 
+import contextlib
 import sys
 import os
 import shutil
@@ -206,8 +207,28 @@ def _keep_real_torch_importable():
     restore_real_modules()
 
 
+@pytest.fixture(scope="session")
+def _template_library(tmp_path_factory):
+    """A library with the schema already created, built once per xdist
+    worker. Running init_db() for every test was the single largest fixed
+    cost in the suite; copying this folder and re-running the (cheap,
+    nothing-to-create) init is not."""
+    previous = db.LIBRARY_DIR
+    template = str(tmp_path_factory.mktemp("template_library") / "library")
+    os.makedirs(template)
+    db.configure_library_dir(template)
+    try:
+        db.init_db()
+        with contextlib.closing(db.get_conn()) as conn:
+            # WAL mode: fold the log into library.db so copying the one file is enough.
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        db.configure_library_dir(previous)
+    return template
+
+
 @pytest.fixture
-def isolated_db():
+def isolated_db(_template_library):
     """Redirects db.py to a fresh temp directory for the duration of
     one test, then cleans up afterward. Use this fixture in any test
     that touches the database.
@@ -229,11 +250,15 @@ def isolated_db():
     folder ("<library>.pre_restore_*") *next to* the library, so with the
     library sitting straight in /tmp every pytest-xdist worker's restore
     scratch landed in one shared folder, and a test asserting "restore
-    left nothing behind" saw another worker's in-flight staging dir."""
+    left nothing behind" saw another worker's in-flight staging dir.
+
+    The library starts as a copy of the per-worker template, so the
+    upgrade tests in test_db.py, which need a schema older than init_db's,
+    build their own folders and never use this fixture's starting state."""
     previous = db.LIBRARY_DIR
     parent_dir = tempfile.mkdtemp(prefix="baihe_test_")
     temp_dir = os.path.join(parent_dir, "library")
-    os.makedirs(temp_dir)
+    shutil.copytree(_template_library, temp_dir, ignore=shutil.ignore_patterns("*-wal", "*-shm"))
     db.configure_library_dir(temp_dir)
     db.init_db()
     yield db

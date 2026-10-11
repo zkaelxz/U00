@@ -73,6 +73,7 @@ import { GlossaryReview } from './GlossaryReview'
 import { useResumableScan } from './useGlossaryRun'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
+import { SourceChangedWarning } from './SourceChangedWarning'
 import { translateBlocker } from './stageBlockers'
 import './translate.css'
 import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
@@ -689,6 +690,7 @@ export default function TranslateStage() {
   return (
     <div className="stage-translate">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <SourceChangedWarning dramaId={dramaId} reloadKey={reloads} />
       {config && (
         <FailedBatchesNotice
           config={config}

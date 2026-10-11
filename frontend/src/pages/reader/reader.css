@@ -71,7 +71,7 @@
 .reader-phone { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
 .reader-phone-head {
   position: sticky;
-  top: 0;
+  top: var(--bar-h, 0px);
   z-index: 5;
   display: flex;
   align-items: center;

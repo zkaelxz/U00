@@ -413,7 +413,7 @@ class TestTranslateEndpoints:
     def test_engines_name_settings_default_engine(self, client, isolated_db):
         from services import settings_service
         body = client.get("/api/translate/engines").json()
-        assert body["default_engine"] == settings_service.get_default_engine()
+        assert body["default_engine"] == settings_service.get("default_engine")
         assert body["default_engine"] in {e["name"] for e in body["items"]}
 
     def test_engines_never_leak_a_key_value(self, client, isolated_db, monkeypatch):
@@ -846,7 +846,7 @@ class TestTranscribeConfigEndpoints:
             "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
             "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
-            "whisper_installed": body["whisper_installed"],
+            "whisper_installed": body["whisper_installed"], "gpu_runtime": body["gpu_runtime"],
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5, "sensitivity_preset": "normal", "effective_vad_threshold": 0.5,
             "hallucination_silence_sec": 0.0, "min_pause_sec": 0.35,
             "separate_vocals_first": False, "separation_backend": "auto",

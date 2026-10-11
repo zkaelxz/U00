@@ -163,3 +163,22 @@ test('admin: with no titles or series the list offers the way to the Library', a
   await expect(card.getByText('There are no titles or series yet.')).toBeVisible()
   await expect(card.getByRole('link', { name: 'Go to Library' })).toHaveAttribute('href', '#/library')
 })
+
+test('/me unavailable: no controls or item list, only a retry; Retry brings the card back', async ({ page }) => {
+  const { listCalls, unmocked } = await mockSharing(page, ADMIN_ME)
+  let down = true
+  await page.route('**/api/auth/me', (route) =>
+    down ? route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' }) : route.fallback(),
+  )
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Preferences')
+  const card = page.getByRole('region', { name: 'Sharing' })
+  await expect(card.getByText("Couldn't check your account yet")).toBeVisible()
+  await expect(card.getByRole('switch')).toHaveCount(0)
+  await expect(card.getByTestId('sharing-pc-note')).toHaveCount(0)
+  expect(listCalls).toEqual([])
+  down = false
+  await card.getByRole('button', { name: 'Retry' }).click()
+  await expect(card.getByRole('switch', { name: 'New items I create are shared with the household' })).toBeVisible()
+  expect(unmocked).toEqual([])
+})

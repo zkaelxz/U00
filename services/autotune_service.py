@@ -84,12 +84,12 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     InvalidInputError (bad candidates), ConflictError (already running)."""
     drama = db.get_drama(drama_id)
     if drama is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path is None:
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if candidates is None:
         candidates = list(core_module.DEFAULT_AUTOTUNE_CANDIDATES_MS)
     if (not isinstance(candidates, (list, tuple)) or not candidates or len(candidates) > 6
@@ -111,17 +111,17 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     started = background_jobs.start_process_job(
         job_id, _autotune_all_worker,
         args=(audio_path, stored_whisper_size(drama),
-              drama.get("source_language") or "zh", settings_service.get_use_gpu(),
+              drama.get("source_language") or "zh", settings_service.get("use_gpu"),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
               presets.stored_vad_threshold(drama),
               bool(drama.get("whisper_fast_mode")),
               presets.normalize(drama.get("sensitivity_preset")),
               bool(drama.get("whisper_repeat_guard"))),
-        gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})",
+        gpu_touching=True, description=f"Auto-tuning (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn")
     if not started:
-        raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")
+        raise ConflictError(f"Auto-tune is already running for title {drama_id}.")
     return {"job_id": job_id, "candidates": list(candidates)}
 
 
@@ -133,7 +133,7 @@ def get_autotune_status(drama_id: int) -> dict:
     this process (results live only in background_jobs memory) is the normal
     first answer: status "idle", job_id ""."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     job_id = autotune_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:
@@ -162,10 +162,10 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
     update, update_transcribe_config, remains for hand-set values).
     Returns the updated transcribe config."""
     if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No drama with id {drama_id}.")
+        raise NotFoundError(f"No title with id {drama_id}.")
     job = background_jobs.get_status(autotune_job_id(drama_id))
     if not job or job.get("status") != "done":
-        raise UnsupportedOperationError("No finished auto-tune results for this drama.")
+        raise UnsupportedOperationError("No finished auto-tune results for this title.")
     measured = {r.get("candidate_ms") for r in (job.get("result") or {}).get("results") or []}
     if isinstance(candidate_ms, bool) or candidate_ms not in measured:
         raise InvalidInputError("candidate_ms must be one of the measured candidates.")
