@@ -501,3 +501,26 @@ class TestInstallerIdentityDoesNotDrift:
     def test_wheel_lock_name(self, mods):
         bi, post, _ = mods
         assert post.LOCK_NAME == bi.WHEEL_LOCK.name == "wheels.lock.txt"
+
+
+class TestUninstallLibraryConfirmation:
+    def test_interactive_library_delete_needs_the_typed_word(self, iss):
+        confirm = _func(iss, "ConfirmLibraryDelete")
+        assert "InputQuery(" in confirm and "CompareStr(Typed, 'DELETE') = 0" in confirm
+        assert "backups are inside it by default" in confirm and "SizeText(" in confirm
+        init = _func(iss, "InitializeUninstall")
+        assert "if Result and DeleteLibrary and not ConfirmLibraryDelete() then" in init
+        declined = init[init.index("not ConfirmLibraryDelete()"):]
+        # Keeping the library also cancels "Remove everything", which would take it too.
+        assert "CleanAll := False;" in declined and "DeleteLibrary := False;" in declined
+
+    def test_silent_uninstall_is_not_prompted(self, iss):
+        init = _func(iss, "InitializeUninstall")
+        assert init.index("ConfirmLibraryDelete") > init.index("else if (UninstDataDir")
+
+    def test_summary_lists_leftovers_without_deleting_them(self, iss):
+        step = _func(iss, "CurUninstallStepChanged")
+        for needle in ("HF_HOME", "TORCH_HOME", "OLLAMA_MODELS", "winget"):
+            assert needle in step
+        assert "DeleteTree(EnvOrDefault" not in step
+        assert "DelTree" not in _func(iss, "NoteShared")
