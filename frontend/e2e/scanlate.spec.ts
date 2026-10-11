@@ -36,6 +36,25 @@ test('translate all pages, follow the job, then read the typeset pages', async (
   expect(s.unmocked).toEqual([])
 })
 
+test('closing the panel while a job runs still loads the typeset pages when it finishes', async ({ page }) => {
+  const s = await mockScanlate(page, { pageCount: 3, lastPage: 1 })
+  await page.goto('/#/comic/7?page=1')
+  await expect(page.getByTestId('comic-page-label')).toHaveText('Page 1 of 3')
+  const typeset = page.getByRole('button', { name: 'Typeset' })
+  await expect(typeset).toBeDisabled()
+
+  const tools = page.getByRole('button', { name: 'Translate', exact: true })
+  await tools.click()
+  const panel = page.getByRole('region', { name: 'Translate pages' })
+  await panel.getByRole('button', { name: 'Translate all pages' }).click()
+  await expect.poll(() => s.runs.length).toBe(1)
+  await tools.click()
+  await expect(panel).toHaveCount(0)
+
+  await expect(typeset).toBeEnabled({ timeout: 15000 })
+  expect(s.unmocked).toEqual([])
+})
+
 test('redo this page, redo all needs a second press, export gives a download', async ({ page }) => {
   const s = await mockScanlate(page, { pageCount: 3, lastPage: 1 })
   await page.goto('/#/comic/7?page=2')

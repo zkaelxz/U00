@@ -285,7 +285,7 @@ def _pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except PermissionError:
         return True                                             # EPERM: owned by someone else, still running
-    except OSError:
+    except (OSError, OverflowError):    # a corrupted lock can hold a pid no OS accepts
         return False
     return True
 

@@ -13,15 +13,15 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
 | `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
-| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush) | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records` |
-| `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`) | `translate_engines.py` re-exports it |
+| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status) | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
+| `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
 | `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts) | `extension/manifest.json`, bridge in `page_server.py` |
-| `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW) | `installer/build_installer.py` |
+| `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW); `installer/service.py` runs the Windows service (`Services`; its siblings are `service_layout.py` folder safety, `service_config.py` config, XML and Caddyfile text, `service_control.py` sc/icacls/netsh commands, `service_checks.py` health checks and `service_cli.py` the command line) and `installer/setup_lock.py` holds the named mutexes that keep Setup and the service commands apart | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
-| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md` | `python tools/repo_map.py --help`, `python tools/route_table.py --write` |
+| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed); `route_table.py` generates the table in `docs/route-permissions.md`; `ci_changes.py` decides which CI jobs a change needs (`docs/testing-and-ci.md`) | `python tools/repo_map.py --help`, `python tools/route_table.py --write` |
 | `tests/` | pytest suite; tests enforce most rules in `CLAUDE.md` | `python -m pytest -q` |
 | `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md`, `docs/user-guide.md` |
 | `library/` | your data (gitignored, created automatically) | n/a |
@@ -101,6 +101,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
+- `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
 - `translation_guide.py`
 - `translation_memory.py`
@@ -109,10 +110,13 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 - `dub.py`
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
+- `loudness.py` (stereo-track loudness measurement and normalising, numpy only; `docs/specs/stereo-track.md`)
 - `media_inspect.py`
 - `review_thresholds.py`
 - `subtitle_formats.py`
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
+- `stereo_cues.py` (stereo-track placement cues from the script, numpy only; `docs/specs/stereo-track.md`)
+- `stereo_render.py` (stereo-track renderers: pan, delay and level per line, numpy only; `docs/specs/stereo-track.md`)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
 - `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
 - `video_download.py`
@@ -153,6 +157,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches)
 - `page_capture_checks.py` (blank-page probe, re-capture lookup and fixed failure messages for the extension bridge)
 - `page_server.py`
+- `page_turns.py` (which extension-bridge request translates a page and in what order: in-flight page claims, the per-title context chain, discard only before release)
 - `title_library.py`
 
 ## lib/
@@ -181,7 +186,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
 - `benchmark_case_service.py`
+- `benchmark_judge_service.py`
 - `benchmark_lab_service.py`
+- `benchmark_set_builder_service.py`
 - `blocked_retry_service.py`
 - `browser_install_service.py`
 - `bug_report_service.py`
@@ -204,6 +211,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `disk_usage_service.py`
 - `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
 - `temp_cleanup_service.py`
+- `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, never the reverse)
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
@@ -218,7 +226,6 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
 - `glossary_service.py`
-- `gpu_lock_recovery_service.py` (frees GPU slots a killed server left behind; wait message for them)
 - `jellyfin_service.py`
 - `job_checkpoint_service.py`
 - `job_stage_service.py`
@@ -228,6 +235,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `library_admin_service.py`
 - `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_service.py`
+- `library_translated_guard.py` (what counts as translated for bulk status and export)
 - `line_ai_service.py`
 - `line_provenance_service.py`
 - `line_tools_service.py`
@@ -273,8 +281,10 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `scanlate_run_service.py`
 - `series_people_service.py`
 - `service_errors.py` (re-exports `lib/errors.py` for the existing call sites)
+- `settings_schema_service.py` (the declared settings as the metadata the Settings page builds forms from)
 - `settings_service.py`
 - `shutdown_service.py`
+- `source_change_service.py` (Review's lines whose source changed after translation: the list, "Keep English" and "Retranslate these")
 - `source_domains_service.py`
 - `source_service.py`
 - `sources_extension_service.py`
@@ -315,7 +325,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `benchmark.py`, `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `settings.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/

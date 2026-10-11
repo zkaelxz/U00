@@ -3,6 +3,7 @@ explains why it fell back to the CPU. No UI dependency; core.transcribe_for_timi
 and the services call into it."""
 
 import os
+import sys
 
 
 _whisper_model_cache = {}
@@ -131,11 +132,23 @@ def is_whisper_model_cached(model_size: str) -> bool:
     hub_dir = os.path.join(hub, "hub")
     if not os.path.isdir(hub_dir):
         return False
-    needle = f"faster-whisper-{model_size}".lower()
+    # Exact repo name: a substring match reads large-v3 as cached when only
+    # large-v3-turbo is. Any org, since turbo is not published by Systran.
+    repo_name = f"faster-whisper-{model_size}".lower()
     try:
-        return any(needle in d.lower() for d in os.listdir(hub_dir))
+        for repo in os.listdir(hub_dir):
+            parts = repo.lower().split("--")
+            if len(parts) != 3 or parts[0] != "models" or parts[2] != repo_name:
+                continue
+            # An interrupted download leaves the folder without the weights.
+            snapshots = os.path.join(hub_dir, repo, "snapshots")
+            if os.path.isdir(snapshots) and any(
+                    os.path.isfile(os.path.join(snapshots, rev, "model.bin"))
+                    for rev in os.listdir(snapshots)):
+                return True
     except OSError:
-        return False
+        pass
+    return False
 
 
 _whisper_device_info = {}   # cache_key -> {"device", "compute_type", "gpu_error"}
@@ -200,6 +213,57 @@ def gpu_status() -> dict:
     return status
 
 
+def _download_model(model_size: str, token: str) -> str:
+    """Local folder of a faster-whisper model, downloaded with `token`."""
+    import inspect
+    from faster_whisper import utils
+    if "use_auth_token" in inspect.signature(utils.download_model).parameters:
+        return utils.download_model(model_size, use_auth_token=token)
+    # faster-whisper before 1.2 can't take a token, so fetch the same files
+    # as its download_model would.
+    import huggingface_hub
+    repo_id = model_size if "/" in model_size else utils._MODELS[model_size]
+    return huggingface_hub.snapshot_download(
+        repo_id, token=token, allow_patterns=["config.json", "preprocessor_config.json",
+                                              "model.bin", "tokenizer.json", "vocabulary.*"])
+
+
+_CUBLAS_DLL = "cublas64_12.dll"
+GPU_RUNTIME_MISSING_REASON = (
+    "The CUDA 12 runtime libraries that Whisper needs on the GPU (cuBLAS) aren't installed on this PC.")
+
+
+def _load_windows_dll(name: str) -> None:
+    import ctypes
+    # winmode=0 keeps the plain PATH search ctranslate2 itself uses; the
+    # default for WinDLL skips PATH and would report a false "missing".
+    ctypes.WinDLL(name, winmode=0)
+
+
+def whisper_gpu_runtime(loader=None) -> dict:
+    """Whether the CUDA runtime DLL faster-whisper needs can be loaded here:
+    {"status": "ok" | "missing" | "unknown", "reason": fixed text or None}.
+    Never imports torch or loads a model, and never raises. "unknown" off
+    Windows, without ctranslate2, or when ctranslate2 sees no CUDA device
+    (nothing to run on the GPU anyway). The reason is fixed text so no path
+    or raw exception text reaches an API response."""
+    if sys.platform != "win32":
+        return {"status": "unknown", "reason": None}
+    try:
+        import ctranslate2
+        if int(ctranslate2.get_cuda_device_count()) < 1:
+            return {"status": "unknown", "reason": None}
+    except Exception:
+        return {"status": "unknown", "reason": None}
+    try:
+        (loader or _load_windows_dll)(_CUBLAS_DLL)
+    except OSError:
+        return {"status": "missing", "reason": GPU_RUNTIME_MISSING_REASON}
+    except Exception:
+        return {"status": "unknown", "reason": None}
+    return {"status": "ok", "reason": None}
+
+
 def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str = None,
                         hf_token: str = None):
     """Loads (and on first use, downloads) a Whisper model.
@@ -223,15 +287,18 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
 
     # An HF token isn't required for public models, but without one you get
     # anonymous rate limits and slower downloads -- and a warning saying so.
+    # Passed to the download, not put in os.environ: a token changed in
+    # Settings must apply at once, and child processes must not inherit it.
     _tok = hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
-    if _tok:
-        os.environ.setdefault("HF_TOKEN", _tok)
+    model_path = target
 
     def _build(device, compute_type):
-        return WhisperModel(target, device=device, compute_type=compute_type)
+        return WhisperModel(model_path, device=device, compute_type=compute_type)
 
     device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
     try:
+        if _tok and not local_model_path:
+            model_path = _download_model(model_size, _tok)
         if use_gpu:
             try:
                 model = _build("cuda", "float16")

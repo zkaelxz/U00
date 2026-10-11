@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockComic, pageIdOf, SHOTS_DIR } from './comicMocks'
+import { nextFrames } from './sourceHelpers'
 
 // Comic viewer (#/comic/<id>) at the desktop viewport. Every /api call is
 // mocked in comicMocks.ts; a catch-all aborts anything else, and each test
@@ -53,6 +54,27 @@ test('manhua: resumes at the saved page in vertical scroll and saves progress', 
   expect(s.unmocked).toEqual([])
 })
 
+test('a long vertical chapter keeps only the pages around the reader loaded', async ({ page }) => {
+  const s = await mockComic(page, { mediaType: 'manhua', pageCount: 150, lastPage: 75 })
+  await page.goto('/#/comic/7')
+  await expect(label(page)).toHaveText('Page 75 of 150')
+  const figs = page.getByTestId('comic-page')
+  // Every page keeps its sized box, so the strip's length and scroll position hold.
+  await expect(figs).toHaveCount(150)
+  await expect(page.locator('[data-testid=comic-page] img')).toHaveCount(11)
+  await expect(figs.nth(74).locator('img')).toHaveCount(1)
+  await expect(figs.nth(0).locator('img')).toHaveCount(0)
+  await expect(figs.nth(149).locator('img')).toHaveCount(0)
+
+  // Scrolling on releases the pages left behind and loads the ones reached.
+  await page.keyboard.press('End')
+  await expect(label(page)).toHaveText('Page 150 of 150')
+  await expect(figs.nth(149).locator('img')).toHaveCount(1)
+  await expect(figs.nth(74).locator('img')).toHaveCount(0)
+  expect(await page.locator('[data-testid=comic-page] img').count()).toBeLessThanOrEqual(12)
+  expect(s.unmocked).toEqual([])
+})
+
 // A scroll callback that lands after the user left (the router re-renders a
 // moment after hashchange) must not rewrite the hash back to the comic.
 test('leaving the comic mid-scroll stays on the library', async ({ page }) => {
@@ -77,8 +99,8 @@ test('leaving the comic mid-scroll stays on the library', async ({ page }) => {
     w.__io[w.__io.length - 1]([{ isIntersecting: true, target } as unknown as IntersectionObserverEntry], null as never)
   })
   await expect(page).toHaveURL('/#/library')
-  // Proving a non-event: a late redirect back to the comic would arrive after the fake intersection, so give it a window.
-  await page.waitForTimeout(300)
+  // A late redirect back would be a state change after the fake intersection; two frames let it commit.
+  await nextFrames(page)
   await expect(page).toHaveURL('/#/library')
 })
 

@@ -24,6 +24,7 @@ from .shared import (
     redact_secrets,
     TranslationCancelled,
 )
+import source_change
 from memory_headroom import HeadroomError
 
 
@@ -489,6 +490,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     english = [ln for ln in target_lines if is_english_line(ln)]
     for ln in english:
         ln.en = ln.zh
+        source_change.clear_for_new_english(ln)
     target_lines = [ln for ln in target_lines if not is_english_line(ln)]
     if not target_lines:
         if english and save_cb:
@@ -649,6 +651,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 for ln, tr in zip(chunk, translations):
                     if (tr or "").strip():
                         ln.en = tr
+                        source_change.clear_for_new_english(ln)
                         translated.append(ln)
                     else:
                         empty.append(ln)

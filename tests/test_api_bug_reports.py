@@ -173,6 +173,14 @@ def test_planted_key_and_windows_path_redacted_on_disk(client):
     assert stored["client"]["failed_requests"][0]["path"] == "/api/review/dramas/3/lines"
 
 
+def test_nul_and_forged_url_placeholders_do_not_fail_the_report(client):
+    """NUL marks redaction's URL placeholders; a forged one used to raise."""
+    for text in ("x \x00URL7\x00", "\x00URL" + "9" * 4400 + "\x00 https://h/p?sig=1"):
+        r = _post(client, _report(what_happened=text))
+        assert r.status_code == 200, r.text
+        assert "\\u0000" not in json.dumps(svc.get_report(r.json()["id"]))
+
+
 def test_jpeg_metadata_stripped_and_bad_images_refused(client):
     r = _post(client, files={"screenshot": ("s.jpg", _jpeg(), "image/jpeg")})
     assert r.status_code == 200
@@ -242,6 +250,15 @@ def test_pc_reports_do_not_count_against_remote_caps(fakes, monkeypatch):
     with pytest.raises(svc.ConflictError):
         svc.create_report(_report(), reporter="user:8")
     assert svc.create_report(_report())["id"] == 5
+
+
+def test_pc_report_refused_over_the_total_size_cap(fakes, monkeypatch):
+    # MAX_TOTAL_BYTES is the only bound on the PC owner's reports.
+    svc.create_report(_report())
+    monkeypatch.setattr(svc, "MAX_TOTAL_BYTES", 1)
+    with pytest.raises(svc.ConflictError):
+        svc.create_report(_report())
+    assert [i["id"] for i in svc.list_reports()] == [1]
 
 
 def test_markdown_fence_survives_backticks(fakes):

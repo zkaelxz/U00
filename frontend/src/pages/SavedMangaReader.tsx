@@ -19,7 +19,7 @@ import type { ComicPageInfo } from '../types/comic'
 import type { SavedChapterPages } from '../types/savedComics'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
-import { clampPage, keyAction, preloadWindow, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comic/comicLogic'
+import { clampPage, inRenderWindow, keyAction, preloadWindow, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comic/comicLogic'
 import { useZoom } from './comic/useZoom'
 import {
   hashIsReading, loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos, saveLastRead, saveMangaPrefs, seriesTitle,
@@ -337,6 +337,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
                   src={srcFor(p)}
                   fit={prefs.fit}
                   eager={paged || Math.abs(n - current) <= 1}
+                  mounted={paged || inRenderWindow(n, current)}
                   regions={null}
                   boxText={false}
                   onProblem={onProblem}
