@@ -31,6 +31,18 @@ from dataclasses import replace
 
 def _serve():
     import uvicorn
+    import db
+    from lib.errors import NewerDatabaseError
+    try:
+        db.init_db()
+    except NewerDatabaseError as e:
+        # One readable line instead of a traceback; also in the log.
+        try:
+            import applog
+            applog.get_logger().error(e.message)
+        except OSError:
+            pass   # the console line below has it
+        raise SystemExit(f"ERROR: {e.message}")
     from api.api_config import (check_bind_safety, check_household_bind_safety, is_loopback_host,
                                load_settings)
     try:

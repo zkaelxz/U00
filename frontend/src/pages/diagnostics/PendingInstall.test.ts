@@ -1,6 +1,6 @@
-import { createElement } from 'react'
+import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PendingInstallPlan, PendingInstallStatus } from '../../types/pendingInstall'
 import { ApiError } from '../../api/client'
@@ -12,6 +12,35 @@ const plan = (o: Partial<PendingInstallPlan> = {}): PendingInstallPlan => ({
   packages: ['paddleocr'], available: true, mode: 'now', changes: [], summary: [], loaded: [], blocked: [],
   needs_confirm: [], note: null, ...o,
 })
+
+// The suite has no DOM, so the panel's one piece of state (the "I understand"
+// tick) is held here: a test renders the panel as a plain element tree, fires
+// the real onChange/onClick handlers and renders again, as React would.
+const tick = vi.hoisted(() => ({ value: undefined as unknown }))
+vi.mock('react', async (importOriginal) => {
+  const real = await importOriginal<typeof import('react')>()
+  return {
+    ...real,
+    useState: (init: unknown) => [tick.value === undefined ? init : tick.value, (v: unknown) => { tick.value = v }],
+  }
+})
+beforeEach(() => { tick.value = undefined })
+
+type Props = Record<string, unknown> & { children?: ReactNode }
+function find(node: ReactNode, match: (type: unknown, props: Props) => boolean): ReactElement<Props> | null {
+  if (Array.isArray(node)) {
+    for (const n of node) {
+      const hit = find(n, match)
+      if (hit) return hit
+    }
+    return null
+  }
+  if (!isValidElement<Props>(node)) return null
+  if (match(node.type, node.props)) return node
+  return find(node.props.children, match)
+}
+const text = (node: ReactNode): string => (Array.isArray(node) ? node.map(text).join('')
+  : isValidElement<Props>(node) ? text(node.props.children) : typeof node === 'string' ? node : '')
 
 const noop = () => undefined
 const panel = (p: PendingInstallPlan) => renderToStaticMarkup(
@@ -64,6 +93,32 @@ describe('InstallPlanPanel', () => {
 
   it('offers Install now when nothing is in use', () => {
     expect(panel(plan({ summary: ['Change numpy 2.5.3 -> 2.6.0.'] }))).toContain('Install now')
+  })
+
+  it('sends the accepted risk with Install now only after the tick', () => {
+    const risk = 'numpy 2.5.3 -> 2.3.5 is a downgrade of a package Baihe itself needs.'
+    const installNow = vi.fn()
+    const p = plan({ needs_confirm: [risk] })
+    const render = () => (InstallPlanPanel as (props: unknown) => ReactElement)({
+      planned: { label: 'PaddleOCR', keys: ['paddleocr'], plan: p, installNow }, onQueue: noop, onCancel: noop,
+    })
+    const button = () => find(render(), (t, props) => t === 'button' && text(props.children) === 'Install now')!
+    expect(button().props.disabled).toBe(true)
+    const box = find(render(), (t, props) => t === 'input' && props.type === 'checkbox')!
+    ;(box.props.onChange as (e: unknown) => void)({ target: { checked: true } })
+    expect(button().props.disabled).toBe(false)
+    ;(button().props.onClick as () => void)()
+    expect(installNow).toHaveBeenCalledWith([risk])
+  })
+
+  it('sends no accepted risk with Install now when there was none to accept', () => {
+    const installNow = vi.fn()
+    const el = (InstallPlanPanel as (props: unknown) => ReactElement)({
+      planned: { label: 'PaddleOCR', keys: ['paddleocr'], plan: plan({ summary: ['Change numpy 2.5.3 -> 2.6.0.'] }), installNow },
+      onQueue: noop, onCancel: noop,
+    })
+    ;(find(el, (t, props) => t === 'button' && text(props.children) === 'Install now')!.props.onClick as () => void)()
+    expect(installNow).toHaveBeenCalledWith([])
   })
 })
 

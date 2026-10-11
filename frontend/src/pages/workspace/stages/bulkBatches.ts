@@ -10,6 +10,8 @@ const STATUS: Record<string, string> = {
   submitted: 'Waiting for the provider',
   scheduled: 'Scheduled for off-peak',
   running: 'Being applied',
+  applying: 'Being applied',
+  needs_resubmit: 'Retrying the next stage',
   applied: 'Done',
   cancelled: 'Cancelled',
   failed: 'Failed',

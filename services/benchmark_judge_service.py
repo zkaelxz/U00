@@ -162,7 +162,7 @@ def _engine_for(judge: dict):
         raise MissingKeyError(judge["engine"])
     engine = translate_engines.get_engine(
         judge["engine"], key, judge.get("model"),
-        free_tier=judge["engine"] == "gemini" and settings_service.get_gemini_free_tier(),
+        free_tier=judge["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if judge["engine"] == "ollama" else None)
     return engine, key

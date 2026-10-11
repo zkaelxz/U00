@@ -6,17 +6,36 @@ as the single-line re-transcribe and a full run hear it, so a line is not
 re-decoded with different beam size, prompt, VAD, repeat guard or preset than
 the rest of the title. The hearing runs in a spawned child (gpu_process_job)
 so Cancel can kill it; the child gets plain settings resolved here, in the
-parent, because it must not read the database.
+parent, because it must not read the database. Also how the job's heard text
+and fixes go back onto the lines.
 """
 import os
 import subprocess
 
 import background_jobs
 import core as core_module
+import db
 import sensitivity_preset as presets
+import source_change
 from services import gpu_process_job, retranscribe_worker
 from services import transcribe_service as ts
 from translate_engines import redact_secrets
+
+
+def use_heard_text(ln, text) -> None:
+    """The heard text becomes the line's source; a translated line is
+    flagged source_changed until new English lands, if it does."""
+    source_change.set_source(ln, text)
+
+
+def save_fixed(drama_id, lines) -> dict:
+    """Writes the job's zh/en/flag. Hearing and translating take minutes, so
+    a line the user edited or re-timed meanwhile keeps the edit instead of
+    this job's text. Returns the job-result entry naming those lines ({} if
+    none)."""
+    kept = db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"),
+                         only_if_unchanged=True, guard_fields=("start", "end"))
+    return {"kept_your_edit": sorted(kept)} if kept else {}
 
 
 def hearing_settings(drama_id, drama, whisper_size, source_language, use_gpu) -> dict:

@@ -55,10 +55,47 @@ function showNotice(text, actionLabel, handler) {
 // Set while the "Allow <site>" buttons are showing: the action to repeat once one is granted.
 let pendingRetry = null;
 
+// The permission prompt can close the popup on some platforms, which would lose the in-memory retry.
+// What to repeat is therefore kept in session storage (never in a content script's reach) and
+// offered again the next time the popup opens on the same tab.
+const PENDING_ACCESS_KEY = "pendingSiteAccess";
+
+function retryFor(action) {
+  return action.kind === "capture" ? () => runCapture(!!action.fromHere) : () => run(!!action.all);
+}
+
+async function rememberPendingAccess(tabId, origins, action) {
+  try {
+    await chrome.storage.session.set({ [PENDING_ACCESS_KEY]: { tabId, origins, action } });
+  } catch (e) {
+    // Without it the buttons still work while this popup stays open.
+  }
+}
+
+async function forgetPendingAccess() {
+  try {
+    await chrome.storage.session.remove(PENDING_ACCESS_KEY);
+  } catch (e) {
+    // Nothing stored, or no session storage: nothing to forget.
+  }
+}
+
+async function restorePendingAccess() {
+  try {
+    const stored = (await chrome.storage.session.get(PENDING_ACCESS_KEY))[PENDING_ACCESS_KEY];
+    const tab = await activeTab();
+    if (!stored || !tab || tab.id !== stored.tabId) return;
+    say("Allow the site below to finish translating this page.", true);
+    offerSiteAccess({ origins: stored.origins }, stored.action);
+  } catch (e) {
+    // A popup that cannot read the stored request just opens clean.
+  }
+}
+
 // One button per origin, never one request for all of them: the origins come from the page, so a
 // hostile page could otherwise bundle a real CDN with names it wants the person to approve unseen.
-function offerSiteAccess(result, retry) {
-  pendingRetry = retry;
+function offerSiteAccess(result, action) {
+  pendingRetry = retryFor(action);
   els.allowSites.replaceChildren();
   const origins = [...new Set(result.origins || [])].filter(sitePattern);
   for (const origin of origins) {
@@ -70,6 +107,9 @@ function offerSiteAccess(result, retry) {
     els.allowSites.append(button);
   }
   els.allowSites.hidden = !origins.length;
+  activeTab().then((tab) => {
+    if (tab && tab.id && origins.length) return rememberPendingAccess(tab.id, origins, action);
+  });
 }
 
 // chrome.permissions.request needs the click that happens here, which is why the worker only reports
@@ -82,13 +122,16 @@ async function allowSite(origin) {
     const granted = await chrome.permissions.request({ origins: [pattern] });
     if (!granted) {
       say("Not allowed, so the page's images still can't be read.", true);
+      els.allowSites.hidden = false;
       return;
     }
   } catch (e) {
     say(`Couldn't ask for that permission (${e.message}).`, true);
+    els.allowSites.hidden = false;
     return;
   }
   pendingRetry = null;
+  forgetPendingAccess();
   els.allowSites.hidden = true;
   retry();
 }
@@ -208,6 +251,9 @@ function summarizeCapture(data, { store, dramaId }) {
   if (cached) parts.push(`${cached} already done`);
   if (reused) parts.push(`${reused} already in library`);
   if (skipped.length) parts.push(`${skipped.length} skipped as not a page`);
+  if (data.unverified) {
+    parts.push(`${data.unverified} read from the page's source image, so the text may not match what is drawn`);
+  }
 
   const problems = [
     ...unreadable.map((u) => `page ${u.position}: ${u.error}`),
@@ -296,6 +342,7 @@ async function run(all) {
       return say("Pick a drama to save into, or untick saving.", true);
     }
     say(all ? "Reading every visible page…" : "Reading this page…");
+    forgetPendingAccess();
     await ensureContentScript(tab.id);
     // Prefer the host the page reports about itself: `tab.url` is only
     // populated when this extension has access to that tab, and keying
@@ -317,12 +364,13 @@ async function run(all) {
       type: "translateVisible", dramaId, store: els.store.checked, all });
     if (!result || !result.ok) {
       say((result && result.error) || "That didn't work.", true);
-      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, () => run(all));
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, { kind: "run", all });
       return;
     }
     const summary = summarizeCapture(result.data, { store: els.store.checked, dramaId });
     const saved = (result.data.pages || []).filter((p) => p.stored).length;
     say(summary.text, summary.bad);
+    if (result.data.origins) offerSiteAccess(result.data, { kind: "run", all });
     if (els.store.checked && dramaId && saved) showOpenLink(dramaId);
   } catch (e) {
     // The usual cause is a page the browser won't let an extension into
@@ -372,6 +420,7 @@ async function startCapture(fromHere) {
     return say("Pick a drama to save into, or untick saving.", true);
   }
   say("Starting…");
+  forgetPendingAccess();
   showCapturing(true);
   try {
     await ensureContentScript(tab.id);
@@ -386,7 +435,7 @@ async function startCapture(fromHere) {
       type: "captureChapter", dramaId, store: els.store.checked, fromHere });
     if (!result || !result.ok) {
       say((result && result.error) || "That didn't work.", true);
-      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, () => runCapture(fromHere));
+      if (result && result.code === "NEEDS_SITE_ACCESS") offerSiteAccess(result, { kind: "capture", fromHere });
       return;
     }
     const { message, translated = 0, stored = 0 } = result.data;
@@ -394,6 +443,7 @@ async function startCapture(fromHere) {
     const destination = describeDestination({
       sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
     say(destination ? `${message} ${destination}.` : message, result.data.reason === "error" || result.data.failed > 0);
+    if (result.data.origins) offerSiteAccess(result.data, { kind: "capture", fromHere });
     if (store && dramaId && stored) showOpenLink(dramaId);
   } catch (e) {
     say(`Couldn't run on this page (${e.message}).`, true);
@@ -521,4 +571,4 @@ els.openLink.addEventListener("click", (event) => {
 });
 els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
 
-load().then(syncCaptureUi).then(showNovelSection);
+load().then(syncCaptureUi).then(restorePendingAccess).then(showNovelSection);
