@@ -73,6 +73,7 @@ from api.routers import (
     job_stage_routes,
     jellyfin_routes,
     jobs_routes,
+    queue_routes,
     library_admin_routes,
     library_routes,
     line_ai_routes,
@@ -177,9 +178,12 @@ async def _lifespan(app: FastAPI):
     start_gpu_queue_poller()
     start_reeval_scheduler()
     start_remote_health_monitor(app.state.settings)
+    from services import queue_service
+    queue_service.start_runner()
     try:
         yield
     finally:
+        queue_service.stop_runner()
         stop_gpu_queue_poller()
         lncrawl_service.shutdown()
 
@@ -255,6 +259,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(queue_routes.router)
     app.include_router(events_routes.router)
     app.include_router(job_stage_routes.router)
     app.include_router(loaded_models_routes.router)
