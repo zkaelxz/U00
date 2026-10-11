@@ -1,0 +1,219 @@
+{
+ "id": "zh-vtuber-names",
+ "version": 1,
+ "language": "zh",
+ "title": "Chinese VTuber names",
+ "description": "Starter pack, review it. A-SOUL, VirtuaReal and other names and fan names. Re-check after any agency change.",
+ "entries": [
+  {
+   "source": "向晚",
+   "en": "Ava",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Also a poetic word (\"toward evening\")"
+  },
+  {
+   "source": "贝拉",
+   "en": "Bella",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "貝拉",
+   "en": "Bella",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "珈乐",
+   "en": "Carol",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "珈樂",
+   "en": "Carol",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "嘉然",
+   "en": "Diana",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Pinyin \"Jiaran\" also seen"
+  },
+  {
+   "source": "乃琳",
+   "en": "Eileen",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "然然",
+   "en": "Ranran",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Nickname. 拉姐 is Bella's"
+  },
+  {
+   "source": "晚晚",
+   "en": "Wanwan",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Nickname. 拉姐 is Bella's"
+  },
+  {
+   "source": "拉姐",
+   "en": "La-jie",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Nickname. 拉姐 is Bella's"
+  },
+  {
+   "source": "一个魂",
+   "en": "A-SOUL fans",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "一個魂",
+   "en": "A-SOUL fans",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "嘉心糖",
+   "en": "Jiaxintang",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Diana's fans"
+  },
+  {
+   "source": "贝极星",
+   "en": "Beijixing",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Bella's fans"
+  },
+  {
+   "source": "貝極星",
+   "en": "Beijixing",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Bella's fans"
+  },
+  {
+   "source": "奶淇琳",
+   "en": "Naiqilin",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Eileen's fans"
+  },
+  {
+   "source": "顶碗人",
+   "en": "Dingwanren",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Ava's fans"
+  },
+  {
+   "source": "頂碗人",
+   "en": "Dingwanren",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Ava's fans"
+  },
+  {
+   "source": "皇珈骑士",
+   "en": "Huangjia Qishi",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Carol's fans"
+  },
+  {
+   "source": "皇珈騎士",
+   "en": "Huangjia Qishi",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Carol's fans"
+  },
+  {
+   "source": "音乐珈",
+   "en": "Yinyuejia",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Carol's fans, later badge"
+  },
+  {
+   "source": "音樂珈",
+   "en": "Yinyuejia",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. Carol's fans, later badge"
+  },
+  {
+   "source": "嘉晚饭",
+   "en": "Diana × Ava (ship name)",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "嘉晚飯",
+   "en": "Diana × Ava (ship name)",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "乐华娱乐",
+   "en": "Yuehua Entertainment",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "樂華娛樂",
+   "en": "Yuehua Entertainment",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "枝江娱乐",
+   "en": "Zhijiang Entertainment",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. A-SOUL operations team"
+  },
+  {
+   "source": "枝江娛樂",
+   "en": "Zhijiang Entertainment",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate. A-SOUL operations team"
+  },
+  {
+   "source": "维阿",
+   "en": "VirtuaReal",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "維阿",
+   "en": "VirtuaReal",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "彩虹社",
+   "en": "NIJISANJI",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "2434",
+   "en": "NIJISANJI",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "七海Nana7mi",
+   "en": "Nana7mi",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "凑阿库娅",
+   "en": "Minato Aqua",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  },
+  {
+   "source": "湊阿庫婭",
+   "en": "Minato Aqua",
+   "category": "streamer",
+   "note": "Keep the romanised form, do not translate."
+  }
+ ]
+}
