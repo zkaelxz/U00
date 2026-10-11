@@ -42,7 +42,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`technical-notes.md`** — an engineering changelog of real bugs found
   and how they were fixed, kept separate from the user-facing docs.
 - **`RELEASE.md`** — building the Windows installer and the frontend release zip.
-- **`database.md`** — the database layer: `db.py` and `sources.db`, migrations and the guard test, a table map, the rules learned from bugs, backups, and what sits on disk beside the database.
+- **`database.md`** — the database layer: the `db` package and `sources.db`, migrations and the guard test, a table map, the rules learned from bugs, backups, and what sits on disk beside the database.
 - **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
 - **`api-and-services.md`** — how the FastAPI layer fits together: request flow, errors, route declarations, ownership, schemas, and an "adding an endpoint" checklist.
 - **`remote-access-decision.md`** — the remote-access design as built. **`route-permissions.md`** — the route table `tests/test_api_permissions.py` enforces.

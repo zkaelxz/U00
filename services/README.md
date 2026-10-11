@@ -13,7 +13,7 @@ Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib
 - `workspace_job_service.py`, `translate_run_service.py`: background job bodies.
 
 ## Rules
-- Never import `api` (enforced). Talk to `db.py` and root domain modules.
+- Never import `api` (enforced). Talk to the `db` package and root domain modules.
 - Whitelist any client-chosen key passed to `db.create_drama` / `db.update_drama`.
 - Check ownership for drama/series access.
 - Jobs write only their own fields: `db.save_lines(drama_id, lines, fields=("en",))`;

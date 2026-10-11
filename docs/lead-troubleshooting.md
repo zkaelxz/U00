@@ -64,7 +64,7 @@ makes a file grow, use a from-import instead of touching the allowlist.
 **Symptom.** `tests/test_db.py::TestImportTimeSafety` failed after `core`
 began importing the new `segment_splitting` module.
 
-**What went wrong.** The test copies `db.py` and its dependencies to a temp
+**What went wrong.** The test copies the `db` package and its dependencies to a temp
 dir from a hand-kept list. A split adds a module to `core`'s imports and the
 list does not know it. The move-quality CI check passed because the code was
 indeed only moved.
