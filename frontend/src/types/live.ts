@@ -76,3 +76,56 @@ export interface LiveSessionStopped {
   /** True: the session captions what it already captured, then ends; Stop again ends it at once. */
   finishing?: boolean
 }
+
+// Followed channels (api/routers/live_follow_routes.py). Never a URL:
+// `channel` is the short label ("@name", "channel/UC...").
+export type LiveFollowMode = 'notify' | 'auto'
+export type LiveFollowState = '' | 'live' | 'upcoming' | 'not_live' | 'error'
+
+export interface LiveFollowOptions {
+  source_language: string
+  whisper_size: string
+  engine: string | null
+  model: string | null
+  max_minutes: number
+  use_gpu: boolean
+  glossary_drama_id: number | null
+}
+
+export interface LiveFollow {
+  id: number
+  channel: string
+  channel_name: string
+  mode: LiveFollowMode
+  options: LiveFollowOptions
+  poll_minutes: number
+  /** Unix seconds. */
+  last_checked_at: number | null
+  state: LiveFollowState
+  /** Fixed plain words from the server. */
+  last_status: string
+  /** Unix seconds (UTC) of a scheduled stream's start. */
+  starts_at: number | null
+  live_now: boolean
+  mine: boolean
+  created_at: number
+}
+
+export interface LiveFollowList {
+  items: LiveFollow[]
+  /** The PC owner only: may turn on "Start Live automatically" for their own channels. */
+  can_auto_start: boolean
+  max_per_member: number
+  max_total: number
+}
+
+export interface LiveFollowAdd {
+  channel: string
+  mode?: LiveFollowMode
+  options?: LiveFollowOptions
+}
+
+export interface LiveFollowUpdate {
+  mode?: LiveFollowMode
+  options?: LiveFollowOptions
+}

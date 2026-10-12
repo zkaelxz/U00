@@ -211,6 +211,25 @@ CREATE TABLE IF NOT EXISTS domain_proposals (
     dismissed INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (source, host)
 );
+-- Live: YouTube channels a user follows for streams (services/live_follow_service.py).
+CREATE TABLE IF NOT EXISTS followed_channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER,
+    pc_owner INTEGER NOT NULL DEFAULT 0,
+    channel_url TEXT NOT NULL,
+    channel_name TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT 'notify',
+    options TEXT NOT NULL DEFAULT '{}',
+    poll_minutes INTEGER NOT NULL DEFAULT 60,
+    last_checked_at REAL,
+    last_state TEXT NOT NULL DEFAULT '',
+    last_status TEXT NOT NULL DEFAULT '',
+    starts_at REAL,
+    last_stream_id TEXT NOT NULL DEFAULT '',
+    notified_state TEXT NOT NULL DEFAULT '',
+    started_stream_id TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
     content_hash TEXT NOT NULL,

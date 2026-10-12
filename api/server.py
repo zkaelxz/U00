@@ -78,6 +78,7 @@ from api.routers import (
     library_routes,
     line_ai_routes,
     lines_routes,
+    live_follow_routes,
     live_routes,
     media_routes,
     metadata_research_routes,
@@ -179,11 +180,13 @@ async def _lifespan(app: FastAPI):
     start_gpu_queue_poller()
     start_reeval_scheduler()
     start_remote_health_monitor(app.state.settings)
-    from services import queue_service
+    from services import live_follow_poller, queue_service
     queue_service.start_runner()
+    live_follow_poller.start()
     try:
         yield
     finally:
+        live_follow_poller.stop()
         queue_service.stop_runner()
         stop_gpu_queue_poller()
         lncrawl_service.shutdown()
@@ -299,6 +302,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(source_domains_routes.router)
     app.include_router(workflow_routes.router)
     app.include_router(live_routes.router)
+    app.include_router(live_follow_routes.router)
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
     app.include_router(sources_import_routes.router)

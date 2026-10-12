@@ -279,6 +279,12 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/set-language` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/shorten-overlong` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/source-changed/keep-english` | lines.edit |
+| `GET /api/live/follows` | library.read |
+| `POST /api/live/follows` | media.import_url |
+| `POST /api/live/follows/{follow_id}` | media.import_url |
+| `POST /api/live/follows/{follow_id}/check` | media.import_url |
+| `POST /api/live/follows/{follow_id}/remove` | media.import_url |
+| `POST /api/live/follows/{follow_id}/start` | media.import_url |
 | `GET /api/live/ollama-check` | library.read |
 | `GET /api/live/sessions` | library.read |
 | `POST /api/live/sessions` | media.import_url |

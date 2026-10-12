@@ -25,6 +25,13 @@ __all__ = [
     "LiveSessionSummary",
     "LiveSessionStopped",
     "LiveOllamaCheck",
+    "LiveFollowOptions",
+    "LiveFollowAdd",
+    "LiveFollowUpdate",
+    "LiveFollow",
+    "LiveFollowList",
+    "LiveFollowRemoved",
+    "LiveFollowCheckQueued",
     "AutotuneCandidateMs",
     "AutotuneRunRequest",
     "AutotuneRunResult",
@@ -319,6 +326,70 @@ class LiveSessionStopped(BaseModel):
     stopping: bool
     # True: the session captions what it already captured, then ends; Stop again ends it at once.
     finishing: bool = False
+
+
+class LiveFollowOptions(BaseModel):
+    """The Live options saved with a followed channel, used by its "Start
+    Live" and (PC owner only) its automatic start. Checked like a Live start."""
+    model_config = ConfigDict(extra="forbid")
+    source_language: str = Field("zh", max_length=5)
+    whisper_size: str = Field("small", max_length=20)
+    engine: Optional[str] = Field(None, max_length=40,
+                                  description="None = Ollama on this PC, as a Live start.")
+    model: Optional[str] = Field(None, max_length=100)
+    max_minutes: int = Field(60, ge=1, le=240)
+    use_gpu: StrictBool = False
+    glossary_drama_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
+
+
+class LiveFollowAdd(BaseModel):
+    """A YouTube channel link or a bare @handle. mode "auto" (start Live
+    automatically) is the PC owner's only."""
+    model_config = ConfigDict(extra="forbid")
+    channel: str = Field(min_length=1, max_length=300)
+    mode: Literal["notify", "auto"] = "notify"
+    options: Optional[LiveFollowOptions] = None
+
+
+class LiveFollowUpdate(BaseModel):
+    """Omitted fields stay as they are."""
+    model_config = ConfigDict(extra="forbid")
+    mode: Optional[Literal["notify", "auto"]] = None
+    options: Optional[LiveFollowOptions] = None
+
+
+class LiveFollow(BaseModel):
+    """No URL: `channel` is the short label ("@name", "channel/UC...")."""
+    id: int
+    channel: str
+    channel_name: str
+    mode: Literal["notify", "auto"]
+    options: LiveFollowOptions
+    poll_minutes: int
+    last_checked_at: Optional[float] = None
+    state: Literal["", "live", "upcoming", "not_live", "error"]
+    last_status: str   # fixed plain words
+    starts_at: Optional[float] = None   # Unix seconds (UTC) of a scheduled stream
+    live_now: bool
+    mine: bool
+    created_at: float
+
+
+class LiveFollowList(BaseModel):
+    items: List[LiveFollow]
+    can_auto_start: bool
+    max_per_member: int
+    max_total: int
+
+
+class LiveFollowRemoved(BaseModel):
+    id: int
+    removed: bool
+
+
+class LiveFollowCheckQueued(BaseModel):
+    id: int
+    queued: bool
 
 
 # ---------------------------------------------------------------------------

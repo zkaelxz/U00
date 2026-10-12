@@ -260,6 +260,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `line_provenance_service.py`
 - `line_tools_service.py`
 - `lines_service.py`
+- `live_follow_poller.py` (the followed-channel live checks: one yt-dlp metadata read at a time, backoff, the extra check before a scheduled start, notify once per stream, the PC owner's automatic start)
+- `live_follow_service.py` (followed YouTube channels on the Live page: channel input, ownership, limits, saved Live options, Start Live from a follow)
 - `live_service.py`
 - `lncrawl_service.py`
 - `loaded_models_service.py`
@@ -397,6 +399,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `library_routes.py`
 - `line_ai_routes.py`
 - `lines_routes.py`
+- `live_follow_routes.py`
 - `live_routes.py`
 - `loaded_models_routes.py`
 - `media_routes.py`
@@ -453,5 +456,6 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - Optional dependencies are imported inside functions, never at module top level.
 - Adding a new top-level module, `services/*.py` or `api/routers/*.py` file? Add it as one bullet, in sorted position, to the right group above, in the same PR (a top-level module also gets one sorted line in `expected_files.py`).
 - `sources/chapter_manifest.py`: `raw_novel_chapters.json` beside the raw novel (title, site, time and byte range per imported chapter); `services/novel_chapters_service.py` reads it.
+- `sources/live_follow_store.py`: the `followed_channels` rows in `sources.db` behind `services/live_follow_service.py`.
 - `sources/novel_follow.py`: following next-chapter links from a pasted novel URL (`follow_novel`); builds on `sources/adaptive.py`, which does not import it.
 - `sources/extension_marker.py`: the person's "works only through the browser extension" marker per source (`source_extension_only` table in `sources.db`); imports and scheduled checks consult it, `services/sources_extension_service.py` holds the early stop.
