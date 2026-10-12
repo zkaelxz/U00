@@ -10,8 +10,14 @@ every resolved address global), the drama exists and works from audio
 (`content_mode` audio_drama or streamer_vod), replacing existing audio or
 video needs `confirm_replace_audio` (media_upload_service.has_media, as an
 upload), yt-dlp is installed (unless the link is a
-direct media link), no job runs for the
-drama, and no other URL download runs in this process.
+direct media link), and no job runs for the drama. The same checks run again
+when the download actually starts (it may have waited in line).
+
+Downloads queue: up to MAX_PARALLEL_DOWNLOADS run at once, each starting at
+least START_SPACING_SECONDS after the previous start; a request that finds
+every slot busy waits in line (the job shows "Queued: 2nd in line", Cancel
+works). Waiting is inside the job's own thread, so the queue is lost on a
+restart like every other in-memory job.
 
 Job `urlmedia_<drama_id>` downloads into a fresh `.urldl_*` temp folder in
 the drama folder (removed in `finally`) with capped yt-dlp options (see
@@ -64,26 +70,52 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_url_service import check_public_url
 
+# Hold back the next start so a burst of links doesn't look like a scraper to
+# YouTube and similar sites (their rate limits are per IP), and cap the
+# parallelism because every download is its own yt-dlp child process.
+MAX_PARALLEL_DOWNLOADS = 3
+START_SPACING_SECONDS = 20.0
+# Running plus waiting, so a pile of links can't pile up threads without limit.
+MAX_QUEUED_DOWNLOADS = 20
+
 JOB_PREFIX = "urlmedia_"
 MAX_DURATION_SECONDS = ytdlp_child.MAX_DURATION_SECONDS
 MAX_WALL_SECONDS = 2 * 60 * 60
 SOCKET_TIMEOUT = ytdlp_child.SOCKET_TIMEOUT
 _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
-_ONE_AT_A_TIME = "Another URL download is running. Wait for it to finish or cancel it."
+_QUEUE_FULL = "The download queue is full. Wait for a download to finish or cancel one."
 _NO_YTDLP = "Downloading from a URL needs yt-dlp, which isn't installed on this PC."
 _FAILED = ("Couldn't download from that link. It may be private, region-locked or not "
            "supported, or yt-dlp may need an update.")
 _SAVE_FAILED = ("Downloaded, but couldn't make it this title's audio. The title's audio and "
                "video are unchanged.")
-_REJECTED = "That link is a live stream, a playlist or longer than 6 hours, so it was not downloaded."
+_REJECTED = "That link can't be downloaded."
+_REFUSALS = {
+    "playlist": "That link is a playlist or channel, not one video. Paste the link of a single video.",
+    "live": "That video is still live. Download it after the stream has ended.",
+    "upcoming": "That video hasn't started yet (an upcoming stream or premiere). Try again after it has aired.",
+}
 _NO_ROOM = "There is not enough free disk space for this download."
 _TOO_LARGE = "The download is larger than the upload limit, so it was stopped."
 _DISK_NEARLY_FULL = "The drive is almost full, so the download was stopped."
 MIN_FREE_BYTES = 2 * 1024 ** 3
 SPACE_CHECK_SECONDS = 2.0
 _TOO_SLOW = "The download took longer than 2 hours, so it was stopped."
+# A "Download anyway" video, or a re-encoded exact cut (about real time), can't
+# finish inside the normal wall clock.
+MAX_WALL_SECONDS_LONG = 6 * 60 * 60
+_DNS_BLOCKED = ("Your network or a DNS filter (for example Pi-hole) is blocking YouTube's video "
+                "servers (googlevideo.com).")
+_DNS_BLOCKED_OTHER = ("Your network or a DNS filter (for example Pi-hole) is blocking a server "
+                      "this download needs.")
+_NOW_BUSY = "This title now has audio or video. Start again and confirm replacing it."
 _EXTRACT_FAILED = "Could not read audio from the downloaded video."
 _start_lock = threading.Lock()
+_slots = threading.Condition()
+_waiting = []        # job ids in line, oldest first; guarded by _slots
+_running = set()     # job ids holding a slot; guarded by _slots
+_last_start = float("-inf")
+_clock = time.monotonic
 DIRECT_MEDIA_EXTENSIONS = (media_upload_service.AUDIO_EXTENSIONS
                            + media_upload_service.VIDEO_EXTENSIONS)
 MAX_DIRECT_REDIRECTS = 5
@@ -105,23 +137,15 @@ def _yt_dlp_installed() -> bool:
         return "yt_dlp" in sys.modules
 
 
-def _any_url_download_running() -> bool:
-    for jid in background_jobs.list_all_jobs():
-        if str(jid).startswith(JOB_PREFIX):
-            st = background_jobs.get_status(jid) or {}
-            if st.get("status") in ("running", "queued"):
-                return True
-    return False
-
-
 class _SpaceWatch:
     """Free-disk-space floor for one download, polled from the child's
     progress events. A yt-dlp download has no byte cap (only a direct link
     has the upload cap): a long video is allowed, but never to the point of
-    filling the drive."""
+    filling the drive. `floor` is how much must stay free: the other running
+    downloads are still writing to the same drive."""
 
-    def __init__(self, tmp_dir: str, clock=time.monotonic):
-        self.tmp_dir, self.clock = tmp_dir, clock
+    def __init__(self, tmp_dir: str, clock=time.monotonic, floor=lambda: MIN_FREE_BYTES):
+        self.tmp_dir, self.clock, self.floor = tmp_dir, clock, floor
         self._checked = float("-inf")
 
     def nearly_full(self) -> bool:
@@ -130,7 +154,7 @@ class _SpaceWatch:
             return False
         self._checked = now
         try:
-            return shutil.disk_usage(self.tmp_dir).free < MIN_FREE_BYTES
+            return shutil.disk_usage(self.tmp_dir).free < self.floor()
         except OSError:
             return False
 
@@ -247,6 +271,9 @@ def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
 
 # yt-dlp's message pattern -> a fixed sentence. Only these sentences are ever
 # shown, so no yt-dlp text, link, id or local path can reach the screen.
+_DNS_RE = re.compile(r"failed to resolve|getaddrinfo|name or service not known|"
+                     r"temporary failure in name resolution|nodename nor servname|"
+                     r"no address associated with hostname", re.I)
 _FAILURE_REASONS = (
     (r"sign in|confirm you.re not a bot|login required|log in",
      "The site asked to sign in, or is treating this PC as a bot."),
@@ -275,27 +302,90 @@ _FAILURE_RES = tuple((re.compile(pattern, re.I), text) for pattern, text in _FAI
 def _failure_reason(exc: BaseException) -> str:
     """A fixed sentence for a recognised yt-dlp failure, else ''."""
     haystack = " ".join(str(e) for e in (exc.__cause__, exc) if e is not None)
+    if _DNS_RE.search(haystack):
+        return _DNS_BLOCKED if "googlevideo.com" in haystack.lower() else _DNS_BLOCKED_OTHER
     for rx, text in _FAILURE_RES:
         if rx.search(haystack):
             return text
     return ""
 
 
-def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
+def _hm(seconds) -> str:
+    seconds = int(seconds)
+    h, m = seconds // 3600, seconds % 3600 // 60
+    if h:
+        return f"{h} h" if not m else f"{h} h {m} m"
+    return f"{m} m" if seconds >= 60 else f"{seconds} s"
+
+
+def _size(nbytes) -> str:
+    gb = nbytes / 1024 ** 3
+    return f"{gb:.1f} GB" if gb >= 1 else f"{max(nbytes // 1024 ** 2, 1)} MB"
+
+
+def _refusal_text(detail: dict, part: bool, allow_long: bool) -> str:
+    """The sentence for a refusal from the child. Only whitelisted numbers go
+    in (the child's event is shape-checked), never page text."""
+    reason = detail.get("reason")
+    what = "This part" if part else "This video"
+    if reason == "too_long":
+        limit = ytdlp_child.HARD_MAX_DURATION_SECONDS if allow_long else ytdlp_child.MAX_DURATION_SECONDS
+        text = f"{what} is {_hm(detail['duration'])}; the limit is {_hm(limit)}."
+        if allow_long:
+            return f"{text} Download only part of it instead."
+        guess = detail.get("estimated_bytes")
+        need = f" It needs about {_size(guess)} of free disk." if guess else ""
+        return f"{text}{need} Download only part of it, or all of it anyway."
+    if reason == "part_outside":
+        return f"The part starts after the end of the video, which is {_hm(detail['duration'])} long."
+    return _REFUSALS.get(reason, _REJECTED)
+
+
+def _too_slow(wall) -> str:
+    return _TOO_SLOW if wall == MAX_WALL_SECONDS else (
+        f"The download took longer than {int(wall // 3600)} hours, so it was stopped.")
+
+
+def _free_floor() -> int:
+    """Other running downloads are still writing to the same drive, so each
+    one raises the amount that must stay free."""
+    with _slots:
+        others = max(len(_running) - 1, 0)
+    return MIN_FREE_BYTES * (1 + others)
+
+
+def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict = None) -> tuple:
     """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
     wall-clock cap and a nearly full drive kill, then returns (path, title)."""
+    options = options or {}
+    long_run = bool(options.get("allow_long") or options.get("exact_cuts"))
+    wall = MAX_WALL_SECONDS_LONG if long_run else MAX_WALL_SECONDS
     spec = {"url": url, "audio_only": audio_only, **settings_service.get_cookie_settings()}
-    watch = _SpaceWatch(tmp)
+    if options.get("allow_long"):
+        spec["max_seconds"] = ytdlp_child.HARD_MAX_DURATION_SECONDS
+    for key in ("part_start", "part_end", "exact_cuts"):
+        if options.get(key) is not None:
+            spec[key] = options[key]
+    watch = _SpaceWatch(tmp, floor=_free_floor)
     result, end = {}, {}
     out_of_space = False
     path_ignored_logged = False
     events = ytdlp_child.run_download(
-        tmp, spec, MAX_WALL_SECONDS, lambda: background_jobs.is_cancel_requested(job_id))
+        tmp, spec, wall, lambda: background_jobs.is_cancel_requested(job_id))
     try:
         for item in events:
             event = item.get("event")
             if event is None:
                 end = item
+            elif "estimate" in event:
+                try:
+                    free = shutil.disk_usage(tmp).free
+                except OSError:
+                    free = None
+                if free is not None and free < event["estimate"] + _free_floor():
+                    out_of_space = True
+                    result["no_room"] = True
+                    break
             elif "progress" in event:
                 background_jobs.update_progress(
                     job_id, 0.05 + 0.8 * min(max(float(event["progress"]), 0.0), 1.0),
@@ -314,17 +404,26 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
     if end.get("cancelled") or background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     if out_of_space:
-        raise RuntimeError(_DISK_NEARLY_FULL)
+        raise RuntimeError(_NO_ROOM if result.get("no_room") else _DISK_NEARLY_FULL)
     if end.get("timed_out"):
-        raise RuntimeError(_TOO_SLOW)
+        raise RuntimeError(_too_slow(wall))
     path = result.get("path")
     if not isinstance(path, str):
-        if result.get("rejected"):
-            raise RuntimeError(_REJECTED)
+        detail = result.get("rejected")
+        if detail:
+            code = detail["reason"]
+            if code == "too_long" and options.get("allow_long"):
+                code = "too_long_max"
+            background_jobs.set_result(job_id, {"kind": "url_media", "failed_reason": code})
+            raise RuntimeError(_refusal_text(
+                detail, options.get("part_start") is not None or options.get("part_end") is not None,
+                bool(options.get("allow_long"))))
         if result.get("missing"):
             raise RuntimeError(_NO_YTDLP)
         reason = _failure_reason(RuntimeError(translate_engines.redact_secrets(
             str(result.get("error") or ""))))
+        if reason in (_DNS_BLOCKED, _DNS_BLOCKED_OTHER):
+            raise RuntimeError(reason)
         raise RuntimeError(f"{reason} {_FAILED}" if reason else _FAILED)
     real = os.path.realpath(path)
     if not real.startswith(os.path.realpath(tmp) + os.sep) or not os.path.isfile(real):
@@ -333,7 +432,114 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
     return real, title if isinstance(title, str) else None
 
 
-def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
+def _ordinal(n: int) -> str:
+    if n % 100 in (11, 12, 13):
+        return f"{n}th"
+    return f"{n}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th') }"
+
+
+def _enqueue(job_id: str) -> None:
+    with _slots:
+        _waiting.append(job_id)
+
+
+def _leave_queue(job_id: str) -> None:
+    with _slots:
+        if job_id in _waiting:
+            _waiting.remove(job_id)
+        _running.discard(job_id)
+        _slots.notify_all()
+
+
+def _queued_total() -> int:
+    with _slots:
+        return len(_waiting) + len(_running)
+
+
+def _wait_for_slot(job_id: str, recheck) -> None:
+    """Blocks until this job is first in line, a slot is free and the spacing
+    since the last start has passed; then takes the slot. First in, first out:
+    a later request never overtakes an earlier one. `recheck` runs once the
+    slot is taken, outside the lock (it resolves DNS); if it raises, the job
+    fails and its `finally` gives the slot back. Cancel is polled, so a
+    waiting job stops within half a second."""
+    global _last_start
+    shown = None
+    try:
+        while True:
+            if background_jobs.is_cancel_requested(job_id):
+                raise background_jobs.JobCancelled(job_id)
+            with _slots:
+                position = _waiting.index(job_id) + 1
+                spacing_left = START_SPACING_SECONDS - (_clock() - _last_start)
+                free = len(_running) < MAX_PARALLEL_DOWNLOADS
+                if position == 1 and free and spacing_left <= 0:
+                    _waiting.remove(job_id)
+                    _running.add(job_id)
+                    _last_start = _clock()
+                    _slots.notify_all()
+                    break
+            text = f"Queued: {_ordinal(position)} in line"
+            if text != shown:
+                shown = text
+                background_jobs.update_progress(job_id, 0.0, text)
+            with _slots:
+                _slots.wait(min(0.5, max(spacing_left, 0.05)) if position == 1 and free else 0.5)
+    except BaseException:
+        _leave_queue(job_id)
+        raise
+    recheck()
+
+
+def _check_request(drama_id, url, audio_only, confirm_replace_audio, own_job_id=None):
+    """The per-request checks, run when the request arrives and again when the
+    download starts. Returns the cleaned URL and the drama."""
+    url = check_public_url(url)
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No title with id {drama_id}.")
+    if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
+        raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
+    if media_upload_service.has_media(drama, drama_id) and not confirm_replace_audio:
+        if own_job_id:
+            raise InvalidInputError(_NOW_BUSY)
+        raise InvalidInputError("This title already has audio. Confirm replacing it first.",
+                                details={"reason": "confirm_replace_audio"})
+    if direct_media_ext(url) is None and not _yt_dlp_installed():
+        raise DependencyUnavailableError(_NO_YTDLP)
+    if drama_service.job_running_for_drama(drama_id, exclude_job_id=own_job_id):
+        raise ConflictError(_BUSY)
+    return url, drama
+
+
+def _recheck_at_start(job_id, drama_id, url, audio_only, confirm_replace_audio):
+    """A queued download may start long after it was asked for: the title may
+    have got a job or an upload, new audio, or been deleted since. Fails the
+    job with the same plain text the request would have got. Also the free-disk
+    floor, which counts the downloads already running."""
+    try:
+        _check_request(drama_id, url, audio_only, confirm_replace_audio, own_job_id=job_id)
+    except (ConflictError, InvalidInputError, NotFoundError, DependencyUnavailableError) as exc:
+        raise RuntimeError(str(exc)) from None
+    try:
+        free = shutil.disk_usage(storage.temp_root()).free
+    except OSError:
+        return
+    if free < _free_floor():
+        raise RuntimeError(_NO_ROOM)
+
+
+def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
+                  confirm_replace_audio: bool = False, options: dict = None):
+    try:
+        _wait_for_slot(job_id, lambda: _recheck_at_start(
+            job_id, drama_id, url, audio_only, confirm_replace_audio))
+        _run_download_job(job_id, drama_id, url, audio_only, options)
+    finally:
+        _leave_queue(job_id)
+
+
+def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict = None):
     tmp = storage.new_workdir(job_id)
     try:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
@@ -341,7 +547,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
         if direct_ext:
             path, title = _direct_download(job_id, url, tmp, direct_ext), None
         else:
-            path, title = _download(job_id, url, tmp, audio_only)
+            path, title = _download(job_id, url, tmp, audio_only, options)
         ext = os.path.splitext(path)[1].lower()
         if audio_only and not direct_ext:
             new_files = {"audio_filename": (path, "source", ".wav")}
@@ -374,25 +580,53 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -> dict:
-    """Starts `urlmedia_<drama_id>`; poll GET /api/jobs/{job_id}. 422 bad or
-    private URL, wrong content_mode, or audio or video exists without
+_CLOCK_RE = re.compile(r"^\d{1,3}(:\d{1,2}){0,2}$")
+
+
+def parse_clock(text, label: str):
+    """Seconds from "h:mm:ss", "m:ss" or plain seconds; None for empty."""
+    if text is None or not str(text).strip():
+        return None
+    text = str(text).strip()
+    if not _CLOCK_RE.match(text):
+        raise InvalidInputError(f"The {label} time must look like 1:02:30 (hours:minutes:seconds).")
+    parts = [int(p) for p in text.split(":")]
+    if any(p >= 60 for p in parts[1:]):
+        raise InvalidInputError(f"The {label} time must look like 1:02:30 (minutes and seconds under 60).")
+    seconds = 0
+    for p in parts:
+        seconds = seconds * 60 + p
+    return seconds
+
+
+def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, allow_long=False,
+                       part_start=None, part_end=None, exact_cuts=False) -> dict:
+    """Starts `urlmedia_<drama_id>`; poll GET /api/jobs/{job_id}. The job
+    waits in line when MAX_PARALLEL_DOWNLOADS are running or the last start
+    was under START_SPACING_SECONDS ago. 422 bad or private URL, wrong
+    content_mode, bad part times, or audio or video exists without
     confirm_replace_audio (details.reason "confirm_replace_audio"); 503 the
     host doesn't resolve or yt-dlp is missing; 404 no drama; 409 while a
-    job or upload runs for the drama, or another URL download runs."""
-    if not isinstance(audio_only, bool) or not isinstance(confirm_replace_audio, bool):
-        raise InvalidInputError("audio_only and confirm_replace_audio must be true or false.")
-    url = check_public_url(url)
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
-        raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
-    if media_upload_service.has_media(drama, drama_id) and not confirm_replace_audio:
-        raise InvalidInputError("This title already has audio. Confirm replacing it first.",
-                                details={"reason": "confirm_replace_audio"})
-    if direct_media_ext(url) is None and not _yt_dlp_installed():
-        raise DependencyUnavailableError(_NO_YTDLP)
+    job or upload runs for the drama, or the queue is full.
+    allow_long raises the 6 h cap to 12 h for this download only;
+    part_start/part_end (h:mm:ss) download just that section."""
+    flags = (audio_only, confirm_replace_audio, allow_long, exact_cuts)
+    if not all(isinstance(f, bool) for f in flags):
+        raise InvalidInputError("audio_only, confirm_replace_audio, allow_long and exact_cuts "
+                                "must be true or false.")
+    start, end = parse_clock(part_start, "start"), parse_clock(part_end, "end")
+    if end is not None and end <= (start or 0):
+        raise InvalidInputError("The end of the part must be after its start.")
+    if end is not None and end - (start or 0) > ytdlp_child.HARD_MAX_DURATION_SECONDS:
+        raise InvalidInputError("The part is longer than 12 hours. Choose a shorter part.")
+    ranged = start is not None or end is not None
+    if exact_cuts and not ranged:
+        raise InvalidInputError("Exact cuts only apply when you choose a part.")
+    url, _ = _check_request(drama_id, url, audio_only, confirm_replace_audio)
+    if direct_media_ext(url) is not None and (ranged or exact_cuts):
+        raise InvalidInputError("Choosing a part works for video-site links, not direct file links.")
+    options = {"allow_long": allow_long, "part_start": start if ranged else None,
+               "part_end": end, "exact_cuts": exact_cuts if ranged else None}
     with media_upload_service.claims_lock:
         if drama_id in media_upload_service.claimed:
             raise ConflictError("Another upload is in progress for this title.")
@@ -401,13 +635,20 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
         with _start_lock:
             if drama_service.job_running_for_drama(drama_id):
                 raise ConflictError(_BUSY)
-            if _any_url_download_running():
-                raise ConflictError(_ONE_AT_A_TIME)
+            if _queued_total() >= MAX_QUEUED_DOWNLOADS:
+                raise ConflictError(_QUEUE_FULL)
             job_id = job_id_for(drama_id)
             background_jobs.clear_job(job_id)
-            if not background_jobs.start_job(job_id, _download_job, job_id, drama_id, url,
-                                             audio_only,
-                                             description=f"URL download (title #{drama_id})"):
+            _enqueue(job_id)
+            try:
+                started = background_jobs.start_job(
+                    job_id, _download_job, job_id, drama_id, url, audio_only,
+                    confirm_replace_audio, options, description=f"URL download (title #{drama_id})")
+            except BaseException:
+                _leave_queue(job_id)
+                raise
+            if not started:
+                _leave_queue(job_id)
                 raise ConflictError(_BUSY)
         return {"job_id": job_id}
     finally:

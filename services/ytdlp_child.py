@@ -32,6 +32,8 @@ import time
 from lib import proc
 
 MAX_DURATION_SECONDS = 6 * 60 * 60
+# A confirmed "Download anyway" raises the cap for that one download only, never past this.
+HARD_MAX_DURATION_SECONDS = 12 * 60 * 60
 SOCKET_TIMEOUT = 30
 PROGRESS_SECONDS = 0.5
 _PREFIX = "@@ytdlp-"
@@ -39,22 +41,86 @@ _SPEC_NAME = "ytdlp_spec.json"
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def refusal(info):
-    """Why a link is not downloaded (a live stream, a playlist or longer than
-    6 hours), else None."""
+def clip_seconds(info, part):
+    """Seconds that would be downloaded: the whole video, or the requested
+    part of it (`part` is (start, end) with end None for "to the end"), else None
+    when yt-dlp gave no length and the part has no end."""
+    duration = (info or {}).get("duration")
+    duration = duration if isinstance(duration, (int, float)) and not isinstance(duration, bool) else None
+    if not part:
+        return duration
+    start, end = part
+    if end is None and duration is None:
+        return None
+    stop = min(end, duration) if end is not None and duration is not None else (
+        end if end is not None else duration)
+    return max(stop - start, 0)
+
+
+def estimate_bytes(info, audio_only, seconds):
+    """A rough disk need for `seconds` of this video, or None when yt-dlp
+    reported no bitrates. Audio-only keeps the decoded WAV (about 192 kB/s at
+    48 kHz stereo) next to the stream it came from; a video is merged from two
+    files, so the stream part counts twice, and its 16 kHz mono audio track is
+    extracted beside it."""
+    if not seconds:
+        return None
+    formats = [f for f in (info or {}).get("formats") or [] if isinstance(f, dict)]
+
+    def best(rows, key):
+        rates = [f.get(key) for f in rows if isinstance(f.get(key), (int, float))
+                 and not isinstance(f.get(key), bool)]
+        return max(rates, default=0)
+
+    video = [f for f in formats if f.get("vcodec") not in (None, "none")]
+    audio = [f for f in formats if f.get("vcodec") == "none"]
+    audio_kbps = best(audio, "abr") or best(audio, "tbr")
+    if audio_only:
+        if not audio_kbps and not formats:
+            return None
+        return int(seconds * (192_000 + audio_kbps * 125))
+    video_kbps = best(video, "tbr")
+    if not video_kbps:
+        return None
+    return int(seconds * ((video_kbps + audio_kbps) * 125 * 2 + 32_000))
+
+
+def refusal_detail(info, max_seconds=MAX_DURATION_SECONDS, part=None):
+    """Why a link is not downloaded, as {"reason": code, ...}, else None.
+    Codes: playlist, live, upcoming, too_long (with "duration", the seconds
+    that would be downloaded, and "limit"), part_outside (with "duration", the
+    video's own length). Checked in that order: a playlist or channel page
+    says nothing about being live."""
     info = info or {}
+    max_seconds = min(max_seconds, HARD_MAX_DURATION_SECONDS)
+    if info.get("_type") in ("playlist", "multi_video"):
+        return {"reason": "playlist"}
+    if info.get("live_status") == "is_upcoming":
+        return {"reason": "upcoming"}
+    if info.get("is_live") or info.get("live_status") == "is_live":
+        return {"reason": "live"}
     duration = info.get("duration")
-    if (info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming")
-            or info.get("_type") == "playlist"
-            or (isinstance(duration, (int, float)) and duration > MAX_DURATION_SECONDS)):
-        return "Refused: a live stream, a playlist or longer than 6 hours."
+    whole = duration if isinstance(duration, (int, float)) and not isinstance(duration, bool) else None
+    if part and whole is not None and part[0] >= whole:
+        return {"reason": "part_outside", "duration": int(whole)}
+    seconds = clip_seconds(info, part)
+    if seconds is not None and seconds > max_seconds:
+        return {"reason": "too_long", "duration": int(seconds), "limit": int(max_seconds)}
     return None
 
 
-def ydl_options(tmp_dir: str, progress_hook, match_filter) -> dict:
+def refusal(info, max_seconds=MAX_DURATION_SECONDS, part=None):
+    """yt-dlp's match filter wants a string to reject with; the reason that
+    reaches the user is built by the parent from refusal_detail."""
+    return "Refused." if refusal_detail(info, max_seconds, part) else None
+
+
+def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts=False,
+                audio_only=True) -> dict:
     """The options merged over video_download's own (they win). Never any
-    cookie option, and every default extractor except `generic`."""
-    return {
+    cookie option, and every default extractor except `generic`. `part`
+    (start, end-or-None seconds) downloads that section only."""
+    opts = {
         "allowed_extractors": ["default", "-generic"],
         "noplaylist": True,
         "playlistend": 1,
@@ -70,6 +136,16 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter) -> dict:
         "quiet": True,
         "no_warnings": True,
     }
+    if part:
+        from yt_dlp.utils import download_range_func
+        opts["download_ranges"] = download_range_func(
+            None, [(part[0], float("inf") if part[1] is None else part[1])])
+        # Without a re-encode a cut can only start on a keyframe, and only an
+        # H.264 stream cuts cleanly into the mp4 the rest of the app reads.
+        opts["force_keyframes_at_cuts"] = bool(exact_cuts)
+        if not audio_only and not exact_cuts:
+            opts["format"] = "bestvideo[vcodec^=avc1]+bestaudio/bestvideo+bestaudio/best"
+    return opts
 
 
 LIVE_STATUSES = ("is_live", "is_upcoming", "not_live")
@@ -146,9 +222,17 @@ def run_probe_worker(spec: dict, emit) -> None:
     emit({"live": live_fields(info)})
 
 
+def _part(spec):
+    """(start, end-or-None) seconds from the spec, else None."""
+    start, end = spec.get("part_start"), spec.get("part_end")
+    if start is None and end is None:
+        return None
+    return (start or 0, end)
+
+
 def run_worker(spec: dict, emit) -> None:
-    """Child side. Emits {"progress": f}, {"rejected": true}, {"title": t},
-    then {"path": p} or {"error": text}. The error text may hold the link or
+    """Child side. Emits {"progress": f}, {"rejected": refusal_detail},
+    {"estimate": bytes}, {"title": t}, then {"path": p} or {"error": text}. The error text may hold the link or
     a path; the parent only pattern-matches it and never shows it."""
     import video_download
 
@@ -163,17 +247,31 @@ def run_worker(spec: dict, emit) -> None:
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             emit({"progress": min(got / total, 1.0) if total else 0.0})
 
+    max_seconds = min(spec.get("max_seconds") or MAX_DURATION_SECONDS, HARD_MAX_DURATION_SECONDS)
+    part = _part(spec)
+    audio_only = spec["audio_only"]
+
     def match_filter(info, *args, **kwargs):
-        reason = refusal(info)
-        if reason:
-            emit({"rejected": True})
-        return reason
+        detail = refusal_detail(info, max_seconds, part)
+        if detail:
+            if detail["reason"] == "too_long":
+                detail["estimated_bytes"] = estimate_bytes(
+                    info, audio_only, detail["duration"]) or 0
+            emit({"rejected": detail})
+            return "Refused."
+        # The parent checks free disk against this before any byte is fetched.
+        if max_seconds > MAX_DURATION_SECONDS:
+            guess = estimate_bytes(info, audio_only, clip_seconds(info, part))
+            if guess:
+                emit({"estimate": guess})
+        return None
 
     try:
         path = video_download.download(
             spec["url"], spec["tmp"], audio_only=spec["audio_only"],
             title_cb=lambda t: emit({"title": t}),
-            extra_opts=ydl_options(spec["tmp"], hook, match_filter),
+            extra_opts=ydl_options(spec["tmp"], hook, match_filter, part=part,
+                                   exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only),
             cookies_browser=spec.get("cookies_browser"), cookies_file=spec.get("cookies_file"))
     except ImportError:
         emit({"error": "yt-dlp is not installed", "missing": True})
@@ -200,7 +298,14 @@ def main(argv=None) -> int:
     return 0
 
 
-_EVENT_KEYS = frozenset({"progress", "path", "title", "error", "missing", "rejected", "live"})
+_EVENT_KEYS = frozenset({"progress", "path", "title", "error", "missing", "rejected", "live",
+                         "estimate"})
+_REFUSAL_REASONS = frozenset({"playlist", "live", "upcoming", "too_long", "part_outside"})
+_REFUSAL_KEYS = frozenset({"reason", "duration", "limit", "estimated_bytes"})
+
+
+def _count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def _valid_event(event) -> bool:
@@ -215,6 +320,14 @@ def _valid_event(event) -> bool:
         return False
     if "live" in event and not isinstance(event["live"], dict):
         return False
+    if "estimate" in event and not _count(event["estimate"]):
+        return False
+    if "rejected" in event:
+        detail = event["rejected"]
+        if not (isinstance(detail, dict) and detail.get("reason") in _REFUSAL_REASONS
+                and set(detail) <= _REFUSAL_KEYS
+                and all(_count(v) for k, v in detail.items() if k != "reason")):
+            return False
     if "path" in event:
         # Only the media file video_download names; never the spec or a partial.
         if not isinstance(path, str):

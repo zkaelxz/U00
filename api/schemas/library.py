@@ -812,6 +812,12 @@ class MediaUrlDownloadRequest(BaseModel):
     url: StrictStr = Field(min_length=1, max_length=2000)
     audio_only: StrictBool
     confirm_replace_audio: StrictBool = False
+    # "Download anyway" for one video over 6 h (cap 12 h); never remembered.
+    allow_long: StrictBool = False
+    # "Only this part": h:mm:ss, either end may be left out (start 0 / to the end).
+    part_start: Optional[StrictStr] = Field(default=None, max_length=12)
+    part_end: Optional[StrictStr] = Field(default=None, max_length=12)
+    exact_cuts: StrictBool = False
 
 
 class MediaUrlDownloadStarted(BaseModel):
