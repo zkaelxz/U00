@@ -503,6 +503,11 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Where the owner can keep BAIHE_RELEASE_SIGNING_KEY behind a required
+    # reviewer and a v* tag rule (docs/runbook.md 1a). GitHub creates the
+    # environment on first use; a repository secret of the same name still
+    # reaches this job.
+    environment: release
     permissions:
       contents: write
       actions: read
@@ -522,6 +527,10 @@ jobs:
           dir="$(dirname "$exe")"
           (cd "$dir" && sha256sum "$name" > "$name.sha256")
           assets=("$dir/$name" "$dir/$name.sha256")
+          sha="$(sha256sum "$exe" | cut -d ' ' -f 1)"
+          # In the log of this tag's own run, out of reach of a later edit to
+          # the release's assets: what the owner checks a download against.
+          echo "Installer: $name sha256 $sha"
           if [ -z "${BAIHE_RELEASE_SIGNING_KEY:-}" ]; then
             echo "::warning title=Unsigned release::BAIHE_RELEASE_SIGNING_KEY is not set, so this release is UNSIGNED (no $name.sig). Copies that have a release public key will refuse it as an in-app update until a .sig is added (docs/runbook.md, App updates)."
           else
@@ -540,7 +549,6 @@ jobs:
               echo "::error::BAIHE_RELEASE_SIGNING_KEY is set but isn't a valid key. Nothing was published."
               exit 1
             fi
-            sha="$(sha256sum "$exe" | cut -d ' ' -f 1)"
             printf 'baihe-studio-release-signature-v1\nname: %s\nsha256: %s\n' "$name" "$sha" > "$keydir/message"
             openssl pkeyutl -sign -rawin -keyform DER -inkey "$keydir/key.der" \
               -in "$keydir/message" -out "$keydir/sig.bin"

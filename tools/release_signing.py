@@ -5,12 +5,13 @@ tools/release_signing.py -- the owner's Ed25519 release key, by hand.
     python tools/release_signing.py sign BaiheStudio-Setup-0.2.0.exe
     python tools/release_signing.py verify BaiheStudio-Setup-0.2.0.exe
 
-`generate` prints a new key pair once; nothing is written to disk. `sign`
-reads the private key from the BAIHE_RELEASE_SIGNING_KEY environment
-variable, or asks for it without echoing; never from the command line, which
-shell history and process lists keep. `verify` checks an installer against
-its `.sig` with the committed public key, exactly as the app does.
-Key handling, rotation and a leaked key: docs/runbook.md, "App updates".
+`generate` prints a new key pair once, only to a terminal (--force
+overrides); nothing is written to disk. `sign` reads the private key from the
+BAIHE_RELEASE_SIGNING_KEY environment variable, or asks for it without
+echoing; never from the command line, which shell history and process lists
+keep. `verify` checks an installer against its `.sig` with the committed
+public key, exactly as the app does. Key handling, rotation and a leaked key:
+docs/runbook.md §1a.
 """
 import argparse
 import getpass
@@ -37,7 +38,13 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def cmd_generate(_args) -> int:
+def cmd_generate(args) -> int:
+    # A pipe, a log file or an agent's transcript keeps whatever is printed.
+    if not sys.stdout.isatty() and not args.force:
+        print("Refused: output isn't a terminal, so the private key would be kept wherever it "
+              "goes. Run this in your own terminal, or pass --force if you really mean it.",
+              file=sys.stderr)
+        return 1
     private, public = rs.generate()
     print("WARNING: the private key below is shown once. Store it as the GitHub Actions "
           f"secret {SECRET_NAME} (or offline, if you sign by hand), then clear this "
@@ -84,7 +91,10 @@ def cmd_verify(args) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip())
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("generate", help="print a new key pair").set_defaults(func=cmd_generate)
+    p = sub.add_parser("generate", help="print a new key pair (to a terminal only)")
+    p.add_argument("--force", action="store_true",
+                   help="print even when output isn't a terminal")
+    p.set_defaults(func=cmd_generate)
     p = sub.add_parser("sign", help=f"write <installer>.sig with the key in ${SECRET_NAME}")
     p.add_argument("installer")
     p.set_defaults(func=cmd_sign)

@@ -278,10 +278,28 @@ def check_payload(app_dest) -> None:
         if not (app_dest / required).is_file():
             problems.append(f"missing: {required}")
     key_file = app_dest / "installer" / "release_public_key.txt"
-    if key_file.is_file() and "ed25519-private:" in key_file.read_text(encoding="utf-8", errors="replace"):
-        problems.append("installer/release_public_key.txt holds a private key")
+    if key_file.is_file():
+        key_text = key_file.read_text(encoding="utf-8", errors="replace")
+        if "ed25519-private:" in key_text:
+            problems.append("installer/release_public_key.txt holds a private key")
+        else:
+            try:
+                _release_signature().parse_public_key(key_text)
+            except ValueError:
+                problems.append("installer/release_public_key.txt isn't one ed25519-public key line")
     if problems:
         raise BuildError("The staged app isn't safe to ship: " + ", ".join(sorted(problems)))
+
+
+def _release_signature():
+    """lib/release_signature.py, the parser the installed app uses, loaded by
+    path so this standard-library build script doesn't put the repo on
+    sys.path (its parsing needs only the standard library)."""
+    spec = importlib.util.spec_from_file_location("_release_signature",
+                                                  REPO_ROOT / "lib" / "release_signature.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def sha256_of(path) -> str:

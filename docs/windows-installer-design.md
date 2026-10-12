@@ -337,7 +337,11 @@ The release job signs each `v*` release with an Ed25519 key held in the
 `BaiheStudio-Setup-<v>.exe.sig` next to the `.exe` and `.sha256`. Without the
 secret it publishes exactly as before and its log says the release is
 UNSIGNED; with a malformed secret it publishes nothing. The job still checks
-out no repository code: it signs with the runner's `openssl`.
+out no repository code: it signs with the runner's `openssl`. It runs in the
+`release` environment, so the key can be an environment secret behind a
+required reviewer and a `v*` tag rule (a repository secret also works), and
+it logs the installer's SHA-256 whether it signs or not, so hand-signing
+can be checked against the tag run's own record (docs/runbook.md §1a).
 
 - **What is signed:** the text `baihe-studio-release-signature-v1`, the
   installer's file name and its SHA-256 (`lib/release_signature.signed_message`),

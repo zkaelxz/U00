@@ -96,7 +96,8 @@ OPTIONAL_DEPENDENCIES = {
     "nagisa": ("nagisa", "Qwen3 forced alignment of Japanese (word splitting)", "feature"),
     "soynlp": ("soynlp", "Qwen3 forced alignment of Korean (word splitting)", "feature"),
     "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
-                                     "encrypted HLS streams", "feature"),
+                                     "encrypted HLS streams, release-signature checks of "
+                                     "in-app updates", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
     "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
                 "required"),

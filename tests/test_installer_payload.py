@@ -56,6 +56,7 @@ def fake_repo(tmp_path):
         "build/installer/payload/x", "dist/baihe-frontend-1.zip",
     ):
         _touch(repo, rel)
+    _touch(repo, "installer/release_public_key.txt", "# no key yet\n")
     return repo
 
 
@@ -167,7 +168,7 @@ class TestCheckPayload:
                     "requirements-core.txt", "constraints.txt", "check_setup.py",
                     "installer/launcher.py", "installer/postinstall.py",
                     "installer/release_public_key.txt"):
-            _touch(dest, rel)
+            _touch(dest, rel, "# no key yet\n" if rel.endswith("release_public_key.txt") else "x")
         return dest
 
     def test_ok(self, tmp_path):
@@ -186,6 +187,20 @@ class TestCheckPayload:
         _touch(dest, "installer/release_public_key.txt", "ed25519-private:" + "A" * 43 + "=\n")
         with pytest.raises(bi.BuildError, match="holds a private key"):
             bi.check_payload(dest)
+
+    @pytest.mark.parametrize("text", ["ed25519-public:not-base64\n", "ssh-ed25519 AAAA\n",
+                                      "ed25519-public:" + "A" * 43 + "=\ned25519-public:" + "B" * 43 + "=\n"])
+    def test_rejects_a_release_key_line_that_isnt_one_public_key(self, tmp_path, text):
+        dest = self._good(tmp_path)
+        _touch(dest, "installer/release_public_key.txt", "# comment\n" + text)
+        with pytest.raises(bi.BuildError, match="release_public_key.txt isn't"):
+            bi.check_payload(dest)
+
+    @pytest.mark.parametrize("text", ["", "# no key yet\n", "# key\ned25519-public:" + "A" * 43 + "=\n"])
+    def test_accepts_no_key_or_one_public_key(self, tmp_path, text):
+        dest = self._good(tmp_path)
+        _touch(dest, "installer/release_public_key.txt", text)
+        bi.check_payload(dest)
 
     def test_rejects_a_missing_release_key_file(self, tmp_path):
         dest = self._good(tmp_path)

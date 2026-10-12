@@ -86,8 +86,15 @@ def test_committed_public_key_file_is_usable_and_holds_no_private_key():
 
 # --- tools/release_signing.py -------------------------------------------------------
 
+def test_tool_generate_refuses_to_print_the_key_into_a_pipe(capsys):
+    # pytest's captured stdout is not a terminal, like a pipe, a log or an agent.
+    assert tool.main(["generate"]) == 1
+    out, err = capsys.readouterr()
+    assert rs.PRIVATE_PREFIX not in out + err and "--force" in err
+
+
 def test_tool_generate_sign_verify(tmp_path, monkeypatch, capsys):
-    assert tool.main(["generate"]) == 0
+    assert tool.main(["generate", "--force"]) == 0
     out, err = capsys.readouterr()
     private = next(line for line in out.splitlines() if line.startswith(rs.PRIVATE_PREFIX))
     public = next(line for line in out.splitlines() if line.startswith(rs.PUBLIC_PREFIX))
@@ -120,6 +127,9 @@ def _release_script() -> str:
     yaml = pytest.importorskip("yaml")
     wf = yaml.safe_load((ROOT / ".github" / "workflows" / "windows-installer.yml")
                         .read_text(encoding="utf-8"))
+    # Lets the owner keep the key as a `release` environment secret behind a
+    # required reviewer; a repository secret still reaches the job.
+    assert wf["jobs"]["release"]["environment"] == "release"
     (step,) = wf["jobs"]["release"]["steps"]
     assert step["env"]["BAIHE_RELEASE_SIGNING_KEY"] == "${{ secrets.BAIHE_RELEASE_SIGNING_KEY }}"
     assert "uses" not in step
@@ -175,6 +185,7 @@ def test_release_job_signs_what_the_app_verifies(tmp_path, keys):
     seed_text = private.split(":", 1)[1]
     assert seed_text not in proc.stdout and seed_text not in proc.stderr
     assert rs.public_key_for(seed) in proc.stdout
+    assert f"{NAME} sha256 {hashlib.sha256(exe.read_bytes()).hexdigest()}" in proc.stdout
     # The key file is removed when the step ends.
     assert not any(p.name == "key.der" for p in tmp_path.rglob("*"))
 
@@ -184,6 +195,8 @@ def test_release_job_without_the_secret_publishes_unsigned_and_says_so(tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert [Path(a).name for a in gh_args if a.startswith("out/")] == [NAME, NAME + ".sha256"]
     assert "UNSIGNED" in proc.stdout
+    sha = hashlib.sha256(b"MZ fake installer").hexdigest()
+    assert f"{NAME} sha256 {sha}" in proc.stdout
 
 
 @pytest.mark.parametrize("bad", ["not-a-key", "ed25519-private:AAAA", "ed25519-private:!!!"])
