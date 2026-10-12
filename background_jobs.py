@@ -1815,7 +1815,10 @@ def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: floa
     whole tree is killed; the post-kill pipe drain is bounded by
     kill_timeout. A non-zero exit raises subprocess.CalledProcessError,
     like subprocess.run(check=True). With timeout (seconds), the tree is
-    killed and subprocess.TimeoutExpired raised once that much time passes."""
+    killed and subprocess.TimeoutExpired raised once that much time passes.
+    The command is noted in the job's work folder (job_workdir) so the next
+    start can stop it if this server dies without stopping it
+    (storage.stop_orphaned_job_children)."""
     import subprocess
     deadline = None if timeout is None else time.monotonic() + timeout
     if os.name == "nt":
@@ -1824,6 +1827,11 @@ def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: floa
         group = {"start_new_session": True}
     proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             **group)
+    try:
+        import storage
+        storage.record_job_child(job_id, proc.pid)
+    except Exception as exc:
+        _warn(f"job {job_id}: could not note process {proc.pid} for a later cleanup", exc)
     while True:
         try:
             out, err = proc.communicate(timeout=poll_interval)
