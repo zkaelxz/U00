@@ -65,12 +65,12 @@ for (const size of sizes) {
       const first = await box(page, '.translate-basics > .field-item', 0)
       const third = await box(page, '.translate-basics > .field-item', 2)
       expect(third!.top - first!.bottom).toBeGreaterThanOrEqual(16)
-      // Boxed sections (the stage's direct children) are 24px apart.
+      // Boxed sections (the stage's direct children on screen; the other tabs' panels are hidden) are 24px apart.
       const tops = await page.locator('.stage-translate > *').evaluateAll((els) =>
-        els.map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.bottom] }))
+        els.filter((e) => e.checkVisibility()).map((e) => { const r = e.getBoundingClientRect(); return [r.top, r.bottom] }))
       for (let i = 1; i < tops.length; i++) expect(tops[i][0] - tops[i - 1][1]).toBeGreaterThanOrEqual(24)
       // The first heading sits flush with the panel padding.
-      const h3 = await page.locator('.stage-translate > .panel > h3').first().evaluate((e) => getComputedStyle(e).marginTop)
+      const h3 = await page.locator('.stage-translate > .translate-tabpanel > .panel > h3').first().evaluate((e) => getComputedStyle(e).marginTop)
       expect(h3).toBe('0px')
     })
   }
@@ -98,7 +98,9 @@ for (const size of sizes) {
 
   test(`dense buttons keep a 44px hit area and none overlap ${size.width}px`, async ({ page }) => {
     await page.setViewportSize(size)
-    for (const url of [...routes, '/#/drama/3/translate']) {
+    // Each Translate tab is its own screen, so each is measured.
+    const translateTabs = ['translate', 'glossary', 'characters', 'novel'].map((t) => `/#/drama/3/translate?tab=${t}`)
+    for (const url of [...routes.filter((r) => !r.endsWith('/translate')), ...translateTabs]) {
       await load(page, url)
       // Diagnostics fetches per section; the speaker-detection one carries the dense "Check access online" button.
       if (url.includes('/diagnostics')) await expect(page.getByTestId('pyannote-summary')).toBeAttached()
@@ -107,7 +109,7 @@ for (const size of sizes) {
       // Open the folds so their dense buttons are measured too.
       await openFolds(page)
       // The glossary's instructions arrive after networkidle; measure with them present, not sometimes without.
-      if (url.endsWith('/translate')) await expect(page.getByTestId('instructions-state')).toBeAttached()
+      if (url.endsWith('tab=glossary')) await expect(page.getByTestId('instructions-state')).toBeAttached()
       const res = await page.evaluate(() => {
         const sm = [...document.querySelectorAll<HTMLElement>('.btn-sm')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().height > 0)
         const all = [...document.querySelectorAll<HTMLElement>('button, a[href], input:not([type=hidden]), select, textarea, summary, label.btn')]

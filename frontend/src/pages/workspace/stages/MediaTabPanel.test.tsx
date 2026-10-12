@@ -18,6 +18,13 @@ describe('MediaTabPanel', () => {
     expect(html).toContain('role="tabpanel"')
   })
 
+  it('takes the id prefix of another stage tabs', () => {
+    const html = renderToStaticMarkup(<MediaTabPanel id="glossary" active="translate" prefix="translate"><p>x</p></MediaTabPanel>)
+    expect(html).toContain('id="translate-panel-glossary"')
+    expect(html).toContain('aria-labelledby="translate-tab-glossary"')
+    expect(html).toContain('hidden=""')
+  })
+
   it('says so instead of showing a blank tab when every section is empty', () => {
     const html = renderToStaticMarkup(<MediaTabPanel id="tools" active="tools">{[null, false]}</MediaTabPanel>)
     expect(html).toContain('data-testid="media-tab-empty"')

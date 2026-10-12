@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
 
 import { ME } from './authMocks'
+import { gotoTranslate } from './translateTabs'
 
 // "Re-translate lines affected by the glossary…" on the Translate stage. Drama
 // reads hit the real seeded API (drama 1, reported as in series 7); the
@@ -79,7 +80,7 @@ async function base(page: Page) {
 
 test('preview ticks machine lines, locks hand-edited ones, and starts only the chosen lines', async ({ page }) => {
   const state = await base(page)
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   await glossaryTab(page, 'Re-translate')
   await page.getByRole('button', { name: 'Re-translate lines affected by the glossary…' }).click()
 
@@ -114,7 +115,7 @@ test('preview ticks machine lines, locks hand-edited ones, and starts only the c
 
 test('cancel makes no request, and a stale preview is refused with a refresh', async ({ page }) => {
   const state = await base(page)
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   await glossaryTab(page, 'Re-translate')
   const open = page.getByRole('button', { name: 'Re-translate lines affected by the glossary…' })
   await open.click()
@@ -141,7 +142,7 @@ test('cancel makes no request, and a stale preview is refused with a refresh', a
 test('fits a phone screen with no sideways scroll', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await base(page)
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   await glossaryTab(page, 'Re-translate')
   await page.getByRole('button', { name: 'Re-translate lines affected by the glossary…' }).click()
   await expect(page.getByTestId('glossary-retranslate')).toContainText('3 lines affected')

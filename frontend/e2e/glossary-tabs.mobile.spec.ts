@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { glossaryTab, type GlossaryTabName } from './glossaryTabs'
 import { glossarySetup, heldScan, prop } from './glossaryScanMocks'
+import { gotoTranslate } from './translateTabs'
 
 // Phone project (390x844): the tab row scrolls inside itself, every tab fits the width with
 // 44px targets, and the scan banner fits.
@@ -17,7 +18,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await glossarySetup(page)
     const lines = heldScan({ status: 'done', progress: 1, proposals: [prop('魏婴', 'Wei Ying')] })
     await page.route('**/api/glossary/dramas/1/from-lines', lines.handler)
-    await page.goto('/#/drama/1/translate')
+    await gotoTranslate(page, 'translate')
     const banner = page.getByTestId('glossary-scan-banner')
     await expect(banner).toContainText('Scan finished: 1 proposal to review')
     const bannerBox = await banner.getByRole('button').boundingBox()
@@ -40,7 +41,7 @@ test('a running scan survives a reload on the phone', async ({ page }) => {
   await glossarySetup(page)
   const lines = heldScan({ status: 'running' })
   await page.route('**/api/glossary/dramas/1/from-lines', lines.handler)
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'translate')
   await expect(page.getByTestId('glossary-scan-banner')).toContainText('A glossary scan is running')
   await page.reload()
   await expect(page.getByTestId('glossary-scan-banner')).toContainText('A glossary scan is running')

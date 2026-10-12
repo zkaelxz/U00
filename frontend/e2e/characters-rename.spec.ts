@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { gotoTranslate } from './translateTabs'
 
 // Translate > Characters: name a speaker once. One call renames every line and
 // the Characters row; Undo (kept for the session) puts the old label back.
@@ -59,7 +60,7 @@ async function mockAll(page: Page) {
 }
 
 async function openCharacters(page: Page) {
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'characters')
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Characters$/ }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }

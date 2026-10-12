@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { showTranslateCard } from './translateTabs'
 
 // Translate > Characters extras (inventory C02, C04, C07, C08): voice-match
 // suggestions (accept/reject), sample lines and the "shared with series"
@@ -22,6 +23,7 @@ async function shot(page: Page, name: string) {
 }
 
 async function openSection(page: Page, title: string) {
+  await showTranslateCard(page, title)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }

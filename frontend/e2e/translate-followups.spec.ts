@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { gotoMedia } from './mediaTabs'
+import { gotoTranslate, translateTab } from './translateTabs'
+
 // Reads hit the real seeded API; the follow-up endpoints are mocked, so nothing is translated.
 
 const CONFIG = '**/api/translate-run/dramas/1/config'
@@ -28,7 +31,7 @@ test('failed lines that kept older English are not called untranslated, and can 
   await page.route('**/api/jobs/tr-job', (route) =>
     route.fulfill({ json: { job_id: 'tr-job', status: 'running', progress: 0.1, message: 'translating', error: null, description: null, gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1 } }))
 
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'translate')
   const notice = page.getByRole('region', { name: 'Failed batches' })
   await expect(notice).toContainText('2 failed batches; lines 468-469, 1843 kept their earlier translation')
   await expect(notice).not.toContainText('untranslated')
@@ -46,7 +49,7 @@ test('empty failed lines still read untranslated, with the retry button', async 
     failed_kept_earlier_numbers: [],
     failed_retryable: true,
   })
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'translate')
   const notice = page.getByRole('region', { name: 'Failed batches' })
   await expect(notice).toContainText('1 failed batch; lines 1-3, 9 are still untranslated')
   await expect(notice.getByRole('button', { name: 'Retry these 4 lines' })).toBeEnabled()
@@ -57,7 +60,7 @@ test('a record from an older version shows the notice with no Retry button', asy
     last_translate_errors: [{ batch_index: 0, lines: [4], error: 'timeout' }],
     failed_untranslated_numbers: [], failed_kept_earlier_numbers: [], failed_retryable: false,
   })
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'translate')
   const notice = page.getByRole('region', { name: 'Failed batches' })
   await expect(notice).toContainText('line 5 is still untranslated')
   await expect(notice).toContainText('older version')
@@ -72,7 +75,7 @@ test('a failed retry shows the error and keeps the notice', async ({ page }) => 
   })
   await page.route('**/api/translate-run/dramas/1/retry-failed/run', (route) =>
     route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'The monthly cap is used up.' } } }))
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'translate')
   const notice = page.getByRole('region', { name: 'Failed batches' })
   await notice.getByRole('button', { name: 'Retry this line' }).click()
   await expect(notice.getByRole('alert')).toBeVisible()
@@ -88,17 +91,21 @@ test('lines flagged for a missing glossary name offer a redo with the stronger e
   })
   await page.route('**/api/jobs/tr-job', (route) =>
     route.fulfill({ json: { job_id: 'tr-job', status: 'running', progress: 0.1, message: 'translating', error: null, description: null, gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1 } }))
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'translate')
   const notice = page.getByRole('region', { name: 'Glossary check' })
   await expect(notice).toContainText('2 lines still miss a glossary name')
   await notice.getByRole('button', { name: /^Redo these with / }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(posted).toBe(1)
+  // The notice belongs to the Translate tab; the run it started stays in view above every tab.
+  await translateTab(page, 'glossary').click()
+  await expect(notice).toBeHidden()
+  await expect(page.getByTestId('job-status')).toContainText('Running')
 })
 
 test('without a stronger engine the glossary notice points to Settings and has no button', async ({ page }) => {
   await withConfig(page, { glossary_flagged_count: 1, glossary_redo_engine: null })
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'translate')
   const notice = page.getByRole('region', { name: 'Glossary check' })
   await expect(notice).toContainText('Pick a stronger engine in Settings')
   await expect(notice.getByRole('button')).toHaveCount(0)
@@ -112,8 +119,7 @@ test('Details: Generate summary fills the episode summary box without saving it'
     bodies.push(route.request().postDataJSON())
     return route.fulfill({ json: { drama_id: 1, summary: 'They met at the lake.', engine: 'claude' } })
   })
-  await page.goto('/#/drama/1/source')
-  await page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab', { name: 'Details', exact: true }).click()
+  await gotoMedia(page, 'details')
   const generate = page.getByTestId('episode-summary-generate')
   // Open by default when the title already has a summary.
   if (!(await generate.getByLabel('Summary engine').isVisible())) await page.getByText('More details', { exact: true }).click()

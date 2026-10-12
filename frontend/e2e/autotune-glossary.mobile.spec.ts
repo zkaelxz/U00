@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
 import { mediaTab } from './mediaTabs'
+import { showTranslateCard } from './translateTabs'
 
 // Phone project (390x844, touch): the auto-tune results, glossary-from-novel
 // proposals and PC-only delete buttons fit the width, use cards instead of
@@ -41,6 +42,7 @@ async function expectTall(loc: Locator) {
 }
 
 async function openSection(page: Page, title: string) {
+  await showTranslateCard(page, title)
   await openFoldFor(page, title)
   // Auto-tune and the Advanced options folds are on the Tools tab.
   if (title === 'Auto-tune min silence') await mediaTab(page, 'tools').click()

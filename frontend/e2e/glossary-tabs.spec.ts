@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { glossaryTab, type GlossaryTabName } from './glossaryTabs'
 import { glossarySetup } from './glossaryScanMocks'
+import { gotoTranslate } from './translateTabs'
 
 // The Glossary panel under one level of tabs: Terms | Find terms | Names | Instructions |
 // Re-translate. Terms, instructions and the scans are mocked.
@@ -17,7 +18,7 @@ const region = (page: Page) => page.getByRole('region', { name: 'Glossary' })
 async function open(page: Page, opts: Parameters<typeof glossarySetup>[1] = {}) {
   await glossarySetup(page, opts)
   await page.route('**/api/glossary/dramas/1/from-lines', (r) => r.fulfill({ json: { job_id: '', status: 'idle', progress: 0, message: '', proposals: null, run_id: null } }))
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   await expect(region(page).getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
 }
 
@@ -53,7 +54,7 @@ test('Instructions: project and series are saved separately, each with a count a
     return route.fulfill({ json: { project_instructions: project, series_instructions: series } })
   })
   await page.route('**/api/glossary/dramas/1/from-lines', (r) => r.fulfill({ json: { job_id: '', status: 'idle', progress: 0, message: '', proposals: null, run_id: null } }))
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   await glossaryTab(page, 'Instructions')
   const state = page.getByTestId('instructions-state')
   await expect(state).toHaveText('Project: not set · Series: not set')
