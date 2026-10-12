@@ -91,5 +91,5 @@ Do these first. Each is cheap at the start and expensive later.
 ## What this repo has and lacks today (snapshot, 2026-10)
 
 - In place: `CLAUDE.md`, layering and route-permission tests, outbound-timeout test, a size guard with an allowlist, `constraints.txt`, CI.
-- In progress or missing: the allowlisted large files and `db.py` split, a frontend size guard, a real-model smoke test, and pinned installs on
+- In progress or missing: the allowlisted large files and `db/__init__.py` split, a frontend size guard, a real-model smoke test, and pinned installs on
   every path. Track these in `STATUS.md`.

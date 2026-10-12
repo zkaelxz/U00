@@ -189,9 +189,9 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
    `heartbeat` touch only this process's rows, so two servers sharing a job id never free
    or refresh each other's slot. The table has at most `GPU_LOCK_MAX_SLOTS` (4) rows.
 3. **External load.** For the first holder (`check_external_load=True`, which UI jobs
-   pass), `diagnostics.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
+   pass), `gpu_probe.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
    did not start (a game, a transcoder) keeps the job queued, with a message that says
-   so (`_external_gpu_wait_message`: numbers only, never process names). No nvidia-smi,
+   so (`gpu_wait_message.external_gpu_wait_message`: numbers only, never process names). No nvidia-smi,
    or a failing check, is ignored for the first job.
 
 The "GPU jobs at once" setting (`get_gpu_max_parallel`, `app_settings.gpu_max_parallel`,

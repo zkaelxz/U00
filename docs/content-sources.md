@@ -59,7 +59,7 @@ work".
 | Domains | A domain list (`sources/domains.py`): `www.xbanxia.cc`, then `xbanxia.cc`, tried in order with the last one that worked first (remembered in `sources.db`, so it survives a restart). The owner can edit the list on the PC (`/api/source-domains`). A result that ended on another host (the bare domain's redirect to `www` included) counts as that domain failing and is not used; a search POST may already have had its form re-sent by a 307/308. If a listed domain redirects to a new https host whose page passes `verify_site` (半夏 in the title, the `search_t.php` search form, three or more `/books/<id>.html` links), that host becomes a pending proposal; only the owner's confirmation adds it to the list. |
 | Pacing | The normal default pace -- no concurrency-sensitivity signal found for this site. |
 | Terms, recorded separately | robots.txt (from the roadmap's direct check, not re-fetched while building this): `User-agent: *` with zero `Disallow` lines -- no restrictions declared at all. The ToS has not been reviewed. |
-| Reference | `lncrawl/lightnovel-crawler` (GPL-3.0 per its current LICENSE, checked 2026-09-30; earlier recorded here as MIT), `sources/zh/xbanxia.py`. Technique only, no code ported. |
+| Reference | `lncrawl/lightnovel-crawler` (GPL-3.0 per its current LICENSE, checked 2026-09-30; earlier recorded here as MIT), `sources/adapters/xbanxia.py`. Technique only, no code ported. |
 | Known limits | The domain question and the `div#nr1` selector caveat are both resolved (see Status) -- the largest-text-block fallback is kept regardless, in case that ever changes back. |
 | Tests | `tests/test_sources_xbanxia.py`. |
 
