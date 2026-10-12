@@ -28,6 +28,7 @@ notifies the same stream again. Only an automatic check may start Live on
 its own (the PC owner's opt-in).
 """
 
+import math
 import random
 import re
 import shutil
@@ -89,6 +90,7 @@ _extra = {}         # follow id -> time of the one extra check before a schedule
 _extra_used = {}    # follow id -> the stream id that extra check was for
 _requested = []     # follow ids queued for a manual check, oldest first
 _current = []       # the follow id being checked right now, if any
+_manual_checks = {} # channel URL -> time of its last manual check (the cooldown, server-wide)
 _wake = threading.Event()
 _stop = threading.Event()
 _thread = None      # the automatic-check scheduler, while a channel has the toggle on
@@ -116,18 +118,26 @@ def _halted(stop=None) -> bool:
 
 # --- manual checks -----------------------------------------------------------
 
-def request_check(follow_id) -> bool:
+def request_check(follow_id, channel_url=None, now=None) -> bool:
     """Queues one manual check; a channel already queued or being checked is
-    not queued twice. False during the clean stop."""
+    not queued twice. False during the clean stop. `channel_url` starts the
+    channel's cooldown (last_manual_check)."""
     global _worker
     if _halted():
         return False
     with _state_lock:
+        if channel_url:
+            _manual_checks[channel_url] = time.time() if now is None else now
         if follow_id not in _requested:
             _requested.append(follow_id)
         if _worker is None or not _worker.is_alive():
             _worker = _spawn(_work_queue, "live-follow-checks")
     return True
+
+
+def last_manual_check(channel_url) -> float:
+    with _state_lock:
+        return _manual_checks.get(channel_url, 0.0)
 
 
 def is_checking(follow_id) -> bool:
@@ -178,6 +188,8 @@ def reset_for_tests() -> None:
         _extra_used.clear()
         _requested.clear()
         _current.clear()
+        _manual_checks.clear()
+    follows.reset_for_tests()
     _stop.clear()
     _wake.clear()
 
@@ -204,7 +216,8 @@ def _due_at(row, now) -> float:
 def due_follows(now=None) -> list:
     """Channels with the automatic check on whose regular or extra check is due."""
     now = time.time() if now is None else now
-    rows = {r["id"]: r for r in follow_store.list_all() if r.get("auto_check")}
+    rows = {r["id"]: r for r in follow_store.list_all()
+            if r.get("auto_check") and follows.valid_url(r)}
     with _state_lock:
         extra = [i for i, t in _extra.items() if t <= now and i in rows]
     regular = sorted((i for i, r in rows.items() if _due_at(r, now) <= now),
@@ -226,7 +239,8 @@ def run_due_once(now=None, stop=None) -> int:
 
 def check_one(follow_id, now=None, manual=False) -> str:
     """"checked", or why not: "stopping", "busy" (another check is running),
-    "held" (a restore holds the library), "gone"."""
+    "held" (a restore holds the library), "gone", "invalid" (a stored URL
+    that is not the server-built form, e.g. from a restored backup)."""
     if _halted():
         return "stopping"
     if not _poll_lock.acquire(blocking=False):
@@ -239,6 +253,11 @@ def check_one(follow_id, now=None, manual=False) -> str:
             if row is None:
                 forget(follow_id)
                 return "gone"
+            if not follows.valid_url(row):
+                forget(follow_id)
+                return "invalid"
+            if row.get("pc_owner") and not follows.owner_still_pc_owner(row):
+                row = follows.drop_owner_powers(row)
             with _state_lock:
                 _current[:] = [follow_id]
             try:
@@ -297,7 +316,8 @@ def probe(row) -> dict:
 
 
 def _number(value):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:
+    # Not inf either: Python's JSON reads "Infinity", and it breaks the list and bell.
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return None
     return float(value)
 

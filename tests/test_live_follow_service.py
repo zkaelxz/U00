@@ -285,3 +285,39 @@ def test_the_followed_channels_table_has_its_columns(follows):
             "created_at"} <= cols
     with pytest.raises(ValueError):
         live_follow_store.update(1, channel_url="https://evil.example/")
+
+
+def test_options_of_an_automatic_start_are_the_pc_owners_to_change(follows):
+    at_pc = {"user_id": 1, "is_admin": True, "is_local_owner": False, "admin_override": True}
+    away = dict(at_pc, admin_override=False)
+    fid = svc.add_follow("@admin_ch", mode="auto", auto_check=True, principal=at_pc)["id"]
+    with pytest.raises(ForbiddenError):
+        svc.update_follow(fid, options={"whisper_size": "tiny"}, principal=away)
+    assert live_follow_store.get(fid)["options"] != json.dumps({"whisper_size": "tiny"})
+    # The same account away from the PC: its follow stops starting Live on its own.
+    v = svc.update_follow(fid, auto_check=True, principal=away)
+    row = live_follow_store.get(fid)
+    assert v["mode"] == "notify" and row["pc_owner"] == 0
+
+
+def test_remove_and_re_add_does_not_reset_the_check_cooldown(follows):
+    fid = svc.add_follow("@name", principal=ALICE)["id"]
+    svc.check_now(fid, principal=ALICE, now=5000.0)
+    svc.remove_follow(fid, principal=ALICE)
+    again = svc.add_follow("@name", principal=ALICE)["id"]
+    with pytest.raises(RateLimitedError):
+        svc.check_now(again, principal=ALICE, now=5030.0)
+    # Another member following the same channel shares the server-wide cooldown.
+    bob = svc.add_follow("@name", principal=BOB)["id"]
+    with pytest.raises(RateLimitedError):
+        svc.check_now(bob, principal=BOB, now=5030.0)
+    assert svc.check_now(again, principal=ALICE, now=5061.0)["queued"] is True
+
+
+def test_adds_per_hour_are_limited_for_a_member(follows):
+    for i in range(svc.MAX_ADDS_PER_HOUR):
+        fid = svc.add_follow(f"@churn{i:03}", principal=ALICE)["id"]
+        svc.remove_follow(fid, principal=ALICE)
+    with pytest.raises(RateLimitedError):
+        svc.add_follow("@churn999", principal=ALICE)
+    assert svc.add_follow("@other", principal=BOB)["channel"] == "@other"

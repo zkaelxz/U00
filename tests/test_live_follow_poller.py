@@ -555,3 +555,60 @@ def test_no_manual_check_during_the_clean_stop(env, monkeypatch):
     monkeypatch.setattr(background_jobs, "is_stopping", lambda: True)
     assert poller.request_check(fid) is False
     assert poller._worker is None
+
+
+# --- review fixes ---------------------------------------------------------------
+
+def test_a_restored_row_with_a_foreign_url_is_never_probed_or_shown(env):
+    fid = _follow(OWNER, "@owner_ch", mode="auto")
+    live_follow_store.update(fid, pc_owner=1)
+    from sources import store
+    with store.connect() as conn:
+        conn.execute("UPDATE followed_channels SET channel_url = ? WHERE id = ?",
+                     ("http://169.254.169.254/latest/meta-data", fid))
+    probed = []
+    env["answers"][fid] = lambda: probed.append(fid) or live()
+    assert fid not in [r["id"] for r in poller.due_follows(NOW)]
+    assert poller.check_one(fid, now=NOW) == "invalid"
+    assert probed == []
+    item = svc.list_follows(OWNER)["items"][0]
+    assert "169.254" not in json.dumps(item) and "meta-data" not in json.dumps(item)
+    assert item["state"] == "error" and "remove" in item["last_status"].lower()
+    from services.service_errors import InvalidInputError
+    with pytest.raises(InvalidInputError):
+        svc.check_now(fid, principal=OWNER)
+    with pytest.raises(InvalidInputError):
+        svc.start_from_follow(fid, principal=OWNER)
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+def test_a_non_finite_start_time_is_no_start_time(env, bad):
+    from services import ytdlp_child
+    assert ytdlp_child.live_fields({"live_status": "is_upcoming", "id": "x",
+                                    "release_timestamp": bad})["release_timestamp"] is None
+    fid = _follow()
+    env["answers"][fid] = upcoming(bad)
+    row = _check(fid)
+    assert row["last_state"] == "upcoming" and row["starts_at"] is None
+    assert env["sent"][0][1]["starts_at"] is None
+    json.dumps(svc.list_follows(ALICE), allow_nan=False)
+
+
+def test_a_demoted_admin_follow_loses_the_owner_powers(env, starts, isolated_db, monkeypatch):
+    from services import auth_service, settings_service
+    u = auth_service.add_user("pc@example.com")
+    import db
+    with db.get_conn() as conn:
+        conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (u["id"],))
+    admin = {"user_id": u["id"], "is_admin": True, "is_local_owner": False, "admin_override": True}
+    fid = _follow(admin, "@admin_ch", mode="auto", options={"engine": "fake"})
+    assert live_follow_store.get(fid)["pc_owner"] == 1
+    with db.get_conn() as conn:
+        conn.execute("UPDATE users SET is_admin = 0 WHERE id = ?", (u["id"],))
+    cookies = []
+    monkeypatch.setattr(settings_service, "get_cookie_settings",
+                        lambda: cookies.append(1) or {"cookies_browser": "firefox"})
+    env["answers"][fid] = live()
+    row = _check(fid)
+    assert starts == [] and row["mode"] == "notify" and row["pc_owner"] == 0
+    assert env["sent"][0][1]["push"] is False

@@ -59,6 +59,9 @@ MAX_OPTIONS_BYTES = 1000
 # A manual "Check now" this soon after the last check is refused, so the
 # button can't be used to hammer YouTube.
 MANUAL_CHECK_GAP_SECONDS = 60
+# Follows a member may add in an hour, so remove-and-re-add can't be used to
+# churn checks against YouTube.
+MAX_ADDS_PER_HOUR = 10
 _HANDLE = re.compile(r"[\w.\-]{3,30}")
 _CHANNEL_ID = re.compile(r"UC[A-Za-z0-9_-]{22}")
 _CUSTOM = re.compile(r"[\w.\-]{1,100}")
@@ -68,6 +71,8 @@ _BAD_CHANNEL = ("Paste a YouTube channel link (https://www.youtube.com/@name, /c
                 "or /c/name) or an @handle.")
 # Count and insert under one hold, so two adds at once can't pass a limit together.
 _add_lock = threading.Lock()
+_adds = {}          # owner user id -> times of their recent adds (memory only)
+INVALID_STATUS = "This channel's address is not valid any more. Remove it and follow it again."
 _OPTION_DEFAULTS = {"source_language": "zh", "whisper_size": "small", "engine": None,
                     "model": None, "max_minutes": live_service.DEFAULT_MAX_MINUTES,
                     "use_gpu": False, "glossary_drama_id": None}
@@ -147,8 +152,47 @@ def normalize_channel(text) -> tuple:
     return f"{CANONICAL_BASE}{quote(form, safe='@/')}/live", form
 
 
+def reset_for_tests() -> None:
+    with _add_lock:
+        _adds.clear()
+
+
+def valid_url(row) -> bool:
+    """Whether the stored URL is still exactly the server-built form. A row
+    can come from a restored backup, so it is re-checked on every use and a
+    row that fails is never fetched or shown."""
+    url = row.get("channel_url")
+    try:
+        return isinstance(url, str) and normalize_channel(url)[0] == url
+    except InvalidInputError:
+        return False
+
+
+def _require_valid(row) -> None:
+    if not valid_url(row):
+        raise InvalidInputError(INVALID_STATUS)
+
+
 def _label(channel_url: str) -> str:
     return unquote(channel_url[len(CANONICAL_BASE):].rsplit("/live", 1)[0])
+
+
+def owner_still_pc_owner(row) -> bool:
+    """For a row made by the PC owner: is its owner still an active admin
+    (auth off and the local owner have no user id and always are)?"""
+    owner = row.get("owner_user_id")
+    if owner is None:
+        return True
+    import db
+    user = db.auth_get_user(owner) or {}
+    return bool(user.get("is_admin") and user.get("is_active"))
+
+
+def drop_owner_powers(row) -> dict:
+    """The row's owner is not the PC owner any more: no automatic start, no
+    owner cookies and no Discord/ntfy push for it from now on."""
+    follow_store.update(row["id"], mode="notify", pc_owner=0)
+    return dict(row, mode="notify", pc_owner=0)
 
 
 def _require_public(url: str) -> None:
@@ -213,7 +257,11 @@ def _options(row, strict=False) -> dict:
 
 def view(row, principal=None) -> dict:
     """What a client may see: no URL, path or raw error text."""
-    return {"id": row["id"], "channel": _label(row["channel_url"]),
+    if not valid_url(row):
+        row = dict(row, last_state="error", last_status=INVALID_STATUS, stream_title="",
+                   starts_at=None, channel_name="")
+    return {"id": row["id"],
+            "channel": _label(row["channel_url"]) if valid_url(row) else "invalid",
             "channel_name": row.get("channel_name") or "",
             "mode": row["mode"] if row["mode"] in MODES else "notify",
             "auto_check": bool(row.get("auto_check")),
@@ -267,7 +315,11 @@ def add_follow(channel, mode="notify", options=None, auto_check=False, principal
     mode = _check_mode(mode, principal, owner, auto_check)
     opts = _dump(clean_options(options, principal))
     _require_public(url)
+    now = time.time()
     with _add_lock:
+        recent = [t for t in _adds.get(owner, ()) if now - t < 3600]
+        if not is_pc_owner(principal) and len(recent) >= MAX_ADDS_PER_HOUR:
+            raise RateLimitedError("Too many channels added in the last hour. Try again later.")
         if follow_store.find(owner, url) is not None:
             raise ConflictError("You already follow that channel.")
         if not is_pc_owner(principal) and follow_store.count(owner) >= MAX_PER_MEMBER:
@@ -278,6 +330,7 @@ def add_follow(channel, mode="notify", options=None, auto_check=False, principal
                                 "checks. Remove one first.")
         follow_id = follow_store.add(owner, is_pc_owner(principal), url, label[:MAX_NAME_LEN],
                                      mode, opts, DEFAULT_POLL_MINUTES, auto_check=auto_check)
+        _adds[owner] = recent + [now]
     if auto_check:
         _poller().start_if_needed()
     return view(follow_store.get(follow_id), principal)
@@ -285,9 +338,17 @@ def add_follow(channel, mode="notify", options=None, auto_check=False, principal
 
 def update_follow(follow_id, mode=None, options=None, auto_check=None, principal=None) -> dict:
     """Turning the automatic check off also turns an automatic start back
-    into Notify me, which can't work without it."""
+    into Notify me, which can't work without it. An automatic start's
+    options are the PC owner's to change; its own owner acting away from the
+    PC loses the owner powers on it."""
     row = _require(principal, follow_id, writing=True)
     fields = {}
+    if row.get("mode") == "auto" and not is_pc_owner(principal):
+        if options is not None:
+            raise ForbiddenError("Only the PC owner can change the options of a channel that "
+                                 "starts Live automatically.")
+        if ownership_service.user_id(principal) == row.get("owner_user_id"):
+            row = drop_owner_powers(row)
     checking = bool(row.get("auto_check")) if auto_check is None else bool(auto_check)
     if auto_check is not None:
         fields["auto_check"] = int(checking)
@@ -315,7 +376,9 @@ def remove_follow(follow_id, principal=None) -> dict:
 
 
 def _cooling(row, now) -> bool:
-    last = row.get("last_checked_at")
+    """Keyed by the channel too, server-wide, so removing and re-adding a
+    follow, or another member following the same channel, doesn't reset it."""
+    last = max(row.get("last_checked_at") or 0, _poller().last_manual_check(row["channel_url"]))
     return bool(last) and now - last < MANUAL_CHECK_GAP_SECONDS
 
 
@@ -324,12 +387,13 @@ def check_now(follow_id, principal=None, now=None) -> dict:
     server-wide). A channel already queued or being checked is left as it
     is; one checked less than a minute ago is refused."""
     row = _require(principal, follow_id, writing=True)
+    _require_valid(row)
     now = time.time() if now is None else now
     if _poller().is_checking(row["id"]):
         return {"id": row["id"], "queued": True}
     if _cooling(row, now):
         raise RateLimitedError("This channel was checked less than a minute ago.")
-    if not _poller().request_check(row["id"]):
+    if not _poller().request_check(row["id"], channel_url=row["channel_url"], now=now):
         raise ConflictError("Baihe is stopping, so no check can start.")
     return {"id": row["id"], "queued": True}
 
@@ -343,8 +407,8 @@ def check_all(principal=None, now=None) -> dict:
     for row in follow_store.list_all():
         if not _can_see(principal, row, writing=True):
             continue
-        if _poller().is_checking(row["id"]) or _cooling(row, now) \
-                or not _poller().request_check(row["id"]):
+        if not valid_url(row) or _poller().is_checking(row["id"]) or _cooling(row, now) \
+                or not _poller().request_check(row["id"], channel_url=row["channel_url"], now=now):
             skipped += 1
         else:
             queued += 1
@@ -356,6 +420,7 @@ def check_all(principal=None, now=None) -> dict:
 def stream_url(row) -> str:
     """The stream's own watch page when the last check saw one, else the
     channel's /live page; both built here from validated parts."""
+    _require_valid(row)
     stream_id = row.get("last_stream_id") or ""
     if row.get("last_state") == "live" and _STREAM_ID.fullmatch(stream_id):
         return f"{CANONICAL_BASE}watch?v={stream_id}"

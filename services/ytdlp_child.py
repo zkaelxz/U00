@@ -23,6 +23,7 @@ stream and can carry site-controlled text, so a fixed prefix could be forged.
 """
 
 import json
+import math
 import os
 import secrets
 import sys
@@ -115,7 +116,7 @@ def live_fields(info) -> dict:
             and set(stream_id) <= _STREAM_ID_CHARS):
         stream_id = ""
     start = info.get("release_timestamp")
-    if isinstance(start, bool) or not isinstance(start, (int, float)) or start != start:
+    if isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start):
         start = None
     return {"status": status, "id": stream_id, "title": _short(info.get("title")),
             "channel": _short(info.get("channel") or info.get("uploader")),
