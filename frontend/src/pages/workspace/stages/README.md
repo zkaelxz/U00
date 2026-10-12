@@ -6,7 +6,8 @@ component: `SourceStage`, `TranslateStage`, `ReviewStage` (with `review/`),
 shared `Tabs` (`../mediaTabs.ts`: Add media, Transcribe, Tools, Details, Credits; a novel or comic has
 only Add media, Details and Credits). `TranscribeStage.tsx` owns the Transcribe and Tools panels, and
 `TranscribeAdvanced.tsx` the Advanced options folds (`advancedGroups.ts` says which control sits
-in which fold). Stages take no props; they read the drama id from
+in which fold). `../mediaTypeSettings.ts` is the one table of which setting groups each title kind has: a
+setting a kind lacks is not rendered, and the tabs and `advancedGroups` read it. Stages take no props; they read the drama id from
 `useStage()` (`../StageContext.ts`).
 
 ## Start here

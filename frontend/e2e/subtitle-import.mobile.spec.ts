@@ -10,7 +10,7 @@ test('Import subtitle file fits a phone with 44px targets', async ({ page }) => 
   await page.addInitScript(() => {
     for (const k of Object.keys(localStorage)) if (k.startsWith('baihe.section.source.')) localStorage.removeItem(k)
   })
-  await page.goto('/#/drama/2/source')
+  await page.goto('/#/drama/1/source')
   await openGroup(page, 'Import subtitle file')
   const panel = page.getByTestId('subtitle-import')
   await panel.getByLabel('Subtitle file').setInputFiles(SRT_FILE)

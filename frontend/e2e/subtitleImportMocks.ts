@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-// Mocks for the Source stage's "Import subtitle file" on seeded drama 2: the
+// Mocks for the Source stage's "Import subtitle file" on seeded drama 1: the
 // parser and the import are covered by pytest, so here the two routes are
 // faked and every request is recorded. The upload is multipart, so options are
 // read out of the raw body text.
@@ -27,7 +27,7 @@ const field = (body: string, name: string) => new RegExp(`name="${name}"\\r?\\n\
 
 export async function mockSubtitleImport(page: Page, preview: Record<string, unknown> = {}): Promise<SubtitleSeen> {
   const seen: SubtitleSeen = { previews: [], applies: [], retimes: [] }
-  const base = '**/api/subtitle-import/dramas/2'
+  const base = '**/api/subtitle-import/dramas/1'
   await page.route(`${base}/preview`, (r) => {
     const body = r.request().postData() ?? ''
     seen.previews.push(body)
@@ -46,12 +46,12 @@ export async function mockSubtitleImport(page: Page, preview: Record<string, unk
     return r.fulfill({ json: { mode: field(body, 'mode') ?? 'source', format: 'srt', encoding: 'gb18030', lines_written: 42,
       line_ids: [101, 102, 103], replaced_lines: 5, matched_lines: 0, unmatched_cues: 0, undo: { history_id: 9, lines_fingerprint: 'x' } } })
   })
-  await page.route('**/api/transcribe/dramas/2/retime/run', (r) => {
+  await page.route('**/api/transcribe/dramas/1/retime/run', (r) => {
     seen.retimes.push(r.request().postDataJSON())
-    return r.fulfill({ json: { job_id: 'retime_2', drama_id: 2, line_count: 3 } })
+    return r.fulfill({ json: { job_id: 'retime_1', drama_id: 1, line_count: 3 } })
   })
-  await page.route('**/api/jobs/retime_2', (r) =>
-    r.fulfill({ json: { job_id: 'retime_2', status: 'running', progress: 0.1, message: '', error: null, description: null,
+  await page.route('**/api/jobs/retime_1', (r) =>
+    r.fulfill({ json: { job_id: 'retime_1', status: 'running', progress: 0.1, message: '', error: null, description: null,
       gpu_touching: true, started_at: 1, finished_at: null, updated_at: 1 } }))
   return seen
 }
