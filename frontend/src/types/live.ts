@@ -15,6 +15,8 @@ export interface LiveSessionStart {
   reply_without_thinking: boolean
   /** A title whose glossary and language packs the translation may use (read-only). */
   glossary_drama_id?: number
+  /** Instead of a title: the series' glossary and the packs of its newest title with a pack choice. */
+  series_id?: number
 }
 
 export interface LiveOllamaCheck {
@@ -92,6 +94,7 @@ export interface LiveFollowOptions {
   max_minutes: number
   use_gpu: boolean
   glossary_drama_id: number | null
+  series_id: number | null
 }
 
 export interface LiveFollow {

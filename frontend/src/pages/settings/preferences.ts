@@ -3,7 +3,7 @@
  * G09, G13, G14, G15). The server re-validates everything; these only give
  * an early, plain message and build a patch of the changed fields.
  */
-import type { EndpointName, PreferenceKey, SettingsPreferences } from '../../types/settings'
+import type { EndpointName, OcrBackendStatus, PreferenceKey, SettingsPreferences } from '../../types/settings'
 
 // The one note under every key, address or token: where it goes, and that it stays hidden.
 export const SAVED_ON_PC_NOTE = 'Saved on the Baihe PC and never shown again.'
@@ -23,6 +23,19 @@ export const OCR_LABELS: Record<string, string> = {
   paddle: 'PaddleOCR (Chinese, Korean)',
   paddle_vl_manga: 'PaddleOCR-VL for manga (Japanese)',
   tesseract: 'Tesseract',
+}
+
+/** Backend -> why it cannot run here; backends that can run are left out. */
+export function ocrChoiceReasons(status: Record<string, OcrBackendStatus> | undefined): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [backend, s] of Object.entries(status ?? {})) if (!s.installed && s.reason) out[backend] = s.reason
+  return out
+}
+
+/** Packages Diagnostics can pip-install to fix a backend; the Tesseract program is not one. */
+export function ocrInstallPackages(status: Record<string, OcrBackendStatus> | undefined): string[] {
+  const packages = Object.values(status ?? {}).filter((s) => !s.installed && s.package && s.package !== 'tesseract')
+  return [...new Set(packages.map((s) => s.package as string))]
 }
 
 /** The fields of `draft` whose value differs from `saved`. */

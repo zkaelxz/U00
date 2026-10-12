@@ -256,3 +256,25 @@ def test_a_visible_title_reaches_the_job_as_a_hint_function_not_an_id(client, fa
     assert _wait(lambda: "kw" in fake_live)
     assert callable(fake_live["kw"]["term_hints"])
     _no_leak(r)
+
+
+def test_a_series_the_caller_cannot_see_is_refused(client, fake_live):
+    r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", "series_id": 424242})
+    assert r.status_code == 404 and "Series not found." in r.text
+    assert "kw" not in fake_live
+
+
+def test_a_visible_series_reaches_the_job_as_a_hint_function(client, fake_live):
+    sid = db.get_or_create_series("S")
+    r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", "series_id": sid})
+    assert r.status_code == 200, r.text
+    assert _wait(lambda: "kw" in fake_live)
+    assert callable(fake_live["kw"]["term_hints"])
+    _no_leak(r)
+
+
+def test_ids_are_strict_positive_integers(client, fake_live):
+    for body in ({"series_id": "3"}, {"series_id": 0}, {"glossary_drama_id": 1.5},
+                 {"glossary_drama_id": True}, {"series_id": 2 ** 63}):
+        r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", **body})
+        assert r.status_code == 422, body

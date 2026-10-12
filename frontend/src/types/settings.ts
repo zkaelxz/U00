@@ -81,11 +81,18 @@ export interface SettingsPreferences extends TimingPreferences {
 
 export type PreferenceKey = keyof SettingsPreferences
 
+export interface OcrBackendStatus {
+  installed: boolean
+  reason: string | null
+  package: string | null
+}
+
 export interface SettingsChoices {
   engines: string[]
   locales: string[]
   summary_engines: string[]
   ocr_backends: string[]
+  ocr_backend_status?: Record<string, OcrBackendStatus>
   cookie_browsers: string[]
 }
 

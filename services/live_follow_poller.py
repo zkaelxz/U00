@@ -456,7 +456,8 @@ def _auto_start(row, stream_id):
             follows.stream_url(row), source_language=opts["source_language"],
             whisper_size=opts["whisper_size"], engine=opts["engine"], model=opts["model"],
             max_minutes=opts["max_minutes"], use_gpu=opts["use_gpu"], use_saved_cookies=True,
-            glossary_drama_id=opts["glossary_drama_id"], principal=None)
+            glossary_drama_id=opts["glossary_drama_id"],
+            series_id=opts["series_id"], principal=None)
     except ConflictError:
         return "not started: another Live session is running"
     except MissingKeyError:

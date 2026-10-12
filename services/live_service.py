@@ -304,12 +304,31 @@ def _title_term_hints(principal, drama_id, source_language):
     drama = db.get_drama(int(drama_id))
     if drama is None:
         raise NotFoundError("Title not found.")
-    series_id = drama.get("series_id")
+    return _hint_function(drama.get("series_id"), drama, source_language)
+
+
+def _series_term_hints(principal, series_id, source_language):
+    """Like _title_term_hints for a chosen series: its glossary, and the packs
+    of its newest visible title that has its own pack choice (a language
+    default alone is not a choice, so with none there are no packs). Raises
+    NotFoundError for a series the caller cannot see."""
+    ownership_service.require_visible(principal, "series", series_id)
+    titles = sorted(db.list_dramas_by_series(int(series_id)),
+                    key=lambda d: (d.get("created_at") or "", d["id"]), reverse=True)
+    pack_title = next((d for d in titles
+                       if language_pack_service.has_title_choice(d["id"])
+                       and ownership_service.can_see_drama(principal, d["id"])), None)
+    return _hint_function(int(series_id), pack_title, source_language)
+
+
+def _hint_function(series_id, pack_title, source_language):
+    """`pack_title`: the title whose packs apply, or None for glossary only."""
     glossary = [t for t in (db.list_glossary_terms(series_id) if series_id else [])
                 if t.get("term_original") and t.get("term_translation")]
     # A pack is written for its own source language; a stream in another one
     # would match nothing meaningful.
-    packs_apply = (drama.get("source_language") or "zh") == source_language
+    packs_apply = pack_title is not None and (pack_title.get("source_language") or "zh") == source_language
+    drama = pack_title
 
     def hints(texts):
         text = "\n".join(t for t in texts if isinstance(t, str))
@@ -331,10 +350,12 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
                   use_saved_cookies: bool = False,
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
-                  principal=None) -> dict:
+                  series_id: Optional[int] = None, principal=None) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
     glossary_drama_id: a title whose glossary and language packs the stream's
     translation may use (read-only); NotFoundError when the caller cannot see it.
+    series_id: instead, a series: its glossary, and the packs of its
+    newest title with a pack choice. Not both.
     use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
     cookies.txt). The router sets it only for a request made at the PC, so
     another device never reads streams as the owner's signed-in account.
@@ -357,8 +378,13 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     max_minutes = _num("max_minutes", max_minutes, *MAX_MINUTES_RANGE)
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be a string.")
-    term_hints = (_title_term_hints(principal, glossary_drama_id, source_language)
-                  if glossary_drama_id is not None else None)
+    if glossary_drama_id is not None and series_id is not None:
+        raise InvalidInputError("Pick a title or a series for the glossary, not both.")
+    term_hints = None
+    if glossary_drama_id is not None:
+        term_hints = _title_term_hints(principal, glossary_drama_id, source_language)
+    elif series_id is not None:
+        term_hints = _series_term_hints(principal, series_id, source_language)
     _reap()
     # Refuse a second session before building the engine, so a start that
     # would be refused costs no key lookup or model load. Re-checked below

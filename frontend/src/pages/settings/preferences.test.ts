@@ -7,6 +7,8 @@ import {
   checkEndpointUrl,
   checkPath,
   cookiesSummary,
+  ocrChoiceReasons,
+  ocrInstallPackages,
 } from './preferences'
 
 const saved: SettingsPreferences = {
@@ -68,5 +70,28 @@ describe('settings preferences', () => {
     expect(cookiesSummary(null, '')).toBe('none')
     expect(cookiesSummary('firefox', '')).toBe('from firefox')
     expect(cookiesSummary('firefox', '/c.txt')).toBe('cookies.txt file')
+  })
+})
+
+describe('OCR backend availability', () => {
+  const status = {
+    tesseract: { installed: true, reason: null, package: null },
+    manga_ocr: { installed: false, reason: 'The manga_ocr OCR backend needs manga-ocr. Install it in Diagnostics.', package: 'manga-ocr' },
+    paddle: { installed: false, reason: 'needs paddlepaddle', package: 'paddlepaddle' },
+    paddle_vl_manga: { installed: false, reason: 'needs transformers', package: 'transformers' },
+  }
+
+  it('gives a reason only for the backends that cannot run', () => {
+    expect(Object.keys(ocrChoiceReasons(status)).sort()).toEqual(['manga_ocr', 'paddle', 'paddle_vl_manga'])
+    expect(ocrChoiceReasons(status).paddle).toBe('needs paddlepaddle')
+  })
+
+  it('has no reasons before the server answers', () => {
+    expect(ocrChoiceReasons(undefined)).toEqual({})
+  })
+
+  it('offers pip install only for packages, not for the Tesseract program', () => {
+    const withProgram = { ...status, tesseract: { installed: false, reason: 'no program', package: 'tesseract' } }
+    expect(ocrInstallPackages(withProgram)).toEqual(['manga-ocr', 'paddlepaddle', 'transformers'])
   })
 })
