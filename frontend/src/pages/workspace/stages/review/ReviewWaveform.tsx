@@ -5,7 +5,8 @@ import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
 import type { PlayerHandle } from './Player'
 import { gapBlockedReason } from './retranscribeLinesLogic'
-import { useWaveformGaps } from './useWaveformGaps'
+import type { WaveformGaps } from './useWaveformGaps'
+import type { TranscribeGap } from '../../../../types/workspace'
 import type { Edge } from './Waveform'
 
 // Loaded on first use so the canvas code stays out of the main bundle.
@@ -20,16 +21,14 @@ interface Props {
   onToggle: () => void
   onRetime: (id: number, edge: Edge, value: number) => Promise<boolean>
   editingActive: boolean
-  // Review's reload counter, and what "Transcribe this gap" needs from the panel.
-  reloads: number
+  // The title's gaps and "Transcribe this gap" (shared with the Gaps chip), and when the button is off.
+  gaps: WaveformGaps
   jobRunning: boolean
   canTranscribe: boolean
-  onChanged: () => void
-  onTranscribeLines: (lineIds: number[]) => void
+  focusGap: { gap: TranscribeGap; seq: number } | null
 }
 
-export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle, onRetime, editingActive, reloads, jobRunning, canTranscribe, onChanged, onTranscribeLines }: Props) {
-  const gaps = useWaveformGaps({ dramaId, enabled: open && canTranscribe, refresh: reloads, onChanged, onTranscribe: onTranscribeLines })
+export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle, onRetime, editingActive, gaps, jobRunning, canTranscribe, focusGap }: Props) {
   const blocked = gapBlockedReason({ jobRunning, editing: editingActive, canTranscribe })
   return (
     <div className="review-wave-section">
@@ -40,7 +39,7 @@ export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle,
         <Suspense fallback={null}>
           <Waveform
             dramaId={dramaId} lines={lines} active={active} player={player} onRetime={onRetime} editingActive={editingActive}
-            gaps={gaps.gaps} gapBlocked={gaps.busy ? 'Adding lines for the gap…' : blocked} onTranscribeGap={(g) => void gaps.transcribe(g)}
+            gaps={gaps.gaps} gapBlocked={gaps.busy ? 'Adding lines for the gap…' : blocked} onTranscribeGap={(g) => void gaps.transcribe(g)} focusGap={focusGap}
           />
         </Suspense>
       )}

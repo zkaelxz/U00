@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openFoldFor } from './reviewFolds'
+import { aiChecks, openFoldFor, openTab } from './reviewFolds'
 
 import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 
@@ -13,7 +13,7 @@ test.afterAll(() => clearReviewResults())
 const rows = (page: Page) => page.locator('.review-line:not(.review-skeleton)')
 const section = (page: Page, title: string) =>
   page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
-const TITLES = ['AI review', 'Check options', 'Options', 'Consistency', 'Emotion', 'Coverage and pacing', 'Edit tendencies', 'Compare versions', 'Notes export']
+const TITLES = ['Check options', 'Options', 'Consistency', 'Emotion', 'Coverage and pacing', 'Edit tendencies', 'Compare versions', 'Notes export']
 
 async function openAll(page: Page) {
   for (const t of TITLES) {
@@ -21,8 +21,12 @@ async function openAll(page: Page) {
     const s = section(page, t)
     if ((await s.getAttribute('open')) === null) await s.locator(':scope > summary').click()
     await expect(s).toHaveAttribute('open', '')
+    await expectNoHorizontalOverflow(page)
   }
+  await openFoldFor(page, 'Consistency')
   await section(page, 'Consistency').getByRole('button', { name: 'Show lines' }).click()
+  await expectNoHorizontalOverflow(page)
+  await openFoldFor(page, 'Compare versions')
   await section(page, 'Compare versions').getByRole('button', { name: 'Show differences' }).click()
   await expect(section(page, 'Compare versions').getByTestId('compare-list')).toBeVisible()
 }
@@ -41,12 +45,17 @@ test('Review results: no sideways scroll, 44px line links, a link opens its line
   await openAll(page)
   await expectNoHorizontalOverflow(page)
 
-  const heights = await page.locator('.review-jump, .review-fix button:not(.field-help-btn), .review-fix select, .review-fix input').evaluateAll((els) =>
-    els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [e.getBoundingClientRect().height, e.outerHTML.slice(0, 80)] as const),
-  )
+  const heights: (readonly [number, string])[] = []
+  for (const tab of ['Check', 'Fix']) {
+    await openTab(page, tab)
+    heights.push(...(await page.locator('.review-jump, .review-fix button:not(.field-help-btn), .review-fix select, .review-fix input').evaluateAll((els) =>
+      els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [e.getBoundingClientRect().height, e.outerHTML.slice(0, 80)] as const),
+    )))
+  }
   expect(heights.length).toBeGreaterThan(5)
   for (const [h, html] of heights) expect(h, html).toBeGreaterThanOrEqual(44)
 
+  await openFoldFor(page, 'Emotion')
   await section(page, 'Emotion').getByRole('button', { name: '#2' }).tap()
   await expect(rows(page).nth(1)).toHaveAttribute('aria-current', 'true')
 })
@@ -65,7 +74,7 @@ test('screenshots (phone)', async ({ page }) => {
       await openAll(page)
       await expectNoHorizontalOverflow(page)
       const tag = `phone${w}-${scheme}`
-      await section(page, 'AI review').scrollIntoViewIfNeeded()
+      await aiChecks(page).scrollIntoViewIfNeeded()
       await page.screenshot({ path: `${dir}/${tag}-ai-review.png` })
       await section(page, 'Consistency').scrollIntoViewIfNeeded()
       await page.screenshot({ path: `${dir}/${tag}-findings.png` })
