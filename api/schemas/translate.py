@@ -136,6 +136,8 @@ class TranslateRunConfig(BaseModel):
     numbers only -- never a key or the novel text."""
     drama_id: int
     translation_engine: str
+    # The engine the per-line AI helpers use when none is named (the Review picker's default).
+    line_ai_engine: Optional[str] = None
     engines: List[TranslateEngine]
     style_presets: List[TranslateRunStylePreset]
     default_style_preset: str

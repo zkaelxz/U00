@@ -40,25 +40,13 @@ from services.service_errors import (
 MAX_ISSUE_CHARS = 500
 
 
-def _drama_tool_engine(drama: dict) -> str:
-    """The drama's own translation engine when it can follow instructions;
-    otherwise (none saved, a translation-only engine, or one that was removed) the
-    engine Settings picks for line helpers (capability
-    "llm.instructions"). Configuration only: never a switch on failure."""
-    own = drama.get("translation_engine")
-    if (own in translate_engines.ENGINES
-            and own not in translate_engines.TRANSLATION_ONLY_ENGINES):
-        return own
-    return engine_routing_service.resolve_capability("llm.instructions")
-
-
 def tool_engine_name(drama_id: int, engine_name: str = None) -> str:
     """The engine an LLM tool on this drama will use: the named one, else
-    _drama_tool_engine. For the router's engines.paid gate, which passes
+    engine_routing_service.line_tool_engine. For the router's engines.paid gate, which passes
     this name on, so the call can't switch to an engine the gate didn't see."""
     if engine_name:
         return engine_name
-    return _drama_tool_engine(translate_run_service.require_drama(drama_id))
+    return engine_routing_service.line_tool_engine(translate_run_service.require_drama(drama_id))
 
 
 def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool) -> None:
@@ -80,7 +68,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
     here, never accepted from the caller. `check_cap` refuses a paid engine
     once the monthly spending cap is used up."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    engine_name = engine_name or _drama_tool_engine(drama)
+    engine_name = engine_name or engine_routing_service.line_tool_engine(drama)
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:

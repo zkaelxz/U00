@@ -80,7 +80,7 @@ export function useLineAiPick(dramaId: number, allPaid: boolean) {
     const ctl = new AbortController()
     getTranslateConfig(dramaId, withSignal(ctl.signal))
       .then(
-        (c) => !ctl.signal.aborted && setConfig({ engines: c.engines, defaultEngine: c.translation_engine }),
+        (c) => !ctl.signal.aborted && setConfig({ engines: c.engines, defaultEngine: c.line_ai_engine ?? c.translation_engine }),
         () => undefined,
       )
       .finally(() => !ctl.signal.aborted && setReady(true))
