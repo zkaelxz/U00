@@ -129,6 +129,8 @@ def load_detector(start: float = START_THRESHOLD, stop: float = STOP_THRESHOLD) 
     try:
         import onnxruntime
         import faster_whisper.feature_extractor  # noqa: F401 -- fails here, not mid-run
+        from lib import ort_telemetry
+        ort_telemetry.disable()
     except ImportError as exc:
         raise AsmrVadUnavailable(
             "The ASMR voice detector needs onnxruntime and faster-whisper installed.") from exc
