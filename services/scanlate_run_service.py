@@ -31,6 +31,8 @@ Safety (spec §4):
 Model runs hold the pipeline lock shared with the extension bridge.
 No FastAPI import.
 """
+import importlib.util
+
 import background_jobs
 import db
 import translate_engines
@@ -50,6 +52,15 @@ from services.service_errors import (
     MissingKeyError,
     UnsupportedOperationError,
 )
+
+_OCR_ERRORED = "OCR failed on this page, so nothing was saved. Check the OCR backend in Diagnostics."
+_OCR_NO_TEXT = "OCR found no text on this page, so nothing was saved. Redo it after checking the OCR backend."
+
+
+class OcrReadFailed(Exception):
+    """A page whose OCR produced no text. Its message is fixed text, so the
+    job's failure note carries no path or exception detail."""
+
 
 MODES = ("missing", "page", "all")
 _CONFIRM_ALL = ("Redo all replaces the text regions of every page, including any you "
@@ -74,14 +85,21 @@ def _build_engine(engine_name: str):
 
 
 def _require_ocr_backend(drama_id: int) -> None:
-    """detect_and_ocr_page turns any OCR failure into empty text, so a
-    backend that can't run is refused here, with its plain reason."""
+    """detect_and_ocr_page reports an OCR failure per page, so a backend that
+    can't run is refused here, naming what is missing."""
     import ocr
     lang = pages_svc.require_drama(drama_id).get("source_language") or "zh"
-    if settings_service.resolve_ocr_backend(lang) == "paddle_vl_manga":
-        problem = ocr.paddle_vl_manga_problem()
-        if problem:
-            raise DependencyUnavailableError(problem)
+    ocr.require_backend(settings_service.resolve_ocr_backend(lang),
+                        settings_service.get("tesseract_cmd") or None)
+
+
+def _require_opencv() -> None:
+    """scanlate imports cv2 lazily inside detection and rendering, so without
+    it every page would fail and the job would still end "done"."""
+    if importlib.util.find_spec("cv2") is None:
+        raise DependencyUnavailableError(
+            "Scanlate needs opencv-python. Install it in Diagnostics.",
+            details={"reason": "missing_package", "package": "opencv-python"})
 
 
 def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm: bool = False,
@@ -113,6 +131,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
                else comic_chapters_service.run_page_ids(drama_id, chapter_id))
     if not targets:
         raise UnsupportedOperationError("No pages to run: they are all hidden.")
+    _require_opencv()
     _require_ocr_backend(drama_id)
     engine_name = engine or settings_service.get("default_engine")
     # Pure-MT engines are called once per region, outside call_llm_json.
@@ -122,6 +141,11 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
         engine_name, built, detect_backend,
         description=f"Scanlate translate (title {drama_id})")
     return {**started, "engine": engine_name, "mode": mode}
+
+
+def _has_text(region: dict) -> bool:
+    return bool((region.get("source_text") or "").strip()
+                or (region.get("translated_text") or "").strip())
 
 
 def _predecessor_context(drama_id: int, page_id: int) -> str:
@@ -205,7 +229,9 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if page is None:
         return "skipped"                        # deleted meanwhile
     existing = db.load_bubbles(page_id)
-    if mode == "missing" and existing:
+    # Regions that hold no text came from a failed or empty OCR; counting them
+    # as done would make "Translate all" skip the page forever.
+    if mode == "missing" and any(_has_text(b) for b in existing):
         if not page.get("rendered_filename"):
             notes = []
             render_svc.render_page(drama_id, page_id, notes, lambda: render_svc.check_cancel(jid))
@@ -217,12 +243,11 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     with cancellable_lock.hold(pages_svc.pipeline_lock(), lambda: render_svc.check_cancel(jid)):
         bubbles, detect_notes = scanlate.detect_and_ocr_page(src, lang, page_id=page_id,
                                                              **detect_kwargs)
+    if bubbles and not any((b.get("source_text") or "").strip() for b in bubbles):
+        ocr_errored = any(level == "error" for level, _ in detect_notes)
+        raise OcrReadFailed(_OCR_ERRORED if ocr_errored else _OCR_NO_TEXT)
     notes = [_detector_note(detect_kwargs["detect_backend"], detect_notes)]
     notes += detect_notes
-    if bubbles and not any((b.get("source_text") or "").strip() for b in bubbles):
-        notes.append(("warning", f"OCR ({detect_kwargs['ocr_backend']}) found no text in any "
-                                 "region. Check that this OCR backend is installed "
-                                 "(Diagnostics)."))
     new_context, translated_ok = None, True
     if bubbles:
         translated_ok, new_context = _translate(
@@ -256,6 +281,12 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
                              f"{translate_engines.redact_secrets(str(exc))}"))
     render_svc.append_notes(page_id, render_notes)
     return "translated" if new_context is not None else "done"
+
+
+def _failure_note(exc: Exception) -> str:
+    if isinstance(exc, OcrReadFailed):
+        return str(exc)
+    return f"This page failed: {type(exc).__name__}: {translate_engines.redact_secrets(str(exc))}"
 
 
 def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
@@ -292,8 +323,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                 counts["failed"] += 1
                 try:
                     db.update_page(pid, run_notes=pages_svc.notes_to_json(
-                        [("error", f"This page failed: {type(exc).__name__}: "
-                                    f"{translate_engines.redact_secrets(str(exc))}")]))
+                        [("error", _failure_note(exc))]))
                 except Exception as note_exc:
                     from applog import get_logger
                     get_logger().warning("Could not save the error note for page %s: %s", pid,

@@ -60,7 +60,7 @@ from services.benchmark_case_service import (redact, require_whisper_fits_cases,
                                                    run_translation as _run_translation)
 from services.benchmark_script_service import add_counts, count_scripts, empty_counts
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
-                                                 score_output)
+                                                 score_output, script_normaliser)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -468,6 +468,9 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     case_filter = json.dumps({"tier": tier, "set_name": set_name,
                               "case_ids": sorted(case_ids) if case_ids else None})
     context = {"use_gpu": use_gpu} if stage != "translation" else {}
+    if stage != "translation" and any(c.get("source_language") == "zh" for c in cases):
+        # Runs without this key were scored script-sensitively.
+        context["script_normaliser"] = script_normaliser(stage)
     session_ids = []
     for cfg in checked:
         session_ids.append(db.create_benchmark_session({
@@ -690,7 +693,7 @@ def list_runs(stage: str = None, limit: int = 50) -> dict:
 
 def _script_counts(stage, language, text):
     """Script counts for a Chinese transcript, else None. Display only: CER
-    still compares the two sides without regard to script."""
+    converts both sides to Simplified, so it does not see script."""
     if stage != "transcription" or language != "zh":
         return None
     return count_scripts(text)

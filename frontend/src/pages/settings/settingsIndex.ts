@@ -3,77 +3,76 @@
 // entry so "ollama" finds the card that holds them.
 export type SettingsTab = 'translation' | 'costs' | 'notifications' | 'sharing' | 'integrations' | 'system'
 
-// `open`: whether the card starts open when the person has not chosen yet. A tab of up to three short
-// cards starts them all open; a longer tab opens only the cards used most, so the rest read as a list
-// of one-line summaries.
-export type SettingsCardSpec = { id: string; open: boolean }
+// Each tab starts with only its first card open until the person folds things their own way, so a tab
+// reads as a list of one-line summaries with one card to start from.
+export type SettingsCardSpec = { id: string }
 
 export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCardSpec[] }[] = [
   {
     id: 'translation',
     label: 'Translation and keys',
     cards: [
-      { id: 'engine-routing', open: true },
-      { id: 'defaults', open: true },
-      { id: 'language-packs', open: true },
+      { id: 'engine-routing' },
+      { id: 'defaults' },
+      { id: 'language-packs' },
     ],
   },
   {
     id: 'costs',
     label: 'Costs',
     cards: [
-      { id: 'spending', open: true },
-      { id: 'spend-history', open: true },
-      { id: 'past-costs', open: false },
+      { id: 'spending' },
+      { id: 'spend-history' },
+      { id: 'past-costs' },
     ],
   },
   {
     id: 'notifications',
     label: 'Notifications and backups',
     cards: [
-      { id: 'notifications', open: true },
-      { id: 'auto-backup', open: false },
-      { id: 'save-folder', open: false },
-      { id: 'app-updates', open: false },
+      { id: 'notifications' },
+      { id: 'auto-backup' },
+      { id: 'save-folder' },
+      { id: 'app-updates' },
     ],
   },
   {
     id: 'sharing',
     label: 'Sharing and devices',
     cards: [
-      { id: 'sharing', open: true },
-      { id: 'customize-menu', open: false },
-      { id: 'devices', open: false },
-      { id: 'extension-devices', open: false },
+      { id: 'sharing' },
+      { id: 'customize-menu' },
+      { id: 'devices' },
+      { id: 'extension-devices' },
     ],
   },
   {
     id: 'integrations',
     label: 'Integrations',
     cards: [
-      { id: 'jellyfin', open: true },
-      { id: 'web-search', open: true },
-      { id: 'extension', open: true },
+      { id: 'jellyfin' },
+      { id: 'web-search' },
+      { id: 'extension' },
     ],
   },
   {
     id: 'system',
     label: 'System',
     cards: [
-      { id: 'performance', open: true },
-      { id: 'advanced', open: false },
-      { id: 'timing-splitting', open: false },
-      { id: 'transcription-experiments', open: false },
-      { id: 'developer-mode', open: false },
+      { id: 'performance' },
+      { id: 'advanced' },
+      { id: 'timing-splitting' },
+      { id: 'transcription-experiments' },
+      { id: 'developer-mode' },
     ],
   },
 ]
 
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))
-const OPEN_BY_DEFAULT = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, c.open] as const)))
+const OPEN_BY_DEFAULT = new Set(SETTINGS_TABS.map((t) => t.cards[0].id))
 
 export const tabOfCard = (cardId: string): SettingsTab | undefined => TAB_OF_CARD.get(cardId)
-export const cardStartsOpen = (cardId: string): boolean => OPEN_BY_DEFAULT.get(cardId) ?? false
+export const cardStartsOpen = (cardId: string): boolean => OPEN_BY_DEFAULT.has(cardId)
 
 export type SettingsEntry = { cardId: string; label: string; keywords: string }
 
@@ -142,3 +141,8 @@ export function filterSettings(query: string, available: ReadonlySet<string>): S
   }
   return { cardIds, counts, total: cardIds.size }
 }
+
+export const settingsCardKey = (cardId: string) => `settings.card.${cardId}`
+
+export const tabFoldKeys = (tab: SettingsTab): string[] =>
+  SETTINGS_TABS.find((t) => t.id === tab)!.cards.map((c) => settingsCardKey(c.id))

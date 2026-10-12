@@ -21,7 +21,7 @@ import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossary
 import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
 import { InstructionsEditor } from './GlossaryInstructions'
-import { GlossaryRetranslate } from './GlossaryRetranslate'
+import { GlossaryRetranslateAction } from './GlossaryRetranslate'
 import { SuggestSpellings } from './GlossarySpellings'
 import { PossibleNames, SimilarSpellings } from './GlossaryVariants'
 import { NameReportPanel } from './NameReportPanel'
@@ -129,28 +129,9 @@ export interface RetranslateProps {
   onStarted: (jobId: string) => void
 }
 
-// The list loads when it opens, not when the page does: it reads every line.
 function RetranslateTab({ retranslate }: { retranslate?: RetranslateProps | null }) {
-  const [open, setOpen] = useState(false)
   if (!retranslate) return <p className="muted" role="status">Loading the translate options…</p>
-  return (
-    <>
-      <div className="actions">
-        <button type="button" className={`${buttonClass('secondary')} glossary-retranslate-open`} disabled={open} onClick={() => setOpen(true)}>
-          Re-translate lines affected by the glossary…
-        </button>
-        <span className="muted">Uses the settings on the Translate tab.</span>
-      </div>
-      {open && (
-        <GlossaryRetranslate
-          f={retranslate.f}
-          busy={retranslate.busy}
-          onStarted={retranslate.onStarted}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </>
-  )
+  return <GlossaryRetranslateAction {...retranslate} hint="Uses the settings on the Translate tab." />
 }
 
 export function GlossaryPanel({ focusReady, retranslate, defaultOpen }: { focusReady?: boolean; retranslate?: RetranslateProps | null; defaultOpen?: boolean }) {
@@ -473,12 +454,6 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
         </div>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
-      <LanguagePacks
-        glossarySources={(terms ?? []).map((t) => t.term_original)}
-        hasSeries={seriesId != null}
-        onAdded={() => setReloads((n) => n + 1)}
-      />
-      <VtuberNames />
         </>
       ))}
       {panel('find', (
@@ -536,6 +511,16 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           </button>
         </div>
       )}
+        </>
+      ))}
+      {panel('packs', (
+        <>
+      <LanguagePacks
+        glossarySources={(terms ?? []).map((t) => t.term_original)}
+        hasSeries={seriesId != null}
+        onAdded={() => setReloads((n) => n + 1)}
+      />
+      <VtuberNames />
         </>
       ))}
       {panel('instructions', instructions ? (

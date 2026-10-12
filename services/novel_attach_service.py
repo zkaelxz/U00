@@ -14,7 +14,6 @@ private temp folder that is always removed. No path is ever returned.
 
 No FastAPI import: takes binary file-like objects.
 """
-import importlib.util
 import io
 import os
 import posixpath
@@ -37,8 +36,7 @@ import db
 import dub_narration
 import ocr as ocr_module
 from services import drama_service, settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError)
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_TEXT_CHARS = 2_000_000
 MAX_EPUB_BYTES = 50 * 1024 * 1024
@@ -51,7 +49,6 @@ _HTML_EXTENSIONS = (".xhtml", ".html", ".htm")
 _MODES = ("append", "replace")
 _BACKENDS = {"zh": ("tesseract", "paddle"), "ja": ("manga_ocr", "tesseract"),
              "ko": ("tesseract",)}
-_BACKEND_MODULES = {"tesseract": "pytesseract", "paddle": "paddleocr", "manga_ocr": "manga_ocr"}
 _BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote"}
 _SKIP_TAGS = {"script", "style", "head"}
 _BAD_ENTRY_ERRORS = (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError,
@@ -358,8 +355,7 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
         if ext not in _IMAGE_EXTENSIONS:
             raise InvalidInputError("Unsupported image type. Upload PNG or JPG images.")
         exts.append(ext)
-    if importlib.util.find_spec(_BACKEND_MODULES[backend]) is None:
-        raise DependencyUnavailableError(f"The {backend} OCR backend is not installed.")
+    ocr_module.require_backend(backend, tesseract_cmd)
     _check_idle(drama_id)
 
     stage = tempfile.mkdtemp(prefix=".ocr_", dir=db.drama_dir(drama_id))
