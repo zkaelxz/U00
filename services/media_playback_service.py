@@ -55,7 +55,8 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
     """(start, end, ass_text) for a short burned-subtitle preview
     around `line` -- `pad` seconds either side -- timed to the clip the
     same way the vertical export is. style_state: optional {style,
-    speaker_colors, speaker_names, wrap_chars}; None or no style = the
+    speaker_colors, speaker_names, wrap_chars, language,
+    chinese_script}; None or no style = the
     "Clean" preset."""
     style_state = style_state or {}
     start, end = max(line.start - pad, 0.0), line.end + pad
@@ -65,5 +66,7 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
         clip_lines, style_state.get("style") or subtitle_formats.ASS_PRESETS["Clean"], field,
         speaker_colors=style_state.get("speaker_colors"),
         speaker_names=style_state.get("speaker_names"),
-        wrap_chars=style_state.get("wrap_chars"))
+        wrap_chars=style_state.get("wrap_chars"),
+        language=style_state.get("language"),
+        chinese_script=style_state.get("chinese_script") or "simplified")
     return start, end, ass

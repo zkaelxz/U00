@@ -4,6 +4,7 @@ import { suggestFrom } from './suggestTerms'
 
 import { ME } from './authMocks'
 import { withExportLines, withTranslateLines } from './stageLineMocks'
+import { showTranslateCard } from './translateTabs'
 
 // Glossary helpers: Glossary → Suggest terms from the transcript (parity X10), Review glossary
 // before translating (X28) and the novel glossary in Translate (T02).
@@ -28,6 +29,7 @@ async function reviewToggle(page: Page) {
 }
 
 async function openSection(page: Page, title: string) {
+  await showTranslateCard(page, title)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
@@ -369,13 +371,15 @@ test.describe('desktop', () => {
     await box.getByLabel('Policy for 魏婴').selectOption('hybrid')
     await expect(box.getByRole('button', { name: 'Add 1 term to series glossary' })).toBeVisible()
 
-    // The review before translating starts run-2 while the panel stays mounted.
+    // The review before translating starts run-2 while the panel stays mounted (on its hidden tab).
+    await showTranslateCard(page, 'Translate run')
     const run = page.getByRole('region', { name: 'Translate run' })
     await (await reviewToggle(page)).click()
     await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     await expect(page.getByTestId('glossary-review-proposals').locator('tbody tr')).toHaveCount(3)
     expect(starts).toEqual(['lines', 'lines'])
 
+    await showTranslateCard(page, 'Glossary')
     await expect(box.getByTestId('lines-glossary-proposals').locator('tbody tr')).toHaveCount(3)
     await expect(box.getByLabel('Select 蓝湛')).toBeChecked()
     await expect(box.getByLabel('Select 江澄')).toBeChecked()

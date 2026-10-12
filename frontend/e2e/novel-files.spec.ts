@@ -2,6 +2,7 @@ import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
 import { openAdvanced } from './sourceHelpers'
+import { gotoTranslate } from './translateTabs'
 
 // Novel reference (Translate) and raw novel (Transcribe, on the Source page):
 // the novel-files endpoints are mocked with an in-memory store, and every
@@ -55,7 +56,9 @@ const txt = (name = 'novel.txt') => ({ name, mimeType: 'text/plain', buffer: Buf
 
 test('Translate: upload, replace and remove the English novel reference', async ({ page }) => {
   const { uploads } = await mockNovelFiles(page)
-  await page.goto('/#/drama/1/translate')
+  // The card opens by itself on a fresh browser; folded, its summary says what is saved.
+  await page.addInitScript(() => localStorage.setItem('baihe.section.novelfile.reference', '0'))
+  await gotoTranslate(page, 'novel')
   const panel = page.getByRole('region', { name: 'Novel reference (English translation)' })
   await expect(panel.getByText('None saved', { exact: true })).toBeVisible()
   await panel.locator('.section-title').click()
@@ -110,9 +113,8 @@ test('Source: uploading the raw novel refreshes the automatic prompt', async ({ 
 
 test('a 409 while a job runs is shown and nothing changes', async ({ page }) => {
   await mockNovelFiles(page, { uploadStatus: 409 })
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'novel')
   const panel = page.getByRole('region', { name: 'Novel reference (English translation)' })
-  await panel.locator('.section-title').click()
   await panel.getByLabel('Reference file', { exact: true }).setInputFiles(txt())
   await panel.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(panel.getByRole('alert')).toBeVisible()
@@ -126,9 +128,8 @@ test('remote viewers see the status but no upload or remove controls', async ({ 
     const resp = await route.fetch()
     return route.fulfill({ response: resp, json: { ...(await resp.json()), local: false } })
   })
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'novel')
   const panel = page.getByRole('region', { name: 'Novel reference (English translation)' })
-  await panel.locator('.section-title').click()
   await expect(page.getByTestId('novel-file-status-reference')).toContainText('90 characters')
   await expect(panel.getByText('Run this on the main PC.')).toBeVisible()
   await expect(panel.getByLabel('Reference file', { exact: true })).toHaveCount(0)
@@ -137,9 +138,8 @@ test('remote viewers see the status but no upload or remove controls', async ({ 
 
 test('paste text instead of a file, with a live character count', async ({ page }) => {
   const { pastes, uploads } = await mockNovelFiles(page)
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'novel')
   const panel = page.getByRole('region', { name: 'Novel reference (English translation)' })
-  await panel.locator('.section-title').click()
   await panel.getByRole('radio', { name: 'Paste text' }).check()
   await expect(panel.getByLabel('Reference file', { exact: true })).toHaveCount(0)
   const save = panel.getByRole('button', { name: 'Save', exact: true })

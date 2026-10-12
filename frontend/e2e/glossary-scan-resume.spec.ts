@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
 import { glossarySetup, heldScan, prop } from './glossaryScanMocks'
+import { gotoTranslate } from './translateTabs'
 
 // A glossary scan outlives the page that started it: leaving, coming back, a reload or a
 // toggle that is off must still show it. The server's scan routes are mocked.
@@ -109,7 +110,7 @@ test('a scan that finishes while the window is in the background is picked up on
 test('a folded Glossary section still says a scan is waiting', async ({ page }) => {
   await mock(page, { lines: heldScan({ status: 'done', progress: 1, proposals: [prop('魏婴', 'Wei Ying')] }) })
   await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '0'))
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   const fold = page.locator('details.section', { has: page.locator('.section-title', { hasText: /^Glossary$/ }) }).first()
   await expect(fold.locator(':scope > summary .section-summary')).toContainText('scan finished, 1 to review')
 })
@@ -124,7 +125,7 @@ test('a failed scan is reported with a way to see it', async ({ page }) => {
 
 test('no banner when nothing is held, or the scan found nothing', async ({ page }) => {
   await mock(page, { lines: heldScan({ status: 'done', progress: 1, proposals: [] }) })
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   await expect(glossary(page).getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   await expect(banner(page)).toHaveCount(0)
 })
@@ -157,7 +158,7 @@ test('Suggest spellings comes back with its result and the English name after le
     }
     return route.fulfill({ json: ran ? SPELLING_DONE : { job_id: '', status: 'idle', progress: 0, message: '', run_id: null, result: null } })
   })
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   await glossary(page).getByRole('button', { name: 'Suggest spellings of ヤロ' }).click()
   const panel = glossary(page).getByRole('region', { name: 'Suggest spellings of ヤロ' })
   await panel.getByRole('textbox', { name: 'Name in English' }).fill('Yaro')

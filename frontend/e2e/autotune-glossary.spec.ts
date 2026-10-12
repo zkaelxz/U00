@@ -4,6 +4,7 @@ import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
 import { mediaTab } from './mediaTabs'
 import { openAdvanced } from './sourceHelpers'
+import { showTranslateCard } from './translateTabs'
 
 // Auto-tune (Transcribe > Advanced), Glossary > Suggest terms, and the PC-only
 // stage deletes. Drama reads hit the real seeded API; the auto-tune and
@@ -28,6 +29,7 @@ async function shot(page: Page, name: string) {
 }
 
 async function openSection(page: Page, title: string) {
+  await showTranslateCard(page, title)
   await openFoldFor(page, title)
   // Auto-tune and the Advanced options folds are on the Tools tab.
   if (title === 'Auto-tune min silence') await mediaTab(page, 'tools').click()
@@ -495,7 +497,7 @@ test.describe('PC-only stage deletes', () => {
     await page.getByRole('button', { name: 'Confirm remove audio/video' }).click()
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
-    await expect(page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })).toHaveAttribute('href', '#/drama/1/translate')
+    await expect(page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
     // The raw novel's own panel sits on the Tools tab.
     await mediaTab(page, 'tools').click()
     const raw = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })

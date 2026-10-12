@@ -657,3 +657,34 @@ class TestWrapIsLanguageAgnostic:
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="長い" * 30, lang="ja")])
         text = export_service.generate_subtitle_text(did, "srt", "zh")
         assert text.strip().split("\n")[2] == "長い" * 30
+
+
+class TestSourceWrapUsesTheTitlesLanguage:
+    TEXT = "あいうえおかきくけこさしすせそたちつてと"
+
+    @pytest.mark.parametrize("fmt", ["srt", "vtt", "lrc", "ass"])
+    def test_every_format_breaks_the_source_with_the_drama_language(self, isolated_db, monkeypatch, fmt):
+        import segment
+        seen = []
+
+        def tiers(text, language, script="simplified"):
+            seen.append((language, script))
+            return [{10}]
+        monkeypatch.setattr(segment, "line_break_tiers", tiers)
+        did = _drama(isolated_db, source_language="ja", chinese_script="traditional")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh=self.TEXT, en="Hi")])
+        if fmt == "ass":
+            text = export_service.generate_ass_text(did, "zh", wrap_chars_source=16)
+        else:
+            text = export_service.generate_subtitle_export(did, fmt, "zh", wrap_chars_source=16)["text"]
+        assert self.TEXT[:10] in text and self.TEXT[:16] not in text
+        assert set(seen) == {("ja", "traditional")}
+
+    def test_burn_preview_ass_carries_the_language(self, monkeypatch):
+        import segment
+        from services import media_playback_service
+        monkeypatch.setattr(segment, "line_break_tiers", lambda *a, **k: [{10}])
+        line = Line(idx=0, start=0.0, end=2.0, zh=self.TEXT, en="")
+        _, _, ass = media_playback_service.burn_preview_ass(
+            [line], line, {"wrap_chars": {"en": 42, "zh": 16}, "language": "ja"})
+        assert self.TEXT[:10] + "\\N" in ass

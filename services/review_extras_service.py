@@ -530,7 +530,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     Export stage would burn. The clip is capped at
     MAX_CLIP_SECONDS and replaces any earlier preview of this drama. At
     most MAX_CONCURRENT_BURN_PREVIEWS render at once, server-wide (409)."""
-    _require_drama(drama_id)
+    drama = _require_drama(drama_id)
     if isinstance(line_id, bool) or not isinstance(line_id, int):
         raise InvalidInputError("line_id must be an integer.")
     pad = _bounded("pad_seconds", DEFAULT_PAD_SECONDS if pad_seconds is None else pad_seconds,
@@ -569,7 +569,8 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     start, end, ass = media_playback_service.burn_preview_ass(
         lines, line, {"style": merged_style, "speaker_colors": colors, "speaker_names": names,
                       "wrap_chars": export_service.build_wrap_chars(wrap_chars_en,
-                                                                     wrap_chars_source)},
+                                                                     wrap_chars_source),
+                      **export_service.break_language(drama)},
         pad=pad)
     end = min(end, start + MAX_CLIP_SECONDS)
     meta = {"line_id": line.id, "idx": line.idx, "start": start, "end": end, "preset": preset,

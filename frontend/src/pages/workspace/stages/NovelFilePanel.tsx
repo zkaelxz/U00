@@ -71,11 +71,13 @@ type Source = 'file' | 'paste'
 interface Props {
   kind: NovelFileKind
   busy?: boolean
+  // Open the card when the viewer has not folded or unfolded it yet.
+  defaultOpen?: boolean
   // Called after a successful save or removal (e.g. to reload the auto prompt).
   onChanged?: () => void
 }
 
-export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
+export function NovelFilePanel({ kind, busy = false, defaultOpen, onChanged }: Props) {
   const { dramaId } = useStage()
   const pc = usePcOnly()
   const copy = COPY[kind]
@@ -139,7 +141,7 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
 
   return (
     <div role="region" aria-label={copy.title}>
-    <Section storageKey={`novelfile.${kind}`} title={copy.title} summary={novelFileSummary(status)}>
+    <Section storageKey={`novelfile.${kind}`} defaultOpen={defaultOpen} title={copy.title} summary={novelFileSummary(status)}>
         <p className="muted" data-testid={`novel-file-status-${kind}`}>{novelFileStatusLine(status)}</p>
         {pc === 'remote' ? (
           <p className="muted">{PC_ONLY_BODY}</p>

@@ -378,3 +378,30 @@ class TestEvenCutReason:
         new, changed = rs.resegment_lines([ln], "zh", even_split=False,
                                           boundaries_fn=lambda *a: set(range(len(RUN_ON) + 1)))
         assert changed and long_line_split.resegment_reason([ln], "zh", changed, new) == ""
+
+
+class TestEvenSpansSnapToWords:
+    TEXT = "あいうえおかきくけこさしすせそたちつてとなにぬねの"  # 25 chars
+
+    def _spans(self, bounds):
+        return rs.even_spans(0, len(self.TEXT), 10, self.TEXT, bounds)
+
+    def test_without_bounds_the_cuts_are_equal_as_before(self):
+        assert rs.even_spans(0, 25, 10) == [(0, 9), (9, 18), (18, 25)]
+
+    def test_cut_moves_to_the_nearest_word_boundary_within_a_quarter(self):
+        assert self._spans({0, 7, 17, 25}) == [(0, 7), (7, 17), (17, 25)]
+
+    def test_boundary_farther_than_a_quarter_span_is_ignored(self):
+        assert self._spans({0, 4, 25}) == [(0, 9), (9, 18), (18, 25)]
+
+    def test_snapping_never_makes_a_piece_longer_than_the_limit(self):
+        spans = self._spans({0, 11, 12, 25})  # 11 would give a first piece of 11 > 10
+        assert all(e - s <= 10 for s, e in spans)
+        assert spans[0][0] == 0 and spans[-1][1] == 25
+        assert all(a[1] == b[0] for a, b in zip(spans, spans[1:]))
+
+    def test_cut_never_lands_before_small_kana_or_punctuation(self):
+        text = "あいうえおかきくけこさしすせそたちつてとなにぬゃ。"
+        spans = rs.even_spans(0, len(text), 10, text, {0, 9, 10, 17, len(text)})
+        assert all(text[s] not in "ゃ。" for s, _ in spans)

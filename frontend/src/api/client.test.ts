@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { api, ApiError, buildDramaQuery } from './client'
 
@@ -53,5 +53,39 @@ describe('api client', () => {
     const err = await api.health(down).catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err.code).toBe('network_error')
+  })
+})
+
+describe('error mapping inputs', () => {
+  it('records the request method on the ApiError', async () => {
+    const body = { error: { code: 'validation_error', message: '2000 characters max' } }
+    const read = await api.getDrama(1, fakeFetch(422, body)).catch((e) => e)
+    expect(read.method).toBe('GET')
+    const { postJson } = await import('./client')
+    const write = (await postJson('/api/x', {}, fakeFetch(422, body)).catch((e) => e)) as ApiError
+    expect([write.status, write.method, write.message]).toEqual([422, 'POST', '2000 characters max'])
+  })
+
+  it('a thrown fetch becomes a network_error', async () => {
+    const down = (async () => { throw new TypeError('Failed to fetch') }) as typeof fetch
+    const err = await api.getDrama(1, down).catch((e) => e)
+    expect([err.status, err.code, err.method]).toEqual([0, 'network_error', 'GET'])
+  })
+
+  it('a request that never answers ends as a timeout error', async () => {
+    vi.useFakeTimers()
+    try {
+      const hung = ((_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise((_res, rej) => {
+          init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+        })) as typeof fetch
+      const { postJson } = await import('./client')
+      const pending = postJson('/api/x', {}, hung).catch((e) => e as ApiError)
+      await vi.advanceTimersByTimeAsync(120_000)
+      const err = (await pending) as ApiError
+      expect([err.status, err.code, err.method]).toEqual([0, 'timeout', 'POST'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

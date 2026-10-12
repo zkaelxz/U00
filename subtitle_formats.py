@@ -36,6 +36,8 @@ DEFAULT_LINE_CHAR_LIMIT = 42
 # Break AFTER one of these when one falls inside the limit.
 _SENTENCE_END = "。！？!?…"
 _CLAUSE_END = "，、；：,;:"
+# Closing punctuation and small kana must stay with the character before them.
+NO_LINE_START = frozenset("。、，．！？!?,.;:；：…）)」』】〉》”’ーゃゅょっぁぃぅぇぉゎゕゖャュョッァィゥェォヮヵヶ")
 _CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]")
 
 
@@ -47,36 +49,65 @@ def _is_cjk(text: str) -> bool:
     return bool(text) and len(_CJK.findall(text)) * 2 >= len(text.replace(" ", ""))
 
 
-def _break_point(text: str, limit: int) -> int:
+def _break_tiers(text: str, language, chinese_script: str):
+    """Allowed CJK break offsets by preference (segment.line_break_tiers), or
+    None. segment's segmenters are optional, so this module must import and
+    wrap without them."""
+    if language not in ("ja", "zh"):
+        return None
+    try:
+        import segment
+        return segment.line_break_tiers(text, language, chinese_script)
+    except ImportError:
+        return None
+
+
+def _cjk_cut(text: str, limit: int, floor: int, language, chinese_script: str) -> int:
+    for offsets in _break_tiers(text, language, chinese_script) or ():
+        cut = max((o for o in offsets if floor <= o <= limit and text[o] not in NO_LINE_START), default=0)
+        if cut:
+            return cut
+    # No segmenter, or no word end in the window: cut at the limit, but not
+    # right before a character that cannot start a line (a lone 。 or small kana).
+    cut = limit
+    while cut > floor and text[cut] in NO_LINE_START:
+        cut -= 1
+    return cut
+
+
+def _break_point(text: str, limit: int, language=None, chinese_script: str = "simplified") -> int:
     """Where to break `text` (index of the first char of the next line),
     or 0 if it can't be broken without splitting a word."""
     window = text[:limit]
     floor = max(1, limit // 3)  # don't leave a stub of 1-2 characters on the first line
     for marks in (_SENTENCE_END, _CLAUSE_END):
-        cut = max((i + 1 for i, ch in enumerate(window) if ch in marks and i + 1 >= floor), default=0)
+        cut = max((i + 1 for i, ch in enumerate(window)
+                   if ch in marks and i + 1 >= floor and text[i + 1:i + 2] not in NO_LINE_START),
+                  default=0)
         if cut:
             return cut
     space = window.rfind(" ")
     if space >= floor:
         return space + 1
     if _is_cjk(text):
-        return limit  # CJK has no spaces: any character boundary is a word boundary
+        return _cjk_cut(text, limit, floor, language, chinese_script)
     nxt = text.find(" ", limit)
     return nxt + 1 if nxt != -1 else 0  # one long word: keep it whole
 
 
-def wrap_text(text: str, max_chars: int) -> str:
+def wrap_text(text: str, max_chars: int, language=None, chinese_script: str = "simplified") -> str:
     """Wraps each existing line of `text` onto several lines of at most
     max_chars where it can: at a sentence end, else a clause break, else a
     space -- never inside a word. A single word longer than the limit stays
-    whole rather than being cut."""
+    whole rather than being cut. language ("ja"/"zh") lets CJK text, which
+    has no spaces, break between words when a segmenter is installed."""
     if not max_chars or max_chars <= 0:
         return text
     out = []
     for para in text.split("\n"):
         rest = para
         while len(rest) > max_chars:
-            cut = _break_point(rest, max_chars)
+            cut = _break_point(rest, max_chars, language, chinese_script)
             if not cut or cut >= len(rest):
                 break
             out.append(rest[:cut].rstrip())
@@ -343,35 +374,40 @@ def _vtt_escape(text: str) -> str:
     return html.escape(text, quote=False) if text else text
 
 
-def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True, escape=False):
+def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True, escape=False,
+              language=None, chinese_script="simplified"):
     """italic_tags: whether an SFX cue gets <i> tags (VTT) or is left for
     the caller to style (ASS's own "SFX" style). escape: entity-escape the
     line's own text for WebVTT, before any <i> tags are added (SRT and ASS
-    are not markup of this kind, so they get the text as it is)."""
+    are not markup of this kind, so they get the text as it is). language
+    is the source language: only the "zh" (source) text is broken with it."""
     esc = _vtt_escape if escape else (lambda s: s)
     sfx = getattr(ln, "sfx", False)
     if field == "bilingual":
         en = esc(wrap_text(ln.en, wrap_chars.get("en")) if wrap_chars else ln.en)
-        zh = esc(wrap_text(ln.zh, wrap_chars.get("zh")) if wrap_chars else ln.zh)
+        zh = esc(wrap_text(ln.zh, wrap_chars.get("zh"), language, chinese_script) if wrap_chars else ln.zh)
         if sfx:
             en, zh = sfx_cue_text(en, italic_tags), sfx_cue_text(zh, italic_tags)
         text = f"{en}\n{zh}" if en else zh
     else:
         text = getattr(ln, field)
         if wrap_chars:
-            text = wrap_text(text, wrap_chars.get(field))
+            text = wrap_text(text, wrap_chars.get(field),
+                             language if field == "zh" else None, chinese_script)
         text = esc(text)
         if sfx:
             text = sfx_cue_text(text, italic_tags)
     return text + esc(notes_suffix(ln.idx, notes_by_idx))
 
 
-def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None) -> str:
+def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None,
+                 language=None, chinese_script: str = "simplified") -> str:
     """field: "en", "zh" or "bilingual". wrap_chars: optional
     {"en": n, "zh": n} per-line character limits (see wrap_text)."""
     cues = ["WEBVTT\n"]
     for i, ln in enumerate(lines, start=1):
-        text = _cue_text(ln, field, notes_by_idx, wrap_chars, escape=True)
+        text = _cue_text(ln, field, notes_by_idx, wrap_chars, escape=True,
+                         language=language, chinese_script=chinese_script)
         # A blank line ends a cue, so the rest of the text would be lost:
         # keep only the lines that have something on them.
         text = "\n".join(part for part in re.split(r"\r\n|\r|\n", text) if part.strip())
@@ -388,7 +424,8 @@ def _lrc_ts(seconds: float) -> str:
     return f"[{m:02d}:{cs // 100:02d}.{cs % 100:02d}]"
 
 
-def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None) -> str:
+def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None,
+                 language=None, chinese_script: str = "simplified") -> str:
     """Lyrics-style timed text: one stamp per cue, where a cue starts. A cue
     that ends before the next one starts also gets an empty stamp at its end,
     so a player doesn't keep showing it through the gap (LRC has no end
@@ -399,9 +436,10 @@ def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars
     for i, ln in enumerate(lines):
         # Each language is flattened on its own, so a two-line translation
         # still leaves exactly one source row under the stamp.
-        texts = ([_cue_text(ln, "en", notes_by_idx, wrap_chars, italic_tags=False),
-                  _cue_text(ln, "zh", None, wrap_chars, italic_tags=False)]
-                 if field == "bilingual" else [_cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=False)])
+        cue = dict(wrap_chars=wrap_chars, italic_tags=False, language=language,
+                   chinese_script=chinese_script)
+        texts = ([_cue_text(ln, "en", notes_by_idx, **cue), _cue_text(ln, "zh", None, **cue)]
+                 if field == "bilingual" else [_cue_text(ln, field, notes_by_idx, **cue)])
         parts = [" ".join(t.split()) for t in texts]
         parts = [p for p in parts if p]
         if not parts:
@@ -516,7 +554,8 @@ def _ass_field(value: str) -> str:
 def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = None,
                  speaker_colors: dict = None, speaker_names: dict = None,
                  wrap_chars: dict = None, title: str = "",
-                 notes_as_separate_line: bool = False) -> str:
+                 notes_as_separate_line: bool = False,
+                 language=None, chinese_script: str = "simplified") -> str:
     """style: a dict shaped like ASS_PRESETS' values. speaker_colors:
     {speaker_label: "#RRGGBB"} -- each speaker gets its own Style with that
     fill colour (so libass colours them without any override tags); None
@@ -561,7 +600,8 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
               "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
     for ln in lines:
         cue_notes = None if notes_as_separate_line else notes_by_idx
-        text = _ass_escape(_cue_text(ln, field, cue_notes, wrap_chars, italic_tags=False))
+        text = _ass_escape(_cue_text(ln, field, cue_notes, wrap_chars, italic_tags=False,
+                                     language=language, chinese_script=chinese_script))
         start, end = _ass_ts(ln.start), _ass_ts(ln.end)
         if getattr(ln, "sfx", False):
             events.append(f"Dialogue: 0,{start},{end},{SFX_STYLE_NAME},,0,0,0,,{text}")
@@ -576,7 +616,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
     return "\n".join(header + events) + "\n"
 
 
-def wrap_lines(lines, wrap_chars: dict):
+def wrap_lines(lines, wrap_chars: dict, language=None, chinese_script: str = "simplified"):
     """Copies of `lines` with en/zh wrapped (for SRT, whose writer stays
     untouched). wrap_chars None -> the lines unchanged."""
     if not wrap_chars:
@@ -585,6 +625,6 @@ def wrap_lines(lines, wrap_chars: dict):
     for ln in lines:
         c = copy.copy(ln)
         c.en = wrap_text(ln.en, wrap_chars.get("en"))
-        c.zh = wrap_text(ln.zh, wrap_chars.get("zh"))
+        c.zh = wrap_text(ln.zh, wrap_chars.get("zh"), language, chinese_script)
         out.append(c)
     return out
