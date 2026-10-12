@@ -419,3 +419,166 @@ def test_clean_now_refuses_while_the_gpu_lock_is_held(isolated_db, monkeypatch):
     monkeypatch.setattr(gpu_slots, "status", lambda: ("cli", 1))
     with pytest.raises(ConflictError):
         temp_cleanup_service.clean_now()
+
+
+# --- job processes left running by a server that died -----------------------
+
+linux_pidfd = pytest.mark.skipif(not (os.path.isdir("/proc/self") and hasattr(os, "pidfd_open")),
+                                 reason="identity checks and race-free kill need /proc and pidfd")
+
+
+def _sleeper():
+    import subprocess
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                            start_new_session=True)
+
+
+def _dead_pid():
+    import subprocess
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def _running(proc):
+    return proc.poll() is None
+
+
+def _orphan_folder(job_id, owner_pid, child=None):
+    """A work folder as a dead (or live) server leaves it: its hold marker
+    names `owner_pid` and, with `child`, a note for that process."""
+    path = storage.new_workdir(job_id)
+    if child is not None:
+        with storage.holding(path):
+            assert storage.record_job_child(job_id, child.pid) == 1
+    with open(os.path.join(path, storage.HOLD_MARKER), "w") as fh:
+        fh.write(str(owner_pid))
+    with open(os.path.join(path, "out.mp4"), "wb") as fh:
+        fh.write(b"x" * 100)
+    return path
+
+
+@pytest.fixture
+def sleepers():
+    procs = []
+    yield lambda: procs.append(_sleeper()) or procs[-1]
+    for proc in procs:
+        if _running(proc):
+            proc.kill()
+        proc.wait()
+
+
+@linux_pidfd
+def test_a_dead_servers_export_child_is_stopped_and_its_folder_removed(isolated_db, sleepers):
+    child = sleepers()
+    path = _orphan_folder("burned_video_1", _dead_pid(), child)
+    assert storage.stop_orphaned_job_children() == {"stopped": 1, "removed": 1}
+    assert child.wait(timeout=5) is not None
+    assert not os.path.exists(path)
+
+
+@linux_pidfd
+def test_a_reused_child_pid_is_not_killed(isolated_db, sleepers, tmp_path):
+    # The noted pid now belongs to another process: its start time differs.
+    other = sleepers()
+    path = _orphan_folder("burned_video_1", _dead_pid(), other)
+    note = os.path.join(path, f"{storage.CHILD_MARKER_PREFIX}{other.pid}")
+    with open(note) as fh:
+        text = fh.read()
+    with open(note, "w") as fh:
+        fh.write(text.replace('"start": "', '"start": "0'))
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 1}
+    time.sleep(0.2)
+    assert _running(other)
+
+
+@linux_pidfd
+def test_an_owner_pid_alive_as_another_process_leaves_everything(isolated_db, sleepers):
+    # The hold marker's pid was reused by an unrelated live process, so the
+    # folder can't be shown to be orphaned: nothing is killed or removed.
+    unrelated, child = sleepers(), sleepers()
+    path = _orphan_folder("burned_video_1", unrelated.pid, child)
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    time.sleep(0.2)
+    assert _running(unrelated) and _running(child)
+    assert os.path.isfile(os.path.join(path, "out.mp4"))
+
+
+@linux_pidfd
+def test_a_live_owner_keeps_its_child_and_folder(isolated_db, sleepers):
+    child = sleepers()
+    path = _orphan_folder("burned_video_1", os.getppid(), child)
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert _running(child)
+    assert os.path.isdir(path)
+
+
+def test_our_own_pid_in_a_marker_is_never_treated_as_dead(isolated_db):
+    path = _orphan_folder("burned_video_1", os.getpid())
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert os.path.isdir(path)
+
+
+def test_a_link_in_tmp_to_an_outside_folder_is_ignored(isolated_db, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / storage.HOLD_MARKER).write_text(str(_dead_pid()))
+    (outside / "precious.bin").write_bytes(b"x")
+    try:
+        os.symlink(outside, os.path.join(storage.temp_root(), "burned_video_1~link"),
+                   target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert (outside / "precious.bin").exists()
+
+
+def test_a_hold_marker_that_is_a_link_is_ignored(isolated_db, tmp_path):
+    target = tmp_path / "elsewhere"
+    target.write_text(str(_dead_pid()))
+    path = storage.new_workdir("burned_video_1")
+    try:
+        os.symlink(target, os.path.join(path, storage.HOLD_MARKER))
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert os.path.isdir(path) and target.exists()
+
+
+def test_a_folder_without_a_hold_marker_is_left_to_the_age_sweep(isolated_db):
+    path = storage.new_workdir("burned_video_1")
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert os.path.isdir(path)
+
+
+def test_an_unreadable_child_note_keeps_the_folder(isolated_db):
+    path = _orphan_folder("burned_video_1", _dead_pid())
+    with open(os.path.join(path, f"{storage.CHILD_MARKER_PREFIX}123"), "w") as fh:
+        fh.write("{not json")
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert os.path.isdir(path)
+
+
+def test_a_child_that_cannot_be_checked_keeps_the_folder(isolated_db, monkeypatch):
+    from lib import proc_kill
+    path = _orphan_folder("burned_video_1", _dead_pid())
+    with open(os.path.join(path, f"{storage.CHILD_MARKER_PREFIX}123"), "w") as fh:
+        fh.write('{"pid": 123, "identity": {"start": "1", "cmd": "x"}}')
+    monkeypatch.setattr(proc_kill, "stop_if_same", lambda pid, identity: "kept")
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert os.path.isdir(path)
+
+
+@linux_pidfd
+def test_run_cancellable_notes_its_child_in_the_jobs_work_folder(isolated_db):
+    import json
+    seen = {}
+    with storage.job_workdir("burned_video_7") as path:
+        background_jobs.run_cancellable(
+            "burned_video_7", [sys.executable, "-c", "import time; time.sleep(0.5)"], cwd=path)
+        seen["notes"] = [n for n in os.listdir(path)
+                         if n.startswith(storage.CHILD_MARKER_PREFIX)]
+        with open(os.path.join(path, seen["notes"][0])) as fh:
+            seen["note"] = json.load(fh)
+    assert len(seen["notes"]) == 1
+    assert set(seen["note"]["identity"]) == {"start", "cmd"}

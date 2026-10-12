@@ -201,3 +201,38 @@ def test_kill_tree_failure_does_not_raise_and_logs_only_the_type(monkeypatch, ca
         proc_kill.kill_tree(_Proc())
     assert "PermissionError" in caplog.text
     assert "secret-token-in-message" not in caplog.text
+
+
+linux_pidfd = pytest.mark.skipif(not (os.path.isdir("/proc/self") and hasattr(os, "pidfd_open")),
+                                 reason="identity checks and race-free kill need /proc and pidfd")
+
+
+@linux_pidfd
+def test_stop_if_same_kills_only_the_noted_process():
+    import subprocess
+    from lib import proc_kill
+    a = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    b = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(61)"])
+    try:
+        ident_a = proc_kill.process_identity(a.pid)
+        assert ident_a and ident_a != proc_kill.process_identity(b.pid)
+        # b's pid with a's identity: the "pid reused" case.
+        assert proc_kill.stop_if_same(b.pid, ident_a) == "gone"
+        assert b.poll() is None
+        assert proc_kill.stop_if_same(a.pid, ident_a) == "stopped"
+        assert a.wait(timeout=5) is not None
+    finally:
+        for p in (a, b):
+            if p.poll() is None:
+                p.kill()
+            p.wait()
+
+
+def test_stop_if_same_never_targets_this_process_or_a_bad_note():
+    from lib import proc_kill
+    me = proc_kill.process_identity(os.getpid())
+    assert proc_kill.stop_if_same(os.getpid(), me or {}) == "kept"
+    assert proc_kill.stop_if_same("x", {}) == "kept"
+    assert proc_kill.stop_if_same(0, {}) == "kept"
+    assert proc_kill.stop_if_same(123, "not a dict") == "kept"
+

@@ -316,6 +316,146 @@ def _held_by_other_process(path: str, now: float) -> bool:
     return background_jobs.owner_process_alive(pid)
 
 
+def _read_small_regular_file(path: str, limit: int = 4096) -> str | None:
+    """The text of `path` if it is a plain file (never a link) of at most
+    `limit` bytes, else None."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    try:
+        if _is_link(path):
+            return None
+        fd = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+            return None
+        return os.read(fd, limit + 1).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    finally:
+        os.close(fd)
+
+
+# Next to the hold marker: one file per external process a job started in its
+# folder, naming the process by pid, start time and command, so a later start
+# can stop it if this server dies first without trusting the pid alone.
+CHILD_MARKER_PREFIX = ".baihe-child-"
+
+
+def record_job_child(job_id, pid: int) -> int:
+    """Notes job `job_id`'s external process in the work folders this process
+    holds for that job (job_workdir(job_id)). Returns how many folders got the
+    note; 0 when the job holds none or the process can't be identified."""
+    import json
+
+    from lib import proc_kill
+    identity = proc_kill.process_identity(pid)
+    if identity is None:
+        return 0
+    owner = os.path.normcase(_owner_token(job_id))
+    with _held_lock:
+        folders = [p for p in _held
+                   if _OWNER_SEP in os.path.basename(p)
+                   and os.path.basename(p).rsplit(_OWNER_SEP, 1)[0] == owner]
+    note = json.dumps({"pid": int(pid), "identity": identity})
+    written = 0
+    for folder in folders:
+        try:
+            with open(os.path.join(folder, f"{CHILD_MARKER_PREFIX}{int(pid)}"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(note)
+            written += 1
+        except OSError:
+            pass
+    return written
+
+
+def _hold_owner_pid(path: str) -> int | None:
+    text = _read_small_regular_file(os.path.join(path, HOLD_MARKER), limit=64)
+    try:
+        pid = int(text.strip())
+    except (AttributeError, ValueError):
+        return None
+    return pid if pid > 0 else None
+
+
+def _child_notes(path: str) -> list | None:
+    """[(pid, identity)] for every child note in `path`; None if any note is
+    unreadable, because a note that can't be read might name a live child."""
+    import json
+    notes = []
+    try:
+        names = [n for n in os.listdir(path) if n.startswith(CHILD_MARKER_PREFIX)]
+    except OSError:
+        return None
+    for name in names:
+        try:
+            data = json.loads(_read_small_regular_file(os.path.join(path, name)) or "")
+            pid, identity = int(data["pid"]), data["identity"]
+        except (ValueError, TypeError, KeyError):
+            return None
+        if not isinstance(identity, dict):
+            return None
+        notes.append((pid, identity))
+    return notes
+
+
+def stop_orphaned_job_children() -> dict:
+    """Startup only. For each folder directly in <library>/tmp whose hold
+    marker names a Baihe process that is no longer running: stops the
+    external processes its jobs noted (record_job_child) if each is still
+    the very process noted, then removes the folder. A folder is left alone
+    when it is a link, has no readable hold marker, its owner is alive
+    (another Baihe on this library, or a pid now used by something else), it
+    belongs to a job or hold of this process, or any noted process could not
+    be confirmed stopped. Returns {"stopped", "removed"}; logs counts only."""
+    import background_jobs
+    import db
+    from lib import proc_kill
+    out = {"stopped": 0, "removed": 0}
+    root = os.path.join(db.LIBRARY_DIR, TEMP_DIRNAME)
+    if _is_link(root):
+        return out
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return out
+    live_jobs = {_owner_token(j) for j in background_jobs.active_job_ids()}
+    with _held_lock:
+        held = set(_held)
+    deadline = time.monotonic() + SWEEP_MAX_SECONDS
+    for examined, name in enumerate(names):
+        if examined >= SWEEP_MAX_EXAMINED or time.monotonic() > deadline:
+            break
+        path = os.path.join(root, name)
+        owner_job = name.rsplit(_OWNER_SEP, 1)[0] if _OWNER_SEP in name else None
+        if (owner_job in live_jobs or _norm(path) in held or _is_link(path)
+                or not os.path.isdir(path)):
+            continue
+        owner = _hold_owner_pid(path)
+        if owner is None or owner == os.getpid() or background_jobs.owner_process_alive(owner):
+            continue
+        notes = _child_notes(path)
+        if notes is None:
+            continue
+        results = [proc_kill.stop_if_same(pid, identity) for pid, identity in notes]
+        out["stopped"] += results.count("stopped")
+        if "kept" in results:
+            continue
+        try:
+            shutil.rmtree(path)
+            out["removed"] += 1
+        except OSError:
+            pass   # a file still open on Windows; the age-based sweep retries later
+    if out["stopped"] or out["removed"]:
+        import logging
+        logging.getLogger("baihe").info(
+            "stopped %d leftover job process(es) and removed %d work folder(s) of a "
+            "Baihe that is no longer running", out["stopped"], out["removed"])
+    return out
+
+
 @contextlib.contextmanager
 def job_workdir(job_id=None, dir=None):
     """A work folder removed on exit. `dir` overrides the parent (tests)."""
