@@ -1,6 +1,7 @@
 /*
  * Settings > App updates: the installed version, "Check for updates",
- * "Download" (checked against the release's SHA-256) and "Install and
+ * "Download" (checked against the release's SHA-256 and, when this copy has
+ * a release key, its signature) and "Install and
  * restart…" behind a confirm, which opens the installer's own Setup. Nothing
  * downloads or installs without a click; the once-a-day check is off by
  * default. PC only: away from the PC the Card shows the "Run this on the
@@ -19,7 +20,7 @@ import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../.
 import type { UpdateStatus } from '../../types/update'
 import {
   AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE, SOURCE_CHECKOUT_NOTE, canDownload,
-  checkLine, downloadLine, installTarget, isDownloading, versionLine,
+  checkLine, downloadLine, installTarget, isDownloading, signatureLine, versionLine,
 } from './updateModel'
 
 const TITLE = 'App updates'
@@ -121,6 +122,7 @@ function AppUpdatesControls() {
             )}
           </div>
           {progress && <p role="status" data-testid="update-download-line">{progress}</p>}
+          {status.installed && <p className="muted" data-testid="update-signature-line">{signatureLine(status)}</p>}
           {launched && (
             <p role="status">Setup is open ({launched}). {INSTALL_NOTE}</p>
           )}

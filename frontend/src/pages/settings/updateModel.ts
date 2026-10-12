@@ -16,6 +16,9 @@ export const SOURCE_CHECKOUT_NOTE = 'This copy runs from a source checkout: upda
 export const NO_INSTALLER_RELEASE_LINE = 'No installer release has been published yet.'
 export const NO_RELEASE_LINE =
   "No release found. If releases were made private, download the installer by hand and check it against its .sha256 file."
+export const SIGNATURE_VERIFIED_LINE = 'Signature verified.'
+export const SIGNATURE_REQUIRED_LINE = 'Updates must carry a valid release signature.'
+export const UNSIGNED_LINE = 'Not signature-checked: this copy has no release key.'
 export const CUSTOM_SOURCE_NOTE = 'Custom update source: this PC checks a different repository.'
 
 export function versionLine(s: UpdateStatus): string {
@@ -40,6 +43,11 @@ export function downloadLine(s: UpdateStatus): string | null {
   if (s.verified) return `Downloaded and verified: ${s.verified_name ?? 'the installer'}.`
   if (s.download === 'failed') return `${s.download_error ?? 'The download failed.'} You can download it again.`
   return null
+}
+
+export function signatureLine(s: UpdateStatus): string {
+  if (!s.signature_check) return UNSIGNED_LINE
+  return s.verified && s.signature_verified ? SIGNATURE_VERIFIED_LINE : SIGNATURE_REQUIRED_LINE
 }
 
 /** The version Install would start: the verified download's, never the last check's. */

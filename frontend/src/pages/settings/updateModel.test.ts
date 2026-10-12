@@ -4,8 +4,8 @@ import { getPcMode, resetPcModeForTests } from '../../api/pcOnly'
 import { checkForUpdates, installUpdate, setUpdateAutoCheck } from '../../api/update'
 import type { UpdateStatus } from '../../types/update'
 import {
-  NO_INSTALLER_RELEASE_LINE, NO_RELEASE_LINE, SMARTSCREEN_NOTE, canDownload, checkLine, downloadLine, installTarget, isDownloading,
-  versionLine,
+  NO_INSTALLER_RELEASE_LINE, NO_RELEASE_LINE, SIGNATURE_REQUIRED_LINE, SIGNATURE_VERIFIED_LINE, SMARTSCREEN_NOTE, UNSIGNED_LINE,
+  canDownload, checkLine, downloadLine, installTarget, isDownloading, signatureLine, versionLine,
 } from './updateModel'
 
 const BASE: UpdateStatus = {
@@ -13,7 +13,7 @@ const BASE: UpdateStatus = {
   installer_name: null, size: null, checked_at: null, check_error: null, release_lookup: 'unchecked',
   download: 'idle',
   downloaded_bytes: 0, download_error: null, verified: false, verified_version: null, verified_name: null,
-  can_install: false, auto_check: false, custom_source: false,
+  can_install: false, signature_check: false, signature_verified: false, auto_check: false, custom_source: false,
 }
 const AVAILABLE: UpdateStatus = {
   ...BASE, latest: '0.2.0', update_available: true, installer_name: 'BaiheStudio-Setup-0.2.0.exe',
@@ -47,6 +47,16 @@ describe('updateModel', () => {
     expect(checkLine({ ...AVAILABLE, update_available: false })).toBe('You have the latest version.')
     expect(checkLine({ ...AVAILABLE, current: null, update_available: false })).toBe('The latest release is 0.2.0.')
     expect(checkLine({ ...AVAILABLE, check_error: "Couldn't reach GitHub." })).toBe("Couldn't reach GitHub.")
+  })
+
+  it('says whether updates are signature-checked', () => {
+    expect(signatureLine(BASE)).toBe(UNSIGNED_LINE)
+    // A SHA-256-only download never reads as signature-verified.
+    expect(signatureLine({ ...AVAILABLE, verified: true, signature_verified: false })).toBe(UNSIGNED_LINE)
+    const signed = { ...AVAILABLE, signature_check: true }
+    expect(signatureLine(signed)).toBe(SIGNATURE_REQUIRED_LINE)
+    expect(signatureLine({ ...signed, verified: true, signature_verified: true })).toBe(SIGNATURE_VERIFIED_LINE)
+    expect(signatureLine({ ...signed, verified: false, signature_verified: true })).toBe(SIGNATURE_REQUIRED_LINE)
   })
 
   it('reports the download', () => {

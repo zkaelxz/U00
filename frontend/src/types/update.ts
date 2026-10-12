@@ -26,6 +26,10 @@ export interface UpdateStatus {
   verified_version: string | null
   verified_name: string | null
   can_install: boolean
+  // This copy has a release public key: updates need a valid release signature.
+  signature_check: boolean
+  // The verified download's release signature was checked.
+  signature_verified: boolean
   auto_check: boolean
   // BAIHE_UPDATE_REPO names another repository than the default.
   custom_source: boolean

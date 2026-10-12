@@ -1,0 +1,7 @@
+# Baihe Studio's release public key (Ed25519). The installed app checks every
+# in-app update against it and reads it only from its own folder, never from
+# the network. With no key line below, updates are checked by SHA-256 only and
+# Settings > App updates says they are not signature-checked.
+# To turn signing on, add the one "ed25519-public:..." line that
+# `python tools/release_signing.py generate` prints (docs/runbook.md, App updates).
+# Never put the private key here: the build refuses a file holding one.

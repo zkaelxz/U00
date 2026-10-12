@@ -9,15 +9,20 @@ Windows installer published on the project's public GitHub Releases.
   that must not hide the installer. The repository is a setting,
   BAIHE_UPDATE_REPO in .env (default zkaelxz/U00), so installers can move to
   a separate public repository without a code change.
-- Download: only on the user's click. The installer and its `.sha256` go to
-  `<library>/updates/`; the installer is kept only if its SHA-256 matches.
-  That hash comes from the same release, so it catches a broken or
-  truncated download, not a tampered release: it is not a signature, and
-  the installer is not code-signed.
+- Download: only on the user's click. The installer goes to
+  `<library>/updates/`; it is kept only if its SHA-256 matches the release's
+  `.sha256` (which catches a broken or truncated download, not a tampered
+  release) and, when this copy has a release public key, its `.sig` from the
+  same release verifies with that key (lib/release_signature.py: Ed25519 over
+  the installer's name and SHA-256). The key is read from this copy's own
+  folder (installer/release_public_key.txt), never fetched. Once a key is
+  there, an unsigned, badly signed or wrongly signed release is refused; with
+  no key line, updates are SHA-256 checked only and the status says so. The
+  installer is not code-signed.
 - Install: only on the user's click, only on Windows and only for an
   installed copy. The verified file is copied into a new private temp
-  folder, the copy is hashed again and that copy is started with a fixed
-  argument list (no shell, no silent flags) and the server's environment
+  folder, the copy is hashed and its signature checked again, and that copy
+  is started with a fixed argument list (no shell, no silent flags) and the server's environment
   minus the shutdown token, the job name and anything named like a secret
   (so "Start Baihe Studio now" after Setup keeps the user's settings), outside
   the server's kill-on-close Job Object so it outlives the server: the job
@@ -57,7 +62,7 @@ import background_jobs
 import db
 import portable
 import process_guard
-from lib import capped_body
+from lib import capped_body, release_signature
 from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
@@ -76,6 +81,7 @@ MAX_REDIRECTS = 5
 MAX_RELEASE_JSON_BYTES = 2_000_000
 RELEASES_PER_PAGE = 10
 MAX_HASH_FILE_BYTES = 4096
+MAX_SIGNATURE_FILE_BYTES = 1024
 MAX_INSTALLER_BYTES = 600 * 1024 * 1024
 NOTES_MAX_CHARS = 2000
 CHUNK = 64 * 1024
@@ -105,6 +111,7 @@ _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Setup stops the server, and a Setup inside the job would be ended with it.
 _CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 _CREATE_NEW_PROCESS_GROUP = 0x00000200
+PUBLIC_KEY_PATH = os.path.join(_APP_DIR, "installer", "release_public_key.txt")
 
 _lock = threading.Lock()
 # lookup: "unchecked" | "found" | "no_installer_release" | "not_found" (404).
@@ -112,8 +119,8 @@ _state = {"checked_at": None, "check_error": None, "lookup": "unchecked",
           "latest": None, "notes": "",
           "installer_name": None, "size": None, "download": "idle",
           "downloaded_bytes": 0, "download_error": None}
-_release = None     # internal: {"version", "exe_name", "exe_url", "exe_size", "hash_url"}
-_verified = None    # internal: {"version", "name", "path", "sha256"}
+_release = None     # internal: {"version", "exe_name", "exe_url", "exe_size", "hash_url", "sig_url"}
+_verified = None    # internal: {"version", "name", "path", "sha256", "signature"}
 _download_thread = None
 _monotonic = time.monotonic
 
@@ -307,6 +314,7 @@ def _parse_release(data, allow_prereleases=False):
     exe_name = f"BaiheStudio-Setup-{version}.exe"
     assets = {a.get("name"): a for a in data.get("assets") or [] if isinstance(a, dict)}
     exe, sha = assets.get(exe_name), assets.get(exe_name + ".sha256")
+    sig = assets.get(exe_name + ".sig")
     if not exe or not sha or not isinstance(exe.get("browser_download_url"), str) \
             or not isinstance(sha.get("browser_download_url"), str):
         return None
@@ -314,6 +322,10 @@ def _parse_release(data, allow_prereleases=False):
     return {"version": version, "exe_name": exe_name, "exe_url": exe["browser_download_url"],
             "exe_size": size if isinstance(size, int) and size > 0 else None,
             "hash_url": sha["browser_download_url"],
+            # Missing is not refused here: whether a signature is needed is
+            # this copy's decision (its key), taken at download.
+            "sig_url": sig["browser_download_url"]
+            if sig and isinstance(sig.get("browser_download_url"), str) else None,
             "notes": _plain_notes(data.get("body"))}
 
 
@@ -392,6 +404,7 @@ def status() -> dict:
         verified = _verified is not None
         verified_version = _verified["version"] if verified else None
         verified_name = _verified["name"] if verified else None
+        verified_signed = verified and _verified["signature"] is not None
     installed = _is_installed()
     return {"current": current, "installed": installed, "latest": s["latest"],
             "update_available": bool(s["latest"] and current
@@ -404,6 +417,8 @@ def status() -> dict:
             "verified_version": verified_version, "verified_name": verified_name,
             "can_install": (verified and installed and _is_windows()
                             and s["download"] != "downloading"),
+            "signature_check": signature_check_on(),
+            "signature_verified": verified_signed,
             "auto_check": get_auto_check(), "custom_source": custom_source()}
 
 
@@ -471,6 +486,71 @@ def _expected_hash(release) -> str:
     return digest
 
 
+# --- signature ----------------------------------------------------------------
+
+_KEY_DAMAGED = ("This copy's release key file can't be read, so updates can't be checked. "
+                "Nothing was installed. Reinstall Baihe Studio by hand from a trusted installer.")
+
+
+def _release_public_key():
+    """The raw release public key, or None when this copy has none (no key
+    file, or one with no key line): then updates are SHA-256 checked only.
+    A key file that exists but can't be used raises, never falls back to
+    None: a damaged key must not switch signature checks off."""
+    try:
+        with open(PUBLIC_KEY_PATH, "rb") as fh:
+            data = fh.read(release_signature.MAX_KEY_FILE_BYTES + 1)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise ConflictError(_KEY_DAMAGED) from None
+    try:
+        if len(data) > release_signature.MAX_KEY_FILE_BYTES:
+            raise release_signature.SignatureFormatError("too long")
+        key = release_signature.parse_public_key(data.decode("utf-8"))
+    except (UnicodeDecodeError, release_signature.SignatureFormatError):
+        raise ConflictError(_KEY_DAMAGED) from None
+    if key is not None:
+        try:
+            from cryptography.hazmat.primitives.asymmetric import ed25519  # noqa: F401
+        except ImportError:
+            raise DependencyUnavailableError(
+                "This copy can't check release signatures: the cryptography package is "
+                "missing. Nothing was installed.") from None
+    return key
+
+
+def signature_check_on() -> bool:
+    """True when updates must carry a valid release signature: this copy has
+    a release key, or a key file it can't use (which refuses every update)."""
+    try:
+        return _release_public_key() is not None
+    except ServiceError:
+        return True
+
+
+def _release_signature(release) -> bytes:
+    if not release.get("sig_url"):
+        raise ConflictError("This release isn't signed, so the installer can't be trusted. "
+                            "Nothing was downloaded or installed.")
+    data = _read_capped(_open(release["sig_url"], DOWNLOAD_HOSTS, "application/octet-stream"),
+                        MAX_SIGNATURE_FILE_BYTES)
+    try:
+        return release_signature.parse_signature(data)
+    except release_signature.SignatureFormatError:
+        raise ConflictError("The release's signature file isn't usable, so the installer "
+                            "can't be trusted. Nothing was installed.") from None
+
+
+def _signature_ok(public_key, signature, exe_name, sha256_hex) -> bool:
+    """True when no key is set (SHA-256 only), else only for a signature by
+    that key over this installer name and hash."""
+    if public_key is None:
+        return True
+    return signature is not None and release_signature.verify(public_key, signature, exe_name,
+                                                              sha256_hex)
+
+
 def _progress(n):
     with _lock:
         _state["downloaded_bytes"] = n
@@ -487,7 +567,11 @@ def download() -> dict:
         raise ConflictError("There is no newer version to download. Check for updates first.")
     if release["exe_size"] and release["exe_size"] > MAX_INSTALLER_BYTES:
         raise _too_big()
+    public_key = _release_public_key()
     expected = _expected_hash(release)
+    # Fetched before the installer: an unsigned release is refused without
+    # downloading hundreds of MB.
+    signature = _release_signature(release) if public_key is not None else None
     folder = updates_dir()
     os.makedirs(folder, exist_ok=True)
     _clear_old_files(folder)
@@ -518,6 +602,9 @@ def download() -> dict:
         if not hmac.compare_digest(sha.hexdigest(), expected):
             raise ConflictError("The download doesn't match the release's SHA-256, so it was "
                                 "deleted. Nothing was installed.")
+        if not _signature_ok(public_key, signature, release["exe_name"], sha.hexdigest()):
+            raise ConflictError("The installer's signature doesn't match this copy's release "
+                                "key, so it was deleted. Nothing was installed.")
         os.replace(part, final)
     except BaseException:
         try:
@@ -532,7 +619,7 @@ def download() -> dict:
             raise ConflictError("A different version was found while downloading. "
                                 "Download again.")
         _verified = {"version": release["version"], "name": release["exe_name"],
-                     "path": final, "sha256": expected}
+                     "path": final, "sha256": expected, "signature": signature}
     return status()
 
 
@@ -614,16 +701,22 @@ def install() -> dict:
         raise ConflictError("There is no newer version to install. Check for updates first.")
     if background_jobs.active_job_ids():
         raise ConflictError("Finish or cancel the running jobs first: Setup stops the app.")
+    public_key = _release_public_key()
     changed = "The downloaded installer changed or is missing. Download it again."
-    # The copy, in a new folder only this user can reach, is what gets hashed
-    # and started, so the file in the library can't be swapped in between.
+    # The copy, in a new folder only this user can reach, is what gets hashed,
+    # signature-checked and started, so the file in the library can't be
+    # swapped in between.
     folder = tempfile.mkdtemp(prefix=SETUP_TEMP_PREFIX)
     copy = os.path.join(folder, verified["name"])
     try:
         shutil.copyfile(verified["path"], copy)
-        ok = hmac.compare_digest(_file_sha256(copy), verified["sha256"])
+        copy_sha = _file_sha256(copy)
+        ok = hmac.compare_digest(copy_sha, verified["sha256"])
     except OSError:
         ok = False
+    if ok and not _signature_ok(public_key, verified["signature"], verified["name"], copy_sha):
+        ok, changed = False, ("The downloaded installer isn't signed with this copy's release "
+                              "key. Download it again.")
     if not ok:
         shutil.rmtree(folder, ignore_errors=True)
         with _lock:
