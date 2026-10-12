@@ -4,6 +4,7 @@ import { getSeries, updateDramaMetadata } from '../../../api/library'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
+import { routeHref } from '../../../router'
 import type { LibrarySeries } from '../../../types/library'
 import { NEW_SERIES, newSeriesProblem, seriesUpdate } from '../detailsForm'
 import { useStage } from '../StageContext'
@@ -86,7 +87,8 @@ export function SeriesAssign() {
         </div>
       ) : (
         <p className="muted" data-testid="series-assign-current">
-          Terms are shared by every title in <strong>{name}</strong>.
+          Terms are shared by every title in <strong>{name}</strong>.{' '}
+          <a href={routeHref({ name: 'series', id: Number(current) })}>Open series page</a>
         </p>
       )}
       <div className="series-assign-row">

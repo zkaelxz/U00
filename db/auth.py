@@ -130,6 +130,78 @@ def series_has_unowned_drama(series_id: int) -> bool:
                             "LIMIT 1", (series_id,)).fetchone() is not None
 
 
+def rename_series(series_id: int, name: str) -> bool:
+    """Raises sqlite3.IntegrityError when another series has this exact name
+    (series.name is UNIQUE). False for an unknown series."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("UPDATE series SET name = ? WHERE id = ?", (name, series_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+# What deleting a series takes with it (the series_id foreign keys cascade)
+# or detaches; also what the Series page shows.
+_SERIES_COUNTS_SQL = (
+    "SELECT (SELECT COUNT(*) FROM dramas WHERE series_id = s.id) AS titles, "
+    "(SELECT COUNT(*) FROM glossary_terms WHERE series_id = s.id) AS glossary_terms, "
+    "(SELECT COUNT(*) FROM series_characters WHERE series_id = s.id) AS characters, "
+    "(SELECT COUNT(*) FROM translation_memory WHERE series_id = s.id) AS translation_memory, "
+    "(SELECT COUNT(*) FROM glossary_dismissals WHERE series_id = s.id) AS dismissals, "
+    "TRIM(COALESCE(s.instructions, '')) != '' AS has_instructions "
+    "FROM series s WHERE s.id = ?")
+
+
+def series_content_counts(series_id: int):
+    """Counts of what a series holds, plus `title_lines` ({drama_id: line
+    count} for its titles), or None for an unknown series."""
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute(_SERIES_COUNTS_SQL, (series_id,)).fetchone()
+        if row is None:
+            return None
+        lines = conn.execute(
+            "SELECT d.id, (SELECT COUNT(*) FROM lines l WHERE l.drama_id = d.id) AS n "
+            "FROM dramas d WHERE d.series_id = ?", (series_id,)).fetchall()
+    out = dict(row)
+    out["has_instructions"] = bool(out["has_instructions"])
+    out["title_lines"] = {r["id"]: r["n"] for r in lines}
+    return out
+
+
+def delete_series(series_id: int):
+    """Deletes a series in one transaction and returns the counts of what it
+    held (series_content_counts, without title_lines), or None for an
+    unknown series. Its titles are kept and leave the series: dramas.series_id
+    has no foreign key, so it is cleared here, and a title leaving a private
+    series turns private itself (as unassign_drama_series does). Drama
+    characters linked to its people keep their copied name. Glossary terms,
+    people, translation memory and dismissals go by ON DELETE CASCADE.
+    Touches no files."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.isolation_level = None   # explicit BEGIN/COMMIT below
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(_SERIES_COUNTS_SQL, (series_id,)).fetchone()
+            if row is None:
+                conn.execute("ROLLBACK")
+                return None
+            conn.execute(
+                "UPDATE dramas SET is_private = CASE WHEN EXISTS (SELECT 1 FROM series s "
+                "WHERE s.id = dramas.series_id AND COALESCE(s.is_private, 0) = 1) THEN 1 "
+                "ELSE COALESCE(is_private, 0) END, series_id = NULL, updated_at = ? "
+                "WHERE series_id = ?", (datetime.datetime.utcnow().isoformat(), series_id))
+            conn.execute("UPDATE characters SET series_character_id = NULL WHERE "
+                         "series_character_id IN (SELECT id FROM series_characters "
+                         "WHERE series_id = ?)", (series_id,))
+            conn.execute("DELETE FROM series WHERE id = ?", (series_id,))
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    out = dict(row)
+    out["has_instructions"] = bool(out["has_instructions"])
+    return out
+
+
 def list_item_sharing(limit: int, offset: int):
     """Every series and drama with its sharing fields, for the admin
     Sharing screen: (total, rows). A series comes just before its dramas;

@@ -40,3 +40,4 @@ from api.schemas.browser import *  # noqa: F401,F403
 from api.schemas.benchmark import *  # noqa: F401,F403
 from api.schemas.queue import *  # noqa: F401,F403
 from api.schemas.disk_usage import *  # noqa: F401,F403
+from api.schemas.series import *  # noqa: F401,F403

@@ -104,6 +104,17 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'manga' })).toBe('#/manga')
   })
 
+  it('parses the series route with an optional tab', () => {
+    expect(parseRoute('#/series/3')).toEqual({ name: 'series', id: 3 })
+    expect(parseRoute('#/series/3?tab=glossary')).toEqual({ name: 'series', id: 3, tab: 'glossary' })
+    expect(parseRoute('#/series/3?tab=bogus')).toEqual({ name: 'series', id: 3 })
+    for (const h of ['#/series', '#/series/0', '#/series/x', '#/series/3/extra']) {
+      expect(parseRoute(h)).toEqual({ name: 'library' })
+    }
+    expect(routeHref({ name: 'series', id: 3, tab: 'settings' })).toBe('#/series/3?tab=settings')
+    expect(routeHref({ name: 'series', id: 3 })).toBe('#/series/3')
+  })
+
   it('parses the comic route with an optional page', () => {
     expect(parseRoute('#/comic/3?page=2')).toEqual({ name: 'comic', id: 3, page: 2 })
     expect(parseRoute('#/comic/3')).toEqual({ name: 'comic', id: 3, page: null })
