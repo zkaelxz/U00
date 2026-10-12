@@ -617,9 +617,11 @@ class TestCmdTranslateRetryAndWorkspaceParity:
             return self._Engine.translate_batch(engine, zh_lines, context)
         engine.translate_batch = translate_then_cancel
 
-        run_translate_job(job_id, did, isolated_db.load_line_objects(did), engine,
-                          isolated_db.get_drama(did), "", None, False, "en-US", None, "",
-                          "claude", "audio_drama")
+        # The runner turns this into a cancelled job (not done at 100%).
+        with pytest.raises(background_jobs.JobCancelled):
+            run_translate_job(job_id, did, isolated_db.load_line_objects(did), engine,
+                              isolated_db.get_drama(did), "", None, False, "en-US", None, "",
+                              "claude", "audio_drama")
         background_jobs._jobs.pop(job_id, None)
 
         assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 20

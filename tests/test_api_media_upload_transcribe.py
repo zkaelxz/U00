@@ -273,8 +273,9 @@ def test_video_chained_job_passes_through_child_failed_reason(client, monkeypatc
         return {"job_id": tid}
     monkeypatch.setattr(transcribe_service, "start_transcribe_run", run)
     job = _wait_status(_video_post(client, did).json()["job_id"])
-    assert job["status"] == "done"
+    assert job["status"] == "error"
     assert job["result"] == {"failed_reason": "empty"}
+    assert job["error"] == "Nothing was produced: no speech or text was found."
 
 
 def test_audio_run_started_while_upload_claim_held(client, monkeypatch):

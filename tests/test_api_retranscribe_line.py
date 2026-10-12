@@ -489,12 +489,12 @@ class TestJobBody:
         assert isolated_db.load_line_objects(did)[1].zh == "错字"
 
 
-def _finish(out):
+def _finish(out, status="done"):
     deadline = time.time() + 5
     while background_jobs.get_status(out["job_id"])["status"] in ("running", "queued"):
         assert time.time() < deadline
         time.sleep(0.01)
-    assert background_jobs.get_status(out["job_id"])["status"] == "done"
+    assert background_jobs.get_status(out["job_id"])["status"] == status
     return out
 
 
@@ -537,7 +537,8 @@ class TestGetResult:
             transcribe_service.get_retranscribe_result(999999, ids[0])
         fake_asr["text"] = ""
         _clear_jobs()
-        _finish(transcribe_service.start_retranscribe_line(did, ids[0]))
+        # Nothing heard is a failed run (failed_reason "empty").
+        _finish(transcribe_service.start_retranscribe_line(did, ids[0]), "error")
         with pytest.raises(NotFoundError):
             transcribe_service.get_retranscribe_result(did, ids[0])
 
@@ -645,7 +646,7 @@ class TestApply:
             transcribe_service.apply_retranscribe_line(did, ids[0], f"retranscribe_{did}", "你好", "新的文字")
         fake_asr["text"] = ""
         _clear_jobs()
-        job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))["job_id"]
+        job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]), "error")["job_id"]
         with pytest.raises(NotFoundError):
             transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "新的文字")
 

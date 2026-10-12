@@ -9,6 +9,7 @@ import time
 import pytest
 
 import background_jobs
+import db
 import diagnostics_torch
 import install_plan
 import pending_install
@@ -188,7 +189,7 @@ def test_a_job_that_appears_after_the_start_checks_stops_the_install(env, monkey
 def test_other_job_check_ignores_the_install_itself(env, monkeypatch):
     monkeypatch.setattr(background_jobs, "list_all_jobs",
                         lambda: {JOB: {"status": "running"}, "x": {"status": "done"}})
-    monkeypatch.setattr(svc.db, "list_job_records",
+    monkeypatch.setattr(db, "list_job_records",
                         lambda: [{"job_id": JOB, "status": "running", "updated_at": time.time()}])
     assert svc._other_job_running(JOB) is False
     monkeypatch.setattr(background_jobs, "list_all_jobs",

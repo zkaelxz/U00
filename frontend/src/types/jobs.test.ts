@@ -53,6 +53,15 @@ describe('what a person reads for a finished job', () => {
     expect(shownStatus({ status: 'error', outcome: 'failed' })).toBe('error')
   })
 
+  it('says a job closed by a restart was interrupted, once', () => {
+    const restarted = { status: 'cancelled', outcome: 'interrupted' as const,
+      outcome_message: 'Interrupted: Baihe restarted while this was running.' }
+    expect(jobFailed(restarted)).toBe(true)
+    expect(jobOutcomeText(restarted)).toBe('Interrupted: Baihe restarted while this was running.')
+    expect(jobOutcomeDetail(restarted)).toBe('Interrupted: Baihe restarted while this was running.')
+    expect(jobOutcomeText({ outcome: 'interrupted', outcome_message: null })).toBe('Interrupted: Baihe restarted')
+  })
+
   it('says Finished once when the message only repeats it', () => {
     expect(jobOutcomeText({ outcome: 'ok', outcome_message: 'Finished.' })).toBe('Finished.')
     expect(jobOutcomeText({ outcome: 'ok', outcome_message: 'Finished' })).toBe('Finished')

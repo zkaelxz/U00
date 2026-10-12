@@ -79,7 +79,9 @@ export function upsertJob(list: JobRecord[], job: JobRecord): JobRecord[] {
 }
 
 /** The status pill text for a job: Failed for a done job whose outcome failed. */
-export const jobStatusLabel = (job: Pick<JobRecord, 'status' | 'outcome'>) => statusLabel(shownStatus(job))
+// A job closed because Baihe restarted is stored as cancelled, but nobody cancelled it.
+export const jobStatusLabel = (job: Pick<JobRecord, 'status' | 'outcome'>) =>
+  job.outcome === 'interrupted' ? 'Interrupted' : statusLabel(shownStatus(job))
 
 const PACKAGES_HOME = 'Diagnostics > Packages and installs'
 const PIP_INSTALL = /(\b[Rr]un )?`?(?:python -m )?pip3? install((?: -{1,2}[\w-]+)*)((?: ["']?[\w.\-[\]<>=!~,]+["']?)+)`?/g

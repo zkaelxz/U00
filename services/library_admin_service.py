@@ -46,6 +46,7 @@ from typing import Optional
 
 import background_jobs
 import db
+from jobs import job_store
 import storage
 import subtitle_formats
 import translate_engines
@@ -131,23 +132,12 @@ def any_job_running() -> bool:
     """In-process running/queued jobs, plus fresh running/queued
     job_records rows from another process (same staleness rule as
     drama_service.job_running_for_drama)."""
-    if any(j.get("status") in ("running", "queued")
-           for j in background_jobs.list_all_jobs().values()):
-        return True
-    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
-    return any(r.get("status") in ("running", "queued") and (r.get("updated_at") or 0) >= cutoff
-               for r in db.list_job_records())
+    return job_store.fresh_active()
 
 
 def _job_id_running(job_id: str) -> bool:
     """This process's job, or a fresh running/queued job_records row."""
-    job = background_jobs.get_status(job_id)
-    if job and job.get("status") in ("running", "queued"):
-        return True
-    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
-    rec = db.get_job_record(job_id)
-    return bool(rec and rec.get("status") in ("running", "queued")
-                and (rec.get("updated_at") or 0) >= cutoff)
+    return job_store.fresh_active(job_ids={job_id})
 
 
 @contextlib.contextmanager

@@ -778,3 +778,60 @@ def test_the_exit_hook_skips_a_flush_shutdown_already_ran(isolated_db, monkeypat
     job_store.flush_at_exit()          # shutdown_service.stop_services
     job_store._flush_unless_flushed()  # atexit
     assert len(runs) == 1
+
+
+class TestInterruptedOutcome:
+    def test_a_row_closed_by_a_restart_lists_as_interrupted_not_cancelled(self, isolated_db):
+        """The sweep stores a dead owner's row as cancelled; the job list must
+        still tell it apart from a job someone cancelled."""
+        from services import jobs_service
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(timeout=30)
+        db.save_job_record("st_restarted", "running", owner_pid=gone.pid)
+        _set_row("st_restarted", owner_instance="another-server")
+        db.save_job_record("st_user_cancel", "cancelled")
+        listed = {j["job_id"]: j for j in jobs_service.list_jobs()}
+        restarted = listed["st_restarted"]
+        assert restarted["status"] == "cancelled"
+        assert restarted["outcome"] == "interrupted"
+        assert restarted["outcome_message"] == bg.INTERRUPTED_MESSAGE
+        assert listed["st_user_cancel"]["outcome"] == "cancelled"
+
+
+class TestFreshActive:
+    """One rule for "is such a job still on": live in this process, or a
+    queued/running row written within STALE_JOB_SECONDS by another one."""
+
+    @pytest.fixture(autouse=True)
+    def _jobs(self, isolated_db, monkeypatch):
+        self.live = {}
+        monkeypatch.setattr(bg, "list_all_jobs", lambda: dict(self.live))
+
+    def test_a_live_job_counts_by_id_prefix_or_any(self):
+        self.live["dub_1"] = {"status": "running"}
+        assert job_store.fresh_active(job_ids={"dub_1", "narration_1"}) is True
+        assert job_store.fresh_active(prefix="dub_") is True
+        assert job_store.fresh_active() is True
+        assert job_store.fresh_active(job_ids={"dub_2"}) is False
+        assert job_store.fresh_active(prefix="narration_") is False
+
+    def test_a_finished_live_job_does_not_count(self):
+        self.live["dub_1"] = {"status": "done"}
+        assert job_store.fresh_active() is False
+
+    def test_exclude_drops_one_id_from_both_sources(self):
+        self.live["dub_1"] = {"status": "running"}
+        db.save_job_record("dub_1", "running")
+        assert job_store.fresh_active(exclude="dub_1") is False
+        assert job_store.fresh_active(job_ids={"dub_1"}, exclude="dub_1") is False
+
+    def test_a_row_counts_until_it_goes_stale(self, monkeypatch):
+        db.save_job_record("source_import_x", "queued")
+        db.save_job_record("translate_3", "done")
+        real = time.time()
+        monkeypatch.setattr(time, "time", lambda: real + bg.STALE_JOB_SECONDS - 60)
+        assert job_store.fresh_active(prefix="source_import_") is True
+        assert job_store.fresh_active(job_ids={"translate_3"}) is False
+        monkeypatch.setattr(time, "time", lambda: real + bg.STALE_JOB_SECONDS + 60)
+        assert job_store.fresh_active(prefix="source_import_") is False
+        assert job_store.fresh_active() is False

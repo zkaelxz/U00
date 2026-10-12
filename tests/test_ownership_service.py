@@ -463,3 +463,49 @@ def test_drama_private_flag_cleared_when_it_gets_a_series(people):
     assert db.get_item_ownership("drama", other)["is_private"] == 1
     assert own.can_see_drama(b, other) and not own.can_see_drama(people["a"], other)
     assert other not in _visible_sql(people["a_id"])
+
+
+def test_the_job_list_reads_ownership_once_and_agrees_with_the_per_job_rule(people, monkeypatch):
+    """The Jobs list used to read each job's drama ownership up to three
+    times per job. It now reads every drama's once, and who sees which job
+    (and owned_by_me) must not change."""
+    from services import jobs_service
+    a_id, b_id = people["a_id"], people["b_id"]
+    shared = db.create_drama(title_zh="s", owner_user_id=a_id, is_private=0)
+    private = db.create_drama(title_zh="p", owner_user_id=a_id, is_private=1)
+    pc = db.create_drama(title_zh="pc")
+    sid = db.get_or_create_series("Mine", owner_user_id=b_id, is_private=True)
+    in_series = db.create_drama(title_zh="e", series_id=sid, owner_user_id=a_id)
+    records = {
+        f"translate_{shared}": a_id, f"dub_{shared}": b_id, f"flag_{private}": a_id,
+        f"transcribe_{pc}": None, f"dub_{in_series}": a_id, "translate_999999": a_id,
+        "discover_x": a_id, "sources_y": b_id, "pc_job": None,
+    }
+    for job_id, owner in records.items():
+        db.save_job_record(job_id, "done", owner_user_id=owner)
+    # The bulk read returns exactly the fields the one-drama read does.
+    assert own.job_drama_ownership(people["a"], records) == {
+        d: db.get_item_ownership("drama", d) for d in (shared, private, pc, in_series)}
+    assert own.job_drama_ownership(LOCAL, records) == {}
+    remote_admin = _p(db.auth_get_user_by_email("admin@example.com")["id"], admin=True,
+                      override=False)
+    principals = {"none": None, "local": LOCAL, "admin": people["admin"],
+                  "remote_admin": remote_admin, "a": people["a"], "b": people["b"],
+                  "stranger": _p(424242)}
+    expected = {
+        who: {job_id: own.owns_job(p, job_id, owner)
+              for job_id, owner in records.items() if own.can_see_job(p, job_id, owner)}
+        for who, p in principals.items()}
+    reads = []
+    real = db.get_item_ownership
+    monkeypatch.setattr(db, "get_item_ownership", lambda *a: (reads.append(a), real(*a))[1])
+    bulk = []
+    real_bulk = own.job_drama_ownership
+    monkeypatch.setattr(own, "job_drama_ownership",
+                        lambda *a, **k: (bulk.append(a), real_bulk(*a, **k))[1])
+    for who, p in principals.items():
+        bulk.clear()
+        listed = {j["job_id"]: j["owned_by_me"] for j in jobs_service.list_jobs(p)}
+        assert listed == expected[who], who
+        assert len(bulk) <= 1, who
+    assert reads == []

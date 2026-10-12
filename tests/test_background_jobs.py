@@ -2612,3 +2612,61 @@ def test_a_thread_job_that_did_not_run_for_a_missing_package_ends_as_an_error():
     assert status["error"] == "Transcription isn't installed yet."
     assert not status["message"]
     bg.clear_job(job_id)
+
+
+@pytest.mark.parametrize("reason,detail,text", [
+    ("empty", None, "Nothing was produced: no speech or text was found."),
+    ("qwen3_asr", "CUDA out of memory", "Qwen3-ASR failed on this audio. CUDA out of memory"),
+    ("groq", "HTTP 503", "The Groq transcription request failed. HTTP 503"),
+    ("vocal_separation", "demucs crashed", "Separating the vocals failed. demucs crashed"),
+])
+def test_a_thread_job_whose_worker_reports_a_failure_ends_as_an_error(monkeypatch, reason,
+                                                                      detail, text):
+    """The bell and the Jobs list read the server's status: a worker that
+    returned a failure reason must not read as Finished."""
+    from services import jobs_service
+    calls = []
+    monkeypatch.setattr(bg, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
+    job_id = f"test_thread_failed_{reason}"
+    bg.clear_job(job_id)
+    result = {"failed_reason": reason, **({"detail": detail} if detail else {})}
+    assert bg.start_job(job_id, lambda: bg.set_result(job_id, result)) is True
+    _wait(job_id)
+    status = _wait_for_status(job_id, "running")
+    assert status["status"] == "error"
+    assert status["error"] == text
+    assert status["result"]["failed_reason"] == reason
+    assert jobs_service.derive_outcome(status["status"], status["error"], status["result"]) == (
+        "failed", text)
+    _wait_for(lambda: calls)
+    (args, kwargs), = calls
+    assert args[1] == "error" and kwargs["reason"] == text
+    bg.clear_job(job_id)
+
+
+def test_a_process_job_whose_worker_reports_a_failure_ends_as_an_error(monkeypatch):
+    _install_fake_process(monkeypatch, run_target_on_start=True)
+
+    def fake_worker(result_queue):
+        result_queue.put(("ok", {"line_id": 4, "failed_reason": "empty"}))
+
+    job_id = "test_process_failed_empty"
+    bg.clear_job(job_id)
+    bg.start_process_job(job_id, fake_worker, args=())
+    status = _wait_for_status(job_id, "running")
+    assert status["status"] == "error"
+    assert status["error"] == "Nothing was produced: no speech or text was found."
+    assert status["result"] == {"line_id": 4, "failed_reason": "empty"}
+    bg.clear_job(job_id)
+
+
+@pytest.mark.parametrize("reason", ["no_lines", "no_text", "empty_kept_existing"])
+def test_a_partial_worker_outcome_still_ends_done(reason):
+    """Zero lines is "Finished but found no lines" (a partial), not a failure."""
+    job_id = f"test_thread_partial_{reason}"
+    bg.clear_job(job_id)
+    assert bg.start_job(job_id, lambda: bg.set_result(job_id, {"failed_reason": reason})) is True
+    _wait(job_id)
+    status = _wait_for_status(job_id, "running")
+    assert status["status"] == "done" and status["progress"] == 1.0
+    bg.clear_job(job_id)

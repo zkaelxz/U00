@@ -55,12 +55,12 @@ export function offersCancel(job: Pick<JobRecord, 'owned_by_me'>, remoteAdmin: b
   return !remoteAdmin || job.owned_by_me === true
 }
 
-export type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'partial' | 'kept_existing'
+export type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'interrupted' | 'partial' | 'kept_existing'
 
 // A terminal job that did not fully succeed, even when status is 'done'
 // (a transcription that returned early with a failure reason, say).
 export function jobFailed(job: Pick<JobRecord, 'status' | 'outcome'>): boolean {
-  return job.status === 'error' || job.outcome === 'failed' || job.outcome === 'cancelled'
+  return job.status === 'error' || job.outcome === 'failed' || job.outcome === 'cancelled' || job.outcome === 'interrupted'
 }
 
 // The status a person should read. The server calls a job `done` when its
@@ -81,6 +81,7 @@ const OUTCOME_LABELS: Record<JobOutcome, string> = {
   ok: 'Finished',
   failed: 'Failed',
   cancelled: 'Cancelled',
+  interrupted: 'Interrupted: Baihe restarted',
   partial: 'Finished with problems',
   kept_existing: 'Nothing new; existing lines kept',
 }
@@ -94,6 +95,8 @@ export function jobOutcomeText(job: Pick<JobRecord, 'outcome' | 'outcome_message
   const label = OUTCOME_LABELS[job.outcome] ?? job.outcome
   const message = job.outcome_message?.trim()
   if (!message) return label
+  // The stored reason already opens with this label ("Interrupted: Baihe restarted while…").
+  if (job.outcome === 'interrupted' && bare(message).startsWith(bare(label))) return message
   return bare(message) === bare(label) ? message : `${label}: ${message}`
 }
 
@@ -103,6 +106,8 @@ export function jobOutcomeDetail(job: Pick<JobRecord, 'status' | 'outcome' | 'ou
   if (!job.outcome) return null
   const message = job.outcome_message?.trim() || null
   if (job.outcome === 'failed' || job.outcome === 'cancelled') return message && bare(message) !== bare(OUTCOME_LABELS[job.outcome]) ? message : null
+  // The pill says Cancelled (the stored status), so the line says why.
+  if (job.outcome === 'interrupted') return message ?? OUTCOME_LABELS.interrupted
   if (job.outcome === 'ok') return message && bare(message) !== bare(OUTCOME_LABELS.ok) ? message : null
   return jobOutcomeText(job)
 }

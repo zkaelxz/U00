@@ -39,6 +39,7 @@ User decisions applied (2026-09-29):
   dramas out of a private series.
 """
 
+import contextlib
 import contextvars
 import re
 import sqlite3
@@ -425,41 +426,76 @@ def sees_every_job(principal) -> bool:
     return _sees_everything(principal)
 
 
-def can_see_job(principal, job_id, owner_user_id, writing: bool = False) -> bool:
+# db.get_item_ownership's drama fields, for many dramas at once. Kept beside
+# the rule that reads them; a test checks every row against that function.
+_DRAMA_OWNERSHIP_SQL = (
+    "SELECT d.id, d.owner_user_id, COALESCE(d.is_private, 0) AS is_private, d.series_id, "
+    "COALESCE(s.is_private, 0) AS series_is_private, s.owner_user_id AS series_owner_user_id "
+    "FROM dramas d LEFT JOIN series s ON s.id = d.series_id WHERE d.id IN ({})")
+# Under SQLite's oldest bound-parameter limit (999).
+_OWNERSHIP_BATCH = 500
+
+
+def job_drama_ownership(principal, job_ids) -> dict:
+    """{drama_id: ownership row} for the dramas these jobs run on, read in
+    one query (one per _OWNERSHIP_BATCH titles) instead of one per job, for
+    can_see_job/owns_job's `drama_rows`. A missing drama has no entry.
+    Empty when the principal owns every job and nothing needs reading."""
+    if principal is None or principal.get("is_local_owner"):
+        return {}
+    ids = sorted({d for d in map(drama_id_of_job, job_ids) if d is not None})
+    rows = {}
+    with contextlib.closing(db.get_conn()) as conn:
+        for start in range(0, len(ids), _OWNERSHIP_BATCH):
+            batch = ids[start:start + _OWNERSHIP_BATCH]
+            sql = _DRAMA_OWNERSHIP_SQL.format(",".join("?" * len(batch)))
+            rows.update((r["id"], dict(r)) for r in conn.execute(sql, batch))
+    return rows
+
+
+def can_see_job(principal, job_id, owner_user_id, writing: bool = False,
+                drama_rows=None) -> bool:
     """Admins, the local owner and auth off see every job. A drama's job
     (`<prefix><drama_id>`) is visible to whoever can see that drama --
     its starter included, so a drama that went private stops showing its
     jobs to them (review L-1). Any other job is visible only to the user
     who started it: another user's or the PC's Discover/Sources/Live/
     library job is hidden. `writing` (cancel, stop): an admin without the
-    override may act only on the jobs a member could see."""
+    override may act only on the jobs a member could see. `drama_rows`:
+    job_drama_ownership's result, read once for a whole list."""
     if _everything(principal, writing):
         return True
     drama_id = drama_id_of_job(job_id)
+    if drama_id is not None and drama_rows is not None:
+        row = drama_rows.get(drama_id)
+        return bool(row) and _visible(principal, "drama", row, writing)
     if drama_id is not None:
         return (can_edit_drama if writing else can_see_drama)(principal, drama_id)
     uid = user_id(principal)
     return uid is not None and owner_user_id == uid
 
 
-def owns_job(principal, job_id, owner_user_id) -> bool:
+def owns_job(principal, job_id, owner_user_id, drama_rows=None) -> bool:
     """Is this the caller's own job: they started it (`owner_user_id`) or
     own the drama it runs on. Auth off and the local owner own every job.
     Never true for a job the caller may not cancel (can_see_job writing),
     so a client may offer Cancel wherever it is true. Stricter than that
     check: a member may also cancel a job on someone else's shared drama,
-    which is not theirs. Computed from the principal only."""
+    which is not theirs. Computed from the principal only. `drama_rows`: as
+    can_see_job."""
     if principal is None or principal.get("is_local_owner"):
         return True
     uid = user_id(principal)
-    if uid is None or not can_see_job(principal, job_id, owner_user_id, writing=True):
+    if uid is None or not can_see_job(principal, job_id, owner_user_id, writing=True,
+                                      drama_rows=drama_rows):
         return False
     if owner_user_id == uid:
         return True
     drama_id = drama_id_of_job(job_id)
     if drama_id is None:
         return False
-    row = db.get_item_ownership("drama", drama_id)
+    row = (drama_rows.get(drama_id) if drama_rows is not None
+           else db.get_item_ownership("drama", drama_id))
     return bool(row) and row.get("owner_user_id") == uid
 
 

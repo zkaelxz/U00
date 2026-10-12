@@ -92,6 +92,8 @@ def test_stale_orphan_record_is_closed_on_cancel(client):
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
     assert db.get_job_record("orphan")["status"] == "cancelled"
+    # Its process died before the click, so the list says why it stopped.
+    assert client.get("/api/jobs/orphan").json()["outcome"] == "interrupted"
     assert client.post("/api/jobs/orphan/cancel").status_code == 409
 
 
@@ -264,10 +266,8 @@ def test_api_startup_sweeps_dead_owners_records(isolated_db, monkeypatch):
 
 
 def test_one_staleness_cutoff_everywhere():
-    from services import drama_service, jobs_service, novel_files_service
-    assert (jobs_service.STALE_JOB_SECONDS == drama_service.STALE_JOB_RECORD_SECONDS
-            == novel_files_service._STALE_JOB_RECORD_SECONDS
-            == background_jobs.STALE_JOB_SECONDS)
+    from services import jobs_service
+    assert jobs_service.STALE_JOB_SECONDS == background_jobs.STALE_JOB_SECONDS
 
 
 def test_heartbeat_write_failure_is_logged_redacted(isolated_db, monkeypatch):

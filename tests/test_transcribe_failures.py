@@ -255,7 +255,7 @@ class TestModelDownloadWordingPerJobKind:
         ("comparetx_1", "A model could not be downloaded."),
         ("something_1", "A model could not be downloaded.")])
     def test_wording(self, job_id, start):
-        text = background_jobs._missing_dependency_error(
+        text = background_jobs._failed_outcome_error(
             {"failed_reason": "model_download", "detail": "Not downloading the 'x' model."}, job_id)
         assert text == f"{start} Not downloading the 'x' model."
 

@@ -50,7 +50,7 @@ from urllib.parse import urljoin, urlsplit
 import background_jobs
 import cuda_runtime_path
 import job_process_kill
-import db
+from jobs import job_store
 import diagnostics
 import diagnostics_report
 import diagnostics_torch
@@ -59,7 +59,7 @@ import pending_install
 import upgrade_check
 from lib import proc as proc_run
 from services import diagnostics_gaps_service as gaps
-from services import drama_service, pending_install_service
+from services import pending_install_service
 from services.pending_install_service import PlanNeedsConfirm
 from services.service_errors import ConflictError
 
@@ -564,12 +564,7 @@ def _other_job_running(own_job_id: str) -> bool:
     """library_admin_service.any_job_running's rule (jobs here, plus fresh
     job_records rows from another process), without counting this install's
     own running job against itself."""
-    if any(j.get("status") in ("running", "queued")
-           for jid, j in background_jobs.list_all_jobs().items() if jid != own_job_id):
-        return True
-    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
-    return any(r.get("status") in ("running", "queued") and (r.get("updated_at") or 0) >= cutoff
-               for r in db.list_job_records() if r.get("job_id") != own_job_id)
+    return job_store.fresh_active(exclude=own_job_id)
 
 
 @contextlib.contextmanager
