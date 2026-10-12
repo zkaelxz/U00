@@ -486,6 +486,45 @@ def test_reap_keeps_a_session_that_is_still_starting(live, monkeypatch):
     assert "starting" not in live_service._sessions[sid]
 
 
+def test_reap_removes_the_dir_of_a_session_cancelled_while_queued(live, monkeypatch):
+    """A queued job cancelled elsewhere (jobs page, shutdown) keeps its
+    'cancelled' record, so only its status says the folder is orphaned."""
+    monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
+    monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
+    sid = _start(use_gpu=True)
+    out_dir = live_service._sessions[sid]["dir"]
+    assert background_jobs.cancel_queued(sid)
+    assert background_jobs.get_status(sid)["status"] == "cancelled"
+    live_service._reap()
+    assert not os.path.exists(out_dir)
+
+
+def test_reap_keeps_the_dir_of_a_queued_session(live, monkeypatch):
+    monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
+    monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
+    sid = _start(use_gpu=True)
+    live_service._reap()
+    assert os.path.isdir(live_service._sessions[sid]["dir"])
+
+
+def test_reap_keeps_the_dir_of_a_running_session(live):
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    assert background_jobs.get_status(sid)["status"] == "running"
+    live_service._reap()
+    assert os.path.isdir(live_service._sessions[sid]["dir"])
+
+
+def test_reap_tolerates_a_finished_session_that_removed_its_own_dir(live):
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    live_service.stop_session(sid)
+    assert _terminal(sid)
+    assert not live_service._sessions[sid].get("dir")
+    live_service._reap()
+    assert not live_service._sessions[sid].get("dir")
+
+
 def test_work_dir_lives_in_library_tmp_owned_by_the_session(live):
     import storage
     sid = _start()
