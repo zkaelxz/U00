@@ -28,6 +28,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/drama/3/review?tools=coverage')).toEqual({ name: 'drama', id: 3, stage: 'review', tools: 'coverage' })
     expect(parseRoute('#/drama/3/review?tools=nope')).toEqual({ name: 'drama', id: 3, stage: 'review' })
     expect(parseRoute('#/drama/3/review?focus=flagged&tools=fix')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'flagged', tools: 'fix' })
+    expect(parseRoute('#/drama/3/review?tools=history&focus=compare')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'compare', tools: 'history' })
     expect(routeHref({ name: 'drama', id: 3, stage: 'review', tools: 'history' })).toBe('#/drama/3/review?tools=history')
     expect(routeHref({ name: 'drama', id: 3, stage: 'review', focus: 'flagged', tools: 'fix' })).toBe('#/drama/3/review?focus=flagged&tools=fix')
     expect(parseRoute('#/settings?section=uploads')).toEqual({ name: 'settings', section: 'uploads' })

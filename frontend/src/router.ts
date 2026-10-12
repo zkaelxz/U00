@@ -35,7 +35,7 @@ export type Route =
   | { name: 'manga-series'; source: string; series: string }
   | { name: 'manga-read'; source: string; series: string; chapter: string; page: number | null }
 
-export type DramaFocus = 'glossary' | 'characters' | 'flagged'
+export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare'
 
 export const DEFAULT_STAGE = 'source'
 
@@ -114,7 +114,7 @@ export function parseRoute(hash: string): Route {
       name: 'drama',
       id: Number(a),
       stage,
-      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' ? { focus } : {}),
+      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
       ...(isReviewToolsTab(tools) ? { tools } : {}),
     }
   }
