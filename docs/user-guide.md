@@ -356,6 +356,8 @@ Run Diagnostics first whenever something isn't working.
 
 Costs are estimates from the app's price table. Settings > Costs > Spending sets the caps. Settings > Costs > Past costs (closed until you open it; "Check past costs") previews entries that were priced at a higher model's rate; nothing changes until you press Apply, and "Undo re-cost" puts the old figures back. Settings > Costs > Spend history lists spend and calls by month for the last months, with By operation, By engine and model, and By title breakdowns for a chosen month and a Download CSV. Past costs and Spend history are PC only; the Library tools page also lists estimated cost per title.
 
+**Runs stop themselves.** A translate run ends after 3 batches in a row fail or after about 10 minutes of waiting out rate limits (the reason is shown and the lines already translated are kept), Live refuses to start once the monthly cap is spent and ends on the cap or after 3 failed translation requests in a row, and Quick translate has no length limit but stops before the chunk that would pass the monthly cap and returns what it finished, showing the estimated cost and the cap left before you press Translate. Two runs going at once can each read the same month total before either logs its next request, so together they can pass the cap by at most one request each.
+
 ### Benchmark Lab
 
 The Benchmark Lab page (linked from Diagnostics) checks whether a model, engine or setting change actually helps on your own content. No test data ships with the app: you supply it.

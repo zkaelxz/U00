@@ -126,7 +126,7 @@ class TestPipeline:
             seen.append(list(ids))
             return {str(i): f"t{i}" for i in reversed(ids)}
 
-        monkeypatch.setattr("engine_backends.translate_pipeline._id_keyed_batch_request",
+        monkeypatch.setattr("engine_backends.reflect_pass._id_keyed_batch_request",
                             fake_request)
         te.translate_lines_with_engine(lines, _Recorder(), {}, batch_size=8, reflect=True,
                                        scene_aware_batches=True)

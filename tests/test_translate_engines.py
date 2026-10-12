@@ -733,7 +733,7 @@ class TestPerLineLanguage:
             def complete(self, *a, **k):
                 raise AssertionError
 
-        import engine_backends.translate_pipeline as tp
+        import engine_backends.reflect_pass as tp
         orig = tp.call_llm_json
         tp.call_llm_json = lambda eng, prompt, **k: prompts.append(prompt) or '{"1": "x"}'
         try:

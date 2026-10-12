@@ -216,10 +216,15 @@ def estimate_translation_cost(engine, zh_lines: list) -> float:
     from the lines' own character count. For token-billed engines this
     uses a tokenizer-free ~3.5 chars/token heuristic -- an
     order-of-magnitude estimate, not a precise bill."""
+    return estimate_cost_for_engine(engine, *estimate_translation_tokens(zh_lines))
+
+
+def estimate_translation_tokens(zh_lines: list) -> tuple:
+    """(input, output) tokens for one translate request carrying zh_lines."""
     chars = sum(len(z) for z in zh_lines)
     input_tokens = int(chars / 3.5) + 300  # + a rough fixed cost for the instructions block
     output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
-    return estimate_cost_for_engine(engine, input_tokens, output_tokens)
+    return input_tokens, output_tokens
 
 
 def estimate_reflect_mode_cost(engine, zh_lines: list) -> float:

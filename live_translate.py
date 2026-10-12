@@ -562,7 +562,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None,
                   stream_url_check=None, proxy: str = None, report_stage=None,
                   reply_without_thinking: bool = True, report_note=None, whisper_clock=None,
-                  report_stats=None, term_hints=None):
+                  report_stats=None, term_hints=None, spend_guard=None):
     """
     The background-thread target (see background_jobs.start_job). Runs
     until request_cancel(job_id) is set, live_pipeline.request_finish(job_id)
@@ -684,7 +684,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     abort_token = abort_check_var.set(should_stop)
 
     skips = live_whisper.SkipNotes(note, segment_seconds)
-    translator = CueTranslator(engine, source_language, reply_without_thinking, term_hints)
+    translator = CueTranslator(engine, source_language, reply_without_thinking, term_hints,
+                                spend_guard)
     state = {"last": -1, "context": "", "prev_tail": None}
 
     def time_up():

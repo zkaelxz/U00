@@ -44,6 +44,8 @@ export interface LiveSessionStatus {
   session_id: string
   status: LiveStatus | string
   message: string
+  /** Why the session ended itself (monthly cap reached, repeated translation failures). */
+  stop_reason?: string | null
   engine?: string | null
   model?: string | null
   progress: number

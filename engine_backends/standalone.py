@@ -3,6 +3,7 @@
 import re
 from core import LANGUAGE_NAMES
 from .llm_tasks import call_batch_bounded
+from .shared import LLMTaskTimeout
 
 
 class UnsupportedDirectionError(Exception):
@@ -68,7 +69,7 @@ def chunk_standalone_text(text: str, max_chars_per_chunk: int = 1500) -> list:
 
 
 def standalone_translate(text: str, engine, source_language: str, target_language: str,
-                         batch_size: int = 8) -> str:
+                         batch_size: int = 8, budget=None) -> str:
     """The standalone translate tool: translates arbitrary pasted
     text -- not tied to any drama/project -- from source_language to
     target_language (one side of which is always "en"). Chunks long text
@@ -85,21 +86,46 @@ def standalone_translate(text: str, engine, source_language: str, target_languag
     refuses this engine/direction combination; callers should check that
     first (to show a live warning/refusal in the UI) but this checks
     again itself so it's never silently skipped by a caller that forgets.
+
+    budget: optional object with refuse(batch, first_chunk, total_chunks),
+    called before each request and returning a plain message to stop the run
+    there (the text finished so far is still returned, see
+    standalone_translate_partial), and abandoned(batch), called when a request
+    passed its deadline and was left running.
     """
+    return standalone_translate_partial(text, engine, source_language, target_language,
+                                        batch_size, budget)[0]
+
+
+def standalone_translate_partial(text: str, engine, source_language: str, target_language: str,
+                                 batch_size: int = 8, budget=None) -> tuple:
+    """(translated text, stop message or None): standalone_translate, plus why
+    the run ended early when the budget stopped it."""
     ok, message = standalone_direction_support(engine.name, source_language, target_language)
     if not ok:
         raise UnsupportedDirectionError(message)
     chunks = chunk_standalone_text(text)
     if not chunks:
-        return ""
+        return "", None
     context = {
         "source_language": source_language,
         "target_language": target_language,
         "standalone": True,
     }
     translated_chunks = []
+    stopped = None
     for start in range(0, len(chunks), batch_size):
         batch = chunks[start:start + batch_size]
-        translated_chunks.extend(call_batch_bounded(
-            engine, lambda: engine.translate_batch(batch, context)))
-    return "\n\n".join(t or "" for t in translated_chunks)
+        if budget is not None:
+            stopped = budget.refuse(batch, start, len(chunks))
+            if stopped:
+                break
+        try:
+            translated_chunks.extend(call_batch_bounded(
+                engine, lambda: engine.translate_batch(batch, context)))
+        except LLMTaskTimeout:
+            # The request may still be running and billed; nothing else will log it.
+            if budget is not None:
+                budget.abandoned(batch)
+            raise
+    return "\n\n".join(t or "" for t in translated_chunks), stopped

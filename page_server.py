@@ -514,8 +514,12 @@ def translate_text_block(text: str, source_language: str, target_language: str,
 
     translated_text = ""
     try:
-        translated_text = translate_engines.standalone_translate(
-            text, engine, source_language, target_language)
+        # Cap and usage log apply here too.
+        from services import translate_service
+        translated_text, stopped = translate_service.translate_metered(
+            engine, config["engine"], text, source_language, target_language)
+        if stopped:
+            notes.append(["warning", stopped])
     except translate_engines.UnsupportedDirectionError as e:
         raise EndpointError(422, str(e)) from None
     except Exception as e:

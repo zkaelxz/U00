@@ -36,7 +36,7 @@ No FastAPI import; plain dicts in and out.
 import background_jobs
 import db
 import translate_engines
-from services import settings_service, translate_service
+from services import settings_service, translate_run_service, translate_service
 from services.review_lines_service import line_dict
 from services.service_errors import (
     ConflictError,
@@ -48,6 +48,7 @@ from services.service_errors import (
     UnsupportedOperationError,
 )
 
+USAGE_OPERATION = "retry_blocked_line"
 BLOCKED_FLAG = "content_blocked"
 DEFAULT_ENGINE = "ollama"   # local, no cloud moderation
 MAX_REASON_CHARS = 300
@@ -108,6 +109,20 @@ def _build_engine(engine_name: str):
         raise ServiceError("The engine could not be started.") from None
 
 
+def _log_usage(drama_id: int, engine_name: str, engine) -> None:
+    """Every call to a paid engine is logged, blocked or failed too: the
+    provider may have billed it."""
+    if engine_name in translate_engines.FREE_ENGINES:
+        return
+    usage = getattr(engine, "last_usage", None) or {}
+    tokens = [usage.get(k, 0) or 0 for k in
+              ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")]
+    db.log_usage(drama_id, engine_name, getattr(engine, "model", None) or engine_name,
+                 USAGE_OPERATION, tokens[0], tokens[1],
+                 translate_engines.estimate_cost_for_engine(engine, *tokens),
+                 cache_read_tokens=tokens[2])
+
+
 def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_ENGINE) -> dict:
     """Re-translates one content-blocked line. Returns
     {drama_id, line_id, engine, model, retried, blocked, reason, line}:
@@ -131,7 +146,12 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
         return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
                 "model": None, "retried": True, "blocked": False, "reason": None,
                 "line": _reload(drama_id, line.id)}
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, engine_name == "gemini" and bool(settings_service.get("gemini_free_tier")))
     engine = _build_engine(engine_name)
+    if isinstance(getattr(engine, "last_usage", None), dict):
+        # Set only on success; a failed call must not log the last call's tokens.
+        engine.last_usage = {"input_tokens": 0, "output_tokens": 0}
     used_model = getattr(engine, "model", None)
     title_language = drama.get("source_language") or "zh"
     context = {"source_language": title_language, "line_ids": [line.id]}
@@ -139,7 +159,10 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
     if line_languages:
         context["line_languages"] = line_languages
     try:
-        results = engine.translate_batch([line.zh], context)
+        try:
+            results = engine.translate_batch([line.zh], context)
+        finally:
+            _log_usage(drama_id, engine_name, engine)
     except translate_engines.ContentModerationBlocked as blocked:
         reason = translate_engines.redact_secrets(str(blocked.reason or ""))[:MAX_REASON_CHARS]
         note = translate_engines.redact_secrets(f"{blocked.engine}: {reason}")[:MAX_REASON_CHARS]

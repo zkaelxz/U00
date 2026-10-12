@@ -127,6 +127,9 @@ _BATCH_REQUESTS = 2
 
 
 def _request_timeout_for(engine) -> float:
+    # A usage-metering wrapper hides the engine's class, and a slow Ollama
+    # model would otherwise get the short SDK timeout.
+    engine = getattr(engine, "unwrapped_engine", engine)
     if isinstance(engine, OllamaEngine):
         return ollama_max_request_seconds(engine.model)
     return SDK_REQUEST_TIMEOUT

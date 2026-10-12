@@ -14,7 +14,8 @@ from fastapi import APIRouter, Query, Request
 from api.auth import local_only, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (ClearHistoryResult, ErrorResponse, TranslateEngineListResponse,
-                         TranslateHistoryResponse, TranslateRequest, TranslateResponse)
+                         TranslateEstimate, TranslateHistoryResponse, TranslateRequest,
+                         TranslateResponse)
 from services import settings_service, translate_service
 
 router = APIRouter(prefix="/api/translate", tags=["translate"])
@@ -35,6 +36,7 @@ def get_history(request: Request, limit: int = Query(50, ge=1, le=200)):
 
 
 @router.post("", dependencies=[require_permission("engines.paid")], response_model=TranslateResponse,
+             response_model_exclude_none=True,
             summary="Translate text with a chosen engine (server-side key resolution, D2)",
             responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
                       429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
@@ -45,6 +47,15 @@ def post_translate(payload: TranslateRequest, request: Request):
             payload.text, payload.engine, payload.source_language, payload.target_language,
             model=payload.model, free_tier=payload.free_tier,
             principal=request.state.principal)
+
+
+@router.post("/estimate", dependencies=[require_permission("engines.paid")], response_model=TranslateEstimate,
+             summary="What translating this text would cost, and what is left of the monthly cap",
+             responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_translate_estimate(payload: TranslateRequest):
+    return translate_service.estimate(
+        payload.text, payload.engine, payload.source_language, payload.target_language,
+        model=payload.model, free_tier=payload.free_tier)
 
 
 # Deletes are PC-only (docs/remote-access-decision.md).

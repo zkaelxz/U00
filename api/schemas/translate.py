@@ -16,6 +16,7 @@ __all__ = [
     "TranslateHistoryResponse",
     "TranslateRequest",
     "TranslateResponse",
+    "TranslateEstimate",
     "ClearHistoryResult",
     "TranslateRunStylePreset",
     "TranslateRunWorkflowTier",
@@ -81,6 +82,21 @@ class TranslateRequest(BaseModel):
 
 class TranslateResponse(BaseModel):
     translated_text: str
+    # Set only when the run stopped early (the monthly cap would be passed);
+    # translated_text then holds the chunks finished before it.
+    message: Optional[str] = None
+
+
+class TranslateEstimate(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    chunks: int
+    requests: int
+    estimated_usd: float
+    cap_applies: bool
+    monthly_cap_usd: Optional[float] = None
+    cap_left_usd: Optional[float] = None  # None: not capped, or no cap set
+    fits_cap: bool
 
 
 class ClearHistoryResult(BaseModel):

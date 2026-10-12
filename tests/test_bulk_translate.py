@@ -1743,7 +1743,7 @@ class TestBulkReflectMatchesLiveReflect:
         return did, drama, args
 
     def test_the_faithful_prompt_is_the_live_pass_one_prompt(self, isolated_db, monkeypatch):
-        from engine_backends import translate_pipeline
+        from engine_backends import reflect_pass
         import translation_guide
         did, drama, args = self._setup(isolated_db)
         engine = _claude_engine()
@@ -1752,7 +1752,7 @@ class TestBulkReflectMatchesLiveReflect:
         bulk_prompt = _request_text(engine)
 
         seen = []
-        monkeypatch.setattr(translate_pipeline, "call_llm_json",
+        monkeypatch.setattr(reflect_pass, "call_llm_json",
                             lambda eng, prompt, system=None, **k: seen.append(f"{system}\n\n{prompt}") or "{}")
         names = translation_guide.build_speaker_labels(
             isolated_db.list_characters_with_series_names(did), [])
