@@ -46,6 +46,7 @@ OPTIONAL_DEPENDENCIES = {
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
+    "budoux": ("budoux", "Japanese/Chinese phrase-aware subtitle line breaking", "feature"),
     "transformers": ("transformers", "Qwen3-ASR and Qwen3 forced alignment (5.15 or newer), "
                                      "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga "
                                      "(needs transformers 5+)", "feature"),
@@ -158,7 +159,7 @@ APPROX_DOWNLOAD_MB = {
     "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
     "pydub": 1, "omnivoice": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "paddlepaddle": 200, "manga-ocr": 20,
-    "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3,
+    "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3, "budoux": 1,
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
@@ -254,6 +255,9 @@ INSTALL_TASKS = [
      "help": "Word splitting and furigana.",
      "packages": ["sudachipy", "sudachidict_core", "pykakasi"],
      "recommended": ["pykakasi"]},
+    {"id": "subtitle_breaks", "group": "Video", "label": "Subtitle line breaking",
+     "help": "Breaks long Japanese and Chinese subtitle lines between phrases, not inside words.",
+     "packages": ["budoux"]},
     {"id": "reader_ko", "group": "Novels & reader", "label": "Korean reader tools",
      "help": "Word splitting.", "packages": ["kiwipiepy"]},
     {"id": "books", "group": "Novels & reader", "label": "EPUB and Anki export",

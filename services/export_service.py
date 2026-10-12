@@ -136,6 +136,13 @@ def _load_drama_and_lines(drama_id: int):
     return drama, lines
 
 
+def break_language(drama: dict) -> dict:
+    """The drama's source language and script, as the keyword arguments
+    subtitle_formats takes to break CJK lines between words."""
+    return {"language": drama.get("source_language") or "zh",
+            "chinese_script": drama.get("chinese_script") or "simplified"}
+
+
 def build_wrap_chars(wrap_chars_en, wrap_chars_source):
     if wrap_chars_en is None and wrap_chars_source is None:
         return None
@@ -295,7 +302,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
         speaker_colors=colors, speaker_names=speaker_names,
         wrap_chars=build_wrap_chars(wrap_chars_en, wrap_chars_source),
         title=drama.get("title_en") or drama.get("title_zh") or "",
-        notes_as_separate_line=notes_as_separate_line)
+        notes_as_separate_line=notes_as_separate_line, **break_language(drama))
 
 
 def get_export_readiness(drama_id: int) -> dict:
@@ -450,15 +457,17 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
 
     if fmt == "vtt":
-        return _export_result(subtitle_formats.lines_to_vtt(lines, field, notes_by_idx, wrap_chars))
+        return _export_result(subtitle_formats.lines_to_vtt(
+            lines, field, notes_by_idx, wrap_chars, **break_language(drama)))
     if fmt == "lrc":
-        return _export_result(subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars))
+        return _export_result(subtitle_formats.lines_to_lrc(
+            export_lines, field, notes_by_idx, wrap_chars, **break_language(drama)))
 
     if tidy_timing and fps is None:
         fps = _probe_title_fps(drama_id, drama)
     timed, report = (subtitle_formats.tidy_cue_timing(export_lines, fps) if tidy_timing
                      else (export_lines, None))
-    wrapped = subtitle_formats.wrap_lines(timed, wrap_chars)
+    wrapped = subtitle_formats.wrap_lines(timed, wrap_chars, **break_language(drama))
     if field == "bilingual":
         text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
     else:

@@ -97,6 +97,7 @@ sudachipy>=0.6          # Japanese
 sudachidict_core>=20240716
 pykakasi>=2.3           # Japanese furigana
 kiwipiepy>=0.18         # Korean
+budoux>=0.9.3           # Japanese/Chinese phrase-aware subtitle line breaking
 
 # --- scanlate: ML bubble detection + inpainting ---
 # transformers (above) loads the bubble detector; torch+safetensors load

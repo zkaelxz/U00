@@ -169,13 +169,28 @@ def rule_split_spans(text: str, language: str, max_chars: int, bounds=None,
     return split(0, len(text))
 
 
-def even_spans(s: int, e: int, max_chars: int) -> list:
-    """(start, end) spans of equal character count, each at most max_chars
-    (never under 8, so a tiny limit can't shred a line into stubs)."""
+def even_spans(s: int, e: int, max_chars: int, text: str = "", bounds=None) -> list:
+    """(start, end) spans of near-equal character count, each at most max_chars
+    (never under 8, so a tiny limit can't shred a line into stubs). With
+    `text` and its word `bounds`, each cut moves to the nearest word boundary
+    within a quarter of a span (never onto a character that cannot start a
+    line), so the fallback that runs without an LLM doesn't cut mid-word."""
     max_chars = max(max_chars, 8)
     parts = max(2, -(-(e - s) // max_chars))
     size = -(-(e - s) // parts)
-    return [(k, min(k + size, e)) for k in range(s, e, size)]
+    cuts = list(range(s + size, e, size))
+    if bounds:
+        allowed = [b for b in sorted(bounds) if s < b < e and text[b] not in subtitle_formats.NO_LINE_START]
+        reach, prev = size // 4, s
+        for k, cut in enumerate(cuts):
+            left = len(cuts) - k  # pieces still to fill after this cut
+            near = [b for b in allowed if abs(b - cut) <= reach and 0 < b - prev <= max_chars
+                    and e - b <= left * max_chars]
+            if near:
+                cuts[k] = min(near, key=lambda b: abs(b - cut))
+            prev = cuts[k]
+    edges = [s] + cuts + [e]
+    return list(zip(edges, edges[1:]))
 
 
 # ---------------------------------------------------------------- LLM pass
@@ -373,7 +388,7 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
                     spans.extend((s + a, s + b) for a, b in sub)
                     continue
             if even_split and length(text[s:e]) > max(max_chars, 8):
-                evenly = even_spans(s, e, max_chars)
+                evenly = even_spans(s, e, max_chars, text, bounds)
                 approximate.update(evenly)
                 spans.extend(evenly)
                 continue

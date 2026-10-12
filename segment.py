@@ -25,10 +25,13 @@ segmentation without the readings (word boundaries only).
 """
 import re
 
+from subtitle_formats import NO_LINE_START
+
 _jieba = None
 _sudachi_tokenizer = None
 _kakasi = None
 _kiwi = None
+_budoux_ja = None
 _opencc_t2s = None
 
 # jieba's cut time grows with the square of an unbroken run (40k chars took
@@ -102,6 +105,66 @@ def missing_line_word_segmenter(lines, title_language: str):
     cut by the same word rules."""
     languages = {title_language, *(getattr(ln, "lang", None) for ln in lines)} - {None, ""}
     return next(filter(None, map(missing_word_segmenter, sorted(languages))), None)
+
+
+# Japanese negation/conditional endings Sudachi cuts off their stem
+# (食べ|ない, それ|なら); a line starting with one reads as broken.
+_JA_NO_LINE_START_WORDS = ("ない", "なら", "なく", "なか", "なけ")
+
+
+def _usable_breaks(text: str, offsets, language: str) -> set:
+    out = set()
+    for off in offsets:
+        if not 0 < off < len(text) or text[off] in NO_LINE_START or text[off].isspace():
+            continue
+        if language == "ja" and text[off:].startswith(_JA_NO_LINE_START_WORDS):
+            continue
+        out.add(off)
+    return out
+
+
+def _word_ends(words) -> list:
+    pos, ends = 0, []
+    for w in words:
+        pos += len(w)
+        ends.append(pos)
+    return ends
+
+
+def line_break_tiers(text: str, language: str, chinese_script: str = "simplified"):
+    """Offsets where a subtitle line may break, best source first (callers
+    take the last offset of the first tier that has one in their window), or
+    None when no segmenter for the language is installed. Japanese: BudouX
+    phrase ends, then Sudachi word ends. Chinese: jieba words. Korean: None,
+    since its spaces are handled by the caller."""
+    if language not in ("ja", "zh"):
+        return None
+    tiers = []
+    if language == "ja":
+        try:
+            import budoux
+            global _budoux_ja
+            if _budoux_ja is None:
+                _budoux_ja = budoux.load_default_japanese_parser()
+            chunks = _budoux_ja.parse(text)
+            if "".join(chunks) == text:
+                tiers.append(_usable_breaks(text, _word_ends(chunks), language))
+        except ImportError:
+            pass
+    try:
+        words = segment_words(text, language, chinese_script)
+        if "".join(words) == text:
+            tiers.append(_usable_breaks(text, _word_ends(words), language))
+    except ImportError:
+        pass
+    return tiers or None
+
+
+def line_break_offsets(text: str, language: str, chinese_script: str = "simplified"):
+    """Every offset where a subtitle line may break (the union of
+    line_break_tiers), or None when no segmenter is installed."""
+    tiers = line_break_tiers(text, language, chinese_script)
+    return None if tiers is None else set().union(*tiers)
 
 
 def _load_jieba():
