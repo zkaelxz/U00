@@ -41,7 +41,10 @@ Clear and move are server-enforced, not only hidden in the UI:
   parent is still there, the destination is free and passes the same checks
   as clear.
 - Purge and empty (services/disk_usage_trash_service.py, with the Trash list
-  and Restore) are the ONLY permanent deletes in the feature.
+  and Restore) are the ONLY permanent deletes in the feature, besides deleting
+  the previous library a restore or reset kept beside the library folder
+  (services/previous_library_service.py, typed DELETE); those folders show up
+  here protected, with that reason.
 - Unused voice clips: the files in a title's voice_refs/ that no speaker points
   to, offered by opaque id (no name or path in a response) and moved to Trash
   through the same rename as clear, each re-checked under the library hold.
