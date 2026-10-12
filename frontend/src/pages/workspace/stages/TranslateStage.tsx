@@ -528,12 +528,6 @@ function RunPanel({
             <Field label="Batch size" unit="lines" help={`Lines sent per request, ${batchSizeRange()}. Leave blank for the default for this engine (${engineBatch}).`}>
               <input type="number" value={f.batch_size} placeholder={String(engineBatch)} onChange={(e) => set('batch_size', e.target.value)} />
             </Field>
-            {batchOverridden && (
-              <p className="muted batch-size-note" data-testid="batch-size-note">
-                Using {batchOverridden.value} (set by you). Default for this engine is {batchOverridden.engineDefault}.{' '}
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => set('batch_size', '')}>Use default</button>
-              </p>
-            )}
           </div>
           <Field label="Context before" unit="lines" help={`Earlier lines sent as context, ${contextRange()}.`}>
             <input type="number" value={f.context_window} onChange={(e) => set('context_window', e.target.value)} />
@@ -548,6 +542,12 @@ function RunPanel({
           >
             <input type="number" min={0} step="0.01" value={f.cost_cap} onChange={(e) => set('cost_cap', e.target.value)} />
           </Field>
+          {batchOverridden && (
+            <p className="muted batch-size-note advanced-wide" data-testid="batch-size-note">
+              Batch size: Using {batchOverridden.value} (set by you). Default for this engine is {batchOverridden.engineDefault}.{' '}
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => set('batch_size', '')}>Use default</button>
+            </p>
+          )}
           <div
             className="advanced-wide fallback-group"
             role="group"
