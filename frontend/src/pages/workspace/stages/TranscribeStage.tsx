@@ -682,7 +682,7 @@ export default function TranscribeStage({
       {cf ? (
         <p className="muted source-summary" data-testid="settings-summary">
           Whisper {cf.whisper_size} · {LANGUAGE_NAMES[language] ?? language}
-          {useGpu !== null && <span data-testid="gpu-note"> · GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a></span>}
+          {useGpu !== null && <span data-testid="gpu-note"> · {useGpu && config?.gpu_runtime.status === 'missing' ? `GPU unavailable: ${config.gpu_runtime.reason ?? 'the CUDA libraries are missing'}` : `GPU: ${useGpu ? 'on' : 'off'}`} - change in <a href="#/settings">Settings</a></span>}
         </p>
       ) : (
         <p className="muted source-summary" aria-hidden="true">&nbsp;</p>

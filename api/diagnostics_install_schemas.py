@@ -88,8 +88,16 @@ class DiagnosticsDependencyInstallResult(DiagnosticsInstallResult):
 class DiagnosticsDependencyInstallState(BaseModel):
     """The latest package install / GPU PyTorch setup job. Output lines are
     redacted; no paths or keys."""
-    kind: Optional[Literal["package", "gpu_torch"]] = None
+    kind: Optional[Literal["package", "gpu_torch", "cuda_runtime"]] = None
     package: Optional[str] = None
     result: Optional[DiagnosticsDependencyInstallResult] = None
     job_id: str
+    job: Optional[DiagnosticsJobState] = None
+
+
+class DiagnosticsCudaRuntimeStatus(BaseModel):
+    missing: bool = Field(description="An NVIDIA GPU is present but no cuBLAS 12 / cuDNN 9 is "
+                                      "where Whisper can load it.")
+    show: bool = Field(description="Offer the row: missing, or an install of it has run.")
+    install: Optional[DiagnosticsDependencyInstallState] = None
     job: Optional[DiagnosticsJobState] = None

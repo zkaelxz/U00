@@ -70,9 +70,16 @@ export interface DiagnosticsDependencyInstallResult {
 }
 
 export interface DiagnosticsDependencyInstallState {
-  kind: 'package' | 'gpu_torch' | null
+  kind: 'package' | 'gpu_torch' | 'cuda_runtime' | null
   package: string | null
   result: DiagnosticsDependencyInstallResult | null
   job_id: string
+  job: DiagnosticsJobState | null
+}
+
+export interface DiagnosticsCudaRuntimeStatus {
+  missing: boolean
+  show: boolean
+  install: DiagnosticsDependencyInstallState | null
   job: DiagnosticsJobState | null
 }

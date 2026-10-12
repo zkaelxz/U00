@@ -31,6 +31,7 @@ from dataclasses import replace
 
 def _serve():
     import uvicorn
+    import cuda_runtime_path
     import db
     from lib.errors import NewerDatabaseError, UnfinishedRestoreError
     try:
@@ -50,6 +51,7 @@ def _serve():
         except OSError:
             pass   # the console line below has it
         raise SystemExit(f"ERROR: {e.message}")
+    cuda_runtime_path.ensure_cuda_runtime_on_path()
     from api.api_config import (check_bind_safety, check_household_bind_safety, is_loopback_host,
                                load_settings)
     try:

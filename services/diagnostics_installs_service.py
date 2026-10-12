@@ -48,6 +48,7 @@ import zipfile
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
+import cuda_runtime_path
 import job_process_kill
 import db
 import diagnostics
@@ -65,6 +66,9 @@ from services.service_errors import ConflictError
 DENO_JOB_ID = "deno_install"
 UPGRADE_CHECK_JOB_ID = "upgrade_check"
 DEPENDENCY_JOB_ID = "dependency_install"
+# Both are OPTIONAL_DEPENDENCIES keys; nvidia-cudnn-cu12 alone would pull cuBLAS too, but
+# naming both keeps each version capped by constraints.txt.
+CUDA_RUNTIME_PACKAGES = ("nvidia-cublas-cu12", "nvidia-cudnn-cu12")
 _OUTPUT_TAIL = 40
 
 # Static download table: (OS, CPU) -> the official release asset. Only
@@ -497,6 +501,21 @@ def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool
     gaps.guard(confirm)
     if name not in gaps.installable_packages():
         raise gaps.AdminActionUnknownPackage("Unknown or non-installable package.")
+    return _start_planned_install("package", (name,), f"Installing {name}", name,
+                                  accept_risk, accepted_risks)
+
+
+def start_cuda_runtime_install(confirm: bool = False) -> dict:
+    """PC only. Installs CUDA_RUNTIME_PACKAGES (cuBLAS 12 and cuDNN 9 wheels)
+    as one install job, with the refusals of start_dependency_install."""
+    gaps.guard(confirm)
+    return _start_planned_install("cuda_runtime", CUDA_RUNTIME_PACKAGES,
+                                  "Installing the CUDA runtime for GPU Whisper", "cuda_runtime",
+                                  False, None)
+
+
+def _start_planned_install(kind: str, names: tuple, description: str, arg: str,
+                           accept_risk: bool, accepted_risks) -> dict:
     _require_writable_site_packages()
     # The plan is only true of the environment it was made against: no
     # second plan, and no install or restore, may move it before the job holds it.
@@ -506,8 +525,9 @@ def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool
     try:
         if background_jobs.exclusive_held():
             raise _plan_busy()
-        _require_safe_plan(name, accept_risk, accepted_risks)
-        return _start_install_job("package", name, f"Installing {name}", name)
+        for name in names:
+            _require_safe_plan(name, accept_risk, accepted_risks)
+        return _start_install_job(kind, names[0], description, arg)
     finally:
         pending_install_service._PREVIEW_LOCK.release()
 
@@ -648,7 +668,23 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
 def _run_pip_step(kind: str, arg: str) -> dict:
     if kind == "gpu_torch":
         return gaps.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
+    if kind == "cuda_runtime":
+        return _install_cuda_runtime()
     return gaps.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
+
+
+def _install_cuda_runtime() -> dict:
+    result = {"ok": True, "output_tail": [], "hint": None}
+    for name in CUDA_RUNTIME_PACKAGES:
+        # The cuDNN wheel is ~700 MB: the same allowance as GPU PyTorch, not pip's 900 s.
+        result = gaps.install_dependency(name, True, job_id=DEPENDENCY_JOB_ID,
+                                         timeout=gaps.GPU_TORCH_TIMEOUT_SECONDS)
+        if not result["ok"]:
+            return result
+    # The wheels land in site-packages/nvidia/*/bin; this puts them on the
+    # search path so the next Whisper run needs no restart.
+    cuda_runtime_path.ensure_cuda_runtime_on_path()
+    return result
 
 
 def _pip_failed(kind: str, result: dict) -> bool:

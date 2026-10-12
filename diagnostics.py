@@ -84,6 +84,12 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
+    # Windows ships these DLLs inside GPU PyTorch; these wheels are the fallback the
+    # Diagnostics "CUDA runtime for GPU Whisper" row installs (cuda_runtime_path.py).
+    "nvidia-cublas-cu12": ("nvidia.cublas", "Whisper on the GPU (CUDA 12 cuBLAS, when GPU PyTorch "
+                                            "does not supply it)", "feature"),
+    "nvidia-cudnn-cu12": ("nvidia.cudnn", "Whisper on the GPU (cuDNN 9, when GPU PyTorch does "
+                                          "not supply it)", "feature"),
     # Qwen3's own tokenisation for forced alignment; transformers' processor
     # raises if the package for the title's language is missing.
     "nagisa": ("nagisa", "Qwen3 forced alignment of Japanese (word splitting)", "feature"),
@@ -161,6 +167,7 @@ APPROX_DOWNLOAD_MB = {
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "nagisa": 22, "soynlp": 1,
     "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
+    "nvidia-cublas-cu12": 470, "nvidia-cudnn-cu12": 700,
 }
 PULLS_TORCH = {"pyannote-audio", "omnivoice", "manga-ocr", "audio-separator", "funasr", "demucs", "torchaudio"}
 
@@ -210,7 +217,9 @@ NOT_OFFERED_FOR_INSTALL = {
 INSTALL_TASKS = [
     {"id": "transcribe", "group": "Audio", "label": "Transcribe speech (Whisper)",
      "help": "Turn a drama's audio into timed lines.",
-     "packages": ["faster_whisper", "ctranslate2", "soundfile", "numpy"]},
+     "packages": ["faster_whisper", "ctranslate2", "soundfile", "numpy", "nvidia-cublas-cu12",
+                  "nvidia-cudnn-cu12"],
+     "optional": ["nvidia-cublas-cu12", "nvidia-cudnn-cu12"]},
     {"id": "music_removal", "group": "Audio", "label": "Remove background music",
      "help": "Clean the audio before transcribing so dialogue is easier to hear.",
      "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"],

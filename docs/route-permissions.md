@@ -105,6 +105,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/bug-reports` | library.read |
 | `GET /api/diagnostics/bug-reports/{report_id}` | admin.diagnostics |
 | `POST /api/diagnostics/bug-reports/{report_id}/delete` | local_only() |
+| `GET /api/diagnostics/cuda-runtime` | admin.diagnostics |
+| `POST /api/diagnostics/cuda-runtime/install` | local_only() |
 | `GET /api/diagnostics/deno` | admin.diagnostics |
 | `POST /api/diagnostics/deno/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
