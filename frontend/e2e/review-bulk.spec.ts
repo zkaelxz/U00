@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test'
-import { openFoldFor } from './reviewFolds'
+import { openAi, openFoldFor } from './reviewFolds'
 
 import { expect, test } from './fixtures'
 
@@ -66,7 +66,7 @@ test('Bulk sends bulk only when switched on, then shows the pending batch and th
     route.fulfill({ json: { drama_id: 3, jobs: submitted ? [batch] : [] } }))
 
   await page.goto('/#/drama/3/review')
-  const ai = await open(page, 'AI review')
+  const ai = await openAi(page)
   const row = ai.getByTestId('review-job-consistency')
   const bulk = row.getByRole('switch', { name: 'Bulk: Check consistency' })
   await expect(bulk).toBeEnabled()
@@ -117,7 +117,7 @@ test('Bulk is off and explained for an engine without a batch API', async ({ pag
   })
   await page.route('**/api/jobs/fj', (route) => route.fulfill({ json: job('fj', 'done') }))
   await page.goto('/#/drama/3/review')
-  const ai = await open(page, 'AI review')
+  const ai = await openAi(page)
   await expect(ai.getByText('Still needed for Bulk: Claude or Gemini as the engine (Check options).')).toBeVisible()
   for (const sw of await ai.getByRole('list', { name: 'AI checks to run' }).getByRole('switch').all()) await expect(sw).toBeDisabled()
   await ai.getByRole('button', { name: 'Flag lines for a second look' }).click()
@@ -134,7 +134,7 @@ test('Bulk is off and explained for an engine without a batch API', async ({ pag
 test('Gemini on its free tier: Bulk points to Settings', async ({ page }) => {
   await mockConfig(page, 'gemini', ['claude', 'deepseek'])
   await page.goto('/#/drama/3/review')
-  const ai = await open(page, 'AI review')
+  const ai = await openAi(page)
   await expect(ai.getByRole('switch', { name: 'Bulk: Tag emotion' })).toBeDisabled()
   await expect(ai.getByText(/Still needed for Bulk: Gemini's free tier turned off in Settings/)).toBeVisible()
   await expect(ai.getByRole('link', { name: 'Open Settings' })).toHaveAttribute('href', '#/settings')
@@ -144,9 +144,7 @@ test('Bulk says why it is off when the engine settings could not be loaded', asy
   await page.route('**/api/translate-run/dramas/3/config', (route) =>
     route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/#/drama/3/review')
-  const ai = page.getByRole('group', { name: 'AI checks' })
-  const summary = ai.locator('summary', { hasText: 'AI review' }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+  const ai = await openAi(page)
   await expect(ai.getByRole('switch', { name: 'Bulk: Check consistency' })).toBeDisabled()
   await expect(ai).toContainText("Bulk is off: couldn't load the engine settings. Reload to try again.")
 })

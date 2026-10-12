@@ -4,6 +4,8 @@ import { listAllLines } from '../../../../api/restructure'
 import { addGapLines, getTranscribeGaps } from '../../../../api/workspace'
 import type { TranscribeGap } from '../../../../types/workspace'
 
+export type WaveformGaps = ReturnType<typeof useWaveformGaps>
+
 // The title's untranscribed gaps for the waveform, and "Transcribe this gap":
 // add the blank flagged lines that cover it (the server cuts them at ~30 s,
 // at pauses where it can), then hand their ids to the re-transcribe section.

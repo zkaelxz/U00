@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test'
 
-import { openFoldFor } from './reviewFolds'
+import { openFoldFor, unfold } from './reviewFolds'
 
 export { clearLines, seedLines } from './resegmentLlmMocks'
 
@@ -30,7 +30,7 @@ export async function mockSnapshot(page: Page) {
   await expect(rows).toHaveCount(3)
   ids = await rows.evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-line-id'))))
   await openFoldFor(page, 'Records')
-  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
+  await unfold(page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }))
   return calls
 }
 

@@ -7,8 +7,10 @@ import { lineNumber } from '../../../../lineNumber'
 import type { ReviewLine } from '../../../../types/review'
 import type { TranscribeGap } from '../../../../types/workspace'
 import type { PlayerHandle } from './Player'
+import { gapText } from './gapModel'
 import { gapLabel, gapsInView } from './retranscribeLinesLogic'
 import { formatTime } from './reviewLogic'
+import { labelFits } from './waveLabel'
 import {
   bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, NUDGE_SECONDS, panView, peakColumns, round3, timeToX, viewAround,
   viewForLine, visibleLines, xToTime, zoomView, type View,
@@ -30,6 +32,8 @@ interface Props {
   gaps?: TranscribeGap[]
   gapBlocked?: string | null
   onTranscribeGap?: (gap: TranscribeGap) => void
+  // A gap the viewer asked to see (the Gaps chip): the window moves to it; seq makes a repeat count.
+  focusGap?: { gap: TranscribeGap; seq: number } | null
 }
 
 const HEIGHT = 96
@@ -46,7 +50,7 @@ const RETIME_FAILED = 'Couldn’t move that edge. The line may have changed: rel
 // cues. Dragging the active line's edges (or arrow keys on a focused edge)
 // saves start/end through the same line-edit route as the row editor, and an
 // edge stops at its neighbour instead of overlapping it.
-export default function Waveform({ dramaId, lines, active, player, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap }: Props) {
+export default function Waveform({ dramaId, lines, active, player, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap, focusGap = null }: Props) {
   const box = useRef<HTMLDivElement | null>(null)
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const head = useRef<HTMLDivElement | null>(null)
@@ -69,6 +73,15 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
     setView((v) => viewForLine(active, v.span, duration()))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId])
+
+  const seenFocus = useRef(focusGap?.seq ?? 0)
+  useEffect(() => {
+    if (!focusGap || focusGap.seq === seenFocus.current) return
+    seenFocus.current = focusGap.seq
+    const { start, end } = focusGap.gap
+    setView((v) => viewAround((start + end) / 2, Math.max(v.span, (end - start) * 1.5), duration()))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusGap])
 
   useEffect(() => {
     const el = box.current
@@ -273,14 +286,17 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
           const isActive = l.id === activeId
           const s = isActive ? shownStart : l.start
           const e = isActive ? shownEnd : l.end
+          const cueWidth = Math.max(1, timeToX(e, view, width) - timeToX(s, view, width))
+          const name = `#${lineNumber(l.idx)}`
           return (
             <div
               key={l.id}
               className={isActive ? 'review-wave-cue is-active' : 'review-wave-cue'}
               data-testid={isActive ? 'wave-cue-active' : 'wave-cue'}
-              style={{ left: timeToX(s, view, width), width: Math.max(1, timeToX(e, view, width) - timeToX(s, view, width)) }}
+              title={`Line ${name}: ${formatTime(s)} – ${formatTime(e)}`}
+              style={{ left: timeToX(s, view, width), width: cueWidth }}
             >
-              <span className="review-wave-cue-label">#{lineNumber(l.idx)}</span>
+              {labelFits(name, cueWidth) && <span className="review-wave-cue-label">{name}</span>}
             </div>
           )
         })}
@@ -288,8 +304,10 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
           const left = timeToX(Math.max(g.start, view.start), view, width)
           const right = timeToX(Math.min(g.end, view.start + view.span), view, width)
           const wide = right - left >= GAP_WIDE_PX
+          const text = gapText(g)
           return (
-            <div key={`${g.start}-${g.end}`} className="review-wave-gap" data-testid="wave-gap" style={{ left, width: Math.max(1, right - left) }}>
+            <div key={`${g.start}-${g.end}`} className="review-wave-gap" data-testid="wave-gap" title={`${text}: ${gapLabel(g)}`} style={{ left, width: Math.max(1, right - left) }}>
+              {labelFits(text, right - left) && <span className="review-wave-gap-text" data-testid="wave-gap-text">{text}</span>}
               <button
                 type="button"
                 className="review-wave-gap-btn"

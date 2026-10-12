@@ -68,7 +68,7 @@ export function applyNote(r: RetranscribeManyApplyResult, sourceChanged: number)
   if (r.skipped.length > 0) {
     parts.push(`${r.skipped.length} changed since the run, so left alone.`)
   }
-  if (n > 0) parts.push('Undo from Versions and history.')
+  if (n > 0) parts.push('Undo from History.')
   return parts.join(' ')
 }
 

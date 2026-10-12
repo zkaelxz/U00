@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
+import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
 import { isManageTab, manageHref, type ManageTab } from './pages/sources/manageTabs'
 import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
@@ -12,8 +13,9 @@ export type Route =
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
+  // tools: "#/drama/3/review?tools=coverage" opens that tab of the Review tools panel.
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage.
-  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tab?: MediaTab }
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tools?: ReviewToolsTab; tab?: MediaTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads' }
@@ -39,7 +41,7 @@ export type Route =
   | { name: 'manga-series'; source: string; series: string }
   | { name: 'manga-read'; source: string; series: string; chapter: string; page: number | null }
 
-export type DramaFocus = 'glossary' | 'characters' | 'flagged'
+export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare'
 
 export const DEFAULT_STAGE = 'source'
 
@@ -118,12 +120,14 @@ export function parseRoute(hash: string): Route {
     }
     const q = new URLSearchParams(qs)
     const focus = q.get('focus')
+    const tools = q.get('tools')
     const tab = q.get('tab')
     return {
       name: 'drama',
       id: Number(a),
       stage,
-      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' ? { focus } : {}),
+      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
+      ...(isReviewToolsTab(tools) ? { tools } : {}),
       ...(isMediaTab(tab) ? { tab } : {}),
     }
   }
@@ -133,7 +137,7 @@ export function parseRoute(hash: string): Route {
 export function routeHref(r: Route): string {
   if (r.name === 'drama') {
     const base = r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
-    const query = [r.focus && `focus=${r.focus}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
+    const query = [r.focus && `focus=${r.focus}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
     return query ? `${base}?${query}` : base
   }
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`

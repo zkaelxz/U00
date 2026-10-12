@@ -102,7 +102,7 @@ one language per run).
 
 Qwen3-ASR without Whisper (`qwen3_asr_vad`, `qwen3_asr_long`) gives good text but
 line times that can sit in silence or run past the speech. The Review stage's
-**Check timing** (Flag lines for review) compares each line's start and end with the
+**Check timing** (Review > Fix > Flag lines for review) compares each line's start and end with the
 speech Silero finds in the title's audio (the speech coverage check's chunked CPU scan:
 no Whisper, no Qwen, no GPU; cancel from Jobs) and sets the `timing_drift` flag when a
 line starts more than 0.7 s before speech, ends more than 0.7 s after it, is under 40%

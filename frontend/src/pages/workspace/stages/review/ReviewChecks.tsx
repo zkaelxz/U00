@@ -41,6 +41,9 @@ interface Props {
 
 export interface CheckParts {
   coverage: ReactNode
+  // Gaps, untranslated lines, pacing problems and changed-source lines: the
+  // Coverage tab's badge, and 0 when its panel has nothing to show.
+  coverageCount: number
   shorten: ReactNode
   history: ReactNode
 }
@@ -51,9 +54,10 @@ interface Checks {
   tendencies: Tendencies | null
   versions: VersionItem[]
   noteCount: number
+  sourceChanged: SourceChanged | null
 }
 
-const EMPTY: Checks = { coverage: null, pacing: null, tendencies: null, versions: [], noteCount: 0 }
+const EMPTY: Checks = { coverage: null, pacing: null, tendencies: null, versions: [], noteCount: 0, sourceChanged: null }
 
 // Small read-only checks, each a folded Section that only appears when it
 // has something to show: coverage and pacing, edit tendencies, a version
@@ -79,9 +83,10 @@ export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning, 
       getTendencies(dramaId),
       listVersions(dramaId),
       listNotes(dramaId),
-    ]).then(([coverage, pacing, tendencies, versions, notes]) => {
+      getSourceChanged(dramaId),
+    ]).then(([coverage, pacing, tendencies, versions, notes, sourceChanged]) => {
       if (cancelled) return
-      const failed = [coverage, pacing, tendencies, versions, notes].find((r) => r.status === 'rejected')
+      const failed = [coverage, pacing, tendencies, versions, notes, sourceChanged].find((r) => r.status === 'rejected')
       setError(failed && failed.status === 'rejected' ? failed.reason : null)
       setChecks((prev) => ({
         coverage: coverage.status === 'fulfilled' ? coverage.value : prev.coverage,
@@ -89,6 +94,7 @@ export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning, 
         tendencies: tendencies.status === 'fulfilled' ? tendencies.value : prev.tendencies,
         versions: versions.status === 'fulfilled' ? versions.value : prev.versions,
         noteCount: notes.status === 'fulfilled' ? notes.value.length : prev.noteCount,
+        sourceChanged: sourceChanged.status === 'fulfilled' ? sourceChanged.value : prev.sourceChanged,
       }))
     })
     return () => {
@@ -96,15 +102,17 @@ export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning, 
     }
   }, [dramaId, reloads, enabled])
 
-  const { coverage, pacing, tendencies, versions, noteCount } = checks
+  const { coverage, pacing, tendencies, versions, noteCount, sourceChanged } = checks
+  const coverageCount = (coverage ? coverageGroups(coverage).reduce((n, g) => n + g.items.length, 0) : 0) + (pacing?.flags.length ?? 0) + (sourceChanged?.count ?? 0)
   const tooLong = pacing?.flags.filter((f) => f.issue === TOO_LONG).length ?? 0
   return (
     <>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {render({
+        coverageCount,
         coverage: (
           <>
-            <SourceChangedSection dramaId={dramaId} reloads={reloads} jobRunning={jobRunning} onChanged={onChanged} />
+            <SourceChangedSection dramaId={dramaId} data={sourceChanged} jobRunning={jobRunning} onChanged={onChanged} />
             <CoverageSection coverage={coverage} pacing={pacing} onGoTo={onGoTo} />
           </>
         ),
@@ -144,29 +152,17 @@ const plural = (n: number) => `${n} line${n === 1 ? '' : 's'}`
 // Lines whose source text changed after they were translated keep their English
 // until the user picks: retranslate exactly those lines with the Translate
 // stage's starting options, or keep the English (two-step, it clears the flags).
-function SourceChangedSection({ dramaId, reloads, jobRunning, onChanged }: {
+function SourceChangedSection({ dramaId, data, jobRunning, onChanged }: {
   dramaId: number
-  reloads: number
+  data: SourceChanged | null
   jobRunning: boolean
   onChanged: () => void
 }) {
-  const [data, setData] = useState<SourceChanged | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [jobId, setJobId, runKey] = useJobRun()
   const { job, error: pollError } = useJob(jobId, { runKey, onDone: onChanged })
-
-  useEffect(() => {
-    let cancelled = false
-    getSourceChanged(dramaId).then(
-      (r) => !cancelled && setData(r),
-      (e: unknown) => !cancelled && setError(e),
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId, reloads])
 
   const running = !!jobId && (!job || !TERMINAL_STATUSES.includes(job.status)) && !pollError
   const count = data?.count ?? 0
@@ -199,7 +195,7 @@ function SourceChangedSection({ dramaId, reloads, jobRunning, onChanged }: {
   }
 
   return (
-    <Section storageKey="review.sourceChanged" title="Source changed" count={count} summary="English may not match the new source text" defaultOpen>
+    <Section storageKey="review.sourceChanged" title="Source changed" count={count} summary="English may not match the new source text">
       <div data-testid="source-changed">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {count > 0 && <p data-testid="source-changed-count">{sourceChangedText(count)}.</p>}

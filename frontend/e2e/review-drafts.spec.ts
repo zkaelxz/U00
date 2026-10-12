@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
-import { openFoldFor } from './reviewFolds'
+import { openFoldFor, unfold } from './reviewFolds'
 
 // A line edit survives what used to lose it: leaving Review while its save
 // fails, and a Records write (Use this version) while it is open. Lines are
@@ -84,7 +84,7 @@ test('Use this version during an edit saves the edit first, so it never comes ba
   const row = await typeInto(page, 0, 'Hello, before the switch')
 
   await openFoldFor(page, 'Records')
-  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
+  await unfold(page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }))
   const list = page.getByTestId('versions-list')
   await list.getByRole('button', { name: 'Use this version Pass 2' }).click()
   await list.getByRole('button', { name: 'Confirm: replace the English with Pass 2' }).click()
@@ -110,7 +110,7 @@ test('Use this version waits while the open edit cannot be saved', async ({ page
   await page.route(LINE_SAVE, (route) => route.abort())
 
   await openFoldFor(page, 'Records')
-  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
+  await unfold(page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }))
   const list = page.getByTestId('versions-list')
   await list.getByRole('button', { name: 'Use this version Pass 2' }).click()
   await list.getByRole('button', { name: 'Confirm: replace the English with Pass 2' }).click()

@@ -38,7 +38,7 @@ describe('timing check summaries', () => {
     expect(checkSummary(last(0, 'No speech was found.'))).toBe('No speech was found.')
   })
   it('reports lines left alone because they changed', () => {
-    expect(snapSummary({ snapped: 2, stale_ids: [], history_id: 1 })).toBe('Snapped 2 lines to speech. Undo from Versions and history.')
+    expect(snapSummary({ snapped: 2, stale_ids: [], history_id: 1 })).toBe('Snapped 2 lines to speech. Undo from History.')
     expect(snapSummary({ snapped: 0, stale_ids: [7], history_id: 1 })).toContain('1 line changed since the check')
   })
   it('indexes suggestions by line', () => {

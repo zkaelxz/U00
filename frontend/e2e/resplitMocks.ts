@@ -56,6 +56,5 @@ export async function openResplit(page: Page) {
   await page.locator('.review-line:not(.review-skeleton)').first().waitFor()
   await openFoldFor(page, 'Re-split long lines')
   const group = page.getByRole('group', { name: 'Re-split long lines' })
-  await group.locator('summary', { hasText: 'Re-split long lines' }).click()
   return group
 }

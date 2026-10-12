@@ -29,6 +29,14 @@ export const mergeFormDefaults = (): MergeForm => ({
   max_chars: String(MERGE_DEFAULTS.max_chars),
 })
 
+const UNITS: Record<keyof MergeShortOptions, string> = { min_duration: 's', max_gap: 's', max_chars: 'chars' }
+
+// "0.1-2.0 s": both ends with the same decimals, the unit after.
+export function rangeText(lo: number, hi: number, unit = ''): string {
+  const decimals = Math.max(...[lo, hi].map((n) => (String(n).split('.')[1] ?? '').length))
+  return `${lo.toFixed(decimals)}-${hi.toFixed(decimals)}${unit ? ` ${unit}` : ''}`
+}
+
 const LABELS: Record<keyof MergeShortOptions, string> = {
   min_duration: 'Short line',
   max_gap: 'Max gap',
@@ -46,7 +54,7 @@ export function parseMergeForm(form: MergeForm): {
     const raw = form[key].trim()
     const n = raw === '' ? Number.NaN : Number(raw)
     const [lo, hi] = MERGE_LIMITS[key]
-    if (!Number.isFinite(n) || n < lo || n > hi) errors[key] = `${LABELS[key]}: ${lo}–${hi}`
+    if (!Number.isFinite(n) || n < lo || n > hi) errors[key] = `${LABELS[key]}: ${rangeText(lo, hi, UNITS[key])}`
     else if (key === 'max_chars' && !Number.isInteger(n)) errors[key] = `${LABELS[key]}: a whole number`
     else out[key] = n
   }

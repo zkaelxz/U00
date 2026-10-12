@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test'
-import { openFoldFor } from './reviewFolds'
+import { aiChecks, openAi, openFoldFor, openTab } from './reviewFolds'
 
 import { expect, test } from './fixtures'
 
@@ -164,8 +164,8 @@ test('fix flagged lines: the cap is checked as typed and only set options are se
   })
   await page.route('**/api/jobs/fx', (route) => route.fulfill({ json: job('fx', 'done') }))
   await page.goto('/#/drama/3/review')
-  const ai = await open(page, 'AI review')
-  const fix = ai.getByRole('group', { name: 'Fix flagged lines' })
+  await openTab(page, 'Fix')
+  const fix = aiChecks(page).getByRole('group', { name: 'Fix flagged lines' })
   await expect(fix.getByRole('button').first()).toHaveText('Fix flagged lines')
   await open(page, 'Options')
   const cap = fix.getByRole('textbox', { name: 'Cost cap' })
@@ -195,7 +195,7 @@ test('AI checks send the chosen engine and model; emotion sends the audio-cues c
   })
   await page.route('**/api/jobs/k-*', (route) => route.fulfill({ json: job(route.request().url().split('/').pop() as string, 'done') }))
   await page.goto('/#/drama/3/review')
-  const ai = await open(page, 'AI review')
+  const ai = await openAi(page)
 
   // Nothing chosen: every field is left to the server's defaults.
   await ai.getByRole('button', { name: 'Check consistency' }).click()
@@ -224,12 +224,13 @@ test('fix flagged lines needs a flagged line', async ({ page }) => {
     await route.fulfill({ response: r, json: { ...body, flagged_count: 0 } })
   })
   await page.goto('/#/drama/3/review')
-  const fix = (await open(page, 'AI review')).getByRole('group', { name: 'Fix flagged lines' })
+  await openTab(page, 'Fix')
+  const fix = aiChecks(page).getByRole('group', { name: 'Fix flagged lines' })
   await expect(fix.getByRole('button', { name: 'Fix flagged lines' })).toBeDisabled()
   await expect(fix).toContainText('Still needed: a flagged line.')
 })
 
-test('a running job and a start error show above the AI review section', async ({ page }) => {
+test('a running job and a start error show above the review tabs', async ({ page }) => {
   let refuse = false
   await page.route('**/api/review-jobs/dramas/3/consistency', (route) =>
     refuse
@@ -237,13 +238,13 @@ test('a running job and a start error show above the AI review section', async (
       : route.fulfill({ json: { job_id: 'cj', drama_id: 3, kind: 'consistency', engine: 'gemini', model: null, line_count: 4 } }))
   await page.route('**/api/jobs/cj', (route) => route.fulfill({ json: job('cj', 'running') }))
   await page.goto('/#/drama/3/review')
-  const ai = await open(page, 'AI review')
+  const ai = await openAi(page)
   const group = page.getByRole('group', { name: 'AI checks' })
 
   await ai.getByRole('button', { name: 'Check consistency' }).click()
   await expect(ai.getByText('A review job is running.')).toBeVisible()
   await expect(ai.getByRole('button', { name: 'Tag emotion' })).toBeDisabled()
-  await expect(group.locator(':scope > *').first()).toHaveAttribute('data-testid', 'job-panel')
+  await expect(group.locator('.review-toolbox > *').first()).toHaveAttribute('data-testid', 'job-panel')
   if (SHOTS) {
     await page.setViewportSize({ width: 1280, height: 800 })
     await group.scrollIntoViewIfNeeded()
@@ -253,8 +254,8 @@ test('a running job and a start error show above the AI review section', async (
   await page.goto('about:blank')
   refuse = true
   await page.goto('/#/drama/3/review')
-  await section(page, 'AI review').getByRole('button', { name: 'Check consistency' }).click()
-  const banner = group.locator(':scope > .error-banner')
+  await aiChecks(page).getByRole('button', { name: 'Check consistency' }).click()
+  const banner = group.locator('.review-toolbox > .error-banner')
   await expect(banner).toBeVisible()
   if (SHOTS) {
     await group.scrollIntoViewIfNeeded()
@@ -272,7 +273,7 @@ test('screenshots', async ({ page }) => {
     await page.goto('about:blank')
     await page.goto('/#/drama/3/review')
     await expect(rows(page).first()).toBeVisible()
-    for (const t of ['AI review', 'Options', 'Consistency', 'Emotion', 'Coverage and pacing', 'Compare versions']) await open(page, t)
+    for (const t of ['Options', 'Consistency', 'Emotion', 'Coverage and pacing', 'Compare versions']) await open(page, t)
     await section(page, 'Consistency').getByRole('button', { name: 'Show lines' }).click()
     await section(page, 'Compare versions').getByRole('button', { name: 'Show differences' }).click()
     await page.getByRole('group', { name: 'AI checks' }).screenshot({ path: `${SHOTS}/desktop-${scheme}-ai-review.png` })

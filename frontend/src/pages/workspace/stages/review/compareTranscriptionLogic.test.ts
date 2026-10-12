@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   EMPTY_SELECTION_FORM,
   buildSelection,
+  clearedKey,
+  compareRunText,
+  restoredMode,
   capProblem,
   compareSelectedProblem,
   compareOutcome,
@@ -124,5 +127,24 @@ describe('compareOutcome', () => {
       text: expect.stringContaining('downloaded'),
     })
     expect(compareOutcome({ status: 'error' })).toMatchObject({ kind: 'none' })
+  })
+})
+
+describe('returning to a comparison', () => {
+  it('restores only a mode that needs no live selection', () => {
+    expect(restoredMode('range')).toBe('range')
+    expect(restoredMode('selected')).toBe('flagged')
+    expect(restoredMode('')).toBe('flagged')
+    expect(restoredMode(undefined)).toBe('flagged')
+  })
+
+  it('describes the last run', () => {
+    expect(compareRunText({ line_count: 183, asr_backend: 'whisper', whisper_size: 'large-v3' }, null)).toBe('Last comparison: 183 lines, whisper · large-v3')
+    expect(compareRunText({ line_count: 1, asr_backend: null, whisper_size: null }, null)).toBe('Last comparison: 1 line')
+    expect(compareRunText({ line_count: 2, asr_backend: 'whisper', whisper_size: null }, 0)).toMatch(/^Last comparison: .+, 2 lines, whisper$/)
+  })
+
+  it('keeps a separate cleared marker per title', () => {
+    expect(clearedKey(3)).not.toBe(clearedKey(4))
   })
 })

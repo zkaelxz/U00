@@ -25,7 +25,7 @@ test('the rows say "Source changed" in text and the Flagged filter shows them', 
 
 test('Review checks: the count, "Retranslate these" on exactly those ids, two-step "Keep English for all"', async ({ page }) => {
   const seen = await mockSourceChanged(page)
-  await page.goto('/#/drama/3/review')
+  await page.goto('/#/drama/3/review?tools=coverage')
   const panel = page.getByTestId('source-changed')
   await expect(panel.getByTestId('source-changed-count')).toHaveText('2 lines changed in the source since they were translated.')
 
@@ -40,7 +40,7 @@ test('Review checks: the count, "Retranslate these" on exactly those ids, two-st
 
 test('Keep English for all needs a second press', async ({ page }) => {
   const seen = await mockSourceChanged(page)
-  await page.goto('/#/drama/3/review')
+  await page.goto('/#/drama/3/review?tools=coverage')
   const panel = page.getByTestId('source-changed')
   await panel.getByRole('button', { name: /Keep English for all/ }).click()
   expect(seen.keeps).toEqual([])

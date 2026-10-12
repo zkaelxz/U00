@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { openResplit } from './resplitMocks'
-import { openFoldFor } from './reviewFolds'
+import { openFoldFor, unfold } from './reviewFolds'
 import { SENTENCE, editEnglishBehindTheUi, noteBehindTheUi, openReview, rows, seedLines, splitSecondLine, zhTexts } from './reviewUndo'
 
 // One-click Undo on the confirmation of a structural edit. Real lines, real API.
@@ -68,7 +68,6 @@ test('a change in another panel retires the Lines Undo', async ({ page }) => {
   // Opened in place: openResplit reloads the page, which drops every offer anyway.
   await openFoldFor(page, 'Re-split long lines')
   const group = page.getByRole('group', { name: 'Re-split long lines' })
-  await group.locator('summary', { hasText: 'Re-split long lines' }).click()
   await expect(page.getByTestId('undo-notice')).toBeVisible()
   await group.getByRole('button', { name: 'Re-split long lines' }).click()
   await expect(group.getByTestId('resplit-summary')).toContainText('Split 1 line into 3')
@@ -87,7 +86,7 @@ test('Undo refused for a note added since says so, and Records warns before dele
   expect(await zhTexts(page)).toEqual(['你好', '再见', '朋友', '谢谢'])
 
   await openFoldFor(page, 'Records')
-  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
+  await unfold(page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }))
   await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).first().click()
   await expect(page.getByTestId('restore-loss')).toHaveText(
     '1 line this would remove has a note or emotion tag. Restoring deletes them. Move or copy the note first to keep it.')

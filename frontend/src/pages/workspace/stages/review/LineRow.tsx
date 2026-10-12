@@ -22,6 +22,8 @@ import { CONFLICT_MESSAGE, formatTime, isToolMode, type PanelMode } from './revi
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
+import { routeHref } from '../../../../router'
+import { TIMING_UNCERTAIN_FLAG } from './useTimingSnap'
 
 export interface NoteDraft {
   term: string
@@ -66,6 +68,8 @@ export interface RowActions {
   dismissFlag: (id: number) => void
   // Shortens a timing-flagged line to the speech the check found (compare-and-set on the server).
   snapToSpeech?: (id: number) => void
+  // Starts the title's timing check (the same one as Fix > Flag lines for review).
+  checkTiming?: () => void
   applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void
   acceptTm: (id: number, entryId: number, expectedEn: string) => void
@@ -150,6 +154,37 @@ export function FlagToggle({ text, open, onToggle, controls, children }: {
     >
       {children}
     </button>
+  )
+}
+
+// A line whose alignment fell back to approximate timing: the two actions that
+// can fix it from here, and where to get real word timings.
+function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: {
+  dramaId: number
+  lineId: number
+  snap: TimingSuggestion | null
+  actions: RowActions
+  jobRunning: boolean
+}) {
+  return (
+    <div className="review-flag-actions" data-testid="timing-uncertain-actions">
+      {snap && actions.snapToSpeech && (
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(lineId)}
+                title={`Set ${formatTime(snap.new_start)} – ${formatTime(snap.new_end)}; saves a history snapshot first`}>
+          Snap to speech
+        </button>
+      )}
+      {actions.checkTiming && (
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={jobRunning} onClick={() => actions.checkTiming?.()}
+                title={jobRunning ? JOB_RUNNING_MESSAGE : 'Compare every line’s times with the speech in the audio'}>
+          Check timing
+        </button>
+      )}
+      <span className="muted">
+        Re-transcribe with Whisper large-v3-turbo for word timings:{' '}
+        <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source', tab: 'transcribe' })}>open Media → Transcribe</a>
+      </span>
+    </div>
   )
 }
 
@@ -261,6 +296,9 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
       )}
       {line.flag && flagOpen && (
         <p id={flagNoteId} className="review-flag-open" role="note">{flagText(line)}</p>
+      )}
+      {line.flag === TIMING_UNCERTAIN_FLAG && (active || !isPhone) && (
+        <TimingUncertainActions dramaId={dramaId} lineId={line.id} snap={timingSnap ?? null} actions={actions} jobRunning={jobRunning} />
       )}
       <div className="review-body">
         <div lang="zh" className="review-zh">{line.zh}</div>

@@ -168,4 +168,21 @@ export function compareOutcome(job: {
 // The Compare run's draft (hooks/useStageDraft, stage "review.compare"): the
 // options as last left; a size or backend this server no longer offers is dropped.
 export const COMPARE_DRAFT_STAGE = 'review.compare'
-export const COMPARE_DRAFT_SHAPE = { size: '', backend: '', translate: false, retranslate: false, extraNames: '', hint: '' }
+export const COMPARE_DRAFT_SHAPE = { mode: '', size: '', backend: '', translate: false, retranslate: false, extraNames: '', hint: '' }
+
+export const compareJobId = (dramaId: number) => `comparetx_${dramaId}`
+
+// Review's "Which lines" choices a draft can restore.
+export function restoredMode(saved: string | undefined): SelectionMode {
+  return saved === 'line' || saved === 'range' || saved === 'flagged' || saved === 'speaker' || saved === 'time' ? saved : EMPTY_SELECTION_FORM.mode
+}
+
+// "Last comparison: 3:41 PM, 183 lines, whisper · large-v3".
+export function compareRunText(r: { line_count: number; asr_backend: string | null; whisper_size: string | null }, finishedAt: number | null): string {
+  const when = finishedAt === null ? '' : `${new Date(finishedAt * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}, `
+  const model = [r.asr_backend, r.whisper_size].filter(Boolean).join(' · ')
+  return `Last comparison: ${when}${r.line_count} line${r.line_count === 1 ? '' : 's'}${model ? `, ${model}` : ''}`
+}
+
+// Remembers which finished run the viewer cleared, so it stays gone after a reload (the server keeps it).
+export const clearedKey = (dramaId: number) => `review.compare.cleared.${dramaId}`

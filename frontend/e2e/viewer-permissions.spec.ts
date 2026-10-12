@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { openTab } from './reviewFolds'
 import { mockExportReady, openExportBlock } from './exportBlocks'
 import { clearDrama3Lines, clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 import { withExportLines, withTranslateLines } from './stageLineMocks'
@@ -54,6 +55,7 @@ test('Review: AI review jobs are refused plainly and the page stays usable', asy
   expect(refused).toEqual([`POST /api/review-jobs/dramas/${DRAMA}/consistency`])
   await expect(consistency).toBeEnabled()
 
+  await openTab(page, 'Fix')
   await page.getByRole('button', { name: 'Fix flagged lines' }).click()
   await expect.poll(() => refused).toContain(`POST /api/review-jobs/dramas/${DRAMA}/fix-flagged`)
   await expect(refusal(page).first()).toBeVisible()

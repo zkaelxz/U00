@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, type Page } from '@playwright/test'
+import { openTab } from './reviewFolds'
 
 // The real seeded API (drama 3 of the throwaway e2e library): one line flagged
 // reading_speed (19.6 characters/second: over Normal's 17, under Relaxed's 20), one
@@ -35,6 +36,7 @@ export async function runReadingSpeedScenario(page: Page) {
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(3)
   await expect(page.getByTestId('line-counts')).toContainText('2 flagged')
 
+  await openTab(page, 'Fix')
   const fold = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: /^Flag lines for review$/ }) })
   if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
   await expect(fold).toHaveAttribute('open', '')
