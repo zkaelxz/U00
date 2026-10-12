@@ -91,9 +91,12 @@ test('the readiness warning links to Review checks instead of hosting flag butto
   await page.route('**/api/export/dramas/1/readiness', (route) =>
     route.fulfill({ json: { drama_id: 1, total_lines: 10, zh_filled: 10, en_filled: 10, fully_translated: true, overlap_count: 2, auto_qc_issue_count: 0, dense_line_count: 1 } }))
   await page.goto('/#/drama/1/export')
-  await expect(page.getByTestId('readiness-warnings')).toContainText('2 overlapping lines, 1 dense line.')
+  const warnings = page.getByTestId('readiness-warnings')
+  await expect(warnings).toContainText('2 cues overlap; both stay fully visible in ASS and VTT and are shortened in SRT.')
+  await expect(warnings).toContainText('1 dense line.')
+  await expect(warnings.getByRole('link', { name: 'Open Review checks' })).toHaveCount(2)
   await expect(page.getByRole('button', { name: 'Flag overlapping lines' })).toHaveCount(0)
-  await page.getByRole('link', { name: 'Open Review checks' }).click()
+  await warnings.getByRole('link', { name: 'Open Review checks' }).first().click()
   await expect(page).toHaveURL(/#\/drama\/1\/review$/)
 })
 

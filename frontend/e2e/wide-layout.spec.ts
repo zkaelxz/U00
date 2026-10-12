@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
 
-// List/card pages use the 1800px column; form pages keep 1200px (index.css, data-width on .app-main).
+// The app column is up to 1800px; each page's shell takes the whole of it (wide), 1120px (standard) or 860px (narrow).
 // Screenshots go to the git-ignored tmp/scratchpad, not the repo.
-const WIDE_PAGES = ['#/', '#/library-tools', '#/jobs', '#/sources', '#/discover', '#/diagnostics', '#/manga']
-const NARROW_PAGES = ['#/settings', '#/translate']
+const WIDE_PAGES = ['#/', '#/jobs', '#/sources', '#/discover']
+const NARROW_PAGES = ['#/settings', '#/translate', '#/library-tools', '#/diagnostics', '#/manga']
+const PAGE_CAP: Record<string, number> = { '#/settings': 860 }
 const WIDTHS = [1280, 1600, 1920]
 const RAIL_MAX = 240 // 15rem expanded rail at 16px root
 
@@ -25,7 +26,8 @@ for (const width of WIDTHS) {
             // Takes whatever the viewport offers up to the cap; never the old 1200 limit when more is free.
             expect(w).toBeGreaterThanOrEqual(Math.min(available - RAIL_MAX + 56, 1800) - 1)
           } else {
-            expect(w).toBeLessThanOrEqual(1200)
+            const shell = (await page.locator('[data-page-shell]').boundingBox())!.width
+            expect(shell).toBeLessThanOrEqual(PAGE_CAP[hash] ?? 1120)
           }
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
           expect(overflow).toBeLessThanOrEqual(0)

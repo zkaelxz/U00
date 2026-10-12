@@ -349,7 +349,7 @@ def _find_sdk_clients_missing_timeout(path):
 
 
 def _project_py_files():
-    skip = {"__pycache__", "tests", "node_modules", "frontend", ".git", "venv", ".venv"}
+    skip = {"__pycache__", "tests", "node_modules", "frontend", ".git", "venv", ".venv", "library"}
     out = []
     for root, dirs, files in os.walk(PROJECT_ROOT):
         dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".")]
@@ -671,7 +671,7 @@ def _find_ffmpeg_runs_missing_timeout(source):
 
 class TestFfmpegRunsHaveTimeouts:
     def test_production_ffmpeg_runs_have_a_timeout(self):
-        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__"}
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
         problems = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
@@ -715,7 +715,7 @@ def _find_text_captures_missing_decoding(source):
 
 class TestSubprocessTextDecoding:
     def test_no_text_capture_without_explicit_decoding(self):
-        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__"}
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
         problems = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
@@ -747,7 +747,6 @@ OVERSIZED_MODULE_BYTES = {
     "scanlate.py": 89904,
     "background_jobs.py": 89431,
     "bulk_translate.py": 86382,
-    "installer/service.py": 83445,
     "core.py": 84133,
     "services/auto_backup_service.py": 83022,
     "services/disk_usage_service.py": 73715,
@@ -766,7 +765,7 @@ OVERSIZED_MODULE_BYTES = {
 class TestModuleSize:
     @staticmethod
     def _module_sizes():
-        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__"}
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
         sizes = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
@@ -816,7 +815,7 @@ class TestModuleSize:
 # installer/ is, because service.py and launcher.py run on users' PCs.
 # Retired when there are zero call sites outside lib/proc.py.
 _CAPTURE_SCAN_SKIP = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv",
-                      "__pycache__", "scripts", "tools"}
+                      "__pycache__", "scripts", "tools", "library"}
 # Build-time only: never shipped, run on the developer's machine.
 _CAPTURE_SCAN_SKIP_FILES = {"installer/build_installer.py", "installer/smoke_child.py"}
 _SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}

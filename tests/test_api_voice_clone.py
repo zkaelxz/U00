@@ -241,6 +241,19 @@ class TestClipInUseByJob:
         db.save_job_record(f"dub_{did}", "done")
         assert _upload(client, did, name="new.wav").status_code == 200
 
+    def test_a_stale_job_record_does_not_block(self, isolated_db, monkeypatch):
+        """A dub row nobody has heartbeated for STALE_JOB_SECONDS was left by a
+        dead process: it no longer counts, while one inside the window does."""
+        did = _drama()
+        db.save_job_record(f"narration_{did}", "running")
+        real = time.time()
+        monkeypatch.setattr(time, "time",
+                            lambda: real + background_jobs.STALE_JOB_SECONDS - 60)
+        assert vcs._clip_reading_job_active(did) is True
+        monkeypatch.setattr(time, "time",
+                            lambda: real + background_jobs.STALE_JOB_SECONDS + 60)
+        assert vcs._clip_reading_job_active(did) is False
+
     def test_other_drama_or_unrelated_job_does_not_block(self, client, isolated_db, tools):
         did = _drama()
         other = _drama()

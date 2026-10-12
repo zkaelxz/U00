@@ -103,7 +103,7 @@ export function RetimeLines({
             (r.skipped.length > r.overlapping.length
               ? ` ${r.skipped.length - r.overlapping.length} edited since the run, so left alone.`
               : '') +
-            (r.applied.length ? ' Undo from Versions and history.' : ''),
+            (r.applied.length ? ' Undo from History.' : ''),
         )
         onChanged()
       }, setError)
