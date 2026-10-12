@@ -20,6 +20,7 @@ import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
 import { SuggestSpellings } from './GlossarySpellings'
 import { PossibleNames, SimilarSpellings } from './GlossaryVariants'
+import { NameReportPanel } from './NameReportPanel'
 import { VtuberNames } from './VtuberNames'
 import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
@@ -178,6 +179,7 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   const [pick, setPick] = useState<GlossarySource | null>(null)
   const [suggestRequested, setSuggestRequested] = useState(false)
   const [importSignal, setImportSignal] = useState(0)
+  const [showNameReport, setShowNameReport] = useState(false)
   const [similarFor, setSimilarFor] = useState<number | null>(null)
   const [suggestFor, setSuggestFor] = useState<number | null>(null)
 
@@ -410,6 +412,20 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
       <PossibleNames hasSeries={seriesId != null} onCreated={() => setReloads((n) => n + 1)} />
+      {showNameReport ? (
+        <NameReportPanel onClose={() => setShowNameReport(false)} />
+      ) : (
+        <div className="actions">
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            title="Find a name that is heard or written differently across all your titles"
+            onClick={() => setShowNameReport(true)}
+          >
+            Check names across all titles
+          </button>
+        </div>
+      )}
       <GlossaryImport openSignal={importSignal} hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />
       <LanguagePacks
         glossarySources={(terms ?? []).map((t) => t.term_original)}
