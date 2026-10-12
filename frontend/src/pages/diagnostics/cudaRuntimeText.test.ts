@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsCudaRuntimeStatus } from '../../types/diagnosticsInstalls'
-import { cudaRuntimeResultLine } from './cudaRuntimeText'
+import { cudaRuntimeErrorText, cudaRuntimeResultLine } from './cudaRuntimeText'
 
 const base: DiagnosticsCudaRuntimeStatus = { missing: true, show: true, install: null, job: null }
 const install = (ok: boolean, hint: string | null = null): DiagnosticsCudaRuntimeStatus['install'] => ({
@@ -18,5 +18,16 @@ describe('cudaRuntimeResultLine', () => {
   })
   it('reports success once the libraries are found', () => {
     expect(cudaRuntimeResultLine({ ...base, missing: false, install: install(true) })?.tone).toBe('ok')
+  })
+})
+
+describe('cudaRuntimeErrorText', () => {
+  it('keeps the server reason and points a refused plan at the Packages list', () => {
+    const text = cudaRuntimeErrorText({ status: 409, message: 'This would downgrade numpy. Confirm again to go ahead anyway.' })
+    expect(text).toContain('This would downgrade numpy.')
+    expect(text).toContain('Packages list')
+  })
+  it('adds no hint to other errors', () => {
+    expect(cudaRuntimeErrorText({ status: 403 })).not.toContain('Packages list')
   })
 })

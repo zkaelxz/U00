@@ -4,8 +4,8 @@ import { getCudaRuntimeStatus, installCudaRuntime } from '../../api/diagnosticsI
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
-import { adminErrorText, installBlockedReason, type AdminBusy } from './diagnosticsAdmin'
-import { cudaRuntimeResultLine, CUDA_RUNTIME_CONFIRM, CUDA_RUNTIME_INTRO } from './cudaRuntimeText'
+import { installBlockedReason, type AdminBusy } from './diagnosticsAdmin'
+import { cudaRuntimeErrorText, cudaRuntimeResultLine, CUDA_RUNTIME_CONFIRM, CUDA_RUNTIME_INTRO } from './cudaRuntimeText'
 import { jobProgressLine, jobRunning } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
 
@@ -40,7 +40,7 @@ export function CudaRuntimeInstall({ pc, jobsActive, busy, onStarted, onFinished
       await installCudaRuntime()
       onStarted()
     } catch (e) {
-      setError(adminErrorText(e, 'install'))
+      setError(cudaRuntimeErrorText(e))
     } finally {
       setStarting(false)
       await refresh()

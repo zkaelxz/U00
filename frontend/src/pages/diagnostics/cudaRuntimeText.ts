@@ -1,5 +1,6 @@
 // Wording for the "CUDA runtime for GPU Whisper" row (GET /api/diagnostics/cuda-runtime).
 import type { DiagnosticsCudaRuntimeStatus } from '../../types/diagnosticsInstalls'
+import { adminErrorText } from './diagnosticsAdmin'
 import { jobRunning } from './jobPoll'
 
 // Approximate: the cuBLAS 12 and cuDNN 9 wheels together.
@@ -18,4 +19,14 @@ export function cudaRuntimeResultLine(s: DiagnosticsCudaRuntimeStatus): { text: 
   }
   if (!s.missing) return { text: 'Installed. Whisper can use the GPU now.', tone: 'ok' }
   return null
+}
+
+const PLAN_HINT =
+  ' To review this, install nvidia-cublas-cu12 and nvidia-cudnn-cu12 from the Packages list below: it previews the changes and can accept them or queue the install for the next start.'
+
+/** The server's own reason; a refused plan (409/422) also points at the Packages list, which can accept a risk or queue for restart. */
+export function cudaRuntimeErrorText(err: unknown): string {
+  const text = adminErrorText(err, 'install')
+  const status = (err as { status?: number } | null)?.status
+  return status === 409 || status === 422 ? text + PLAN_HINT : text
 }

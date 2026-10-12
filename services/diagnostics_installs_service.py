@@ -676,7 +676,9 @@ def _run_pip_step(kind: str, arg: str) -> dict:
 def _install_cuda_runtime() -> dict:
     result = {"ok": True, "output_tail": [], "hint": None}
     for name in CUDA_RUNTIME_PACKAGES:
-        result = gaps.install_dependency(name, True, job_id=DEPENDENCY_JOB_ID)
+        # The cuDNN wheel is ~700 MB: the same allowance as GPU PyTorch, not pip's 900 s.
+        result = gaps.install_dependency(name, True, job_id=DEPENDENCY_JOB_ID,
+                                         timeout=gaps.GPU_TORCH_TIMEOUT_SECONDS)
         if not result["ok"]:
             return result
     # The wheels land in site-packages/nvidia/*/bin; this puts them on the

@@ -53,7 +53,8 @@ def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=N
     forever; the channel keeps every message under the pipe's atomic write
     size so a cut-off flush cannot leave a half message."""
     background_jobs.start_own_process_group()
-    # A spawned child starts with a fresh PATH, before CTranslate2 is first used.
+    # A child inherits os.environ (PATH) but not the parent's add_dll_directory
+    # entries, so the search path is rebuilt here before CTranslate2 is first used.
     cuda_runtime_path.ensure_cuda_runtime_on_path()
     timeout_item = on_timeout or ("error", "TimeoutError", TIMEOUT_MESSAGE)
 

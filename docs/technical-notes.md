@@ -88,8 +88,8 @@ blank text specifically, in both the single-page and bulk-render paths).
 CTranslate2's CUDA 12 build loads `cublas64_12.dll` and `cudnn64_9.dll` by
 plain PATH search. `cuda_runtime_path.ensure_cuda_runtime_on_path()` looks
 (by folder, never importing torch or ctranslate2) in `torch/lib`,
-`nvidia/cublas/bin`, `nvidia/cudnn/bin` and the folders already on PATH, and
-adds each folder that holds them to `os.add_dll_directory` and to the front of
+`nvidia/cublas/bin` and `nvidia/cudnn/bin` under site-packages (a folder already on PATH only counts towards the status and is never registered, since that would widen the DLL search to a folder others may write to), and
+adds each such folder to `os.add_dll_directory` and to the front of
 `PATH`. It runs at server start, in `whisper_gpu_runtime()`, in
 `load_whisper_model()` and in the spawned GPU worker bootstrap. The
 Diagnostics row installs the two NVIDIA wheels only when it finds nothing.

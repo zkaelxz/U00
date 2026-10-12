@@ -29,7 +29,6 @@ def site(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setattr(crp.sys, "platform", "win32")
     monkeypatch.setattr(crp.sysconfig, "get_paths", lambda: {"purelib": str(root), "platlib": str(root)})
-    monkeypatch.setattr(crp.importlib.util, "find_spec", lambda name: None)
     monkeypatch.setenv("PATH", str(tmp_path / "elsewhere"))
     HANDLES.clear()
     monkeypatch.setattr(os, "add_dll_directory", lambda d: HANDLES.append(d) or object(), raising=False)
@@ -69,12 +68,27 @@ def test_nvidia_wheels_are_found_in_their_bin_folders(site):
     assert set(HANDLES) == {str(site / "nvidia" / "cublas" / "bin"), str(site / "nvidia" / "cudnn" / "bin")}
 
 
-def test_a_folder_already_on_path_counts(site, tmp_path, monkeypatch):
-    elsewhere = tmp_path / "cuda-bin"
-    _put(elsewhere, *CUBLAS, *CUDNN)
-    monkeypatch.setenv("PATH", str(elsewhere))
+def test_a_folder_on_path_counts_but_is_never_registered(site, tmp_path, monkeypatch):
+    planted = tmp_path / "user-writable"
+    _put(planted, *CUBLAS, *CUDNN)
+    monkeypatch.setenv("PATH", str(planted))
 
-    assert crp.ensure_cuda_runtime_on_path()["found"] == ["PATH"]
+    result = crp.ensure_cuda_runtime_on_path()
+
+    assert result == {"status": "ok", "found": ["PATH"], "added": False}
+    assert HANDLES == [] and os.environ["PATH"] == str(planted)
+
+
+def test_a_path_folder_cannot_ride_along_with_the_site_packages_ones(site, tmp_path, monkeypatch):
+    _put(site / "torch" / "lib", *CUBLAS)
+    planted = tmp_path / "user-writable"
+    _put(planted, *CUBLAS, *CUDNN)
+    monkeypatch.setenv("PATH", str(planted))
+
+    result = crp.ensure_cuda_runtime_on_path()
+
+    assert result["status"] == "ok" and result["found"] == ["torch", "PATH"]
+    assert HANDLES == [str(site / "torch" / "lib")]
 
 
 def test_cudnn_without_its_companion_dll_is_not_enough(site):
@@ -180,23 +194,24 @@ def test_loading_a_model_fixes_the_path_before_faster_whisper_is_used(monkeypatc
 def test_the_install_runs_cublas_then_cudnn_and_then_fixes_the_path(monkeypatch):
     order = []
     monkeypatch.setattr(gaps, "install_dependency",
-                        lambda name, confirm, job_id=None: order.append(name) or {"ok": True})
+                        lambda name, confirm, job_id=None, timeout=None: order.append((name, timeout)) or {"ok": True})
     monkeypatch.setattr(installs.cuda_runtime_path, "ensure_cuda_runtime_on_path",
                         lambda: order.append("ensure"))
 
     assert installs._install_cuda_runtime()["ok"] is True
-    assert order == ["nvidia-cublas-cu12", "nvidia-cudnn-cu12", "ensure"]
+    long = gaps.GPU_TORCH_TIMEOUT_SECONDS
+    assert order == [("nvidia-cublas-cu12", long), ("nvidia-cudnn-cu12", long), "ensure"]
 
 
 def test_a_failed_first_package_stops_the_install(monkeypatch):
     order = []
     monkeypatch.setattr(gaps, "install_dependency",
-                        lambda name, confirm, job_id=None: order.append(name) or {"ok": False})
+                        lambda name, confirm, job_id=None, timeout=None: order.append((name, timeout)) or {"ok": False})
     monkeypatch.setattr(installs.cuda_runtime_path, "ensure_cuda_runtime_on_path",
                         lambda: order.append("ensure"))
 
     assert installs._install_cuda_runtime()["ok"] is False
-    assert order == ["nvidia-cublas-cu12"]
+    assert order == [("nvidia-cublas-cu12", gaps.GPU_TORCH_TIMEOUT_SECONDS)]
 
 
 def test_both_wheels_are_installable_packages():
@@ -250,3 +265,33 @@ def test_install_is_pc_only(isolated_db, row):
     assert remote.get("/api/diagnostics/cuda-runtime", headers=headers).status_code == 200
     assert remote.post("/api/diagnostics/cuda-runtime/install", json={"confirm": True},
                        headers=headers).status_code == 403
+
+
+def test_the_pip_allowance_for_a_big_wheel_replaces_the_default(monkeypatch):
+    seen = []
+    monkeypatch.setattr(gaps, "_install_commands", lambda name: [(["pip"], gaps.PIP_TIMEOUT_SECONDS)])
+    monkeypatch.setattr(gaps, "_run_commands",
+                        lambda cmds, job_id=None, torch_pins=None: seen.append(cmds) or {"ok": True})
+    monkeypatch.setattr(gaps.gpu_torch, "torch_pin_lines", lambda: [])
+
+    gaps.install_dependency("nvidia-cudnn-cu12", True, job_id="j", timeout=3600)
+    gaps.install_dependency("nvidia-cudnn-cu12", True, job_id="j")
+
+    assert [c[0][1] for c in seen] == [3600, gaps.PIP_TIMEOUT_SECONDS]
+
+
+def test_a_plan_that_needs_confirming_is_refused_with_the_servers_reason(isolated_db, monkeypatch, tmp_path):
+    from services import library_admin_service
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
+    monkeypatch.setattr(installs.sysconfig, "get_paths",
+                        lambda: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
+    monkeypatch.setattr(installs.install_plan, "build_plan", lambda keys: {
+        "blocked": [], "needs_confirm": ["This would downgrade numpy."], "mode": "now", "note": None})
+
+    with pytest.raises(installs.PlanNeedsConfirm, match="downgrade numpy"):
+        installs.start_cuda_runtime_install(confirm=True)
+
+    monkeypatch.setattr(installs.install_plan, "build_plan", lambda keys: {
+        "blocked": [], "needs_confirm": [], "mode": "restart", "note": "Baihe is using numpy."})
+    with pytest.raises(installs.InstallNeedsRestart, match="using numpy"):
+        installs.start_cuda_runtime_install(confirm=True)

@@ -14,7 +14,6 @@ torch first would load its own copy of the DLLs and defeat the point of
 fixing the search path for ctranslate2). Nothing here returns a path.
 """
 
-import importlib.util
 import os
 import sys
 import sysconfig
@@ -35,22 +34,13 @@ _added_dirs: set = set()
 
 
 def _site_roots() -> list:
+    """Only the interpreter's own site-packages folders (never sys.path,
+    which can hold the working directory)."""
     roots = []
     for key in ("purelib", "platlib"):
         path = sysconfig.get_paths().get(key)
         if path and path not in roots:
             roots.append(path)
-    for name in ("torch", "nvidia"):
-        # find_spec on a top-level name only reads the folder layout; it
-        # does not run the package.
-        try:
-            spec = importlib.util.find_spec(name)
-        except (ImportError, ValueError):
-            continue
-        for location in (spec.submodule_search_locations or []) if spec else []:
-            parent = os.path.dirname(location)
-            if parent and parent not in roots:
-                roots.append(parent)
     return roots
 
 
@@ -59,17 +49,18 @@ def _has(folder: str, *names: str) -> bool:
 
 
 def _candidates() -> list:
-    """(label, folder) in search order: torch's folder, the NVIDIA wheels'
-    folders, then any PATH entry that already has the libraries."""
+    """(label, folder) of the folders Baihe may register, in search order:
+    torch's folder, then the NVIDIA wheels' folders, all under site-packages."""
     found = []
     for root in _site_roots():
         found.append(("torch", os.path.join(root, "torch", "lib")))
         for label, parts in _NVIDIA_SUBDIRS:
             found.append((label, os.path.join(root, "nvidia", *parts)))
-    for entry in os.environ.get("PATH", "").split(os.pathsep):
-        if entry:
-            found.append(("PATH", entry))
     return found
+
+
+def _path_entries() -> list:
+    return [e for e in os.environ.get("PATH", "").split(os.pathsep) if e]
 
 
 def _holder(folder: str):
@@ -119,6 +110,16 @@ def ensure_cuda_runtime_on_path() -> dict:
             libs |= have
             if label not in sources:
                 sources.append(label)
+        # PATH entries only count towards the status. Registering one would
+        # widen the DLL search of the whole process to a folder an ordinary
+        # user may be able to write to (it could then supply the DLLs that
+        # cv2 or onnxruntime load later).
+        for entry in _path_entries():
+            have = set(_holder(entry)) - libs
+            if have:
+                libs |= have
+                if "PATH" not in sources:
+                    sources.append("PATH")
         status = "ok" if libs == {"cublas", "cudnn"} else "missing"
         return {"status": status, "found": sources, "added": added}
     except Exception:
