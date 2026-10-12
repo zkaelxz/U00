@@ -193,7 +193,9 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
   const pageNotes = notes.find((n) => n.page_id === pageId)?.notes ?? []
   const otherNoteCount = notes.filter((n) => n.page_id !== pageId && n.notes.some((x) => x.level !== 'info')).length
   const limits = config?.upload_limits
-  const accept = '.png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf'
+  const accept = limits?.pdf === false
+    ? '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'
+    : '.png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf'
 
   return (
     <Card
@@ -239,8 +241,8 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
           </div>
           {limits && (
             <p className="muted scanlate-limits">
-              PNG, JPEG, WebP or PDF · up to {limits.max_image_mb} MB and {limits.max_image_megapixels} MP per image,{' '}
-              {limits.max_pdf_mb} MB and {limits.max_pdf_pages} pages per PDF, {limits.max_files} files and{' '}
+              PNG, JPEG, WebP{limits.pdf ? ' or PDF' : ''} · up to {limits.max_image_mb} MB and {limits.max_image_megapixels} MP per image,{' '}
+              {limits.pdf ? `${limits.max_pdf_mb} MB and ${limits.max_pdf_pages} pages per PDF, ` : 'PDF import needs pypdf (Diagnostics), '}{limits.max_files} files and{' '}
               {limits.max_total_mb >= 1024 ? `${limits.max_total_mb / 1024} GB` : `${limits.max_total_mb} MB`} at once.
             </p>
           )}

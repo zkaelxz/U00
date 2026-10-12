@@ -92,3 +92,10 @@ describe('scanlate panel logic', () => {
     )
   })
 })
+
+describe('PDF import without pypdf', () => {
+  it('refuses a PDF with the reason when the server cannot read PDFs', () => {
+    expect(checkFiles([{ name: 'a.pdf', size: 1024 }], { ...limits, pdf: false })).toMatch(/pypdf/)
+    expect(checkFiles([{ name: 'a.png', size: 1024 }], { ...limits, pdf: false })).toBeNull()
+  })
+})
