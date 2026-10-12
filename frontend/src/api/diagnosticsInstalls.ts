@@ -4,7 +4,7 @@
 // "Test first" for an update. Starting either is PC only (pcOnlyFetch);
 // the status reads are admin.diagnostics and are polled while a job runs.
 import type {
-  DiagnosticsDenoStatus, DiagnosticsDependencyInstallState, DiagnosticsJobStarted, DiagnosticsUpgradeCheckState,
+  DiagnosticsCudaRuntimeStatus, DiagnosticsDenoStatus, DiagnosticsDependencyInstallState, DiagnosticsJobStarted, DiagnosticsUpgradeCheckState,
 } from '../types/diagnosticsInstalls'
 import { getJson, postJson } from './client'
 import { cancelJob } from './jobs'
@@ -19,6 +19,12 @@ export const getDenoStatus = (f?: Fetch) => getJson<DiagnosticsDenoStatus>(`${BA
 // The download URL is the server's own; nothing but the confirm is sent.
 export const installDeno = (f?: Fetch) =>
   postJson<DiagnosticsJobStarted>(`${BASE}/deno/install`, { confirm: true }, pcOnlyFetch(f))
+
+export const getCudaRuntimeStatus = (f?: Fetch) => getJson<DiagnosticsCudaRuntimeStatus>(`${BASE}/cuda-runtime`, f)
+
+// The package list is the server's own (constraints.txt pins); only the confirm is sent.
+export const installCudaRuntime = (f?: Fetch) =>
+  postJson<DiagnosticsJobStarted>(`${BASE}/cuda-runtime/install`, { confirm: true }, pcOnlyFetch(f))
 
 export const getUpgradeCheck = (f?: Fetch) => getJson<DiagnosticsUpgradeCheckState>(`${BASE}/upgrade-check`, f)
 

@@ -300,7 +300,7 @@ Fully offline: download a `faster-whisper` model elsewhere and point Settings > 
 
 ### GPU transcription failures ("cublas64_12.dll is not found")
 
-The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctranslate2 wheel or a CUDA version that doesn't match the driver. Turn "Use the GPU for transcription" off (Settings > System > Jobs and GPU) to silence it. Background: `docs/technical-notes.md`.
+The app already retries on CPU, and says so in the run summary ("ran on the CPU because the GPU couldn't be used"). The cause is that Whisper's engine (CTranslate2) looks for the CUDA 12 libraries (cuBLAS and cuDNN 9) on the Windows search path, and they are not on it. The GPU PyTorch install carries those libraries in its own folder, so Baihe now finds them there by itself when it starts and before each Whisper run; you do nothing. If you still see the message, open Diagnostics > Packages and installs: when the libraries are found nowhere, a "CUDA runtime for GPU Whisper" row (Recommended) appears with an "Install…" button (PC only). It installs NVIDIA's cuBLAS 12 and cuDNN 9 packages (about 1.2 GB) and needs no restart. The Transcribe tab's line reads "GPU unavailable: ..." while they are missing. Turn "Use the GPU for transcription" off (Settings > System > Jobs and GPU) to silence it. Background: `docs/technical-notes.md`.
 
 ### Sharing the PC with other programs (Keep free memory)
 
