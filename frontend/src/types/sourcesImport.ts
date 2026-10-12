@@ -113,6 +113,12 @@ export interface UrlDownloadRequest {
   url: string
   audio_only: boolean
   confirm_replace_audio: boolean
+  // For one video over 6 h (cap 12 h); never remembered.
+  allow_long?: boolean
+  // "Only this part", h:mm:ss; either end may be left out.
+  part_start?: string
+  part_end?: string
+  exact_cuts?: boolean
 }
 
 // GET /api/sources/{name}/import-state?series_id=&drama_id= --
