@@ -62,6 +62,9 @@ export interface LiveForm {
   reply_without_thinking: boolean
   // null = no title: the translation gets no glossary or packs, as before.
   glossary_drama_id: number | null
+  // A series instead of a title; at most one of the two is set. Settings saved
+  // before series could be picked have only the title id.
+  series_id: number | null
 }
 
 export const DEFAULT_FORM: LiveForm = {
@@ -76,6 +79,7 @@ export const DEFAULT_FORM: LiveForm = {
   use_gpu: false,
   reply_without_thinking: true,
   glossary_drama_id: null,
+  series_id: null,
 }
 
 // The options remembered per browser (everything but the link).
@@ -155,9 +159,52 @@ export function buildStartBody(form: LiveForm): LiveSessionStart {
     max_minutes: clamp(form.max_minutes, MAX_MINUTES_RANGE, DEFAULT_FORM.max_minutes),
     use_gpu: form.use_gpu === true,
     reply_without_thinking: form.reply_without_thinking !== false,
-    ...(Number.isInteger(form.glossary_drama_id) && (form.glossary_drama_id as number) > 0
-      ? { glossary_drama_id: form.glossary_drama_id as number } : {}),
+    ...(isId(form.series_id) ? { series_id: form.series_id }
+      : isId(form.glossary_drama_id) ? { glossary_drama_id: form.glossary_drama_id } : {}),
   }
+}
+
+const isId = (v: number | null): v is number => Number.isInteger(v) && (v as number) > 0
+
+export interface GlossaryOption {
+  /** 's:<series id>' or 't:<title id>'. */
+  value: string
+  label: string
+  group: string
+}
+
+/** The glossary picker, series first and then each title under its series. A
+ *  series gives its glossary and the packs of its newest title with a pack choice;
+ *  a title gives its series' glossary and its own packs. */
+export function glossaryChoices(
+  series: { id: number; name: string }[],
+  titles: { id: number; name: string; series_id: number | null }[],
+): GlossaryOption[] {
+  const byId = new Map(series.map((s) => [s.id, s.name]))
+  const out: GlossaryOption[] = series.map((s) => ({ value: `s:${s.id}`, label: `Series: ${s.name}`, group: 'Series' }))
+  for (const s of series) {
+    for (const t of titles.filter((x) => x.series_id === s.id)) {
+      out.push({ value: `t:${t.id}`, label: `${t.name} (in ${s.name})`, group: `Titles in ${s.name}` })
+    }
+  }
+  for (const t of titles.filter((x) => x.series_id === null || !byId.has(x.series_id))) {
+    out.push({ value: `t:${t.id}`, label: `${t.name} (No series: only this title's packs)`, group: 'Titles with no series' })
+  }
+  return out
+}
+
+/** The picker value for the remembered choice; '' (None) when it is gone from the list. */
+export function glossaryValue(form: Pick<LiveForm, 'glossary_drama_id' | 'series_id'>, options: GlossaryOption[]): string {
+  const want = isId(form.series_id) ? `s:${form.series_id}` : isId(form.glossary_drama_id) ? `t:${form.glossary_drama_id}` : ''
+  return options.some((o) => o.value === want) ? want : ''
+}
+
+/** What the picker value means as the two stored ids. */
+export function glossaryIds(value: string): Pick<LiveForm, 'glossary_drama_id' | 'series_id'> {
+  const id = Number(value.slice(2))
+  if (value.startsWith('s:') && isId(id)) return { glossary_drama_id: null, series_id: id }
+  if (value.startsWith('t:') && isId(id)) return { glossary_drama_id: id, series_id: null }
+  return { glossary_drama_id: null, series_id: null }
 }
 
 export const isActive = (status: string | null | undefined) => status === 'queued' || status === 'running'

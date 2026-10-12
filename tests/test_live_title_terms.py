@@ -153,3 +153,63 @@ def test_nothing_is_written_to_the_title(isolated_db, monkeypatch):
     tr.translate_chunk(["真白と先輩"])
     tr.translate("真白")
     assert calls == []
+
+
+def _series_hints(sid, lang="ja", principal=OWNER):
+    return live_service._series_term_hints(principal, sid, lang)
+
+
+def test_a_series_pick_uses_the_series_glossary_and_the_newest_titles_packs(isolated_db):
+    sid = db.get_or_create_series("S")
+    old = db.create_drama(title_en="Old", series_id=sid, source_language="ja")
+    newest_with_choice = db.create_drama(title_en="New", series_id=sid, source_language="ja")
+    db.create_drama(title_en="Newer", series_id=sid, source_language="ja")
+    db.upsert_glossary_term(sid, "真白", "Mashiro")
+    packs.set_title_packs(old, {"packs": {}})
+    packs.set_title_packs(newest_with_choice, {"packs": {"ja-address": None}})
+    found = _series_hints(sid)(["真白、先輩"])
+    assert [h[0] for h in found] == ["真白", "先輩"]
+    # `newest_without` has no choice of its own, so it is skipped rather than ending the search.
+
+
+def test_a_series_with_no_pack_choice_gives_glossary_only(isolated_db):
+    sid = db.get_or_create_series("S")
+    db.create_drama(title_en="T", series_id=sid, source_language="ja")
+    db.upsert_glossary_term(sid, "真白", "Mashiro")
+    db.set_app_setting("language_packs.default.ja", {"packs": {"ja-address": None}})
+    found = _series_hints(sid)(["真白、先輩"])
+    assert [h[0] for h in found] == ["真白"]
+
+
+def test_a_title_pick_is_unchanged_by_the_series_path(isolated_db):
+    did, sid = _title()
+    db.upsert_glossary_term(sid, "真白", "Mashiro")
+    packs.set_title_packs(did, {"packs": {"ja-address": None}})
+    assert [h[0] for h in _hints(did)(["真白、先輩"])] == ["真白", "先輩"]
+
+
+def test_a_private_series_of_another_user_is_refused(isolated_db):
+    owner = db.auth_create_user("a@example.com")
+    other = db.auth_create_user("b@example.com")
+    sid = db.get_or_create_series("S", owner_user_id=owner, is_private=True)
+    member = {"user_id": other, "is_admin": False, "is_local_owner": False, "admin_override": False}
+    with pytest.raises(NotFoundError):
+        _series_hints(sid, principal=member)
+    with pytest.raises(NotFoundError):
+        _series_hints(99999)
+
+
+def test_start_session_takes_a_series_and_refuses_both(isolated_db, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
+    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("ollama", Engine()))
+    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **kw: seen.update(kw) or True)
+    did, sid = _title()
+    with pytest.raises(live_service.InvalidInputError):
+        live_service.start_session("https://example.com/s", glossary_drama_id=did, series_id=sid,
+                                   principal=OWNER)
+    with pytest.raises(NotFoundError):
+        live_service.start_session("https://example.com/s", series_id=424242, principal=OWNER)
+    live_service.start_session("https://example.com/s", series_id=sid, principal=OWNER)
+    assert callable(seen["term_hints"])
+    live_service._sessions.clear()

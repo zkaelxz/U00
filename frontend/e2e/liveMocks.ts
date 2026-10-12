@@ -47,7 +47,7 @@ export interface FollowRow {
   created_at: number
 }
 
-const FOLLOW_OPTIONS = { source_language: 'zh', whisper_size: 'small', engine: null, model: null, max_minutes: 60, use_gpu: false, glossary_drama_id: null }
+const FOLLOW_OPTIONS = { source_language: 'zh', whisper_size: 'small', engine: null, model: null, max_minutes: 60, use_gpu: false, glossary_drama_id: null, series_id: null }
 
 /** A followed channel as GET /api/live/follows lists it. */
 export const followRow = (id: number, over: Partial<FollowRow> = {}): FollowRow => ({
@@ -108,9 +108,14 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   // (event-stream.spec.ts covers the pushed Live status).
   await page.route('**/api/events?*', (route) =>
     json(route, { error: { code: 'rate_limited', message: 'No stream in this test.' } }, 429))
-  // The picker for "Use glossary and packs from title".
+  // The picker for "Use glossary and packs from": one title with no series, one in the series "Moonlit".
   await page.route((u) => u.pathname === '/api/library/dramas', (route) =>
-    json(route, { items: [{ id: 7, title_en: 'Moonlit Letters', title_zh: '月下书信' }], count: 1 }))
+    json(route, { items: [
+      { id: 7, title_en: 'Moonlit Letters', title_zh: '月下书信', series_id: null },
+      { id: 8, title_en: 'Chapter Two', title_zh: null, series_id: 3 },
+    ], count: 2 }))
+  await page.route((u) => u.pathname === '/api/library/series', (route) =>
+    json(route, { items: [{ id: 3, name: 'Moonlit', character_count: 0, glossary_term_count: 0, dramas: [] }] }))
   await page.route('**/api/translate/engines', (route) => opts.enginesFail
     ? json(route, { error: { code: 'internal', message: 'Boom.' } }, 500)
     : json(route, { items: opts.ollama ? [OLLAMA, ...ENGINES] : ENGINES }))
