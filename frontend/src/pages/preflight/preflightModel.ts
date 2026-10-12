@@ -38,9 +38,7 @@ const row = (need: PreflightNeed, label: string, state: string, tone: BadgeTone,
 
 function whisperRow(i: PreflightInputs): PreflightRow | null {
   const label = 'Transcription (Whisper)'
-  // A stage that has already found Whisper missing (its config, or the readiness read) is not overruled by
-  // presets that say otherwise: the card is what explains why Transcribe is off.
-  const installed = i.whisperInstalled === false ? false : (i.presets.data?.packages.faster_whisper?.installed ?? i.whisperInstalled)
+  const installed = i.presets.data?.packages.faster_whisper?.installed ?? i.whisperInstalled
   if (installed !== false) return null
   const size = formatApproxMb(missingTranscription(i.presets.data)?.approx_mb)
   return row('whisper', label, `Not installed${size ? `, ${size} download` : ''}.`, 'warn', 'Missing', true)
