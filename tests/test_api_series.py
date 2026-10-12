@@ -134,3 +134,36 @@ class TestCopyTerms:
         r = c.post(url, headers=world["a"], json={"source_series_id": world["secret"]})
         assert r.status_code == 404
         assert len(db.list_glossary_terms(world["saga"])) == 1
+
+
+class TestDefaults:
+    def test_set_read_preview_and_apply(self, world):
+        c = _remote(_app())
+        url = f"/api/series/{world['saga']}/defaults"
+        r = c.post(url, headers=world["a"], json={"settings": {"beam_size": 8,
+                                                               "whisper_fast_mode": True}})
+        assert r.status_code == 200, r.text
+        body = c.get(url, headers=world["a"]).json()
+        assert body["settings"] == {"beam_size": 8, "whisper_fast_mode": True}
+        assert any(f["key"] == "beam_size" and f["type"] == "int" for f in body["fields"])
+        p = c.get(f"{url}/apply-preview?mode=overwrite", headers=world["a"]).json()
+        assert p["title_count"] == 1 and p["changed_titles"] == 1
+        r = c.post(f"{url}/apply", headers=world["a"], json={"mode": "overwrite"})
+        assert r.status_code == 200, r.text
+        assert db.get_drama(world["ep1"])["beam_size"] == 8
+
+    def test_bad_settings_are_422_and_nothing_is_stored(self, world):
+        c = _remote(_app())
+        url = f"/api/series/{world['saga']}/defaults"
+        for bad in ({"api_key": "x"}, {"beam_size": "8"}, {"beam_size": 1000}):
+            r = c.post(url, headers=world["a"], json={"settings": bad})
+            assert r.status_code == 422, (bad, r.text)
+        assert c.get(url, headers=world["a"]).json()["settings"] == {}
+        assert c.get(f"{url}/apply-preview?mode=all", headers=world["a"]).status_code == 422
+
+    def test_other_users_private_series_is_404(self, world):
+        c = _remote(_app())
+        url = f"/api/series/{world['secret']}/defaults"
+        assert c.get(url, headers=world["a"]).status_code == 404
+        assert c.post(url, headers=world["a"], json={"settings": {}}).status_code == 404
+        assert c.post(f"{url}/apply", headers=world["a"], json={"mode": "fill"}).status_code == 404

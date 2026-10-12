@@ -24,16 +24,11 @@ async function stubDrama(page: Page, patch: Record<string, unknown>) {
     state.current = next
     return r.fulfill({ json: next })
   })
-  await page.route('**/api/library/series', (r) =>
+  const item = (id: number, name: string) =>
+    ({ id, name, is_private: false, owned_by_me: true, title_count: 0, glossary_term_count: 0 })
+  await page.route('**/api/series', (r) =>
     r.fulfill({
-      json: {
-        items: [
-          { id: 7, name: 'Seven', character_count: 0, glossary_term_count: 0, dramas: [] },
-          ...(state.current.series_id === 41
-            ? [{ id: 41, name: 'Saga', character_count: 0, glossary_term_count: 0, dramas: [] }]
-            : []),
-        ],
-      },
+      json: { items: [item(7, 'Seven'), ...(state.current.series_id === 41 ? [item(41, 'Saga')] : [])] },
     }),
   )
   return bodies

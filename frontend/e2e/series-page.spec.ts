@@ -11,6 +11,13 @@ const SERIES = [
   { id: 12, name: 'Other', is_private: false, owned_by_me: true, title_count: 1, glossary_term_count: 3 },
 ]
 
+const FIELDS = [
+  { key: 'translation_engine', label: 'Translation engine', group: 'translate', type: 'choice', choices: ['claude', 'gemini'] },
+  { key: 'default_female_pronouns', label: 'Default to she/her', group: 'translate', type: 'bool' },
+  { key: 'beam_size', label: 'Beam size', group: 'transcribe', type: 'int', min: 1, max: 10 },
+  { key: 'vad_threshold', label: 'Voice detection threshold', group: 'transcribe', type: 'number', min: 0.1, max: 0.9 },
+]
+
 const PAGE = {
   id: 9, name: 'Saga', is_private: false, owned_by_me: true, can_edit: true, has_instructions: true,
   glossary_term_count: 1, character_count: 2,
@@ -30,6 +37,10 @@ async function mockSeries(page: Page) {
       posts.push({ path, body })
       if (path.endsWith('/rename')) return route.fulfill({ json: { id: 9, name: body.name } })
       if (path.endsWith('/copy-terms')) return route.fulfill({ json: { series_id: 9, source_series_id: 12, added: 2, skipped: 1 } })
+      if (path.endsWith('/defaults')) return route.fulfill({ json: { series_id: 9, settings: body.settings, fields: FIELDS } })
+      if (path.endsWith('/defaults/apply')) {
+        return route.fulfill({ json: { series_id: 9, mode: body.mode, title_count: 2, titles_changed: 1, fields_changed: 2 } })
+      }
       if (path.endsWith('/delete')) {
         return route.fulfill({ json: { deleted: true, series_id: 9, titles_kept: 2, glossary_terms_deleted: 1, characters_deleted: 2 } })
       }
@@ -39,6 +50,20 @@ async function mockSeries(page: Page) {
     if (path === '/api/series/9/copy-terms-preview') {
       return route.fulfill({
         json: { series_id: 9, source_series_id: 12, new_count: 2, skipped_count: 1, new_terms: ['林峰', '青云'], skipped_terms: ['苏'] },
+      })
+    }
+    if (path === '/api/series/9/defaults') {
+      return route.fulfill({ json: { series_id: 9, settings: { default_female_pronouns: true }, fields: FIELDS } })
+    }
+    if (path === '/api/series/9/defaults/apply-preview') {
+      return route.fulfill({
+        json: {
+          series_id: 9, mode: new URL(req.url()).searchParams.get('mode'), title_count: 2, changed_titles: 1, fields_changed: 2, job_running: false,
+          titles: [
+            { id: 1, title_en: 'Saga Ep 1', title_zh: null, changes: { beam_size: { from: null, to: 8 }, default_female_pronouns: { from: false, to: true } }, unsuited: [] },
+            { id: 2, title_en: 'Saga Ep 2', title_zh: null, changes: {}, unsuited: [] },
+          ],
+        },
       })
     }
     if (path === '/api/series/9/delete-preview') {
@@ -112,6 +137,35 @@ test('opens a series from the Library and uses every tab', async ({ page }) => {
   ])
 })
 
+test('Defaults: save title settings, preview and apply them to every title', async ({ page }) => {
+  const posts = await mockSeries(page)
+  await page.goto('/#/series/9?tab=defaults')
+  const card = page.locator('.series-defaults-card')
+  await expect(card.getByLabel('Default to she/her')).toHaveValue('true')
+  await card.getByLabel('Beam size').fill('99')
+  await card.getByRole('button', { name: 'Save defaults' }).click()
+  await expect(card.getByRole('alert')).toHaveText('Beam size: between 1 and 10.')
+  await card.getByLabel('Beam size').fill('8')
+  await card.getByLabel('Translation engine').selectOption('gemini')
+  await card.getByRole('button', { name: 'Save defaults' }).click()
+  await expect(card.getByTestId('series-defaults-saved')).toBeVisible()
+
+  const apply = page.locator('.series-defaults-apply')
+  await apply.getByLabel("Overwrite every title's settings").check()
+  await apply.getByRole('button', { name: 'Preview' }).click()
+  const preview = apply.getByTestId('series-defaults-preview')
+  await expect(preview).toContainText('1 title of 2 would change (2 settings in all).')
+  await expect(preview).toContainText('Beam size app default → 8')
+  await expect(preview).not.toContainText('Saga Ep 2')
+  await apply.getByRole('button', { name: 'Apply to 1 title' }).click()
+  await expect(apply.getByTestId('series-defaults-result')).toHaveText('Changed 2 settings on 1 title.')
+
+  expect(posts).toEqual([
+    { path: '/api/series/9/defaults', body: { settings: { translation_engine: 'gemini', default_female_pronouns: true, beam_size: 8 } } },
+    { path: '/api/series/9/defaults/apply', body: { mode: 'overwrite' } },
+  ])
+})
+
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
@@ -120,7 +174,7 @@ test.describe('phone', () => {
     await page.goto('/#/series/9')
     await expect(page.getByTestId('series-titles')).toContainText('very long title')
     await noSidewaysScroll(page)
-    for (const tab of ['Glossary tools', 'Settings']) {
+    for (const tab of ['Defaults', 'Glossary tools', 'Settings']) {
       await page.getByRole('tab', { name: tab }).tap()
       await expect(page.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true')
       await noSidewaysScroll(page)

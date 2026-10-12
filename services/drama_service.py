@@ -178,12 +178,14 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     # creates nothing and a retry can't leave a duplicate.
     if new_series_name is not None:
         try:
-            ownership_service.assign_drama_series(
-                principal, new_id,
-                ownership_service.get_or_create_series_for(principal, new_series_name))
+            series_id = ownership_service.get_or_create_series_for(principal, new_series_name)
+            ownership_service.assign_drama_series(principal, new_id, series_id)
         except Exception:
             db.delete_drama(new_id)
             raise
+    if series_id is not None:
+        _inherit_series_defaults("inherit_new", new_id, series_id, skip=(
+            ("translation_engine",) if preset and preset.get("translation_engine") else ()))
 
     detail = library_service.get_library_drama(new_id)
     detail["preset_defaults"] = None if preset is None else {
@@ -266,16 +268,33 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     series_id = fields.pop("series_id", None)
     if new_series_name is not None:   # first: a refused move writes nothing
         series_id = ownership_service.get_or_create_series_for(principal, new_series_name)
+    moved = None
     if series_id == 0:
         ownership_service.unassign_drama_series(principal, drama_id)
     elif series_id is not None:
+        if db.get_drama(drama_id).get("series_id") != series_id:
+            moved = series_id
         ownership_service.assign_drama_series(principal, drama_id, series_id)
     if "source_url" in fields:
         fields["source_url"], fields["source_url_full"] = \
             source_link_service.split_source_url(fields["source_url"])
     if fields:
         db.update_drama(drama_id, **fields)
+    if moved is not None:
+        _inherit_series_defaults("inherit_moved", drama_id, moved)
     return library_service.get_library_drama(drama_id)
+
+
+def _inherit_series_defaults(how, drama_id, series_id, **kw) -> None:
+    """Best-effort: a create or move has already happened, so a failure here
+    (the series deleted meanwhile, a stored default no longer valid) must not
+    fail it or lose its other edits; the defaults can be applied later from
+    the Series page."""
+    from services import series_defaults_service   # circular import via series_service
+    try:
+        getattr(series_defaults_service, how)(drama_id, series_id, **kw)
+    except Exception:
+        log.warning("Could not apply series defaults to title %s", drama_id, exc_info=True)
 
 
 def set_source_url_once(drama_id, url) -> bool:

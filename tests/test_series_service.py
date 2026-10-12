@@ -100,6 +100,9 @@ class TestPage:
         assert [t["title_en"] for t in page["titles"]] == ["Open"]
         listed = {x["id"]: x for x in svc.list_series(_p(other))}
         assert listed[s]["title_count"] == 1
+        from services import library_service
+        listed = library_service.list_series_with_dramas(_p(other), include_single=True)
+        assert [d["title_en"] for d in next(x for x in listed if x["id"] == s)["dramas"]] == ["Open"]
         # Its owner and the series owner still see it.
         assert len(svc.get_series_page(people["b"], s)["titles"]) == 2
         assert len(svc.get_series_page(people["a"], s)["titles"]) == 2
@@ -281,7 +284,7 @@ class TestDelete:
         def late_term(_series_id):   # runs between the count and the delete
             db.upsert_glossary_term(s, "新", "New")
             return False
-        monkeypatch.setattr(svc, "_job_running", late_term)
+        monkeypatch.setattr(svc, "job_running_for_series", late_term)
         with pytest.raises(ConflictError):
             svc.delete_series(people["a"], s, confirm=True, confirm_text="DELETE")
         assert db.get_item_ownership("series", s) is not None

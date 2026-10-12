@@ -2,14 +2,16 @@
 counts), rename, delete and copying glossary terms between series. Ids,
 names and counts only; no owner ids, paths or term translations."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 __all__ = ["SeriesListItem", "SeriesListResponse", "SeriesTitle", "SeriesPage",
            "SeriesRenameRequest", "SeriesRenameResult", "SeriesDeletePreview",
            "SeriesDeleteRequest", "SeriesDeleteResult", "SeriesCopyTermsRequest",
-           "SeriesCopyTermsPreview", "SeriesCopyTermsResult"]
+           "SeriesCopyTermsPreview", "SeriesCopyTermsResult", "SeriesDefaultsField",
+           "SeriesDefaults", "SeriesDefaultsUpdate", "SeriesDefaultsTitle",
+           "SeriesDefaultsPreview", "SeriesDefaultsApplyRequest", "SeriesDefaultsApplyResult"]
 
 _ID = dict(ge=1, le=2**31 - 1)
 
@@ -106,3 +108,57 @@ class SeriesCopyTermsResult(BaseModel):
     source_series_id: int
     added: int
     skipped: int
+
+
+class SeriesDefaultsField(BaseModel):
+    key: str
+    label: str
+    group: str = Field(description="translate or transcribe")
+    type: str = Field(description="bool, int, number or choice")
+    choices: Optional[List[str]] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+
+
+class SeriesDefaults(BaseModel):
+    series_id: int
+    # Any: a bool must stay a bool and a whole number a number (no coercion).
+    settings: Dict[str, Any]
+    fields: List[SeriesDefaultsField]
+
+
+class SeriesDefaultsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    settings: Dict[str, Any] = Field(description="setting: value; {} clears every default. "
+                                                 "The service checks keys, types and bounds.")
+
+
+class SeriesDefaultsTitle(BaseModel):
+    id: int
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    changes: Dict[str, Dict[str, Any]] = Field(description='setting: {"from": ..., "to": ...}')
+    unsuited: List[str] = Field(description="Defaults skipped: not for this title's language.")
+
+
+class SeriesDefaultsPreview(BaseModel):
+    series_id: int
+    mode: str
+    title_count: int
+    changed_titles: int
+    fields_changed: int
+    job_running: bool
+    titles: List[SeriesDefaultsTitle]
+
+
+class SeriesDefaultsApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["fill", "overwrite"] = "fill"
+
+
+class SeriesDefaultsApplyResult(BaseModel):
+    series_id: int
+    mode: str
+    title_count: int
+    titles_changed: int
+    fields_changed: int

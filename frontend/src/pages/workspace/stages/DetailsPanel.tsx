@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { getSeries, updateDramaMetadata } from '../../../api/library'
+import { updateDramaMetadata } from '../../../api/library'
+import { listAllSeries, type SeriesListItem } from '../../../api/series'
 import { updateSourceConfig } from '../../../api/source'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize, humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
-import type { LibrarySeries } from '../../../types/library'
 import { SOURCE_LANGUAGES } from '../../libraryForm'
 import {
   buildDetailsPayload,
@@ -50,7 +50,7 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
   const [initial, setInitial] = useState<DetailsForm>(() => formFromDrama(drama))
   const [form, setForm] = useState<DetailsForm>(initial)
   const [errors, setErrors] = useState<DetailsErrors>({})
-  const [series, setSeries] = useState<LibrarySeries[]>([])
+  const [series, setSeries] = useState<Pick<SeriesListItem, 'id' | 'name'>[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -71,7 +71,7 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    getSeries().then(
+    listAllSeries().then(
       (r) => !cancelled && setSeries(r.items),
       () => undefined, // the current series still shows by id
     )
@@ -130,7 +130,7 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
 
   const seriesOptions = series.some((s) => String(s.id) === form.series_id) || form.series_id === '' || form.series_id === NEW_SERIES
     ? series
-    : [{ id: Number(form.series_id), name: `Series #${form.series_id}` } as LibrarySeries, ...series]
+    : [{ id: Number(form.series_id), name: `Series #${form.series_id}` }, ...series]
   // Hidden fields keep their value; only edited fields are ever sent.
   const kind = mediaKind(form.media_type)
   const reason = !dirty ? 'Still needed: a change to save.' : null

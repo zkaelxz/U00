@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SeriesDeletePreview, SeriesListItem } from '../../api/series'
+import type { SeriesDefaultsField, SeriesDeletePreview, SeriesListItem } from '../../api/series'
 import {
-  copyPreviewText, copyResultText, copySources, deleteBlocked, deleteLines, isSeriesTab, renameProblem,
+  copyPreviewText, copyResultText, copySources, defaultsForm, defaultsPreviewText, deleteBlocked, deleteLines, isSeriesTab,
+  renameProblem, settingsFromForm, shownValue,
 } from './seriesModel'
 
 const preview = (over: Partial<SeriesDeletePreview> = {}): SeriesDeletePreview => ({
@@ -63,5 +64,30 @@ describe('series page model', () => {
     expect(copyPreviewText({ ...p, new_count: 1, skipped_count: 0 })).toBe('1 new term will be added.')
     expect(copyPreviewText({ ...p, new_count: 0, skipped_count: 4 })).toBe('Nothing to add: all 4 terms are already there.')
     expect(copyResultText({ added: 2, skipped: 1 })).toBe('Added 2 terms; skipped 1 already there.')
+  })
+
+  it('turns the defaults form into settings, leaving blanks unset', () => {
+    const fields: SeriesDefaultsField[] = [
+      { key: 'beam_size', label: 'Beam size', group: 'transcribe', type: 'int', min: 1, max: 10 },
+      { key: 'vad_threshold', label: 'VAD', group: 'transcribe', type: 'number', min: 0.1, max: 0.9 },
+      { key: 'whisper_fast_mode', label: 'Fast', group: 'transcribe', type: 'bool' },
+      { key: 'separation_backend', label: 'Sep', group: 'transcribe', type: 'choice', choices: ['auto', 'demucs'] },
+    ]
+    const form = defaultsForm(fields, { beam_size: 8, whisper_fast_mode: false })
+    expect(form).toEqual({ beam_size: '8', vad_threshold: '', whisper_fast_mode: 'false', separation_backend: '' })
+    expect(settingsFromForm(fields, { ...form, separation_backend: 'demucs', vad_threshold: '0.4' }))
+      .toEqual({ settings: { beam_size: 8, vad_threshold: 0.4, whisper_fast_mode: false, separation_backend: 'demucs' } })
+    expect(settingsFromForm(fields, { ...form, beam_size: '8.5' })).toEqual({ problem: 'Beam size: enter a whole number.' })
+    expect(settingsFromForm(fields, { ...form, beam_size: '99' })).toEqual({ problem: 'Beam size: between 1 and 10.' })
+  })
+
+  it('words the defaults preview', () => {
+    const p = { series_id: 1, mode: 'fill' as const, job_running: false, titles: [] }
+    expect(defaultsPreviewText({ ...p, title_count: 3, changed_titles: 2, fields_changed: 5 }))
+      .toBe('2 titles of 3 would change (5 settings in all).')
+    expect(defaultsPreviewText({ ...p, title_count: 3, changed_titles: 0, fields_changed: 0 }))
+      .toBe('Nothing to change: every title already matches.')
+    expect(defaultsPreviewText({ ...p, title_count: 0, changed_titles: 0, fields_changed: 0 })).toBe('This series has no titles yet.')
+    expect([shownValue(null), shownValue(true), shownValue(false), shownValue(5)]).toEqual(['app default', 'on', 'off', '5'])
   })
 })

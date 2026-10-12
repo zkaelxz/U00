@@ -1,10 +1,13 @@
-import type { SeriesCopyTermsPreview, SeriesDeletePreview, SeriesListItem } from '../../api/series'
+import type {
+  SeriesCopyTermsPreview, SeriesDefaultsField, SeriesDefaultsPreview, SeriesDeletePreview, SeriesListItem, SettingValue,
+} from '../../api/series'
 
 // The Series page tabs. A deep link names one ("#/series/3?tab=glossary").
-export type SeriesTab = 'titles' | 'glossary' | 'settings'
+export type SeriesTab = 'titles' | 'defaults' | 'glossary' | 'settings'
 
 export const SERIES_TABS: { id: SeriesTab; label: string }[] = [
   { id: 'titles', label: 'Titles' },
+  { id: 'defaults', label: 'Defaults' },
   { id: 'glossary', label: 'Glossary tools' },
   { id: 'settings', label: 'Settings' },
 ]
@@ -68,3 +71,45 @@ export function copyPreviewText(p: SeriesCopyTermsPreview): string {
 
 export const copyResultText = (r: { added: number; skipped: number }) =>
   `Added ${plural(r.added, 'term')}${r.skipped ? `; skipped ${r.skipped} already there` : ''}.`
+
+// ---- Defaults tab -----------------------------------------------------------
+
+/** The form holds strings: '' = not set, 'true'/'false' for on/off, the number as typed. */
+export type DefaultsForm = Record<string, string>
+
+export function defaultsForm(fields: SeriesDefaultsField[], settings: Record<string, SettingValue>): DefaultsForm {
+  return Object.fromEntries(fields.map((f) => [f.key, f.key in settings ? String(settings[f.key]) : '']))
+}
+
+/** The settings to save, or the first problem (checked again by the server). */
+export function settingsFromForm(fields: SeriesDefaultsField[], form: DefaultsForm):
+  { settings: Record<string, SettingValue> } | { problem: string } {
+  const settings: Record<string, SettingValue> = {}
+  for (const f of fields) {
+    const raw = (form[f.key] ?? '').trim()
+    if (raw === '') continue
+    if (f.type === 'bool') settings[f.key] = raw === 'true'
+    else if (f.type === 'choice') settings[f.key] = raw
+    else {
+      const n = Number(raw)
+      if (!Number.isFinite(n) || (f.type === 'int' && !Number.isInteger(n))) {
+        return { problem: `${f.label}: enter ${f.type === 'int' ? 'a whole number' : 'a number'}.` }
+      }
+      if ((f.min != null && n < f.min) || (f.max != null && n > f.max)) {
+        return { problem: `${f.label}: between ${f.min} and ${f.max}.` }
+      }
+      settings[f.key] = n
+    }
+  }
+  return { settings }
+}
+
+export const shownValue = (v: SettingValue | null) => (v === null ? 'app default' : v === true ? 'on' : v === false ? 'off' : String(v))
+
+export function defaultsPreviewText(p: SeriesDefaultsPreview): string {
+  if (p.title_count === 0) return 'This series has no titles yet.'
+  if (p.changed_titles === 0) return 'Nothing to change: every title already matches.'
+  const titles = p.changed_titles === 1 ? '1 title' : `${p.changed_titles} titles`
+  const fields = p.fields_changed === 1 ? '1 setting' : `${p.fields_changed} settings`
+  return `${titles} of ${p.title_count} would change (${fields} in all).`
+}
