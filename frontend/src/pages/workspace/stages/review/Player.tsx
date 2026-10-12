@@ -9,7 +9,7 @@ import { usePopOut } from '../../../../hooks/usePopOut'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
-import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
+import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface PlayerHandle {
@@ -86,6 +86,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [captionSizePref, setCaptionSize] = usePersistedState<string>('review.popoutCaptionSize', 'default')
   const captionSize: CaptionSize = CAPTION_SIZE_OPTIONS.some((o) => o.value === captionSizePref) ? (captionSizePref as CaptionSize) : 'default'
   const [jump, setJump] = useState('')
+  const [jumpFocused, setJumpFocused] = useState(false)
   const [jumpError, setJumpError] = useState<string | null>(null)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const controlsRef = useRef<HTMLDivElement | null>(null)
@@ -376,7 +377,9 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     },
     onError: () => setFailed(true),
   }
-  const here = segment ?? lineAt(lines, time)
+  // The played line only names the position while the playhead is still inside it: a seek made
+  // outside the app's own controls (keys on the video, a scrub) must not leave its number on screen.
+  const here = (segment && time >= segment.start && time <= segment.end ? segment : null) ?? lineAt(lines, time)
   const known = Number.isFinite(duration) && duration > 0
 
   const overlay = kind === 'video' && !floating && subs !== 'off' ? overlayText(cue) : ''
@@ -455,9 +458,11 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
               enterKeyHint="go"
               autoComplete="off"
               aria-label="Jump to time"
-              placeholder="mm:ss"
+              placeholder={jumpPlaceholder(time, jumpFocused, jump)}
               title="e.g. 1:23, 1:02:03 or 83.5"
               value={jump}
+              onFocus={() => setJumpFocused(true)}
+              onBlur={() => setJumpFocused(false)}
               onChange={(e) => setJump(e.target.value)}
             />
             <button type="submit" className={buttonClass('secondary', 'sm')} disabled={!jump.trim() || failed}>

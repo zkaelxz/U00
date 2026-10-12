@@ -6,12 +6,14 @@ import type { TimingSuggestion } from '../../../../types/timingCheck'
 import { suggestionsByLine } from './timingCheckLogic'
 
 export const TIMING_FLAG = 'timing_drift'
+// Alignment fell back to even splitting: the same check can find where the speech really is.
+export const TIMING_UNCERTAIN_FLAG = 'timing_uncertain'
 
 // The saved snap suggestions for the shown lines, fetched only while one of
 // them carries the timing flag so other titles' reviews make no extra call.
 export function useTimingSnap(dramaId: number, shown: ReviewLine[], reloads: number) {
   const [list, setList] = useState<TimingSuggestion[]>([])
-  const anyFlagged = shown.some((l) => l.flag === TIMING_FLAG)
+  const anyFlagged = shown.some((l) => l.flag === TIMING_FLAG || l.flag === TIMING_UNCERTAIN_FLAG)
   useEffect(() => {
     if (!anyFlagged) return
     let cancelled = false

@@ -237,18 +237,19 @@ class TestStart:
         assert "whisper_size" in logged and planted not in logged
 
     @pytest.mark.parametrize("stored,expected", [
-        (None, "large-v3-turbo"), ("", "large-v3-turbo"),
-        ("small", "small"), ("../models/x", "large-v3-turbo"),
-        ("org/model", "large-v3-turbo"), ("medium", "medium"), ("large-v3", "large-v3")])
+        (None, "large-v3"), ("", "large-v3"),
+        ("small", "small"), ("../models/x", "large-v3"),
+        ("org/model", "large-v3"), ("medium", "medium"), ("large-v3-turbo", "large-v3-turbo")])
     def test_stored_whisper_size(self, isolated_db, stored, expected):
         assert transcribe_service.stored_whisper_size(
             {"id": 1, "whisper_size": stored}) == expected
 
-    def test_default_is_turbo_on_cpu_and_gpu_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
+    def test_default_is_large_v3_on_cpu_and_gpu_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
         for gpu in (True, False):
             patch_setting(monkeypatch, "use_gpu", gpu)
-            assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == "large-v3-turbo"
+            assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == "large-v3"
             assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": "medium"}) == "medium"
+            assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": "large-v3-turbo"}) == "large-v3-turbo"
 
     def test_explicit_prompt_overrides(self, isolated_db, captured):
         did, ids = _drama(isolated_db)
@@ -488,12 +489,12 @@ class TestJobBody:
         assert isolated_db.load_line_objects(did)[1].zh == "错字"
 
 
-def _finish(out):
+def _finish(out, status="done"):
     deadline = time.time() + 5
     while background_jobs.get_status(out["job_id"])["status"] in ("running", "queued"):
         assert time.time() < deadline
         time.sleep(0.01)
-    assert background_jobs.get_status(out["job_id"])["status"] == "done"
+    assert background_jobs.get_status(out["job_id"])["status"] == status
     return out
 
 
@@ -536,7 +537,8 @@ class TestGetResult:
             transcribe_service.get_retranscribe_result(999999, ids[0])
         fake_asr["text"] = ""
         _clear_jobs()
-        _finish(transcribe_service.start_retranscribe_line(did, ids[0]))
+        # Nothing heard is a failed run (failed_reason "empty").
+        _finish(transcribe_service.start_retranscribe_line(did, ids[0]), "error")
         with pytest.raises(NotFoundError):
             transcribe_service.get_retranscribe_result(did, ids[0])
 
@@ -644,7 +646,7 @@ class TestApply:
             transcribe_service.apply_retranscribe_line(did, ids[0], f"retranscribe_{did}", "你好", "新的文字")
         fake_asr["text"] = ""
         _clear_jobs()
-        job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))["job_id"]
+        job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]), "error")["job_id"]
         with pytest.raises(NotFoundError):
             transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "新的文字")
 

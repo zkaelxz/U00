@@ -15,6 +15,7 @@
 import { useEffect, useState, type KeyboardEvent } from 'react'
 
 import { translateApi, engineShortName } from '../api/translate'
+import { PageShell } from '../components/PageShell'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
 import { usePcOnly } from '../hooks/usePcOnly'
@@ -88,10 +89,13 @@ export default function DiscoverPage() {
   const reloadCatalog = () => setCatalogKey((k) => k + 1)
 
   return (
-    <div className="discover-page">
-      <header className="discover-head">
-        <h2>Discover</h2>
-        <p className="muted">Find baihe titles online and add the ones you want.</p>
+    <PageShell
+      width="wide"
+      title="Discover"
+      meta="Find baihe titles online and add the ones you want."
+      className="discover-page"
+      headExtra={(
+        <>
         {engines === null ? (
           <p className="muted">Loading engines…</p>
         ) : engines.length === 0 ? (
@@ -113,27 +117,29 @@ export default function DiscoverPage() {
             </Field>
           </div>
         )}
-      </header>
-
-      <div className="discover-tabs" role="tablist" aria-label="Discover tasks">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`discover-tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`discover-panel-${t.id}`}
-            tabIndex={tab === t.id ? 0 : -1}
-            className="discover-tab"
-            onClick={() => pickTab(t.id)}
-            onKeyDown={(e) => onTabKey(e, t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
+        </>
+      )}
+      tabs={(
+        <div className="discover-tabs" role="tablist" aria-label="Discover tasks">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`discover-tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls={`discover-panel-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1}
+              className="discover-tab"
+              onClick={() => pickTab(t.id)}
+              onKeyDown={(e) => onTabKey(e, t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+    >
       {CATALOGUE_TAB_ENABLED && (
         <div role="tabpanel" id="discover-panel-catalogue" aria-labelledby="discover-tab-catalogue" hidden={tab !== 'catalogue'} className="discover-panel">
           <CatalogPanel pc={pc} reloadKey={catalogKey} />
@@ -162,6 +168,6 @@ export default function DiscoverPage() {
           <BulkImport engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />
         </Section>
       </div>
-    </div>
+    </PageShell>
   )
 }

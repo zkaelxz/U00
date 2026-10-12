@@ -14,6 +14,7 @@ import { addBacklogItem, getAssistantSettings, listBacklog } from '../api/assist
 import { getGithubStatus } from '../api/assistantGithub'
 import { getPcMode, loadPcMode } from '../api/pcOnly'
 import { Card } from '../components/Card'
+import { PageShell } from '../components/PageShell'
 import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -99,15 +100,7 @@ export default function AssistantPage() {
     return item
   }
 
-  const title = (
-    <header className="page-head">
-      <div className="page-head-text">
-        <h2 className="page-title">Maintenance assistant</h2>
-        <p className="page-meta">Ask about this app&apos;s code and logs. Read-only: it suggests fixes but never applies them.</p>
-      </div>
-    </header>
-  )
-
+  let tabs: ReactNode = null
   let body
   if (load.state === 'loading') body = <p className="muted">Loading…</p>
   else if (load.state === 'pc-only') {
@@ -131,9 +124,9 @@ export default function AssistantPage() {
         {children}
       </div>
     )
+    tabs = <Tabs label="Assistant" idPrefix="assistant" tabs={ASSISTANT_TABS} active={tab} onSelect={setTab} />
     body = (
       <>
-        <Tabs label="Assistant" idPrefix="assistant" tabs={ASSISTANT_TABS} active={tab} onSelect={setTab} />
         {panel('ask', (
           <ChatCard
           settings={settings}
@@ -165,10 +158,16 @@ export default function AssistantPage() {
   }
 
   return (
-    <section className="panel page-narrow assistant-page" aria-label="Maintenance assistant">
-      {title}
+    <PageShell
+      width="narrow"
+      title="Maintenance assistant"
+      label="Maintenance assistant"
+      meta="Ask about this app's code and logs. Read-only: it suggests fixes but never applies them."
+      tabs={tabs}
+      className="assistant-page"
+    >
       {body}
-    </section>
+    </PageShell>
   )
 }
 

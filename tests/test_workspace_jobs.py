@@ -1271,6 +1271,37 @@ def test_translate_job_resolves_named_characters_for_the_engine(isolated_db, mon
     _clear(job_id)
 
 
+def test_a_cancelled_translate_run_ends_cancelled_with_its_real_progress(isolated_db, monkeypatch):
+    """Cancel stops the run between batches; the job must not then read as
+    done at 100% with "Finished." (the bell and Jobs said Done)."""
+    from services import jobs_service
+    job_id = "test_translate_cancelled"
+    _clear(job_id)
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="你好"), Line(idx=1, start=1, end=2, zh="再见")]
+
+    def fake_translate(lines, engine, **kwargs):
+        kwargs["detail_cb"](0.5, "Batch 1 of 2")
+        background_jobs.request_cancel(job_id)
+        assert kwargs["cancel_check_cb"]()
+        return lines, []
+    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+    assert background_jobs.start_job(
+        job_id, run_translate_job, job_id, did, lines, object(), {"id": did}, "", None, False,
+        "en-US", None, "", "claude", "audio_drama")
+    assert background_jobs.wait_for_job_threads(10)
+    job = background_jobs.get_status(job_id)
+    assert job["status"] == "cancelled"
+    assert job["progress"] == 0.5
+    assert job["message"] == background_jobs.CANCELLED_MESSAGE
+    assert job["result"]["errors"] == []
+    outcome, _message = jobs_service.derive_outcome(
+        job["status"], job.get("error"), jobs_service.project_result(job["result"]))
+    assert outcome == "cancelled"
+    _clear(job_id)
+
+
 def test_translate_job_omits_speakers_with_no_name_set(isolated_db, monkeypatch):
     job_id = "test_translate_no_speakers"
     _clear(job_id)

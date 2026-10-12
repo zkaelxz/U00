@@ -47,11 +47,10 @@ import io
 import logging
 import os
 import tempfile
-import time
 from typing import Optional
 
-import background_jobs
 import db
+from jobs import job_store
 import subtitle_parse
 from services import drama_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
@@ -72,9 +71,6 @@ _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 _IMPORT_BUSY = ("A Sources chapter import is running and may be adding to the raw novel. "
                 "Wait for it to finish or cancel it.")
 SOURCE_IMPORT_PREFIX = "source_import_"  # sources/pipeline.import_job_id
-# Same freshness window as drama_service.job_running_for_drama.
-_STALE_JOB_RECORD_SECONDS = background_jobs.STALE_JOB_SECONDS
-_ACTIVE = ("running", "queued")
 
 
 def _require_drama(drama_id: int) -> dict:
@@ -93,15 +89,7 @@ def _source_import_running() -> bool:
     """Any Sources import job, in this process or (via fresh job_records
     rows) another one. Its id carries no drama id, so this can't be
     narrowed to one drama."""
-    for job_id, job in background_jobs.list_all_jobs().items():
-        if job_id.startswith(SOURCE_IMPORT_PREFIX) and job.get("status") in _ACTIVE:
-            return True
-    cutoff = time.time() - _STALE_JOB_RECORD_SECONDS
-    for rec in db.list_job_records():
-        if (str(rec.get("job_id") or "").startswith(SOURCE_IMPORT_PREFIX)
-                and rec.get("status") in _ACTIVE and (rec.get("updated_at") or 0) >= cutoff):
-            return True
-    return False
+    return job_store.fresh_active(prefix=SOURCE_IMPORT_PREFIX)
 
 
 def _require_raw_novel_idle(drama_id: int):

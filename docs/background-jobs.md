@@ -89,9 +89,17 @@ reach a client (`jobs_service._redact`).
 - **Interrupted after a restart** is a `job_records` row left `queued`/`running` by a
   dead process. `jobs_service.sweep_stale_job_records` (`job_store.sweep_dead_owners`)
   closes it as `cancelled` with `error = background_jobs.INTERRUPTED_MESSAGE` and
-  `detail_state = "interrupted"`. It runs at startup (`api/server.py`)
+  `detail_state = "interrupted"`, which the job list reports as outcome `interrupted`
+  (Jobs: "Interrupted"). It runs at startup (`api/server.py`)
   and on every `jobs_service.list_jobs`. The in-memory dict is empty after a restart,
   so nothing resumes: records have no resume.
+- A thread job that stops for a cancel ends `cancelled` with the progress it reached,
+  whether it raised `JobCancelled` or (Translate) returned with its work kept and then
+  raised it. A worker that returns a `failed_reason` from
+  `jobs_service.FAILED_REASON_MESSAGES` ends `error` with that sentence; partial
+  reasons (`no_lines`, `no_text`, `empty_kept_existing`) end `done`.
+- "Is such a job still on?" is `job_store.fresh_active`: live here, or a
+  queued/running row heartbeated within `STALE_JOB_SECONDS`.
 - A worker that died without reporting back (thread gone, status still `running`) is
   marked `error` with `WORKER_LOST_MESSAGE` by `reconcile_dead_workers`.
 - A queued job that is cancelled ends `cancelled` and never starts.
@@ -433,17 +441,18 @@ The client reads the `job_records` row, never the in-memory dict, with these cha
   `.../name`). `owner_pid` and the store's own columns are dropped, and the response carries `owned_by_me`, never an
   owner id.
 - **Normalised outcome.** `derive_outcome` adds `outcome` (`ok`, `failed`, `cancelled`,
-  `partial`, `kept_existing`) and `outcome_message`, so a client does not need each job's
+  `interrupted`, `partial`, `kept_existing`) and `outcome_message`, so a client does not need each job's
   result shape. A `done` job with warnings (CPU fallback, capped spend, partial work)
   reads `partial`.
 - **Flags.** `stale` (an active row with no live owner, judged on the server's clock) and
   `stalled` (no progress for a while).
 - **Visibility.** `ownership_service.can_see_job`: the PC owner, admins and auth-off see
   every job. Otherwise a `<prefix><drama_id>` job follows its title's visibility and any
-  other job is visible only to its starter. A job you may not see is a 404.
+  other job is visible only to its starter. A job you may not see is a 404. The list
+  reads its titles' ownership once (`ownership_service.job_drama_ownership`), not per job.
 
-A cancelled job after a restart reads `cancelled` with an `Interrupted: ...` error, and
-its outcome message says so.
+A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and outcome
+`interrupted`.
 
 ## The CLI
 

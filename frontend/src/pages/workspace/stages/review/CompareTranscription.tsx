@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { cancelJob } from '../../../../api/jobs'
+import { ApiError } from '../../../../api/client'
+import { cancelJob, getJob } from '../../../../api/jobs'
 import {
   applyCompare,
   estimateCompare,
@@ -14,7 +15,10 @@ import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { browserStorage, readPref, writePref } from '../../../../hooks/usePersistedState'
+import { useReattachJob } from '../../../../hooks/useReattachJob'
 import { useStageDraft } from '../../../../hooks/useStageDraft'
+import { useStageFocus } from '../../StageContext'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { transcribeExtraNames, whisperExclusionReason } from '../../sourceForm'
 import { promptFields } from '../transcribePrompt'
@@ -22,6 +26,10 @@ import { TERMINAL_STATUSES } from '../../../../types/jobs'
 import type { CompareEstimate, CompareOptions, CompareProposal, CompareResult } from '../../../../types/workspace'
 import {
   COMPARE_DRAFT_SHAPE,
+  clearedKey,
+  compareJobId,
+  compareRunText,
+  restoredMode,
   COMPARE_DRAFT_STAGE,
   EMPTY_SELECTION_FORM,
   buildSelection,
@@ -84,13 +92,16 @@ export function CompareTranscription({
   openSignal?: number
 }) {
   const { selectedIds } = useLineSelectionContext()
+  // "#/drama/3/review?tools=history&focus=compare" (a finished comparison's link) opens this section.
+  const focusSignal = useStageFocus('compare', 'review-compare')
   const panelRef = useRef<HTMLDivElement>(null)
   // Counted after mount so a section mounted by the very action that opens it still sees a change.
   const [sectionSignal, setSectionSignal] = useState(0)
   const [options, setOptions] = useState<CompareOptions | null>(null)
-  const [form, setForm] = useState<SelectionForm>(EMPTY_SELECTION_FORM)
   // The run options as last left here; the names start from the Transcribe stage's.
   const { draft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, COMPARE_DRAFT_STAGE, COMPARE_DRAFT_SHAPE)
+  // The picker's mode as last left ("selected lines" needs a live selection, so it is never restored).
+  const [form, setForm] = useState<SelectionForm>(() => ({ ...EMPTY_SELECTION_FORM, mode: restoredMode(draft.mode) }))
   const [size, setSize] = useState('')
   const [backend, setBackend] = useState('')
   const [translate, setTranslate] = useState(draft.translate ?? false)
@@ -98,16 +109,20 @@ export function CompareTranscription({
   const [extraNames, setExtraNames] = useState(() => draft.extraNames ?? transcribeExtraNames(dramaId))
   const [hint, setHint] = useState(draft.hint ?? '')
   useEffect(() => {
-    if (options) saveDraft({ size, backend, translate, retranslate, extraNames, hint })
-  }, [saveDraft, options, size, backend, translate, retranslate, extraNames, hint])
+    if (options) saveDraft({ mode: form.mode, size, backend, translate, retranslate, extraNames, hint })
+  }, [saveDraft, options, form.mode, size, backend, translate, retranslate, extraNames, hint])
   const [usedPrompt, setUsedPrompt] = useState<{ hint: string; names: string } | null>(null)
   const [estimate, setEstimate] = useState<CompareEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
   const [applying, setApplying] = useState(false)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  // A run left going when the page was left keeps going on the server: pick it up again.
+  useReattachJob([compareJobId(dramaId)], adoptJob)
   const [result, setResult] = useState<CompareResult | null>(null)
+  // When the shown result's run finished (epoch seconds), for the "Last comparison" line and for Clear.
+  const [finishedAt, setFinishedAt] = useState<number | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [english, setEnglish] = useState<Record<number, boolean>>({})
   const [note, setNote] = useState<string | null>(null)
@@ -129,6 +144,33 @@ export function CompareTranscription({
     // draft is read once per drama with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dramaId])
+
+  // The server keeps the last finished result for the title (until it restarts), so a result
+  // the viewer left the page without applying is still there. "none" is a 404, not an error.
+  useEffect(() => {
+    let cancelled = false
+    void Promise.allSettled([getCompareResult(dramaId), getJob(compareJobId(dramaId))]).then(([res, job]) => {
+      if (cancelled || res.status !== 'fulfilled') {
+        if (!cancelled && res.status === 'rejected' && !(res.reason instanceof ApiError && res.reason.status === 404)) setError(res.reason)
+        return
+      }
+      const at = job.status === 'fulfilled' ? job.value.finished_at : null
+      if (at !== null && readPref(browserStorage(), clearedKey(dramaId), 0) === at) return
+      // A run started here meanwhile owns the panel.
+      setResult((cur) => cur ?? res.value)
+      setFinishedAt((cur) => cur ?? at)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId])
+
+  const clearResult = () => {
+    if (finishedAt !== null) writePref(browserStorage(), clearedKey(dramaId), finishedAt)
+    setResult(null)
+    setFinishedAt(null)
+    setNote(null)
+  }
 
   useEffect(() => {
     if (!openSignal) return
@@ -170,6 +212,7 @@ export function CompareTranscription({
       }
       getCompareResult(dramaId).then((r) => {
         setResult(r)
+        setFinishedAt(j.finished_at)
         setEnglish({})
       }, setError)
     },
@@ -177,8 +220,8 @@ export function CompareTranscription({
 
   if (!options) {
     return (
-      <div ref={panelRef}>
-        <Section storageKey="review.compareTranscription" title="Compare transcription" summary="Loading…" openSignal={sectionSignal}>
+      <div ref={panelRef} id="review-compare">
+        <Section storageKey="review.compareTranscription" title="Compare transcription" summary="Loading…" openSignal={sectionSignal + focusSignal}>
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </Section>
       </div>
@@ -275,12 +318,12 @@ export function CompareTranscription({
   )
 
   return (
-    <div ref={panelRef}>
+    <div ref={panelRef} id="review-compare">
     <Section
       storageKey="review.compareTranscription"
       title="Compare transcription"
       summary={`Saved: ${options.saved_asr_backend} · ${options.saved_whisper_size}`}
-      openSignal={sectionSignal}
+      openSignal={sectionSignal + focusSignal}
     >
       <div className="compare-panel" data-testid="compare-transcription">
         <p className="muted">
@@ -319,7 +362,7 @@ export function CompareTranscription({
                 const reason = whisperExclusionReason(options.whisper_exclusions, s, options.source_language)
                 return (
                   <option key={s} value={s} disabled={!!reason} title={reason ?? undefined}>
-                    {s}{s === options.saved_whisper_size ? ' (saved)' : ''}{reason ? ' (not recommended for this language)' : ''}
+                    {s}{options.selectable_whisper_sizes && !options.selectable_whisper_sizes.includes(s) ? ' (older choice, hidden)' : ''}{s === options.saved_whisper_size ? ' (saved)' : ''}{reason ? ' (not recommended for this language)' : ''}
                   </option>
                 )
               })}
@@ -412,6 +455,10 @@ export function CompareTranscription({
         {note && <p className="muted" role="status" data-testid="compare-note">{note}</p>}
         {result && (
           <div data-testid="compare-results">
+            <div className="review-actions">
+              <span className="muted" data-testid="compare-last-run">{compareRunText(result, finishedAt)}</span>
+              <button type="button" onClick={clearResult}>Clear</button>
+            </div>
             {usedPrompt && (usedPrompt.hint || usedPrompt.names) && (
               <p className="muted" data-testid="compare-prompt-used">
                 {usedPrompt.hint ? `Hint used: ${usedPrompt.hint}` : `Extra names used: ${usedPrompt.names}`}

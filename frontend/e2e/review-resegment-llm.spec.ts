@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { PREVIEW, clearLines, mockAiResegment, openAiStructure, seedLines } from './resegmentLlmMocks'
-import { openFoldFor } from './reviewFolds'
+import { openFoldFor, unfold } from './reviewFolds'
 
 // Parity R47: the LLM re-segmentation as a preview in the Review stage's
 // Structure section. Lines are real (seeded); the preview job, its GET, the
@@ -107,7 +107,7 @@ test('with Use AI off the rules preview still runs as before', async ({ page }) 
   await page.locator('.review-line:not(.review-skeleton)').first().waitFor()
   await openFoldFor(page, 'Structure')
   const group = page.getByRole('group', { name: 'Structure' })
-  await group.locator('summary', { hasText: 'Structure' }).click()
+  await unfold(group.locator('summary', { hasText: 'Structure' }))
   await group.getByRole('button', { name: 'Preview re-segmentation' }).click()
   // Nothing for the rules to split: the AI path is still one switch away.
   await expect(page.getByTestId('resegment-preview')).toContainText('Nothing to re-segment.')
