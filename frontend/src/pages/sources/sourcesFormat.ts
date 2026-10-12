@@ -66,7 +66,7 @@ export function searchDisabledReason(
   if (!query.trim()) return 'Still needed: a title.'
   if (looksLikeUrl(query)) return 'Enter a title, not a link.'
   if (searchable === 0) {
-    return `Still needed: a source that can search. Turn one on in Source settings${remote ? ' on the main PC' : ''}.`
+    return `Still needed: a source that can search. Turn one on in Manage sources${remote ? ' on the main PC' : ''}.`
   }
   if (selected === 0) return 'Still needed: at least one source.'
   return null
@@ -105,7 +105,7 @@ export function describeSourceError(err: unknown, source: string, remote = false
   const d = detailsOf(e)
   const reason = d.reason
   if (reason === 'CONTENT_HIDDEN') {
-    return { text: `${source} hides some works. Turn on Adult works in Source settings${remote ? ' on the main PC' : ''}.` }
+    return { text: `${source} hides some works. Turn on Adult works in Manage sources${remote ? ' on the main PC' : ''}.` }
   }
   if (reason === 'TOS_PROHIBITED') return { text: `${source}'s terms restrict automated access.` }
   if (reason === 'NOT_SUPPORTED') return { text: `${source} can't do that.` }
@@ -142,8 +142,8 @@ export function healthTone(light: string): 'ok' | 'warn' | 'bad' {
 }
 
 export function healthText(light: string): string {
-  if (light === 'green') return 'OK'
-  if (light === 'yellow') return 'Failing'
+  if (light === 'green') return 'Working'
+  if (light === 'yellow') return 'Slow'
   if (light === 'red') return 'Paused'
   return humanizeValue(light)
 }
@@ -270,11 +270,17 @@ export function tierTestLine(r: TierTestResult): string {
   return `${label}: ${why}${r.detail ? ` (${r.detail})` : ''}.`
 }
 
-export const PACE_LABELS: Record<SourcePace, string> = { careful: 'Careful', normal: 'Normal', fast: 'Fast' }
+// What the stored pace values are called on screen; the values themselves are unchanged.
+export const PACE_LABELS: Record<SourcePace, string> = { careful: 'Gentle', normal: 'Standard', fast: 'Fast' }
 
-/** The one line under a source's Pace selector. */
-export function paceHelp(s: Pick<SourceSummary, 'pace' | 'fast_allowed' | 'slowed_down'>): string {
+// Shown once above the Sites table, not on every unvetted row.
+export const FAST_NOTE = "Fast is only available for sites whose rules we've checked."
+
+export const paceOptionLabel = (pace: SourcePace, fastAllowed: boolean): string =>
+  pace === 'fast' && !fastAllowed ? `${PACE_LABELS.fast} (not available)` : PACE_LABELS[pace]
+
+/** The one line under a site's Rules selector; the Fast explanation is shown once above the table. */
+export function paceHelp(s: Pick<SourceSummary, 'pace' | 'slowed_down'>): string {
   if (s.slowed_down) return 'Slowed down: this site asked us to wait. It eases off by itself.'
-  if (!s.fast_allowed) return "Fast is off: this site's rules haven't been checked."
-  return s.pace === 'careful' ? 'Careful: slower, with more breaks.' : ''
+  return s.pace === 'careful' ? 'Gentle: slower, with more breaks.' : ''
 }
