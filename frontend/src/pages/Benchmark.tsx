@@ -7,7 +7,7 @@
  * Model re-evaluation card runs production against candidate
  * models through the same benchmark_lab job.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import {
   getBenchmarkOptions, getBenchmarkSets, listBenchmarkRuns,
@@ -19,12 +19,14 @@ import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { HelpTip } from '../components/HelpTip'
+import { Tabs } from '../components/Tabs'
+import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { buttonClass } from '../components/uiClasses'
 import { useJob, useJobRun } from '../hooks/useJob'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { routeHref } from '../router'
+import { routeHref, useRoute } from '../router'
 import { jobFailed, jobOutcomeText } from '../types/jobs'
 import { ArenaView, type ArenaTarget } from './benchmark/ArenaView'
 import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
@@ -33,6 +35,7 @@ import { RunCard } from './benchmark/RunCard'
 import { RunsCard } from './benchmark/RunsCard'
 import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
+import { BENCHMARK_TABS, isBenchmarkTab, type BenchmarkTab } from './benchmark/benchmarkTabs'
 import './benchmark/benchmark.css'
 
 const RUNS_LIMIT = 50
@@ -49,6 +52,26 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
   const [target, setTarget] = useState<ArenaTarget | null>(null)
   const [started, setStarted] = useState<BenchmarkRunStarted | null>(null)
   const [jobId, setJobId, runKey] = useJobRun()
+
+  const route = useRoute()
+  // A compare link's engines are prefilled in Run a benchmark, so that is the tab it lands on.
+  const linkTab = route.name === 'benchmark' ? (route.tab ?? (route.compare ? 'run' : undefined)) : undefined
+  const [storedTab, setStoredTab] = usePersistedState<BenchmarkTab>('benchmark.tab', 'sets')
+  // A link's tab wins over the remembered one from the first render, so the tab it names is what shows.
+  const [tab, setTabState] = useState<BenchmarkTab>(() => linkTab ?? (isBenchmarkTab(storedTab) ? storedTab : 'sets'))
+  const selectTab = useCallback((t: BenchmarkTab) => {
+    setTabState(t)
+    setStoredTab(t)
+  }, [setStoredTab])
+  useEffect(() => {
+    if (linkTab) selectTab(linkTab)
+  }, [linkTab, selectTab])
+  // Hidden, not unmounted, so form entries and a run's polling survive a tab change.
+  const panel = (id: BenchmarkTab, children: ReactNode) => (
+    <div key={id} id={tabPanelId('benchmark', id)} role="tabpanel" aria-labelledby={tabButtonId('benchmark', id)} hidden={tab !== id}>
+      {children}
+    </div>
+  )
 
   const loadSets = useCallback(() => {
     getBenchmarkSets().then((r) => setSets(r.sets), setError)
@@ -101,6 +124,7 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
       )}
       label="Benchmark Lab"
       className="bench-page"
+      tabs={<Tabs label="Benchmark Lab" idPrefix="benchmark" tabs={BENCHMARK_TABS} active={tab} onSelect={selectTab} />}
       actions={(
         <ButtonLink href={routeHref({ name: 'diagnostics' })} variant="ghost" size="sm">
           ‹ Diagnostics
@@ -127,32 +151,6 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      {options && sets && <GoldenSetsCard sets={sets} options={options} pc={pc} phone={phone} onChanged={loadSets} />}
-      {options && sets && (
-        <RunCard
-          options={options}
-          sets={sets}
-          pcRemote={pc === 'remote'}
-          job={job}
-          running={running}
-          onStarted={onStarted}
-          onStop={stop}
-          compare={compare}
-        />
-      )}
-      {options && sets && (
-        <ReevalCard
-          options={options}
-          sets={sets}
-          pc={pc}
-          phone={phone}
-          job={job}
-          running={running}
-          onStarted={onStarted}
-          onStop={stop}
-          onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
-        />
-      )}
       {finishedText && (
         <p className="status-line" role="status" data-testid="bench-finished">
           <span>{finishedText}</span>
@@ -169,6 +167,46 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
         </p>
       )}
 
+      {panel('sets', (
+        <>
+      {options && sets && <GoldenSetsCard sets={sets} options={options} pc={pc} phone={phone} onChanged={loadSets} />}
+        </>
+      ))}
+      {panel('run', (
+        <>
+      {options && sets && (
+        <RunCard
+          options={options}
+          sets={sets}
+          pcRemote={pc === 'remote'}
+          job={job}
+          running={running}
+          onStarted={onStarted}
+          onStop={stop}
+          compare={compare}
+        />
+      )}
+        </>
+      ))}
+      {panel('reeval', (
+        <>
+      {options && sets && (
+        <ReevalCard
+          options={options}
+          sets={sets}
+          pc={pc}
+          phone={phone}
+          job={job}
+          running={running}
+          onStarted={onStarted}
+          onStop={stop}
+          onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
+        />
+      )}
+        </>
+      ))}
+      {panel('runs', (
+        <>
       {runs && (
         <RunsCard
           runs={runs}
@@ -181,6 +219,8 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
         />
       )}
 
+        </>
+      ))}
       {target && <ArenaView target={target} phone={phone} onClose={() => setTarget(null)} />}
 
       {!options && !error && <p className="muted">Loading…</p>}

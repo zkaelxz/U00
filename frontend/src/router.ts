@@ -4,6 +4,7 @@ import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/li
 import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
 import { isManageTab, manageHref, type ManageTab } from './pages/sources/manageTabs'
 import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
+import { isBenchmarkTab, type BenchmarkTab } from './pages/benchmark/benchmarkTabs'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
 export type Route =
@@ -25,7 +26,8 @@ export type Route =
   | { name: 'diagnostics'; tab?: DiagnosticsTab; card?: DiagnosticsCard }
   // compare: the raw "engine:model,engine:model" value of ?compare= (Model
   // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
-  | { name: 'benchmark'; compare?: string }
+  // tab: "#/benchmark?tab=runs" opens that tab (the last one used is remembered otherwise).
+  | { name: 'benchmark'; compare?: string; tab?: BenchmarkTab }
   | { name: 'translate' }
   | { name: 'make-subtitles' }
   | { name: 'sources' }
@@ -73,7 +75,12 @@ export function parseRoute(hash: string): Route {
   if (head === 'benchmark' && parts.length === 1) {
     // Kept raw (still %-encoded) so a ":" or "," inside a model name can't be misread.
     const compare = qs.split('&').find((p) => p.startsWith('compare='))?.slice('compare='.length)
-    return compare && compare.length <= 1000 ? { name: 'benchmark', compare } : { name: 'benchmark' }
+    const tab = new URLSearchParams(qs).get('tab')
+    return {
+      name: 'benchmark',
+      ...(compare && compare.length <= 1000 ? { compare } : {}),
+      ...(isBenchmarkTab(tab) ? { tab } : {}),
+    }
   }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
@@ -150,7 +157,10 @@ export function routeHref(r: Route): string {
   if (r.name === 'diagnostics' && (r.card || r.tab)) return r.card ? `#/diagnostics?card=${r.card}` : `#/diagnostics?tab=${r.tab}`
   if (r.name === 'sources-manage') return manageHref(r.tab)
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
-  if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
+  if (r.name === 'benchmark') {
+    const query = [r.compare && `compare=${r.compare}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
+    return query ? `#/benchmark?${query}` : '#/benchmark'
+  }
   return `#/${r.name}`
 }
 

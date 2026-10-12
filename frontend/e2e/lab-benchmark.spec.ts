@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openBenchSections } from './benchSections'
+import { openBenchTab } from './benchSections'
 import { navLink, openMenu } from './settingsNav'
 
 // Benchmark Lab (#/benchmark) against the real API on the seeded e2e
@@ -14,6 +14,7 @@ import { navLink, openMenu } from './settingsNav'
 const SHOTS = process.env.BENCH_SHOTS_DIR
 
 async function runOnce(page: Page, label: string, promptVersion: string) {
+  await openBenchTab(page, 'Run a benchmark')
   const card = page.getByRole('region', { name: 'Run a benchmark' })
   await card.getByLabel('Run label', { exact: true }).fill(label)
   await card.getByLabel('Prompt version', { exact: true }).fill(promptVersion)
@@ -22,6 +23,7 @@ async function runOnce(page: Page, label: string, promptVersion: string) {
   await card.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(card.getByTestId('bench-estimate')).toContainText('Estimate for 3 cases: $0.00')
   await card.getByRole('button', { name: 'Start run' }).click()
+  await openBenchTab(page, 'Recent runs')
   const runs = page.getByRole('region', { name: 'Recent runs' })
   await expect(runs.getByRole('row', { name: new RegExp(label) })).toContainText('Done', { timeout: 15_000 })
   await expect(page.getByTestId('bench-finished')).toContainText('Run finished.')
@@ -35,7 +37,7 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await page.getByRole('main').or(page.locator('.app-main')).getByRole('link', { name: 'Open Benchmark Lab' }).click()
   await expect(page).toHaveURL(/#\/benchmark$/)
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
-  await openBenchSections(page)
+  await openBenchTab(page, 'Golden sets')
   await openMenu(page)
   await expect(navLink(page, 'Benchmark Lab')).toHaveAttribute('aria-current', 'page')
 
@@ -70,6 +72,7 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await expect(cases.locator('li')).toHaveCount(3)
 
   // Run card: pick the set and the free offline engine.
+  await openBenchTab(page, 'Run a benchmark')
   const card = page.getByRole('region', { name: 'Run a benchmark' })
   await card.getByLabel('Stage', { exact: true }).selectOption('translation')
   await card.getByLabel('Tier', { exact: true }).selectOption('public')
@@ -91,6 +94,7 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await runOnce(page, 'e2e B', 'v2')
 
   // Compare the two runs.
+  await openBenchTab(page, 'Recent runs')
   const runs = page.getByRole('region', { name: 'Recent runs' })
   await expect(runs.getByTestId('compare-reason')).toContainText('Tick 2 to 4 runs')
   await runs.getByRole('checkbox', { name: /e2e A$/ }).check()
