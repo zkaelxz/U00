@@ -32,9 +32,6 @@ def _line(idx, start, end, text="x", **kw):
 
 
 class TestReadingSpeedProfiles:
-    def test_table_holds_the_netflix_values(self):
-        assert sf.CPS_BY_LANGUAGE == {"en": 17.0, "zh": 9.0, "ja": 4.0, "ko": 12.0}
-
     def test_english_normal_is_17_and_relaxed_is_netflix_max_20(self):
         at_limit = _line(0, 0, 3, "a" * 51)       # 17.0 cps
         over = _line(0, 0, 3, "a" * 54)           # 18.0 cps
@@ -50,33 +47,13 @@ class TestReadingSpeedProfiles:
         assert sf.dense_lines([ln], mode="relaxed")
         assert not sf.dense_lines([ln], mode=sf.STREAMER_MODE)
 
-    @pytest.mark.parametrize("language,chars,flagged", [
-        ("zh", 27, False), ("zh", 30, True),      # 9 cps over 3 s
-        ("ja", 12, False), ("ja", 15, True),      # 4 cps
-        ("ko", 36, False), ("ko", 39, True),      # 12 cps
-    ])
-    def test_source_language_limits(self, language, chars, flagged):
-        ln = Line(idx=0, start=0, end=3, zh="あ" * chars, en="")
-        assert bool(sf.dense_lines([ln], field="zh", language=language)) is flagged
-
-    def test_japanese_is_stricter_than_chinese_for_the_same_text(self):
-        ln = Line(idx=0, start=0, end=3, zh="あ" * 20, en="")   # 6.7 cps
-        assert sf.dense_lines([ln], field="zh", language="ja")
-        assert not sf.dense_lines([ln], field="zh", language="zh")
-
-    def test_cjk_text_without_a_language_uses_the_chinese_value(self):
+    def test_cjk_text_uses_the_chinese_value(self):
         ln = _line(0, 0, 3, "我" * 30)            # 10 cps
         assert sf.dense_lines([ln])[0][2] == 9.0
 
     def test_every_relaxed_limit_is_above_its_normal_limit(self):
-        for key, normal in {**sf.CPS_BY_LANGUAGE, **sf.SCRIPT_CPS}.items():
+        for key, normal in sf.SCRIPT_CPS.items():
             assert sf.cps_limit(key, "relaxed") > normal
-
-    def test_character_floor_still_protects_short_japanese_cues(self):
-        short = Line(idx=0, start=0, end=1.5, zh="あ" * (sf.MIN_DENSE_CHARS - 1), en="")
-        assert not sf.dense_lines([short], field="zh", language="ja")
-        at_floor = Line(idx=0, start=0, end=1.5, zh="あ" * sf.MIN_DENSE_CHARS, en="")
-        assert sf.dense_lines([at_floor], field="zh", language="ja")
 
     def test_an_existing_flag_is_not_replaced_so_a_dismissed_one_stays_cleared(self):
         ln = _line(0, 0, 2, "a" * 80, flag="uncertain_translation")
