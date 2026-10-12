@@ -580,3 +580,17 @@ def test_a_member_queue_item_starts_offline(isolated_db, caches, monkeypatch):
     queue_service._start_item(queue_service._find(queue_service._load(), item["id"]))
     assert seen == [True]
     assert model_offline.active() is False   # the runner thread is not left offline
+
+
+def test_live_whisper_calls_keep_the_sessions_mark():
+    """Live loads Whisper on a worker thread of its own, which must not lose
+    the session's offline mark."""
+    import live_whisper
+
+    def member():
+        model_offline.set_offline(True)
+        runner = live_whisper.WhisperRunner(lambda: False, lambda *a: None, poll=0.01)
+        return runner.run(lambda progress: model_offline.active(), timeout=5, label="probe")
+    assert _in_own_context(member) is True
+    runner = live_whisper.WhisperRunner(lambda: False, lambda *a: None, poll=0.01)
+    assert runner.run(lambda progress: model_offline.active(), timeout=5, label="probe") is False

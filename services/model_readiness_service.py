@@ -214,6 +214,13 @@ def for_whisper_size(size: str) -> list:
     return [_need(whisper_ready, size)]
 
 
+def for_live_follow(follow_id: int, principal) -> list:
+    """The Whisper size a Start Live from this follow uses (start_from_follow)."""
+    from services import live_follow_service as follows
+    row = follows._require(principal, follow_id, writing=True)
+    return for_whisper_size(follows._options(row, strict=True)["whisper_size"])
+
+
 def for_title_whisper(drama_id: int) -> list:
     """Runs that hear with the title's saved Whisper size and ignore a
     configured local model folder (retranscribe, autotune)."""
