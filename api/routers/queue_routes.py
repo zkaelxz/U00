@@ -8,11 +8,13 @@ must be the caller's, a Translate item on a paid engine needs `engines.paid`
 for their own titles, and only the PC owner may start, pause or schedule.
 """
 
-from fastapi import APIRouter, Path, Request
+from typing import Literal
+
+from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import holds_paid_engines, is_at_pc, require_permission
 from api.schemas import (ErrorResponse, QueueAddItem, QueueMove, QueuePolicy,
-                         QueueScheduleSet, QueueState)
+                         QueueScheduleSet, QueueState, QueueStepSettings)
 from services import queue_service
 
 router = APIRouter(prefix="/api/queue", tags=["queue"])
@@ -26,6 +28,13 @@ _ITEM = Path(ge=1, lt=2**63)
             summary="The job queue: run state, schedule and the items the caller can see")
 def get_queue(request: Request):
     return queue_service.get_queue(request.state.principal)
+
+
+@router.get("/settings", dependencies=[require_permission("jobs.start")], response_model=QueueStepSettings,
+            summary="The saved settings a queued step would use for a title (read-only)", responses=_ERRORS)
+def step_settings(request: Request, drama_id: int = Query(ge=1, lt=2**63),
+                  step: Literal["transcribe", "translate", "export"] = Query()):
+    return queue_service.step_settings(request.state.principal, drama_id, step)
 
 
 @router.post("/items", dependencies=[require_permission("jobs.start")], response_model=QueueState,

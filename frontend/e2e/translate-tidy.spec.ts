@@ -105,6 +105,8 @@ test('the cards below the run start folded and a section stays as the viewer lef
   const section = (title: string) => page.locator('details.section').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
   for (const title of ['Glossary', 'Characters', 'More options']) await expect(section(title)).not.toHaveAttribute('open', /.*/)
   await section('Glossary').locator(':scope > summary').click()
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => window.localStorage.getItem('baihe.section.translate.glossary') !== null)
   await page.reload()
   await expect(section('Glossary')).toHaveAttribute('open', /.*/)
   await expect(section('Characters')).not.toHaveAttribute('open', /.*/)

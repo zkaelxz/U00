@@ -114,7 +114,7 @@ export const deleteModelFile = (folder: DiagnosticsModelFolder, name: string, f?
 // The last scheduled remote-access check; reading it starts no check.
 export const getRemoteHealth = (f?: Fetch) => getJson<RemoteHealth>(`${BASE}/remote-health`, f)
 
-// Settings > Remote access (PC only). Set and clear sit behind the key-write
+// People and access > Public address check (PC only). Set and clear sit behind the key-write
 // gate like the notification addresses, so they use a plain fetch (a 403 on
 // the PC means key writes are off, not "away from the PC"); Test goes through
 // pcOnlyFetch. The address goes in the body only and never comes back.

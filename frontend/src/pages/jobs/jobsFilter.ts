@@ -1,7 +1,7 @@
 // Pure filter, sort and link logic for the Jobs page (pages/Jobs.tsx).
 import type { Route } from '../../router'
 import { isActive, isFinished } from '../diagnosticsFormat'
-import type { JobKind, JobPage, JobRecord } from '../../types/jobs'
+import { shownStatus, type JobKind, type JobPage, type JobRecord } from '../../types/jobs'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 
 export type StatusFilter = 'active' | 'failed' | 'finished' | 'cancelled' | 'all'
@@ -48,11 +48,11 @@ export const RANGE_OPTIONS: { id: RangeFilter; label: string }[] = [
 
 const DAY_S = 86_400
 
-export const isFailed = (j: Pick<JobRecord, 'status' | 'outcome'>) => j.status === 'error' || j.outcome === 'failed'
+// Every list, pill and count reads the status through shownStatus, so a job the server calls done whose outcome failed is Failed everywhere.
+const isFailed = (j: Pick<JobRecord, 'status' | 'outcome'>) => shownStatus(j) === 'error'
 
 // A run stopped by Cancel can end 'done' with a cancelled outcome when the job noticed the cancel itself.
-const isCancelled = (j: Pick<JobRecord, 'status' | 'outcome'>) =>
-  !isFailed(j) && (j.status === 'cancelled' || j.outcome === 'cancelled')
+const isCancelled = (j: Pick<JobRecord, 'status' | 'outcome'>) => shownStatus(j) === 'cancelled'
 
 // Each ended job lands in exactly one of Failed, Cancelled and Finished, so the chips add up to All.
 const matchesStatus = (j: JobRecord, status: StatusFilter) =>
@@ -60,7 +60,7 @@ const matchesStatus = (j: JobRecord, status: StatusFilter) =>
   (status === 'active' && isActive(j.status)) ||
   (status === 'failed' && isFailed(j)) ||
   (status === 'cancelled' && isCancelled(j)) ||
-  (status === 'finished' && isFinished(j.status) && !isFailed(j) && !isCancelled(j))
+  (status === 'finished' && isFinished(j.status) && shownStatus(j) === 'done')
 
 // `align` (resegment, resplit) is not worth a chip of its own.
 export function kindGroup(kind: JobKind | undefined): Exclude<KindFilter, 'all'> {

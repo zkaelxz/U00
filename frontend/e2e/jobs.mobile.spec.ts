@@ -80,3 +80,23 @@ test('phone: the popover job name opens its stage', async ({ page }) => {
   await panel.getByRole('link', { name: 'Translate Signal' }).tap()
   await expect(page).toHaveURL(/#\/drama\/3\/translate$/)
 })
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`phone ${scheme}: a failed transcription reads Failed with its reason, and nothing scrolls sideways`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    const t = Math.floor(Date.now() / 1000)
+    await mockJobsApi(page, [{
+      job_id: 'transcribe_3', status: 'done', progress: null, message: '', error: null, gpu_touching: false, updated_at: t,
+      owned_by_me: true, page: null, kind: 'transcribe', drama_id: 3, description: 'Transcription (title #3)',
+      started_at: t - 120, finished_at: t - 100, outcome: 'failed', outcome_message: `The speech model could not be downloaded. ${long}`,
+    }], true)
+    await page.goto('/#/jobs')
+    const card = page.getByTestId('jobs-cards').locator('> li').first()
+    await expect(card.locator('.pill')).toHaveText('Failed')
+    await expect(card).not.toContainText('Done')
+    await expect(card.locator('strong')).toHaveText('Transcription')
+    await expect(card.getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
+    await noSideways(page)
+    if (process.env.JOBS_SCREENS_DIR) await page.screenshot({ path: `${process.env.JOBS_SCREENS_DIR}/jobs-phone-failed-${scheme}.png`, fullPage: true })
+  })
+}

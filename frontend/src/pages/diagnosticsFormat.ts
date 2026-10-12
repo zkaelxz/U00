@@ -1,5 +1,5 @@
 import type { DependencyStatus, GpuStatus } from '../types/diagnostics'
-import type { JobRecord } from '../types/jobs'
+import { jobName, shownStatus, type JobRecord } from '../types/jobs'
 
 export const isActive = (status: string) => status === 'queued' || status === 'running'
 
@@ -76,4 +76,41 @@ export function upsertJob(list: JobRecord[], job: JobRecord): JobRecord[] {
   const next = list.slice()
   next[i] = job
   return next
+}
+
+/** The status pill text for a job: Failed for a done job whose outcome failed. */
+export const jobStatusLabel = (job: Pick<JobRecord, 'status' | 'outcome'>) => statusLabel(shownStatus(job))
+
+const PACKAGES_HOME = 'Diagnostics > Packages and installs'
+const PIP_INSTALL = /(\b[Rr]un )?`?(?:python -m )?pip3? install((?: -{1,2}[\w-]+)*)((?: ["']?[\w.\-[\]<>=!~,]+["']?)+)`?/g
+
+/**
+ * Server text in a person's words: a `pip install x` instruction points at
+ * Diagnostics instead (people install through the app), and a job text says
+ * title, not drama.
+ */
+export function plainJobText(text: string): string {
+  return text
+    .replace(PIP_INSTALL, (_all, run: string | undefined, _flags: string, args: string) => {
+      const name = args.trim().split(/\s+/)[0]?.replace(/["']/g, '').split(/[<>=!~[,]/)[0]
+      const where = name ? `${PACKAGES_HOME} (${name})` : PACKAGES_HOME
+      return run ? `${run.startsWith('R') ? 'Open' : 'open'} ${where}` : where
+    })
+    .replace(/\bDramas\b/g, 'Titles')
+    .replace(/\bdramas\b/g, 'titles')
+    .replace(/\bDrama\b/g, 'Title')
+    .replace(/\bdrama\b/g, 'title')
+}
+
+/** A job's name without its trailing "(title #3)": the Title column already names the title. */
+export function jobBaseName(job: Pick<JobRecord, 'description' | 'job_id'>): string {
+  const name = plainJobText(jobName(job)).replace(/\s*\((?:title|drama) #\d+\)\s*$/i, '').trim()
+  return name || plainJobText(jobName(job))
+}
+
+/** The base name plus the title's name where there is room for only one label (the header menu). */
+export function jobTitledName(job: Pick<JobRecord, 'description' | 'job_id' | 'drama_id'>, titles: ReadonlyMap<number, string>): string {
+  const base = jobBaseName(job)
+  const title = job.drama_id != null ? titles.get(job.drama_id) : undefined
+  return title && !base.includes(title) ? `${base} - ${title}` : base
 }
