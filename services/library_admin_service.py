@@ -53,7 +53,7 @@ from core import Line, lines_to_bilingual_srt, lines_to_srt
 from engine_backends import echo
 from services import (auth_service, drama_service, keep_original_service,
                       maintenance_assistant_service, ownership_service, settings_service,
-                      translate_run_service, translate_service)
+                      translate_run_service, translate_service, vdb_names_service)
 from services import library_translated_guard
 from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
@@ -465,7 +465,8 @@ def start_export_zip(drama_ids=None) -> dict:
 
 def _sanitized_snapshot(dest: str):
     """A consistent database snapshot with every session and device token
-    removed (secure_delete, so the hashes aren't left in free pages) and
+    and the personal VTuber name list's prompt text removed (secure_delete, so
+    neither is left in free pages) and
     folded out of WAL mode, so dest is one self-contained file."""
     import sqlite3
     db.snapshot_database(dest)
@@ -477,6 +478,7 @@ def _sanitized_snapshot(dest: str):
             for table in ("auth_sessions", "extension_device_tokens"):
                 if table in have:
                     conn.execute(f"DELETE FROM {table}")
+            vdb_names_service.strip_from_snapshot(conn)
             conn.execute("PRAGMA journal_mode = DELETE")
         finally:
             conn.close()

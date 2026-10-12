@@ -739,6 +739,32 @@ def test_snapshot_strips_sessions_and_device_tokens_but_keeps_accounts(isolated_
         conn.close()
 
 
+
+def test_backups_never_carry_the_personal_vtuber_names(isolated_db):
+    """The dd-center/vdb list is personal use only: the "Known names" block a
+    run put in a scheduled bulk job's prompt arguments stays out of every
+    backup, while the live job keeps it."""
+    import json
+    did = _new("A")
+    guidelines = "House style.\n\nKnown names (keep as written): Inventa Kiraboshi, Testuko Mochimaru"
+    job = db.create_bulk_job(did, "deepseek", "deepseek-chat", "scheduled", [],
+                             translate_args={"style_guidelines": guidelines, "style_preset": "x"})
+    database = os.path.join(tempfile.mkdtemp(), "db.db")
+    las._sanitized_snapshot(database)
+    zipped = _zip_db(_backup_bytes())
+    try:
+        for path in (database, zipped):
+            conn = sqlite3.connect(path)
+            raw = conn.execute("SELECT translate_args FROM bulk_jobs WHERE id = ?", (job,)).fetchone()[0]
+            conn.close()
+            assert "Inventa" not in raw and "Testuko" not in raw and "Known names" not in raw
+            assert json.loads(raw) == {"style_guidelines": "House style.", "style_preset": "x"}
+            with open(path, "rb") as f:
+                assert b"Inventa" not in f.read()
+    finally:
+        os.remove(zipped)
+    assert db.get_bulk_job(job)["translate_args"]["style_guidelines"] == guidelines
+
 def _follow(owner, pc_owner=True, mode="auto"):
     from sources import live_follow_store
     return live_follow_store.add(owner, pc_owner, "https://www.youtube.com/@chan/live", "chan",
