@@ -711,3 +711,68 @@ class TestTranslationMetric:
         (res,) = svc.get_run(sid)["results"]
         assert (res["metric"], res["scorer"], res["passed"]) == ("chrf", "sacrebleu", True)
         assert 0.5 < res["score"] < 0.8
+
+
+def _hide_opencc(monkeypatch):
+    import segment
+    monkeypatch.setattr(segment, "_opencc_t2s", None)
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "opencc" or name.startswith("opencc."):
+            raise ImportError("no opencc")
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+
+class TestChineseScriptNormalisation:
+    SIMPLIFIED, TRADITIONAL = "我们都说这个电话", "我們都說這個電話"
+
+    @pytest.fixture(params=["opencc", "pairs"])
+    def normaliser(self, request, monkeypatch):
+        if request.param == "opencc":
+            pytest.importorskip("opencc")
+        else:
+            _hide_opencc(monkeypatch)
+        assert scoring.script_normaliser("transcription", "zh") == request.param
+        return request.param
+
+    @pytest.mark.parametrize("stage", ["transcription", "ocr"])
+    def test_same_words_in_either_script_score_zero_cer(self, normaliser, stage):
+        for out, ref in ((self.TRADITIONAL, self.SIMPLIFIED), (self.SIMPLIFIED, self.TRADITIONAL)):
+            assert scoring.score_output(stage, out, ref, "zh")[0] == 1.0
+
+    def test_a_real_recognition_error_still_counts(self, normaliser):
+        score = scoring.score_output("transcription", "我們都說這個電視", self.SIMPLIFIED, "zh")[0]
+        assert score == pytest.approx(1 - 1 / 8)
+
+    def test_script_counts_still_see_a_traditional_hypothesis(self, normaliser):
+        from services.benchmark_script_service import count_scripts
+        assert scoring.score_output("transcription", self.TRADITIONAL, self.SIMPLIFIED, "zh")[0] == 1.0
+        assert count_scripts(self.TRADITIONAL)["traditional_lines"] == 1
+
+    def test_pure_python_path_agrees_with_jiwer(self, normaliser, monkeypatch):
+        pytest.importorskip("jiwer")
+        with_jiwer = scoring.score_output("transcription", "我們都說這個電視", self.SIMPLIFIED, "zh")
+        _hide_jiwer(monkeypatch)
+        builtin = scoring.score_output("transcription", "我們都說這個電視", self.SIMPLIFIED, "zh")
+        assert (with_jiwer[0], with_jiwer[2]) == (pytest.approx(builtin[0]), "jiwer")
+        assert builtin[2] == "builtin"
+
+    def test_other_languages_and_stages_are_not_converted(self):
+        assert scoring.script_normaliser("transcription", "ja") == "none"
+        assert scoring.script_normaliser("transcription", "ko") == "none"
+        assert scoring.script_normaliser("translation", "zh") == "none"
+        assert scoring.score_output("transcription", self.TRADITIONAL, self.SIMPLIFIED, "ja")[0] < 1.0
+
+    def test_run_records_the_normaliser(self, isolated_db, monkeypatch):
+        _hide_opencc(monkeypatch)
+        monkeypatch.setattr(svc, "_run_file_case", lambda *args: {
+            "output_text": self.TRADITIONAL, "duration_seconds": 0.1})
+        case = db.create_benchmark_case("c", "ocr", "image", "zh", input_filename="img.png",
+                                        reference_text=self.SIMPLIFIED)
+        (sid,) = svc.start_run("ocr", [{"engine": "tesseract"}], case_ids=[case])["session_ids"]
+        assert _wait()["status"] == "done"
+        got = svc.get_run(sid)
+        assert got["run"]["context_settings"]["script_normaliser"] == "pairs"
+        assert got["results"][0]["score"] == 1.0
