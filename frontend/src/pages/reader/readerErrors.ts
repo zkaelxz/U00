@@ -25,6 +25,10 @@ export function readerErrorText(err: unknown, opts: { paidEngine?: boolean } = {
   // validation_error) are fixed text such as "No deepseek key is configured.
   // Set one in Settings first."; safeDetail still drops anything path- or key-like.
   const msg = (err as { message?: unknown } | null)?.message
-  if (e?.code === 'validation_error' && typeof msg === 'string') return { ...base, detail: safeDetail(msg), retry: false }
+  if (e?.code === 'validation_error' && typeof msg === 'string') {
+    // describeError already makes a 422 sentence the title; don't say it twice.
+    const detail = safeDetail(msg)
+    return { ...base, detail: detail && base.title.toLowerCase() === detail.toLowerCase() ? null : detail, retry: false }
+  }
   return { ...base, retry: false }
 }
