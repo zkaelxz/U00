@@ -241,7 +241,6 @@ def cmd_translate(args):
         print(f"#{d['id']} translating "
               f"{len(target_ids) if target_ids is not None else len(lines)} lines with {engine_name}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
-        _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
         # Same caps as the Workspace Translate job: per job (--cost-cap)
         # and per calendar month (--monthly-cap, or BAIHE_MONTHLY_CAP_USD).
         # Like the service, the monthly cap only covers paid engines
@@ -307,18 +306,10 @@ def cmd_translate(args):
             # Same data-loss guard as translate_run_service: keep the old
             # translation restorable from history before it's overwritten.
             db.save_line_history_snapshot(d["id"], lines, "before force re-translate")
-        # Same as the Workspace Translate job: writes `en` only, and
-        # records each translated line's provenance.
-        if target_ids is not None:
-            save_cb, notes_cb, _kept = bulk_translate.own_lines_callbacks(d["id"], lines,
-                                                                          provenance)
-        else:
-            def save_cb(ls, did=d["id"]):
-                db.save_lines(did, ls, fields=("en",))
-                provenance(ls)
-
-            def notes_cb(notes, did=d["id"]):
-                db.save_translation_notes(did, notes, id_by_idx=_id_by_idx)
+        # Same as the Workspace Translate job: writes `en` only, keeps an edit
+        # saved in the app while this runs, and records each translated
+        # line's provenance.
+        save_cb, notes_cb, kept = bulk_translate.own_lines_callbacks(d["id"], lines, provenance)
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
             style_note=style_note,
@@ -356,8 +347,13 @@ def cmd_translate(args):
             d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap,
-            line_scoped=target_ids is not None, enforce_ids=target_ids,
+            line_scoped=target_ids is not None,
+            enforce_ids=(target_ids if target_ids is not None
+                         else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
             flags_needing_recheck=recheck)
+        if kept:
+            print(f"\n#{d['id']} kept {len(kept)} line(s) edited while it ran: line id(s) "
+                  f"{', '.join(map(str, sorted(kept)))}.")
         if recheck:
             print(f"\n#{d['id']} {len(recheck)} line(s) changed while the job ran, so their "
                   f"review flags weren't saved; recheck line id(s) "

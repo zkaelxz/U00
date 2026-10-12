@@ -61,7 +61,8 @@ def _serialize(name: str, data: dict) -> dict:
     if name == "job":
         return JobRecord(**data).model_dump(mode="json")
     if name == "notifications":
-        return NotificationList(**data).model_dump(mode="json")
+        # A plain entry keeps its four keys; only a followed channel's carries the rest.
+        return NotificationList(**data).model_dump(mode="json", exclude_none=True)
     if name == "live":
         return LiveSessionStatus(**data).model_dump(mode="json")
     if name == "job_gone":
