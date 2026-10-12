@@ -123,3 +123,18 @@ def test_include_prereleases_can_only_be_changed_in_developer_mode(isolated_db):
     db.set_app_setting("assistant.developer_mode", True)
     settings_service.set_settings({"update.include_prereleases": True})
     assert settings_service.get("update.include_prereleases") is True
+
+
+def test_overview_reports_which_ocr_backends_can_run_and_why_not(isolated_db, monkeypatch):
+    import ocr
+    from services import settings_service
+    monkeypatch.setattr(ocr.importlib.util, "find_spec",
+                        lambda name: object() if name == "pytesseract" else None)
+    monkeypatch.setattr(ocr.shutil, "which", lambda cmd: "/usr/bin/tesseract")
+    status = settings_service.preference_choices()["ocr_backend_status"]
+    assert status["tesseract"] == {"installed": True, "reason": None, "package": None}
+    assert status["manga_ocr"]["installed"] is False
+    assert status["manga_ocr"]["package"] == "manga-ocr"
+    assert "manga-ocr" in status["manga_ocr"]["reason"]
+    assert status["paddle"]["package"] == "paddleocr"
+    assert "auto" not in status
