@@ -19,6 +19,11 @@ echo   - The desktop shortcut and Start Menu entry, if either exists
 echo   - The venv\ virtual environment in this folder
 echo   - Downloaded model weights this app manages under this folder
 echo     (model_cache\, if portable mode was ever used)
+echo   - vtuber_names.json (the downloaded VTuber name list) and any
+echo     unfinished *.part downloads in this folder
+echo.
+echo If you later type DELETE to delete your library, the restore lock and
+echo the library.pre_restore_* and .restore_staging_* folders beside it go too.
 echo.
 echo It will NOT touch:
 echo   - ffmpeg, Deno/Node/Bun, Ollama, or your CUDA/GPU driver install
@@ -65,6 +70,22 @@ if exist "model_cache\" (
     echo Removed model_cache\ ^(downloaded models from portable mode^).
 )
 
+REM Relative names on purpose: the script has done cd /d "%~dp0", so nothing
+REM here can reach outside this folder, whatever BAIHE_DATA_DIR says.
+if exist "vtuber_names.json" (
+    call :removefile "vtuber_names.json"
+    if errorlevel 1 (
+        echo Could not remove vtuber_names.json -- it may be in use.
+    ) else (
+        echo Removed vtuber_names.json ^(the downloaded VTuber name list^).
+    )
+)
+set "PART_COUNT=0"
+REM The extension is compared again because *.part can also match longer
+REM extensions through old 8.3 short names.
+for %%F in (*.part) do if /i "%%~xF"==".part" call :removefile "%%F" && set /a PART_COUNT+=1
+if !PART_COUNT! gtr 0 echo Removed !PART_COUNT! unfinished download file^(s^) ^(*.part^).
+
 echo.
 echo App files removed. Your library is untouched so far.
 echo.
@@ -99,11 +120,14 @@ if exist "library\" (
     set "DELETE_LIBRARY="
     set /p DELETE_LIBRARY="Type DELETE in capital letters to delete it, or press Enter to keep it: "
     if "!DELETE_LIBRARY!"=="DELETE" (
-        rmdir /s /q "library"
+        call :removedir "library"
         if exist "library\" (
             echo Could not delete library\ completely -- a file may be in use.
         ) else (
             echo Deleted library\.
+            REM Only once the library itself is gone: until then a pre_restore
+            REM folder may be the only good copy of it.
+            call :removeneighbours
         )
     ) else (
         echo Keeping library\ -- you did not type DELETE, so nothing there was touched.
@@ -120,6 +144,17 @@ echo These can be large and may be shared with other programs. Delete them
 echo by hand if you no longer need them.
 set "HF_DIR=%HF_HOME%"
 if not defined HF_DIR set "HF_DIR=%USERPROFILE%\.cache\huggingface"
+REM What this script itself could not or would not remove, by name and size only; file contents are never read.
+call :leftover "Your library (projects, translations, backups)" "%~dp0library"
+call :leftover "venv folder (not fully removed)" "%~dp0venv"
+call :leftover "model_cache folder (not fully removed)" "%~dp0model_cache"
+if exist "vtuber_names.json" echo   - vtuber_names.json ^(could not be removed^)
+if exist "!DESKTOP_LNK!" echo   - Desktop shortcut: !DESKTOP_LNK!
+if exist "!STARTMENU_LNK!" echo   - Start Menu entry: !STARTMENU_LNK!
+for /d %%D in ("library.pre_restore_*" "library.pre_reset_*" ".restore_staging_*") do call :leftover "Library copy kept beside it" "%%~fD"
+if exist "library.restore-lock" echo   - library.restore-lock ^(restore lock file^)
+if exist ".env" echo   - .env ^(your settings and API keys; stays in this folder, contents are never shown^)
+if defined BAIHE_DATA_DIR if exist "!BAIHE_DATA_DIR!\" echo   - Your BAIHE_DATA_DIR folder: !BAIHE_DATA_DIR! ^(library, settings, vtuber_names.json and anything else Baihe saved there; not touched^)
 call :leftover "Hugging Face model cache" "!HF_DIR!"
 set "TORCH_DIR=%TORCH_HOME%"
 if not defined TORCH_DIR set "TORCH_DIR=%USERPROFILE%\.cache\torch"
@@ -134,6 +169,9 @@ call :wingetprog "Python" python
 call :wingetprog "Git" git
 call :wingetprog "ffmpeg" ffmpeg
 call :wingetprog "Node.js" node
+echo Programs Baihe never installs but may use ^(left alone^):
+call :wingetprog "Ollama" ollama
+echo Anything not listed here was not installed by Baihe and was not touched.
 
 echo.
 echo Done. This folder ^(and library\, if you kept it^) can now be deleted
@@ -164,4 +202,57 @@ REM %1 = label, %2 = command name. Prints where it is installed, if found.
 set "WINGET_FOUND="
 for /f "delims=" %%P in ('where %~2 2^>nul') do if not defined WINGET_FOUND set "WINGET_FOUND=%%P"
 if defined WINGET_FOUND echo   - %~1: !WINGET_FOUND!
+exit /b 0
+
+:removefile
+REM %1 = a file name in this folder. Deletes a plain file, or a file symlink
+REM (the link, never its target). A folder of that name is left alone: del on a
+REM folder would empty it. Exit 0 = gone, 1 = absent, 2 = a folder, 3 = still there.
+set "RF_ATTR="
+for %%F in ("%~1") do set "RF_ATTR=%%~aF"
+if not defined RF_ATTR exit /b 1
+if /i "!RF_ATTR:~0,1!"=="d" exit /b 2
+del /f /q "%~1" >nul 2>&1
+if exist "%~1" exit /b 3
+exit /b 0
+
+:removedir
+REM %1 = a folder name in this folder. A plain folder goes with its contents.
+REM A junction or symlink (attribute string contains l) is removed as a link
+REM with rmdir and no /s, so the folder it points to is never followed.
+REM Exit 0 = gone, 1 = absent, 2 = not a folder, 3 = still there.
+set "RD_ATTR="
+for %%F in ("%~1") do set "RD_ATTR=%%~aF"
+if not defined RD_ATTR exit /b 1
+if /i not "!RD_ATTR:~0,1!"=="d" exit /b 2
+if /i not "!RD_ATTR:l=!"=="!RD_ATTR!" (
+    rmdir "%~1" >nul 2>&1
+) else (
+    rmdir /s /q "%~1" >nul 2>&1
+)
+if exist "%~1" exit /b 3
+exit /b 0
+
+:removeneighbours
+REM The files a library restore leaves beside library\: its lock, the previous
+REM library, and an unfinished staging folder (db/library_folder.py,
+REM services/library_restore_service.py). A reset copy (library.pre_reset_*) is
+REM a full copy of the data, but it is not in this list, so it is only reported.
+if exist "library.restore-lock" (
+    call :removefile "library.restore-lock"
+    if errorlevel 1 (
+        echo Could not remove library.restore-lock.
+    ) else (
+        echo Removed library.restore-lock.
+    )
+)
+for /d %%D in ("library.pre_restore_*" ".restore_staging_*") do (
+    set "NEIGHBOUR=%%D"
+    call :removedir "%%D"
+    if errorlevel 1 (
+        echo Could not remove !NEIGHBOUR! completely.
+    ) else (
+        echo Removed !NEIGHBOUR!.
+    )
+)
 exit /b 0

@@ -103,7 +103,12 @@ workflow step each:
   prompt removes nothing. Otherwise the venv, `model_cache\` and both shortcuts go, and the library prompt follows the typed-DELETE
   rule: `DELETE` removes `library\`; `y`, `yes`, `delete` and Enter keep it. Each with and without `BAIHE_DATA_DIR` set (its library
   is never touched, also when `DELETE` is typed and there is no library next to the script). The "Left on this PC" list must name the
-  Hugging Face, PyTorch, Ollama and pip caches and the Python on PATH, and delete none of them.
+  Hugging Face, PyTorch, Ollama and pip caches and the Python on PATH, and delete none of them. Every run also checks that
+  `vtuber_names.json` and `*.part` files are removed, and the DELETE rule extends to what a restore leaves beside the library: `DELETE` also removes
+  `library.restore-lock`, `library.pre_restore_*` and `.restore_staging_*`, while `y`, `yes` and Enter keep them and the "Left on this
+  PC" list names them. A reset copy (`library.pre_reset_*`) is kept and listed. With `BAIHE_DATA_DIR` set, that folder's
+  library, lock, copies and `vtuber_names.json` are untouched and the list names the folder. A junction standing in for `library` or a
+  copy is removed as a link and what it points to survives.
 
 Needs the network only for the pip install that `windows-bootstrap.yml` already does. Not covered, still for a person on a real PC:
 a real GPU or driver, winget actually installing Git, Python, ffmpeg or Node.js (the `y` path of `setup.bat`), the desktop window and
