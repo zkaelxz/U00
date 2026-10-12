@@ -79,7 +79,10 @@ def _sensevoice(caches):
 
 def _paddle_ch(caches):
     for name in ("PP-OCRv5_server_det", "PP-OCRv5_server_rec", "PP-LCNet_x1_0_textline_ori"):
-        (caches["paddlex"] / "official_models" / name).mkdir(parents=True)
+        folder = caches["paddlex"] / "official_models" / name
+        folder.mkdir(parents=True)
+        (folder / "inference.json").write_text("{}")
+        (folder / "inference.pdiparams").write_bytes(b"x")
 
 
 def _no_loaders(monkeypatch):
@@ -311,7 +314,7 @@ def test_separation_ready_by_backend(caches, monkeypatch):
     assert mrs.separation_ready("audio_separator") is True
     checkpoints = caches["torch"] / "hub" / "checkpoints"
     checkpoints.mkdir(parents=True)
-    (checkpoints / mrs._HTDEMUCS_CHECKPOINT).write_bytes(b"x")
+    (checkpoints / audio_preprocess.HTDEMUCS_CHECKPOINT).write_bytes(b"x")
     assert mrs.separation_ready("demucs") is True
 
 
@@ -594,3 +597,84 @@ def test_live_whisper_calls_keep_the_sessions_mark():
     assert _in_own_context(member) is True
     runner = live_whisper.WhisperRunner(lambda: False, lambda *a: None, poll=0.01)
     assert runner.run(lambda progress: model_offline.active(), timeout=5, label="probe") is False
+
+
+def test_scanlate_render_and_export_start_offline_for_a_member(isolated_db, monkeypatch):
+    """They load LaMa only once cached; offline that load does not ask the Hub."""
+    for function, path in (("start_render", "render"), ("start_export", "export")):
+        started = _stub(monkeypatch, "scanlate_render_service", function)
+        did, session = _owned_drama()
+        url = f"/api/scanlate/dramas/{did}/{path}"
+        assert _reached(_post(_household_client(), url, {}, session))
+        assert _reached(_post(_admin_client(), url, {}))
+        assert started == [True, False]
+
+
+def test_lama_loads_the_cached_file_only_when_marked(monkeypatch):
+    import sys
+    import types
+    import scanlate_inpaint
+    calls = []
+
+    def hf_hub_download(repo_id, filename, token=None, **kwargs):
+        calls.append(kwargs)
+        if kwargs.get("local_files_only"):
+            raise OSError("not in the cache")
+        raise RuntimeError("stop after the download call")
+    hub = types.ModuleType("huggingface_hub")
+    hub.hf_hub_download = hf_hub_download
+    st = types.ModuleType("safetensors")
+    st_torch = types.ModuleType("safetensors.torch")
+    st_torch.load_file = lambda path: {}
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    monkeypatch.setitem(sys.modules, "safetensors", st)
+    monkeypatch.setitem(sys.modules, "safetensors.torch", st_torch)
+    monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+    with pytest.raises(RuntimeError, match="stop after"):
+        scanlate_inpaint._load_lama_generator()
+
+    def member():
+        model_offline.set_offline(True)
+        scanlate_inpaint._load_lama_generator()
+    with pytest.raises(RuntimeError, match="not downloaded yet"):
+        _in_own_context(member)
+    assert calls == [{}, {"local_files_only": True}]
+
+
+def test_offline_auto_separation_does_not_fall_back_to_an_undownloaded_demucs(caches, monkeypatch):
+    import audio_preprocess
+    ran = []
+
+    def failing(name):
+        def run(*a, **k):
+            ran.append(name)
+            raise audio_preprocess.VocalSeparationError(f"{name} failed")
+        return run
+    monkeypatch.setattr(audio_preprocess, "_BACKENDS", {
+        "audio_separator": failing("audio_separator"), "demucs": failing("demucs")})
+    monkeypatch.setattr(audio_preprocess.memory_headroom, "check_separation", lambda use_gpu: None)
+
+    def member():
+        model_offline.set_offline(True)
+        audio_preprocess.separate_vocals("in.wav", "out.wav")
+    with pytest.raises(audio_preprocess.VocalSeparationError, match="not downloaded yet"):
+        _in_own_context(member)
+    assert ran == ["audio_separator"]
+    checkpoints = caches["torch"] / "hub" / "checkpoints"
+    checkpoints.mkdir(parents=True)
+    (checkpoints / audio_preprocess.HTDEMUCS_CHECKPOINT).write_bytes(b"x")
+    ran.clear()
+    with pytest.raises(audio_preprocess.VocalSeparationError):
+        _in_own_context(member)
+    assert ran == ["audio_separator", "demucs"]
+    ran.clear()
+    with pytest.raises(audio_preprocess.VocalSeparationError):
+        audio_preprocess.separate_vocals("in.wav", "out.wav")
+    assert ran == ["audio_separator", "demucs"]
+
+
+def test_a_queue_item_saved_without_at_pc_counts_as_away_from_the_pc():
+    from services import queue_service
+    raw = {"id": 1, "drama_id": 2, "step": "transcribe", "status": "waiting", "override": True}
+    assert queue_service._clean_item(raw)["at_pc"] is False
+    assert queue_service._clean_item(dict(raw, at_pc=True))["at_pc"] is True

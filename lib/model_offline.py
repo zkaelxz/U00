@@ -103,6 +103,22 @@ def hf_snapshot(repo_id: str):
     return folder if revision and os.path.isdir(folder) else None
 
 
+def torch_hub_checkpoint(filename: str) -> bool:
+    """A finished torch.hub checkpoint (torch.hub.get_dir()/checkpoints). torch.hub
+    skips a file that is there, so on disk means no fetch; a torch zip cut
+    off mid-download has no central directory."""
+    import zipfile
+    home = os.environ.get("TORCH_HOME") or os.path.join(
+        os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"),
+        "torch")
+    path = os.path.join(home, "hub", "checkpoints", filename)
+    try:
+        return os.path.getsize(path) > 0 and (not filename.endswith(".pt")
+                                              or zipfile.is_zipfile(path))
+    except OSError:
+        return False
+
+
 def modelscope_model_dir(model_id: str, weights: str = "model.pt"):
     """A ModelScope download's folder when it holds `weights`, or None.
     ModelScope moved its layout to hub/models/<id> in newer releases."""

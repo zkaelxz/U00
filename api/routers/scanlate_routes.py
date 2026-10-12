@@ -135,7 +135,10 @@ def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge
 @router.post("/dramas/{drama_id}/render", dependencies=[require_permission("jobs.start")],
              response_model=ScanlateJobStarted, responses=_JOB_ERRS,
              summary="Re-render the typeset image of one page, or of every page with regions")
-def post_render(body: ScanlateRenderRequest, drama_id: int = Path(ge=1, le=2**31 - 1)):
+def post_render(body: ScanlateRenderRequest, request: Request,
+                drama_id: int = Path(ge=1, le=2**31 - 1)):
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_scanlate_render)
     return scanlate_render_service.start_render(drama_id, page_id=body.page_id)
 
 
@@ -143,5 +146,8 @@ def post_render(body: ScanlateRenderRequest, drama_id: int = Path(ge=1, le=2**31
              response_model=ScanlateJobStarted, responses=_JOB_ERRS,
              summary="Write the chapter as a ZIP and/or PDF (download from /api/artifacts, "
                      "kinds scanlate_zip / scanlate_pdf)")
-def post_export(body: ScanlateExportRequest, drama_id: int = Path(ge=1, le=2**31 - 1)):
+def post_export(body: ScanlateExportRequest, request: Request,
+                drama_id: int = Path(ge=1, le=2**31 - 1)):
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_scanlate_render)
     return scanlate_render_service.start_export(drama_id, formats=body.formats)

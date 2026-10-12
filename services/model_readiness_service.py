@@ -20,7 +20,6 @@ import functools
 import importlib.util
 import json
 import os
-import zipfile
 
 import whisper_models
 from lib import model_offline
@@ -136,22 +135,11 @@ def omnivoice_asr_ready() -> bool:
     return hf_model_ready(_OMNIVOICE_ASR_REPO)
 
 
-def _torch_checkpoint(filename: str) -> bool:
-    home = os.environ.get("TORCH_HOME") or os.path.join(
-        os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"),
-        "torch")
-    path = os.path.join(home, "hub", "checkpoints", filename)
-    try:
-        return os.path.getsize(path) > 0 and (not filename.endswith(".pt")
-                                              or zipfile.is_zipfile(path))
-    except OSError:
-        return False
+_torch_checkpoint = model_offline.torch_hub_checkpoint
 
 
 # torchaudio's MMS_FA bundle saves its weights under this torch.hub name.
 _MMS_FA_CHECKPOINT = "model.pt"
-# demucs' htdemucs model is one torch.hub checkpoint with this name.
-_HTDEMUCS_CHECKPOINT = "955717e8-8726e21a.th"
 
 
 def word_aligner_ready() -> bool:
@@ -167,11 +155,11 @@ def separation_ready(backend: str, use_gpu=None) -> bool:
     if backend == "audio_separator":
         return roformer
     if backend == "demucs":
-        return _torch_checkpoint(_HTDEMUCS_CHECKPOINT)
+        return _torch_checkpoint(audio_preprocess.HTDEMUCS_CHECKPOINT)
     # "auto" tries audio-separator first whenever it is installed.
     if use_gpu is not False and importlib.util.find_spec("audio_separator") is not None:
         return roformer
-    return _torch_checkpoint(_HTDEMUCS_CHECKPOINT)
+    return _torch_checkpoint(audio_preprocess.HTDEMUCS_CHECKPOINT)
 
 
 def sensevoice_ready() -> bool:
@@ -344,6 +332,13 @@ def for_dub(drama_id: int, keep_background: bool = False, tts_engine: str = "omn
     if keep_background and drama.get("content_mode") != "novel_narration":
         needs.append(_need(separation_ready, drama.get("separation_backend") or "auto"))
     return needs
+
+
+def for_scanlate_render() -> list:
+    """Nothing to check: re-render and export use LaMa only once it is cached
+    ("auto"). Going through require_ready still marks the job, so that cached
+    load does not ask the Hub for a newer revision."""
+    return []
 
 
 def for_scanlate(drama_id: int, detect_backend: str = "auto") -> list:

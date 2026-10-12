@@ -94,8 +94,10 @@ def _clean_item(raw) -> Optional[dict]:
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
-            # Items saved before "at_pc" was recorded: only the PC owner's carry the override.
-            "at_pc": bool(raw.get("at_pc", raw.get("override"))),
+            # Items saved before "at_pc" was recorded count as away from the PC:
+            # "override" is also true for an admin on the admin listener who
+            # was not at the PC.
+            "at_pc": bool(raw.get("at_pc", False)),
             "added_at": raw.get("added_at"), "started_at": raw.get("started_at"),
             "finished_at": raw.get("finished_at")}
 
