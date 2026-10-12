@@ -109,6 +109,7 @@ class TestOllamaCallIsAbortable:
         assert _wait(lambda: silent_ollama.hung_up == 1)
 
     def test_without_a_cancel_check_the_request_path_is_unchanged(self, monkeypatch):
+        monkeypatch.setattr(local, "_warm_until", {})
         seen = {}
 
         def fake_post(url, json=None, stream=None, timeout=None):
@@ -117,7 +118,8 @@ class TestOllamaCallIsAbortable:
         monkeypatch.setattr("requests.post", fake_post)
         with pytest.raises(local.OllamaUnavailableError):
             local._ollama_chat("http://localhost:11434", {"model": "m"})
-        assert seen["timeout"] == local.OLLAMA_CHAT_TIMEOUT
+        # A model not yet seen answering gets its load time on top.
+        assert seen["timeout"] == local.ollama_max_request_seconds("m")
 
 
 def _shown(job_id):
