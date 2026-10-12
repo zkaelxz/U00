@@ -856,8 +856,13 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
             raise AdminActionJobsRunning(
                 "A background job is still finishing; try again in a moment.")
         from services import previous_library_service
-        previous_library_service.keep_before_reset()
-        db.reset_library()
+        kept = previous_library_service.keep_before_reset()
+        try:
+            db.reset_library()
+        except BaseException:
+            previous_library_service.after_reset(kept, ok=False)
+            raise
+        previous_library_service.after_reset(kept, ok=True)
         background_jobs.clear_all_jobs()
     finally:
         background_jobs.release_exclusive()

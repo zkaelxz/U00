@@ -1671,3 +1671,14 @@ class TestPreviousLibrary:
         with pytest.raises(ConflictError):
             pls.delete("DELETE", 0)
         assert os.path.isdir(aside)
+
+    def test_delete_is_refused_while_the_live_library_fails_its_check(self, tree):
+        """A restore whose put-back failed leaves a damaged library.db in place and
+        the real library aside: that copy must not be deletable."""
+        from services import previous_library_service as pls
+        self._kept(tree)
+        with open(db.DB_PATH, "wb") as fh:
+            fh.write(b"not a database" * 100)
+        with pytest.raises(ConflictError):
+            pls.delete("DELETE", 700)
+        assert pls.summary()["folder_count"] == 3

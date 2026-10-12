@@ -109,7 +109,7 @@ export function RestoreBlock() {
   const [done, setDone] = useState(false)
   const [mediaKept, setMediaKept] = useState(false)
   const [previousKept, setPreviousKept] = useState(false)
-  const [accountsRestored, setAccountsRestored] = useState(false)
+  const [accountsRestored, setAccountsRestored] = useState(0)
   const [leftBehind, setLeftBehind] = useState<string[]>([])
   const [error, setError] = useState<unknown>(null)
 
@@ -140,7 +140,7 @@ export function RestoreBlock() {
         setBusy(false)
         setMediaKept(Boolean(r.media_kept))
         setPreviousKept(Boolean(r.previous_library_kept))
-        setAccountsRestored(Boolean(r.accounts_restored))
+        setAccountsRestored(r.accounts_restored ?? 0)
         setLeftBehind(r.folders_left_behind ?? [])
         setDone(true)
         setFile(null)
@@ -171,7 +171,9 @@ export function RestoreBlock() {
                 ' before deleting that folder (Storage > Previous library).'}
             {leftBehind.length > 0 &&
               ` Folders this backup does not have stayed in the previous library: ${leftBehind.join(', ')}.`}
-            {accountsRestored && ' This library had no accounts, so the accounts in the backup were restored.'}
+            {accountsRestored > 0 &&
+              ` This library had no accounts, so the ${accountsRestored} account${accountsRestored === 1 ? '' : 's'} in` +
+                ` the backup ${accountsRestored === 1 ? 'was' : 'were'} restored. Check them on the Admin page.`}
           </span>
           <button type="button" className="primary" onClick={() => window.location.reload()}>
             Reload

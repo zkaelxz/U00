@@ -423,8 +423,34 @@ class TestRestore:
         r = _clean(_restore(client, data))
         assert r.status_code == 200, r.text
         assert r.json() == {"restored": True, "sessions_revoked": 0, "media_kept": False,
-                            "previous_library_kept": False}
+                            "previous_library_kept": False, "accounts_restored": 0,
+                            "folders_left_behind": []}
         assert [d["id"] for d in db.list_dramas()] == [a]
+
+    def test_the_response_says_how_many_accounts_came_and_which_folders_stayed(self, client):
+        from services import auth_service
+        auth_service.add_user("a@example.com")
+        auth_service.add_user("b@example.com")
+        _new("Kept")
+        data = _db_only_zip()
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM user_permissions")
+            conn.execute("DELETE FROM users")
+        os.makedirs(os.path.join(db.LIBRARY_DIR, "my_notes"))
+        background_jobs.clear_all_jobs()
+        r = _clean(_restore(client, data))
+        assert r.status_code == 200, r.text
+        assert r.json()["accounts_restored"] == 2
+        assert r.json()["folders_left_behind"] == ["my_notes"]
+
+
+
+def _db_only_zip():
+    import tempfile
+    path = os.path.join(tempfile.mkdtemp(), "db_only.zip")
+    las.write_backup_zip(path, include_media=False)
+    with open(path, "rb") as f:
+        return f.read()
 
 
 # ---- storage -----------------------------------------------------------------

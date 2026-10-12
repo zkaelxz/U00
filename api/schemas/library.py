@@ -756,6 +756,10 @@ class LibraryRestoreDone(BaseModel):
     # The previous library stayed beside the restored one (something in it
     # could not be moved across): the owner must check before deleting it.
     previous_library_kept: bool = False
+    # Accounts taken from the backup (only into a library that had none).
+    accounts_restored: int = 0
+    # The previous library's other folders the backup lacks: they stay there.
+    folders_left_behind: List[str] = []
 
 
 class LibraryStorageCategory(BaseModel):

@@ -682,7 +682,7 @@ def test_restore_into_a_library_without_accounts_brings_the_backups_accounts(iso
     data = _with_planted_secrets(_backup_bytes(), uid)
     _fresh_pc()
     result = _restore(data)
-    assert result["accounts_restored"] is True
+    assert result["accounts_restored"] == 1
     owner = db.get_drama(did)["owner_user_id"]
     assert owner == uid
     assert db.auth_get_user(owner)["email"] == "member@example.com"
@@ -700,7 +700,7 @@ def test_restore_into_a_library_with_accounts_keeps_the_live_accounts(isolated_d
     _fresh_pc()
     auth_service.add_user("new-pc@example.com")
     result = _restore(data)
-    assert result["accounts_restored"] is False
+    assert result["accounts_restored"] == 0
     assert {u["email"] for u in db.auth_list_users()} == {"new-pc@example.com"}
 
 
@@ -764,6 +764,46 @@ def test_backups_never_carry_the_personal_vtuber_names(isolated_db):
     finally:
         os.remove(zipped)
     assert db.get_bulk_job(job)["translate_args"]["style_guidelines"] == guidelines
+
+
+def test_names_of_a_deleted_title_are_not_left_in_a_backups_free_pages(isolated_db):
+    did = _new("A")
+    names = "Known names (keep as written): Inventa Kiraboshi " + "x" * 6000
+    db.create_bulk_job(did, "deepseek", "deepseek-chat", "scheduled", [],
+                       translate_args={"style_guidelines": "Style.\n\n" + names})
+    # As on a SQLite built without secure delete (Python's own Windows build):
+    # the deleted row's pages go to the free list with their text intact.
+    conn = sqlite3.connect(db.DB_PATH)
+    conn.execute("PRAGMA secure_delete = OFF")
+    conn.execute("DELETE FROM dramas WHERE id = ?", (did,))
+    conn.execute("DELETE FROM bulk_jobs WHERE drama_id = ?", (did,))
+    conn.commit()
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.close()
+    with open(db.DB_PATH, "rb") as f:
+        assert b"Inventa" in f.read()   # the live file still holds them
+    dest = os.path.join(tempfile.mkdtemp(), "db.db")
+    las._sanitized_snapshot(dest)
+    with open(dest, "rb") as f:
+        assert b"Inventa" not in f.read()
+
+
+def test_an_unreadable_live_library_keeps_its_accounts(isolated_db, monkeypatch):
+    from services import library_restore_sql
+    real = sqlite3.connect
+
+    class Locked:
+        def __init__(self, *a, **k):
+            pass
+
+        def execute(self, *a):
+            raise sqlite3.OperationalError("database is locked")
+
+        def close(self):
+            pass
+    monkeypatch.setattr(library_restore_sql.sqlite3, "connect", lambda *a, **k: Locked())
+    assert library_restore_sql.has_accounts(db.DB_PATH) is True
+    monkeypatch.setattr(library_restore_sql.sqlite3, "connect", real)
 
 def _follow(owner, pc_owner=True, mode="auto"):
     from sources import live_follow_store

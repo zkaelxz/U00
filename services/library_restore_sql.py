@@ -180,17 +180,21 @@ def carry_across(old_dir: str, library_dir: str, names, media) -> tuple:
 
 
 def has_accounts(db_path: str) -> bool:
-    """Whether a library database holds any account (False when it, or its
-    users table, is missing)."""
+    """Whether a library database holds any account: False only when it, or
+    its users table, is missing. A database that can't be read (locked,
+    damaged) counts as having accounts, so the live ones are kept."""
     if not os.path.isfile(db_path):
         return False
-    conn = sqlite3.connect(_ro_uri(db_path), uri=True)
     try:
-        return conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
-    except sqlite3.OperationalError:
-        return False
-    finally:
-        conn.close()
+        conn = sqlite3.connect(_ro_uri(db_path), uri=True)
+        try:
+            return conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as e:
+        return "no such table" not in str(e)
+    except sqlite3.Error:
+        return True
 
 
 # Columns naming an account. An id one of them still names must never go to

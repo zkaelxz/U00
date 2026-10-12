@@ -221,6 +221,7 @@ def _no_jobs(monkeypatch, running=False):
     # These tests fake the reset itself; the copy kept before it would move the
     # session library's media away for good.
     monkeypatch.setattr(previous_library_service, "keep_before_reset", lambda: None)
+    monkeypatch.setattr(previous_library_service, "after_reset", lambda kept, ok: None)
 
 
 def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
@@ -541,6 +542,26 @@ def test_reset_changes_nothing_when_the_copy_cannot_be_kept(isolated_db, monkeyp
     assert isolated_db.get_drama(did)["title_en"] == "Kept"
     assert _kept_copies() == []
     assert background_jobs.exclusive_active() is False
+
+
+def test_a_failed_reset_puts_the_media_back_and_keeps_the_older_copy(isolated_db, monkeypatch):
+    did = isolated_db.create_drama(title_en="First")
+    os.makedirs(os.path.join(db.DRAMAS_DIR, str(did)))
+    svc.reset_library(confirm=True, confirm_text="RESET")
+    [older] = _kept_copies()
+    second = isolated_db.create_drama(title_en="Second")
+    media = os.path.join(db.DRAMAS_DIR, str(second), "audio.mp3")
+    os.makedirs(os.path.dirname(media))
+    with open(media, "wb") as fh:
+        fh.write(b"a")
+
+    def locked():
+        raise PermissionError("library.db is in use")
+    monkeypatch.setattr(db, "reset_library", locked)
+    with pytest.raises(PermissionError):
+        svc.reset_library(confirm=True, confirm_text="RESET")
+    assert os.path.isfile(media)
+    assert _kept_copies() == [older]
 
 def test_reset_releases_the_hold_when_it_fails(monkeypatch):
     _no_jobs(monkeypatch)

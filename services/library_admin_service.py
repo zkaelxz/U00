@@ -480,6 +480,7 @@ def _sanitized_snapshot(dest: str):
                     conn.execute(f"DELETE FROM {table}")
             vdb_names_service.strip_from_snapshot(conn)
             conn.execute("PRAGMA journal_mode = DELETE")
+            conn.execute("VACUUM")   # free pages copied from the live file can hold deleted rows
         finally:
             conn.close()
     except sqlite3.Error:

@@ -26,8 +26,9 @@ DELETE_WORD = "DELETE"
 PRE_RESET_MARKER = ".pre_reset_"
 STAGING_PREFIX = ".restore_staging_"
 BUSY = "A job, restore or other library task is running. Wait for it to finish, then try again."
-NO_LIBRARY = ("The library folder is missing, so the previous library may be the only copy. "
-              "Start Baihe again to put it back.")
+NO_LIBRARY = ("The library is missing or fails a check, so the previous library may be the "
+              "only good copy. Restart Baihe; if that doesn't bring the library back, close it "
+              "and rename that folder to the library folder's name.")
 CHANGED = "The previous library changed since you looked. Check again."
 RESET_COPY_FAILED = ("A copy of the library could not be kept before the reset (the disk may be "
                      "full, or a file is in use); nothing was reset.")
@@ -60,6 +61,19 @@ def _folders() -> list:
     return out
 
 
+def _library_checks_out() -> bool:
+    """The live library.db is there and passes quick_check. A restore whose
+    put-back failed leaves a failed one in place and the real library aside."""
+    from services import library_restore_service
+    if not os.path.isfile(db.DB_PATH) or os.path.islink(db.DB_PATH):
+        return False    # checked first: the check below would create an empty one
+    try:
+        library_restore_service._require_quick_check(db.DB_PATH, NO_LIBRARY)
+    except ValueError:
+        return False
+    return True
+
+
 def summary() -> dict:
     """{present, size_bytes, file_count, folder_count, partial, label}."""
     size = files = 0
@@ -87,7 +101,7 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
         if holder is None:
             raise ConflictError(BUSY)
         try:
-            if not os.path.isfile(os.path.join(db.LIBRARY_DIR, "library.db")):
+            if not _library_checks_out():
                 raise ConflictError(NO_LIBRARY)
             seen = summary()
             if expected_size_bytes is not None and seen["size_bytes"] != expected_size_bytes:
@@ -108,12 +122,12 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
     return {"deleted": removed, "freed_bytes": seen["size_bytes"]}
 
 
-def keep_before_reset() -> None:
+def keep_before_reset() -> str:
     """Call under the library's exclusive hold, right before db.reset_library:
     keeps the database (a consistent snapshot) and the titles' media in
-    <library>.pre_reset_<time>, then removes older such copies, so one Reset
-    can be undone by hand. Raises ServiceError with nothing changed when the
-    copy can't be made."""
+    <library>.pre_reset_<time>, so one Reset can be undone by hand. Returns
+    that folder for after_reset. Raises ServiceError with nothing changed
+    when the copy can't be made."""
     parent, base = _parent_and_base()
     dest = os.path.join(parent, f"{base}{PRE_RESET_MARKER}{int(time.time() * 1000)}")
     try:
@@ -126,6 +140,21 @@ def keep_before_reset() -> None:
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise ServiceError(RESET_COPY_FAILED) from None
+    return dest
+
+
+def after_reset(dest: str, ok: bool) -> None:
+    """ok: the reset went through, so older copies go (only the last is
+    kept). Otherwise the library still holds its rows: the media goes back
+    and this copy is dropped."""
+    _parent, base = _parent_and_base()
+    if not ok:
+        moved = os.path.join(dest, "dramas")
+        if os.path.isdir(moved) and not os.path.lexists(db.DRAMAS_DIR):
+            os.rename(moved, db.DRAMAS_DIR)
+        if not os.path.lexists(moved):
+            shutil.rmtree(dest, ignore_errors=True)
+        return
     for name, path in _folders():
         if name.lower().startswith((base + PRE_RESET_MARKER).lower()) and path != dest:
             shutil.rmtree(path, ignore_errors=True)

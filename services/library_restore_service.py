@@ -200,13 +200,13 @@ def _carry_app_settings(conn, live_path: str):
         conn.execute("DETACH DATABASE cur")
 
 
-def _build_staged_databases(staging_dir: str, library_dir: str) -> bool:
+def _build_staged_databases(staging_dir: str, library_dir: str) -> int:
     """Replaces the uploaded library.db / sources.db in staging with fresh
     files built from the app's own schema (db.migrate_database_file /
     sources.store.migrate_file) and filled with the upload's rows -- except
     the auth tables (current rows, sessions emptied: every session is
     revoked; a live library without accounts takes the upload's accounts,
-    and the return value says so) and the sources settings table (current
+    and the return value is how many) and the sources settings table (current
     rows). When the live accounts are kept, the upload's followed channels
     pass to the PC owner with automatic checks off. An upload
     without sources.db gets a snapshot of the live one instead, migrated
@@ -239,8 +239,9 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> bool:
                                                 exc_info=True)
             raise ValueError(BAD_LIBRARY_DB) from None
         live_lib = os.path.join(library_dir, "library.db")
-        accounts_restored = not library_restore_sql.has_accounts(live_lib)
-        taken = auth_service.RESTORE_ACCOUNT_TABLES if accounts_restored else ()
+        from_upload = not library_restore_sql.has_accounts(live_lib)
+        taken = auth_service.RESTORE_ACCOUNT_TABLES if from_upload else ()
+        accounts_restored = 0
         _rebuild_from_upload(staged, scratch,
                              skip_tables=[t for t in _RESTORE_KEPT_AUTH_TABLES if t not in taken],
                              live_path=live_lib,
@@ -256,6 +257,8 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> bool:
                 gpu_slots.clear(conn)
                 _carry_app_settings(conn, live_lib)
                 library_restore_sql.settle_accounts(conn, live_lib)
+                if from_upload:
+                    accounts_restored = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
                 conn.close()
@@ -279,7 +282,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> bool:
                 raise ValueError(message) from None
             _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
                                  live_path=live_src, live_tables=("settings",), message=message)
-            if not accounts_restored:
+            if not from_upload:
                 library_restore_sql.hand_follows_to_pc_owner(staged_src)
         finally:
             os.remove(upload_src)
@@ -361,8 +364,8 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
 
     Returns {media_kept: the zip held no media and the current media was
     kept, previous_library_kept: it was left beside the restored one,
-    accounts_restored: the accounts came from the backup (the library had
-    none), folders_left_behind: names of the previous library's other
+    accounts_restored: how many accounts came from the backup (only into a
+    library that had none), folders_left_behind: names of the previous library's other
     folders the zip lacks, which stay in the previous library}.
     """
     import io

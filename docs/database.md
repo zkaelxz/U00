@@ -303,7 +303,8 @@ What they skip or keep:
   attached read-only; its rows are copied into a database built fresh from the
   current schema.
 - **Accounts on a library without any** (a rebuilt PC): when the live
-  `users` table is empty, the restore takes `users` and `user_permissions`
+  `users` table is empty (a live database that can't be read counts as having
+  accounts), the restore takes `users` and `user_permissions`
   from the backup (`auth_service.RESTORE_ACCOUNT_TABLES`), so titles' owners
   resolve again; sessions and device tokens never come from a backup. When
   the live accounts are kept, the backup's `followed_channels` (sources.db)
@@ -319,8 +320,9 @@ What they skip or keep:
   `.restore_staging_*` folder and the copy kept before a Reset library
   (`<library>.pre_reset_<time>`, the last one only) as one entry, "Previous
   library kept after restore", deleted after typing `DELETE`
-  (`services/previous_library_service.py`; refused while the library folder is
-  missing, since start-up puts a previous library back from there).
+  (`services/previous_library_service.py`; refused while the live `library.db`
+  is missing or fails `quick_check`, since the previous library may then be the
+  only good copy).
 - **`<library>.restore-lock`** (beside the library folder) is an OS lock a
   restore holds across its renames and the start-up recovery takes before
   putting a set-aside library back. The holder removes the file when it lets
@@ -330,7 +332,12 @@ What they skip or keep:
   (`db/library_folder.py`).
 - **Reset library** keeps the database (a snapshot) and `dramas/` in
   `<library>.pre_reset_<time>` first and refuses with nothing changed when that
-  copy can't be made.
+  copy can't be made. If the reset itself then fails, the media is moved back
+  and that copy dropped; older copies are removed only after a reset succeeded.
+- **Backup snapshots are vacuumed** after sessions, device tokens and the
+  VTuber-name prompt text are removed: the backup API copies the live file's
+  free pages, which can still hold deleted rows where SQLite was built without
+  secure delete.
 - **Single-drama restore and import skip** `usage_log`, `speaker_merge_undos`,
   `bulk_jobs` and `metadata_research_results` (`_SKIPPED_TABLES`: restoring them
   would double-count spend, replay stale undos or batches, or collide on ids).
