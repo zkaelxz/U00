@@ -1067,3 +1067,102 @@ def test_a_blocked_video_server_says_so_and_never_shows_the_link(client, env, mo
 def test_another_host_that_does_not_resolve_gets_the_general_sentence():
     reason = svc._failure_reason(_caused_by("[Errno -2] Name or service not known: cdn.other.example"))
     assert reason == svc._DNS_BLOCKED_OTHER and "other.example" not in reason
+
+
+# ---- review fixes: parts need no cookies, idle disk floor, narrow long clock ----------
+
+def test_a_part_is_refused_while_cookie_login_is_on(client, env, monkeypatch):
+    monkeypatch.setattr(svc.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": "firefox", "cookies_file": None})
+    did = _drama()
+    r = _start(client, did, part_start="1:00", part_end="2:00")
+    assert r.status_code == 422 and "cookie login" in r.text
+    assert background_jobs.get_status(f"urlmedia_{did}") is None
+    assert _run(client, did)["status"] == "done"   # the whole video still works with cookies
+
+
+def test_cookies_turned_on_while_a_part_waits_stop_it_at_start(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
+    gate = Gate()
+    a, b = _drama(), _drama()
+    assert _start(client, a, url=_link(1)).status_code == 200
+    assert _start(client, b, url=_link(2), part_start="1:00", part_end="2:00").status_code == 200
+    monkeypatch.setattr(svc.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": None, "cookies_file": "cookies.txt"})
+    gate.open()
+    st = _wait(f"urlmedia_{b}")
+    assert st["status"] == "error" and st["error"].endswith(svc._PART_NO_COOKIES)
+    assert _link(2) not in FakeYDL.calls
+
+
+def test_a_section_with_no_progress_events_still_stops_at_the_floor(client, env, monkeypatch):
+    FakeYDL.script = {"duration": 3 * 3600, "events": []}
+    calls = []
+
+    def usage(path):
+        calls.append(path)
+        return types.SimpleNamespace(total=10**13, used=0,
+                                     free=10**13 if len(calls) == 1 else svc.MIN_FREE_BYTES - 1)
+    monkeypatch.setattr(svc.shutil, "disk_usage", usage)
+    did = _drama()
+    st = _run(client, did, audio_only=False, part_start="0:10", part_end="0:40")
+    assert st["status"] == "error" and "drive is almost full" in st["error"]
+    assert env.writes == []
+    _no_tmp(did)
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_the_wall_clock_is_long_only_for_real_long_work():
+    clock = FakeClock()
+    normal = svc._WallClock(extended=False, may_extend=False, clock=clock)
+    assert normal.ceiling == svc.MAX_WALL_SECONDS and normal.allowed == svc.MAX_WALL_SECONDS
+    clock.now = svc.MAX_WALL_SECONDS + 1
+    assert normal.expired()
+    # "Download anyway" may extend, but only once the child reports a clip past the cap.
+    clock = FakeClock()
+    maybe = svc._WallClock(extended=False, may_extend=True, clock=clock)
+    assert maybe.ceiling == svc.MAX_WALL_SECONDS_LONG and maybe.allowed == svc.MAX_WALL_SECONDS
+    clock.now = svc.MAX_WALL_SECONDS + 1
+    assert maybe.expired()
+    maybe.extend()
+    assert not maybe.expired() and maybe.allowed == svc.MAX_WALL_SECONDS_LONG
+
+
+@pytest.mark.parametrize("body, ceiling", [
+    ({"part_start": "0", "exact_cuts": True}, "normal"),            # no end: length unknown
+    ({"part_start": "0:10", "part_end": "0:40"}, "normal"),         # fast copy
+    ({"part_start": "0:10", "part_end": "0:40", "exact_cuts": True}, "long"),
+    ({"allow_long": True}, "long"),                                  # may extend once a long clip is reported
+])
+def test_the_long_wall_clock_is_not_given_to_every_request(client, env, monkeypatch, body, ceiling):
+    seen = []
+    real = ytdlp_child.run_download
+    monkeypatch.setattr(ytdlp_child, "run_download",
+                        lambda tmp, spec, timeout, cancel: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
+    did = _drama()
+    FakeYDL.script = {"duration": 3600}
+    assert _run(client, did, audio_only=False, **body)["status"] == "done"
+    assert seen == [svc.MAX_WALL_SECONDS_LONG if ceiling == "long" else svc.MAX_WALL_SECONDS]
+
+
+def test_a_clip_past_the_normal_cap_extends_the_wall_clock(client, env, monkeypatch):
+    extended = []
+    real = svc._WallClock.extend
+    monkeypatch.setattr(svc._WallClock, "extend", lambda self: (extended.append(1), real(self))[1])
+    FakeYDL.script = {"duration": 7 * 3600, "formats": FORMATS}
+    did = _drama()
+    assert _run(client, did, allow_long=True)["status"] == "done"
+    assert extended == [1]
+    background_jobs.clear_job(f"urlmedia_{did}")
+    extended.clear()
+    FakeYDL.script = {"duration": 600}
+    other = _drama()
+    assert _run(client, other, allow_long=True)["status"] == "done"
+    assert extended == []   # asked for "anyway" on a short video: still the normal clock

@@ -28,6 +28,9 @@ class YoutubeDL:
         return self.opts["outtmpl"].replace("%(ext)s", "m4a")
     def extract_info(self, url, download=True):
         mode = os.environ["FAKE_YTDLP_MODE"]
+        if mode == "silent":
+            # What ffmpeg fetching a section looks like: no progress, no output.
+            time.sleep(120)
         for hook in self.opts["progress_hooks"]:
             hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
         if mode == "hang":
@@ -323,3 +326,17 @@ def test_estimate_bytes_uses_the_bitrates_and_is_none_without_them():
 ])
 def test_refusal_and_estimate_events_are_shape_checked(event, ok):
     assert ytdlp_child._valid_event(event) is ok
+
+
+def test_a_download_that_prints_nothing_still_stops_at_the_free_disk_floor(child_env, isolated_db, monkeypatch):
+    """A section is fetched by ffmpeg: no progress events reach the parent, so the
+    space check has to run on the reader's timer, not per progress event."""
+    child_env.mode("silent")
+    monkeypatch.setattr(svc.shutil, "disk_usage", lambda path: type(
+        "U", (), {"free": svc.MIN_FREE_BYTES - 1})())
+    monkeypatch.setattr(svc.background_jobs, "is_cancel_requested", lambda job_id: False)
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match="almost full"):
+        svc._download("urlmedia_9", URL, child_env.work, False,
+                      {"part_start": 0, "part_end": 60})
+    assert time.monotonic() - t0 < 15

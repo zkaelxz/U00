@@ -21,9 +21,11 @@ restart like every other in-memory job.
 
 Job `urlmedia_<drama_id>` downloads into a fresh `.urldl_*` temp folder in
 the drama folder (removed in `finally`) with capped yt-dlp options (see
-`services.ytdlp_child.ydl_options`): one item, no live streams, at most 6 h long and
-2 h of wall clock, no byte cap (a free-disk-space floor stops it instead, see
-_SpaceWatch), native downloader only, no
+`services.ytdlp_child.ydl_options`): one item, no live streams, at most 6 h long
+(12 h with "Download anyway") and 2 h of wall clock (6 h for a clip past the cap or a
+re-encoded section, see _WallClock), no byte cap (a free-disk-space floor, polled on a
+timer, stops it instead, see _SpaceWatch), native downloader only (except a chosen
+part, which yt-dlp hands to ffmpeg: refused when cookie login is on), no
 cookie option in those caps (the saved Settings yt-dlp cookies, a browser
 or a cookies.txt path, are passed separately: the route is PC-only), and
 never yt-dlp's `generic` extractor (security review LOW-1: it
@@ -109,6 +111,10 @@ _DNS_BLOCKED = ("Your network or a DNS filter (for example Pi-hole) is blocking 
 _DNS_BLOCKED_OTHER = ("Your network or a DNS filter (for example Pi-hole) is blocking a server "
                       "this download needs.")
 _NOW_BUSY = "This title now has audio or video. Start again and confirm replacing it."
+# ffmpeg, which yt-dlp uses for a section, takes the media link and the cookies
+# on its command line, where other programs on the PC can read them.
+_PART_NO_COOKIES = ("Downloading only part of a video can't use your saved cookie login. Turn "
+                    "cookie login off in Settings, or download the whole video.")
 _EXTRACT_FAILED = "Could not read audio from the downloaded video."
 _start_lock = threading.Lock()
 _slots = threading.Condition()
@@ -346,6 +352,32 @@ def _too_slow(wall) -> str:
         f"The download took longer than {int(wall // 3600)} hours, so it was stopped.")
 
 
+class _WallClock:
+    """The time a yt-dlp download may take. The child process gets the
+    ceiling as its hard cap; this decides when the parent stops earlier. The
+    long clock is only for work that really is long: a re-encoded section
+    with an explicit end (about real time), or a clip the child reports as
+    past the normal length cap. A request that merely asks for a long clock
+    (exact cuts with no end, "Download anyway" on a short video) keeps the
+    normal one."""
+
+    def __init__(self, extended: bool, may_extend: bool, clock=time.monotonic):
+        self.clock, self.started = clock, clock()
+        self.base, self.long = MAX_WALL_SECONDS, MAX_WALL_SECONDS_LONG
+        self.extended = extended
+        self.ceiling = self.long if (extended or may_extend) else self.base
+
+    @property
+    def allowed(self) -> float:
+        return self.long if self.extended else self.base
+
+    def extend(self) -> None:
+        self.extended = True
+
+    def expired(self) -> bool:
+        return self.clock() - self.started > self.allowed
+
+
 def _free_floor() -> int:
     """Other running downloads are still writing to the same drive, so each
     one raises the amount that must stay free."""
@@ -358,9 +390,14 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
     """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
     wall-clock cap and a nearly full drive kill, then returns (path, title)."""
     options = options or {}
-    long_run = bool(options.get("allow_long") or options.get("exact_cuts"))
-    wall = MAX_WALL_SECONDS_LONG if long_run else MAX_WALL_SECONDS
-    spec = {"url": url, "audio_only": audio_only, **settings_service.get_cookie_settings()}
+    ranged = options.get("part_start") is not None or options.get("part_end") is not None
+    cookies = settings_service.get_cookie_settings()
+    if ranged and (cookies.get("cookies_browser") or cookies.get("cookies_file")):
+        raise RuntimeError(_PART_NO_COOKIES)
+    section = ranged and options.get("part_end") is not None
+    wall = _WallClock(extended=bool(options.get("exact_cuts") and section),
+                      may_extend=bool(options.get("allow_long")))
+    spec = {"url": url, "audio_only": audio_only, **cookies}
     if options.get("allow_long"):
         spec["max_seconds"] = ytdlp_child.HARD_MAX_DURATION_SECONDS
     for key in ("part_start", "part_end", "exact_cuts"):
@@ -368,31 +405,42 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
             spec[key] = options[key]
     watch = _SpaceWatch(tmp, floor=_free_floor)
     result, end = {}, {}
-    out_of_space = False
+    state = {"out_of_space": False, "too_slow": False}
+
+    def stop_now() -> bool:
+        # Polled by the process reader on a timer, not per progress event: a
+        # section is fetched by ffmpeg, which prints no progress yt-dlp can
+        # report, and it must still stop at the free-disk floor.
+        if background_jobs.is_cancel_requested(job_id):
+            return True
+        if wall.expired():
+            state["too_slow"] = True
+            return True
+        if watch.nearly_full():
+            state["out_of_space"] = True
+            return True
+        return False
     path_ignored_logged = False
-    events = ytdlp_child.run_download(
-        tmp, spec, wall, lambda: background_jobs.is_cancel_requested(job_id))
+    events = ytdlp_child.run_download(tmp, spec, wall.ceiling, stop_now)
     try:
         for item in events:
             event = item.get("event")
             if event is None:
                 end = item
             elif "estimate" in event:
+                if event.get("seconds", 0) > ytdlp_child.MAX_DURATION_SECONDS:
+                    wall.extend()
                 try:
                     free = shutil.disk_usage(tmp).free
                 except OSError:
                     free = None
-                if free is not None and free < event["estimate"] + _free_floor():
-                    out_of_space = True
-                    result["no_room"] = True
+                if event["estimate"] and free is not None and free < event["estimate"] + _free_floor():
+                    state["out_of_space"] = result["no_room"] = True
                     break
             elif "progress" in event:
                 background_jobs.update_progress(
                     job_id, 0.05 + 0.8 * min(max(float(event["progress"]), 0.0), 1.0),
                     "Downloading...")
-                if watch.nearly_full():
-                    out_of_space = True
-                    break
             elif "path" in event and "path" in result:
                 if not path_ignored_logged:
                     path_ignored_logged = True
@@ -401,12 +449,14 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
                 result.update(event)
     finally:
         events.close()  # kills the child tree if we stopped early
-    if end.get("cancelled") or background_jobs.is_cancel_requested(job_id):
+    if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
-    if out_of_space:
+    if state["out_of_space"]:
         raise RuntimeError(_NO_ROOM if result.get("no_room") else _DISK_NEARLY_FULL)
-    if end.get("timed_out"):
-        raise RuntimeError(_too_slow(wall))
+    if state["too_slow"] or end.get("timed_out"):
+        raise RuntimeError(_too_slow(wall.allowed))
+    if end.get("cancelled"):
+        raise background_jobs.JobCancelled(job_id)
     path = result.get("path")
     if not isinstance(path, str):
         detail = result.get("rejected")
@@ -625,6 +675,10 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
     url, _ = _check_request(drama_id, url, audio_only, confirm_replace_audio)
     if direct_media_ext(url) is not None and (ranged or exact_cuts):
         raise InvalidInputError("Choosing a part works for video-site links, not direct file links.")
+    if ranged:
+        cookies = settings_service.get_cookie_settings()
+        if cookies.get("cookies_browser") or cookies.get("cookies_file"):
+            raise InvalidInputError(_PART_NO_COOKIES)
     options = {"allow_long": allow_long, "part_start": start if ranged else None,
                "part_end": end, "exact_cuts": exact_cuts if ranged else None}
     with media_upload_service.claims_lock:

@@ -232,7 +232,7 @@ def _part(spec):
 
 def run_worker(spec: dict, emit) -> None:
     """Child side. Emits {"progress": f}, {"rejected": refusal_detail},
-    {"estimate": bytes}, {"title": t}, then {"path": p} or {"error": text}. The error text may hold the link or
+    {"estimate": bytes, "seconds": n}, {"title": t}, then {"path": p} or {"error": text}. The error text may hold the link or
     a path; the parent only pattern-matches it and never shows it."""
     import video_download
 
@@ -259,11 +259,12 @@ def run_worker(spec: dict, emit) -> None:
                     info, audio_only, detail["duration"]) or 0
             emit({"rejected": detail})
             return "Refused."
-        # The parent checks free disk against this before any byte is fetched.
+        # The parent checks free disk against the estimate before any byte is
+        # fetched, and lengthens its wall clock for a clip past the normal cap.
         if max_seconds > MAX_DURATION_SECONDS:
-            guess = estimate_bytes(info, audio_only, clip_seconds(info, part))
-            if guess:
-                emit({"estimate": guess})
+            seconds = clip_seconds(info, part)
+            emit({"estimate": estimate_bytes(info, audio_only, seconds) or 0,
+                  "seconds": int(seconds or 0)})
         return None
 
     try:
@@ -299,7 +300,7 @@ def main(argv=None) -> int:
 
 
 _EVENT_KEYS = frozenset({"progress", "path", "title", "error", "missing", "rejected", "live",
-                         "estimate"})
+                         "estimate", "seconds"})
 _REFUSAL_REASONS = frozenset({"playlist", "live", "upcoming", "too_long", "part_outside"})
 _REFUSAL_KEYS = frozenset({"reason", "duration", "limit", "estimated_bytes"})
 
@@ -320,7 +321,7 @@ def _valid_event(event) -> bool:
         return False
     if "live" in event and not isinstance(event["live"], dict):
         return False
-    if "estimate" in event and not _count(event["estimate"]):
+    if any(k in event and not _count(event[k]) for k in ("estimate", "seconds")):
         return False
     if "rejected" in event:
         detail = event["rejected"]
