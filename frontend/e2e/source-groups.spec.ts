@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mediaPanel, mediaTab } from './mediaTabs'
+import { nextFrames } from './sourceHelpers'
 import { openCreditsTab, openDetailsTab, openGroup } from './source-groups'
 
 // The Media stage's Add media tab leads with the workflow for the drama's media type, and
@@ -124,6 +125,11 @@ test('"Keep original files" in Media saves through the metadata update and expla
   })
   await stubNovel(page, false)
   await page.goto('/#/drama/2/source')
+  // The cards above fill in as their reads land (media status, novel text) and move everything below them;
+  // wait for the last of them so the click does not land on a row that has just shifted.
+  await expect(page.getByLabel('Audio or video file')).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Attach text' }).first()).toBeAttached()
+  await nextFrames(page)
   const block = page.getByTestId('keep-original')
   const toggle = block.getByRole('switch', { name: 'Keep original files' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
