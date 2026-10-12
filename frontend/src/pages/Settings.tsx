@@ -37,9 +37,10 @@ import { TranscriptionExperimentsCard } from './settings/TranscriptionExperiment
 import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
-import { filterSettings, SETTINGS_INDEX, SETTINGS_TABS, tabOfCard, type SettingsTab } from './settings/settingsIndex'
+import { filterSettings, SETTINGS_INDEX, SETTINGS_TABS, tabFoldKeys, tabOfCard, type SettingsTab } from './settings/settingsIndex'
 import { FoldControls, FoldSignalsProvider, SettingsCard, SettingsSearch, VisibleCardsProvider, type FoldSignals } from './settings/SettingsSearch'
 import { Tabs } from '../components/Tabs'
+import { seedPageTabFolds } from '../components/sectionStorage'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import './settings/settings.css'
 
@@ -60,6 +61,7 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
 }
 
 export default function SettingsPage() {
+  useState(() => seedPageTabFolds('settings', Object.fromEntries(SETTINGS_TABS.map((t) => [t.id, tabFoldKeys(t.id)]))))
   const [settings, setSettings] = useState<SettingsOverview | null>(null)
   const [schema, setSchema] = useState<SettingsSchemaRow[] | null>(null)
   const [error, setError] = useState<unknown>(null)

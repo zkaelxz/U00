@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { openFold } from './foldHelpers'
 import { mockDiskUsage } from './diskUsageMocks'
 import { installHitArea } from './hitArea'
 
@@ -22,6 +23,9 @@ async function noSideways(page: Page) {
 
 async function open(page: Page, tab: 'data' | 'storage' = 'data') {
   await page.goto(`/#/library-tools?tab=${tab}`)
+  if (tab === 'storage') {
+    await openFold(page, 'Trash')
+  }
   return page.getByRole('tabpanel')
 }
 

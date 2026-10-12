@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { CHOOSE_SNAPSHOT, OTHER_COPY, mockBackups } from './backupsMocks'
+import { openFold } from './foldHelpers'
 import { openSettingsGroups } from './settingsNav'
 
 // Automatic backups, desktop. The settings test runs against the
@@ -14,6 +15,7 @@ const card = (page: Page) => page.getByRole('region', { name: 'Automatic backups
 
 async function openAdmin(page: Page) {
   await page.goto('/#/library-tools?tab=backup')
+  await openFold(page, 'Automatic backup copies')
   return page.getByTestId('snapshot-block')
 }
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openFold } from './foldHelpers'
 
 // Library > Voice bank: a small Play on each entry whose clip exists (L19).
 // The list and the clip bytes are mocked; nothing is written.
@@ -40,7 +41,7 @@ test('voice bank: Play only where a clip exists; plays the entry clip; a refused
     return r.fulfill({ body: wav(), headers: { 'content-type': 'audio/wav', 'x-content-type-options': 'nosniff' } })
   })
   await page.goto('/#/library-tools')
-  await tools(page).locator('summary', { hasText: /^Voice bank/ }).click()
+  await openFold(page, 'Voice bank')
   const list = tools(page).locator('.deletable-list')
   await expect(list.locator('li', { hasText: 'Lost clip' }).getByRole('button', { name: /Play/ })).toHaveCount(0)
   expect(asked).toEqual([]) // nothing loads before a press

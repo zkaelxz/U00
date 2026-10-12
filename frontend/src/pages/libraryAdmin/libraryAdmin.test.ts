@@ -157,15 +157,19 @@ describe('SelectionBar', () => {
 
 describe('BackupTab', () => {
   it('remote: keeps the heading, says PC only, renders no buttons', () => {
-    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'remote', exportable: 3, exporter: idleJob() }))
+    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'remote' }))
     expect(out).toContain('Backup and restore')
     expect(out).toContain('Run this on the main PC.')
     expect(out).not.toContain('<button')
   })
 
-  it('on the PC: a card each for export, backup, just-my-stuff, restore and automatic copies', () => {
-    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'local', exportable: 3, exporter: idleJob() }))
-    for (const text of ['Backup and restore', 'Export all translated (3)', 'Back up library', 'Database only',
+  it('on the PC: Back up, then Restore, then Automatic copies, and no export', () => {
+    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'local' }))
+    const at = ['>Back up</span>', '>Restore</span>', '>Automatic backup copies</span>'].map((t) => out.indexOf(t))
+    expect(at.every((i) => i >= 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(out).not.toContain('Export all translated')
+    for (const text of ['Backup and restore', 'Back up library', 'Database only',
       'Backup of just my stuff', 'Items owned at this PC', 'Back up just these items',
       'Site sign-ins are never included.', 'accept=".zip"', 'Automatic backup copies']) {
       expect(out).toContain(text)

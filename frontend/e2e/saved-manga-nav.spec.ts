@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures'
 import { mockSavedComics, newState } from './savedMangaMocks'
 import { navLink, openMenu, openSettingsGroups } from './settingsNav'
+import { openFold } from './foldHelpers'
 
 // Saved manga has no left-menu item: the save folder card is in Settings and the
 // saved series are a Library tools section. Only /api/saved-comics/* is mocked;
@@ -33,7 +34,7 @@ test('Settings has the save folder card and Use this folder saves it', async ({ 
 test('Library tools lists saved chapters and #/manga still works', async ({ page }) => {
   await mockSavedComics(page, newState())
   await page.goto('/#/library-tools')
-  await page.locator('summary', { hasText: 'Saved manga' }).click()
+  await openFold(page, 'Saved manga')
   const section = page.getByRole('region', { name: 'Saved manga' })
   const list = section.getByRole('list', { name: 'Saved series' })
   await expect(list).toContainText('MangaK · 2 chapters')

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { openFold } from './foldHelpers'
 import { mockDiskUsage } from './diskUsageMocks'
 
 // Library tools > Storage and Data folder tabs, desktop. The API is mocked (nothing on disk is
@@ -11,16 +12,12 @@ const SHOTS = process.env.DISK_SHOTS_DIR
 async function openSection(page: Page, tab: 'data' | 'storage' = 'data') {
   await page.goto(`/#/library-tools?tab=${tab}`)
   const panel = page.getByRole('tabpanel')
-  // The longer Storage tab starts with only its most used cards open; the specs below use all of them.
+  // A tab starts with only its first card open; the specs below use all of them.
   if (tab === 'storage') {
     await expect(panel.getByTestId('storage-summary')).toBeVisible()
-    for (const name of ['Unused voice clips', 'Temp files']) {
-      const card = panel.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${name}$`) }) })
-      // The clips card is rendered only once its list has loaded, after the summary line is already
-      // there; checking before that skipped it, and it then appeared closed with its buttons hidden.
-      await expect(card).toHaveCount(1)
-      if ((await card.getAttribute('open')) === null) await card.locator(':scope > summary').click()
-      await expect(card).toHaveAttribute('open', '')
+    for (const name of ['Unused voice clips', 'Trash', 'Temp files']) {
+      // The clips card is rendered only once its list has loaded, after the summary line is already there.
+      await openFold(page, name)
     }
   }
   return panel
@@ -112,6 +109,7 @@ test('move to Trash is two steps, names the size, says nothing is freed, and the
   expect(mock.posts[0].body).toEqual({ path: 'library/tmp', confirm: true, expected_size_bytes: 2_400_000_000, expected_file_count: 80 })
   await expect(row(page, 'tmp')).toHaveCount(0)
   await page.getByRole('tab', { name: 'Storage' }).click()
+  await openFold(page, 'Trash')
   const trash = page.getByRole('tabpanel').getByRole('region', { name: 'Trash' })
   await expect(trash.getByTestId('trash-line')).toHaveText('Trash uses 2.4 GB; nothing is freed until you delete from it.')
   await expect(trash).toContainText('library/tmp')
@@ -361,6 +359,7 @@ test('the Trash list shows up while a slow scan is still running', async ({ page
   const sec = await openSection(page)
   await expect(sec.getByRole('status').filter({ hasText: 'Scanning' })).toBeVisible()
   await page.getByRole('tab', { name: 'Storage' }).click()
+  await openFold(page, 'Trash')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash).toContainText('library/tmp')
   await page.getByRole('tab', { name: 'Data folder' }).click()
@@ -506,6 +505,7 @@ test('unused voice clips on a phone: no sideways scroll, 44 px buttons', async (
 test('a previous library kept beside this one shows its size and is deleted after typing DELETE', async ({ page }) => {
   const mock = await mockDiskUsage(page, { previousLibraryBytes: 3_000_000_000 })
   const sec = await openSection(page, 'storage')
+  await openFold(page, 'Previous library')
   const kept = sec.getByRole('region', { name: 'Previous library' })
   await expect(kept).toContainText('Previous library kept after restore')
   await expect(kept).toContainText('12 files')

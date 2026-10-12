@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures'
 import { mockSavedComics, newState } from './savedMangaMocks'
 import { navLink, openMenu, openSettingsGroups } from './settingsNav'
+import { openFold } from './foldHelpers'
 
 // Phone project: the moved save folder card and Saved manga section fit, .
 
@@ -16,7 +17,7 @@ test('save folder card in Settings and Saved manga in Library tools fit a phone'
   await expect(card.getByLabel('Save to another folder', { exact: true })).toBeVisible()
 
   await page.goto('/#/library-tools')
-  await page.locator('summary', { hasText: 'Saved manga' }).click()
+  await openFold(page, 'Saved manga')
   await expect(page.getByRole('list', { name: 'Saved series' })).toBeVisible()
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,

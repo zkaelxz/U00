@@ -14,7 +14,8 @@
  *   storageKey   remember open/closed per viewer under localStorage
  *                "baihe.section.<storageKey>"; omit to not remember
  *   openSignal   optional number; each time it changes the section opens (lets a
- *                button elsewhere reveal it), without taking control of the state
+ *                button elsewhere reveal it), without taking control of the state.
+ *                A value above 0 at mount opens it too.
  *   expandSignal / closeSignal
  *                optional numbers for "Expand all" / "Collapse all" buttons: each time one changes
  *                the section opens / closes, and unlike openSignal the new state is remembered
@@ -60,8 +61,10 @@ type SectionProps = {
 }
 
 export function Section({ title, summary, count, defaultOpen = false, storageKey, onToggle, openSignal, expandSignal, closeSignal, group, children }: SectionProps) {
+  // A signal already raised when the section mounts (a deep link to a card that renders once its data
+  // loads) still opens it; the section would otherwise miss the change.
   const [open, setOpen] = useState(() =>
-    storageKey ? readSectionOpen(browserStorage(), storageKey, defaultOpen) : defaultOpen,
+    (openSignal ?? 0) > 0 || (storageKey ? readSectionOpen(browserStorage(), storageKey, defaultOpen) : defaultOpen),
   )
 
   const id = useId()

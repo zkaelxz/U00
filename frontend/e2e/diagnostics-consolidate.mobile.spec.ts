@@ -26,6 +26,7 @@ test('Setup with models, speaker detection and a task fit a phone with 44px targ
   const fold = (title: RegExp) => page.locator('details.section', { has: page.locator('> summary', { hasText: title }) }).first()
   await expect(fold(/^Setup/)).toHaveJSProperty('open', true) // a problem
   await openDiagTab(page, 'Models')
+  await openSection(page, /^Models/)
   await expect(fold(/^Models/).getByRole('list', { name: 'Whisper (faster-whisper) downloads' })).toBeVisible()
   await openDiagTab(page, 'Packages and installs')
   await openSection(page, /^Speaker detection/)

@@ -61,7 +61,7 @@ export function BrowserInstall({ pc, jobsActive, busy, onStarted, onFinished, op
   }
 
   return (
-    <Section title="Browser support" storageKey="diagnostics.browser" summary={line ?? 'No browser found'} defaultOpen openSignal={openSignal}>
+    <Section title="Browser support" storageKey="diagnostics.browser" summary={line ?? 'No browser found'} openSignal={openSignal}>
     <div className="diag-subcard browser-install" data-testid="browser-install" role="group" aria-label="Browser support">
       <p className="muted">{BROWSER_INTRO}</p>
       {line && <p className="muted" data-testid="browser-status">{line}</p>}

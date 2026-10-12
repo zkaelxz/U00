@@ -50,7 +50,7 @@ export function DenoInstall({ pc, jobsActive, busy, onStarted, onFinished, openS
   }
 
   return (
-    <Section title="JavaScript runtime" storageKey="diagnostics.deno" summary={result?.text ?? 'Not found'} defaultOpen openSignal={openSignal}>
+    <Section title="JavaScript runtime" storageKey="diagnostics.deno" summary={result?.text ?? 'Not found'} openSignal={openSignal}>
     <div className="diag-subcard deno-install" data-testid="deno-install" role="group" aria-label="JavaScript runtime">
       <p className="muted">{denoIntro(status.install_method)}</p>
       {running && status.job && (

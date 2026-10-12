@@ -7,6 +7,7 @@ import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RemoteHealthLine } from '../components/RemoteHealthBanner'
 import { Tabs } from '../components/Tabs'
+import { seedPageTabFolds } from '../components/sectionStorage'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useHolds } from '../hooks/useHolds'
 import { useJobs } from '../hooks/useJobs'
@@ -29,7 +30,7 @@ import { RealModelCheck } from './diagnostics/RealModelCheck'
 import { SetupSection } from './diagnostics/SetupSection'
 import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import {
-  CARD_TAB, DIAGNOSTICS_TABS, cardAnchorId, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab,
+  CARD_TAB, DIAGNOSTICS_TABS, TAB_FOLD_KEYS, cardAnchorId, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab,
 } from './diagnostics/diagnosticsTabs'
 import './diagnostics/diagnostics.css'
 import { isActive, splitDependencies } from './diagnosticsFormat'
@@ -39,6 +40,7 @@ const POLL_MS = 3000
 // The gate sits outside the page so a member's browser never fires the
 // diagnostics calls the server would refuse.
 export default function DiagnosticsPage() {
+  useState(() => seedPageTabFolds('diagnostics', TAB_FOLD_KEYS))
   if (!useHolds('admin.diagnostics')) {
     return (
       <PageShell width="standard" title="Diagnostics" label="Diagnostics" className="diag-page">

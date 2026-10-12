@@ -23,15 +23,15 @@ test('six tabs, the choice survives a reload, and arrow keys move between them',
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toBeVisible()
 })
 
-test('a short tab starts with its cards open, a long one with only the most used open', async ({ page }) => {
+test('every tab starts with only its first card open', async ({ page }) => {
   await page.goto('/#/settings')
   await tab(page, 'Integrations').click()
-  for (const name of ['Jellyfin', 'Web search', 'Browser extension']) expect(await isOpen(page, name)).toBe(true)
+  expect(await isOpen(page, 'Jellyfin')).toBe(true)
+  for (const name of ['Web search', 'Browser extension']) expect(await isOpen(page, name)).toBe(false)
 
   await tab(page, 'Costs').click()
   expect(await isOpen(page, 'Spending')).toBe(true)
-  expect(await isOpen(page, 'Spend history')).toBe(true)
-  expect(await isOpen(page, 'Past costs')).toBe(false)
+  for (const name of ['Spend history', 'Past costs']) expect(await isOpen(page, name)).toBe(false)
 
   await tab(page, 'System').click()
   expect(await isOpen(page, 'Jobs and GPU')).toBe(true)

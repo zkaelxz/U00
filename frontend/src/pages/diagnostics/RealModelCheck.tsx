@@ -33,7 +33,7 @@ export function RealModelCheckResults({ checks }: { checks: RealModelCheckResult
 export function RealModelCheck({ pc, jobsActive, openSignal }: { pc: PcMode; jobsActive: boolean; openSignal?: number }) {
   if (pc === 'remote') {
     return (
-      <Section title="Test my models" storageKey="diagnostics.realModel" summary={PC_ONLY_SUMMARY} defaultOpen openSignal={openSignal}>
+      <Section title="Test my models" storageKey="diagnostics.realModel" summary={PC_ONLY_SUMMARY} openSignal={openSignal}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
@@ -60,7 +60,7 @@ function RealModelCheckBody({ local, jobsActive, openSignal }: { local: boolean;
   const checks = status?.checks ?? []
   const blocked = running || starting || jobsActive
   return (
-    <Section title="Test my models" storageKey="diagnostics.realModel" defaultOpen openSignal={openSignal}>
+    <Section title="Test my models" storageKey="diagnostics.realModel" openSignal={openSignal}>
       <div className="diag-stack" data-testid="real-model-check">
         <p className="muted">
           Runs a short transcription, an OCR read and one Ollama translation with the models you have installed.
