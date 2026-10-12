@@ -761,18 +761,71 @@ begin
     Result := Format('%d MB', [Bytes div 1048576]);
 end;
 
+function AnyFolderMatches(const Dir, Pattern: String): Boolean;
+var
+  Rec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(AddBackslash(Dir) + Pattern, Rec) then
+  try
+    repeat
+      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+        Result := True;
+    until Result or not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
+end;
+
+// Size of the folders directly in Dir whose names match Pattern; a junction
+// or symlink counts as zero because it is never followed.
+function MatchingFoldersBytes(const Dir, Pattern: String): Int64;
+var
+  Rec: TFindRec;
+begin
+  Result := 0;
+  if FindFirst(AddBackslash(Dir) + Pattern, Rec) then
+  try
+    repeat
+      if ((Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and ((Rec.Attributes and $400) = 0) then
+        Result := Result + FolderBytes(AddBackslash(Dir) + Rec.Name);
+    until not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
+end;
+
+function HasRestoreCopies(): Boolean;
+begin
+  Result := AnyFolderMatches(UninstDataDir, 'library.pre_restore_*') or
+    AnyFolderMatches(UninstDataDir, '.restore_staging_*') or
+    FileExists(UninstDataDir + '\library.restore-lock');
+end;
+
 // Deleting the library takes its backups with it (they are inside it by
 // default), so a ticked box alone is not enough: the exact word, in capitals,
 // must be typed. Anything else, including Cancel, keeps it.
 function ConfirmLibraryDelete(): Boolean;
 var
-  Typed: String;
+  Typed, Copies: String;
+  Total: Int64;
 begin
   Typed := '';
+  Copies := '';
+  Total := FolderBytes(UninstDataDir + '\library');
+  // Only named when the library exists: the copies are deleted with it, and
+  // without it they may be the only good copy (see DeleteLibraryNeighbours).
+  if DirExists(UninstDataDir + '\library') and HasRestoreCopies() then
+  begin
+    Total := Total + MatchingFoldersBytes(UninstDataDir, 'library.pre_restore_*') +
+      MatchingFoldersBytes(UninstDataDir, '.restore_staging_*');
+    Copies := #13#10#13#10 + 'It also deletes the copies a library restore left beside it ' +
+      '(library.pre_restore_*, .restore_staging_*, library.restore-lock). Together: ' + SizeText(Total) + '.';
+  end;
   Result := InputQuery('Delete your library?',
     'Your library (' + UninstDataDir + '\library) is ' + SizeText(FolderBytes(UninstDataDir + '\library')) +
     '. It holds your projects, translations, audio and video, and your backups too - ' +
-    'backups are inside it by default. This can''t be undone.' + #13#10#13#10 +
+    'backups are inside it by default. This can''t be undone.' + Copies + #13#10#13#10 +
     'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed) and
     (CompareStr(Typed, 'DELETE') = 0);
 end;
@@ -906,10 +959,92 @@ begin
     AddLine(Left, Name + ' (' + Path + ', ' + SizeText(FolderBytes(Path)) + ') - shared with other programs, never deleted here');
 end;
 
+// Deletes the folders directly in Dir whose names match Pattern. A junction
+// or symlink is removed as a link only: recursing into it could leave Dir and
+// delete what it points to. Returns how many.
+function DeleteMatchingFolders(const Dir, Pattern: String): Integer;
+var
+  Rec: TFindRec;
+  Path: String;
+begin
+  Result := 0;
+  if FindFirst(AddBackslash(Dir) + Pattern, Rec) then
+  try
+    repeat
+      Path := AddBackslash(Dir) + Rec.Name;
+      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+      begin
+        if (Rec.Attributes and $400) <> 0 then // FILE_ATTRIBUTE_REPARSE_POINT
+        begin
+          if RemoveDir(Path) then
+            Result := Result + 1;
+        end
+        else if DelTree(Path, True, True, True) then
+          Result := Result + 1;
+      end;
+    until not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
+end;
+
+// What a library restore leaves beside the library: its lock file, the
+// previous library and an unfinished staging folder (db/library_folder.py,
+// services/library_restore_service.py). Called only when the library is being
+// deleted, and does nothing unless it is gone: until then a pre_restore
+// folder may be the only good copy of it.
+procedure DeleteLibraryNeighbours(var Removed, Left: String);
+var
+  Count: Integer;
+begin
+  if DirExists(UninstDataDir + '\library') then
+    Exit;
+  if FileExists(UninstDataDir + '\library.restore-lock') then
+  begin
+    if DeleteFile(UninstDataDir + '\library.restore-lock') then
+      AddLine(Removed, 'the library restore lock (library.restore-lock)')
+    else
+      AddLine(Left, 'library.restore-lock - couldn''t be deleted; remove it by hand');
+  end;
+  Count := DeleteMatchingFolders(UninstDataDir, 'library.pre_restore_*') +
+    DeleteMatchingFolders(UninstDataDir, '.restore_staging_*');
+  if Count > 0 then
+    AddLine(Removed, IntToStr(Count) + ' folder(s) a library restore left beside it (library.pre_restore_*, .restore_staging_*)');
+  // Not deleted: a copy kept before a Reset library (library.pre_reset_*) is
+  // outside what the owner asked this to remove; NoteKeptData reports it.
+end;
+
+// What is still in the data folder once the steps above have run, by name
+// and size only. No file is opened, so the settings file's keys are never
+// shown.
+procedure NoteKeptData(var Left: String);
+begin
+  if DirExists(UninstDataDir + '\library') then
+    AddLine(Left, 'your library (' + UninstDataDir + '\library, ' +
+      SizeText(FolderBytes(UninstDataDir + '\library')) + ')');
+  if FileExists(UninstDataDir + '\.env') then
+    AddLine(Left, 'your settings and API keys (.env) in ' + UninstDataDir + ' (contents are never shown)');
+  if DirExists(UninstDataDir + '\model_cache') then
+    AddLine(Left, 'downloaded AI models (' + UninstDataDir + '\model_cache, ' +
+      SizeText(FolderBytes(UninstDataDir + '\model_cache')) + ')');
+  if FileExists(UninstDataDir + '\vtuber_names.json') then
+    AddLine(Left, 'vtuber_names.json - couldn''t be deleted; remove it by hand');
+  if HasRestoreCopies() then
+  begin
+    if DirExists(UninstDataDir + '\library') then
+      AddLine(Left, 'library copies a restore left beside it (library.pre_restore_*, .restore_staging_*, library.restore-lock); they go when you delete the library')
+    else
+      AddLine(Left, 'library copies a restore left beside it (library.pre_restore_*, .restore_staging_*, library.restore-lock) and no library folder: one of them may hold your real library, so none was deleted');
+  end;
+  if AnyFolderMatches(UninstDataDir, 'library.pre_reset_*') then
+    AddLine(Left, 'a copy of the library kept before a reset (library.pre_reset_*); delete it by hand if you no longer need it');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Removed, Left, Summary: String;
   Temps: Integer;
+  LibraryExisted: Boolean;
 begin
   if CurUninstallStep <> usPostUninstall then
     Exit;
@@ -938,11 +1073,18 @@ begin
     begin
       // Only these named items, never the folder's other contents: the
       // folder may be one the user picked and shares with other files.
+      LibraryExisted := DirExists(UninstDataDir + '\library');
       if DeleteLibrary then
       begin
         DeleteTree(UninstDataDir + '\library', 'your library (projects, backups, logs, caches, browser profiles)', Removed, Left);
         // Items cleared from the library wait here until deleted from Trash.
         DeleteTree(UninstDataDir + '\baihe_trash', 'items you moved to Trash', Removed, Left);
+      end;
+      // Only when a library existed and is now gone: with none, a
+      // library.pre_restore_* folder may hold the real library.
+      if DeleteLibrary and LibraryExisted then
+      begin
+        DeleteLibraryNeighbours(Removed, Left);
       end;
       if DeleteSettings and FileExists(UninstDataDir + '\.env') then
         if DeleteFile(UninstDataDir + '\.env') then
@@ -951,6 +1093,13 @@ begin
           AddLine(Left, 'your settings and API keys (.env) - couldn''t be deleted; remove it by hand');
       if DeleteModels then
         DeleteTree(UninstDataDir + '\model_cache', 'downloaded AI models', Removed, Left);
+      // Baihe's downloaded VTuber name list and its half-written download:
+      // these two names only, never a *.part pattern, on every uninstall. The
+      // folder may be one the user picked and shares with other files.
+      if FileExists(UninstDataDir + '\vtuber_names.json') then
+        if not DeleteFile(UninstDataDir + '\vtuber_names.json') then
+          AddLine(Left, 'vtuber_names.json - couldn''t be deleted; remove it by hand');
+      DeleteFile(UninstDataDir + '\vtuber_names.json.part');
       // The launcher's own files (not user data), by name, then its folder
       // only if that leaves it empty.
       DeleteFile(UninstDataDir + '\launcher\server.pid');
@@ -966,12 +1115,17 @@ begin
     end;
   end;
 
-  if not CleanAll then
-    Exit;
+  if (UninstDataDir <> '') and DirExists(UninstDataDir) then
+    NoteKeptData(Left);
 
-  Temps := DeleteOwnTempItems();
-  if Temps > 0 then
-    AddLine(Removed, IntToStr(Temps) + ' of Baihe Studio''s temporary items in %TEMP% (baihe_*)');
+  if CleanAll then
+  begin
+    Temps := DeleteOwnTempItems();
+    if Temps > 0 then
+      AddLine(Removed, IntToStr(Temps) + ' of Baihe Studio''s temporary items in %TEMP% (baihe_*)');
+  end
+  else
+    AddLine(Left, 'Baihe Studio''s temporary items in %TEMP% (baihe_*), deleted only by a clean uninstall');
   AddLine(Removed, 'the Start menu and desktop shortcuts, and the Apps entry');
   NoteShared(ExpandConstant('{localappdata}\ms-playwright'), 'Playwright browsers', Left);
   NoteShared(ExpandConstant('{localappdata}\pip\cache'), 'pip''s download cache', Left);
@@ -979,13 +1133,18 @@ begin
   NoteShared(EnvOrDefault('TORCH_HOME', ExpandConstant('{%USERPROFILE}\.cache\torch')), 'PyTorch''s cache', Left);
   NoteShared(EnvOrDefault('OLLAMA_MODELS', ExpandConstant('{%USERPROFILE}\.ollama\models')), 'Ollama models', Left);
   NoteShared(ExpandConstant('{%USERPROFILE}\.deno'), 'Deno (the JavaScript runtime Diagnostics can install)', Left);
+  AddLine(Left, 'Ollama itself, if you use it (Baihe Studio never installed it)');
   AddLine(Left, 'Python, Git, ffmpeg and Node.js, if you installed them with winget (remove them in Settings > Apps)');
   AddLine(Left, 'temporary files other programs could also have made (%TEMP%\tmp*)');
   AddLine(Left, 'automatic backups you pointed at a folder outside the data folder, if any');
 
-  Summary := 'Clean uninstall finished.' + #13#10#13#10 + 'Removed:' + Removed;
+  if CleanAll then
+    Summary := 'Clean uninstall finished.'
+  else
+    Summary := 'Uninstall finished.';
+  Summary := Summary + #13#10#13#10 + 'Removed:' + Removed;
   if Left <> '' then
-    Summary := Summary + #13#10#13#10 + 'Left in place:' + Left;
+    Summary := Summary + #13#10#13#10 + 'Left on this PC:' + Left;
   Log(Summary);
   if not UninstallSilent() then
     MsgBox(Summary, mbInformation, MB_OK);

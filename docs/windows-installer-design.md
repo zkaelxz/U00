@@ -354,7 +354,16 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
    `{app}` itself is removed if it is empty.
 4. Only the ticked items are deleted, by name (`<data>\library`, `<data>\.env`,
    `<data>\model_cache`, `<data>\baihe_trash`). The data folder's other contents are never touched,
-   since it may be a folder the user picked and shares with other files. The
+   since it may be a folder the user picked and shares with other files. Two files are removed by
+   name on every uninstall: `vtuber_names.json` (the downloaded VTuber list) and
+   `vtuber_names.json.part`; no `*.part` pattern is ever deleted there. When the library is
+   deleted and a library existed beforehand, what a restore leaves beside it goes too:
+   `library.restore-lock`, `library.pre_restore_*` and `.restore_staging_*` (a junction is removed
+   as a link, never followed), and the typed-DELETE prompt names them and counts their size.
+   With no library folder those copies are never deleted: one may hold the real library. A
+   `library.pre_reset_*` copy is kept. Every interactive uninstall ends with a "Left on this PC"
+   box (library, settings by name, models, shared caches, Ollama, winget programs); a silent one
+   only logs it. The
    launcher's own files (`launcher\server.pid`, `shutdown.token`, `starting.lock`,
    `server.log`, `install.log`) are always removed by name, then `launcher\` if it is empty.
    The data folder itself is removed only if it is then empty.
