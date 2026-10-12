@@ -42,10 +42,6 @@ SLICE_STRIPS_DEFAULT = True
 
 JOB_PREFIX = "scanlate_"
 DETECT_BACKENDS = ("auto", "cv", "ml")
-# paddleocr 3.x doesn't pull in the paddlepaddle wheel (module `paddle`), so
-# "paddleocr importable" alone would report a backend that fails on first use.
-_OCR_MODULES = {"manga_ocr": ("manga_ocr",), "paddle": ("paddleocr", "paddle"),
-                "paddle_vl_manga": ("transformers",), "tesseract": ("pytesseract",)}
 _CHUNK = 1024 * 1024
 MAX_NOTES = 20
 _MAX_NOTE_CHARS = 500
@@ -162,14 +158,9 @@ def require_page(drama_id: int, page_id: int) -> dict:
     return page
 
 
-def ocr_backend_installed(backend: str) -> bool:
-    modules = _OCR_MODULES.get(backend)
-    if not (modules and all(importlib.util.find_spec(m) is not None for m in modules)):
-        return False
-    if backend == "paddle_vl_manga":
-        import ocr
-        return ocr.paddle_vl_manga_problem() is None
-    return True
+def ocr_backend_installed(backend: str, tesseract_cmd: str = None) -> bool:
+    import ocr
+    return ocr.backend_problem(backend, tesseract_cmd) is None
 
 
 def _weights_cached():
@@ -205,7 +196,8 @@ def get_config(drama_id: int) -> dict:
         "ml_weights_cached": ml_cached,
         "lama_weights_cached": lama_cached,
         "ocr_backend": ocr_backend,
-        "ocr_backend_installed": ocr_backend_installed(ocr_backend),
+        "ocr_backend_installed": ocr_backend_installed(
+            ocr_backend, settings_service.get("tesseract_cmd") or None),
         "page_count": len(pages),
         "pages_with_regions": sum(1 for p in pages if p["id"] in with_regions),
         "pages_rendered": sum(1 for p in pages if p.get("rendered_filename")),
@@ -216,7 +208,7 @@ def get_config(drama_id: int) -> dict:
 
 
 def upload_limits() -> dict:
-    return {"image_types": ["png", "jpg", "jpeg", "webp"], "pdf": True,
+    return {"image_types": ["png", "jpg", "jpeg", "webp"], "pdf": importlib.util.find_spec("pypdf") is not None,
             "max_image_mb": limits.MAX_IMAGE_BYTES // (1024 * 1024),
             "max_image_megapixels": limits.MAX_IMAGE_PIXELS // 1_000_000,
             "max_pdf_mb": limits.MAX_PDF_BYTES // (1024 * 1024),

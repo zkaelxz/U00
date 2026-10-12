@@ -13,7 +13,12 @@ Backends:
     Tesseract on stylized fonts and bubble layouts, Japanese only.
 """
 
+import importlib.util
+import shutil
 import threading
+from typing import NamedTuple, Optional
+
+from lib import proc
 
 # Tesseract language codes per source language. "zh" defaults to
 # Simplified -- see resolve_tesseract_lang() for the Traditional variant.
@@ -173,6 +178,69 @@ _PADDLE_VL_PROCESSOR_REPO = "PaddlePaddle/PaddleOCR-VL"
 _PADDLE_VL_MIN_TRANSFORMERS_MAJOR = 5
 _PADDLE_VL_OLD_TRANSFORMERS = (
     "PaddleOCR-VL-For-Manga needs transformers 5 or newer. Update transformers in Diagnostics.")
+
+
+# Backend -> (import name, pip name) pairs it needs. paddleocr 3.x doesn't pull
+# in the paddlepaddle wheel (module `paddle`), so "paddleocr importable" alone
+# would report a backend that fails on first use.
+_BACKEND_PACKAGES = {
+    "manga_ocr": (("manga_ocr", "manga-ocr"),),
+    "paddle": (("paddleocr", "paddleocr"), ("paddle", "paddlepaddle")),
+    "paddle_vl_manga": (("transformers", "transformers"),),
+    "tesseract": (("pytesseract", "pytesseract"),),
+}
+_TESSERACT_PROBE_SECONDS = 10
+
+
+class BackendProblem(NamedTuple):
+    """`package` is the pip name (or "tesseract" for the program); `message`
+    is fixed text with no path in it."""
+    package: str
+    message: str
+
+
+def backend_problem(backend: str, tesseract_cmd: str = None,
+                    probe: bool = False) -> Optional[BackendProblem]:
+    """Why `backend` can't run here, or None. pytesseract is only the pip
+    wrapper, so Tesseract also needs its program (the saved path or PATH);
+    `probe` runs `--version` on it to catch a file that is not Tesseract."""
+    for module, package in _BACKEND_PACKAGES.get(backend, ()):
+        if importlib.util.find_spec(module) is None:
+            return BackendProblem(
+                package, f"The {backend} OCR backend needs {package}. Install it in Diagnostics.")
+    if backend == "paddle_vl_manga":
+        message = paddle_vl_manga_problem()
+        return BackendProblem("transformers", message) if message else None
+    if backend == "tesseract":
+        return _tesseract_program_problem(tesseract_cmd, probe)
+    return None
+
+
+def _tesseract_program_problem(tesseract_cmd: str, probe: bool) -> Optional[BackendProblem]:
+    missing = BackendProblem(
+        "tesseract", "The tesseract program was not found. Install it, or set where it is "
+                     "under Settings > Program locations.")
+    program = shutil.which(tesseract_cmd or "tesseract")
+    if not program:
+        return missing
+    if probe:
+        try:
+            run = proc.run_captured([program, "--version"], timeout=_TESSERACT_PROBE_SECONDS)
+        except OSError:
+            return missing
+        if run.timed_out or run.returncode != 0:
+            return missing
+    return None
+
+
+def require_backend(backend: str, tesseract_cmd: str = None) -> None:
+    """Raises the readable 503 for a backend that can't run, naming the
+    package in the message and in `details` before any work starts."""
+    problem = backend_problem(backend, tesseract_cmd, probe=True)
+    if problem:
+        from lib.errors import DependencyUnavailableError
+        raise DependencyUnavailableError(
+            problem.message, details={"reason": "missing_package", "package": problem.package})
 
 
 def paddle_vl_manga_problem():

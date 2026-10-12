@@ -50,7 +50,8 @@ export function checkFiles(files: { name: string; size: number }[], limits: Scan
   for (const f of files) {
     total += f.size
     const pdf = PDF_EXT.test(f.name)
-    if (!pdf && !IMAGE_EXT.test(f.name)) return `${f.name}: use PNG, JPEG, WebP or PDF.`
+    if (!pdf && !IMAGE_EXT.test(f.name)) return `${f.name}: use PNG, JPEG, WebP${limits.pdf ? ' or PDF' : ''}.`
+    if (pdf && !limits.pdf) return `${f.name}: PDF import needs the pypdf package. Install it in Diagnostics, or upload images.`
     if (f.size === 0) return `${f.name} is empty.`
     const cap = pdf ? limits.max_pdf_mb : limits.max_image_mb
     if (f.size > cap * MB) return `${f.name} is over ${cap} MB.`

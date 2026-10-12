@@ -419,12 +419,29 @@ def get_preferences() -> dict:
     return {key: get(key) for key in _preference_keys()}
 
 
+def _ocr_backend_status() -> dict:
+    """Per concrete backend: can it run here, and if not why and which package
+    fixes it. "auto" always resolves to one of these, so it has no row."""
+    import ocr
+    cmd = get("tesseract_cmd") or None
+    status = {}
+    for backend in _ocr_choices():
+        if backend == "auto":
+            continue
+        problem = ocr.backend_problem(backend, cmd)
+        status[backend] = {"installed": problem is None,
+                           "reason": problem.message if problem else None,
+                           "package": problem.package if problem else None}
+    return status
+
+
 def preference_choices() -> dict:
     return {
         "engines": list(_engine_choices()),
         "locales": list(LOCALE_CHOICES),
         "summary_engines": list(SUMMARY_ENGINE_CHOICES),
         "ocr_backends": list(_ocr_choices()),
+        "ocr_backend_status": _ocr_backend_status(),
         "cookie_browsers": list(_cookie_browser_choices()),
     }
 

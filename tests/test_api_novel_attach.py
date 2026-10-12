@@ -23,7 +23,11 @@ from services import novel_attach_service as svc
 
 @pytest.fixture
 def client(isolated_db, monkeypatch):
-    monkeypatch.setattr(svc.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(ocr.importlib.util, "find_spec", lambda name: object())
+    # The Tesseract program, not only pytesseract, must be there to start.
+    monkeypatch.setattr(ocr.shutil, "which", lambda cmd: "/usr/bin/tesseract")
+    monkeypatch.setattr(ocr.proc, "run_captured",
+                        lambda cmd, timeout, **kw: ocr.proc.CapturedRun(0, "tesseract 5", "", False, False))
     # X-Baihe-Local: what the React upload helper sends; local_only refuses
     # a multipart POST without it (api/auth.py _cross_site_safe)
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
@@ -205,9 +209,9 @@ def test_ocr_chapter_errors(client, monkeypatch):
     assert client.post("/api/novel/dramas/999/ocr-chapter", files=png).status_code == 404
     assert client.post(url, files=[("files", ("a.gif", b"x"))]).status_code == 422
     assert client.post(url, files=png, data={"backend": "manga_ocr"}).status_code == 422
-    monkeypatch.setattr(svc.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(ocr.importlib.util, "find_spec", lambda name: None)
     assert client.post(url, files=png).status_code == 503
-    monkeypatch.setattr(svc.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(ocr.importlib.util, "find_spec", lambda name: object())
     monkeypatch.setattr(svc.drama_service, "job_running_for_drama", lambda d: True)
     assert client.post(url, files=png).status_code == 409
     import db
@@ -253,3 +257,21 @@ def test_attach_text_over_the_limit_names_the_limit(client):
     r = client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "a" * 2_000_001})
     assert r.status_code == 422
     assert "2,000,000" in r.json()["error"]["message"]
+
+
+def test_ocr_chapter_refuses_paddle_without_paddlepaddle(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(ocr.importlib.util, "find_spec",
+                        lambda name: object() if name == "paddleocr" else None)
+    r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"x"))],
+                    data={"backend": "paddle"})
+    assert r.status_code == 503, r.text
+    assert "paddlepaddle" in r.text
+
+
+def test_ocr_chapter_refuses_tesseract_without_its_program(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(ocr.shutil, "which", lambda cmd: None)
+    r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"x"))])
+    assert r.status_code == 503, r.text
+    assert "tesseract program" in r.text

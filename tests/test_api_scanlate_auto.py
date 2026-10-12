@@ -26,6 +26,7 @@ from PIL import Image
 
 import background_jobs
 import db
+import ocr
 import scanlate
 import translate_engines
 from api import auth as api_auth
@@ -38,10 +39,14 @@ from services import scanlate_run_service as run_svc
 from services.service_errors import ConflictError, InvalidInputError
 
 LOCAL = {"X-Baihe-Local": "1"}
+_REAL_REQUIRE_BACKEND = ocr.require_backend
 
 
 @pytest.fixture
-def client(isolated_db):
+def client(isolated_db, monkeypatch):
+    # Dependency refusals have their own tests (test_scanlate_ocr_deps.py);
+    # here the OCR backend is a fake that can always run.
+    monkeypatch.setattr(ocr, "require_backend", lambda backend, cmd=None: None)
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
@@ -381,7 +386,8 @@ def _run(client, did, **body):
 
 
 def test_run_refused_when_paddle_vl_manga_needs_newer_transformers(client, fake_detect, monkeypatch):
-    import ocr
+    monkeypatch.setattr(ocr, "require_backend", _REAL_REQUIRE_BACKEND)
+    monkeypatch.setattr(ocr.importlib.util, "find_spec", lambda name: object())
     did = _drama()
     _page(did, 0)
     monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend",
@@ -701,6 +707,7 @@ def test_run_refusals(client, monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: None)
     assert _run(client, did, engine="claude").status_code == 503
     monkeypatch.undo()
+    monkeypatch.setattr(ocr, "require_backend", lambda backend, cmd=None: None)
     db.save_bubbles(db.list_pages(did)[0]["id"], [_region(1, translated_text="x")])
     _put_job(f"scanlate_{did}")
     assert _run(client, did, engine="fake").status_code == 409

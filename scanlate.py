@@ -941,6 +941,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         return [], notes
 
     bubbles = []
+    ocr_failed = 0
     for region in analyze_page_regions(image_path, boxes, source_language, page_id=page_id,
                                        image=page):
         b = region.to_bubble()
@@ -954,6 +955,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
             raise  # blank text would hide the refusal
         except Exception:
             b["source_text"] = ""
+            ocr_failed += 1
         b["language"] = detect_script_language(b["source_text"], b["language"])
         # Classical-CV style guess (see sample_text_style()), reviewable
         # per bubble before render.
@@ -963,6 +965,11 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b["irregular"] = style.get("irregular")
         b.update(translated_text="", font_size=18, skip=False, include_sfx=False)
         bubbles.append(b)
+    if ocr_failed:
+        # Fixed text: the exception may carry a model path, and the caller
+        # needs "OCR broke" kept apart from "the bubble holds no text".
+        notes.append(("error", f"OCR failed on {ocr_failed} of {len(bubbles)} regions. Check "
+                               "that the OCR backend is installed (Diagnostics)."))
     return bubbles, notes
 
 

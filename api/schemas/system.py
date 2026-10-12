@@ -102,6 +102,7 @@ __all__ = [
     "NotificationChannelClearRequest",
     "NotificationChannelResult",
     "NotificationTestResult",
+    "OcrBackendStatus",
     "BugReportRouteVisit",
     "BugReportConsoleEntry",
     "BugReportErrorEntry",
@@ -328,11 +329,18 @@ class SettingsPreferences(TimingPreferences):
     lncrawl_cmd_configured: bool = False
 
 
+class OcrBackendStatus(BaseModel):
+    installed: bool
+    reason: Optional[str] = None
+    package: Optional[str] = None
+
+
 class SettingsChoices(BaseModel):
     engines: List[str]
     locales: List[str]
     summary_engines: List[str]
     ocr_backends: List[str]
+    ocr_backend_status: Dict[str, OcrBackendStatus] = {}
     cookie_browsers: List[str]
 
 

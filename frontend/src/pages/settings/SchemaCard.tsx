@@ -43,6 +43,8 @@ export type SchemaCardProps = {
   // A row the environment decides: shown as this text, not editable.
   locked?: Record<string, string>
   helpOverride?: Record<string, string>
+  // Row key -> choice value -> why it can't be picked. The saved value stays selectable so the row still shows it.
+  choiceReasons?: Record<string, Record<string, string>>
   placeholderOverride?: Record<string, string>
 }
 
@@ -218,9 +220,14 @@ function SchemaField({ row, props, value, onChange }: { row: SettingsSchemaRow; 
     control = (
       <select value={text} title={help || undefined} onChange={(e) => onChange(e.target.value)}>
         {row.default == null && <option value="">None</option>}
-        {(row.choices ?? []).map((c) => (
-          <option key={c.value} value={c.value}>{choiceLabel(row, c.value)}</option>
-        ))}
+        {(row.choices ?? []).map((c) => {
+          const why = c.value === text ? undefined : props.choiceReasons?.[row.key]?.[c.value]
+          return (
+            <option key={c.value} value={c.value} disabled={!!why} title={why}>
+              {choiceLabel(row, c.value)}{why ? ' (not installed)' : ''}
+            </option>
+          )
+        })}
       </select>
     )
   } else if (row.type === 'json' || row.multiline) {

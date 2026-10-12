@@ -13,7 +13,8 @@
  */
 import { useState } from 'react'
 
-import { clearEndpointUrl, resetMonthCounter, setEndpointUrl, undoMonthCounterReset } from '../../api/settings'
+import { installDependency } from '../../api/diagnostics'
+import { clearEndpointUrl, getSettings, resetMonthCounter, setEndpointUrl, undoMonthCounterReset } from '../../api/settings'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -29,8 +30,11 @@ import {
   cookiesSummary,
   ENDPOINTS,
   OCR_LABELS,
+  ocrChoiceReasons,
+  ocrInstallPackages,
   SAVED_ON_PC_NOTE,
 } from './preferences'
+import { runInstallJob } from '../diagnostics/installJob'
 import { SchemaCard } from './SchemaCard'
 
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
@@ -204,6 +208,7 @@ export function AdvancedCard(props: AdvancedProps) {
           summary={summaries[fold.title]}
           openSignal={fold.title === 'Uploads' ? openSignal + uploadsSignal : openSignal}
           {...(fold.title === 'Downloads' ? { before: DOWNLOADS_NOTE } : {})}
+          {...(fold.title === 'OCR' ? ocrAvailability(settings, onSettings) : {})}
           {...(fold.title === 'Uploads' ? uploadsEnv(settings) : {})}
         />
       ))}
@@ -212,6 +217,50 @@ export function AdvancedCard(props: AdvancedProps) {
       )}
       <EndpointsSection settings={settings} remote={remote} onSettings={onSettings} openSignal={openSignal} />
     </Card>
+  )
+}
+
+// Backends that can't run here are disabled in the picker; the reason and an Install action sit above it.
+function ocrAvailability(settings: SettingsOverview, onSettings: (s: SettingsOverview) => void) {
+  const status = settings.choices.ocr_backend_status
+  const reasons = ocrChoiceReasons(status)
+  if (!Object.keys(reasons).length) return {}
+  return {
+    choiceReasons: { ocr_backend: reasons },
+    before: <OcrAvailabilityNote reasons={reasons} packages={ocrInstallPackages(status)} onSettings={onSettings} />,
+  }
+}
+
+function OcrAvailabilityNote({ reasons, packages, onSettings }: { reasons: Record<string, string>; packages: string[]; onSettings: (s: SettingsOverview) => void }) {
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState<unknown>(null)
+  const install = async (name: string) => {
+    setBusy(name)
+    setError(null)
+    try {
+      const r = await runInstallJob(() => installDependency(name), undefined, name)
+      if (!r.ok) setError(new Error(r.hint || `Couldn't install ${name}.`))
+      else onSettings(await getSettings())
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy('')
+    }
+  }
+  return (
+    <div className="settings-note">
+      <ul>
+        {Object.entries(reasons).map(([backend, why]) => (
+          <li key={backend}>{OCR_LABELS[backend] ?? humanizeValue(backend)}: {why}</li>
+        ))}
+      </ul>
+      {packages.map((name) => (
+        <button key={name} type="button" className={buttonClass('secondary', 'sm')} disabled={!!busy} aria-busy={busy === name || undefined} onClick={() => void install(name)}>
+          {busy === name ? `Installing ${name}…` : `Install ${name}`}
+        </button>
+      ))}
+      <ErrorBanner error={error} />
+    </div>
   )
 }
 
