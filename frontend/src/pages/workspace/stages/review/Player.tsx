@@ -376,7 +376,9 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     },
     onError: () => setFailed(true),
   }
-  const here = segment ?? lineAt(lines, time)
+  // The played line only names the position while the playhead is still inside it: a seek made
+  // outside the app's own controls (keys on the video, a scrub) must not leave its number on screen.
+  const here = (segment && time >= segment.start && time <= segment.end ? segment : null) ?? lineAt(lines, time)
   const known = Number.isFinite(duration) && duration > 0
 
   const overlay = kind === 'video' && !floating && subs !== 'off' ? overlayText(cue) : ''

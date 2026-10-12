@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openTab } from './reviewFolds'
 
 // Review shows a timing_drift flag with its note and a "Snap to speech" action,
 // "Check timing" starts the job, and "Snap all flagged" sends the snap request.
@@ -57,6 +58,7 @@ test('Check timing starts the job and Snap all flagged sends no line ids', async
   await page.setViewportSize({ width: 1280, height: 900 })
   const seen = { snaps: [] as unknown[], runs: 0 }
   await open(page, seen)
+  await openTab(page, 'Fix')
   const fold = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: /^Flag lines for review$/ }) })
   if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
   const panel = fold.getByTestId('timing-check')
