@@ -558,6 +558,7 @@ Site adapters, the fetch ladder and the source store (`sources.db`).
 - `http.py` (the one paced HTTP client every adapter and the generic importer go through)
 - `ladder.py` (the access-method ladder)
 - `limiter.py` (the per-source concurrency limit)
+- `live_follow_store.py` (the `followed_channels` rows in `sources.db` behind `services/live_follow_service.py`)
 - `lzstring.py` (LZString's Base64 variant, which some sites use to compress data their own page JS unpacks)
 - `mock.py` (an offline demo source)
 - `models.py` (the shared vocabulary of the source-adapter system)
@@ -649,6 +650,5 @@ Windows installer and boot service, not imported by the app.
 - Optional dependencies are imported inside functions, never at module top level.
 - Adding a new module in any folder listed here (top level, `services/`, `api/routers/`, `sources/`, `tools/` and so on)? Add it as one bullet to the right group above, in the same PR (a top-level module also gets one sorted line in `expected_files.py`).
 - `sources/chapter_manifest.py`: `raw_novel_chapters.json` beside the raw novel (title, site, time and byte range per imported chapter); `services/novel_chapters_service.py` reads it.
-- `sources/live_follow_store.py`: the `followed_channels` rows in `sources.db` behind `services/live_follow_service.py`.
 - `sources/novel_follow.py`: following next-chapter links from a pasted novel URL (`follow_novel`); builds on `sources/adaptive.py`, which does not import it.
 - `sources/extension_marker.py`: the person's "works only through the browser extension" marker per source (`source_extension_only` table in `sources.db`); imports and scheduled checks consult it, `services/sources_extension_service.py` holds the early stop.
