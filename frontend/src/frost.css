@@ -213,7 +213,7 @@ fieldset.segmented {
 .ws-strip::before {
   content: '';
   position: absolute;
-  inset: 0 -16px -14px;
+  inset: 0 0 -14px;
   z-index: -1;
   pointer-events: none;
   background: color-mix(in srgb, var(--bg) 70%, transparent);
