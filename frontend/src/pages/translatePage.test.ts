@@ -31,6 +31,7 @@ describe('engine picker', () => {
   it('labels engines by name and marks the ones with no key', () => {
     expect(engineOptionLabel(eng('deepseek'))).toBe('DeepSeek')
     expect(engineOptionLabel(eng('claude', false))).toBe('Claude (no key)')
+    expect(engineOptionLabel({ ...eng('deepseek', false), package_installed: false })).toBe('DeepSeek (not installed)')
   })
 
   it('lists usable engines first, keeping API order', () => {

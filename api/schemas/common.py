@@ -40,7 +40,9 @@ class TranslateEngine(BaseModel):
     # Label for an offered model that has no built-in entry (id -> text).
     model_labels: Dict[str, str] = Field(default_factory=dict)
     cloud_models: List[str] = Field(default_factory=list)
+    # True when the engine can run: key set and SDK installed, or (Ollama) the server answers.
     key_configured: bool
+    package_installed: bool = True
 
 
 class LibraryPreset(BaseModel):

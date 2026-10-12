@@ -17,6 +17,7 @@ import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { jobSucceeded, type JobRecord } from '../../../../types/jobs'
 import type { ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
 import { runInstallJob } from '../../../diagnostics/installJob'
+import { useInstallPlan } from '../../../diagnostics/useInstallPlan'
 import { useStage } from '../../StageContext'
 import { resplitJobId } from '../../stageJobIds'
 import { JobPanel } from '../JobPanel'
@@ -183,24 +184,41 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     }
   }
 
-  const installSplitters = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      for (const name of missingSplitters) {
-        const r = await runInstallJob(() => installDependency(name), undefined, name)
-        if (!r.ok) {
-          setSummary(r.hint || `Couldn't install ${name}.`)
-          break
-        }
-      }
-      setSplitterTick((t) => t + 1)
-    } catch (e) {
-      setError(e)
-    } finally {
+  // The install goes through the preview first: a risky or replacing plan needs its panel, not a raw 409.
+  const { planned, withPlan, view: planView } = useInstallPlan({
+    onChecking: () => {
+      setError(null)
+      setBusy(true)
+    },
+    onChecked: () => setBusy(false),
+    onQueued: (label) => {
       setBusy(false)
-    }
-  }
+      setSummary(`${label} is queued. It installs when you restart Baihe.`)
+    },
+    onQueueFailed: (_label, e) => {
+      setBusy(false)
+      setError(e)
+    },
+  })
+  const installSplitters = () =>
+    withPlan(missingSplitters.join(' and '), missingSplitters, async (acceptedRisks) => {
+      setBusy(true)
+      setError(null)
+      try {
+        for (const name of missingSplitters) {
+          const r = await runInstallJob(() => installDependency(name, undefined, acceptedRisks), undefined, name)
+          if (!r.ok) {
+            setSummary(r.hint || `Couldn't install ${name}.`)
+            break
+          }
+        }
+        setSplitterTick((t) => t + 1)
+      } catch (e) {
+        setError(e)
+      } finally {
+        setBusy(false)
+      }
+    })
 
   const reassign = async () => {
     setBusy(true)
@@ -245,8 +263,9 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
               <p>"More" is off: it needs the {missingSplitters.join(' and ')} word splitter, which isn't installed.</p>
               {pc === 'remote' ? <p>Ask the PC owner to install it in Diagnostics.</p> : (
                 <ConfirmButton name={missingSplitters.join(' and ')} verb="install" tone="primary" label="Install…"
-                  confirmLabel={`Confirm install ${missingSplitters.join(' and ')}`} busy={busy} disabled={blocked} onConfirm={installSplitters} />
+                  confirmLabel={`Confirm install ${missingSplitters.join(' and ')}`} busy={busy} disabled={blocked || !!planned} onConfirm={() => void installSplitters()} />
               )}
+              {planView}
             </div>
           )}
           <Field

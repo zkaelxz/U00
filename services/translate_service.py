@@ -15,6 +15,7 @@ from typing import Optional
 
 import bulk_translate
 import db
+import diagnostics
 import translate_engines
 from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_run_service
@@ -36,6 +37,9 @@ from services.service_errors import (
 # services.settings_service.key_status(), which is keyed by the same engine
 # name for these three.
 _NO_KEY_REQUIRED_ENGINES = translate_engines.KEYLESS_ENGINES
+
+# The SDK an engine imports to make its calls (engine_backends/shared.py). Gemini uses plain HTTP.
+_ENGINE_PACKAGES = {"claude": "anthropic", "deepseek": "openai", "openai": "openai"}
 
 # Engine name -> the model dict (if any) the user picks a model from for
 # that engine.
@@ -64,8 +68,8 @@ def _saved_ollama_models() -> list:
 def list_engines(env_path: Optional[str] = None) -> list:
     """One entry per translate_engines.ENGINES key: name, display label,
     whether it's free (translate_engines.FREE_ENGINES), its selectable
-    model keys (or None if the engine has no model picker), and whether a
-    key/endpoint is configured for it (never the key value itself -- see
+    model keys (or None if the engine has no model picker), and whether it
+    can run (a key/endpoint is configured, its SDK is installed, a local server answers; never the key value itself -- see
     services.settings_service.key_status). The Gemini label reflects the
     persisted "Gemini free tier" setting (translate_engines.engine_picker_label)."""
     from services import model_registry_service  # imports this module at load time
@@ -74,10 +78,16 @@ def list_engines(env_path: Optional[str] = None) -> list:
     engines = []
     for name in translate_engines.ENGINES:
         model_dict = ENGINE_MODEL_DICTS.get(name)
-        if name in _NO_KEY_REQUIRED_ENGINES:
+        package = _ENGINE_PACKAGES.get(name)
+        package_installed = package is None or diagnostics.check_dependency(package)
+        if name == "ollama":
+            # Nothing to configure, but a server that is not answering is not usable either.
+            key_configured = translate_run_service.ollama_reachable()
+        elif name in _NO_KEY_REQUIRED_ENGINES:
             key_configured = True
         else:
-            key_configured = bool(key_status.get(name, False))
+            # A key for an engine whose SDK is missing would only fail at the first call.
+            key_configured = bool(key_status.get(name, False)) and package_installed
         models = list(model_dict.keys()) if model_dict is not None else None
         extras = model_registry_service.extra_models(name)
         chosen = translate_engines.override_models(name)
@@ -106,6 +116,7 @@ def list_engines(env_path: Optional[str] = None) -> list:
             "model_labels": labels,
             "cloud_models": cloud,
             "key_configured": key_configured,
+            "package_installed": package_installed,
         })
     return engines
 

@@ -35,6 +35,7 @@ import {
   SAVED_ON_PC_NOTE,
 } from './preferences'
 import { runInstallJob } from '../diagnostics/installJob'
+import { useInstallPlan } from '../diagnostics/useInstallPlan'
 import { SchemaCard } from './SchemaCard'
 
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
@@ -234,19 +235,37 @@ function ocrAvailability(settings: SettingsOverview, onSettings: (s: SettingsOve
 function OcrAvailabilityNote({ reasons, packages, onSettings }: { reasons: Record<string, string>; packages: string[]; onSettings: (s: SettingsOverview) => void }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState<unknown>(null)
-  const install = async (name: string) => {
-    setBusy(name)
-    setError(null)
-    try {
-      const r = await runInstallJob(() => installDependency(name), undefined, name)
-      if (!r.ok) setError(new Error(r.hint || `Couldn't install ${name}.`))
-      else onSettings(await getSettings())
-    } catch (e) {
-      setError(e)
-    } finally {
+  const [note, setNote] = useState<string | null>(null)
+  // The install goes through the preview first: a risky or replacing plan needs its panel, not a raw 409.
+  const { planned, withPlan, view: planView } = useInstallPlan({
+    onChecking: (label) => {
+      setError(null)
+      setBusy(label)
+    },
+    onChecked: () => setBusy(''),
+    onQueued: (label) => {
       setBusy('')
-    }
-  }
+      setNote(`${label} is queued. It installs when you restart Baihe.`)
+    },
+    onQueueFailed: (_label, e) => {
+      setBusy('')
+      setError(e)
+    },
+  })
+  const install = (name: string) =>
+    withPlan(name, [name], async (acceptedRisks) => {
+      setBusy(name)
+      setError(null)
+      try {
+        const r = await runInstallJob(() => installDependency(name, undefined, acceptedRisks), undefined, name)
+        if (!r.ok) setError(new Error(r.hint || `Couldn't install ${name}.`))
+        else onSettings(await getSettings())
+      } catch (e) {
+        setError(e)
+      } finally {
+        setBusy('')
+      }
+    })
   return (
     <div className="settings-note">
       <ul>
@@ -255,11 +274,13 @@ function OcrAvailabilityNote({ reasons, packages, onSettings }: { reasons: Recor
         ))}
       </ul>
       {packages.map((name) => (
-        <button key={name} type="button" className={buttonClass('secondary', 'sm')} disabled={!!busy} aria-busy={busy === name || undefined} onClick={() => void install(name)}>
+        <button key={name} type="button" className={buttonClass('secondary', 'sm')} disabled={!!busy || !!planned} aria-busy={busy === name || undefined} onClick={() => void install(name)}>
           {busy === name ? `Installing ${name}…` : `Install ${name}`}
         </button>
       ))}
+      {note && <p role="status">{note}</p>}
       <ErrorBanner error={error} />
+      {planView}
     </div>
   )
 }

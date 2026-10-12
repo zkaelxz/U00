@@ -37,12 +37,38 @@ def test_list_engines_reports_booleans(tmp_path):
         assert e["models"] is None or isinstance(e["models"], list)
 
 
-def test_list_engines_keyless_engines_report_configured(tmp_path):
+def test_list_engines_keyless_engines_report_configured(tmp_path, monkeypatch):
     env_path = _write_env(tmp_path, "")
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: True)
     engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
     assert engines["fake"]["key_configured"] is True
     assert engines["fake_mt"]["key_configured"] is True
     assert engines["ollama"]["key_configured"] is True
+
+
+def test_list_engines_ollama_that_does_not_answer_is_not_usable(tmp_path, monkeypatch):
+    env_path = _write_env(tmp_path, "")
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: False)
+    engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
+    assert engines["ollama"]["key_configured"] is False
+    # A keyless engine does not depend on a package: only its server.
+    assert engines["ollama"]["package_installed"] is True
+
+
+def test_list_engines_engine_whose_sdk_is_missing_is_not_usable_even_with_a_key(tmp_path, monkeypatch):
+    env_path = _write_env(tmp_path, "BAIHE_DEEPSEEK_KEY=k\nBAIHE_OPENAI_KEY=k\nBAIHE_CLAUDE_KEY=k\n")
+    monkeypatch.setattr(translate_service.diagnostics, "check_dependency", lambda name: name != "openai")
+    engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
+    for name in ("deepseek", "openai"):
+        assert engines[name]["package_installed"] is False and engines[name]["key_configured"] is False
+    assert engines["claude"]["package_installed"] is True and engines["claude"]["key_configured"] is True
+
+
+def test_list_engines_an_installed_sdk_leaves_the_key_decision_alone(tmp_path, monkeypatch):
+    env_path = _write_env(tmp_path, "")
+    monkeypatch.setattr(translate_service.diagnostics, "check_dependency", lambda name: True)
+    engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
+    assert engines["deepseek"]["package_installed"] is True and engines["deepseek"]["key_configured"] is False
 
 
 def test_list_engines_reflects_configured_key(tmp_path):

@@ -48,6 +48,8 @@ interface Props {
   onPlayRange?: (start: number, end: number) => void
   onEditDetails: () => void
   canRetranscribe: boolean
+  // Why Re-transcribe is off when the audio is there but an install is missing (Whisper).
+  retranscribeNeed?: { reason: string } | null
   onRetranscribe: () => void
   onImprove: () => void
   onWhy: () => void
@@ -152,7 +154,7 @@ export function LineActionsSheet(p: Props) {
   const key = state ? `${state.lineId}-${state.view}-${state.armDelete ? 1 : 0}` : ''
   const blocked = p.jobRunning ? JOB_RUNNING_MESSAGE : null
   const view = state?.view ?? 'menu'
-  const retranscribe = retranscribeMenuState(p.canRetranscribe, blocked)
+  const retranscribe = retranscribeMenuState(p.canRetranscribe, blocked, p.retranscribeNeed?.reason ?? null)
   const title = !line
     ? 'Add first line'
     : view === 'split'

@@ -12,6 +12,8 @@ import {
   applyItems, applyNote, failureSummary, retranscribeLinesOutcome, retranscribeLinesProblem,
 } from './retranscribeLinesLogic'
 import { buttonClass } from '../../../../components/uiClasses'
+import { NeedsInstall } from '../../../readiness/NeedsInstall'
+import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 
 // Opens the section; with lineIds it also starts the run on exactly those lines
 // ("Transcribe this gap", "Add line and transcribe"), without lineIds the section
@@ -96,8 +98,9 @@ export function RetranscribeLines({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request])
 
+  const need = useAudioToolNeed()
   const problem = retranscribeLinesProblem(selectedIds.length)
-  const blocked = problem ?? (jobRunning && !busy ? 'Another job is running on this title. Try again when it finishes.' : null)
+  const blocked = need?.reason ?? problem ?? (jobRunning && !busy ? 'Another job is running on this title. Try again when it finishes.' : null)
   const rows = result?.proposals ?? []
   const chosen = rows.filter((p) => checked.has(p.line_id))
 
@@ -142,7 +145,7 @@ export function RetranscribeLines({
             </button>
             {active && job && <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
           </div>
-          {blocked && !busy && <p className="muted" data-testid="retranscribe-lines-blocked">{blocked}</p>}
+          {need ? <NeedsInstall need={need} /> : blocked && !busy && <p className="muted" data-testid="retranscribe-lines-blocked">{blocked}</p>}
           <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />
           {active && job && (
             <p className="muted" data-testid="retranscribe-lines-progress">
