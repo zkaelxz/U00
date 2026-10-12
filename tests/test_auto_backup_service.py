@@ -34,7 +34,7 @@ from services import auto_backup_service as abs_
 from services import drama_restore_service as drs
 from services import drama_service
 from services import library_admin_service as las
-from services import workspace_job_service as wjs
+from services import library_restore_service as lrs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -2099,7 +2099,7 @@ class TestRestoreRejectsUnsafeSnapshot:
                 las.validate_backup_file(path, check_disk=False)
             las.validate_backup_file(path, check_disk=False, check_limits=False)
         with monkeypatch.context() as m:   # one member too large
-            m.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10_000_000)
+            m.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 10_000_000)
             with pytest.raises(InvalidInputError):
                 las.validate_backup_file(path, check_disk=False)
             las.validate_backup_file(path, check_disk=False, check_limits=False)
@@ -2117,7 +2117,7 @@ class TestRestoreRejectsUnsafeSnapshot:
             with open(os.path.join(_ddir(a), f"f{i}.bin"), "wb") as fh:
                 fh.write(b"\0" * 50_000)
         monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 3)
-        monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10_000)
+        monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 10_000)
         monkeypatch.setattr(las, "_RESTORE_MIN_TOTAL_BYTES", 0)
         monkeypatch.setattr(las, "_RESTORE_EXPANSION_FACTOR", 1)
         monkeypatch.setattr(las, "_library_size", lambda: 0)

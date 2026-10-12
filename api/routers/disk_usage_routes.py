@@ -3,7 +3,8 @@ api/routers/disk_usage_routes.py -- /api/data-usage/*: what is taking space in
 the app's data folder, move an item into Baihe's Trash folder, restore or
 permanently delete from it, move the automatic-backup folder, and list unused
 voice clips (GET /unused-voice-clips) and move them to Trash
-(POST /unused-voice-clips/to-trash). Thin adapter over services/disk_usage_service.py
+(POST /unused-voice-clips/to-trash), and the previous library kept beside the
+library folder (GET /previous-library, POST /previous-library/delete). Thin adapter over services/disk_usage_service.py
 and services/disk_usage_clips_service.py.
 
 Every route is local_only(): it reads and removes files on the PC. Paths in
@@ -27,10 +28,12 @@ from api.disk_usage_schemas import (
     DiskUsageTrashPurgeDone, DiskUsageTrashPurgeRequest, DiskUsageTrashRestoreDone,
     DiskUsageTrashRestoreRequest, TempCleanRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
     UnusedVoiceClipTrashRequest)
-from api.schemas import ErrorResponse, TempCleanResult
+from api.schemas import (ErrorResponse, PreviousLibrary, PreviousLibraryDeleted,
+                         PreviousLibraryDeleteRequest, TempCleanResult)
 from services import disk_usage_clips_service as clips_svc
 from services import disk_usage_service as svc
 from services import disk_usage_trash_service as trash_svc
+from services import previous_library_service
 from services import temp_cleanup_service
 
 router = APIRouter(prefix="/api/data-usage", tags=["disk-usage"])
@@ -128,3 +131,19 @@ async def post_unused_voice_clips_to_trash(body: UnusedVoiceClipTrashRequest):
                      "runs); returns how many entries and how many MB, never a path")
 async def post_clean_temp(body: TempCleanRequest):
     return await run_in_threadpool(temp_cleanup_service.clean_now)
+
+
+@router.get("/previous-library", dependencies=[local_only()], response_model=PreviousLibrary,
+            summary="Size of the library copies kept beside the library folder after a restore "
+                    "or before a reset (one entry; never a path)")
+async def get_previous_library():
+    return await run_in_threadpool(previous_library_service.summary)
+
+
+@router.post("/previous-library/delete", dependencies=[local_only()],
+             response_model=PreviousLibraryDeleted, responses=_ERR,
+             summary="Permanently delete the library copies kept beside the library folder "
+                     "(the word DELETE and the size shown; 409 while busy or when it changed)")
+async def post_previous_library_delete(body: PreviousLibraryDeleteRequest):
+    return await run_in_threadpool(previous_library_service.delete, body.confirm_text,
+                                   body.expected_size_bytes)

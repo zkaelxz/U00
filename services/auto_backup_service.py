@@ -22,7 +22,7 @@ few rotating copies, plus restoring a single drama from any of them.
   app_settings (IDENTITY_KEY) with the time it was made, a sequence number
   that goes up by one for every copy it writes, and the (sequence, name)
   of each copy it wrote that is still in the folder (never taken from a
-  restored backup, see workspace_job_service._RESTORE_KEPT_APP_SETTINGS).
+  restored backup, see library_restore_service._RESTORE_KEPT_APP_SETTINGS).
   The id and sequence go into every copy's manifest. A backup folder may
   be shared (a synced folder used by two PCs, possibly two PCs running a
   hand-copied library with the same id), so neither a file's name nor the
@@ -109,7 +109,7 @@ from db import fsync_dir as _fsync_dir
 from lib.link_new import link_new
 from services import backup_space_check as space
 from services import library_admin_service as las
-from services import workspace_job_service as wjs
+from services import library_restore_service as lrs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -120,7 +120,7 @@ STATE_KEY = "auto_backup.state"
 # {"library_id": 32 hex, "sequence": last copy number, "created_at": ISO
 # time the id was made, "written": [[sequence, file name], ...] of this
 # library's copies still in the folder}. A whole-library restore keeps the
-# current value (workspace_job_service copies this key from the live
+# current value (library_restore_service copies this key from the live
 # library).
 IDENTITY_KEY = "auto_backup.identity"
 _LIBRARY_ID_RE = re.compile(r"[0-9a-f]{32}", re.ASCII)
@@ -152,7 +152,7 @@ _MANIFEST_MAX_BYTES = 8 * 1024 * 1024
 _MAX_FOLDER_LEN = 1024
 # What a single-drama restore extracts is capped per member (the whole-zip
 # upload caps don't apply to the app's own snapshot; see _verify_snapshot).
-_MAX_MEMBER_BYTES = wjs.MAX_RESTORE_MEMBER_BYTES
+_MAX_MEMBER_BYTES = lrs.MAX_RESTORE_MEMBER_BYTES
 # After a failed run the scheduled check waits this long before trying the
 # (possibly large) backup again.
 RETRY_AFTER_FAILURE = datetime.timedelta(days=1)

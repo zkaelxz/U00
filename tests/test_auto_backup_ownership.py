@@ -24,7 +24,7 @@ import db
 from services import auto_backup_service as abs_
 from services import drama_restore_service as drs
 from services import library_admin_service as las
-from services import workspace_job_service as wjs
+from services import library_restore_service as lrs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 UTC = datetime.timezone.utc
@@ -444,7 +444,7 @@ class TestWholeLibraryRestore:
         _become({"library_id": "b" * 32, "sequence": 2})
         other_librarys_backup = _library_zip(tmp_path)
         _become({"library_id": "a" * 32, "sequence": 9})
-        wjs.restore_library_backup(other_librarys_backup, db.LIBRARY_DIR)
+        lrs.restore_library_backup(other_librarys_backup, db.LIBRARY_DIR)
         assert _identity() == {"library_id": "a" * 32, "sequence": 9}
         new = _run_at(monkeypatch, _at(2))
         m = _manifest(os.path.join(_default_dir(), new))
@@ -457,12 +457,12 @@ class TestWholeLibraryRestore:
         with contextlib.closing(db.get_conn()) as conn:
             conn.execute("DELETE FROM app_settings WHERE key = ?", (abs_.IDENTITY_KEY,))
             conn.commit()
-        wjs.restore_library_backup(other_librarys_backup, db.LIBRARY_DIR)
+        lrs.restore_library_backup(other_librarys_backup, db.LIBRARY_DIR)
         assert _identity() is None
         assert abs_._identity()[0] != "b" * 32
 
     def test_kept_key_is_the_identity_key(self):
-        assert abs_.IDENTITY_KEY in wjs._RESTORE_KEPT_APP_SETTINGS
+        assert abs_.IDENTITY_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
 
 
 # --------------------------------------------------------------------------

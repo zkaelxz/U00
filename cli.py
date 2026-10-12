@@ -402,11 +402,15 @@ def cmd_diarize(args):
         result = diarize.merge_speakers(lines, turns, overwrite_manual=args.overwrite_manual)
         for label in sorted({ln.speaker for ln in lines if ln.speaker}):
             db.upsert_character(d["id"], label)
-        db.save_lines(d["id"], lines, fields=("speaker", "speaker_manual"))
+        # The lines were read before detection ran (minutes): a speaker set in
+        # the app meanwhile is kept, not overwritten from that stale copy.
+        edited = db.save_lines(d["id"], lines, fields=("speaker", "speaker_manual"),
+                               only_if_unchanged=True)
         print(f"#{d['id']} {result['changed']} line(s) relabelled with {model} "
               f"on {run_info.get('device', 'cpu')}"
               + (f"; kept {result['kept_manual']} hand-corrected line(s) "
-                 f"(--overwrite-manual to replace them)." if result["kept_manual"] else "."))
+                 f"(--overwrite-manual to replace them)." if result["kept_manual"] else ".")
+              + (f" Kept {len(edited)} line(s) edited while detection ran." if edited else ""))
 
     with _gpu_lock(f"CLI diarize ({len(dramas)} drama(s))") as _gpu_holder:
         _run_batch(dramas, step, "diarize")

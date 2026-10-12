@@ -22,10 +22,13 @@ EVERYTHING_FILES = frozenset({
     "frontend/playwright.config.ts", "frontend/vite.config.ts",
 })
 EVERYTHING_PATTERNS = ("requirements*.txt",)
-# The Windows script checks run uninstall.bat, setup.bat and start.bat, so they need these (and the
-# `.github/` and requirements files above, which already run everything).
+# The Windows script checks run uninstall.bat, setup.bat and start.bat, and a library restore round
+# trip (its file locking, fsync and renames differ on Windows), so they need these (and the `.github/`
+# and requirements files above, which already run everything).
 WINDOWS_SCRIPT_PREFIXES = ("installer/",)
-WINDOWS_SCRIPT_FILES = frozenset({"check_setup.py", "tools/windows_script_checks.py"})
+WINDOWS_SCRIPT_FILES = frozenset({"check_setup.py", "tools/windows_script_checks.py",
+                                  "services/library_restore_service.py", "services/library_restore_sql.py",
+                                  "db/library_folder.py"})
 WINDOWS_SCRIPT_PATTERNS = ("*.bat", "*.ps1")
 # The `guards` job runs these, and the `test` job ignores them.
 GUARD_TESTS = (

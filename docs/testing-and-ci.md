@@ -63,8 +63,9 @@ notes-only ones (which run only `guards`).
 
 The table has three columns; a fourth output, `run_windows_scripts` (the `windows-scripts` job), is true for every row that says
 "everything" (a non-PR event, the `full-ci` label, a change under `.github/` or to the dependency files, an empty file list, a
-classifier error), and otherwise only when a changed file is under `installer/`, is a `*.bat` or `*.ps1` file, is `check_setup.py`
-or is `tools/windows_script_checks.py`.
+classifier error), and otherwise only when a changed file is under `installer/`, is a `*.bat` or `*.ps1` file, is `check_setup.py`,
+is `tools/windows_script_checks.py` or is the restore code (`services/library_restore_service.py`, `services/library_restore_sql.py`,
+`db/library_folder.py`).
 
 | Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
 |---|---|---|---|
@@ -94,6 +95,10 @@ workflow step each:
   server is ever started; the run is killed with `taskkill /T` after a timeout). Then the app's own `init_db` creates the library
   and a drama with a line is saved. Upgrade: the files are copied over the install, `start.bat --ci` runs again (it keeps the venv
   and installs nothing) and again with `BAIHE_FORCE_DEPS=1` (it reinstalls over the venv); after each the drama and line are read back.
+  Last, a restore round trip in the installed copy: a full backup zip of that library, a title added afterwards, then the app's own
+  restore (`library_admin_service.restore_backup`), which on Windows takes the `msvcrt` restore lock, fsyncs the staged databases
+  opened `r+b` and renames the folders. The added title is gone, the drama, line and a media file are back, and no
+  `.pre_restore_*`, staging folder or `.restore-lock` file is left.
 - `uninstall`: in a throwaway user profile, so the runner's own shortcuts and caches are never touched. Answering `n` to the first
   prompt removes nothing. Otherwise the venv, `model_cache\` and both shortcuts go, and the library prompt follows the typed-DELETE
   rule: `DELETE` removes `library\`; `y`, `yes`, `delete` and Enter keep it. Each with and without `BAIHE_DATA_DIR` set (its library

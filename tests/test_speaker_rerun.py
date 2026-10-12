@@ -183,6 +183,22 @@ class TestCliDiarize:
         assert fake_diarize == [3]
         assert diarize.load_turns(ddir) == THREE
 
+    def test_a_speaker_set_in_the_app_while_detection_runs_is_kept(self, isolated_db, no_asr, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db)
+        line_id = isolated_db.load_lines(did)[2]["id"]
+
+        def detect_while_the_owner_edits(audio_path, hf_token, num_speakers=None, return_model=False,
+                                         return_embeddings=False, **kwargs):
+            with isolated_db.get_conn() as conn:
+                conn.execute("UPDATE lines SET speaker = 'Xiaoling', speaker_manual = 1 WHERE id = ?",
+                             (line_id,))
+            return THREE, "fake-model", {}
+        monkeypatch.setattr(diarize, "diarize", detect_while_the_owner_edits)
+        self._run(did, num_speakers=3, overwrite_manual=True)
+        rows = isolated_db.load_lines(did)
+        assert (rows[2]["speaker"], rows[2]["speaker_manual"]) == ("Xiaoling", 1)
+        assert rows[1]["speaker"] == "SPEAKER_01"
+
     def test_a_manual_correction_survives_unless_overwrite_manual(self, isolated_db, no_asr, fake_diarize):
         did, _ = _drama_with_audio(isolated_db)
         lines = isolated_db.load_line_objects(did)

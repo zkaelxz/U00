@@ -58,8 +58,12 @@ PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISS
 # library's rows of RESTORE_LIVE_TABLES and leaves the rest empty (every
 # session is revoked), so an old or crafted backup can't bring back a
 # revoked extension device token or plant one. A user backup leaves them all out.
+# The one exception is RESTORE_ACCOUNT_TABLES (no secrets in them): a library
+# with no accounts yet (a rebuilt PC) takes them from the backup, so its
+# titles' owners resolve again (owner decision, 2026-10).
 RESTORE_LIVE_TABLES = ("users", "user_permissions", "audit_log", "extension_device_tokens")
 RESTORE_KEPT_TABLES = RESTORE_LIVE_TABLES + ("auth_sessions",)
+RESTORE_ACCOUNT_TABLES = ("users", "user_permissions")
 
 # Defaults; `configure_timeouts` (from the API settings, BAIHE_API_SESSION_*)
 # may change them at startup. Both are enforced on every lookup, so a

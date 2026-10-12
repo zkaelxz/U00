@@ -2,7 +2,7 @@
 // every call, the scan included, goes through pcOnlyFetch.
 import type {
   DiskUsageClearDone, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashList,
-  DiskUsageTrashPurgeDone, DiskUsageTrashRestoreDone, TempCleanDone, UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
+  DiskUsageTrashPurgeDone, DiskUsageTrashRestoreDone, PreviousLibrary, PreviousLibraryDeleted, TempCleanDone, UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
 } from '../types/diskUsage'
 import { getJson, postJson, withSignal } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -76,3 +76,14 @@ export const trashUnusedVoiceClips = (clips: Pick<UnusedVoiceClip, 'id' | 'size_
 
 /** Deletes everything in Baihe's own temp folder (409 while a job runs). */
 export const cleanTempFiles = (f?: Fetch) => postJson<TempCleanDone>(`${BASE}/clean-temp`, { confirm: true }, pcOnlyFetch(f))
+
+/** The library copies a restore or a Reset library kept beside the library folder, as one entry. */
+export const getPreviousLibrary = (f?: Fetch) => getJson<PreviousLibrary>(`${BASE}/previous-library`, pcOnlyFetch(f))
+
+/** PERMANENTLY deletes those copies; the size is the one the person saw (409 if changed, busy, or the library is missing). */
+export const deletePreviousLibrary = (sizeBytes: number, f?: Fetch) =>
+  postJson<PreviousLibraryDeleted>(
+    `${BASE}/previous-library/delete`,
+    { confirm_text: 'DELETE', expected_size_bytes: sizeBytes },
+    pcOnlyFetch(f),
+  )

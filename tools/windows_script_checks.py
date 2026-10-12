@@ -4,7 +4,7 @@ answered through stdin. Used by the `windows-scripts` job in .github/workflows/t
     python tools/windows_script_checks.py setup|install|uninstall
 
 `install` also covers the upgrade: it seeds a library in the fresh install, runs the scripts again over it
-and checks the data survived. start.bat is stopped before it would launch the server: another listener
+and checks the data survived; then it backs the library up to a zip and restores it in the installed app. start.bat is stopped before it would launch the server: another listener
 holds its port, so it stops at its "port already in use" exit after the venv, dependencies and setup check.
 No step may leave a server running. Dev tooling, so it is not covered by the lib.proc rule in
 tests/test_static_analysis.py.
@@ -304,6 +304,34 @@ def library_verify_code():
         "print('library data intact')\n")
 
 
+def restore_round_trip_code():
+    """A full backup zip of the seeded library, a title added afterwards, then the app's own restore: the
+    Windows paths are the r+b fsync of the staged databases, the msvcrt restore lock and the folder renames."""
+    return (
+        "import os, db\n"
+        "from services import library_admin_service as las\n"
+        "db.init_db()\n"
+        f"[seeded] = [d['id'] for d in db.list_dramas() if d['title_en'] == {LIBRARY_DRAMA!r}]\n"
+        "media = os.path.join(db.drama_dir(seeded), 'audio.wav')\n"
+        "open(media, 'wb').write(b'RIFF')\n"
+        "parent = os.path.dirname(os.path.abspath(db.LIBRARY_DIR))\n"
+        "zip_path = os.path.join(parent, 'round_trip_backup.zip')\n"
+        "las.write_backup_zip(zip_path)\n"
+        "db.create_drama(title_en='added after the backup')\n"
+        "data = open(zip_path, 'rb').read()\n"
+        "os.remove(zip_path)\n"
+        "result = las.restore_backup(data, confirm=True, confirm_text='RESTORE')\n"
+        "assert result['restored'] and not result['previous_library_kept'], result\n"
+        "titles = sorted(d['title_en'] for d in db.list_dramas())\n"
+        f"assert titles == [{LIBRARY_DRAMA!r}], titles\n"
+        "assert open(media, 'rb').read() == b'RIFF'\n"
+        "base = os.path.basename(os.path.abspath(db.LIBRARY_DIR))\n"
+        "left = [n for n in os.listdir(parent) if n.startswith((base + '.pre_restore_', '.restore_staging_'))]\n"
+        "assert not left, left\n"
+        "assert not os.path.exists(os.path.abspath(db.LIBRARY_DIR) + '.restore-lock')\n"
+        "print('restore round trip ok')\n")
+
+
 def stops_before_server(stage, res, port):
     check(not res.timed_out, "start.bat finished instead of hanging")
     check(res.code == 1, f"exit code 1 (stopped at the busy port, as arranged), got {res.code}")
@@ -349,6 +377,13 @@ def check_install_and_upgrade():
         check("Installing dependencies" in res.out, "reinstalled the dependencies")
         verified = run_app_python(stage, library_verify_code(), env)
         check(verified.returncode == 0, "the library data survived the reinstall")
+        endgroup()
+
+        group("restore: a backup zip of the library restored over it")
+        restored = run_app_python(stage, restore_round_trip_code(), env)
+        check(restored.returncode == 0, "backup, restore and check of the library in the installed app")
+        verified = run_app_python(stage, library_verify_code(), env)
+        check(verified.returncode == 0, "the library data is as backed up after the restore")
         endgroup()
 
 

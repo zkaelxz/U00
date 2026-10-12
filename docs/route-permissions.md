@@ -91,6 +91,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/data-usage` | local_only() |
 | `POST /api/data-usage/clean-temp` | local_only() |
 | `POST /api/data-usage/move` | local_only() |
+| `GET /api/data-usage/previous-library` | local_only() |
+| `POST /api/data-usage/previous-library/delete` | local_only() |
 | `POST /api/data-usage/to-trash` | local_only() |
 | `GET /api/data-usage/trash` | local_only() |
 | `POST /api/data-usage/trash/empty` | local_only() |

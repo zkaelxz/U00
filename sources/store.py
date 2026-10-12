@@ -87,7 +87,7 @@ BROWSER_PROFILES_DIRNAME = "profiles"
 def browser_profiles_root() -> str:
     """Persistent browser profiles (sign-in state). A library restore keeps
     the current ones rather than taking them from the upload
-    (services/workspace_job_service.restore_kept_names)."""
+    (services/library_restore_service.restore_kept_names)."""
     return os.path.join(db.LIBRARY_DIR, BROWSER_PROFILES_DIRNAME)
 
 

@@ -1,6 +1,7 @@
 """The library folder on disk: durable renames, and putting back a library
 an interrupted restore left renamed aside."""
 
+import contextlib
 import os
 import shutil
 
@@ -28,18 +29,51 @@ def _lock_path(library_dir: str) -> str:
     return os.path.abspath(library_dir) + ".restore-lock"
 
 
+def _still_named(fd: int, path: str) -> bool:
+    """Whether `path` still names the file open as `fd` (a holder that just
+    finished may have removed it after this process opened it)."""
+    try:
+        a, b = os.fstat(fd), os.stat(path)
+    except OSError:
+        return False
+    return (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
+
+
 def hold_restore_lock(library_dir: str):
     """Held by a restore across its renames, so another process's start-up
     check can't take a moment between them for a crash. The OS lets go when
     the holder dies, so a crashed restore never leaves it held. A holder for
     release_restore_lock, or None when another process holds it."""
-    fd = db._lock_file(_lock_path(library_dir), create=True)
-    return None if fd is None else [fd]
+    path = _lock_path(library_dir)
+    for _attempt in range(2):
+        fd = db._lock_file(path, create=True)
+        if fd is None:
+            return None
+        # A lock on a file the last holder already removed guards nothing:
+        # a third process would lock a new file at the same name.
+        if os.name != "posix" or _still_named(fd, path):
+            return [fd, path]
+        db._release_lock([fd])
+    return None
 
 
 def release_restore_lock(holder) -> None:
-    if holder:
-        db._release_lock(holder)
+    """Lets go and removes the lock file when no other process has it, so
+    one stays only while a restore or recovery may be running (or after a
+    crash, where the next holder removes it)."""
+    if not holder:
+        return
+    path = holder[1] if len(holder) > 1 else None
+    if path and os.name == "posix" and holder[0] is not None and _still_named(holder[0], path):
+        # Removed while still locked: a process that opened it meanwhile
+        # sees the name gone (_still_named) and doesn't count its lock.
+        with contextlib.suppress(OSError):
+            os.remove(path)
+    db._release_lock(holder)
+    if path and os.name != "posix":
+        # Windows refuses while another process has it open, which keeps it.
+        with contextlib.suppress(OSError):
+            os.remove(path)
 
 
 def _set_aside(library_dir: str) -> list:

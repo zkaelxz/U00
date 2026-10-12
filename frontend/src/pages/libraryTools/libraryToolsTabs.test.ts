@@ -23,7 +23,7 @@ describe('Library tools tabs', () => {
     expect(cardsOf('backup').map((c) => CARDS[c].title)).toEqual([
       'Export', 'Backup', 'Backup of just my stuff', 'Restore', 'Automatic backup copies',
     ])
-    expect(cardsOf('storage').map((c) => CARDS[c].title)).toEqual(['Cleanup', 'Unused voice clips', 'Trash', 'Temp files'])
+    expect(cardsOf('storage').map((c) => CARDS[c].title)).toEqual(['Cleanup', 'Unused voice clips', 'Trash', 'Temp files', 'Previous library'])
     expect(cardsOf('activity').map((c) => CARDS[c].title)).toEqual(['Cost by title', 'Reading history'])
   })
 

@@ -137,3 +137,14 @@ export type UnusedVoiceClipTrashDone = {
 
 // "Clean temp files now": counts and megabytes only, never a path.
 export type TempCleanDone = { removed: number; freed_mb: number }
+
+/** The library copies kept beside the library folder (GET /api/data-usage/previous-library). Never a path. */
+export type PreviousLibrary = {
+  present: boolean
+  label: string
+  size_bytes: number
+  file_count: number
+  folder_count: number
+  partial: boolean
+}
+export type PreviousLibraryDeleted = { deleted: number; freed_bytes: number }

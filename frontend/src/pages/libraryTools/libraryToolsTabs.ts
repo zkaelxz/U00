@@ -32,6 +32,7 @@ export const CARDS = {
   'unused-clips': { tab: 'storage', title: 'Unused voice clips' },
   trash: { tab: 'storage', title: 'Trash', mostUsed: true },
   temp: { tab: 'storage', title: 'Temp files' },
+  'previous-library': { tab: 'storage', title: 'Previous library', mostUsed: true },
   'data-folder': { tab: 'data', title: 'Folders and files', mostUsed: true },
 } as const satisfies Record<string, CardInfo>
 
