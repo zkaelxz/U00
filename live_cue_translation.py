@@ -40,7 +40,10 @@ def build_live_context(source_language: str, recent, line_ids,
 
 class CueTranslator:
     def __init__(self, engine, source_language: str, reply_without_thinking: bool = True,
-                 term_hints=None):
+                 term_hints=None, spend_guard=None):
+        # spend_guard (services.live_spend_service): before() may raise
+        # JobCancelled, after(error) logs the request; None for a free engine.
+        self.spend_guard = spend_guard
         # term_hints(texts) -> [(source, english, hint)] for those texts; None
         # sends the request exactly as a Live session without a title does.
         self.term_hints = term_hints
@@ -57,12 +60,15 @@ class CueTranslator:
         self._count += 1
         context = build_live_context(self.source_language, self._recent, self._count,
                                      self.reply_without_thinking, self._hints([text]))
+        self._before()
         try:
             translated = self.engine.translate_batch([text], context)[0]
         except TranslationCancelled:
             raise background_jobs.JobCancelled("live translate") from None
         except Exception as exc:
+            self._after(exc)
             return f"[translation failed: {redact_secrets(str(exc))}]"
+        self._after()
         self._remember(text, translated)
         return translated
 
@@ -76,12 +82,15 @@ class CueTranslator:
         self._count += len(texts)
         context = build_live_context(self.source_language, self._recent, ids,
                                      self.reply_without_thinking, self._hints(texts))
+        self._before()
         try:
             replies = self.engine.translate_batch(list(texts), context)
         except TranslationCancelled:
             raise background_jobs.JobCancelled("live translate") from None
-        except Exception:
+        except Exception as exc:
+            self._after(exc)
             return {}
+        self._after()
         if not isinstance(replies, list) or len(replies) != len(ids):
             return {}
         by_id = dict(zip(ids, replies))
@@ -92,6 +101,14 @@ class CueTranslator:
                 found[pos] = translated
                 self._remember(text, translated)
         return found
+
+    def _before(self) -> None:
+        if self.spend_guard is not None:
+            self.spend_guard.before()
+
+    def _after(self, error=None) -> None:
+        if self.spend_guard is not None:
+            self.spend_guard.after(error)
 
     def _hints(self, texts) -> list:
         """A lookup that fails must not cost the cue its translation."""

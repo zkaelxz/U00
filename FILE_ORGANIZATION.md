@@ -262,6 +262,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `line_tools_service.py`
 - `lines_service.py`
 - `live_service.py`
+- `live_spend_service.py` (cap check, usage log and failure stop for a Live session on a paid engine)
 - `lncrawl_service.py`
 - `loaded_models_service.py`
 - `maintenance_assistant_service.py`
