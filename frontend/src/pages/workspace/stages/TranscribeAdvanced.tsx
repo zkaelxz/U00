@@ -21,6 +21,7 @@ import {
 } from '../sourceForm'
 import { advancedGroups, type AdvancedFieldId } from './advancedGroups'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
+import { SpeakerDetectionNotice } from './SpeakerDetectionNotice'
 import { optionLabel, promptSummary, readableSummary, speakersSummary, switchesSummary, type ConfigForm } from './transcribeConfigForm'
 import { diarizeEstimate } from './transcribeEstimate'
 import { asrBackendHelp, GROQ_HELP } from './transcribeBackendField'
@@ -174,6 +175,7 @@ export function TranscribeAdvanced(p: Props) {
               p.hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(p.duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
             )}
           </div>
+          <SpeakerDetectionNotice dramaId={p.dramaId} active />
           <DiarizationDeviceNote dramaId={p.dramaId} refreshKey={p.busy} />
         </>
       ),

@@ -32,6 +32,8 @@ import { Toggle } from '../components/Toggle'
 import { useEventStream } from '../hooks/useEventStream'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { LIVE_STARTED_EVENT, followOptions } from '../api/liveFollows'
+import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
 import { StreamEmbed } from './live/StreamEmbed'
 import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay } from './live/embedLogic'
@@ -108,6 +110,16 @@ export default function LivePage() {
       },
       () => {},
     )
+  }, [])
+
+  // A session started from a followed channel (its card or the bell).
+  useEffect(() => {
+    const onStarted = (e: Event) => {
+      const id = (e as CustomEvent<unknown>).detail
+      if (typeof id === 'string') setSession({ id, status: null, cues: [], next: 0 })
+    }
+    window.addEventListener(LIVE_STARTED_EVENT, onStarted)
+    return () => window.removeEventListener(LIVE_STARTED_EVENT, onStarted)
   }, [])
 
   // A remembered title that was deleted or hidden is not sent.
@@ -401,6 +413,7 @@ export default function LivePage() {
           {error}
         </p>
       )}
+      <FollowedChannels liveOptions={followOptions(buildStartBody({ ...form, engine, model, glossary_drama_id: glossaryTitle }))} />
 
       {session && (
         <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>
@@ -447,7 +460,7 @@ export default function LivePage() {
           </div>
         )}
         <div className="live-feed" aria-live="polite">
-          <p className={status === 'error' ? 'error' : 'muted'} data-testid="live-status">
+          <p className={status === 'error' ? 'error' : session.status?.stop_reason ? 'warn' : 'muted'} data-testid="live-status">
             {session.status ? statusLine(session.status, total) : 'Connecting…'}
           </p>
           {lag && <p className="muted" data-testid="live-lag">{lag}</p>}

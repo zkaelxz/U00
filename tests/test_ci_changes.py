@@ -134,7 +134,8 @@ def test_windows_separators_are_normalised():
 @pytest.mark.parametrize("path", [
     "start.bat", "setup.bat", "uninstall.bat", "make_shortcut.bat", "deploy/run.bat", "start.ps1",
     "uninstall_path_cleanup.ps1", "check_setup.py", "installer/baihe.iss", "installer/service/x.py",
-    "tools/windows_script_checks.py",
+    "tools/windows_script_checks.py", "services/library_restore_service.py",
+    "services/library_restore_sql.py", "db/library_folder.py",
 ])
 def test_windows_script_files_run_only_the_windows_script_checks(path):
     assert pr(path)["run_windows_scripts"] is True

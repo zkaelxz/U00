@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { jobFailed, jobOutcomeText, jobSucceeded, offersCancel } from './jobs'
+import { jobFailed, jobOutcomeDetail, jobOutcomeText, jobSucceeded, offersCancel, shownStatus } from './jobs'
 
 describe('job outcome helpers', () => {
   it('treats a done job with a failed or cancelled outcome as not a success', () => {
@@ -40,5 +40,31 @@ describe('job outcome helpers', () => {
     expect(offersCancel({}, true)).toBe(false)
     expect(offersCancel({ owned_by_me: false }, false)).toBe(true)
     expect(offersCancel({}, false)).toBe(true)
+  })
+})
+
+describe('what a person reads for a finished job', () => {
+  it('shows a done job with a failed or cancelled outcome as Failed or Cancelled', () => {
+    expect(shownStatus({ status: 'done', outcome: 'failed' })).toBe('error')
+    expect(shownStatus({ status: 'done', outcome: 'cancelled' })).toBe('cancelled')
+    expect(shownStatus({ status: 'done', outcome: 'ok' })).toBe('done')
+    expect(shownStatus({ status: 'done', outcome: 'partial' })).toBe('done')
+    expect(shownStatus({ status: 'running', outcome: null })).toBe('running')
+    expect(shownStatus({ status: 'error', outcome: 'failed' })).toBe('error')
+  })
+
+  it('says Finished once when the message only repeats it', () => {
+    expect(jobOutcomeText({ outcome: 'ok', outcome_message: 'Finished.' })).toBe('Finished.')
+    expect(jobOutcomeText({ outcome: 'ok', outcome_message: 'Finished' })).toBe('Finished')
+    expect(jobOutcomeText({ outcome: 'ok', outcome_message: 'Translated 12 lines.' })).toBe('Finished: Translated 12 lines.')
+  })
+
+  it('shows only the reason under a Failed pill', () => {
+    const reason = 'The speech model could not be downloaded.'
+    expect(jobOutcomeDetail({ status: 'done', outcome: 'failed', outcome_message: reason })).toBe(reason)
+    expect(jobOutcomeDetail({ status: 'error', outcome: 'failed', outcome_message: 'Failed' })).toBeNull()
+    expect(jobOutcomeDetail({ status: 'done', outcome: 'ok', outcome_message: 'Finished.' })).toBeNull()
+    expect(jobOutcomeDetail({ status: 'done', outcome: 'partial', outcome_message: 'Two lines failed.' })).toBe('Finished with problems: Two lines failed.')
+    expect(jobOutcomeDetail({ status: 'running', outcome: null })).toBeNull()
   })
 })

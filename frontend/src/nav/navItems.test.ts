@@ -5,7 +5,7 @@ import type { SessionState } from '../hooks/useSession'
 import type { Route } from '../router'
 import { readSavedRailChoice } from './useRailCollapsed'
 import { PREF_KEY_PREFIX, readPref, writePref } from '../hooks/usePersistedState'
-import { NAV_ITEMS, RAIL_COLLAPSED_KEY, resolveRailCollapsed, visibleNavItemsFor, visibleRailGroups, type NavContext } from './navItems'
+import { NAV_ITEMS, RAIL_COLLAPSED_KEY, customizableNavItems, isNavLocked, resolveRailCollapsed, visibleNavItemsFor, visibleRailGroups, type NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
 const meOf = (over: Partial<AuthMe>): SessionState => ({
@@ -43,21 +43,24 @@ const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
 const ALL = ['Library', 'Library tools', 'Quick translate', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
 
+// Make subtitles creates a title, so it follows the permission the Library's New title needs.
+const withMake = (l: string[]) => [...l.slice(0, 2), 'Make subtitles', ...l.slice(2)]
+
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
-    expect(labels(personas['owner at the PC'])).toEqual([...ALL, 'Admin', 'Diagnostics', 'Benchmark Lab'])
+    expect(labels(personas['owner at the PC'])).toEqual(withMake([...ALL, 'People and access', 'Diagnostics', 'Benchmark Lab']))
   })
 
-  it('household member: no Admin, no Diagnostics', () => {
+  it('household member: no People and access, no Diagnostics', () => {
     expect(labels(personas['household member'])).toEqual(ALL)
   })
 
-  it('member holding admin.diagnostics: Diagnostics without Admin', () => {
+  it('member holding admin.diagnostics: Diagnostics without People and access', () => {
     expect(labels(personas['member with admin.diagnostics'])).toEqual([...ALL, 'Diagnostics', 'Benchmark Lab'])
   })
 
-  it('remote admin: Admin, no Diagnostics (the household listener never reports admin.diagnostics), no Assistant', () => {
-    expect(labels(personas['remote admin'])).toEqual([...ALL, 'Admin'])
+  it('remote admin: People and access, no Diagnostics (the household listener never reports admin.diagnostics), no Assistant', () => {
+    expect(labels(personas['remote admin'])).toEqual([...ALL, 'People and access'])
   })
 
   it('auth unavailable: every page but the admin ones until /me answers', () => {
@@ -65,7 +68,7 @@ describe('nav registry per persona', () => {
     expect(labels(ctx)).toEqual(ALL)
   })
 
-  it('session still loading: no Admin or Diagnostics', () => {
+  it('session still loading: no People and access or Diagnostics', () => {
     const ctx: NavContext = { session: { status: 'loading' }, pcMode: 'unknown', developerMode: false }
     expect(labels(ctx)).toEqual(ALL)
   })
@@ -117,27 +120,27 @@ describe('left rail', () => {
     expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
-      ['Tools', ['Quick translate', 'Live']],
-      ['System', ['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
+      ['Tools', ['Make subtitles', 'Quick translate', 'Live']],
+      ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab']],
     ])
   })
 
-  it('household member: no Admin, Diagnostics or Benchmark Lab', () => {
+  it('household member: no People and access, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
     expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Quick translate', 'Live', 'Jobs', 'Settings'])
   })
 
-  it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not Admin', () => {
+  it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not People and access', () => {
     const labelsOf = railLabels(personas['member with admin.diagnostics'])
     expect(labelsOf).toEqual(expect.arrayContaining(['Diagnostics', 'Benchmark Lab']))
-    expect(labelsOf).not.toContain('Admin')
+    expect(labelsOf).not.toContain('People and access')
   })
 
   it('a failed /me still renders every non-admin page', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
     const labelsOf = railLabels(ctx)
     expect(labelsOf).toContain('Jobs')
-    expect(labelsOf).not.toEqual(expect.arrayContaining(['Admin']))
+    expect(labelsOf).not.toEqual(expect.arrayContaining(['People and access']))
     expect(labelsOf).not.toContain('Diagnostics')
   })
 
@@ -151,7 +154,7 @@ describe('left rail', () => {
     const ctx: NavContext = { ...owner, developerMode: true }
     const targets = visibleRailGroups(ctx).flatMap((g) => g.items.map((r) => r.item.target.name))
     expect(targets).toEqual(
-      expect.arrayContaining(['library', 'library-tools', 'sources', 'discover', 'translate', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
+      expect.arrayContaining(['library', 'library-tools', 'sources', 'discover', 'translate', 'make-subtitles', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
     )
   })
 
@@ -167,6 +170,7 @@ describe('left rail', () => {
     ['diagnostics', { name: 'diagnostics' }, ['Diagnostics']],
     ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],
     ['translate', { name: 'translate' }, ['Quick translate']],
+    ['make subtitles', { name: 'make-subtitles' }, ['Make subtitles']],
   ])('%s marks exactly one rail item current', (_name, route, expected) => {
     expect(railCurrent({ ...owner, developerMode: true }, route)).toEqual(expected)
   })
@@ -210,5 +214,22 @@ describe('rail collapse', () => {
     ['saved collapsed wins when wide', true, true, true],
   ])('default: %s', (_name, saved, wideEnough, collapsed) => {
     expect(resolveRailCollapsed(saved, wideEnough)).toBe(collapsed)
+  })
+})
+
+describe('Make subtitles menu item', () => {
+  const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
+
+  it('sits in the Tools group and can be hidden like the others', () => {
+    const owner = personas['owner at the PC']
+    const tools = visibleRailGroups(owner).find((g) => g.id === 'tools')
+    expect(tools?.items.map((r) => r.item.label)).toContain('Make subtitles')
+    expect(labels({ ...owner, hidden: ['make-subtitles'] })).not.toContain('Make subtitles')
+    expect(customizableNavItems(owner).map((i) => i.label)).toContain('Make subtitles')
+    expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Make subtitles')!)).toBe(false)
+  })
+
+  it('is not offered to people who cannot create titles', () => {
+    expect(labels(personas['household member'])).not.toContain('Make subtitles')
   })
 })

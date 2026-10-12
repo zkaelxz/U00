@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { QueueItem, QueueState } from '../../types/queue'
 import {
-  canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText, statusLabel, statusTone, translateCostNote,
+  canRemove, canRetry, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, statusLabel, statusTone,
+  translateCostNote,
 } from './queueModel'
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
@@ -52,5 +53,26 @@ describe('queueModel', () => {
     expect(translateCostNote('Claude', true, 5)).toBe('Uses Claude. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
     expect(translateCostNote('Claude', true, 0)).toContain('No monthly spending cap is set, so the queue will skip it')
     expect(translateCostNote('Ollama', false, 5)).toBe('Uses Ollama, which is free.')
+  })
+})
+
+describe('saved settings panel', () => {
+  it('words the engine row and leaves other rows as the server sent them', () => {
+    expect(savedSettingValue({ label: 'Engine and model', value: 'claude-sonnet-5-5', engine: 'claude' })).toBe('Claude, claude-sonnet-5-5')
+    expect(savedSettingValue({ label: 'Engine and model', value: '', engine: 'deepseek' })).toBe('DeepSeek')
+    expect(savedSettingValue({ label: 'Batch size', value: '20', engine: null })).toBe('20')
+  })
+
+  it('links each step to the stage that holds its options', () => {
+    expect(settingsStage('translate')).toEqual({ stage: 'translate', label: 'Translate' })
+    expect(settingsStage('transcribe')).toEqual({ stage: 'source', label: 'Media' })
+    expect(settingsStage('export')).toEqual({ stage: 'export', label: 'Export' })
+  })
+
+  it('does not double the full stop when an engine description ends with one', () => {
+    expect(translateCostNote('Paid, cloud; best tone and character voice.', true, 5)).toBe(
+      'Uses Paid, cloud; best tone and character voice. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
+    expect(translateCostNote('Claude', false, 0)).toBe('Uses Claude, which is free.')
+    expect(translateCostNote('Claude.', false, 0)).toBe('Uses Claude, which is free.')
   })
 })

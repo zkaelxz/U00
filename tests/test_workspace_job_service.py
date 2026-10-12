@@ -16,8 +16,9 @@ def test_every_moved_workspace_function_is_exported():
 
 
 def test_every_moved_library_function_is_exported():
-    for name in ("restore_library_backup", "run_bulk_series_translate_job"):
-        assert callable(getattr(wjs, name, None)), f"{name} missing or not callable"
+    from services import library_restore_service as lrs
+    assert callable(getattr(wjs, "run_bulk_series_translate_job", None))
+    assert callable(getattr(lrs, "restore_library_backup", None))
 
 
 # --- Parity with translate_run_service (bulk + fix-flagged context) ---

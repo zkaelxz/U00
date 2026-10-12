@@ -7,6 +7,8 @@ Temp folders only.
 import json
 import os
 import shutil
+import sqlite3
+import time
 
 import pytest
 
@@ -1618,3 +1620,129 @@ class TestTitleSizesKeepOriginal:
         did = self._title(pinned=False)
         sizes = _item(dus.scan("library/dramas"), str(did))["title_sizes"]
         assert (sizes["originals_bytes"], sizes["regenerable_bytes"]) == (0, 75)
+
+
+class TestPreviousLibrary:
+    """The library copies a restore or a reset keeps beside the library
+    folder: one labelled entry with its size, deleted only after a confirm."""
+
+    @staticmethod
+    def _kept(tree):
+        """A live library with a title, and copies beside it; the staging
+        folder is a day old (a restore that died), so a delete may take it."""
+        base = os.path.basename(db.LIBRARY_DIR)
+        db.create_drama(title_en="Live title")
+        _write(os.path.join(tree, base + ".pre_restore_100", "dramas", "7", "audio.mp3"), 600)
+        _write(os.path.join(tree, base + ".pre_restore_100", "library.db"), 50)
+        _write(os.path.join(tree, ".restore_staging_abc", "library.db"), 30)
+        _write(os.path.join(tree, base + ".pre_reset_200", "library.db"), 20)
+        _write(os.path.join(tree, "photos", "a.jpg"), 10)
+        TestPreviousLibrary._age(os.path.join(tree, ".restore_staging_abc"), 24 * 3600)
+
+    @staticmethod
+    def _age(folder, seconds):
+        old = time.time() - seconds
+        for root, _dirs, files in os.walk(folder):
+            for name in files:
+                os.utime(os.path.join(root, name), (old, old))
+            os.utime(root, (old, old))
+
+    @staticmethod
+    def _titled_copy(path, titles=1):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        conn = sqlite3.connect(path)
+        conn.execute("CREATE TABLE dramas (id INTEGER PRIMARY KEY, title_en TEXT)")
+        conn.executemany("INSERT INTO dramas (title_en) VALUES (?)", [("t",)] * titles)
+        conn.commit()
+        conn.close()
+
+    def test_the_kept_copies_are_one_entry_with_their_size(self, tree):
+        from services import previous_library_service as pls
+        self._kept(tree)
+        got = pls.summary()
+        assert got == {"present": True, "label": "Previous library kept after restore",
+                       "size_bytes": 700, "file_count": 4, "folder_count": 3, "partial": False}
+        res = dus.scan("")
+        base = os.path.basename(db.LIBRARY_DIR)
+        assert _item(res, base + ".pre_restore_100")["protected_reason"] == dus.PREVIOUS_LIBRARY
+        assert _item(res, "photos")["protected_reason"] == dus.NOT_BAIHE
+
+    def test_delete_needs_the_word_and_the_size_shown(self, tree):
+        from services import previous_library_service as pls
+        self._kept(tree)
+        with pytest.raises(InvalidInputError):
+            pls.delete("delete", 700)
+        with pytest.raises(ConflictError):
+            pls.delete("DELETE", 699)
+        assert pls.summary()["folder_count"] == 3
+        assert pls.delete("DELETE", 700) == {"deleted": 3, "freed_bytes": 700}
+        assert pls.summary()["present"] is False
+        assert os.path.isfile(os.path.join(tree, "photos", "a.jpg"))
+        assert os.path.isfile(db.DB_PATH)
+
+    def test_delete_is_refused_while_the_library_is_missing_or_held(self, tree, monkeypatch):
+        from services import previous_library_service as pls
+        self._kept(tree)
+        aside = os.path.join(tree, os.path.basename(db.LIBRARY_DIR) + ".pre_restore_100")
+        holder = db.hold_restore_lock(db.LIBRARY_DIR)
+        try:
+            with pytest.raises(ConflictError):
+                pls.delete("DELETE", 700)
+        finally:
+            db.release_restore_lock(holder)
+        # The live database gone (the library folder missing or emptied): the
+        # size matches, so only the missing-library guard can refuse.
+        moved = [(db.DB_PATH + x, db.DB_PATH + x + ".aside") for x in ("", "-wal", "-shm")
+                 if os.path.exists(db.DB_PATH + x)]
+        for a, b in moved:
+            os.rename(a, b)
+        try:
+            with pytest.raises(ConflictError, match="missing or fails a check"):
+                pls.delete("DELETE", 700)
+            assert not os.path.exists(db.DB_PATH)   # the check created no empty one
+        finally:
+            for a, b in moved:
+                os.rename(b, a)
+        assert os.path.isdir(aside)
+
+    def test_delete_is_refused_while_the_live_library_fails_its_check(self, tree):
+        """A restore whose put-back failed leaves a damaged library.db in place and
+        the real library aside: that copy must not be deletable."""
+        from services import previous_library_service as pls
+        self._kept(tree)
+        with open(db.DB_PATH, "wb") as fh:
+            fh.write(b"not a database" * 100)
+        with pytest.raises(ConflictError):
+            pls.delete("DELETE", 700)
+        assert pls.summary()["folder_count"] == 3
+
+    def test_delete_is_refused_when_an_empty_library_replaced_the_real_one(self, tree):
+        """A start mid-restore can create a fresh, empty library while the real one
+        sits in .pre_restore_*: an empty live library that passes quick_check must
+        not unlock deleting the only copy with titles."""
+        from services import previous_library_service as pls
+        aside = os.path.join(tree, os.path.basename(db.LIBRARY_DIR) + ".pre_restore_100")
+        self._titled_copy(os.path.join(aside, "library.db"), titles=3)
+        assert db.list_dramas() == []
+        with pytest.raises(ConflictError, match="missing or fails a check"):
+            pls.delete("DELETE", pls.summary()["size_bytes"])
+        assert os.path.isfile(os.path.join(aside, "library.db"))
+
+    def test_an_empty_library_after_a_reset_may_delete_the_reset_copy(self, tree):
+        from services import previous_library_service as pls
+        kept = os.path.join(tree, os.path.basename(db.LIBRARY_DIR) + ".pre_reset_200")
+        self._titled_copy(os.path.join(kept, "library.db"), titles=3)
+        size = pls.summary()["size_bytes"]
+        assert pls.delete("DELETE", size) == {"deleted": 1, "freed_bytes": size}
+        assert not os.path.exists(kept)
+
+    def test_a_staging_folder_still_being_written_is_left_alone(self, tree):
+        """Another process's restore stages its folder without the restore lock;
+        a delete takes only staging folders untouched for hours."""
+        from services import previous_library_service as pls
+        self._kept(tree)
+        _write(os.path.join(tree, ".restore_staging_live", "dramas", "1", "a.wav"), 40)
+        seen = pls.summary()["size_bytes"]
+        assert pls.delete("DELETE", seen) == {"deleted": 3, "freed_bytes": 700}
+        assert os.path.isfile(os.path.join(tree, ".restore_staging_live", "dramas", "1", "a.wav"))
+        assert not os.path.exists(os.path.join(tree, ".restore_staging_abc"))

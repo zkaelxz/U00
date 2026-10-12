@@ -91,6 +91,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/data-usage` | local_only() |
 | `POST /api/data-usage/clean-temp` | local_only() |
 | `POST /api/data-usage/move` | local_only() |
+| `GET /api/data-usage/previous-library` | local_only() |
+| `POST /api/data-usage/previous-library/delete` | local_only() |
 | `POST /api/data-usage/to-trash` | local_only() |
 | `GET /api/data-usage/trash` | local_only() |
 | `POST /api/data-usage/trash/empty` | local_only() |
@@ -105,6 +107,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/bug-reports` | library.read |
 | `GET /api/diagnostics/bug-reports/{report_id}` | admin.diagnostics |
 | `POST /api/diagnostics/bug-reports/{report_id}/delete` | local_only() |
+| `GET /api/diagnostics/cuda-runtime` | admin.diagnostics |
+| `POST /api/diagnostics/cuda-runtime/install` | local_only() |
 | `GET /api/diagnostics/deno` | admin.diagnostics |
 | `POST /api/diagnostics/deno/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
@@ -217,6 +221,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/glossary/dramas/{drama_id}/terms` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/terms/bulk-delete` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/variants` | lines.read |
+| `GET /api/glossary/name-report` | lines.read |
+| `POST /api/glossary/name-report` | lines.read + jobs.start |
+| `POST /api/glossary/name-report/cancel` | jobs.cancel |
+| `GET /api/glossary/name-report/export.md` | lines.read |
+| `POST /api/glossary/name-report/marks` | lines.read + lines.edit |
 | `GET /api/health` | public() |
 | `GET /api/jellyfin/config` | local_only() |
 | `POST /api/jellyfin/config` | local_only() |
@@ -283,6 +292,13 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/set-language` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/shorten-overlong` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/source-changed/keep-english` | lines.edit |
+| `GET /api/live/follows` | library.read |
+| `POST /api/live/follows` | media.import_url |
+| `POST /api/live/follows/check-all` | media.import_url |
+| `POST /api/live/follows/{follow_id}` | media.import_url |
+| `POST /api/live/follows/{follow_id}/check` | media.import_url |
+| `POST /api/live/follows/{follow_id}/remove` | media.import_url |
+| `POST /api/live/follows/{follow_id}/start` | media.import_url |
 | `GET /api/live/ollama-check` | library.read |
 | `GET /api/live/sessions` | library.read |
 | `POST /api/live/sessions` | media.import_url |
@@ -350,6 +366,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/pause` | jobs.start |
 | `POST /api/queue/policy` | jobs.start |
 | `POST /api/queue/schedule` | jobs.start |
+| `GET /api/queue/settings` | jobs.start |
 | `POST /api/queue/start` | jobs.start |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
@@ -584,6 +601,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate-run/dramas/{drama_id}/workflow-tier` | lines.edit |
 | `POST /api/translate-run/presets` | admin.library |
 | `GET /api/translate/engines` | library.read |
+| `POST /api/translate/estimate` | engines.paid |
 | `DELETE /api/translate/history` | local_only() |
 | `GET /api/translate/history` | library.read |
 | `DELETE /api/vdb-names` | local_only() |

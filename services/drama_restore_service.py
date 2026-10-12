@@ -27,7 +27,7 @@ from db import fsync_dir as _fsync_dir
 from lib import gzip_text
 from services import delete_service
 from services import library_admin_service as las
-from services import workspace_job_service as wjs
+from services import library_restore_service as lrs
 from services.auto_backup_service import (RESTORE_CONFIRM_TEXT, _BAD_SNAPSHOT, _pick_copy,
                                           _read_manifest, _snapshot_lock, extract_db,
                                           job_running, ro_uri)
@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 # What a single-drama restore extracts is capped per member (the whole-zip
 # upload caps don't apply to the app's own snapshot; see _verify_snapshot).
-_MAX_MEMBER_BYTES = wjs.MAX_RESTORE_MEMBER_BYTES
+_MAX_MEMBER_BYTES = lrs.MAX_RESTORE_MEMBER_BYTES
 
 
 # Every table with a drama_id foreign key to dramas(id), in insert order,

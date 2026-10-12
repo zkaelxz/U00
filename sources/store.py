@@ -87,7 +87,7 @@ BROWSER_PROFILES_DIRNAME = "profiles"
 def browser_profiles_root() -> str:
     """Persistent browser profiles (sign-in state). A library restore keeps
     the current ones rather than taking them from the upload
-    (services/workspace_job_service.restore_kept_names)."""
+    (services/library_restore_service.restore_kept_names)."""
     return os.path.join(db.LIBRARY_DIR, BROWSER_PROFILES_DIRNAME)
 
 
@@ -210,6 +210,27 @@ CREATE TABLE IF NOT EXISTS domain_proposals (
     found_at REAL NOT NULL,
     dismissed INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (source, host)
+);
+-- Live: YouTube channels a user follows for streams (services/live_follow_service.py).
+CREATE TABLE IF NOT EXISTS followed_channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER,
+    pc_owner INTEGER NOT NULL DEFAULT 0,
+    channel_url TEXT NOT NULL,
+    channel_name TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT 'notify',
+    auto_check INTEGER NOT NULL DEFAULT 0,
+    options TEXT NOT NULL DEFAULT '{}',
+    poll_minutes INTEGER NOT NULL DEFAULT 60,
+    last_checked_at REAL,
+    last_state TEXT NOT NULL DEFAULT '',
+    last_status TEXT NOT NULL DEFAULT '',
+    starts_at REAL,
+    last_stream_id TEXT NOT NULL DEFAULT '',
+    stream_title TEXT NOT NULL DEFAULT '',
+    notified_state TEXT NOT NULL DEFAULT '',
+    started_stream_id TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,

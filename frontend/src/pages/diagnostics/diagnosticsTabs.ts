@@ -14,6 +14,7 @@ export const CARD_TAB = {
   packages: 'packages',
   browser: 'packages',
   deno: 'packages',
+  'cuda-runtime': 'packages',
   speaker: 'packages',
   'model-status': 'models',
   models: 'models',

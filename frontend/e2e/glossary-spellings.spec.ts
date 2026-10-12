@@ -1,5 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 
+// The Glossary section starts folded the first time; these tests need its body.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '1'))
+})
+
 // "Suggest spellings" and "Check English names" on the Glossary panel. The seeded dramas have
 // no series, so terms and the spelling routes are mocked; nothing is saved except through the
 // mocked term route, and only after the confirm.
@@ -22,7 +27,7 @@ async function openPanel(page: Page, mockTerms = true) {
   if (mockTerms) await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: TERMS }))
   await page.goto('/#/drama/1/translate')
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByLabel('Project instructions')).toBeVisible()
+  await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   await glossary.getByRole('button', { name: 'Suggest spellings of ヤロ' }).click()
   return glossary.getByRole('region', { name: 'Suggest spellings of ヤロ' })
 }

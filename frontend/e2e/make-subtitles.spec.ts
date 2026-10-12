@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { DRAMA_ID, mockMakeSubtitles } from './makeSubtitlesMocks'
 
-// File to English SRT from the Library. Every API call is mocked; nothing is
+// File to English SRT from the Make subtitles page. Every API call is mocked; nothing is
 // created, transcribed or translated for real.
 
 const AUDIO = { name: 'My Show.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') }
@@ -10,7 +10,7 @@ const card = (page: import('@playwright/test').Page) => page.getByRole('region',
 
 test('four clicks: choose a file and language, make subtitles, download', async ({ page }) => {
   const m = await mockMakeSubtitles(page)
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = card(page)
   const primary = c.getByRole('button', { name: 'Make subtitles' })
   await expect(primary).toBeDisabled()
@@ -37,7 +37,7 @@ test('four clicks: choose a file and language, make subtitles, download', async 
 
 test('shows the steps while it runs and a reload reattaches to the job', async ({ page }) => {
   const m = await mockMakeSubtitles(page, { holdFirst: true })
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
   await c.getByRole('button', { name: 'Make subtitles' }).click()
@@ -56,7 +56,7 @@ test('shows the steps while it runs and a reload reattaches to the job', async (
 
 test('a failure names its step and links to that stage', async ({ page }) => {
   await mockMakeSubtitles(page, { failJob: 'translate' })
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
   await c.getByRole('button', { name: 'Make subtitles' }).click()
@@ -71,7 +71,7 @@ test('a failure names its step and links to that stage', async ({ page }) => {
 
 test('a video file creates a video drama and the title can be changed', async ({ page }) => {
   const m = await mockMakeSubtitles(page)
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles({ name: 'ep1.mp4', mimeType: 'video/mp4', buffer: Buffer.from('abc') })
   await c.getByText('Options').click()
@@ -85,7 +85,7 @@ test('a video file creates a video drama and the title can be changed', async ({
 
 test('Make another clears the typed title but keeps the file-independent choices', async ({ page }) => {
   const m = await mockMakeSubtitles(page)
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
   await c.getByText('Options').click()
@@ -104,7 +104,7 @@ test('Make another clears the typed title but keeps the file-independent choices
 
 test('Cancel during the upload aborts it and says the title was kept', async ({ page }) => {
   const m = await mockMakeSubtitles(page, { holdUpload: true })
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
   await c.getByRole('button', { name: 'Make subtitles' }).click()
@@ -119,7 +119,7 @@ test('Cancel during the upload aborts it and says the title was kept', async ({ 
 
 test('a job cancelled elsewhere shows the same note instead of resetting silently', async ({ page }) => {
   await mockMakeSubtitles(page, { cancelledJob: true })
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
   await c.getByRole('button', { name: 'Make subtitles' }).click()
@@ -132,22 +132,8 @@ test('a run saved at the upload step shows a note with a link to the title on re
   await page.addInitScript((id) => {
     if (!localStorage.getItem('baihe.pref.makeSubtitles.run')) localStorage.setItem('baihe.pref.makeSubtitles.run', JSON.stringify({ dramaId: id, step: 'upload' }))
   }, DRAMA_ID)
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = card(page)
   await expect(c.getByText('The last run stopped before the upload finished.')).toBeVisible()
   await expect(c.getByRole('link', { name: 'Open title' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}`)
-})
-
-test('with titles the card folds to one line that reopens it and is remembered', async ({ page }) => {
-  await mockMakeSubtitles(page, { folded: true })
-  await page.goto('/')
-  const toggle = page.getByRole('button', { name: 'Make subtitles', expanded: false })
-  await expect(toggle).toBeVisible()
-  await expect(card(page)).toBeHidden()
-  await toggle.focus()
-  await page.keyboard.press('Enter')
-  await expect(card(page)).toBeVisible()
-  await page.reload()
-  await expect(page.getByRole('button', { name: 'Make subtitles', expanded: true }).first()).toBeVisible()
-  await expect(card(page)).toBeVisible()
 })

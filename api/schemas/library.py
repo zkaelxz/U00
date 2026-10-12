@@ -751,6 +751,18 @@ class LibraryArtifactInfo(BaseModel):
 class LibraryRestoreDone(BaseModel):
     restored: bool
     sessions_revoked: int
+    # True when the backup held no media and the current media was kept.
+    media_kept: bool = False
+    # The previous library stayed beside the restored one (something in it
+    # could not be moved across): the owner must check before deleting it.
+    previous_library_kept: bool = False
+    # Accounts taken from the backup (only into a library that had none).
+    accounts_restored: int = 0
+    # Titles whose owner became the live account with the same email, or the
+    # PC owner (only when the live accounts were kept).
+    titles_reassigned: int = 0
+    # The previous library's other folders the backup lacks: they stay there.
+    folders_left_behind: List[str] = []
 
 
 class LibraryStorageCategory(BaseModel):

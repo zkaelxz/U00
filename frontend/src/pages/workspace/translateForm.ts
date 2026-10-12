@@ -2,6 +2,7 @@
 // tested. Ranges mirror api/schemas/translate.py TranslateRunStart.
 
 import { THINKING_SWITCH_ENGINES } from '../../api/live'
+import { formatRange } from '../../formatRange'
 import type {
   EstimateParams,
   FallbackEngine,
@@ -13,6 +14,21 @@ import type {
 } from '../../types/translateStage'
 
 export const MAX_FALLBACKS = 2
+
+// Limits of the numeric fields; the field hints and the validation messages read them from here.
+export const BATCH_SIZE_MIN = 1
+export const BATCH_SIZE_MAX = 60
+export const CONTEXT_MIN = 0
+export const CONTEXT_MAX = 100
+export const batchSizeRange = () => formatRange(BATCH_SIZE_MIN, BATCH_SIZE_MAX, 'lines')
+export const contextRange = () => formatRange(CONTEXT_MIN, CONTEXT_MAX, 'lines')
+
+// Bump when the remembered form changes meaning. Drafts written before the
+// version existed (or with an older one) may hold a batch size that was
+// the engine default at the time but is not any more.
+export const RUN_OPTIONS_VERSION = 2
+// Batch sizes that were an engine's default before Sonnet's became 60.
+const SUPERSEDED_BATCH_DEFAULTS = ['30']
 
 export interface RunForm {
   engine: string // '' = the drama's configured default engine
@@ -179,18 +195,26 @@ export const TRANSLATE_DRAFT_STAGE = 'translate'
 type SavedForm = Omit<RunForm, 'force' | 'forceConfirmed' | 'female_pronouns' | 'genre_notes'>
 
 export interface RunOptions {
+  v: number
   form: SavedForm
   // The title's saved engine when this was written: if the server's has
   // changed since (tier or preset applied elsewhere), the engine choices are stale.
   baseEngine: string
   reviewFirst: boolean
-  tier: string
 }
 
-/** What the draft keeps of the form: the plain choices, never the destructive switches. */
-export function runOptionsDraft(o: { form: RunForm; baseEngine: string; reviewFirst: boolean; tier: string }): RunOptions {
+/**
+ * What the draft keeps of the form: the plain choices, never the destructive switches.
+ * A batch size typed equal to the engine's default is kept as blank, so the default
+ * can change later without leaving an old value behind.
+ */
+export function runOptionsDraft(
+  o: { form: RunForm; baseEngine: string; reviewFirst: boolean },
+  engineDefaultBatch?: number,
+): RunOptions {
   const { force: _force, forceConfirmed: _confirmed, female_pronouns: _fp, genre_notes: _gn, ...form } = o.form
-  return { form, baseEngine: o.baseEngine, reviewFirst: o.reviewFirst, tier: o.tier }
+  if (engineDefaultBatch !== undefined && form.batch_size.trim() === String(engineDefaultBatch)) form.batch_size = ''
+  return { v: RUN_OPTIONS_VERSION, form, baseEngine: o.baseEngine, reviewFirst: o.reviewFirst }
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
@@ -212,8 +236,8 @@ export function restoreRunOptions(
   o: Record<string, unknown> | null,
   base: RunForm,
   c: TranslateRunConfig,
-): { form: RunForm; reviewFirst: boolean; tier: string | null } {
-  const none = { form: base, reviewFirst: false, tier: null }
+): { form: RunForm; reviewFirst: boolean } {
+  const none = { form: base, reviewFirst: false }
   if (!o || !('form' in o)) return none
   const s = (o.form && typeof o.form === 'object' ? o.form : {}) as Record<string, unknown>
   const f: RunForm = { ...base }
@@ -248,13 +272,16 @@ export function restoreRunOptions(
   if (locale && c.locales.includes(locale)) f.locale = locale
   const note = str(s.style_note)
   if (note !== undefined && note.length <= 4000) f.style_note = note
-  f.batch_size = s.batch_size === '' ? '' : clampInt(s.batch_size, 1, 60, base.batch_size)
-  f.context_window = clampInt(s.context_window, 0, 100, base.context_window)
-  f.context_window_ahead = clampInt(s.context_window_ahead, 0, 100, base.context_window_ahead)
+  const batch = s.batch_size === '' ? '' : clampInt(s.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX, base.batch_size)
+  const outdated = o.v !== RUN_OPTIONS_VERSION && SUPERSEDED_BATCH_DEFAULTS.includes(batch)
+  // A value equal to today's default is the default, not a choice to keep.
+  f.batch_size = outdated || batch === String(defaultBatchSize(c, f)) ? base.batch_size : batch
+  f.context_window = clampInt(s.context_window, CONTEXT_MIN, CONTEXT_MAX, base.context_window)
+  f.context_window_ahead = clampInt(s.context_window_ahead, CONTEXT_MIN, CONTEXT_MAX, base.context_window_ahead)
   const cap = str(s.cost_cap)
   if (cap !== undefined && (cap.trim() === '' || parseCap(cap) !== null)) f.cost_cap = cap
 
-  return { form: f, reviewFirst: o.reviewFirst === true, tier: str(o.tier) ?? null }
+  return { form: f, reviewFirst: o.reviewFirst === true }
 }
 
 // The batch size the server uses for this form's engine and model while the
@@ -262,6 +289,14 @@ export function restoreRunOptions(
 export function defaultBatchSize(c: TranslateRunConfig, f: RunForm): number {
   const byModel = c.batch_size_defaults?.[f.engine || c.translation_engine]
   return byModel?.[f.model] ?? byModel?.[''] ?? c.defaults.batch_size
+}
+
+// Set when the batch size field holds a number other than the engine's
+// default, so the form can say whose choice it is and offer the default back.
+export function batchOverride(c: TranslateRunConfig, f: RunForm): { value: string; engineDefault: number } | null {
+  const value = f.batch_size.trim()
+  const engineDefault = defaultBatchSize(c, f)
+  return value !== '' && Number(value) !== engineDefault ? { value, engineDefault } : null
 }
 
 // A preset value only applies when this server still offers it. Without a
@@ -327,10 +362,12 @@ export function validateRun(
   if (f.bulk && !bulkAvailable(eff, bulkSupported)) return 'Bulk needs Claude, Gemini or DeepSeek.'
   if (f.bulk && f.reflect && !bulkReflectAvailable(eff, bulkSupported)) return 'Bulk Reflect needs Claude or Gemini.'
   if ((f.bulk || f.reflect) && f.fallbacks.length) return 'Fallback engines only apply to a normal run.'
-  if (f.batch_size.trim() !== '' && intIn(f.batch_size, 1, 60) === null) return 'Batch size must be a whole number from 1 to 60.'
-  if (intIn(f.context_window, 0, 100) === null) return 'Context window must be a whole number from 0 to 100.'
-  if (intIn(f.context_window_ahead, 0, 100) === null)
-    return 'Context window ahead must be a whole number from 0 to 100.'
+  if (f.batch_size.trim() !== '' && intIn(f.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX) === null)
+    return `Batch size must be a whole number, ${batchSizeRange()}.`
+  if (intIn(f.context_window, CONTEXT_MIN, CONTEXT_MAX) === null)
+    return `Context window must be a whole number, ${contextRange()}.`
+  if (intIn(f.context_window_ahead, CONTEXT_MIN, CONTEXT_MAX) === null)
+    return `Context window ahead must be a whole number, ${contextRange()}.`
   if (parseCap(f.cost_cap) === null) return 'Cost cap must be a number of dollars, 0 or more.'
   if (f.style_note.length > 4000) return 'Style note is too long (4000 characters at most).'
   if (f.fallbacks.length > MAX_FALLBACKS) return `At most ${MAX_FALLBACKS} fallback engines.`

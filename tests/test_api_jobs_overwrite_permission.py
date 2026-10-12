@@ -146,7 +146,11 @@ def _session(email, perms):
 
 
 def test_api_refuses_each_overwrite_without_lines_edit(monkeypatch):
+    from services import model_readiness_service
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    # On disk, so each run is refused only by the rule under test.
+    for check in ("whisper_ready", "diarization_ready"):
+        monkeypatch.setattr(model_readiness_service, check, lambda *a: True)
     client = TestClient(create_app(ApiSettings(auth_mode="on")),
                         base_url="https://baihe.example.com", raise_server_exceptions=False)
     member = _session("kid@example.com", NO_EDIT)

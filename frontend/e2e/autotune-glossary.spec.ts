@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { glossaryTab } from './glossaryTabs'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
 import { mediaTab } from './mediaTabs'
@@ -158,6 +159,7 @@ test.describe('Glossary from novel', () => {
   test('is disabled without a series, with a link to Details', async ({ page }) => {
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
+    await glossaryTab(page, 'Find terms')
     const bar = page.getByTestId('lines-glossary')
     await expect(bar.getByRole('button', { name: 'Suggest terms', exact: true })).toBeDisabled()
     await expect(bar.getByTestId('suggest-reason-novel')).toContainText('Still needed: a series for this title')

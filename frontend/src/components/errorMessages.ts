@@ -16,6 +16,7 @@ const GENERIC: Record<string, string> = {
   internal_error: 'Something went wrong inside Baihe. Details are in the app log.',
   network_error: 'Could not reach the Baihe API. Is it running?',
   forbidden: 'Not allowed from this device or account.',
+  model_not_downloaded: 'This model is not downloaded yet. Ask the owner of the main PC to download it first.',
   unauthenticated: 'Your session has ended. Sign in again.',
   rate_limited: 'Too many requests. Wait a moment and try again.',
   extension_only:
@@ -29,8 +30,13 @@ export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
 // panel but not read lines, so it gets a plain note, not an error banner.
 export const LINES_READ_FORBIDDEN = 'Seeing line text needs permission to read lines. Ask the owner of the main PC.'
 
+// A model refusal is a 403 too, but its sentence says what to do, so it is
+// not read as "this device or account may not".
+export const MODEL_NOT_DOWNLOADED = 'model_not_downloaded'
+
 export function isForbidden(err: unknown): boolean {
   const e = err as { status?: number; code?: string } | null
+  if (e?.code === MODEL_NOT_DOWNLOADED) return false
   return e?.status === 403 || e?.code === 'forbidden'
 }
 
@@ -81,7 +87,7 @@ export function describeError(
   const refusalText =
     opts.reasonAsTitle && OPT_IN_SERVER_TEXT_CODES.includes(code) && e?.message ? safeDetail(e.message) : null
   const title =
-    opts.pcOnly && (code === 'forbidden' || e?.status === 403)
+    opts.pcOnly && code !== MODEL_NOT_DOWNLOADED && (code === 'forbidden' || e?.status === 403)
       ? PC_ONLY_FORBIDDEN
       : (ollamaText ?? (missingKey ? keyTitle : null) ?? refusalText ?? GENERIC[code] ?? GENERIC.application_error)
   const showServer =

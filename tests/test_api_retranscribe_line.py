@@ -816,7 +816,10 @@ class TestAuthOn:
         assert _remote().post(_path(did, ids[0])).status_code == 401
         assert "job_id" not in captured
 
-    def test_without_jobs_start_403_with_it_200(self, isolated_db, captured):
+    def test_without_jobs_start_403_with_it_200(self, isolated_db, captured, monkeypatch):
+        from services import model_readiness_service
+        # On disk, so the remote run is refused only by the rule under test.
+        monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a: True)
         did, ids = _drama(isolated_db)
         c = _remote()
         u = auth_service.add_user("bare@example.com")

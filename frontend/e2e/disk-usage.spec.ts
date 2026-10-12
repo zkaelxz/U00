@@ -498,3 +498,24 @@ test('unused voice clips on a phone: no sideways scroll, 44 px buttons', async (
   }
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/unused-clips-phone.png`, fullPage: true })
 })
+
+test('a previous library kept beside this one shows its size and is deleted after typing DELETE', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { previousLibraryBytes: 3_000_000_000 })
+  const sec = await openSection(page, 'storage')
+  const kept = sec.getByRole('region', { name: 'Previous library' })
+  await expect(kept).toContainText('Previous library kept after restore')
+  await expect(kept).toContainText('12 files')
+  await kept.getByRole('button', { name: 'Delete previous library…' }).click()
+  await kept.getByRole('textbox').fill('DELETE')
+  await kept.getByRole('button', { name: 'Delete previous library permanently' }).click()
+  await expect(sec.getByRole('region', { name: 'Previous library' })).toHaveCount(0)
+  expect(mock.posts.filter((p) => p.path === 'previous-library-delete').map((p) => p.body))
+    .toEqual([{ confirm_text: 'DELETE', expected_size_bytes: 3_000_000_000 }])
+})
+
+test('no previous library, no card', async ({ page }) => {
+  await mockDiskUsage(page)
+  const sec = await openSection(page, 'storage')
+  await expect(sec.locator('summary', { hasText: /^Temp files/ })).toBeVisible()
+  await expect(sec.locator('summary', { hasText: /^Previous library/ })).toHaveCount(0)
+})

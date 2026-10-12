@@ -25,18 +25,17 @@ export function useSuggestSources() {
 type Sources = ReturnType<typeof useSuggestSources>
 
 // "Suggest terms from [Transcript | Novel] [Suggest terms]" at the top of the
-// Glossary section; the run's progress and review table appear under it.
-export function SuggestTerms({ sources, hasTerms, startRequested, onStartHandled, pick, onPick }: {
+// Find terms tab; the run's progress and review table appear under it. The source
+// is chosen by the Glossary panel (a held scan, the remembered choice or the default).
+export function SuggestTerms({ sources, source, hasTerms, startRequested, onStartHandled, onPick }: {
   sources: Sources
+  source: GlossarySource
   hasTerms: boolean
   startRequested: boolean
   onStartHandled: () => void
-  // The viewer's choice; null follows the default.
-  pick: GlossarySource | null
   onPick: (s: GlossarySource) => void
 }) {
-  const { blockers, defaultSource, ready } = sources
-  const source = pick ?? defaultSource
+  const { blockers, ready } = sources
   const picker = (
     <select aria-label="Suggest terms from" value={source} onChange={(e) => onPick(e.target.value as GlossarySource)}>
       {SOURCES.map((s) => (

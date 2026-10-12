@@ -28,7 +28,37 @@ export const cue = (n: number) => ({
 /** A line whose transcript is shown and whose translation has not arrived. */
 export const pendingCue = (n: number) => ({ ...cue(n), translated: '', translation: 'pending' as const })
 
+export interface FollowRow {
+  id: number
+  channel: string
+  channel_name: string
+  mode: 'notify' | 'auto'
+  auto_check: boolean
+  options: Record<string, unknown>
+  poll_minutes: number
+  last_checked_at: number | null
+  state: string
+  last_status: string
+  starts_at: number | null
+  live_now: boolean
+  stream_title: string
+  checking: boolean
+  mine: boolean
+  created_at: number
+}
+
+const FOLLOW_OPTIONS = { source_language: 'zh', whisper_size: 'small', engine: null, model: null, max_minutes: 60, use_gpu: false, glossary_drama_id: null }
+
+/** A followed channel as GET /api/live/follows lists it. */
+export const followRow = (id: number, over: Partial<FollowRow> = {}): FollowRow => ({
+  id, channel: `@channel${id}`, channel_name: `Channel ${id}`, mode: 'notify', auto_check: false, options: { ...FOLLOW_OPTIONS },
+  poll_minutes: 60, last_checked_at: null, state: '', last_status: '', starts_at: null, live_now: false,
+  stream_title: '', checking: false, mine: true, created_at: 1_800_000_000, ...over,
+})
+
 interface LiveMocks {
+  /** Followed channels (the card): the list served, and every POST under /api/live/follows. */
+  follows: { items: FollowRow[]; can_auto_start: boolean; posts: { path: string; body: unknown }[]; addStatus: number }
   ollamaChecks: string[]
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
   polls: string[]
@@ -53,6 +83,7 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
+    follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
     state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null, notes: [], figures: {}, finishOnStop: false },
   }
   // Registered first, so it only answers what nothing below handles.
@@ -92,6 +123,52 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   })
   // The header asks whether to show the Assistant link (Developer Mode off).
   await page.route('**/api/assistant/settings', (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
+  await page.route('**/api/live/follows', (route) => {
+    const r = route.request()
+    const f = m.follows
+    if (r.method() === 'GET') {
+      const body = { items: f.items.map((x) => ({ ...x })), can_auto_start: f.can_auto_start, max_per_member: 5, max_total: 20 }
+      // A queued check is reported once as "checking", then its result.
+      for (const x of f.items) {
+        if (x.checking) Object.assign(x, { checking: false, last_checked_at: Date.now() / 1000, state: 'not_live', last_status: 'Not live' })
+      }
+      return json(route, body)
+    }
+    const body = r.postDataJSON() as { channel: string; mode?: 'notify' | 'auto'; options?: Record<string, unknown> }
+    f.posts.push({ path: '/api/live/follows', body })
+    if (f.addStatus !== 200) return json(route, { error: { code: 'forbidden', message: 'Not allowed.' } }, f.addStatus)
+    const row = followRow(f.items.length + 1, { channel: body.channel, channel_name: '', mode: body.mode ?? 'notify' })
+    f.items = [...f.items, row]
+    return json(route, row)
+  })
+  await page.route('**/api/live/follows/**', (route) => {
+    const r = route.request()
+    const path = new URL(r.url()).pathname
+    const f = m.follows
+    f.posts.push({ path, body: r.postData() ? r.postDataJSON() : null })
+    if (path === '/api/live/follows/check-all') {
+      const mine = f.items.filter((x) => x.mine || f.can_auto_start)
+      mine.forEach((x) => { x.checking = true })
+      return json(route, { queued: mine.length, skipped: 0 })
+    }
+    const [, id, action] = path.match(/^\/api\/live\/follows\/(\d+)(?:\/(\w+))?$/) ?? []
+    const row = f.items.find((x) => x.id === Number(id))
+    if (!row) return json(route, { error: { code: 'not_found', message: 'No such followed channel.' } }, 404)
+    if (action === 'remove') {
+      f.items = f.items.filter((x) => x !== row)
+      return json(route, { id: row.id, removed: true })
+    }
+    if (action === 'check') {
+      row.checking = true
+      return json(route, { id: row.id, queued: true })
+    }
+    if (action === 'start') {
+      m.state.sessions = [{ session_id: SID, status: 'queued', engine: null, cue_count: 0 }]
+      return json(route, { session_id: SID })
+    }
+    Object.assign(row, r.postDataJSON())
+    return json(route, row)
+  })
   await page.route('**/api/live/sessions', (route) => {
     const r = route.request()
     if (r.method() === 'GET') return json(route, m.state.sessions)

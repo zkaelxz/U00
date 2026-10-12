@@ -53,9 +53,11 @@ from core import Line, lines_to_bilingual_srt, lines_to_srt
 from engine_backends import echo
 from services import (auth_service, drama_service, keep_original_service,
                       maintenance_assistant_service, ownership_service, settings_service,
-                      translate_run_service, translate_service)
+                      translate_run_service, translate_service, vdb_names_service)
 from services import library_translated_guard
+from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
+from services.library_restore_sql import _unsafe_member
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 from sources import store as src_store
@@ -463,7 +465,8 @@ def start_export_zip(drama_ids=None) -> dict:
 
 def _sanitized_snapshot(dest: str):
     """A consistent database snapshot with every session and device token
-    removed (secure_delete, so the hashes aren't left in free pages) and
+    and the personal VTuber name list's prompt text removed (secure_delete, so
+    neither is left in free pages) and
     folded out of WAL mode, so dest is one self-contained file."""
     import sqlite3
     db.snapshot_database(dest)
@@ -475,7 +478,9 @@ def _sanitized_snapshot(dest: str):
             for table in ("auth_sessions", "extension_device_tokens"):
                 if table in have:
                     conn.execute(f"DELETE FROM {table}")
+            vdb_names_service.strip_from_snapshot(conn)
             conn.execute("PRAGMA journal_mode = DELETE")
+            conn.execute("VACUUM")   # free pages copied from the live file can hold deleted rows
         finally:
             conn.close()
     except sqlite3.Error:
@@ -487,7 +492,7 @@ def _backup_excluded_top_level() -> tuple:
     exports, saved site sign-ins, approved source profiles (a restore keeps
     the current ones either way), the browser-extension token and the
     sources raw-content cache (rebuildable: a missing file is a cache miss)."""
-    return wjs.restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
+    return lrs.restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
 
 
 def _backup_files(library_dir: str, skip: set, excluded: tuple) -> list:
@@ -894,7 +899,7 @@ _BUSY = ("A background job is running -- wait for it to finish or cancel it befo
          "restoring.")
 
 # Restore-specific limits for an uploaded (network) zip, tighter than
-# workspace_job_service's generous guardrails: expanded total at
+# library_restore_service's generous guardrails: expanded total at
 # most max(factor x upload size, 2 x current library size, 1 GiB), a
 # member-count cap, and enough free disk for the expanded total plus a
 # margin before anything is extracted.
@@ -913,20 +918,6 @@ def has_disk_room(folder: str, need: int) -> bool:
     except OSError:
         return True
     return free >= need + RESTORE_DISK_MARGIN_BYTES
-
-
-def _unsafe_member(info: zipfile.ZipInfo) -> bool:
-    name = info.filename
-    norm = name.replace("\\", "/")
-    if not norm or "\x00" in norm or norm.startswith("/") or re.match(r"^[A-Za-z]:", norm):
-        return True
-    parts = (norm[:-1] if info.is_dir() else norm).split("/")
-    # "." / empty parts are dropped by zipfile (./backups -> backups), and a
-    # part ending in a dot or space names the same file as without it on
-    # Windows -- either could slip a member past the kept-name filter.
-    if any(p in ("", ".", "..") or p.endswith((".", " ")) for p in parts):
-        return True
-    return (info.external_attr >> 16) & 0o170000 == 0o120000  # symlink entry
 
 
 def _library_size() -> int:
@@ -964,7 +955,7 @@ def validate_backup_zip(zip_bytes) -> None:
     (member count, expanded total, free disk), no corrupt member.
     Fixed-text InvalidInputError on failure (no member names or paths
     echoed). The library.db itself is checked with SQLite after extraction
-    (workspace_job_service.validate_staged_library_db)."""
+    (library_restore_service.validate_staged_library_db)."""
     if not isinstance(zip_bytes, (bytes, bytearray)) or not zip_bytes:
         raise InvalidInputError("Upload a backup .zip file.")
     _validate_zip(io.BytesIO(zip_bytes), len(zip_bytes), check_disk=True)
@@ -991,12 +982,12 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
     try:
         with zipfile.ZipFile(source) as zf:
             infos = zf.infolist()
-            if check_limits and len(infos) > min(wjs.MAX_RESTORE_MEMBERS, RESTORE_MAX_MEMBERS):
+            if check_limits and len(infos) > min(lrs.MAX_RESTORE_MEMBERS, RESTORE_MAX_MEMBERS):
                 raise InvalidInputError("The backup has too many files; it looks corrupted "
                                         "or unsafe to extract.")
             if "library.db" not in zf.namelist():
                 raise InvalidInputError(_BAD_ZIP + " (no library.db inside).")
-            total_cap = (min(wjs.MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
+            total_cap = (min(lrs.MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
                          if check_limits else None)
             total = 0
             for info in infos:
@@ -1004,7 +995,7 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
                     raise InvalidInputError("The backup contains an unsafe file path.")
                 if info.flag_bits & 0x1:
                     raise InvalidInputError("The backup contains an encrypted file.")
-                if check_limits and info.file_size > wjs.MAX_RESTORE_MEMBER_BYTES:
+                if check_limits and info.file_size > lrs.MAX_RESTORE_MEMBER_BYTES:
                     raise InvalidInputError("The backup contains a file that is too large; it "
                                             "looks corrupted or unsafe to extract.")
                 total += info.file_size
@@ -1030,7 +1021,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     (confirm=True, confirm_text "RESTORE") -> take background_jobs'
     exclusive hold (refused if any job runs here; no job can start until
     the restore ends) -> refuse if another process has a fresh running
-    job -> full validation -> workspace_job_service.restore_library_backup
+    job -> full validation -> library_restore_service.restore_library_backup
     (staging extract, SQLite checks, schema migration of the staged
     library.db, current auth tables and sources settings kept, job and
     auth/settings-change re-check right before the rename,
@@ -1038,7 +1029,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     kept entries carried across). Nothing is touched unless every check
     passes. Afterwards every sign-in session is revoked and an audit entry
     is written (attributed to actor_id, the signed-in user, if given).
-    Returns {restored, sessions_revoked}."""
+    Returns {restored, sessions_revoked, media_kept, previous_library_kept}."""
     from services import auth_service
     require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
     if not background_jobs.acquire_exclusive("Library restore"):
@@ -1058,11 +1049,12 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                 raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
-            wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR, before_swap=_recheck)
+            outcome = lrs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR,
+                                                 before_swap=_recheck)
         except ServiceError:
             raise
         except (ValueError, zipfile.BadZipFile, RuntimeError, zlib.error) as e:
-            msg = str(e) if str(e) in wjs.RESTORE_DB_ERRORS else _BAD_ZIP
+            msg = str(e) if str(e) in lrs.RESTORE_DB_ERRORS else _BAD_ZIP
             raise InvalidInputError(msg) from None
         except OSError as e:
             log.exception("Library restore failed")
@@ -1071,10 +1063,11 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
         # The restored database decides Developer Mode, which the echo engine follows.
         echo.set_enabled(maintenance_assistant_service.developer_mode_enabled())
         auth_service.write_audit(actor_id, "library.restore",
-                                 f"library restored from backup; sessions revoked: {revoked}")
+                                 f"library restored from backup; sessions revoked: {revoked}; "
+                                 + lrs.account_counts(outcome))
     finally:
         background_jobs.release_exclusive()
-    return {"restored": True, "sessions_revoked": revoked}
+    return {"restored": True, "sessions_revoked": revoked, **(outcome or {})}
 
 
 # --------------------------------------------------------------------------

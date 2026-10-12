@@ -49,6 +49,7 @@ import { TranscribeAdvanced } from './TranscribeAdvanced'
 import { formFromConfig, toUpdate, type ConfigForm } from './transcribeConfigForm'
 import { NovelFilePanel } from './NovelFilePanel'
 import { useNovelFilesVersion } from './novelFileEvents'
+import { SpeakerDetectionNotice } from './SpeakerDetectionNotice'
 import { SpeechCoverage } from './SpeechCoverage'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
 import { withoutUntouchedBackend } from './transcribeBackendField'
@@ -545,6 +546,7 @@ export default function TranscribeStage({
             <Toggle checked={runDiarize} onChange={setRunDiarize} />
           </Field>
         </div>
+        <SpeakerDetectionNotice dramaId={dramaId} active={runDiarize} />
         {notInstalled && (
           <div id="transcribe-not-installed">
             <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
@@ -589,7 +591,7 @@ export default function TranscribeStage({
         {cf ? (
           <p className="muted source-summary" data-testid="settings-summary">
             Whisper {cf.whisper_size} · {LANGUAGE_NAMES[language] ?? language}
-            {useGpu !== null && <span data-testid="gpu-note"> · GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a></span>}
+            {useGpu !== null && <span data-testid="gpu-note"> · {useGpu && config?.gpu_runtime.status === 'missing' ? `GPU unavailable: ${config.gpu_runtime.reason ?? 'the CUDA libraries are missing'}` : `GPU: ${useGpu ? 'on' : 'off'}`} - change in <a href="#/settings">Settings</a></span>}
           </p>
         ) : (
           <p className="muted source-summary" aria-hidden="true">&nbsp;</p>

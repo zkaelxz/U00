@@ -29,7 +29,8 @@ POST /api/jobs/{job_id}/cancel.
 from fastapi import APIRouter, Path
 
 from api.auth import local_only, require_permission
-from api.diagnostics_install_schemas import (DiagnosticsDenoInstallRequest,
+from api.diagnostics_install_schemas import (DiagnosticsCudaRuntimeStatus,
+                                             DiagnosticsDenoInstallRequest,
                                              DiagnosticsDenoStatus,
                                              DiagnosticsDependencyInstallState,
                                              DiagnosticsJobStarted,
@@ -37,6 +38,7 @@ from api.diagnostics_install_schemas import (DiagnosticsDenoInstallRequest,
                                              DiagnosticsUpgradeCheckState)
 from api.schemas import (DiagnosticsDependencyInstallRequest,
                          DiagnosticsGpuTorchSetupRequest, ErrorResponse)
+from services import cuda_runtime_service
 from services import diagnostics_installs_service as svc
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
@@ -72,6 +74,22 @@ def post_install(body: DiagnosticsDependencyInstallRequest,
              responses=_ERRS)
 def post_gpu_torch_setup(body: DiagnosticsGpuTorchSetupRequest):
     return svc.start_gpu_torch_setup(body.variant, confirm=body.confirm)
+
+
+@router.get("/cuda-runtime", dependencies=[require_permission("admin.diagnostics")],
+            response_model=DiagnosticsCudaRuntimeStatus,
+            summary="Whether Whisper's CUDA libraries are missing, and the install job")
+def get_cuda_runtime():
+    return cuda_runtime_service.get_status()
+
+
+@router.post("/cuda-runtime/install", dependencies=[local_only()],
+             response_model=DiagnosticsJobStarted,
+             summary="PC only: install the cuBLAS 12 and cuDNN 9 wheels as a background job "
+                     "(confirm=true)",
+             responses=_ERRS)
+def post_cuda_runtime_install(body: DiagnosticsDenoInstallRequest):
+    return svc.start_cuda_runtime_install(confirm=body.confirm)
 
 
 @router.get("/deno", dependencies=[require_permission("admin.diagnostics")],

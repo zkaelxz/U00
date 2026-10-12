@@ -16,7 +16,10 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
+import { announceLiveStarted, describeFollowError, startFromFollow } from '../api/liveFollows'
 import { listNotifications } from '../api/notifications'
+import { plainJobText } from '../pages/diagnosticsFormat'
+import { routeHref } from '../router'
 import { useEventStream } from '../hooks/useEventStream'
 import type { NotificationItem, NotificationList } from '../types/notifications'
 import { Badge } from './Badge'
@@ -31,6 +34,7 @@ import {
   readSeen,
   seenAfter,
   shortAgo,
+  startsAtText,
   unreadCount,
   writeSeen,
 } from './notificationBellState'
@@ -47,6 +51,36 @@ function panelFitsLeftwards(el: HTMLElement | null): boolean | null {
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
   const width = Math.min(PANEL_REM * rem, window.innerWidth - 2 * GUTTER)
   return el.getBoundingClientRect().right - width >= GUTTER
+}
+
+// A followed channel is live: start Live on it as a normal Live start (the
+// server applies the same permissions and one-session limit), then show it.
+function StartLiveAction({ followId }: { followId: number }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const start = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await startFromFollow(followId)
+      announceLiveStarted(r.session_id)
+      window.location.hash = routeHref({ name: 'live' })
+    } catch (err) {
+      setError(describeFollowError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="notify-action">
+      <button type="button" className="btn btn-secondary btn-sm" disabled={busy}
+        title={busy ? 'Starting…' : 'Start Live on this stream with the channel’s saved options.'}
+        onClick={() => void start()}>
+        {busy ? 'Starting…' : 'Start Live'}
+      </button>
+      {error && <p className="error notify-text" role="alert">{error}</p>}
+    </div>
+  )
 }
 
 export function NotificationBell() {
@@ -208,7 +242,9 @@ export function NotificationBell() {
                       <time dateTime={isoTime(i.at)}>{capFirst(shortAgo(i.at))}</time>
                       {isNew && <span className="notify-new">New</span>}
                     </div>
-                    <p className="notify-text">{i.text}</p>
+                    <p className="notify-text">{plainJobText(i.text)}</p>
+                    {startsAtText(i.starts_at) && <p className="notify-text">{startsAtText(i.starts_at)}</p>}
+                    {i.action === 'start_live' && typeof i.follow_id === 'number' && <StartLiveAction followId={i.follow_id} />}
                   </li>
                 )
               })}

@@ -7,6 +7,7 @@ import {
   engineShortName,
   engineSummary,
   languagePair,
+  MAX_TRANSLATE_TEXT_CHARS,
   translateApi,
   validateTranslateInput,
 } from '../api/translate'
@@ -37,7 +38,7 @@ import {
   visibleHistory,
 } from './translatePage'
 import './translate.css'
-import type { TranslateEngine, TranslateHistoryEntry } from '../types/translate'
+import type { TranslateEngine, TranslateEstimate, TranslateHistoryEntry } from '../types/translate'
 
 export default function TranslatePage() {
   const [engines, setEngines] = useState<TranslateEngine[]>([])
@@ -55,6 +56,8 @@ export default function TranslatePage() {
   const [sourceName, setSourceName] = useState<string | null>(null)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
   const [resultTarget, setResultTarget] = useState('en')
+  const [stopNotice, setStopNotice] = useState<string | null>(null)
+  const [estimate, setEstimate] = useState<TranslateEstimate | null>(null)
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [clearing, setClearing] = useState(false)
@@ -93,6 +96,24 @@ export default function TranslatePage() {
   const sourceLabel = humanize('language', pair.source_language)
   const noKey = selected !== undefined && !selected.key_configured
 
+  // Read-only price check, so a long file shows its cost before it is sent.
+  const paidEngine = selected !== undefined && !selected.free
+  useEffect(() => {
+    setEstimate(null)
+    if (!canTranslate || !paidEngine || !engine || !text.trim() || text.length > MAX_TRANSLATE_TEXT_CHARS) return
+    let current = true
+    const timer = setTimeout(() => {
+      translateApi
+        .estimate({ text, engine, ...pair, model: model || null })
+        .then((r) => current && setEstimate(r), () => undefined)
+    }, 600)
+    return () => {
+      current = false
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pair is rebuilt each render; its two languages are listed
+  }, [text, engine, model, pair.source_language, pair.target_language, canTranslate, paidEngine])
+
   const setResultText = (value: string | null) => {
     setResult(value)
     setCopied(null)
@@ -107,16 +128,17 @@ export default function TranslatePage() {
     }
     setError(null)
     setResultText(null)
+    setStopNotice(null)
     setLoading(true)
     try {
-      setResultText(
-        await translateApi.translate({
-          text,
-          engine,
-          ...pair,
-          model: model || null,
-        }),
-      )
+      const done = await translateApi.translateWithNotice({
+        text,
+        engine,
+        ...pair,
+        model: model || null,
+      })
+      setResultText(done.translated_text)
+      setStopNotice(done.message ?? null)
       setResultTarget(pair.target_language)
       refreshHistory()
     } catch (err) {
@@ -127,6 +149,7 @@ export default function TranslatePage() {
   }
 
   const clearInput = () => {
+    setStopNotice(null)
     setText('')
     setResultText(null)
     setSourceName(null)
@@ -257,6 +280,19 @@ export default function TranslatePage() {
                   Clear
                 </button>
               </div>
+              {estimate && estimate.estimated_usd > 0 && (
+                <p
+                  data-testid="translate-estimate"
+                  className={estimate.fits_cap ? 'muted' : 'translate-warning'}
+                  role="status"
+                >
+                  About ${estimate.estimated_usd.toFixed(2)}
+                  {estimate.cap_left_usd !== null
+                    ? `; cap left $${estimate.cap_left_usd.toFixed(2)}${estimate.fits_cap ? '' : ': it will stop before the end'}`
+                    : ''}
+                  .
+                </p>
+              )}
               {!canTranslate && (
                 <p id="translate-needs-permission" className="translate-warning">
                   Quick translate isn't allowed for this account. Ask the PC owner.
@@ -287,6 +323,11 @@ export default function TranslatePage() {
                   </div>
                 )}
               </div>
+              {stopNotice && (
+                <p data-testid="translate-stopped" className="translate-warning" role="status">
+                  {stopNotice}
+                </p>
+              )}
               {result !== null ? (
                 <pre data-testid="translate-result" className="translate-result">
                   {result}

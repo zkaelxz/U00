@@ -3,9 +3,9 @@ import { useState } from 'react'
 import { setSourcesProxy } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
-import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { SourcesSettings } from '../../types/sources'
+import { ManageCard } from './ManageCard'
 import { proxyProblem } from './sourcesSettings'
 
 type Props = {
@@ -43,12 +43,7 @@ export function ProxyForm({ settings, onSaved }: Props) {
   }
 
   return (
-    <Section
-      title="Proxy"
-      summary={settings.proxy_configured ? 'set' : 'none'}
-      storageKey="sources.proxy"
-      openSignal={errorCount}
-    >
+    <ManageCard tab="network" card="proxy" title="Proxy" summary={settings.proxy_configured ? 'set' : 'none'} openSignal={errorCount}>
     <div className="sources-proxy" data-testid="sources-proxy">
       <Field label={`Proxy (${settings.proxy_configured ? 'set' : 'none'})`} help={HELP} error={problem ?? undefined}>
         <input
@@ -80,6 +75,6 @@ export function ProxyForm({ settings, onSaved }: Props) {
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
     </div>
-    </Section>
+    </ManageCard>
   )
 }
