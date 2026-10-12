@@ -258,6 +258,65 @@ def delete_series(series_id: int, expected=None):
     return {"deleted": True, "counts": counts}
 
 
+def update_series_instructions(series_id: int, instructions: str):
+    """The series-level project instructions every drama in the
+    series inherits (see _DRAMA_SELECT's series_instructions)."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE series SET instructions = ? WHERE id = ?", (instructions, series_id))
+        conn.commit()
+
+
+def set_series_defaults(series_id: int, settings_json) -> bool:
+    """Stores a series' default title settings (series_defaults_service
+    validates them; None clears). False for an unknown series."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("UPDATE series SET default_settings = ? WHERE id = ?",
+                           (settings_json, series_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def apply_series_settings(series_id: int, plan: dict, allowed: frozenset) -> bool:
+    """Writes {drama_id: {"old": {...}, "new": {...}}} in one transaction.
+    Every column named must be in `allowed` (the caller's whitelist of
+    title-settings columns: the keys become SQL, so anything else is a
+    ValueError before any write). Refused (False, nothing written) when the
+    titles in the series, or any planned column's value, differ from the
+    plan's: what was previewed is what gets written."""
+    for change in plan.values():
+        bad = (set(change["old"]) | set(change["new"])) - set(allowed)
+        if bad or not all(k.isidentifier() for k in change["new"]):
+            raise ValueError(f"not a title setting: {sorted(bad)}")
+    now = datetime.datetime.utcnow().isoformat()
+    with contextlib.closing(db.get_conn()) as conn:
+        _immediate(conn)
+        try:
+            ids = {r["id"] for r in conn.execute("SELECT id FROM dramas WHERE series_id = ?",
+                                                 (series_id,))}
+            if ids != set(plan):
+                conn.execute("ROLLBACK")
+                return False
+            for drama_id, change in plan.items():
+                if not change["new"]:
+                    continue
+                cols = list(change["old"])
+                if not cols:
+                    raise ValueError("a planned change must name the values it replaces")
+                row = conn.execute(f"SELECT {', '.join(cols)} FROM dramas WHERE id = ?",
+                                   (drama_id,)).fetchone()
+                if any(row[c] != change["old"][c] for c in cols):
+                    conn.execute("ROLLBACK")
+                    return False
+                sets = ", ".join(f"{k} = ?" for k in change["new"])
+                conn.execute(f"UPDATE dramas SET {sets}, updated_at = ? WHERE id = ?",
+                             (*change["new"].values(), now, drama_id))
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    return True
+
+
 _TERM_COLUMNS = ("term_original", "term_translation", "notes", "category", "policy",
                  "enforce_exact", "aliases", "banned_translations")
 

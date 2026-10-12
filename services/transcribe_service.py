@@ -355,13 +355,26 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No title with id {drama_id}.")
+    updates = check_transcribe_fields(fields, drama.get("source_language") or "zh")
+    if updates:
+        db.update_drama(drama_id, **updates)
 
+    return get_transcribe_config(drama_id)
+
+
+def check_transcribe_fields(fields: dict, source_language) -> dict:
+    """update_transcribe_config's validation: the columns to write for the
+    fields passed (not None), as stored (booleans as 0/1). InvalidInputError
+    for an unknown or out-of-range value. `source_language` None skips the
+    checks that depend on a title's language (a series' defaults, checked
+    again per title when applied)."""
     updates = {}
     if "whisper_size" in fields and fields["whisper_size"] is not None:
         # A fixed set: faster-whisper downloads whatever repo name it is given.
         if fields["whisper_size"] not in _allowed_whisper_sizes():
             raise InvalidInputError(f"Unknown whisper_size {fields['whisper_size']!r}.")
-        check_whisper_size_for_language(fields["whisper_size"], drama.get("source_language") or "zh")
+        if source_language is not None:
+            check_whisper_size_for_language(fields["whisper_size"], source_language)
         updates["whisper_size"] = fields["whisper_size"]
     if "alignment_method" in fields and fields["alignment_method"] is not None:
         if fields["alignment_method"] not in ("whisper_diff", "qwen3_forced_align"):
@@ -370,8 +383,8 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     if "asr_backend_choice" in fields and fields["asr_backend_choice"] is not None:
         if fields["asr_backend_choice"] not in ASR_BACKEND_CHOICES:
             raise InvalidInputError(f"Unknown asr_backend_choice {fields['asr_backend_choice']!r}.")
-        problem = asr_options_service.asr_backend_language_problem(
-            fields["asr_backend_choice"], drama.get("source_language") or "zh")
+        problem = source_language is not None and asr_options_service.asr_backend_language_problem(
+            fields["asr_backend_choice"], source_language)
         if problem:
             raise InvalidInputError(problem)
         updates["asr_backend_choice"] = fields["asr_backend_choice"]
@@ -422,11 +435,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     for bf in _BOOL_FIELDS:
         if bf in fields and fields[bf] is not None:
             updates[bf] = 1 if fields[bf] else 0
-
-    if updates:
-        db.update_drama(drama_id, **updates)
-
-    return get_transcribe_config(drama_id)
+    return updates
 
 
 def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language) -> None:

@@ -98,3 +98,59 @@ export const getCopyTermsPreview = (id: number, sourceId: number, f?: Fetch) =>
 
 export const copyTerms = (id: number, sourceId: number, f?: Fetch) =>
   postJson<SeriesCopyTermsResult>(`/api/series/${id}/copy-terms`, { source_series_id: sourceId }, f)
+
+// Series default title settings (api/routers/series_routes.py, series_defaults_service).
+export type SettingValue = boolean | number | string
+
+export interface SeriesDefaultsField {
+  key: string
+  label: string
+  group: 'translate' | 'transcribe' | string
+  type: 'bool' | 'int' | 'number' | 'choice' | string
+  choices?: string[] | null
+  min?: number | null
+  max?: number | null
+}
+
+export interface SeriesDefaults {
+  series_id: number
+  settings: Record<string, SettingValue>
+  fields: SeriesDefaultsField[]
+}
+
+export type ApplyMode = 'fill' | 'overwrite'
+
+export interface SeriesDefaultsPreview {
+  series_id: number
+  mode: ApplyMode
+  title_count: number
+  changed_titles: number
+  fields_changed: number
+  job_running: boolean
+  titles: {
+    id: number
+    title_en: string | null
+    title_zh: string | null
+    changes: Record<string, { from: SettingValue | null; to: SettingValue }>
+    unsuited: string[]
+  }[]
+}
+
+export interface SeriesDefaultsApplyResult {
+  series_id: number
+  mode: ApplyMode
+  title_count: number
+  titles_changed: number
+  fields_changed: number
+}
+
+export const getSeriesDefaults = (id: number, f?: Fetch) => getJson<SeriesDefaults>(`/api/series/${id}/defaults`, f)
+
+export const saveSeriesDefaults = (id: number, settings: Record<string, SettingValue>, f?: Fetch) =>
+  postJson<SeriesDefaults>(`/api/series/${id}/defaults`, { settings }, f)
+
+export const getDefaultsPreview = (id: number, mode: ApplyMode, f?: Fetch) =>
+  getJson<SeriesDefaultsPreview>(`/api/series/${id}/defaults/apply-preview?mode=${mode}`, f)
+
+export const applySeriesDefaults = (id: number, mode: ApplyMode, f?: Fetch) =>
+  postJson<SeriesDefaultsApplyResult>(`/api/series/${id}/defaults/apply`, { mode }, f)

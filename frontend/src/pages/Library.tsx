@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { createDrama, getContinueReading, getPresets, getRecent, getSeries, getStats } from '../api/library'
+import { createDrama, getContinueReading, getPresets, getRecent, getStats } from '../api/library'
 import { coverUrl } from '../api/metadata'
 import { listAllSeries } from '../api/series'
 import type { DramaSummary } from '../api/types'
@@ -130,7 +130,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   onDraft: (next: CreateDraft) => void
   onCreated: (id: number, autofill: boolean) => void
   onCancel: () => void
-  series: Loaded<Awaited<ReturnType<typeof getSeries>>>
+  series: Loaded<Awaited<ReturnType<typeof listAllSeries>>>
   presets: Loaded<Awaited<ReturnType<typeof getPresets>>>
 }) {
   const [lastLanguage, setLastLanguage] = usePersistedState('library.newDrama.language', 'zh')
@@ -267,7 +267,6 @@ export default function LibraryPage() {
   const getStarted = showGetStarted(stats.data?.total_dramas, startedDismissed)
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
-  const series = useLoad(getSeries, reloadKey)
   const allSeries = useLoad(listAllSeries, reloadKey)
   const presets = useLoad(getPresets, reloadKey)
   // One export job for the selection bar.
@@ -397,7 +396,7 @@ export default function LibraryPage() {
 
       <Sheet open={creating} title="New title" onClose={() => setCreating(false)}>
         <CreateForm
-          series={series}
+          series={allSeries}
           presets={presets}
           draft={draft}
           onDraft={setDraft}

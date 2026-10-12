@@ -464,6 +464,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/series/{series_id}` | library.read |
 | `POST /api/series/{series_id}/copy-terms` | lines.edit |
 | `GET /api/series/{series_id}/copy-terms-preview` | library.read |
+| `GET /api/series/{series_id}/defaults` | library.read |
+| `POST /api/series/{series_id}/defaults` | lines.edit |
+| `POST /api/series/{series_id}/defaults/apply` | lines.edit |
+| `GET /api/series/{series_id}/defaults/apply-preview` | library.read |
 | `POST /api/series/{series_id}/delete` | local_only() |
 | `GET /api/series/{series_id}/delete-preview` | library.read |
 | `POST /api/series/{series_id}/rename` | lines.edit |

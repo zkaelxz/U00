@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 
-import { getSeries, updateDramaMetadata } from '../../../api/library'
+import { updateDramaMetadata } from '../../../api/library'
+import { listAllSeries, type SeriesListItem } from '../../../api/series'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
 import { routeHref } from '../../../router'
-import type { LibrarySeries } from '../../../types/library'
 import { NEW_SERIES, newSeriesProblem, seriesUpdate } from '../detailsForm'
 import { useStage } from '../StageContext'
 import './seriesAssign.css'
@@ -17,7 +17,7 @@ import './seriesAssign.css'
 export function SeriesAssign() {
   const { dramaId, drama, refetchDrama } = useStage()
   const current = drama.series_id == null ? '' : String(drama.series_id)
-  const [series, setSeries] = useState<LibrarySeries[] | null>(null)
+  const [series, setSeries] = useState<SeriesListItem[] | null>(null)
   const [choice, setChoice] = useState(current)
   const [newName, setNewName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -34,7 +34,7 @@ export function SeriesAssign() {
 
   useEffect(() => {
     let cancelled = false
-    getSeries().then(
+    listAllSeries().then(
       (r) => !cancelled && setSeries(r.items),
       () => !cancelled && setSeries([]), // the picker still offers "+ New series…"
     )
