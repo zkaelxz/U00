@@ -112,7 +112,6 @@ body {
 @supports (backdrop-filter: blur(1px)) {
   .card, .review-toolbar, .review-toolbox, .review-lines, .drama-card { backdrop-filter: blur(22px) saturate(1.4); }
 }
-.review-toolbox { overflow: hidden; }
 
 /* One control shape: pill with a visible edge, so a white button never vanishes on a white panel. */
 .btn,
@@ -126,7 +125,6 @@ body {
   box-shadow: var(--btn-shadow);
   border-radius: var(--radius-pill);
   color: var(--text);
-  font-weight: var(--weight-bold);
 }
 .btn.btn-primary {
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, white), var(--accent));
@@ -146,16 +144,12 @@ textarea {
 }
 
 /* Chips and segmented controls */
+/* Colour and edge only: sizes stay with review.css, whose phone rule keeps the chip row inside the screen. */
 .review-chip span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0 14px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--btn-edge);
   background: var(--btn);
   box-shadow: var(--btn-shadow);
-  font-weight: var(--weight-bold);
 }
 .review-chip input:checked + span {
   background: var(--accent-soft);
@@ -214,7 +208,7 @@ fieldset.segmented {
 .ws-strip::before {
   content: '';
   position: absolute;
-  inset: 0 -12px -14px;
+  inset: 0 0 -14px;
   z-index: -1;
   pointer-events: none;
   background: color-mix(in srgb, var(--bg) 84%, transparent);
@@ -228,7 +222,6 @@ fieldset.segmented {
   .app-header::before, .ws-strip::before { backdrop-filter: blur(22px); }
 }
 .review-toolbar { background: var(--surface); backdrop-filter: none; border-radius: 22px; }
-.review-lines { overflow: hidden; }
 /* backdrop-filter on a rounded, clipped, scrolling panel leaves square corners in Chromium, so these stay un-blurred. */
 .review-toolbox, .review-lines { backdrop-filter: none; }
 .review-line.is-active { border-radius: 14px; }
