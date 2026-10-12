@@ -43,3 +43,17 @@
   .live-body.has-video.theater .live-feed { grid-column: 1; grid-row: 2; }
 }
 .live-notes { list-style: none; margin: 0 0 var(--space-2); padding: 0; display: grid; gap: 2px; }
+
+/* Followed channels (live/FollowedChannels.tsx): rows wrap on a phone, never scroll sideways. */
+.live-follows { display: grid; gap: var(--space-3); min-width: 0; }
+.live-follows > p { margin: 0; }
+.live-follow-add { display: grid; gap: var(--space-2); }
+.live-follow-add > p { margin: 0; }
+.live-follow-list { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
+.live-follow-row { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; }
+.live-follow-head, .live-follow-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.live-follow-name { font-weight: var(--weight-bold); overflow-wrap: anywhere; min-width: 0; }
+.live-follow-label, .live-follow-status { overflow-wrap: anywhere; font-size: var(--text-sm); }
+.live-follow-status, .live-follow-note { margin: 0; }
+.live-follow-hourly { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.live-follow-controls select { max-width: 100%; }

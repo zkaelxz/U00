@@ -32,7 +32,14 @@ from dataclasses import replace
 def _serve():
     import uvicorn
     import db
-    from lib.errors import NewerDatabaseError
+    from lib.errors import NewerDatabaseError, UnfinishedRestoreError
+    try:
+        # First: the log below lives in the library folder, and a folder
+        # created for it must not hide a library a restore set aside.
+        for note in db.library_startup_notes(db.LIBRARY_DIR):
+            print(f"NOTE: {note}", flush=True)
+    except UnfinishedRestoreError as e:
+        raise SystemExit(f"ERROR: {e.message}")
     try:
         db.init_db()
     except NewerDatabaseError as e:

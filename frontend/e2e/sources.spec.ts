@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockAccess } from './sourcesAccessMocks'
-import { nextFrames } from './sourceHelpers'
-import { SERIES_LINKS, SETTINGS, mockSources, posted, searchResult } from './sourcesMocks'
+import { enableDeveloperMode, nextFrames } from './sourceHelpers'
+import { SERIES_LINKS, SETTINGS, mockSources, openManage, posted, searchResult } from './sourcesMocks'
 
 // Sources page (#/sources), desktop. Every search/series/job/settings write
 // is mocked (sourcesMocks.ts); nothing here reaches a real site.
@@ -74,7 +74,7 @@ test('search: running line, cancel, results, per-source errors, series', async (
   expect(posted(s, '/api/jobs/sources_search/cancel')).toHaveLength(1)
   await expect(page.getByText('3 results · 2 sources had problems')).toBeVisible()
   await expect(page.getByText('Beta Novels is paused after repeated failures. Try again in 4 min.')).toBeVisible()
-  await expect(page.getByText('Alpha Comics hides some works. Turn on Adult works in Source settings.')).toBeVisible()
+  await expect(page.getByText('Alpha Comics hides some works. Turn on Adult works in Manage sources.')).toBeVisible()
   await expect(page.locator('img')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Import|^Track/ })).toHaveCount(0)
 
@@ -210,13 +210,17 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('remote: search and settings are PC only, no settings request', async ({ page }) => {
+test('remote: search and Manage sources are PC only, no settings request', async ({ page }) => {
   const s = await mockSources(page, { local: false })
   await page.goto('/#/sources')
   await expect(page.getByText('Searching sources is PC only for now.')).toBeVisible()
   await expect(page.getByRole('search')).toHaveCount(0)
-  await page.getByText('Source settings').click()
-  await expect(page.getByText('Run this on the main PC.')).toBeVisible()
+  await page.getByRole('link', { name: 'Manage sources' }).click()
+  const manage = page.locator('.sources-manage-page')
+  await expect(manage.getByText('PC only. Run this on the main PC.')).toBeVisible()
+  // Members see that one line: no tabs, no site list.
+  await expect(manage.getByRole('tablist')).toHaveCount(0)
+  await expect(manage.locator('table, ul.source-cards')).toHaveCount(0)
   // The page's own mount reads are issued in the same commit as a settings read would be.
   await expect.poll(() => s.calls.some((c) => c.path === '/api/sources/notifications')).toBe(true)
   expect(s.calls.filter((c) => c.path.startsWith('/api/sources/settings'))).toEqual([])
@@ -336,9 +340,7 @@ test('on load, a running job for the remembered series shows its loading line', 
 test('source detail: last failure reads in plain words, raw type only in the tooltip', async ({ page }) => {
   const s = await mockSources(page)
   await mockAccess(page, s)
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').click()
+  const settings = await openManage(page)
   await settings.locator('tbody tr', { hasText: 'Beta Novels' }).getByRole('button', { name: 'Details' }).click()
   const line = settings.getByText(/Last failure .* \(site down\)/)
   await expect(line).toBeVisible()
@@ -347,13 +349,49 @@ test('source detail: last failure reads in plain words, raw type only in the too
   expect(s.unmocked).toEqual([])
 })
 
-test('source settings: health text, On rollback, save only changes, 422, clear cache', async ({ page }) => {
+test('manage sources, Sites: status text, On rollback, the Fast sentence once, Adult only in Details', async ({ page }) => {
   const s = await mockSources(page)
+  // Opening Details polls the site's tier-test job; nothing has run.
+  await page.route(/\/api\/sources\/jobs\/sources_tiertest_alpha\/result$/, (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ job_id: '', status: 'idle', progress: 0, message: '', result: null }) }))
   let enabledStatus = 500
   await page.route(/\/api\/sources\/alpha\/enabled$/, (route) => {
     s.calls.push({ method: 'POST', path: '/api/sources/alpha/enabled', body: route.request().postDataJSON() })
     return route.fulfill({ status: enabledStatus, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal_error', message: 'boom' } }) })
   })
+  const manage = await openManage(page)
+  await expect(page.getByTestId('manage-summary')).toHaveText('3 of 3 sources on · 3–8 s gap · cache: Keep originals')
+  const table = manage.locator('table.sources-table')
+  await expect(table.getByText('Working')).toBeVisible()
+  await expect(table.getByText('Slow')).toBeVisible()
+  await expect(table.getByText('Paused')).toBeVisible()
+  // All three adapters are listed, each with a Rules select and a Details button.
+  await expect(table.locator('tbody tr')).toHaveCount(3)
+  await expect(table.getByRole('button', { name: /^Details: / })).toHaveCount(3)
+
+  // The Fast sentence is said once, above the table, and not on each unvetted row.
+  await expect(manage.getByText("Fast is only available for sites whose rules we've checked.")).toHaveCount(1)
+  await expect(manage.getByText(/Fast is off/)).toHaveCount(0)
+
+  // Adult works and Sign-in are behind Details; the row only says "Signed in".
+  await expect(manage.getByRole('switch', { name: 'Adult works' })).toHaveCount(0)
+  await expect(table.locator('tbody tr', { hasText: 'Beta Novels' })).toContainText('Signed in')
+  await table.getByRole('button', { name: 'Details: Alpha Comics' }).click()
+  await expect(manage.getByRole('switch', { name: 'Adult works' })).toBeVisible()
+  await table.getByRole('button', { name: 'Details: Alpha Comics' }).click()
+
+  // On: optimistic, rolled back on a 500.
+  const on = manage.getByRole('switch', { name: 'On: Alpha Comics' })
+  await on.click()
+  await expect(manage.getByRole('alert')).toBeVisible()
+  await expect(on).toBeChecked()
+  expect(posted(s, '/api/sources/alpha/enabled')[0].body).toEqual({ enabled: false })
+  enabledStatus = 200
+  expect(s.unmocked).toEqual([])
+})
+
+test('manage sources, Timing & cache: one Save, validation, cache limit, Clear cache', async ({ page }) => {
+  const s = await mockSources(page)
   let saveStatus = 422
   await page.route(/\/api\/sources\/settings$/, (route) => {
     if (route.request().method() === 'GET') {
@@ -370,61 +408,113 @@ test('source settings: health text, On rollback, save only changes, 422, clear c
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ entries: 0, bytes: 0 }) })
   })
 
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await expect(settings.getByText('3 of 3 sources on · 3–8 s gap · cache: Keep originals')).toBeVisible()
-  await settings.getByText('Source settings').click()
-  const table = settings.locator('table.sources-table')
-  await expect(table.getByText('OK')).toBeVisible()
-  await expect(table.getByText('Failing')).toBeVisible()
-  await expect(table.getByText('Paused')).toBeVisible()
+  const manage = await openManage(page)
+  // One tab level through the shared Tabs; Back returns to the tab that was left.
+  await expect(manage.getByRole('tab')).toHaveCount(4)
+  await manage.getByRole('tab', { name: 'Timing & cache' }).click()
+  await expect(page).toHaveURL(/#\/sources\/manage\?tab=timing$/)
+  await page.goBack()
+  await expect(manage.getByRole('tab', { name: 'Sites' })).toHaveAttribute('aria-selected', 'true')
+  await page.goForward()
+  await expect(manage.getByRole('tab', { name: 'Timing & cache' })).toHaveAttribute('aria-selected', 'true')
 
-  // On: optimistic, rolled back on a 500.
-  const on = settings.getByRole('switch', { name: 'On: Alpha Comics' })
-  await on.click()
-  await expect(settings.getByRole('alert')).toBeVisible()
-  await expect(on).toBeChecked()
-  expect(posted(s, '/api/sources/alpha/enabled')[0].body).toEqual({ enabled: false })
-  enabledStatus = 200
+  // The Pacing card is open the first time, with one summary row; the rest is behind Advanced timing.
+  await expect(manage.getByTestId('pacing-summary')).toHaveText('3–8 s gap · 1 at a time · 3 retries · breaks every 8–20')
+  const gapTo = manage.getByLabel('Wait between requests, to (s)')
+  await expect(gapTo).toBeHidden()
+  await manage.getByText('Advanced timing').click()
+  await expect(gapTo).toBeVisible()
+  // Every pacing field is reachable here, in its group.
+  for (const name of [
+    'Wait between requests, from (s)', 'Wait between requests, to (s)', 'Pages at a time', 'Retry attempts',
+    'Rest after every (requests)', 'Rest after up to (requests)', 'Rest length, from (s)', 'Rest length, to (s)',
+  ]) {
+    await expect(manage.getByRole('spinbutton', { name })).toBeVisible()
+  }
 
-  // Pacing & cache: shown in the settings body, no second fold.
-  await expect(settings.getByRole('group', { name: 'Pacing & cache' })).toBeVisible()
-  await expect(settings.getByRole('switch', { name: 'Auto-import new chapters' })).not.toBeChecked()
-  await expect(settings.getByRole('checkbox')).toHaveCount(0)
-  const save = settings.getByRole('button', { name: 'Save settings' })
+  // Save is the only primary on the tab, and says why it is off.
+  const save = manage.getByRole('button', { name: 'Save settings' })
   await expect(save).toBeDisabled()
-  await expect(settings.getByText('No changes to save.')).toBeVisible()
-  await settings.getByLabel('Gap max (s)').fill('2')
-  await expect(settings.getByText('Must be at least the min.')).toBeVisible()
+  await expect(manage.getByText('No changes to save.')).toBeVisible()
+  await gapTo.fill('2')
+  await expect(manage.getByText('Must be at least the min.')).toBeVisible()
+  await expect(manage.getByText('Fix the values marked in Advanced timing first.')).toBeVisible()
   await expect(save).toBeDisabled()
-  await settings.getByLabel('Gap max (s)').fill('10')
+  await gapTo.fill('10')
   await expect(save).toBeEnabled()
   await expect(save).toHaveClass(/primary/)
+  expect(await manage.locator('.btn-primary:visible').count()).toBe(1)
   await save.click()
-  await expect(settings.getByText("pace_min_delay can't be below 3 seconds.")).toBeVisible()
+  await expect(manage.getByText("pace_min_delay can't be below 3 seconds.")).toBeVisible()
   expect(posted(s, '/api/sources/settings')[0].body).toEqual({ pace_max_delay: 10 })
   saveStatus = 200
   await save.click()
-  await expect(settings.getByText('Saved.')).toBeVisible()
-  // Cache size limit: a whole number of MB, 0 = no limit.
-  const limit = settings.getByRole('spinbutton', { name: 'Cache limit (MB)' })
+  await expect(manage.getByText('Saved.')).toBeVisible()
+
+  // Saved pages: mode, size limit (whole MB, 0 = no limit) and Clear cache, in a closed card.
+  await manage.locator('summary', { hasText: 'Saved pages' }).click()
+  const limit = manage.getByRole('spinbutton', { name: 'Saved pages limit (MB)' })
   await expect(limit).toHaveValue('0')
   await limit.fill('500')
   await save.click()
   await expect.poll(() => posted(s, '/api/sources/settings').at(-1)?.body).toEqual({ cache_max_mb: 500 })
 
   // Clear cache: two presses, then the line updates.
-  await expect(settings.getByText('Cache: 120 items · 45.2 MB')).toBeVisible()
-  await settings.getByRole('button', { name: 'Clear cache raw-content cache' }).click()
+  await expect(manage.getByText('Saved pages: 120 items · 45.2 MB')).toBeVisible()
+  await manage.getByRole('button', { name: 'Clear cache raw-content cache' }).click()
   expect(posted(s, '/api/sources/cache/clear')).toHaveLength(0)
-  await settings.getByRole('button', { name: 'Confirm clear raw-content cache' }).click()
-  await expect(settings.getByText('Cache: empty')).toBeVisible()
+  await manage.getByRole('button', { name: 'Confirm clear raw-content cache' }).click()
+  await expect(manage.getByText('Saved pages: empty')).toBeVisible()
   expect(posted(s, '/api/sources/cache/clear')[0].body).toEqual({ confirm: true })
 
-  // At most one filled primary per card or region.
-  for (const panel of await page.locator('.sources-page > section').all()) {
-    expect(await panel.locator('.btn-primary:visible:not(:disabled)').count()).toBeLessThanOrEqual(1)
-  }
+  // The demo-source and diagnostics switches belong to Developer Mode; auto-import is on the New chapters card.
+  await expect(manage.getByRole('switch', { name: 'Show demo source' })).toHaveCount(0)
+  await expect(manage.getByRole('switch', { name: 'Extraction diagnostics' })).toHaveCount(0)
+  await expect(manage.getByRole('switch', { name: 'Auto-import new chapters' })).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
+test('New chapters: auto-import and the check interval sit on the card and apply on their own', async ({ page }) => {
+  const tracked = [{ source: 'alpha', series_id: 'a0', title: 'Heaven Book 1', url: '', drama_id: null, last_checked: null, last_check_error: null }]
+  const s = await mockSources(page, { tracked })
+  let current = { ...SETTINGS }
+  await page.route(/\/api\/sources\/settings$/, (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) })
+    const body = route.request().postDataJSON()
+    s.calls.push({ method: 'POST', path: '/api/sources/settings', body })
+    current = { ...current, ...body }
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) })
+  })
+  await page.goto('/#/sources')
+  const box = page.getByRole('region', { name: 'New chapters' })
+  const auto = box.getByRole('switch', { name: 'Auto-import new chapters' })
+  await expect(auto).not.toBeChecked()
+  await auto.click()
+  await expect(auto).toBeChecked()
+  expect(posted(s, '/api/sources/settings')[0].body).toEqual({ auto_queue_new_chapters: true })
+
+  const hours = box.getByRole('spinbutton', { name: 'Check followed titles every (h)' })
+  await expect(hours).toHaveValue('24')
+  await hours.fill('200')
+  await hours.press('Enter')
+  await expect(box.getByText('Must be between 0 and 168.')).toBeVisible()
+  expect(posted(s, '/api/sources/settings')).toHaveLength(1)
+  await hours.fill('12')
+  await hours.press('Enter')
+  await expect.poll(() => posted(s, '/api/sources/settings').at(-1)?.body).toEqual({ check_interval_hours: 12 })
+  // Nothing about Sources settings is left on this page: the link leads to the rest.
+  await expect(page.getByRole('region', { name: 'Source settings' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Manage sources' })).toHaveAttribute('href', '#/sources/manage')
+  expect(s.unmocked).toEqual([])
+})
+
+test('manage sources, Timing & cache: Developer Mode shows the demo and diagnostics switches', async ({ page }) => {
+  const s = await mockSources(page)
+  await enableDeveloperMode(page)
+  const manage = await openManage(page, 'timing')
+  await manage.getByText('Developer options').click()
+  await expect(manage.getByRole('switch', { name: 'Show demo source' })).toBeVisible()
+  await expect(manage.getByRole('switch', { name: 'Extraction diagnostics' })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
 

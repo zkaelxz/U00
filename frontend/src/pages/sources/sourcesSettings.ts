@@ -50,78 +50,91 @@ export type NumKey =
   | 'check_interval_hours'
   | 'cache_max_mb'
 
-export type BoolKey = 'auto_queue_new_chapters' | 'demo_source_enabled' | 'extraction_diagnostics'
+export type TimingKey = Exclude<NumKey, 'check_interval_hours'>
 
-export interface NumField {
-  key: NumKey
+// The two developer-only switches; auto-import lives on the New chapters card.
+export type BoolKey = 'demo_source_enabled' | 'extraction_diagnostics'
+
+export interface NumField<K extends NumKey = NumKey> {
+  key: K
   label: string
   min: number
   max: number
   step?: number
   help?: string
   // The field this one must be at least (a max's min).
-  atLeast?: NumKey
+  atLeast?: K
 }
 
 // Pairs in display order; ranges match services/sources_registry_service.py.
-export const PACING_ROWS: NumField[][] = [
+export const PACING_ROWS: NumField<TimingKey>[][] = [
   [
-    { key: 'pace_min_delay', label: 'Gap min (s)', min: 3, max: 60, step: 0.5,
+    { key: 'pace_min_delay', label: 'Wait between requests, from (s)', min: 3, max: 60, step: 0.5,
       help: "Seconds between requests to one source. Can't go below 3." },
-    { key: 'pace_max_delay', label: 'Gap max (s)', min: 0, max: 120, step: 0.5, atLeast: 'pace_min_delay' },
+    { key: 'pace_max_delay', label: 'Wait between requests, to (s)', min: 0, max: 120, step: 0.5, atLeast: 'pace_min_delay' },
   ],
   [
-    { key: 'max_concurrent', label: 'At once', min: 1, max: 4,
+    { key: 'max_concurrent', label: 'Pages at a time', min: 1, max: 4,
       help: '1 is human-paced. A site can still insist on slower.' },
-    { key: 'max_retries', label: 'Retries', min: 0, max: 6,
+    { key: 'max_retries', label: 'Retry attempts', min: 0, max: 6,
       help: 'For busy or overloaded replies only; never for a browser check.' },
   ],
   [
-    { key: 'session_break_min_requests', label: 'Break every (requests)', min: 0, max: 200,
+    { key: 'session_break_min_requests', label: 'Rest after every (requests)', min: 0, max: 200,
       help: '0 = off. Picked at random between the two numbers.' },
-    { key: 'session_break_max_requests', label: '…up to', min: 0, max: 200, atLeast: 'session_break_min_requests' },
+    { key: 'session_break_max_requests', label: 'Rest after up to (requests)', min: 0, max: 200, atLeast: 'session_break_min_requests' },
   ],
   [
-    { key: 'session_break_min_delay', label: 'Break min (s)', min: 0, max: 600, step: 5 },
-    { key: 'session_break_max_delay', label: 'Break max (s)', min: 0, max: 900, step: 5, atLeast: 'session_break_min_delay' },
+    { key: 'session_break_min_delay', label: 'Rest length, from (s)', min: 0, max: 600, step: 5 },
+    { key: 'session_break_max_delay', label: 'Rest length, to (s)', min: 0, max: 900, step: 5, atLeast: 'session_break_min_delay' },
   ],
 ]
 
-export const CHECK_FIELD: NumField = { key: 'check_interval_hours', label: 'Check tracked (h)', min: 0, max: 168, help: '0 = off.' }
+// Names the rows above for assistive tech; the fields carry their own labels.
+export const PACING_GROUPS = ['Wait between requests', 'Pages at a time and retries', 'Rest after', 'Rest length']
 
-export const CACHE_MAX_FIELD: NumField = {
-  key: 'cache_max_mb', label: 'Cache limit (MB)', min: 0, max: 1_000_000,
+export const CHECK_FIELD: NumField = { key: 'check_interval_hours', label: 'Check followed titles every (h)', min: 0, max: 168, help: '0 = off.' }
+
+export const CACHE_MAX_FIELD: NumField<TimingKey> = {
+  key: 'cache_max_mb', label: 'Saved pages limit (MB)', min: 0, max: 1_000_000,
   help: '0 = no limit. Oldest-used pages go first.',
 }
 
-const NUM_FIELDS: NumField[] = [...PACING_ROWS.flat(), CHECK_FIELD, CACHE_MAX_FIELD]
+// The Timing & cache form; the check interval is edited on the New chapters card.
+const NUM_FIELDS: NumField<TimingKey>[] = [...PACING_ROWS.flat(), CACHE_MAX_FIELD]
 
-export const BOOL_FIELDS: { key: BoolKey; label: string; help?: string }[] = [
-  { key: 'auto_queue_new_chapters', label: 'Auto-import new chapters', help: 'Off: new chapters are announced, not downloaded.' },
+export const DEVELOPER_FIELDS: { key: BoolKey; label: string; help?: string }[] = [
   { key: 'demo_source_enabled', label: 'Show demo source' },
   { key: 'extraction_diagnostics', label: 'Extraction diagnostics' },
 ]
 
 // The editable form: numbers as typed text so a half-typed value is allowed.
-export type PacingDraft = Record<NumKey, string> & Record<BoolKey, boolean> & { cache_mode: string }
+export type PacingDraft = Record<TimingKey, string> & Record<BoolKey, boolean> & { cache_mode: string }
 
 export function draftFrom(s: SourcesSettings): PacingDraft {
   const d = { cache_mode: s.cache_mode } as PacingDraft
   for (const f of NUM_FIELDS) d[f.key] = String(s[f.key])
-  for (const b of BOOL_FIELDS) d[b.key] = s[b.key]
+  for (const b of DEVELOPER_FIELDS) d[b.key] = s[b.key]
   return d
 }
 
 const asNumber = (text: string) => (text.trim() === '' ? NaN : Number(text))
 
+/** One field's problem: not a number, out of range or not whole; null when it is fine. */
+export function fieldProblem(f: Pick<NumField, 'min' | 'max' | 'step'>, text: string): string | null {
+  const v = asNumber(text)
+  if (!Number.isFinite(v)) return 'Enter a number.'
+  if (v < f.min || v > f.max) return `Must be between ${f.min} and ${f.max}.`
+  if (!f.step && !Number.isInteger(v)) return 'Enter a whole number.'
+  return null
+}
+
 /** Field errors: out of range, not a number, or a max below its min. */
-export function pacingErrors(d: PacingDraft): Partial<Record<NumKey, string>> {
-  const out: Partial<Record<NumKey, string>> = {}
+export function pacingErrors(d: PacingDraft): Partial<Record<TimingKey, string>> {
+  const out: Partial<Record<TimingKey, string>> = {}
   for (const f of NUM_FIELDS) {
-    const v = asNumber(d[f.key])
-    if (!Number.isFinite(v)) out[f.key] = 'Enter a number.'
-    else if (v < f.min || v > f.max) out[f.key] = `Must be between ${f.min} and ${f.max}.`
-    else if (!f.step && !Number.isInteger(v)) out[f.key] = 'Enter a whole number.'
+    const problem = fieldProblem(f, d[f.key])
+    if (problem) out[f.key] = problem
   }
   for (const f of NUM_FIELDS) {
     if (!f.atLeast || out[f.key] || out[f.atLeast]) continue
@@ -137,7 +150,7 @@ export function settingsChanges(original: SourcesSettings, d: PacingDraft): Sour
     const v = asNumber(d[f.key])
     if (Number.isFinite(v) && v !== original[f.key]) out[f.key] = v
   }
-  for (const b of BOOL_FIELDS) if (d[b.key] !== original[b.key]) out[b.key] = d[b.key]
+  for (const b of DEVELOPER_FIELDS) if (d[b.key] !== original[b.key]) out[b.key] = d[b.key]
   if (d.cache_mode !== original.cache_mode) out.cache_mode = d.cache_mode
   return out
 }

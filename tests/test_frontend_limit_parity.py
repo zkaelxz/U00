@@ -57,3 +57,10 @@ def test_media_extension_lists_match_the_upload_service():
     path = "pages/workspace/sourceForm.ts"
     assert tuple(_ts_extensions(path, "AUDIO_EXTENSIONS")) == mus.AUDIO_EXTENSIONS
     assert tuple(_ts_extensions(path, "VIDEO_EXTENSIONS")) == mus.VIDEO_EXTENSIONS
+
+
+def test_followed_channel_input_cap_matches_the_schema():
+    from api.schemas import LiveFollowAdd
+    max_length = next(m.max_length for m in LiveFollowAdd.model_fields["channel"].metadata
+                      if hasattr(m, "max_length"))
+    assert _ts_number("api/liveFollows.ts", "MAX_CHANNEL_INPUT") == max_length

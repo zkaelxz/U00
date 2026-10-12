@@ -98,7 +98,8 @@ def test_bulk_flag_applies_by_line_id_with_field_scoped_write(monkeypatch):
     calls = []
     real = db.save_lines
     monkeypatch.setattr(db, "save_lines",
-                        lambda d, ls, fields=None: (calls.append(fields), real(d, ls, fields=fields))[1])
+                        lambda d, ls, fields=None, **kw: (calls.append(fields),
+                                                          real(d, ls, fields=fields, **kw))[1])
     monkeypatch.setitem(svc._BULK_SUBMIT, "flag",
                         lambda *a, **k: _real_flag(*a, batch_size=1, **k))
     out = svc.start_flag_review(did, engine_name="claude", bulk=True)

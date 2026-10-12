@@ -99,5 +99,5 @@ def test_retranscribe_then_full_finish_run_marks_translated(isolated_db):
         ln.en = "x"
     isolated_db.save_lines(did, lines, fields=("en",))
     bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                              glossary_terms=[], errors=[])
+                              glossary_terms=[], errors=[], enforce_ids={ln.id for ln in lines})
     assert _status(isolated_db, did) == "translated"
