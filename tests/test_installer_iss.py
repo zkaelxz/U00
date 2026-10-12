@@ -220,12 +220,68 @@ class TestUninstall:
         step = _func(iss, "CurUninstallStepChanged")
         for shared in ("ms-playwright", "pip\\cache", ".cache\\huggingface"):
             assert shared in step
-        assert "NoteShared(" in step and "Left in place:" in step
+        assert "NoteShared(" in step and "Left on this PC:" in step
         temp = _func(iss, "DeleteOwnTempItems")
         for pattern in ("'baihe_*'", "'baihe_page_*'", "'baihe-torch-pins-*'"):
             assert pattern in temp
         assert "FILE_ATTRIBUTE_DIRECTORY" in _func(iss, "DeleteTempMatches")
         assert ".deno" in step
+
+    def test_vtuber_list_goes_on_every_uninstall_by_name_only(self, iss):
+        step = _func(iss, "CurUninstallStepChanged")
+        # Outside the DeleteLibrary / DeleteSettings / DeleteModels guards, by name, in the data folder only.
+        assert "DeleteFile(UninstDataDir + '\\vtuber_names.json')" in step
+        assert "DeleteFile(UninstDataDir + '\\vtuber_names.json.part')" in step
+        assert step.index("vtuber_names.json') then") < step.index("RemoveDir(UninstDataDir);")
+        # The data folder may be one the user picked and shares: no wildcard delete of *.part (or anything else).
+        assert "DeletePartFiles" not in iss
+        assert not re.search(r"\*\.part", "\n".join(l for l in iss.splitlines() if not l.lstrip().startswith("//")))
+
+    def test_library_neighbours_go_with_the_library_and_never_follow_links(self, iss):
+        step = _func(iss, "CurUninstallStepChanged")
+        # Only when a library existed before the delete (a pre_restore folder may hold the real library
+        # when there is none) and the delete step ran.
+        assert "LibraryExisted := DirExists(UninstDataDir + '\\library');" in step
+        assert step.index("LibraryExisted :=") < step.index("DeleteTree(UninstDataDir + '\\library'")
+        assert re.search(r"if DeleteLibrary and LibraryExisted then\s+begin\s+DeleteLibraryNeighbours\(Removed, Left\);\s+end;", step)
+        assert step.count("DeleteLibraryNeighbours(") == 1
+        neighbours = _func(iss, "DeleteLibraryNeighbours")
+        # Same names a restore makes (db/library_folder.py, library_restore_service.py).
+        for name in ("library.restore-lock", "library.pre_restore_*", ".restore_staging_*"):
+            assert name in neighbours
+        # A reset copy is reported, not deleted.
+        assert "pre_reset" not in neighbours.split("// Not deleted")[0]
+        # Only after the library itself is gone.
+        assert "if DirExists(UninstDataDir + '\\library') then" in neighbours
+        folders = _func(iss, "DeleteMatchingFolders")
+        # A junction or symlink loses only the link: RemoveDir, never DelTree.
+        assert "$400" in folders
+        assert folders.index("$400") < folders.index("DelTree(")
+        assert "RemoveDir(Path)" in folders
+
+    def test_the_typed_delete_prompt_names_the_restore_copies_and_their_size(self, iss):
+        confirm = _func(iss, "ConfirmLibraryDelete")
+        for needle in ("library.pre_restore_*", ".restore_staging_*", "library.restore-lock",
+                       "MatchingFoldersBytes(", "SizeText(Total)", "HasRestoreCopies()"):
+            assert needle in confirm, needle
+        # Named only when the library exists.
+        assert confirm.index("DirExists(UninstDataDir + '\\library') and HasRestoreCopies()") < confirm.index("InputQuery(")
+        assert "CompareStr(Typed, 'DELETE') = 0" in confirm
+
+    def test_restore_copies_without_a_library_are_kept_and_flagged(self, iss):
+        kept = _func(iss, "NoteKeptData")
+        assert "may hold your real library, so none was deleted" in kept
+
+    def test_the_summary_says_what_is_left_on_this_pc(self, iss):
+        step = _func(iss, "CurUninstallStepChanged")
+        # Shown for every interactive uninstall, not only a clean one.
+        assert "if not CleanAll then\n    Exit;" not in step
+        assert "'Left on this PC:'" in step and "if not UninstallSilent() then" in step
+        kept = _func(iss, "NoteKeptData")
+        for needle in ("your library", "(.env)", "model_cache", "library.pre_reset_*", "Ollama"):
+            assert needle in kept or needle in step, needle
+        # Names and sizes only: the settings file is never opened.
+        assert "LoadStringFromFile" not in kept + step and "never shown" in kept
 
     def test_declining_the_clean_confirmation_restores_the_boxes(self, iss):
         ask = _func(iss, "AskWhatToDelete")
