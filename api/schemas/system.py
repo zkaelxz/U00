@@ -102,6 +102,7 @@ __all__ = [
     "NotificationChannelClearRequest",
     "NotificationChannelResult",
     "NotificationTestResult",
+    "OcrBackendStatus",
     "BugReportRouteVisit",
     "BugReportConsoleEntry",
     "BugReportErrorEntry",
