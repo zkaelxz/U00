@@ -309,9 +309,15 @@ What they skip or keep:
   resolve again; sessions and device tokens never come from a backup. When
   the live accounts are kept, the backup's `followed_channels` (sources.db)
   pass to the PC owner (`owner_user_id` NULL, `pc_owner` 0, automatic checks
-  off, mode `notify`), and new account ids start above every id the restored
-  rows name (`library_restore_sql.settle_accounts`), so a title owned by an
-  account that didn't come along never passes to the next person who signs up.
+  off, mode `notify`); every account id the restored rows name (titles,
+  series, job records, translate history, speaker-merge undos, and in a
+  restored `sources.db` tracked-series links and extension-only marks) becomes
+  the live account with the same email, or NULL (the PC owner) when there is
+  none, its Google sign-in differs, or the backup's account row has no integer
+  id or text email (`library_restore_sql.owner_map`; private
+  flags unchanged, the count of titles moved is in the result as
+  `titles_reassigned` and in the audit entry). New account ids still start
+  above every id the backup's rows named (`library_restore_sql.settle_accounts`).
 - **The previous library** (`<library>.pre_restore_<time>`) is deleted once
   everything was carried across. It stays when something couldn't be: the
   media of titles added since a database-only backup, and any folder the zip

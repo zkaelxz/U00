@@ -424,7 +424,7 @@ class TestRestore:
         assert r.status_code == 200, r.text
         assert r.json() == {"restored": True, "sessions_revoked": 0, "media_kept": False,
                             "previous_library_kept": False, "accounts_restored": 0,
-                            "folders_left_behind": []}
+                            "titles_reassigned": 0, "folders_left_behind": []}
         assert [d["id"] for d in db.list_dramas()] == [a]
 
     def test_the_response_says_how_many_accounts_came_and_which_folders_stayed(self, client):

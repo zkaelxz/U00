@@ -758,6 +758,9 @@ class LibraryRestoreDone(BaseModel):
     previous_library_kept: bool = False
     # Accounts taken from the backup (only into a library that had none).
     accounts_restored: int = 0
+    # Titles whose owner became the live account with the same email, or the
+    # PC owner (only when the live accounts were kept).
+    titles_reassigned: int = 0
     # The previous library's other folders the backup lacks: they stay there.
     folders_left_behind: List[str] = []
 

@@ -110,6 +110,7 @@ export function RestoreBlock() {
   const [mediaKept, setMediaKept] = useState(false)
   const [previousKept, setPreviousKept] = useState(false)
   const [accountsRestored, setAccountsRestored] = useState(0)
+  const [titlesReassigned, setTitlesReassigned] = useState(0)
   const [leftBehind, setLeftBehind] = useState<string[]>([])
   const [error, setError] = useState<unknown>(null)
 
@@ -141,6 +142,7 @@ export function RestoreBlock() {
         setMediaKept(Boolean(r.media_kept))
         setPreviousKept(Boolean(r.previous_library_kept))
         setAccountsRestored(r.accounts_restored ?? 0)
+        setTitlesReassigned(r.titles_reassigned ?? 0)
         setLeftBehind(r.folders_left_behind ?? [])
         setDone(true)
         setFile(null)
@@ -174,6 +176,9 @@ export function RestoreBlock() {
             {accountsRestored > 0 &&
               ` This library had no accounts, so the ${accountsRestored} account${accountsRestored === 1 ? '' : 's'} in` +
                 ` the backup ${accountsRestored === 1 ? 'was' : 'were'} restored. Check them on the Admin page.`}
+            {titlesReassigned > 0 &&
+              ` This library kept its own accounts, so ${titlesReassigned} title${titlesReassigned === 1 ? '' : 's'}` +
+                ` went to the account with the same email, or to the PC owner where there was none.`}
           </span>
           <button type="button" className="primary" onClick={() => window.location.reload()}>
             Reload

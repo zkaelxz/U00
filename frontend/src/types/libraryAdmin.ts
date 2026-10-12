@@ -79,6 +79,8 @@ export interface LibraryRestoreDone {
   previous_library_kept: boolean
   // How many accounts came from the backup (only into a library that had none).
   accounts_restored: number
+  // Titles whose owner became the live account with the same email, or the PC owner.
+  titles_reassigned: number
   // Names of the previous library's folders this backup lacks; they stay in the previous library.
   folders_left_behind: string[]
 }
