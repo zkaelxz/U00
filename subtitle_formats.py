@@ -185,16 +185,13 @@ def lines_for_clip(lines, start: float, end: float):
 
 # ---------------------------------------------------------- reading speed
 
-# Characters-per-second limits, from the Netflix Timed Text Style Guides
-# (one page per language on partnerhelp.netflixstudios.com): English 17 for
-# comfortable reading, Chinese 9, Japanese 4 and Korean 12. They are limits
-# for the viewer's reading, not for how fast people talk, so fast speech
-# legitimately trips them (see the modes below).
-CPS_BY_LANGUAGE = {"en": 17.0, "zh": 9.0, "ja": 4.0, "ko": 12.0}
-# Text whose language isn't known is judged by its script. Latin and CJK use
-# the English and Chinese values. Hebrew/Arabic/Indic/Thai have no Netflix
-# value; they keep the ratio to Latin they had before (7.0 against 8.5).
-SCRIPT_CPS = {"cjk": CPS_BY_LANGUAGE["zh"], "abugida_rtl": 14.0, "latin": CPS_BY_LANGUAGE["en"]}
+# Characters-per-second limits for the English subtitle a viewer reads: 17 is
+# Netflix's comfortable value. They are limits for reading, not for how fast
+# people talk, so fast speech legitimately trips them (see the modes below).
+# The text is judged by its script, so CJK in the English field (an
+# untranslated line) gets the stricter value. Hebrew/Arabic/Indic/Thai have no
+# Netflix value; they keep the ratio to Latin they had before (7.0 against 8.5).
+SCRIPT_CPS = {"cjk": 9.0, "abugida_rtl": 14.0, "latin": 17.0}
 DEFAULT_CPS_LIMIT = 15.0
 READING_SPEED_FLAG = "reading_speed"
 
@@ -211,14 +208,10 @@ RELAXED_FACTOR = 20 / 17
 STREAMER_MODE = "streamer"
 STREAMER_FACTOR = 1.2
 
-# A cue shorter than this, or with less text than MIN_DENSE_CHARS, is never
-# flagged: a few characters are read at a glance whatever the ratio says, and
-# such a cue often cannot be lengthened (it sits between two other lines).
-# At the English, Chinese and Korean limits 1.5 s already holds more than
-# 11 characters before it can be dense; the character floor is what spares
-# short Japanese cues (4/s would flag 7 characters in 1.5 s).
+# A cue shorter than this is never flagged: a few characters are read at a
+# glance whatever the ratio says, and such a cue often cannot be lengthened
+# (it sits between two other lines).
 MIN_DENSE_DURATION_S = 1.5
-MIN_DENSE_CHARS = 11
 
 _SCRIPT_PATTERNS = {
     "cjk": _CJK,
@@ -234,9 +227,9 @@ def script_of(text: str) -> str:
 
 
 def cps_limit(key: str, mode: str = DEFAULT_READING_SPEED_MODE) -> float:
-    """The limit for a language code or script name at `mode`. An unknown
-    key gets DEFAULT_CPS_LIMIT."""
-    base = CPS_BY_LANGUAGE.get(key) or SCRIPT_CPS.get(key) or DEFAULT_CPS_LIMIT
+    """The limit for a script name at `mode`. An unknown key gets
+    DEFAULT_CPS_LIMIT."""
+    base = SCRIPT_CPS.get(key) or DEFAULT_CPS_LIMIT
     factor = {"relaxed": RELAXED_FACTOR, STREAMER_MODE: RELAXED_FACTOR * STREAMER_FACTOR}.get(mode, 1.0)
     return round(base * factor, 2)
 
@@ -262,12 +255,11 @@ def flagging_mode_of(drama) -> str:
     return mode
 
 
-def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE,
-                language: str = None) -> list:
+def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE) -> list:
     """[(line, chars_per_second, limit)] for every line whose `field` text
-    is too dense to read in the time it's on screen. `language` (en, zh, ja
-    or ko) picks that language's limit; without it the text's script does.
-    Cues under the MIN_DENSE_* floor are skipped; mode "off" finds nothing."""
+    is too dense to read in the time it's on screen; the text's script picks
+    the limit. Cues under MIN_DENSE_DURATION_S are skipped; mode "off" finds
+    nothing."""
     if mode == "off":
         return []
     out = []
@@ -278,9 +270,9 @@ def dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED_MODE
             continue
         duration = ln.end - ln.start
         script = script_of(text)
-        if duration < MIN_DENSE_DURATION_S or len(stripped) < MIN_DENSE_CHARS:
+        if duration < MIN_DENSE_DURATION_S:
             continue
-        limit = cps_limit(language if language in CPS_BY_LANGUAGE else script, mode)
+        limit = cps_limit(script, mode)
         cps = reading_speed(text, duration)
         if cps > limit:
             out.append((ln, cps, limit))
