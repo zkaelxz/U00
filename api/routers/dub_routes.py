@@ -33,8 +33,9 @@ def get_dub_pacing(drama_id: int = Path(ge=1)):
              responses={404: {"model": ErrorResponse},
                         409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def start_dub_run(body: DubRunRequest, request: Request, drama_id: int = Path(ge=1)):
-    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_dub(
-        drama_id, keep_background=body.keep_background))
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_dub, drama_id,
+        keep_background=body.keep_background, tts_engine=body.tts_engine)
     return dub_service.start_dub_run(
         drama_id, tts_engine=body.tts_engine, max_speedup=body.max_speedup,
         max_slowdown=body.max_slowdown, narration_language=body.narration_language,

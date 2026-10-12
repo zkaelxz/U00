@@ -137,7 +137,7 @@ def post_style_restore(body: StyleRestoreRequest, request: Request, drama_id: in
              summary="Start SenseVoice emotion/sound tagging (poll /api/jobs/{job_id})",
              responses=_R)
 def post_sensevoice(request: Request, drama_id: int = Path(ge=1)):
-    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_sensevoice())
+    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_sensevoice)
     return svc.start_sensevoice(drama_id)
 
 

@@ -96,7 +96,7 @@ def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(
              responses={**_R, 400: {"model": ErrorResponse}})
 def post_resplit(body: ResplitStart, request: Request, drama_id: int = Path(ge=1)):
     if body.align_to_audio and not body.dry_run:
-        model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_aligner())
+        model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_aligner)
     return svc.resplit_long_lines(drama_id, body.expected_line_ids,
                                   align_to_audio=body.align_to_audio, confirm=body.confirm,
                                   sensitivity=body.sensitivity, max_seconds=body.max_seconds,

@@ -36,7 +36,7 @@ def post_session(body: LiveSessionStart, request: Request):
     require_engines_allowed(request, body.engine or live_service.LIVE_DEFAULT_ENGINE)
     require_cloud_model_allowed(request, (body.engine, body.model))
     model_readiness_service.require_ready(
-        is_at_pc(request), model_readiness_service.for_whisper_size(body.whisper_size))
+        is_at_pc(request), model_readiness_service.for_whisper_size, body.whisper_size)
     return live_service.start_session(
         body.url, source_language=body.source_language, whisper_size=body.whisper_size,
         segment_seconds=body.segment_seconds, overlap_seconds=body.overlap_seconds,

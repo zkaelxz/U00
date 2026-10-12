@@ -6,8 +6,8 @@ A household member must not start a multi-GB model download on the owner's
 disk and home connection; the owner at the PC still can (owner decision
 2026-10-12, docs/remote-access-decision.md). Each job-starting route builds
 the list of models its run would load (the `for_*` functions, which mirror
-the worker's own choices) and passes it to `require_ready` before any job
-starts: the loaders decide inside a worker, where refusing would be too late.
+the worker's own choices) through `require_ready` before any job starts: the
+loaders decide inside a worker, where refusing would be too late.
 
 Every check reads the local caches only: no network call, no import of the
 heavy model libraries. A check that cannot tell counts as not downloaded,
@@ -36,12 +36,14 @@ class ModelNotDownloadedError(ForbiddenError):
     code = "model_not_downloaded"
 
 
-def require_ready(at_pc: bool, needs) -> None:
+def require_ready(at_pc: bool, build, *args, **kwargs) -> None:
     """Raises ModelNotDownloadedError unless the caller is at the PC or every
-    check in `needs` (zero-argument callables) finds its model on disk."""
+    check `build(*args, **kwargs)` lists (zero-argument callables) finds its
+    model on disk. The list is built only away from the PC, so the owner's
+    run never depends on what the builders import."""
     if at_pc:
         return
-    for ready in needs:
+    for ready in build(*args, **kwargs):
         if not ready():
             raise ModelNotDownloadedError(NOT_DOWNLOADED_MESSAGE)
 
@@ -132,6 +134,14 @@ def omnivoice_ready() -> bool:
     return hf_model_ready(dub.OMNIVOICE_REPO)
 
 
+# OmniVoice transcribes a reference clip that has no transcript with this model.
+_OMNIVOICE_ASR_REPO = "openai/whisper-large-v3-turbo"
+
+
+def omnivoice_asr_ready() -> bool:
+    return hf_model_ready(_OMNIVOICE_ASR_REPO)
+
+
 def _torch_checkpoint(filename: str) -> bool:
     home = os.environ.get("TORCH_HOME") or os.path.join(
         os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"),
@@ -154,7 +164,9 @@ def word_aligner_ready() -> bool:
     return _torch_checkpoint(_MMS_FA_CHECKPOINT)
 
 
-def separation_ready(backend: str) -> bool:
+def separation_ready(backend: str, use_gpu=None) -> bool:
+    """use_gpu False makes audio-separator refuse and "auto" fall back to
+    Demucs (audio_preprocess.separate_vocals); None leaves it to the library."""
     import audio_preprocess
     roformer = audio_preprocess._checkpoint_ok(
         os.path.join(audio_preprocess.MODEL_DIR, audio_preprocess.MEL_ROFORMER_VOCAL_MODEL))
@@ -163,7 +175,7 @@ def separation_ready(backend: str) -> bool:
     if backend == "demucs":
         return _torch_checkpoint(_HTDEMUCS_CHECKPOINT)
     # "auto" tries audio-separator first whenever it is installed.
-    if importlib.util.find_spec("audio_separator") is not None:
+    if use_gpu is not False and importlib.util.find_spec("audio_separator") is not None:
         return roformer
     return _torch_checkpoint(_HTDEMUCS_CHECKPOINT)
 
@@ -290,7 +302,10 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
     mode = drama.get("transcript_mode") or "have_transcript"
     needs = []
     if mode == "hardsub_ocr":
-        import hardsub_ocr
+        try:
+            import hardsub_ocr
+        except ImportError:
+            return needs   # without OpenCV the run fails before any OCR model loads
         requested = drama.get("hardsub_ocr_backend") or default_hardsub_backend(language)
         backend, _note = hardsub_ocr.resolve_backend(requested, language)
         if backend == "paddle":
@@ -303,7 +318,8 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
         vad_run = mode == "whisper" and backend in transcribe_pipeline.VAD_BACKENDS
         mixed_whisper_run = mixed and mode == "whisper" and backend == "whisper" and not use_groq
         if drama.get("separate_vocals_first"):
-            needs.append(_need(separation_ready, drama.get("separation_backend") or "auto"))
+            needs.append(_need(separation_ready, drama.get("separation_backend") or "auto",
+                               bool(settings_service.get("use_gpu"))))
         if vad_run:
             needs += _backend_needs(backend, asr_options_service.get_vad_refine_timing(), mixed)
         elif not use_groq:
@@ -324,12 +340,18 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
     return needs
 
 
-def for_dub(drama_id: int, keep_background: bool = False) -> list:
+def for_dub(drama_id: int, keep_background: bool = False, tts_engine: str = "omnivoice") -> list:
     import db
+    import dub
     drama = db.get_drama(drama_id)
     if drama is None:
         return []
     needs = [omnivoice_ready]   # the only dub/narration voice engine
+    clones = dub.clone_map_from_characters(db.list_characters(drama_id), db.drama_dir(drama_id),
+                                           default_engine=tts_engine, speaker_labels=())
+    if any(c.get("engine") == "omnivoice" and c.get("ref_audio") and not c.get("ref_text")
+           for c in clones.values()):
+        needs.append(omnivoice_asr_ready)
     if keep_background and drama.get("content_mode") != "novel_narration":
         needs.append(_need(separation_ready, drama.get("separation_backend") or "auto"))
     return needs

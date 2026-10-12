@@ -93,6 +93,8 @@ def _clean_item(raw) -> Optional[dict]:
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
+            # Items saved before "at_pc" was recorded: only the PC owner's carry the override.
+            "at_pc": bool(raw.get("at_pc", raw.get("override"))),
             "added_at": raw.get("added_at"), "started_at": raw.get("started_at"),
             "finished_at": raw.get("finished_at")}
 
@@ -271,7 +273,7 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool, at_pc: bool 
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
     if step == "transcribe":
-        model_readiness_service.require_ready(at_pc, model_readiness_service.for_transcribe(drama_id))
+        model_readiness_service.require_ready(at_pc, model_readiness_service.for_transcribe, drama_id)
     with _lock:
         doc = _load()
         if len(doc["items"]) >= MAX_ITEMS:
@@ -284,7 +286,7 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool, at_pc: bool 
                                 "queue. Clear your finished items first.")
         item = {"id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": ownership_service.user_id(principal),
-                "override": _overrides(principal), "added_at": _clock(),
+                "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
                 "started_at": None, "finished_at": None}
         doc["next_id"] += 1
         doc["items"].append(item)
@@ -333,11 +335,12 @@ def remove_item(principal, item_id: int) -> dict:
     return _mutate_item(principal, item_id, change)
 
 
-def retry_item(principal, item_id: int) -> dict:
+def retry_item(principal, item_id: int, at_pc: bool = True) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
-        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None)
+        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
+                    at_pc=item["at_pc"] and at_pc)
     return _mutate_item(principal, item_id, change)
 
 
@@ -520,6 +523,9 @@ def _start_item(item: dict) -> Optional[str]:
         # Records the job as the adder's, as if they had pressed the button.
         ownership_service.note_acting_principal(principal)
         if item["step"] == "transcribe":
+            # Again at start: the title's model choice may have changed since it was added.
+            model_readiness_service.require_ready(
+                item["at_pc"], model_readiness_service.for_transcribe, drama["id"])
             return _start_transcribe(principal, drama)
         if item["step"] == "translate":
             return _start_translate(principal, drama)

@@ -75,8 +75,9 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
         # use the Tesseract path saved in Settings.
         raise ForbiddenError("A Tesseract path can only be set at the PC; leave it empty "
                              "to use the one saved in Settings.")
-    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_transcribe(
-        drama_id, run_diarize=payload.run_diarize, source_language=payload.source_language))
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_transcribe, drama_id,
+        run_diarize=payload.run_diarize, source_language=payload.source_language)
     return transcribe_service.start_transcribe_run(
         drama_id, source_language=payload.source_language, chinese_script=payload.chinese_script,
         transcript_text=payload.transcript_text, run_diarize=payload.run_diarize,
@@ -117,7 +118,7 @@ def get_speech_coverage(drama_id: int = Path(ge=1)):
                         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_start_autotune(payload: AutotuneRunRequest, request: Request, drama_id: int = Path(ge=1)):
     model_readiness_service.require_ready(
-        is_at_pc(request), model_readiness_service.for_title_whisper(drama_id))
+        is_at_pc(request), model_readiness_service.for_title_whisper, drama_id)
     return autotune_service.start_autotune_run(
         drama_id, candidates=payload.candidates, initial_prompt=payload.initial_prompt,
         extra_names=payload.extra_names)
@@ -153,7 +154,7 @@ def post_apply_autotune(payload: AutotuneApplyRequest, drama_id: int = Path(ge=1
 def post_retranscribe_line(request: Request, payload: Optional[RetranscribeLineRequest] = None,
                            drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     model_readiness_service.require_ready(
-        is_at_pc(request), model_readiness_service.for_title_whisper(drama_id))
+        is_at_pc(request), model_readiness_service.for_title_whisper, drama_id)
     payload = payload or RetranscribeLineRequest()
     return transcribe_service.start_retranscribe_line(
         drama_id, line_id, initial_prompt=payload.initial_prompt,
@@ -193,7 +194,7 @@ _COMPARE_ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
 def post_retranscribe_lines(payload: RetranscribeManyRequest, request: Request,
                             drama_id: int = Path(ge=1)):
     model_readiness_service.require_ready(
-        is_at_pc(request), model_readiness_service.for_title_whisper(drama_id))
+        is_at_pc(request), model_readiness_service.for_title_whisper, drama_id)
     return retranscribe_many_service.start_retranscribe_many(
         drama_id, payload.line_ids, initial_prompt=payload.initial_prompt,
         extra_names=payload.extra_names)
@@ -267,8 +268,9 @@ def post_compare_estimate(payload: CompareEstimateRequest, drama_id: int = Path(
 def post_compare_run(payload: CompareRunRequest, request: Request, drama_id: int = Path(ge=1)):
     if payload.translate:
         require_engines_allowed(request, payload.engine, model=payload.model)
-    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_compare(
-        drama_id, payload.whisper_size, payload.asr_backend))
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_compare, drama_id,
+        payload.whisper_size, payload.asr_backend)
     return compare_transcription_service.start_compare(
         drama_id, payload.selection.model_dump(exclude_none=True), payload.whisper_size,
         payload.asr_backend, payload.translate, payload.retranslate_current, payload.engine,
@@ -301,7 +303,7 @@ def post_compare_apply(payload: CompareApplyRequest, drama_id: int = Path(ge=1))
              summary="Start the Qwen3 aligner job that proposes new times for the ticked lines",
              responses=_COMPARE_ERRORS)
 def post_retime_run(payload: RetimeRunRequest, request: Request, drama_id: int = Path(ge=1)):
-    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_aligner())
+    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_aligner)
     return retime_service.start_retime(drama_id, payload.line_ids)
 
 

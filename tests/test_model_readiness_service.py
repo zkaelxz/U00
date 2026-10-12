@@ -209,6 +209,19 @@ def test_queue_transcribe_item_refused_then_added(isolated_db, caches):
     assert r.status_code == 200 and len(r.json()["items"]) == 1
 
 
+def test_queue_rechecks_a_member_item_when_it_starts(isolated_db, caches):
+    """The title's model may change after the item was added."""
+    from services import queue_service
+    did, session = _owned_drama(transcript_mode="whisper")
+    _whisper(caches)
+    client = _household_client()
+    item = client.post("/api/queue/items", json={"drama_id": did, "step": "transcribe"},
+                       headers=_h(session)).json()["items"][0]
+    db.update_drama(did, whisper_size="medium")
+    with pytest.raises(mrs.ModelNotDownloadedError):
+        queue_service._start_item(queue_service._find(queue_service._load(), item["id"]))
+
+
 def test_household_non_model_jobs_unaffected(isolated_db, caches, monkeypatch):
     started = _stub(monkeypatch, "speech_coverage_service", "start_speech_coverage")
     did, session = _owned_drama(transcript_mode="whisper")
@@ -227,17 +240,17 @@ def test_household_non_model_jobs_unaffected(isolated_db, caches, monkeypatch):
 
 # --- require_ready ----------------------------------------------------------
 
-def test_require_ready_skips_every_check_at_the_pc():
-    def never(): raise AssertionError("checked the owner")
-    mrs.require_ready(True, [never])
+def test_require_ready_never_builds_the_list_at_the_pc():
+    def never(*a, **k): raise AssertionError("built the owner's list")
+    mrs.require_ready(True, never, 1, x=2)
 
 
 def test_require_ready_refuses_with_a_plain_message():
     with pytest.raises(mrs.ModelNotDownloadedError) as info:
-        mrs.require_ready(False, [lambda: True, lambda: False])
+        mrs.require_ready(False, lambda: [lambda: True, lambda: False])
     assert isinstance(info.value, ForbiddenError)
     assert info.value.message == MESSAGE and "/" not in info.value.message
-    mrs.require_ready(False, [lambda: True])
+    mrs.require_ready(False, lambda n: [lambda: n], True)
 
 
 # --- Cache checks -----------------------------------------------------------
@@ -292,6 +305,29 @@ def test_separation_ready_by_backend(caches, monkeypatch):
     checkpoints.mkdir(parents=True)
     (checkpoints / mrs._HTDEMUCS_CHECKPOINT).write_bytes(b"x")
     assert mrs.separation_ready("demucs") is True
+
+
+def test_auto_separation_without_the_gpu_needs_demucs(caches, monkeypatch):
+    """audio-separator refuses a CPU run, so "auto" falls back to Demucs."""
+    import zipfile
+    import audio_preprocess
+    monkeypatch.setattr(audio_preprocess, "MIN_CHECKPOINT_BYTES", 1)
+    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
+    with zipfile.ZipFile(caches["sep"] / audio_preprocess.MEL_ROFORMER_VOCAL_MODEL, "w") as z:
+        z.writestr("w", "x")
+    assert mrs.separation_ready("auto", None) is True
+    assert mrs.separation_ready("auto", False) is False
+
+
+def test_dub_clip_without_transcript_needs_omnivoice_asr(isolated_db, caches):
+    did, _session = _owned_drama()
+    _transformers_repo("k2-fsa/OmniVoice")(caches)
+    db.upsert_character(did, "A", ref_audio_filename="a.wav", ref_text="你好")
+    assert all(need() for need in mrs.for_dub(did))
+    db.upsert_character(did, "B", ref_audio_filename="b.wav", ref_text="")
+    assert not all(need() for need in mrs.for_dub(did))
+    _transformers_repo(mrs._OMNIVOICE_ASR_REPO)(caches)
+    assert all(need() for need in mrs.for_dub(did))
 
 
 # --- What a transcription loads --------------------------------------------

@@ -57,7 +57,7 @@ def start_flag(body: ReviewJobStart, request: Request, drama_id: int = Path(ge=1
 def start_fix_flagged(body: FixFlaggedJobStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine, model=body.model)
     model_readiness_service.require_ready(
-        is_at_pc(request), model_readiness_service.for_fix_flagged(drama_id))
+        is_at_pc(request), model_readiness_service.for_fix_flagged, drama_id)
     return review_jobs_service.start_fix_flagged(
         drama_id, body.engine, body.model, body.gemini_free_tier, body.job_cost_cap_usd,
         include_genre_notes=body.include_genre_notes,

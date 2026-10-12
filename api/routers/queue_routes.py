@@ -51,7 +51,7 @@ def remove_item(request: Request, item_id: int = _ITEM):
              response_model=QueueState, summary="Put a failed, skipped or interrupted item back to waiting",
              responses=_ERRORS)
 def retry_item(request: Request, item_id: int = _ITEM):
-    return queue_service.retry_item(request.state.principal, item_id)
+    return queue_service.retry_item(request.state.principal, item_id, at_pc=is_at_pc(request))
 
 
 @router.post("/clear-finished", dependencies=[require_permission("jobs.start")],
