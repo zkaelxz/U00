@@ -28,6 +28,7 @@
 /* The tools panel inside the inspector: one padding, one gap, equal-height check buttons with their Bulk switch directly under each. */
 @media (min-width: 1400px) {
   .stage-review .review-toolbox { padding: var(--space-3); display: grid; gap: var(--space-3); }
+  .stage-review .review-toolbox .ui-tabs { flex-wrap: wrap; }
   .stage-review .review-toolbox-panel, .stage-review .review-tab-body { display: grid; gap: var(--space-3); margin: 0; padding: 0; }
   .stage-review .review-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-3); align-items: start; }
   .stage-review .review-job-row { display: grid; gap: var(--space-2); align-content: start; }
