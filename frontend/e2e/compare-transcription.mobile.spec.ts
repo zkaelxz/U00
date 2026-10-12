@@ -17,7 +17,6 @@ test('phone: panel and proposals fit the screen with 44 px targets', async ({ pa
   await mockCompare(page)
   await page.goto('/#/drama/3/review')
   await openFoldFor(page, 'Compare transcription')
-  await page.locator('summary').filter({ hasText: /^Compare transcription/ }).click()
   const box = page.getByTestId('compare-transcription')
   await box.getByLabel('Which lines').selectOption('range')
   await box.getByLabel('From line #').fill('1')

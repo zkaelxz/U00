@@ -1,6 +1,4 @@
 /* Maintenance assistant (Step 42): a stack of Cards like Settings. Tokens only. */
-.assistant-page { display: grid; gap: var(--space-5); }
-.panel.assistant-page { border: 0; background: none; box-shadow: none; padding-inline: 0; }
 .assistant-page .setting-list { margin: 0; }
 .assistant-page code { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 
@@ -72,7 +70,6 @@
 .assistant-tools > li { display: grid; gap: 2px; min-width: 0; }
 
 @media (max-width: 640px) {
-  .assistant-page { gap: var(--space-5); }
   .assistant-engine, .assistant-backlog-add, .assistant-changelog-form { gap: var(--space-4); }
   .assistant-suggestions, .assistant-suggestion, .assistant-actions { gap: var(--space-3); }
   .assistant-response, .assistant-turn { gap: var(--space-4); }
@@ -100,7 +97,7 @@
 .assistant-deliver-files code, .assistant-deliver code { overflow-wrap: anywhere; }
 
 /* One tab's cards: the same gap as Diagnostics' panels, so no card sits looser than the next. */
-.assistant-panel { display: grid; gap: var(--space-3); min-width: 0; }
+.assistant-panel { display: grid; gap: var(--page-gap); min-width: 0; }
 .assistant-panel[hidden] { display: none; }
 .assistant-panel > * { min-width: 0; margin: 0; }
 .assistant-panel details.section { margin: 0; }

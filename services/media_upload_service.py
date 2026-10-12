@@ -625,10 +625,13 @@ def _follow_job(job_id, child_id, deadline_s):
         time.sleep(_FOLLOW_POLL_SECONDS)
     if status == "cancelled" or (forwarded and status is None):
         raise background_jobs.JobCancelled(job_id)
-    if status != "done":
+    result = child.get("result")
+    reported = isinstance(result, dict) and bool(result.get("failed_reason"))
+    if status != "done" and not reported:
         raise RuntimeError(child.get("error") or "Transcription failed.")
-    # A "done" run can still carry result.failed_reason; pass it through.
-    background_jobs.set_result(job_id, child.get("result"))
+    # A run that returned a failed_reason (ended done, or error for a failure)
+    # passes it through; the job runner then ends this job the same way.
+    background_jobs.set_result(job_id, result)
 
 
 def kept_media_usage(drama_id) -> dict:

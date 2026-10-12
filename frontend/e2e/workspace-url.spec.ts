@@ -8,7 +8,7 @@ const expect = baseExpect.configure({ timeout: 15_000 })
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
-async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: boolean; hasSourceVideo?: boolean; hardsub?: boolean } = {}) {
+async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: boolean; hasSourceVideo?: boolean; hardsub?: boolean; refuseFirst?: boolean } = {}) {
   const s = { bodies: [] as unknown[], unmocked: [] as string[], job: 'none' as 'none' | 'running' | 'done' }
   // Guard: every non-GET API call nothing below mocks is aborted; GETs go to the seeded API.
   await page.route(/\/api\//, (route) => {
@@ -33,6 +33,14 @@ async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: b
   })
   await page.route(/\/api\/jobs\/urlmedia_1$/, (route) => {
     if (s.job === 'none') return json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
+    if (opts.refuseFirst && s.bodies.length === 1) {
+      return json(route, {
+        job_id: 'urlmedia_1', status: 'error', progress: 0.02, message: '', description: null, gpu_touching: false,
+        error: 'RuntimeError: This video is 7 h 42 m; the limit is 6 h. It needs about 4.9 GB of free disk. Download only part of it, or all of it anyway.',
+        started_at: 1, finished_at: 2, updated_at: 1, outcome: 'failed',
+        result: { kind: 'url_media', failed_reason: 'too_long' },
+      })
+    }
     const running = s.job === 'running'
     if (running) s.job = 'done'
     return json(route, {
@@ -126,5 +134,43 @@ test('From a URL on a remote viewer: PC only note, no form', async ({ page }) =>
   await expect(page.getByText('Downloading from a link is PC only for now.')).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Video or audio link' })).toHaveCount(0)
   expect(s.bodies).toEqual([])
+  expect(s.unmocked).toEqual([])
+})
+
+test('From a URL: a refused long video offers a part or Download anyway', async ({ page }) => {
+  const s = await mockUrlDownload(page, { refuseFirst: true })
+  await page.goto('/#/drama/1/source')
+  await page.getByRole('radio', { name: 'From a URL' }).check()
+  await page.getByRole('textbox', { name: 'Video or audio link' }).fill('https://video.example/watch?v=long')
+  await page.getByRole('button', { name: 'Download', exact: true }).click()
+  await expect(page.getByTestId('url-download-long')).toBeVisible()
+  await page.getByRole('button', { name: 'Download only part' }).click()
+  await expect(page.getByLabel('Part start (h:mm:ss)')).toBeFocused()
+  await page.getByRole('button', { name: 'Download anyway' }).click()
+  await expect.poll(() => s.bodies.length).toBe(2)
+  expect(s.bodies[1]).toEqual({ url: 'https://video.example/watch?v=long', audio_only: true, confirm_replace_audio: false, allow_long: true })
+  await expect(page.getByTestId('url-download-long')).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
+test('From a URL: Only this part sends the times and says subtitles start at 0', async ({ page }) => {
+  const s = await mockUrlDownload(page)
+  await page.goto('/#/drama/1/source')
+  await page.getByRole('radio', { name: 'From a URL' }).check()
+  await page.getByRole('textbox', { name: 'Video or audio link' }).fill('https://video.example/watch?v=part')
+  await expect(page.getByTestId('url-part-offset')).toHaveCount(0)
+  const download = page.getByRole('button', { name: 'Download', exact: true })
+  await page.getByLabel('Part start (h:mm:ss)').fill('1:xx')
+  await expect(page.getByText('Write the times like 1:02:30')).toBeVisible()
+  await expect(download).toBeDisabled()
+  await page.getByLabel('Part start (h:mm:ss)').fill('1:00:00')
+  await page.getByLabel('Part end (h:mm:ss)').fill('1:30:00')
+  await expect(page.getByTestId('url-part-offset')).toContainText('start at 0:00')
+  await page.getByRole('checkbox', { name: 'Exact cuts' }).check()
+  await download.click()
+  await expect.poll(() => s.bodies).toEqual([{
+    url: 'https://video.example/watch?v=part', audio_only: true, confirm_replace_audio: false,
+    part_start: '1:00:00', part_end: '1:30:00', exact_cuts: true,
+  }])
   expect(s.unmocked).toEqual([])
 })

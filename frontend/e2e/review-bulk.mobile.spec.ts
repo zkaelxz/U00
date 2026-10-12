@@ -1,6 +1,5 @@
-import { type Page } from '@playwright/test'
-
 import { expect, test } from './fixtures'
+import { openAi } from './reviewFolds'
 
 import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 
@@ -10,9 +9,6 @@ import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 test.beforeEach(() => seedReviewResults())
 test.afterAll(() => clearReviewResults())
 
-const section = (page: Page, title: string) =>
-  page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
-
 test('Bulk switches: 44px targets, no sideways scroll, the warning shows', async ({ page }) => {
   // Read the real config once: re-fetching per call can fail with "Response has been disposed".
   let real: Promise<Record<string, unknown>> | null = null
@@ -21,14 +17,7 @@ test('Bulk switches: 44px targets, no sideways scroll, the warning shows', async
     await route.fulfill({ json: { ...(await real), translation_engine: 'claude', bulk_supported_engines: ['claude', 'gemini', 'deepseek'] } })
   })
   await page.goto('/#/drama/3/review')
-  const ai = section(page, 'AI review')
-  // The lines list loads after the page paints and pushes this section down
-  // (or the stage re-renders it), so a tap can land on the old position and
-  // miss. Tap again until the section is open rather than once.
-  await expect(async () => {
-    if ((await ai.getAttribute('open', { timeout: 1000 })) === null) await ai.locator(':scope > summary').tap({ timeout: 2000 })
-    await expect(ai).toHaveAttribute('open', '', { timeout: 1000 })
-  }).toPass({ timeout: 15_000 })
+  const ai = await openAi(page)
 
   const list = ai.getByRole('list', { name: 'AI checks to run' })
   const switches = list.getByRole('switch')

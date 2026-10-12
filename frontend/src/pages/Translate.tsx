@@ -11,6 +11,7 @@ import {
   translateApi,
   validateTranslateInput,
 } from '../api/translate'
+import { PageShell } from '../components/PageShell'
 import { Card } from '../components/Card'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -176,11 +177,7 @@ export default function TranslatePage() {
   const shown = visibleHistory(history, showAll)
 
   return (
-    <section className="translate-page" aria-label="Quick translate">
-      <header className="translate-head">
-        <h2>Quick translate</h2>
-        <p className="muted">Quick text translation, outside any title. One side is always English.</p>
-      </header>
+    <PageShell width="standard" title="Quick translate" label="Quick translate" className="translate-page" meta="Quick text translation, outside any title. One side is always English.">
       {showLocalOnlyNote(engines, engine) && (
         <p className="translate-note" role="note" data-testid="local-only-note">
           No cloud translator is set up. Quick translate is using Ollama on this PC. Start Ollama, or {canAddKey
@@ -399,6 +396,6 @@ export default function TranslatePage() {
           </>
         )}
       </Card>
-    </section>
+    </PageShell>
   )
 }

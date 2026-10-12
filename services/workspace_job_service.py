@@ -198,12 +198,13 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
     job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
     recheck = set()
+    cancelled = background_jobs.is_cancel_requested(job_id)
     # Shared with `cli.py translate`: glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
     if not bulk_translate.finish_translation_run(
             drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
-            cancelled=background_jobs.is_cancel_requested(job_id),
+            cancelled=cancelled,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap_usd,
             line_scoped=target_ids is not None,
@@ -213,24 +214,30 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
-        return
-    if target_ids is not None:
-        # Imported here: it needs translate_run_service, which imports this module.
-        from services import failed_lines_service
-        failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before, errors)
+    else:
+        if target_ids is not None:
+            # Imported here: it needs translate_run_service, which imports this module.
+            from services import failed_lines_service
+            failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before, errors)
 
-    if summary_engine is not None and not summary_skip_reason:
-        from services import episode_summary_service
-        summary_skip_reason = episode_summary_service.missing_after_run_reason(
-            drama_id, summary_engine_choice, background_jobs.is_cancel_requested(job_id))
-    background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent"),
-                                        **({"summary_skipped": summary_skip_reason}
-                                           if summary_skip_reason else {}),
-                                        **({"flags_needing_recheck": sorted(recheck)}
-                                           if recheck else {}),
-                                        **({"kept_your_edit": sorted(kept_edits)}
-                                           if kept_edits else {}),
-                                        **_fallback_result(engine)})
+        if summary_engine is not None and not summary_skip_reason:
+            from services import episode_summary_service
+            summary_skip_reason = episode_summary_service.missing_after_run_reason(
+                drama_id, summary_engine_choice, cancelled)
+        background_jobs.set_result(job_id, {"errors": errors,
+                                            "cap_reached": cap_reached.get("spent"),
+                                            **({"summary_skipped": summary_skip_reason}
+                                               if summary_skip_reason else {}),
+                                            **({"flags_needing_recheck": sorted(recheck)}
+                                               if recheck else {}),
+                                            **({"kept_your_edit": sorted(kept_edits)}
+                                               if kept_edits else {}),
+                                            **_fallback_result(engine)})
+    if cancelled:
+        # The engine stops between batches and returns normally, keeping the
+        # lines already translated; returning here would end the job done at
+        # 100% ("Finished."), so it ends cancelled with its real progress.
+        raise background_jobs.JobCancelled(job_id)
 
 
 def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,

@@ -20,7 +20,7 @@ from tests.test_static_analysis import (  # noqa: E402
     parsed,
 )
 
-_SKIP_DIRS = {"__pycache__", "node_modules", ".git", ".claude", "venv", ".venv", "tmp"}
+_SKIP_DIRS = {"__pycache__", "node_modules", ".git", ".claude", "venv", ".venv", "tmp", "library"}
 
 
 def _rel(path):

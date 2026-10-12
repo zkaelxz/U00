@@ -56,14 +56,14 @@ import shutil
 import subprocess
 import tempfile
 import threading
-import time
 import uuid
 
 import background_jobs
 import db
+from jobs import job_store
 import dub
 import video_export
-from services import characters_service, drama_service
+from services import characters_service
 from services.media_upload_service import AUDIO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
@@ -190,18 +190,8 @@ def _clip_reading_job_active(drama_id: int) -> bool:
     """True while a dub/narration/audiobook job for this drama is running
     or queued: in this process, or a fresh job_records row written by
     another process (as drama_service.job_running_for_drama checks)."""
-    job_ids = {f"{prefix}{drama_id}" for prefix in _CLIP_READING_JOB_PREFIXES}
-    for job_id in job_ids:
-        job = background_jobs.get_status(job_id)
-        if job and job.get("status") in ("running", "queued"):
-            return True
-    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
-    for job_id in job_ids:
-        rec = db.get_job_record(job_id)
-        if (rec and rec.get("status") in ("running", "queued")
-                and (rec.get("updated_at") or 0) >= cutoff):
-            return True
-    return False
+    return job_store.fresh_active(
+        job_ids={f"{prefix}{drama_id}" for prefix in _CLIP_READING_JOB_PREFIXES})
 
 
 def _require_no_clip_reading_job(drama_id: int):

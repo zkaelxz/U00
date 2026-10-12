@@ -60,8 +60,7 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
     style_state = style_state or {}
     start, end = max(line.start - pad, 0.0), line.end + pad
     field = "en" if line.en.strip() else "zh"
-    clip_lines = subtitle_formats.lines_for_clip(
-        subtitle_formats.clamp_overlaps(lines)[0], start, end)
+    clip_lines = subtitle_formats.lines_for_clip(lines, start, end)
     ass = subtitle_formats.lines_to_ass(
         clip_lines, style_state.get("style") or subtitle_formats.ASS_PRESETS["Clean"], field,
         speaker_colors=style_state.get("speaker_colors"),
