@@ -15,6 +15,7 @@ import { routeHref, useRoute, type Route } from '../router'
 import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { BrowserInstall } from './diagnostics/BrowserInstall'
 import { DangerZone } from './diagnostics/DangerZone'
+import { CudaRuntimeInstall } from './diagnostics/CudaRuntimeInstall'
 import { DenoInstall } from './diagnostics/DenoInstall'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
@@ -205,6 +206,10 @@ function DiagnosticsContent() {
         <>
           {card('browser', (
             <BrowserInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('browser')}
+              onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          ))}
+          {card('cuda-runtime', (
+            <CudaRuntimeInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('cuda-runtime')}
               onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
           ))}
           {card('deno', (

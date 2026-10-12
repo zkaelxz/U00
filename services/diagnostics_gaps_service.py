@@ -424,12 +424,16 @@ def _run_pip(name: str, confirm, cmds_for, job_id: str = None) -> dict:
     return result
 
 
-def install_dependency(name: str, confirm: bool = False, job_id: str = None) -> dict:
+def install_dependency(name: str, confirm: bool = False, job_id: str = None,
+                       timeout: int = None) -> dict:
     """Runs the install and returns its result. `job_id`: running as that
     background job, which already holds the library and passed the start
-    checks (see diagnostics_installs_service.start_dependency_install)."""
+    checks (see diagnostics_installs_service.start_dependency_install).
+    `timeout` replaces the default pip allowance for a very large wheel."""
+    def cmds(n):
+        return [(cmd, timeout or limit) for cmd, limit in _install_commands(n)]
     try:
-        return _run_pip(name, confirm, _install_commands, job_id=job_id)
+        return _run_pip(name, confirm, cmds, job_id=job_id)
     finally:
         _clear_update_cache()      # a new package can hold back (or allow) others
 
