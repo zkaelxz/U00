@@ -16,7 +16,7 @@ import type {
   LiveSessionSummary,
 } from '../types/live'
 import { ApiError, getJson, postJson } from './client'
-import { describeError } from '../components/errorMessages'
+import { describeError, MODEL_NOT_DOWNLOADED } from '../components/errorMessages'
 
 type Fetch = typeof fetch
 
@@ -236,7 +236,7 @@ export const LIVE_FORBIDDEN =
 /** Plain text for a failed start or stop. */
 export function describeLiveError(err: unknown): string {
   const e = err as Partial<ApiError> | null
-  if (e?.status === 403) return LIVE_FORBIDDEN
+  if (e?.status === 403 && e.code !== MODEL_NOT_DOWNLOADED) return LIVE_FORBIDDEN
   if (e?.status === 409) return 'A live session is already running. Stop it first.'
   const { title, detail } = describeError(err, { serverText: true })
   return detail ? `${title} ${detail}` : title

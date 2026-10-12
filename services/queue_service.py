@@ -34,7 +34,7 @@ import translate_engines
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         ServiceError, UnsupportedOperationError)
 from services import (auth_service, artifact_service, export_service, jobs_service,
-                      ownership_service, settings_service, transcribe_service,
+                      model_readiness_service, ownership_service, settings_service, transcribe_service,
                       translate_run_service, translate_thinking_service)
 
 QUEUE_KEY = "job_queue"
@@ -256,10 +256,11 @@ def get_queue(principal) -> dict:
 
 # --- changing items ----------------------------------------------------------
 
-def add_item(principal, drama_id: int, step: str, holds_paid: bool) -> dict:
+def add_item(principal, drama_id: int, step: str, holds_paid: bool, at_pc: bool = True) -> dict:
     """Validates and appends one item. The title must exist and be the
     caller's; a Translate item on a paid engine needs `engines.paid`, as the
-    Translate stage's run does."""
+    Translate stage's run does; a Transcribe item added away from the PC
+    needs its models on disk (model_readiness_service)."""
     if step not in STEPS:
         raise InvalidInputError("Step must be transcribe, translate or export.")
     drama = db.get_drama(drama_id)
@@ -269,6 +270,8 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool) -> dict:
             and _translate_engine(drama) not in translate_engines.FREE_ENGINES:
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
+    if step == "transcribe":
+        model_readiness_service.require_ready(at_pc, model_readiness_service.for_transcribe(drama_id))
     with _lock:
         doc = _load()
         if len(doc["items"]) >= MAX_ITEMS:

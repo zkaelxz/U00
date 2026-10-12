@@ -716,7 +716,10 @@ def test_scanlate_job_blocks_drama_delete(isolated_db):
     assert drama_service.job_running_for_drama(did)
 
 
-def test_engine_gate_for_household_user(isolated_db):
+def test_engine_gate_for_household_user(isolated_db, monkeypatch):
+    from services import model_readiness_service
+    # On disk, so the remote run is refused only by the rule under test.
+    monkeypatch.setattr(model_readiness_service, "ocr_ready", lambda *a: True)
     app = create_app(ApiSettings(auth_mode="on"))
     c = TestClient(app, base_url="https://baihe.example.com", raise_server_exceptions=False)
     u = auth_service.add_user("kid@example.com")

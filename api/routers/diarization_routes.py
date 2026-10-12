@@ -6,10 +6,10 @@ speaker turns already saved. Job status/cancel is not duplicated here: poll the 
 the existing GET /api/jobs/{job_id}.
 """
 
-from fastapi import APIRouter, Path, Query
-from api.auth import require_permission
+from fastapi import APIRouter, Path, Query, Request
+from api.auth import is_at_pc, require_permission
 from api.schemas import DiarizationConfig, DiarizationRunResult, ErrorResponse
-from services import diarization_service
+from services import diarization_service, model_readiness_service
 
 router = APIRouter(prefix="/api/diarization", tags=["diarization"])
 
@@ -25,12 +25,13 @@ def get_diarization_config(drama_id: int = Path(ge=1)):
             summary="Start a real speaker-detection job for one drama's stored audio",
             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
                       409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
-def post_start_diarization(drama_id: int = Path(ge=1),
+def post_start_diarization(request: Request, drama_id: int = Path(ge=1),
                            expected_speakers: int = Query(None, ge=0, le=20),
                            overwrite_manual: bool = Query(False),
                            confirm: bool = Query(False),
                            min_speakers: int = Query(None, ge=0, le=20),
                            max_speakers: int = Query(None, ge=0, le=20)):
+    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_diarization())
     return diarization_service.start_diarization_run(
         drama_id, expected_speakers=expected_speakers,
         overwrite_manual=overwrite_manual, confirm=confirm,

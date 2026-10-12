@@ -271,6 +271,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `media_upload_service.py`
 - `metadata_research_service.py`
 - `metadata_service.py`
+- `model_readiness_service.py` (whether a run's models are on disk; refuses a run started away from the PC that would download one)
 - `model_reeval_service.py`
 - `model_registry_service.py`
 - `narration_service.py`

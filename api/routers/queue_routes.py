@@ -10,7 +10,7 @@ for their own titles, and only the PC owner may start, pause or schedule.
 
 from fastapi import APIRouter, Path, Request
 
-from api.auth import holds_paid_engines, require_permission
+from api.auth import holds_paid_engines, is_at_pc, require_permission
 from api.schemas import (ErrorResponse, QueueAddItem, QueueMove, QueuePolicy,
                          QueueScheduleSet, QueueState)
 from services import queue_service
@@ -32,7 +32,7 @@ def get_queue(request: Request):
              summary="Add a title's step to the end of the queue", responses=_ERRORS)
 def add_item(body: QueueAddItem, request: Request):
     return queue_service.add_item(request.state.principal, body.drama_id, body.step,
-                                  holds_paid_engines(request))
+                                  holds_paid_engines(request), at_pc=is_at_pc(request))
 
 
 @router.post("/items/{item_id}/move", dependencies=[require_permission("jobs.start")],

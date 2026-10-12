@@ -7,10 +7,10 @@ in services/review_jobs_service.py.
 """
 
 from fastapi import APIRouter, Path, Request
-from api.auth import require_engines_allowed, require_permission
+from api.auth import is_at_pc, require_engines_allowed, require_permission
 from api.schemas import (EmotionJobStart, ErrorResponse, FixFlaggedJobStart,
                          ReviewJobStart, ReviewJobStarted)
-from services import review_jobs_service
+from services import model_readiness_service, review_jobs_service
 
 router = APIRouter(prefix="/api/review-jobs", tags=["review-jobs"])
 
@@ -56,6 +56,8 @@ def start_flag(body: ReviewJobStart, request: Request, drama_id: int = Path(ge=1
              summary="Re-transcribe and re-translate flagged lines", responses=_ERRORS)
 def start_fix_flagged(body: FixFlaggedJobStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine, model=body.model)
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_fix_flagged(drama_id))
     return review_jobs_service.start_fix_flagged(
         drama_id, body.engine, body.model, body.gemini_free_tier, body.job_cost_cap_usd,
         include_genre_notes=body.include_genre_notes,

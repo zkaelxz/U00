@@ -131,6 +131,8 @@ describe('sessions', () => {
 describe('errors', () => {
   it('explains a refused start', () => {
     expect(describeLiveError(new ApiError(403, { code: 'forbidden', message: 'x' }))).toBe(LIVE_FORBIDDEN)
+    expect(describeLiveError(new ApiError(403, { code: 'model_not_downloaded', message: 'x' })))
+      .toMatch(/not downloaded yet/)
     expect(describeLiveError(new ApiError(409, { code: 'conflict', message: 'x' }))).toMatch(/already running/)
     expect(describeLiveError(new ApiError(503, { code: 'dependency_unavailable', message: 'No deepseek key is configured.' })))
       .toMatch(/No deepseek key/)
