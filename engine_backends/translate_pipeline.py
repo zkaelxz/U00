@@ -6,7 +6,9 @@ from .engine_registry import default_batch_size, default_reply_guard
 from .fallback import FallbackEngine
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
+from .local import scrub_error_text
 from .pricing import estimate_cost_for_engine
+from .run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
 from .prompts import (MALE_PRONOUN_WORD, is_male_speaker_label, known_male_names,
                       pronoun_default_active, pronoun_neutral_texts)
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
@@ -324,6 +326,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     errors = []
     stop_run = []
     translated = []
+    streak = FailureStreak()
+    hard_failures = []
     spent = 0.0
     allowed_runs = allowed_source_runs(glossary_terms, style_guidelines)
 
@@ -490,6 +494,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 return
             except Exception as e:
                 redacted = redact_secrets(str(e))
+                hard_failures.append(e)
                 errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
                                "error": redacted})
                 # After a timeout the abandoned request may still be running, so
@@ -565,10 +570,17 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                     ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 
         wait_token = _backoff_wait_var.set(_on_wait if detail_cb else None)
+        hard_failures.clear()
+        translated_before = len(translated)
         try:
             _process_chunk(batch, allow_bisect=True)
         finally:
             _backoff_wait_var.reset(wait_token)
+        if streak.record(failed=bool(hard_failures), succeeded=len(translated) > translated_before) \
+                and not stop_run:
+            stop_run.append(True)
+            errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
+                           "error": streak.stop_message(scrub_error_text(str(hard_failures[-1])))})
         if save_cb:
             save_cb(lines)
         if detail_cb:
@@ -605,6 +617,7 @@ def translate_lines_with_engine(*args, **kwargs):
     bound = inspect.signature(_translate_lines_with_engine).bind(*args, **kwargs)
     cancel_check = bound.arguments.get("cancel_check_cb")
     token = _cancel_check_var.set(cancel_check)
+    budget_token = _rate_limit_budget_var.set(RateLimitWaitBudget())
     try:
         if llm_tasks_scope_active():
             return _translate_lines_with_engine(*args, **kwargs)
@@ -620,4 +633,5 @@ def translate_lines_with_engine(*args, **kwargs):
                                deadline=request_deadline_for(engine)):
             return _translate_lines_with_engine(*args, **kwargs)
     finally:
+        _rate_limit_budget_var.reset(budget_token)
         _cancel_check_var.reset(token)

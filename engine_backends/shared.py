@@ -12,6 +12,7 @@ from lib import capped_body, http
 from memory_headroom import HeadroomError
 from sentence_groups import render_grouped
 
+from .run_limits import charge_rate_limit_wait
 from .translation_guard import unusable_reply
 
 
@@ -164,6 +165,7 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
                 raise
             if _is_rate_limit_error(e):
                 delay = min(base_delay * (2 ** attempt), max_delay)
+                charge_rate_limit_wait(delay)
                 if on_wait:
                     on_wait(delay, attempt + 2, max_retries)
                 _cancellable_sleep(delay)

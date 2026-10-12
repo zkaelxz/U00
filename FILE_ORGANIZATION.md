@@ -521,6 +521,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `prompts.py` (Prompt builders shared by the LLM engines)
 - `reflect_pass.py` (Reflect mode: three passes over one batch)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
+- `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)
