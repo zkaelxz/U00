@@ -217,7 +217,19 @@ def _paddle_models_state() -> str:
     # the Chinese model the call really loads.
     import ocr
     needed = {n.lower() for n in ocr._PADDLE_CH_MODELS.values()}
-    return "present" if needed <= set(names) else "missing"
+    if not needed <= set(names):
+        return "missing"
+    # The folder alone may be a cut-off download: PaddleX loads the weights
+    # file next to the inference graph.
+    folders = {e.lower(): e for e in os.listdir(os.path.join(root, "official_models"))}
+    return "present" if all(_paddle_weights_present(os.path.join(root, "official_models", folders[n]))
+                            for n in needed) else "missing"
+
+
+def _paddle_weights_present(folder: str) -> bool:
+    return (os.path.isfile(os.path.join(folder, "inference.pdiparams"))
+            and any(os.path.isfile(os.path.join(folder, n))
+                    for n in ("inference.json", "inference.pdmodel")))
 
 
 def _ocr_requirement(backend: str) -> None:

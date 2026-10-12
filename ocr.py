@@ -235,10 +235,11 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
                 from services import vram_service
                 vram_service.check_fits("PaddleOCR-VL-For-Manga")
             globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
-                _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False)
+                _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False, **qwen3_native._offline_kwargs())
             model = AutoModelForImageTextToText.from_pretrained(
                 _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
-                dtype=qwen3_native.pick_dtype(torch, True) if cuda else torch.float32)
+                dtype=qwen3_native.pick_dtype(torch, True) if cuda else torch.float32,
+                **qwen3_native._offline_kwargs())
             if cuda:
                 model = model.to("cuda")
             model.eval()
@@ -271,8 +272,24 @@ def extract_text_manga_ocr(image_path: str) -> str:
     global _manga_ocr_instance
     with _MODEL_LOCK:
         if "_manga_ocr_instance" not in globals():
-            globals()["_manga_ocr_instance"] = MangaOcr()
+            globals()["_manga_ocr_instance"] = MangaOcr(*_manga_ocr_source())
         return globals()["_manga_ocr_instance"](image_path)
+
+
+MANGA_OCR_REPO = "kha-white/manga-ocr-base"
+
+
+def _manga_ocr_source() -> tuple:
+    """MangaOcr's model argument: its default repo id, or offline (a run
+    started away from the PC) the cached folder, since MangaOcr has no
+    offline switch and would check the repo online."""
+    from lib import model_offline
+    if not model_offline.active():
+        return ()
+    folder = model_offline.hf_snapshot(MANGA_OCR_REPO)
+    if folder is None:
+        raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE)
+    return (folder,)
 
 
 def extract_text_from_images(image_paths, backend: str = "tesseract",

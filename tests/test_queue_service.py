@@ -89,9 +89,9 @@ def _status():
 
 def test_items_run_one_at_a_time_in_order(jobs):
     a, b = _drama("A"), _drama("B")
-    q.add_item(None, a, "transcribe", True)
-    q.add_item(None, b, "transcribe", True)
-    q.add_item(None, a, "translate", True)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.add_item(None, a, "translate", True, at_pc=True)
     q.start(None)
 
     q.tick()
@@ -116,8 +116,8 @@ def test_items_run_one_at_a_time_in_order(jobs):
 @pytest.mark.parametrize("stop", [False, True])
 def test_a_failed_item_continues_or_stops_by_the_policy(jobs, stop):
     a, b = _drama("A"), _drama("B")
-    q.add_item(None, a, "transcribe", True)
-    q.add_item(None, b, "transcribe", True)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
     q.set_policy(None, stop)
     q.start(None)
     jobs.fail.add(f"transcribe_{a}")
@@ -149,8 +149,8 @@ def test_translate_is_skipped_when_the_month_cap_is_used_up(jobs, cap, monkeypat
     monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
     paid, free = _drama("Paid", engine="claude"), _drama("Free", engine="ollama")
     cap(5.0, spend=5.0)
-    q.add_item(None, paid, "translate", True)
-    q.add_item(None, free, "transcribe", True)
+    q.add_item(None, paid, "translate", True, at_pc=True)
+    q.add_item(None, free, "transcribe", True, at_pc=True)
     q.start(None)
     q.tick()
     first = _items()[0]
@@ -165,7 +165,7 @@ def test_translate_is_skipped_when_the_month_cap_is_used_up(jobs, cap, monkeypat
 def test_translate_is_skipped_when_the_estimate_is_above_what_is_left(jobs, cap):
     did = _drama("Paid", engine="claude", lines=[("长" * 400, "")] * 50)
     cap(5.0, spend=4.9999999)
-    q.add_item(None, did, "translate", True)
+    q.add_item(None, did, "translate", True, at_pc=True)
     q.start(None)
     q.tick()
     item = _items()[0]
@@ -175,8 +175,8 @@ def test_translate_is_skipped_when_the_estimate_is_above_what_is_left(jobs, cap)
 
 def test_a_start_refusal_is_a_plain_skip_and_the_queue_moves_on(jobs):
     gone, ok = _drama("Gone"), _drama("Ok")
-    q.add_item(None, gone, "transcribe", True)
-    q.add_item(None, ok, "transcribe", True)
+    q.add_item(None, gone, "transcribe", True, at_pc=True)
+    q.add_item(None, ok, "transcribe", True, at_pc=True)
     db.delete_drama(gone)
     q.start(None)
     q.tick()
@@ -188,8 +188,8 @@ def test_a_start_refusal_is_a_plain_skip_and_the_queue_moves_on(jobs):
 
 def test_pause_stops_new_starts_but_the_running_item_finishes(jobs):
     a, b = _drama("A"), _drama("B")
-    q.add_item(None, a, "transcribe", True)
-    q.add_item(None, b, "transcribe", True)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
     q.start(None)
     q.tick()
     q.pause(None)
@@ -205,8 +205,8 @@ def test_pause_stops_new_starts_but_the_running_item_finishes(jobs):
 
 def test_restart_marks_the_running_item_interrupted_and_runs_nothing(jobs):
     a, b = _drama("A"), _drama("B")
-    q.add_item(None, a, "transcribe", True)
-    q.add_item(None, b, "transcribe", True)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
     q.start(None)
     q.tick()
     # As after a crash: this process's job is gone and its record was swept.
@@ -218,13 +218,13 @@ def test_restart_marks_the_running_item_interrupted_and_runs_nothing(jobs):
     assert "Interrupted" in state["items"][0]["reason"]
     q.tick()
     assert jobs.started == [f"transcribe_{a}"]
-    q.retry_item(None, state["items"][0]["id"])
+    q.retry_item(None, state["items"][0]["id"], at_pc=True)
     assert _items()[0]["status"] == "waiting"
 
 
 def test_restart_marks_a_passed_schedule_missed_and_never_runs_it(jobs):
     did = _drama()
-    q.add_item(None, did, "transcribe", True)
+    q.add_item(None, did, "transcribe", True, at_pc=True)
     now = 1_900_000_000.0
     q.set_schedule(None, "02:00", now=now)
     start_at = q.get_queue(None)["schedule"]["start_at"]
@@ -242,7 +242,7 @@ def test_restart_marks_a_passed_schedule_missed_and_never_runs_it(jobs):
 
 def test_a_schedule_fires_once_at_its_time_and_clears(jobs):
     a, b = _drama("A"), _drama("B")
-    q.add_item(None, a, "transcribe", True)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
     now = 1_900_000_000.0
     q.set_schedule(None, "23:30", now=now)
     start_at = q.get_queue(None)["schedule"]["start_at"]
@@ -256,7 +256,7 @@ def test_a_schedule_fires_once_at_its_time_and_clears(jobs):
     q.tick(now=start_at + 10)
     assert q.get_queue(None)["state"] == "idle"
     # Added later, it waits: the schedule fired once.
-    q.add_item(None, b, "transcribe", True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
     q.tick(now=start_at + 86400 + 10)
     assert jobs.started == [f"transcribe_{a}"]
 
@@ -273,7 +273,7 @@ def test_next_occurrence_is_strictly_after_now():
 def test_export_writes_the_subtitle_download_inline(jobs):
     from services import artifact_service
     did = _drama(lines=[("你好", "Hello")])
-    q.add_item(None, did, "export", True)
+    q.add_item(None, did, "export", True, at_pc=True)
     q.start(None)
     q.tick()
     assert _items()[0]["status"] == "done"
@@ -285,7 +285,7 @@ def test_export_writes_the_subtitle_download_inline(jobs):
 
 def test_export_is_skipped_with_nothing_to_export(jobs):
     did = _drama()
-    q.add_item(None, did, "export", True)
+    q.add_item(None, did, "export", True, at_pc=True)
     q.start(None)
     q.tick()
     assert _items()[0]["reason"] == "Skipped: There are no English lines to export yet."
@@ -294,13 +294,13 @@ def test_export_is_skipped_with_nothing_to_export(jobs):
 def test_validation_rejects_unknown_titles_bad_steps_and_a_full_queue(jobs):
     did = _drama()
     with pytest.raises(NotFoundError):
-        q.add_item(None, 999999, "transcribe", True)
+        q.add_item(None, 999999, "transcribe", True, at_pc=True)
     with pytest.raises(InvalidInputError):
-        q.add_item(None, did, "dub", True)
+        q.add_item(None, did, "dub", True, at_pc=True)
     for _ in range(q.MAX_ITEMS):
-        q.add_item(None, did, "export", True)
+        q.add_item(None, did, "export", True, at_pc=True)
     with pytest.raises(ConflictError):
-        q.add_item(None, did, "export", True)
+        q.add_item(None, did, "export", True, at_pc=True)
     assert len(_items()) == q.MAX_ITEMS
 
 
@@ -314,9 +314,9 @@ def test_members_queue_only_their_own_titles_and_see_only_those(jobs):
     pa = {"user_id": owner["id"], "is_admin": False, "permissions": ["jobs.start"]}
     pb = {"user_id": other["id"], "is_admin": False, "permissions": ["jobs.start"]}
     with pytest.raises(NotFoundError):
-        q.add_item(pa, shared, "transcribe", False)     # visible, but not theirs
-    q.add_item(pa, mine, "transcribe", False)
-    q.add_item(pb, shared, "transcribe", False)
+        q.add_item(pa, shared, "transcribe", False, at_pc=True)     # visible, but not theirs
+    q.add_item(pa, mine, "transcribe", False, at_pc=True)
+    q.add_item(pb, shared, "transcribe", False, at_pc=True)
     assert [i["title"] for i in q.get_queue(pa)["items"]] == ["Mine"]
     assert [i["title"] for i in q.get_queue(pb)["items"]] == ["Shared"]
     assert len(q.get_queue(None)["items"]) == 2
@@ -333,9 +333,9 @@ def test_a_paid_translate_needs_engines_paid_to_add(jobs):
     did = _drama(engine="claude", owner_user_id=u["id"], is_private=1)
     member = {"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]}
     with pytest.raises(ForbiddenError):
-        q.add_item(member, did, "translate", False)
-    q.add_item(member, did, "transcribe", False)     # a free step is fine
-    state = q.add_item(None, did, "translate", True)
+        q.add_item(member, did, "translate", False, at_pc=True)
+    q.add_item(member, did, "transcribe", False, at_pc=True)     # a free step is fine
+    state = q.add_item(None, did, "translate", True, at_pc=True)
     state["items"] = [i for i in state["items"] if i["step"] == "translate"]
     assert state["items"][0]["engine"] == "claude" and state["items"][0]["paid"] is True
 
@@ -345,7 +345,7 @@ def test_a_revoked_account_has_its_waiting_items_skipped(jobs):
     auth_service.grant_permission(u["id"], "jobs.start")
     did = _drama("Mine", owner_user_id=u["id"], is_private=1)
     q.add_item({"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]},
-               did, "transcribe", False)
+               did, "transcribe", False, at_pc=True)
     auth_service.revoke_permission(u["id"], "jobs.start")
     q.start(None)
     q.tick()
@@ -355,7 +355,7 @@ def test_a_revoked_account_has_its_waiting_items_skipped(jobs):
 def test_reorder_remove_and_clear_finished(jobs):
     a, b, c = _drama("A"), _drama("B"), _drama("C")
     for did in (a, b, c):
-        q.add_item(None, did, "transcribe", True)
+        q.add_item(None, did, "transcribe", True, at_pc=True)
     ids = [i["id"] for i in _items()]
     q.move_item(None, ids[2], "up")
     assert [i["title"] for i in _items()] == ["A", "C", "B"]
@@ -377,7 +377,7 @@ def test_reorder_remove_and_clear_finished(jobs):
 def test_runner_exits_on_shutdown_and_holds_no_lock_while_a_job_runs(jobs, monkeypatch):
     monkeypatch.setattr(q, "POLL_SECONDS", 0.05)
     did = _drama()
-    q.add_item(None, did, "transcribe", True)
+    q.add_item(None, did, "transcribe", True, at_pc=True)
     assert q.start_runner()
     try:
         q.start(None)
@@ -403,7 +403,7 @@ def test_a_transcribe_over_lines_needs_lines_edit_as_for_a_click(isolated_db):
     auth_service.revoke_permission(u["id"], "lines.edit")
     did = _drama("Mine", owner_user_id=u["id"], is_private=1)
     q.add_item({"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]},
-               did, "transcribe", False)
+               did, "transcribe", False, at_pc=True)
     q.start(None)
     q.tick()
     item = _items()[0]
@@ -433,7 +433,7 @@ def test_paid_translate_is_skipped_when_no_monthly_cap_is_set(jobs, cap, monkeyp
     monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
     did = _drama("Paid", engine="claude")
     cap(0.0)
-    q.add_item(None, did, "translate", True)
+    q.add_item(None, did, "translate", True, at_pc=True)
     q.start(None)
     q.tick()
     assert _items()[0]["reason"] == f"Skipped: {q._NO_CAP}"
@@ -442,7 +442,7 @@ def test_paid_translate_is_skipped_when_no_monthly_cap_is_set(jobs, cap, monkeyp
 
 def test_a_restore_or_cleanup_hold_makes_the_queue_wait_not_skip(jobs):
     did = _drama()
-    q.add_item(None, did, "transcribe", True)
+    q.add_item(None, did, "transcribe", True, at_pc=True)
     q.start(None)
     assert background_jobs.enter_maintenance()
     try:
@@ -456,8 +456,8 @@ def test_a_restore_or_cleanup_hold_makes_the_queue_wait_not_skip(jobs):
 
 def test_a_lagging_job_record_does_not_end_the_item_early(jobs):
     a, b = _drama("A"), _drama("B")
-    q.add_item(None, a, "transcribe", True)
-    q.add_item(None, b, "transcribe", True)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
     q.start(None)
     q.tick()
     # As if the "running" write failed and the row kept an earlier run's status.
@@ -469,7 +469,7 @@ def test_a_lagging_job_record_does_not_end_the_item_early(jobs):
 
 def test_a_claim_whose_outcome_was_never_written_is_interrupted(jobs):
     did = _drama()
-    q.add_item(None, did, "transcribe", True)
+    q.add_item(None, did, "transcribe", True, at_pc=True)
     with q._lock:
         doc = q._load()
         doc["items"][0].update(status="running", job_id=None)
@@ -483,10 +483,10 @@ def test_one_member_cannot_fill_the_shared_queue(jobs):
     did = _drama("Mine", owner_user_id=u["id"], is_private=1)
     member = {"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]}
     for _ in range(q.MAX_ITEMS_PER_MEMBER):
-        q.add_item(member, did, "export", False)
+        q.add_item(member, did, "export", False, at_pc=True)
     with pytest.raises(ConflictError):
-        q.add_item(member, did, "export", False)
-    q.add_item(None, did, "export", True)     # the owner still can
+        q.add_item(member, did, "export", False, at_pc=True)
+    q.add_item(None, did, "export", True, at_pc=True)     # the owner still can
 
 
 def test_translate_passes_the_settings_default_locale_and_style_note(jobs, monkeypatch):
@@ -497,7 +497,7 @@ def test_translate_passes_the_settings_default_locale_and_style_note(jobs, monke
     monkeypatch.setattr(settings_service, "get", lambda k: {"default_locale": "en-GB",
                         "default_style_note": "Keep honorifics."}.get(k) or real(k))
     did = _drama()
-    q.add_item(None, did, "translate", True)
+    q.add_item(None, did, "translate", True, at_pc=True)
     q.start(None)
     q.tick()
     assert seen["locale"] == "en-GB" and seen["style_note"] == "Keep honorifics."

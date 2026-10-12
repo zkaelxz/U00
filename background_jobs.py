@@ -36,7 +36,7 @@ import traceback
 import gpu_probe
 import job_force_stop
 import job_process_result
-from lib import settings_schema
+from lib import model_offline, settings_schema
 from job_process_kill import _kill_worker_group, _stop_process, kill_tree, reap_worker  # noqa: F401
 
 _jobs = {}
@@ -898,6 +898,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     (refuse_new_jobs).
     """
     owner_user_id = _acting_user_id()
+    if model_offline.active():
+        target = model_offline.for_thread(target)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
@@ -1017,6 +1019,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     start_job().
     """
     owner_user_id = _acting_user_id()
+    if model_offline.active():
+        target = model_offline.for_process(target)
+        # on_done may start the next stage's job (transcription -> speakers).
+        on_done = on_done and model_offline.for_thread(on_done)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:

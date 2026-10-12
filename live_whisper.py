@@ -10,6 +10,7 @@ the thread still holds it, so dropping frees no memory and only makes the next
 call load a second copy.
 """
 import whisper_models
+import contextvars
 import os
 import sys
 import threading
@@ -216,7 +217,11 @@ class WhisperRunner:
                 _worker_ended(entry)
 
         global _outstanding
-        worker = threading.Thread(target=work, daemon=True, name="live-whisper")
+        # The job's context goes along: a session started away from the PC
+        # loads Whisper offline (lib/model_offline.py), and a new thread
+        # would otherwise start with an empty context.
+        worker = threading.Thread(target=contextvars.copy_context().run, args=(work,),
+                                  daemon=True, name="live-whisper")
         entry["worker"] = worker
         # Read before the worker starts: a call that finishes its first step
         # (or a test clock moved by it) must not push the limit further out.

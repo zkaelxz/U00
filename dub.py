@@ -106,6 +106,7 @@ def _check_vram(model_name):
 
 
 _omnivoice_model = None
+OMNIVOICE_REPO = "k2-fsa/OmniVoice"
 OMNIVOICE_SAMPLE_RATE = 24000
 
 
@@ -120,7 +121,7 @@ def _get_omnivoice_model():
         import torch
         from omnivoice import OmniVoice
         _omnivoice_model = OmniVoice.from_pretrained(
-            "k2-fsa/OmniVoice", device_map="cuda:0" if cuda else "cpu",
+            OMNIVOICE_REPO, device_map="cuda:0" if cuda else "cpu",
             dtype=torch.float16 if cuda else torch.float32)
     return _omnivoice_model
 

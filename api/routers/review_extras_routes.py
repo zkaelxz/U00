@@ -14,14 +14,15 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse
 
-from api.auth import (is_auth_enabled, is_local_request, local_only, require_engines_allowed,
-                      require_permission)
+from api.auth import (is_at_pc, is_auth_enabled, is_local_request, local_only,
+                      require_engines_allowed, require_permission)
 from api.llm_slots import llm_slot
 from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, EnCleanupApply,
                          EnCleanupPreview, EnCleanupResult, ErrorResponse,
                          MergeShortApply, MergeShortPreview, MergeShortResult, SenseVoiceStarted,
                          SenseVoiceTags, StyleApplyRequest, StyleLearnRequest, StyleResetRequest,
                          StyleRestoreRequest, StyleState)
+from services import model_readiness_service
 from services import review_extras_service as svc
 from services.service_errors import ForbiddenError, InvalidInputError
 
@@ -135,7 +136,8 @@ def post_style_restore(body: StyleRestoreRequest, request: Request, drama_id: in
              response_model=SenseVoiceStarted,
              summary="Start SenseVoice emotion/sound tagging (poll /api/jobs/{job_id})",
              responses=_R)
-def post_sensevoice(drama_id: int = Path(ge=1)):
+def post_sensevoice(request: Request, drama_id: int = Path(ge=1)):
+    model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_sensevoice)
     return svc.start_sensevoice(drama_id)
 
 

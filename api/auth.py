@@ -350,6 +350,12 @@ def is_local_request(request: Request) -> bool:
     return _is_local_scope(request.client.host if request.client else None, request.headers)
 
 
+def is_at_pc(request: Request) -> bool:
+    """The owner at the PC, for a PC-only choice inside a shared route: with
+    auth off every request counts, since off mode serves loopback only."""
+    return not is_auth_enabled(request.app) or is_local_request(request)
+
+
 def require_engines_allowed(request: Request, *engine_names, model=None):
     """Raises 403 unless the caller holds `engines.paid` or every named
     engine is in `translate_engines.FREE_ENGINES`. A missing name (None:

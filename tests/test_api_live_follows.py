@@ -96,7 +96,10 @@ def test_permissions_and_ownership_with_auth_on(env):
     assert c.post(f"/api/live/follows/{fid}/remove", headers=alice).json()["removed"] is True
 
 
-def test_start_live_needs_the_live_start_permissions(env):
+def test_start_live_needs_the_live_start_permissions(env, monkeypatch):
+    from services import model_readiness_service
+    # On disk, so the remote start is refused only by the rule under test.
+    monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a: True)
     c = _on_client()
     alice = _headers("media.import_url", email="alice@example.com")
     fid = c.post("/api/live/follows", json={"channel": "@alice_ch"}, headers=alice).json()["id"]
@@ -114,6 +117,25 @@ def test_start_live_needs_the_live_start_permissions(env):
     live_follow_store.update(fid, options=json.dumps({"engine": "claude"}))
     assert c.post(f"/api/live/follows/{fid}/start", headers=alice).status_code == 403
     assert len(env) == 1
+
+
+def test_a_member_start_needs_the_whisper_model_on_disk_and_loads_offline(env, monkeypatch):
+    from lib import model_offline
+    from services import model_readiness_service
+    offline = []
+    monkeypatch.setattr(live_service, "start_session", lambda url, **kw: offline.append(
+        model_offline.active()) or {"session_id": "live_" + "a" * 32})
+    c = _on_client()
+    alice = _headers("media.import_url", email="alice@example.com")
+    fid = c.post("/api/live/follows", json={"channel": "@alice_ch"}, headers=alice).json()["id"]
+    r = c.post(f"/api/live/follows/{fid}/start", headers=alice)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "model_not_downloaded"
+    assert offline == []
+    sizes = []
+    monkeypatch.setattr(model_readiness_service, "whisper_ready",
+                        lambda size, *a: sizes.append(size) or True)
+    assert c.post(f"/api/live/follows/{fid}/start", headers=alice).status_code == 200
+    assert sizes == ["small"] and offline == [True]
 
 
 def test_auth_off_owner_flow_and_no_url_in_responses(env):

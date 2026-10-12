@@ -792,10 +792,12 @@ class TestPaidEngines:
     def test_remote_transcribe_run_cannot_pick_tesseract_binary(self, isolated_db, monkeypatch):
         """Security review (PR #439): the server executes tesseract_cmd, so a
         remote caller (even an admin) gets 403 and nothing starts; the PC may."""
-        from services import transcribe_service
+        from services import model_readiness_service, transcribe_service
         started = []
         monkeypatch.setattr(transcribe_service, "start_transcribe_run",
                             lambda *a, **k: started.append(k) or {"job_id": "j"})
+        # On disk, so the remote run is refused only by the rule under test.
+        monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a: True)
         drama_id = db.create_drama(title_en="T", source_language="zh")
         run = f"/api/transcribe/dramas/{drama_id}/run"
         _u, s = _user(admin=True)

@@ -182,7 +182,17 @@ def _load_lama_generator(hf_token: str = None):
 
     _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
 
-    ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename="model.safetensors", token=_tok)
+    from lib import model_offline
+    # A run started away from the PC loads the cached file only; a server
+    # thread cannot use the process-wide offline switch (lib/model_offline.py).
+    offline = {"local_files_only": True} if model_offline.active() else {}
+    try:
+        ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename="model.safetensors",
+                                    token=_tok, **offline)
+    except Exception as exc:
+        if offline:
+            raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE) from exc
+        raise
     state_dict = _load_safetensors(ckpt_path)
 
     generator = _build_lama_generator()

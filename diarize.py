@@ -61,8 +61,11 @@ def load_pipeline(hf_token: str):
     accepted on this Hugging Face account yet. Raises the last error if
     neither loads."""
     from pyannote.audio import Pipeline
+    from lib import model_offline
     last_error = None
-    for model in DIARIZATION_MODELS:
+    # Offline (a run started away from the PC) there is no fallback: 3.1
+    # pulls in two more repos, which would be a download.
+    for model in DIARIZATION_MODELS[:1] if model_offline.active() else DIARIZATION_MODELS:
         try:
             pipeline = _from_pretrained(Pipeline, model, hf_token)
             if pipeline is not None:  # 3.x returns None instead of raising on a gated model
@@ -70,6 +73,8 @@ def load_pipeline(hf_token: str):
             last_error = RuntimeError(f"{model} returned no pipeline (terms not accepted?)")
         except Exception as exc:
             last_error = exc
+    if model_offline.active():
+        raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE) from last_error
     raise last_error
 
 

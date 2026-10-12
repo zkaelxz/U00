@@ -12,12 +12,13 @@ drama. Deleting a line needs confirm=true; re-segmentation needs it when
 translated/flagged/noted lines could be split.
 """
 from fastapi import APIRouter, Path, Request
-from api.auth import require_engines_allowed, require_permission
+from api.auth import is_at_pc, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, ResegmentLlmPreview, ResegmentLlmPreviewStart,
                          ResegmentPreview, ResegmentStart, ResegmentStarted,
                          RestoreVersionRequest, RestoreVersionResult, RestructureAddLine,
                          RestructureDeleteLine, RestructureMerge, RestructureResult,
                          RestructureSplit, ResplitResult, ResplitStart)
+from services import model_readiness_service
 from services import restructure_service as svc
 
 router = APIRouter(prefix="/api/restructure", tags=["restructure"])
@@ -93,7 +94,9 @@ def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(
 @router.post("/dramas/{drama_id}/resplit", dependencies=[require_permission("lines.edit")], response_model=ResplitResult,
              summary="Split over-long lines in place (estimated timing now, or an align-to-audio job)",
              responses={**_R, 400: {"model": ErrorResponse}})
-def post_resplit(body: ResplitStart, drama_id: int = Path(ge=1)):
+def post_resplit(body: ResplitStart, request: Request, drama_id: int = Path(ge=1)):
+    if body.align_to_audio and not body.dry_run:
+        model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_aligner)
     return svc.resplit_long_lines(drama_id, body.expected_line_ids,
                                   align_to_audio=body.align_to_audio, confirm=body.confirm,
                                   sensitivity=body.sensitivity, max_seconds=body.max_seconds,

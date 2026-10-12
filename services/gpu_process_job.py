@@ -21,6 +21,7 @@ import background_jobs
 import cuda_runtime_path
 import job_process_kill
 import job_process_result
+from lib import model_offline
 import storage
 from translate_engines import redact_secrets
 
@@ -115,8 +116,8 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
     channel = job_process_result.wrap_queue(context.Queue(), job_id)
     scratch_dir = storage.new_workdir(job_id)
     proc = context.Process(
-        target=process_entry, args=(body, timeout_s, scratch_dir, *args, channel),
-        daemon=True)
+        target=model_offline.for_process(process_entry) if model_offline.active() else process_entry,
+        args=(body, timeout_s, scratch_dir, *args, channel), daemon=True)
     clean = False
     try:
         # Spawn, not Linux's default fork: a forked child of a process that
