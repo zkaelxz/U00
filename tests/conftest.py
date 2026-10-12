@@ -91,6 +91,8 @@ def _rmtree_retrying(path, tries=5, pause=0.5):
     """Windows can't delete a sqlite file something still has open, and
     ignore_errors=True then leaves the folder in %TEMP% for good. The
     handle is usually released a moment later, so retry before giving up."""
+    if os.name != "nt":
+        tries = 1   # POSIX unlinks open files, so one pass is enough
     for attempt in range(tries):
         shutil.rmtree(path, ignore_errors=True)
         if not os.path.exists(path):

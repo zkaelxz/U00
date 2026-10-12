@@ -186,12 +186,13 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
   is cleared by the next test's setup. A repo-wide `os.walk` must skip
   `library`. The failure message names the thread and `PYTEST_CURRENT_TEST`:
   a background job thread that outlives its test shows up in the next test.
-- `python -c 'import db'` from the repo root creates `./library/`, and
-  `tests/test_split_guards.py::TestFrontDoorNamesResolve` then fails locally;
-  delete `./library/` it made (or import `db` from a temp working directory).
+- `./library/` is the real library (the default `db.LIBRARY_DIR`) and may hold
+  real data; never delete it to make a test pass. Repo-wide file walks in the
+  tests skip `library` (`_SKIP_DIRS` in `tests/test_split_guards.py`), because
+  the isolation guard fails any test that scans it.
 - Test-first runs (`upgrade_check.py`) give the pytest child a private `TMP`
   inside the throwaway work folder, so the suite's `baihe_test_*` folders go
-  with it; `tests/conftest.py` also retries its own temp cleanup on Windows.
+  with it; `tests/conftest.py` also retries its own temp cleanup on Windows (POSIX gets one pass).
 - A test that needs an optional library (`jieba`, `pytesseract`, `cv2`,
   `paddleocr`, ...) should `pytest.importorskip` it, not hard-import it,
   so a core-only install still gets a clean run.
