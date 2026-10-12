@@ -63,7 +63,7 @@ describe('describeError additions', () => {
   it('has plain copy for forbidden, unauthenticated and rate_limited', () => {
     expect(describeError(err(403, 'forbidden')).title).toBe('Not allowed from this device or account.')
     expect(describeError(err(401, 'unauthenticated')).title).toBe('Your session has ended. Sign in again.')
-    expect(describeError(err(429, 'rate_limited')).title).toBe('Too many requests. Wait a moment and try again.')
+    expect(describeError(err(429, 'rate_limited', '')).title).toBe('Too many requests. Wait a moment and try again.')
   })
 
   it('PC-only callers get the main-PC copy on 403', () => {
@@ -71,8 +71,11 @@ describe('describeError additions', () => {
   })
 
   it('serverText opts validation errors into the server text, still filtered', () => {
-    expect(describeError(err(422, 'validation_error')).detail).toBeNull()
-    expect(describeError(err(422, 'validation_error'), { serverText: true }).detail).toBe('Restoring needs RESTORE.')
-    expect(describeError(err(422, 'validation_error', 'bad /home/kae/x.zip'), { serverText: true }).detail).toBeNull()
+    // A 422 sentence is now the heading whether or not serverText is set.
+    expect(describeError(err(422, 'validation_error')).title).toBe('Restoring needs RESTORE.')
+    expect(describeError(err(422, 'validation_error'), { serverText: true }).title).toBe('Restoring needs RESTORE.')
+    expect(describeError(err(400, 'validation_error')).detail).toBeNull()
+    expect(describeError(err(400, 'validation_error'), { serverText: true }).detail).toBe('Restoring needs RESTORE.')
+    expect(describeError(err(422, 'validation_error', 'bad /home/kae/x.zip'), { serverText: true }).title).toMatch(/not valid/)
   })
 })

@@ -17,12 +17,17 @@ export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<void>
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const last = useRef<A | null>(null)
+  // A second click while the first request is out would start the same job
+  // twice and the server would answer 409 "already running".
+  const inFlight = useRef(false)
   const fnRef = useRef(fn)
   useEffect(() => {
     fnRef.current = fn
   })
 
   const run = useCallback(async (...args: A) => {
+    if (inFlight.current) return
+    inFlight.current = true
     last.current = args
     setBusy(true)
     setError(null)
@@ -31,6 +36,7 @@ export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<void>
     } catch (e) {
       setError(e)
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }, [])

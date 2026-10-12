@@ -19,9 +19,21 @@ const GENERIC: Record<string, string> = {
   model_not_downloaded: 'This model is not downloaded yet. Ask the owner of the main PC to download it first.',
   unauthenticated: 'Your session has ended. Sign in again.',
   rate_limited: 'Too many requests. Wait a moment and try again.',
+  timeout:
+    'The server did not answer in time. The change may not have been saved; check before trying again.',
   extension_only:
     'This site only works through the browser extension. Open the chapter in Chrome and use the extension.',
 }
+
+// A failed read changed nothing, so it must not say "Nothing was changed".
+const READ_GENERIC: Record<string, string> = {
+  application_error: 'Could not load this. Try again.',
+  internal_error: 'Could not load this. Something went wrong inside Baihe; details are in the app log.',
+  timeout: 'Could not load this: the server took too long to answer. Try again.',
+}
+
+// FastAPI's own 422 body carries this placeholder instead of a reason.
+const PLACEHOLDER_INVALID = 'The request is invalid.'
 
 // A PC-only call refused with 403 (the viewer is not at the main PC).
 export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
@@ -86,13 +98,29 @@ export function describeError(
   const keyTitle = `No key is set for ${typeof engine === 'string' && /^[\w-]{1,40}$/.test(engine) ? engineLabel(engine) : 'this engine'}. Add it in Settings.`
   const refusalText =
     opts.reasonAsTitle && OPT_IN_SERVER_TEXT_CODES.includes(code) && e?.message ? safeDetail(e.message) : null
+  const isRead = e?.method === 'GET' || e?.method === 'HEAD'
+  // 422 sentences (InvalidInputError) and 429 wait times are fixed server
+  // text written for people; safeDetail still drops anything path- or key-like.
+  const serverMsg = typeof e?.message === 'string' ? safeDetail(e.message) : null
+  const serverTitle =
+    serverMsg &&
+    serverMsg !== PLACEHOLDER_INVALID &&
+    ((e?.status === 422 && OPT_IN_SERVER_TEXT_CODES.includes(code)) || code === 'rate_limited')
+      ? capFirst(serverMsg)
+      : null
   const title =
     opts.pcOnly && code !== MODEL_NOT_DOWNLOADED && (code === 'forbidden' || e?.status === 403)
       ? PC_ONLY_FORBIDDEN
-      : (ollamaText ?? (missingKey ? keyTitle : null) ?? refusalText ?? GENERIC[code] ?? GENERIC.application_error)
+      : (ollamaText ??
+        (missingKey ? keyTitle : null) ??
+        refusalText ??
+        serverTitle ??
+        (isRead ? READ_GENERIC[code] : undefined) ??
+        GENERIC[code] ??
+        (isRead ? READ_GENERIC.application_error : GENERIC.application_error))
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const rawDetail = e?.message && showServer && !ollamaText && !missingKey && !refusalText ? safeDetail(e.message) : null
+  const rawDetail = e?.message && showServer && !ollamaText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
   const detail = rawDetail ? capFirst(rawDetail) : null
   return { title, detail }
 }
