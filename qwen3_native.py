@@ -22,6 +22,8 @@ import importlib.util
 from dataclasses import dataclass
 from typing import Optional
 
+from lib import model_offline
+
 MIN_TRANSFORMERS = (5, 15, 0)
 
 ASR_REPO_TEMPLATE = "Qwen/Qwen3-ASR-{size}-hf"
@@ -142,7 +144,6 @@ def _offline_kwargs() -> dict:
     """A run started away from the PC loads the cached revision only
     (lib/model_offline.py); the aligner also loads in server threads, where
     the process environment must stay online for the owner."""
-    from lib import model_offline
     return {"local_files_only": True} if model_offline.active() else {}
 
 
