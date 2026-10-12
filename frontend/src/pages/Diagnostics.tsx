@@ -33,7 +33,7 @@ import {
   CARD_TAB, DIAGNOSTICS_TABS, TAB_FOLD_KEYS, cardAnchorId, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab,
 } from './diagnostics/diagnosticsTabs'
 import './diagnostics/diagnostics.css'
-import { isActive, splitDependencies } from './diagnosticsFormat'
+import { isActive, pollWhenSettled, shouldRefreshGpu, splitDependencies } from './diagnosticsFormat'
 
 const POLL_MS = 3000
 
@@ -150,6 +150,18 @@ function DiagnosticsContent() {
     const t = setInterval(() => void refreshJobs(), POLL_MS)
     return () => clearInterval(t)
   }, [watch, refreshJobs])
+  // Memory in use changes while a GPU job runs; the overview is re-read only then, and not in a hidden tab.
+  const [tabHidden, setTabHidden] = useState(() => document.visibilityState === 'hidden')
+  useEffect(() => {
+    const onChange = () => setTabHidden(document.visibilityState === 'hidden')
+    document.addEventListener('visibilitychange', onChange)
+    return () => document.removeEventListener('visibilitychange', onChange)
+  }, [])
+  const refreshGpu = shouldRefreshGpu(jobs, tabHidden)
+  useEffect(() => {
+    if (!refreshGpu) return
+    return pollWhenSettled(() => getDiagnostics().then(setOverview), POLL_MS)
+  }, [refreshGpu])
   const afterReset = useCallback(() => void refreshJobs(), [refreshJobs])
 
   const setupProblems = setup ? setupRows(setup, overview?.gpu ?? null).filter((r) => r.problem).length : null
