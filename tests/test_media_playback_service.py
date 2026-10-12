@@ -34,6 +34,15 @@ class TestBurnPreview:
         assert dialogue[0].startswith("Dialogue: 0,0:00:02.00,0:00:04.75,")  # clip-relative
         assert dialogue[0].endswith(",Goodbye")
 
+    def test_overlapping_cues_both_stay_fully_visible(self):
+        lines = [Line(idx=0, start=10.0, end=14.0, zh="a", en="One"),
+                 Line(idx=1, start=12.0, end=16.0, zh="b", en="Two")]
+        start, _, ass = burn_preview_ass(lines, lines[1], None)
+        assert start == 10.0
+        dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
+        assert [d.split(",")[1:3] for d in dialogue] == [["0:00:00.00", "0:00:04.00"],
+                                                         ["0:00:02.00", "0:00:06.00"]]
+
     def test_captions_use_the_current_style_settings(self):
         _, _, ass = burn_preview_ass(LINES, LINES[1], self.STYLE)
         default = next(l for l in ass.splitlines() if l.startswith("Style: Default,"))

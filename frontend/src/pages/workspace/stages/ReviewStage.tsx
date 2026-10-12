@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { MediaKind } from '../../../api/media'
 import { getMediaStatus } from '../../../api/workspace'
 import { useStage } from '../StageContext'
-import { Section } from '../../../components/Section'
-import { readSectionOpen } from '../../../components/sectionStorage'
 import { AiExtrasBurnPreview } from './review/AiExtrasBurnPreview'
 import { AiExtrasCleanup } from './review/AiExtrasCleanup'
 import { AiExtrasMerge } from './review/AiExtrasMerge'
@@ -19,40 +17,13 @@ import { RecordsPanel } from './review/RecordsPanel'
 import { ReviewChecks } from './review/ReviewChecks'
 import { ReviewFlags } from './review/ReviewFlags'
 import { ReviewJobsPanel } from './review/ReviewJobsPanel'
+import { ReviewTools } from './review/ReviewTools'
+import type { ReviewToolsTab } from './review/reviewToolsTabs'
 import { ResplitLines } from './review/ResplitLines'
 import { StructureSection } from './review/StructureSection'
 import type { LineTarget } from './review/reviewResults'
 import { useDramaJobRunning } from './review/useDramaJobRunning'
 import './review/review.css'
-
-// A top-level fold of the stage. The body is handed `opened` (true once the
-// fold has been opened, or was remembered open) so heavy parts can wait.
-function Fold({ storageKey, title, summary, openSignal, children }: {
-  storageKey: string
-  title: string
-  summary: string
-  // Each change opens the fold, as Section's openSignal does, and counts as opened.
-  openSignal?: number
-  children: (opened: boolean) => ReactNode
-}) {
-  const [opened, setOpened] = useState(() => {
-    try {
-      return readSectionOpen(window.localStorage, storageKey, false)
-    } catch {
-      return false
-    }
-  })
-  const [seenSignal, setSeenSignal] = useState(openSignal)
-  if (seenSignal !== openSignal) {
-    setSeenSignal(openSignal)
-    setOpened(true)
-  }
-  return (
-    <Section storageKey={storageKey} title={title} summary={summary} openSignal={openSignal} onToggle={(open) => open && setOpened(true)}>
-      <div className="stack">{children(opened)}</div>
-    </Section>
-  )
-}
 
 export default function ReviewStage() {
   const { dramaId, drama, refetchDrama } = useStage()
@@ -72,21 +43,33 @@ export default function ReviewStage() {
     if (wasRunning.current && !jobRunning) changed()
     wasRunning.current = jobRunning
   }, [jobRunning, changed])
+  // Those three buttons live in the History tab, so each also switches to it.
+  const [toolsRequest, setToolsRequest] = useState<{ tab: ReviewToolsTab; seq: number } | null>(null)
+  const showHistory = useCallback(() => setToolsRequest((r) => ({ tab: 'history', seq: (r?.seq ?? 0) + 1 })), [])
   // Bumped by the selection bar's "Compare transcription…": opens the fold and
   // the section and shows the ticked lines there.
   const [compareSignal, setCompareSignal] = useState(0)
-  const openCompare = useCallback(() => setCompareSignal((n) => n + 1), [])
+  const openCompare = useCallback(() => {
+    setCompareSignal((n) => n + 1)
+    showHistory()
+  }, [showHistory])
   // Same for "Re-time with Qwen3 aligner…".
   const [retimeSignal, setRetimeSignal] = useState(0)
-  const openRetime = useCallback(() => setRetimeSignal((n) => n + 1), [])
+  const openRetime = useCallback(() => {
+    setRetimeSignal((n) => n + 1)
+    showHistory()
+  }, [showHistory])
   // Same for "Re-transcribe selected", the waveform's "Transcribe this gap" and
   // "Add and transcribe": ids start a run on exactly those lines.
   const [retranscribeRequest, setRetranscribeRequest] = useState<RetranscribeRequest | null>(null)
   const [handledRetranscribeSeq, setHandledRetranscribeSeq] = useState(0)
   const pendingRetranscribe = retranscribeRequest && retranscribeRequest.seq !== handledRetranscribeSeq ? retranscribeRequest : null
   const openRetranscribe = useCallback(
-    (lineIds: number[] | null) => setRetranscribeRequest((r) => ({ seq: (r?.seq ?? 0) + 1, lineIds })),
-    [],
+    (lineIds: number[] | null) => {
+      setRetranscribeRequest((r) => ({ seq: (r?.seq ?? 0) + 1, lineIds }))
+      showHistory()
+    },
+    [showHistory],
   )
   const [lineCount, setLineCount] = useState<number | null>(null)
   // A finding's line link: the editor opens that line (by id where known).
@@ -137,49 +120,51 @@ export default function ReviewStage() {
         onChanged={changed}
         jobRunning={jobRunning}
         render={(parts) => (
-          <>
-            <ReviewJobsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onGoTo={goToLine} flaggedCount={flaggedCount}>
-              {!!lineCount && <ReviewFlags onDone={changed} />}
-              {parts.coverage}
-            </ReviewJobsPanel>
-            {!!lineCount && (
-              <Fold storageKey="review.fold.restructure" title="Restructure lines" summary="Structure · re-split · merge short · fix common errors · shorten overlong">
-                {() => (
-                  <>
-                    <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
-                    <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
-                    <AiExtrasMerge dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
-                    <AiExtrasCleanup dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
-                    {parts.shorten}
-                  </>
-                )}
-              </Fold>
-            )}
-            <Fold storageKey="review.fold.history" title="Versions and history" openSignal={compareSignal + retimeSignal + (retranscribeRequest?.seq ?? 0) || undefined} summary="Notes · versions · history · compare · compare transcription · re-time · re-transcribe · edit tendencies">
-              {(opened) => (
-                <>
-                  <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
-                  {parts.history}
-                  {!!lineCount && opened && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
-                  {!!lineCount && opened && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
-                  {!!lineCount && opened && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={pendingRetranscribe} onRequestHandled={setHandledRetranscribeSeq} />}
-                  {!!lineCount && opened && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
-                </>
-              )}
-            </Fold>
-            {!!lineCount && (
-              <Fold storageKey="review.fold.extras" title="Extras" summary="Audio tags · burned preview">
-                {(opened) =>
-                  opened && (
+          <ReviewJobsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onGoTo={goToLine} flaggedCount={flaggedCount}
+            render={(jobs) => (
+              <ReviewTools
+                dramaId={dramaId}
+                status={jobs.status}
+                request={toolsRequest}
+                attention={{ coverage: parts.coverageCount }}
+                panels={{
+                  check: jobs.check,
+                  fix: (
+                    <>
+                      {jobs.fix}
+                      {!!lineCount && <ReviewFlags onDone={changed} />}
+                    </>
+                  ),
+                  coverage: parts.coverage,
+                  restructure: !!lineCount && (
+                    <>
+                      <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
+                      <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
+                      <AiExtrasMerge dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
+                      <AiExtrasCleanup dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
+                      {parts.shorten}
+                    </>
+                  ),
+                  history: (
+                    <>
+                      <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
+                      {parts.history}
+                      {!!lineCount && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
+                      {!!lineCount && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
+                      {!!lineCount && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={pendingRetranscribe} onRequestHandled={setHandledRetranscribeSeq} />}
+                      {!!lineCount && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
+                    </>
+                  ),
+                  extras: !!lineCount && (
                     <>
                       <AiExtrasSenseVoice dramaId={dramaId} reloads={reloads} />
                       <AiExtrasBurnPreview dramaId={dramaId} />
                     </>
-                  )
-                }
-              </Fold>
+                  ),
+                }}
+              />
             )}
-          </>
+          />
         )}
       />
     </div>
