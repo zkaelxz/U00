@@ -78,7 +78,7 @@ export const NAV_ITEMS: NavItem[] = [
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
-  item('Sources', { name: 'sources' }, { requires: 'library.read', rail: { group: 'find', active: ['sources'] } }),
+  item('Sources', { name: 'sources' }, { requires: 'library.read', rail: { group: 'find', active: ['sources', 'sources-manage'] } }),
   item('Discover', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover'] } }),
   item('Live', { name: 'live' }, { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
   // The header's Jobs button is the glance; this is the page.

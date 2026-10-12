@@ -325,14 +325,14 @@ Layout:
 
 Evidence:
 - The summary "15 on" is cryptic (`sourcesFormat.ts:135`).
-- "Search in: All 9 sources" and "Source settings: 15 of 15 on" read as if they contradict each other (`sources-desktop.png`). Search likely covers only sources that support search **(inferred)**.
+- "Search in: All 9 sources" and "Manage sources: 15 of 15 on" read as if they contradict each other (`sources-desktop.png`). Search likely covers only sources that support search **(inferred)**.
 
 Tasks:
 - `page-head` "Sources" with meta "15 sources on · 9 searchable · 0 paused" and a paused Badge in warn.
 - One Card with a segmented "Paste a link | Search by title". Only one input is visible, and its button is the Card's single primary. Today "Preview" and "Search" sit at equal weight.
 - "Search in" stays a Section.
 - "New chapters" is a Card, rendered when non-empty (already the case).
-- "Source settings" stays a Section. It's PC-only and rare. Per-source checkboxes (`SourceSettings.tsx`) become Toggles. The health light becomes `Badge` ok/warn/bad with the `healthText` label.
+- Site settings moved off this page to **Manage sources** (`#/sources/manage`, PC only; other devices see one "PC only" line), reached by a quiet "Manage sources" link in the page head. It uses the shared `Tabs`, one level: **Sites** (a compact row: name, status Badge from `healthText`, On Toggle, Rules select Gentle/Standard/Fast, Details), **Timing & cache** (one Pacing summary row, Saved pages, a closed "Advanced timing" Section with every pacing field, one Save), **Network** (Proxy, Site web addresses, Saved page layouts) and **Activity** (Imported from links). The first card of each tab starts open, the rest closed, remembered; a tab with nothing to show says so. Auto-import and "Check followed titles every N h" sit on the New chapters card; the demo-source and diagnostics switches only show in Developer Mode.
 
 Clicks: search 1 + Enter, and 1 more to switch mode. Phone: the button goes full width under its input (already the case). The results and series panel with data were **not seen**.
 

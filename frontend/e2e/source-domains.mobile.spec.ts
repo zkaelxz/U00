@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { mockDomains } from './sourceDomainsMocks'
-import { mockSources } from './sourcesMocks'
+import { mockSources, openManage } from './sourcesMocks'
 import { installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -9,12 +9,11 @@ test.beforeEach(async ({ page }) => {
 })
 
 // Phone project (390x844, touch): the address editor fits and has 44 px targets.
-test('phone: source addresses fit, 44 px targets', async ({ page }) => {
+test('phone: site web addresses fit, 44 px targets', async ({ page }) => {
   await mockSources(page)
   await mockDomains(page)
-  await page.goto('/#/sources')
-  await page.getByText('Source settings', { exact: true }).first().click()
-  await page.getByText('Source addresses').first().click()
+  await openManage(page, 'network')
+  await page.getByText('Site web addresses').first().click()
   const alpha = page.getByRole('group', { name: 'Alpha Comics addresses' })
   await expect(alpha.getByRole('button', { name: 'Confirm alpha-new.example' })).toBeVisible()
   const { scroll, client } = await page.evaluate(() => ({

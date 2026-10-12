@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { openMenu } from './settingsNav'
 import { mockAccess } from './sourcesAccessMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
-import { SERIES_LINKS, mockSources, searchResult } from './sourcesMocks'
+import { SERIES_LINKS, mockSources, openManage, searchResult } from './sourcesMocks'
 import { hitHeight, installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -22,8 +22,8 @@ async function noSideways(page: Page) {
 }
 
 // Visible buttons, selects, text inputs and checkbox labels on the page are at least 44 px tall.
-async function tallTargets(page: Page) {
-  const small = await page.locator('.sources-page').evaluate((root) => {
+async function tallTargets(page: Page, rootSelector = '.sources-page') {
+  const small = await page.locator(rootSelector).evaluate((root) => {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="search"], input[type="number"], .segmented label, .source-on, .setting-list > .field-item, .source-adult .field-item, .sources-back'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
@@ -97,31 +97,26 @@ test('phone: download links are 44 px tall and wrap without sideways scroll', as
   expect(s.unmocked).toEqual([])
 })
 
-test('phone: source settings render as cards with 44 px toggles', async ({ page }) => {
+test('phone: the sites render as cards with 44 px toggles', async ({ page }) => {
   const s = await mockSources(page)
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').click()
+  const settings = await openManage(page)
   await expect(settings.locator('table')).toHaveCount(0)
   const cards = settings.locator('ul.source-cards > li')
   await expect(cards).toHaveCount(3)
-  await expect(cards.first()).toContainText('OK')
-  await expect(cards.nth(1)).toContainText('Sign-in saved')
+  await expect(cards.first()).toContainText('Working')
+  await expect(cards.nth(1)).toContainText('Signed in')
   await expect(settings.getByRole('switch', { name: 'On: Alpha Comics' })).toBeChecked()
-  await expect(settings.getByRole('spinbutton', { name: 'Cache limit (MB)' })).toBeVisible()
   await noSideways(page)
-  await tallTargets(page)
+  await tallTargets(page, '.sources-manage-page')
   expect(s.unmocked).toEqual([])
 })
 
 test('phone: a failing source shows its plain-language reason, raw type in the tooltip', async ({ page }) => {
   const s = await mockSources(page)
   await mockAccess(page, s)
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').click()
+  const settings = await openManage(page)
   const card = settings.locator('ul.source-cards > li').nth(1)
-  await card.getByRole('button', { name: 'Details' }).click()
+  await card.getByRole('button', { name: 'Details: Beta Novels' }).click()
   const line = card.getByText(/Last failure .* \(site down\)/)
   await expect(line).toBeVisible()
   await expect(line).toHaveAttribute('title', 'Error type: SERVER_ERROR')

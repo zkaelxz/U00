@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { TRACKED, mockAccess, openProxy } from './sourcesAccessMocks'
-import { mockSources } from './sourcesMocks'
+import { mockSources, openManage } from './sourcesMocks'
 import { installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -47,17 +47,16 @@ test('phone: check now and the auto-import title fit, 44 px targets', async ({ p
 test('phone: sign-in, tier tests and proxy in the source card', async ({ page }) => {
   const s = await mockSources(page)
   await mockAccess(page, s)
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').first().click()
+  const settings = await openManage(page)
   const card = settings.locator('ul.source-cards > li').nth(1)
-  await card.getByRole('button', { name: 'Details' }).click()
+  await card.getByRole('button', { name: 'Details: Beta Novels' }).click()
   const access = settings.getByRole('group', { name: 'Access tests and sign-in: Beta Novels' })
   await access.getByRole('textbox', { name: 'Page on this site' }).fill('https://beta.example/book/1')
   await access.getByRole('button', { name: 'Static' }).click()
   await expect(access.getByText('Static: works.')).toBeVisible({ timeout: 15_000 })
   await noSideways(page)
   await tallTargets(page, '.source-access')
+  await page.goto('/#/sources/manage?tab=network')
   await openProxy(page)
   await tallTargets(page, '.sources-proxy')
   await noSideways(page)

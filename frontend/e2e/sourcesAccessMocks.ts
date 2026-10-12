@@ -124,7 +124,7 @@ export async function mockAccess(page: Page, s: MockState, over: Partial<AccessM
   return m
 }
 
-// The proxy sits in a Section that is closed by default; open it only if closed.
+// The proxy is the first card of the Network tab, so it starts open; open it only if closed.
 export async function openProxy(page: Page) {
   const details = page.locator('details.section:has(> summary > .section-title:text-is("Proxy"))')
   if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) {

@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test'
 
 import { TRACKED, mockAccess, openProxy } from './sourcesAccessMocks'
-import { mockSources, posted } from './sourcesMocks'
+import { mockSources, openManage, posted } from './sourcesMocks'
 
 // Desktop: Check now and the tracked series' auto-import drama (New
 // chapters), sign-in and per-tier tests (a source's Details) and the proxy
-// (Source settings). Every call is mocked (sourcesMocks.ts, sourcesAccessMocks.ts).
+// (Manage sources > Network). Every call is mocked (sourcesMocks.ts, sourcesAccessMocks.ts).
 
 test('check now runs, reports, and reloads the lists; auto-import title is saved', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED })
@@ -31,11 +31,9 @@ test('check now runs, reports, and reloads the lists; auto-import title is saved
 test('details: test one tier, sign in, forget the sign-in', async ({ page }) => {
   const s = await mockSources(page)
   await mockAccess(page, s)
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').first().click()
+  const settings = await openManage(page)
   const row = settings.getByRole('row', { name: /Beta Novels/ })
-  await row.getByRole('button', { name: 'Details' }).click()
+  await row.getByRole('button', { name: 'Details: Beta Novels' }).click()
   const access = settings.getByRole('group', { name: 'Access tests and sign-in: Beta Novels' })
 
   // No page yet: the tests wait for one.
@@ -51,7 +49,7 @@ test('details: test one tier, sign in, forget the sign-in', async ({ page }) => 
 
   await access.getByRole('button', { name: 'Forget Beta Novels sign-in' }).click()
   await access.getByRole('button', { name: 'Confirm forget Beta Novels sign-in' }).click()
-  await expect(row.getByText('No sign-in')).toBeVisible()
+  await expect(settings.locator('tbody tr').filter({ hasText: 'Beta Novels' }).first()).not.toContainText('Signed in')
   expect(posted(s, '/api/sources/beta/signin/forget')[0].body).toEqual({ confirm: true })
   // PC-only calls carry the local header.
   expect(s.unmocked).toEqual([])
@@ -60,9 +58,7 @@ test('details: test one tier, sign in, forget the sign-in', async ({ page }) => 
 test('proxy: saved write-only, then cleared', async ({ page }) => {
   const s = await mockSources(page)
   await mockAccess(page, s)
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').first().click()
+  const settings = await openManage(page, 'network')
   await openProxy(page)
   const proxy = settings.getByTestId('sources-proxy')
   const box = proxy.getByRole('textbox', { name: 'Proxy (none)' })
@@ -81,21 +77,20 @@ test('proxy: saved write-only, then cleared', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('proxy section: closed by default showing none, open state remembered', async ({ page }) => {
+test('proxy card: first card of Network, open the first time, closing it is remembered', async ({ page }) => {
   const s = await mockSources(page)
   await mockAccess(page, s)
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').first().click()
+  await openManage(page, 'network')
   const details = page.locator('details.section:has(> summary > .section-title:text-is("Proxy"))')
+  await expect(details).toHaveAttribute('open', '')
+  await details.locator('summary').click()
   await expect(details).not.toHaveAttribute('open', '')
   await expect(details.locator('summary')).toContainText(/none/i)
-  await details.locator('summary').click()
-  await expect(details).toHaveAttribute('open', '')
-  await page.waitForFunction(() => localStorage.getItem('baihe.section.sources.proxy') === '1')
+  await page.waitForFunction(() => localStorage.getItem('baihe.section.sources.manage.network.proxy') === '0')
   await page.reload()
-  await settings.getByText('Source settings').first().click()
-  await expect(details).toHaveAttribute('open', '')
+  await expect(details).not.toHaveAttribute('open', '')
+  // The other Network cards start closed.
+  await expect(page.locator('details.section:has(> summary > .section-title:text-is("Site web addresses"))')).not.toHaveAttribute('open', '')
   expect(s.unmocked).toEqual([])
 })
 
@@ -107,7 +102,8 @@ test('another device: no Check now, no title link, settings PC only', async ({ p
   await expect(news.getByText('Heaven Book 1 · Beta Novels')).toBeVisible()
   await expect(news.getByRole('button', { name: 'Check now' })).toHaveCount(0)
   await expect(news.getByRole('combobox', { name: 'Auto-import into' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Source settings' }).getByText('PC only')).toBeVisible()
+  await page.getByRole('link', { name: 'Manage sources' }).click()
+  await expect(page.locator('.sources-manage-page').getByText('PC only. Run this on the main PC.')).toBeVisible()
   expect(s.calls.some((c) => c.path.includes('sources_chapter_check'))).toBe(false)
   expect(s.unmocked).toEqual([])
 })

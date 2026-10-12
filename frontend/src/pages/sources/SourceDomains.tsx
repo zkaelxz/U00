@@ -12,7 +12,6 @@ import {
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { SourceDomainEntry, SourceDomainProposal } from '../../types/sourceDomains'
 import {
@@ -25,6 +24,7 @@ import {
   removeDomain,
   sameList,
 } from './sourceDomainsModel'
+import { ManageCard } from './ManageCard'
 
 const CONFIRM_WARNING = 'Confirming makes requests for this source go to that host. Only confirm an address you recognise.'
 const DESCRIBE = { pcOnly: true, serverText: true }
@@ -57,11 +57,12 @@ export function SourceDomains() {
     setEntries((cur) => (cur ? cur.map((e) => (e.source === next.source ? next : e)) : cur))
 
   return (
-    <Section
-      title="Source addresses"
+    <ManageCard
+      tab="network"
+      card="addresses"
+      title="Site web addresses"
       summary={domainsSummary(entries)}
       count={pendingTotal(entries) || undefined}
-      storageKey="sources.domains"
     >
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={DESCRIBE} />
       {entries.map((e) => (
@@ -73,7 +74,7 @@ export function SourceDomains() {
           onRefresh={load}
         />
       ))}
-    </Section>
+    </ManageCard>
   )
 }
 

@@ -1,16 +1,14 @@
 import { expect, test } from '@playwright/test'
 
 import { mockExtensionOnly } from './sourcesExtensionMocks'
-import { mockSources, posted } from './sourcesMocks'
+import { mockSources, openManage, posted } from './sourcesMocks'
 
 // Desktop: a source's Details carry the "works only with the browser extension"
 // marker. Every call is mocked (sourcesMocks.ts, sourcesExtensionMocks.ts).
 
 async function openAlpha(page: import('@playwright/test').Page) {
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').first().click()
-  await settings.getByRole('row', { name: /Alpha Comics/ }).getByRole('button', { name: 'Details' }).click()
+  const settings = await openManage(page)
+  await settings.getByRole('row', { name: /Alpha Comics/ }).getByRole('button', { name: 'Details: Alpha Comics' }).click()
   return settings
 }
 

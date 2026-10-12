@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { SourcesSettings, SourceSummary } from '../../types/sources'
-import { SEARCH_REMOTE_ALLOWED, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, pageSummary, pausedFor, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, statusLabel, tierLines } from './sourcesFormat'
+import { SEARCH_REMOTE_ALLOWED, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, percent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, statusLabel, tierLines } from './sourcesFormat'
 import { groupChapters, limitGroups, safeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
-import { cacheLabel, draftFrom, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
+import { cacheLabel, draftFrom, fieldProblem, CHECK_FIELD, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
 
 const src = (name: string, over: Partial<SourceSummary> = {}): SourceSummary => ({
   name,
@@ -53,10 +53,10 @@ describe('search form', () => {
     expect(searchDisabledReason('  ', 2, 2, false)).toBe('Still needed: a title.')
     expect(searchDisabledReason('https://x', 2, 2, false)).toBe('Enter a title, not a link.')
     expect(searchDisabledReason('abc', 0, 0, false)).toBe(
-      'Still needed: a source that can search. Turn one on in Source settings.',
+      'Still needed: a source that can search. Turn one on in Manage sources.',
     )
     expect(searchDisabledReason('abc', 0, 0, true)).toBe(
-      'Still needed: a source that can search. Turn one on in Source settings on the main PC.',
+      'Still needed: a source that can search. Turn one on in Manage sources on the main PC.',
     )
     expect(searchDisabledReason('abc', 2, 0, false)).toBe('Still needed: at least one source.')
     expect(searchDisabledReason('abc', 2, 1, false)).toBeNull()
@@ -88,9 +88,9 @@ describe('search form', () => {
 describe('describeSourceError', () => {
   it('maps each reason to plain copy', () => {
     const hidden = { status: 400, message: 'x', details: { reason: 'CONTENT_HIDDEN' } }
-    expect(describeSourceError(hidden, 'Foo').text).toBe('Foo hides some works. Turn on Adult works in Source settings.')
+    expect(describeSourceError(hidden, 'Foo').text).toBe('Foo hides some works. Turn on Adult works in Manage sources.')
     expect(describeSourceError(hidden, 'Foo', true).text).toBe(
-      'Foo hides some works. Turn on Adult works in Source settings on the main PC.',
+      'Foo hides some works. Turn on Adult works in Manage sources on the main PC.',
     )
     expect(describeSourceError({ status: 400, message: '', details: { reason: 'TOS_PROHIBITED' } }, 'Foo').text).toBe(
       "Foo's terms restrict automated access.",
@@ -147,8 +147,8 @@ describe('header, health and detail', () => {
   })
 
   it('writes health as text', () => {
-    expect(healthText('green')).toBe('OK')
-    expect(healthText('yellow')).toBe('Failing')
+    expect(healthText('green')).toBe('Working')
+    expect(healthText('yellow')).toBe('Slow')
     expect(healthText('red')).toBe('Paused')
     expect([healthTone('green'), healthTone('yellow'), healthTone('red')]).toEqual(['ok', 'warn', 'bad'])
   })
@@ -254,6 +254,21 @@ describe('settings', () => {
     })
   })
 
+  it('checks one field on its own, as the New chapters interval does', () => {
+    expect(fieldProblem(CHECK_FIELD, '12')).toBeNull()
+    expect(fieldProblem(CHECK_FIELD, '0')).toBeNull()
+    expect(fieldProblem(CHECK_FIELD, '')).toBe('Enter a number.')
+    expect(fieldProblem(CHECK_FIELD, '169')).toBe('Must be between 0 and 168.')
+    expect(fieldProblem(CHECK_FIELD, '1.5')).toBe('Enter a whole number.')
+  })
+
+  it('keeps the check interval and auto-import out of the Timing & cache form', () => {
+    const d = draftFrom(SETTINGS) as Record<string, unknown>
+    expect(d).not.toHaveProperty('check_interval_hours')
+    expect(d).not.toHaveProperty('auto_queue_new_chapters')
+    expect(Object.keys(d).filter((k) => k !== 'cache_mode' && !['demo_source_enabled', 'extraction_diagnostics'].includes(k))).toHaveLength(9)
+  })
+
   it('writes a profile version line', () => {
     expect(profileLine({ version: 3, kind: 'novel', status: 'active', origin: 'ai', failures: 2, last_failure_reason: 'empty' }))
       .toBe('v3 · novel · active · from ai · 2 failures (empty)')
@@ -331,14 +346,21 @@ describe('seriesLinks', () => {
 })
 
 describe('paceHelp', () => {
-  it('says why Fast is unavailable, in one line', () => {
-    expect(paceHelp(src('a'))).toBe("Fast is off: this site's rules haven't been checked.")
+  it('stays quiet for an unvetted site: the Fast sentence is shown once above the table', () => {
+    expect(paceHelp(src('a'))).toBe('')
+    expect(FAST_NOTE).toBe("Fast is only available for sites whose rules we've checked.")
   })
-  it('stays quiet when fast is allowed and normal', () => {
-    expect(paceHelp(src('a', { fast_allowed: true }))).toBe('')
+  it('explains Gentle in one line', () => {
+    expect(paceHelp(src('a', { pace: 'careful' }))).toMatch(/^Gentle/)
   })
   it('reports an automatic slowdown first', () => {
-    expect(paceHelp(src('a', { slowed_down: true }))).toMatch(/^Slowed down/)
+    expect(paceHelp(src('a', { slowed_down: true, pace: 'careful' }))).toMatch(/^Slowed down/)
+  })
+  it('names the three rules Gentle, Standard and Fast, and marks an unavailable Fast', () => {
+    expect(PACE_LABELS).toEqual({ careful: 'Gentle', normal: 'Standard', fast: 'Fast' })
+    expect(paceOptionLabel('fast', false)).toBe('Fast (not available)')
+    expect(paceOptionLabel('fast', true)).toBe('Fast')
+    expect(paceOptionLabel('normal', false)).toBe('Standard')
   })
 })
 

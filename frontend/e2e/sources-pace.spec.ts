@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
 
-import { SETTINGS, SOURCES, mockSources } from './sourcesMocks'
+import { SETTINGS, SOURCES, mockSources, openManage } from './sourcesMocks'
 
-// Source settings -> Pace (desktop). Writes are mocked (sourcesMocks.ts).
+// Manage sources > Sites > Rules (desktop). Writes are mocked (sourcesMocks.ts).
 
-test('pace: Fast is disabled with a reason where unvetted, a change posts, a refusal rolls back', async ({ page }) => {
+test('rules: Fast is disabled and says so where unvetted, a change posts, a refusal rolls back', async ({ page }) => {
   const s = await mockSources(page)
   await page.route(/\/api\/sources\/settings$/, (route) =>
     route.fulfill({ contentType: 'application/json', body: JSON.stringify(SETTINGS) }))
@@ -20,18 +20,20 @@ test('pace: Fast is disabled with a reason where unvetted, a change posts, a ref
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...row, pace: body.pace }) })
   })
 
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').click()
+  const settings = await openManage(page)
 
-  const alpha = settings.getByRole('combobox', { name: 'Pace: Alpha Comics' })
+  const alpha = settings.getByRole('combobox', { name: 'Rules: Alpha Comics' })
   await expect(alpha).toHaveValue('normal')
+  // The stored values stay careful / normal / fast; the words are Gentle / Standard / Fast.
+  await expect(alpha.locator('option')).toHaveText(['Gentle', 'Standard', 'Fast (not available)'])
   await expect(alpha.locator('option[value="fast"]')).toBeDisabled()
-  await expect(settings.locator('tbody tr', { hasText: 'Alpha Comics' })).toContainText("Fast is off: this site's rules haven't been checked.")
-  // A site whose rules were checked offers Fast and needs no explanation.
-  const beta = settings.getByRole('combobox', { name: 'Pace: Beta Novels' })
+  // The reason is said once above the table, not on the row.
+  await expect(settings.getByText("Fast is only available for sites whose rules we've checked.")).toHaveCount(1)
+  await expect(settings.locator('tbody tr', { hasText: 'Alpha Comics' })).not.toContainText('Fast is')
+  // A site whose rules were checked offers a plain Fast.
+  const beta = settings.getByRole('combobox', { name: 'Rules: Beta Novels' })
+  await expect(beta.locator('option')).toHaveText(['Gentle', 'Standard', 'Fast'])
   await expect(beta.locator('option[value="fast"]')).toBeEnabled()
-  await expect(settings.locator('tbody tr', { hasText: 'Beta Novels' })).not.toContainText('Fast is off')
 
   await alpha.selectOption('careful')
   await expect(alpha).toHaveValue('careful')

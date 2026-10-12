@@ -1,5 +1,7 @@
 import type { Page, Route } from '@playwright/test'
 
+type ManageTabName = 'timing' | 'network' | 'activity'
+
 // Shared page.route mocks for the Sources specs. A real search or series
 // fetch would hit the internet (paced), and every spec shares one seeded
 // library, so every job start, job result and settings write is mocked
@@ -249,7 +251,7 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
     return idle(route)
   })
   // The site check (SO02) and identify media (SO08) look for an earlier run
-  // on mount, and Source settings lists recent pasted-link imports (SO16):
+  // on mount, and Manage sources lists recent imports from links (SO16):
   // none here (sourcesToolsMocks.ts overrides these).
   await page.route(/\/api\/sources\/jobs\/sources_url_(preflight|identify)\/result$/, (route) => {
     record(route)
@@ -274,3 +276,9 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
 }
 
 export const posted = (s: MockState, path: string) => s.calls.filter((c) => c.method === 'POST' && c.path === path)
+
+/** Opens Manage sources (the Sites tab, or the named one) and returns the page. */
+export async function openManage(page: Page, tab?: ManageTabName) {
+  await page.goto(tab ? `/#/sources/manage?tab=${tab}` : '/#/sources/manage')
+  return page.locator('.sources-manage-page')
+}

@@ -12,19 +12,20 @@
  * drama auto-import goes to). Cover images are never rendered: loading
  * them would bypass pacing.
  *
- * Source settings (PC only): per-source switches, health, details with
- * sign-in (a window on the PC) and per-tier "Test now", pacing and cache,
- * the proxy, site profiles. Searching, importing, tracking and Check now
- * are PC only for now too (SEARCH_REMOTE_ALLOWED / IMPORT_REMOTE_ALLOWED).
+ * Site settings (PC only) live on their own page, Manage sources
+ * (#/sources/manage, pages/SourcesManage.tsx), reached by the link in the
+ * header. Searching, importing, tracking and Check now are PC only for now
+ * too (SEARCH_REMOTE_ALLOWED / IMPORT_REMOTE_ALLOWED).
  *
  * Desktop (>=1024 px): search and results left, the open series right
- * (sticky), New chapters and Source settings below both. Narrower: one
+ * (sticky), New chapters below both. Narrower: one
  * column, and an open series replaces the results until "‹ Results".
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId, startSeries, untrackSeries } from '../api/sources'
 import { Badge } from '../components/Badge'
+import { ButtonLink } from '../components/Button'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -34,7 +35,6 @@ import type {
   OpenSeries,
   SearchResult,
   SeriesResult,
-  SourceHealth,
   SourceNotification,
   SourceSummary,
   TrackedSeries,
@@ -43,7 +43,6 @@ import { FindModeSwitch, type FindMode } from './sources/FindModeSwitch'
 import { NewChapters } from './sources/NewChapters'
 import { SearchPanel } from './sources/SearchPanel'
 import { SeriesPanel } from './sources/SeriesPanel'
-import { SourceSettings } from './sources/SourceSettings'
 import { UrlBox } from './sources/UrlBox'
 import { IMPORT_REMOTE_ALLOWED } from './sources/urlImportFormat'
 import { SEARCH_REMOTE_ALLOWED, pageSummary } from './sources/sourcesFormat'
@@ -173,17 +172,6 @@ export default function SourcesPage() {
     }
   }
 
-  const replaceSource = (s: SourceSummary) =>
-    setSources((cur) => (cur ? cur.map((x) => (x.name === s.name ? s : x)) : cur))
-  const setHealth = (name: string, h: SourceHealth) =>
-    setSources((cur) => (cur ? cur.map((x) => (x.name === name ? { ...x, health: h.light } : x)) : cur))
-  const adultChanged = (name: string) => {
-    if (open?.source === name) {
-      series.reset()
-      setCleared(true)
-    }
-  }
-
   const seriesShown = !!open && (view.status !== 'idle' || view.busyOther || wasBusy || cleared || !!series.startError)
   const openTracked = open
     ? tracked.find((t) => t.source === open.source && t.series_id === open.series_id) ?? null
@@ -204,7 +192,10 @@ export default function SourcesPage() {
   return (
     <div className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}>
       <header className="page-head sources-head">
-        <h2>Sources</h2>
+        <div className="sources-head-row">
+          <h2>Sources</h2>
+          <ButtonLink variant="ghost" size="sm" href="#/sources/manage">Manage sources</ButtonLink>
+        </div>
         <p className="page-meta" data-testid="sources-summary">
           {summary ? (
             <>
@@ -289,18 +280,6 @@ export default function SourcesPage() {
         />
       )}
 
-      {sources && (
-        <section aria-label="Source settings">
-          <SourceSettings
-            pc={pc}
-            phone={phone}
-            sources={sources}
-            onSource={replaceSource}
-            onHealth={setHealth}
-            onAdultChanged={adultChanged}
-          />
-        </section>
-      )}
     </div>
   )
 }

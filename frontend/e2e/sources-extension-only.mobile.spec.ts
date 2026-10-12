@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { installHitArea } from './hitArea'
 import { mockExtensionOnly } from './sourcesExtensionMocks'
-import { mockSources, posted } from './sourcesMocks'
+import { mockSources, openManage, posted } from './sourcesMocks'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -13,11 +13,9 @@ test.beforeEach(async ({ page }) => {
 test('phone: mark a source as extension only, 44 px targets, no sideways scroll', async ({ page }) => {
   const s = await mockSources(page)
   await mockExtensionOnly(page, s)
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').first().click()
+  const settings = await openManage(page)
   const card = settings.getByRole('listitem').filter({ hasText: 'Alpha Comics' })
-  await card.getByRole('button', { name: 'Details' }).click()
+  await card.getByRole('button', { name: 'Details: Alpha Comics' }).click()
   await card.getByRole('switch', { name: 'Works only with the browser extension' }).click()
   await expect(card.locator('.source-dl')).toContainText('Extension only')
   await expect(card.locator('.source-dl')).toContainText('You in a browser: works (marked by you, 2026-10-08)')

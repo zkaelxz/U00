@@ -1,12 +1,12 @@
 import { expect as baseExpect, test } from '@playwright/test'
 
 import { mockImports } from './sourcesImportMocks'
-import { mockSources, posted } from './sourcesMocks'
+import { mockSources, openManage, posted } from './sourcesMocks'
 import { FULL_RESOURCE, NOVEL_PREVIEW, VIDEO_PREVIEW, mockTools } from './sourcesToolsMocks'
 
 // Sources tools, desktop: "Will this site work?" (SO02), continue from
 // pasted page source after a browser check (SO03), identify media on a
-// video page (SO08) and the pasted-link imports list (SO16). Every job and
+// video page (SO08) and the imports-from-links list (SO16). Every job and
 // write is mocked; nothing reaches a real site.
 const expect = baseExpect.configure({ timeout: 15_000 })
 test.describe.configure({ timeout: 90_000 })
@@ -94,13 +94,12 @@ test('video page: identify media, pick the main resource, download that one', as
   expect(s.unmocked).toEqual([])
 })
 
-test('source settings: pasted-link imports list', async ({ page }) => {
+test('manage sources, Activity: imports from links', async ({ page }) => {
   const s = await mockSources(page)
   const m = await mockImports(page, s)
   await mockTools(page, s, m)
-  await page.goto('/#/sources')
-  await page.locator('summary').filter({ hasText: 'Source settings' }).first().click()
-  await page.locator('summary').filter({ hasText: 'Pasted-link imports' }).click()
+  await openManage(page, 'activity')
+  // The only card of the tab starts open.
   const list = page.getByTestId('recent-extractions')
   await expect(list.getByText('https://novels.example/book/5')).toBeVisible()
   await expect(list.getByText('Worked: Static HTTP + Deterministic extraction')).toBeVisible()
