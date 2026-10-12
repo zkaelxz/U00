@@ -89,6 +89,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `sensitivity_preset.py`
 - `vad_segments.py`
 - `voice_id.py`
+- `cuda_runtime_path.py` (puts the folders holding cuBLAS 12 and cuDNN 9 on the Windows DLL search path so CTranslate2 can use the GPU; inspects folders only)
 - `whisper_models.py` (loads or releases the Whisper model on the right device and explains why it fell back to the CPU; the model list, GPU status and download-error diagnosis)
 - `word_align.py`
 
@@ -217,6 +218,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `delete_service.py`
 - `device_token_service.py`
 - `diagnostics_gaps_service.py`
+- `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)

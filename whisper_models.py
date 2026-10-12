@@ -6,6 +6,8 @@ import os
 import sys
 from dataclasses import dataclass
 
+import cuda_runtime_path
+
 
 _whisper_model_cache = {}
 
@@ -546,6 +548,7 @@ def whisper_gpu_runtime(loader=None) -> dict:
     or raw exception text reaches an API response."""
     if sys.platform != "win32":
         return {"status": "unknown", "reason": None}
+    cuda_runtime_path.ensure_cuda_runtime_on_path()
     try:
         import ctranslate2
         if int(ctranslate2.get_cuda_device_count()) < 1:
@@ -580,6 +583,7 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     if cache_key in _whisper_model_cache:
         return _whisper_model_cache[cache_key]
 
+    cuda_runtime_path.ensure_cuda_runtime_on_path()
     from faster_whisper import WhisperModel
 
     # An HF token isn't required for public models, but without one you get

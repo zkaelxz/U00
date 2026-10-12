@@ -18,6 +18,7 @@ import threading
 import time
 
 import background_jobs
+import cuda_runtime_path
 import job_process_kill
 import job_process_result
 from lib import model_offline
@@ -53,6 +54,9 @@ def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=N
     forever; the channel keeps every message under the pipe's atomic write
     size so a cut-off flush cannot leave a half message."""
     background_jobs.start_own_process_group()
+    # A child inherits os.environ (PATH) but not the parent's add_dll_directory
+    # entries, so the search path is rebuilt here before CTranslate2 is first used.
+    cuda_runtime_path.ensure_cuda_runtime_on_path()
     timeout_item = on_timeout or ("error", "TimeoutError", TIMEOUT_MESSAGE)
 
     def give_up():
