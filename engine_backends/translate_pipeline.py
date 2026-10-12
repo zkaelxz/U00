@@ -453,9 +453,11 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             chunk_context = _context_for(chunk)
             if reflect:
                 sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
+                finished_passes = {}  # a retry must not pay again for a pass that finished
                 return call_with_backoff(
                     lambda: reflect_translate_batch(engine, sources, chunk_context,
-                                                    usage_cb=record_usage, pass_cb=_on_pass))
+                                                    usage_cb=record_usage, pass_cb=_on_pass,
+                                                    resume=finished_passes))
             chunk_groups = sentence_groups.complete_groups(chunk, groups)
             if chunk_groups:
                 position = {id(ln): p for p, ln in enumerate(chunk)}

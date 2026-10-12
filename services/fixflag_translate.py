@@ -14,6 +14,8 @@ subtitle onto its audio, so split_timing_flags drops them before any call.
 """
 import db
 import translate_engines
+from engine_backends import llm_tasks
+from engine_backends.run_limits import TranslateRunStopped
 from services import fixflag_transcribe
 
 # Small enough that one reply with a reason per line fits the 4000-token reply
@@ -109,11 +111,14 @@ def _llm_batch(batch, engine, base_context, usage_cb, context_lines) -> dict:
 
 
 def _translate_batch(batch, engine, base_context, character_names, source_language) -> dict:
-    out = engine.translate_batch(
-        [ln.zh for ln in batch],
-        {**base_context, "speaker_labels": [character_names.get(ln.speaker) for ln in batch],
-         "line_ids": [ln.idx for ln in batch],
-         "line_languages": translate_engines.tagged_line_languages(batch, source_language)})
+    def send():
+        return engine.translate_batch(
+            [ln.zh for ln in batch],
+            {**base_context, "speaker_labels": [character_names.get(ln.speaker) for ln in batch],
+             "line_ids": [ln.idx for ln in batch],
+             "line_languages": translate_engines.tagged_line_languages(batch, source_language)})
+
+    out = llm_tasks.call_batch_bounded(engine, send)
     # An engine API that only returns a list can't be matched by id, so a short
     # or long reply is a failed batch: pairing by position would put text on the
     # wrong line.
@@ -168,6 +173,8 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
                 if hasattr(engine, "last_usage"):
                     log_usage(engine.last_usage.get("input_tokens", 0),
                               engine.last_usage.get("output_tokens", 0))
+        except TranslateRunStopped:
+            break  # the job's result names the reason; the lines stay flagged
         except Exception as e:
             for ln in batch:
                 errors.append(translate_engines.redact_secrets(

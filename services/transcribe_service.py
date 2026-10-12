@@ -56,6 +56,7 @@ import raw_transcript
 import sensitivity_preset as presets
 import source_change
 import storage
+from engine_backends import paid_calls
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
@@ -853,6 +854,10 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     if outcome.get("stage_summary"):
         import applog
         applog.get_logger().info(f"transcription of title {drama_id}: {outcome['stage_summary']}")
+    groq_usage = outcome.pop("groq_usage", None)
+    if groq_usage:
+        paid_calls.record_audio_call("groq", core_module.GROQ_DEFAULT_MODEL, "transcribe_groq",
+                                     **groq_usage, drama_id=drama_id)
     if "failed_reason" in outcome:
         if outcome["failed_reason"] == "no_lines" and diarize_requested:
             return {**outcome, "diarize_skipped_reason": "the transcription produced no lines"}

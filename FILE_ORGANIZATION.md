@@ -244,6 +244,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `fixflag_transcribe.py`
 - `fixflag_translate.py` (the re-translation half of "fix flagged lines": reason-aware, id-keyed batches)
 - `bulk_job_view.py` (public view of a bulk_jobs row)
+- `bulk_submit_service.py` (the callable that submits a bulk translation, bulk Reflect or off-peak schedule from inside the job)
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
@@ -272,6 +273,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `live_follow_service.py` (followed YouTube channels on the Live page: channel input, ownership, limits, saved Live options, Start Live from a follow)
 - `live_service.py`
 - `live_spend_service.py` (cap check, usage log and failure stop for a Live session on a paid engine)
+- `paid_job_service.py` (money limits for a background job's AI calls, and the refusal of unattended paid work with no monthly cap)
 - `lncrawl_service.py`
 - `loaded_models_service.py`
 - `maintenance_assistant_service.py`
@@ -534,6 +536,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `reflect_pass.py` (Reflect mode: three passes over one batch)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
 - `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
+- `paid_calls.py` (the one usage-row writer for a paid call, and the failure-streak, cap and wait-budget limits for a job's single-prompt AI calls)
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)

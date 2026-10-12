@@ -135,6 +135,7 @@ def test_bulk_delete_real_running_job(isolated_db):
 
 
 def test_bulk_translate_uses_existing_job(isolated_db, monkeypatch):
+    monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
     a, b = _new("A", "aligned"), _new("B", "translated")
     captured = {}
 
@@ -1185,6 +1186,7 @@ def test_database_backup(isolated_db):
 
 
 def test_bulk_translate_engines_and_skip_running(isolated_db, monkeypatch):
+    monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
     a = _new("A")
     b = _new("B")
     c = _new("C", status="translated")
@@ -1357,6 +1359,7 @@ def test_restore_audit_actor(isolated_db):
 
 
 def test_bulk_translate_expected_engines(isolated_db, monkeypatch):
+    monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
     a, b = _new("A"), _new("B")
     expected = las.bulk_translate_engines([a, b])["by_drama"]
     db.update_drama(b, translation_engine="deepseek")

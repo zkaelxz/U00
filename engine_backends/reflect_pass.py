@@ -11,7 +11,7 @@ REFLECT_PASSES = ("draft", "critique", "rewrite")
 
 
 def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1,
-                            pass_cb=None, passes: int = len(REFLECT_PASSES)):
+                            pass_cb=None, passes: int = len(REFLECT_PASSES), resume: dict = None):
     """
     "High quality" Reflect mode: three separate LLM passes for
     one batch, instead of translate_batch's single call --
@@ -58,6 +58,11 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     passes: 3 (default) runs all of the above; 1 stops after the faithfulness
     draft and returns it as the translation with no critiques. Internal: no
     setting selects it.
+
+    resume: a dict the caller keeps across attempts at the same batch. A pass
+    that finished is stored in it, so an attempt retried after a later pass
+    failed starts from that pass instead of sending (and paying for) the
+    finished ones again.
 
     The stable instructions go in a system block (cached on Claude), so the
     three passes and every later batch re-read them from the cache.
@@ -108,9 +113,12 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
         if pass_cb:
             pass_cb(pass_no, REFLECT_PASSES[pass_no - 1])
 
-    announce(1)
-    direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
-    direct = {i: direct_map.get(str(i), "") for i in ids}
+    done = {} if resume is None else resume
+    if "draft" not in done:
+        announce(1)
+        direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
+        done["draft"] = {i: direct_map.get(str(i), "") for i in ids}
+    direct = done["draft"]
     if passes == 1:
         return [direct[i] for i in ids], ["" for _ in ids]
 
@@ -129,10 +137,12 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     # it's rare for every single line to get a critique. An id absent
     # here just means "no critique".
     has_draft_ids = [i for i in ids if direct[i]]
-    if has_draft_ids:
-        announce(2)
-    critique_map = (_id_keyed_batch_request(has_draft_ids, build_reflection_batch, call, max_retries=0)
-                   if has_draft_ids else {})
+    if "critique" not in done:
+        if has_draft_ids:
+            announce(2)
+        done["critique"] = (_id_keyed_batch_request(has_draft_ids, build_reflection_batch, call,
+                                                    max_retries=0) if has_draft_ids else {})
+    critique_map = done["critique"]
 
     def build_expressive_batch(batch_ids):
         return build_reflect_expressive_task(
