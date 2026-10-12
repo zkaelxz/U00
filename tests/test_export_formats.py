@@ -303,8 +303,9 @@ class TestReadingSpeed:
             did = isolated_db.create_drama(title_en=mode)
             isolated_db.update_drama(did, reading_speed_mode=mode)
             isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="你好", en=text)])
-            bulk_translate.finish_translation_run(
-                did, isolated_db.load_line_objects(did), object(), "claude", "", [], [])
+            lines = isolated_db.load_line_objects(did)
+            bulk_translate.finish_translation_run(did, lines, object(), "claude", "", [], [],
+                                                  enforce_ids={ln.id for ln in lines})
             assert isolated_db.load_lines(did)[0]["flag"] == expected, mode
 
     def test_translate_job_puts_dense_lines_in_the_review_queue(self, isolated_db, monkeypatch):

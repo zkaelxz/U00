@@ -48,6 +48,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
   - `db/comic_pages.py` (comic pages and their text regions for scanlation and typesetting: page rows, id-preserving bubble edits, the legacy full replace)
+  - `db/library_folder.py` (the library folder on disk: `fsync_dir`, and the start-up check that puts back a library an interrupted restore left renamed aside)
   - `db/job_records.py` (the job_records mirror of background job status)
   - `db/speakers.py` (characters and speakers: speaker rename and merge with its undo, series characters and voice links, the voice bank)
   - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
@@ -261,6 +262,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `line_provenance_service.py`
 - `line_tools_service.py`
 - `lines_service.py`
+- `live_follow_poller.py` (the followed-channel live checks: the manual-check queue, the optional hourly scheduler, one yt-dlp metadata read at a time, backoff, the extra check before a scheduled start, notify once per stream, the PC owner's automatic start)
+- `live_follow_service.py` (followed YouTube channels on the Live page: channel input, ownership, limits, saved Live options, Start Live from a follow)
 - `live_service.py`
 - `live_spend_service.py` (cap check, usage log and failure stop for a Live session on a paid engine)
 - `lncrawl_service.py`
@@ -457,6 +460,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `library_routes.py`
 - `line_ai_routes.py`
 - `lines_routes.py`
+- `live_follow_routes.py`
 - `live_routes.py`
 - `loaded_models_routes.py`
 - `media_routes.py`
@@ -558,6 +562,7 @@ Site adapters, the fetch ladder and the source store (`sources.db`).
 - `http.py` (the one paced HTTP client every adapter and the generic importer go through)
 - `ladder.py` (the access-method ladder)
 - `limiter.py` (the per-source concurrency limit)
+- `live_follow_store.py` (the `followed_channels` rows in `sources.db` behind `services/live_follow_service.py`)
 - `lzstring.py` (LZString's Base64 variant, which some sites use to compress data their own page JS unpacks)
 - `mock.py` (an offline demo source)
 - `models.py` (the shared vocabulary of the source-adapter system)

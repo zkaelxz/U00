@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test'
 
 import { installHitArea } from './hitArea'
-import { SETTINGS, SOURCES, mockSources } from './sourcesMocks'
+import { SETTINGS, SOURCES, mockSources, openManage } from './sourcesMocks'
 
-// Source settings -> Pace (phone, 390x844 touch). Writes are mocked (sourcesMocks.ts).
+// Manage sources > Sites > Rules (phone, 390x844 touch). Writes are mocked (sourcesMocks.ts).
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
-test('phone pace: Fast is disabled with a reason where unvetted, a change posts, a refusal rolls back', async ({ page }) => {
+test('phone rules: Fast is disabled and says so where unvetted, a change posts, a refusal rolls back', async ({ page }) => {
   const s = await mockSources(page)
   await page.route(/\/api\/sources\/settings$/, (route) =>
     route.fulfill({ contentType: 'application/json', body: JSON.stringify(SETTINGS) }))
@@ -25,18 +25,16 @@ test('phone pace: Fast is disabled with a reason where unvetted, a change posts,
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...row, pace: body.pace }) })
   })
 
-  await page.goto('/#/sources')
-  const settings = page.getByRole('region', { name: 'Source settings' })
-  await settings.getByText('Source settings').click()
+  const settings = await openManage(page)
 
-  const alpha = settings.getByRole('combobox', { name: 'Pace: Alpha Comics' })
+  const alpha = settings.getByRole('combobox', { name: 'Rules: Alpha Comics' })
   await expect(alpha).toHaveValue('normal')
+  await expect(alpha.locator('option')).toHaveText(['Gentle', 'Standard', 'Fast (not available)'])
   await expect(alpha.locator('option[value="fast"]')).toBeDisabled()
-  await expect(settings.locator('.source-cards li', { hasText: 'Alpha Comics' })).toContainText("Fast is off: this site's rules haven't been checked.")
-  // A site whose rules were checked offers Fast and needs no explanation.
-  const beta = settings.getByRole('combobox', { name: 'Pace: Beta Novels' })
+  await expect(settings.getByText("Fast is only available for sites whose rules we've checked.")).toHaveCount(1)
+  await expect(settings.locator('.source-cards li', { hasText: 'Alpha Comics' })).not.toContainText('Fast is')
+  const beta = settings.getByRole('combobox', { name: 'Rules: Beta Novels' })
   await expect(beta.locator('option[value="fast"]')).toBeEnabled()
-  await expect(settings.locator('.source-cards li', { hasText: 'Beta Novels' })).not.toContainText('Fast is off')
 
   for (const sel of [alpha, beta]) expect(await sel.evaluate((e) => window.hitHeight(e as HTMLElement))).toBeGreaterThanOrEqual(44)
   const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))

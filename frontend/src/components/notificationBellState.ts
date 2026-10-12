@@ -69,6 +69,13 @@ const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> =
   job_failed: { tone: 'bad', label: 'Failed' },
   chapters: { tone: 'info', label: 'New chapters' },
   remote: { tone: 'warn', label: 'Remote access' },
+  live: { tone: 'accent', label: 'Live' },
+}
+
+/** "Starts at 14:05" in this browser's time, or null without a start time. */
+export function startsAtText(startsAt: number | null | undefined): string | null {
+  if (typeof startsAt !== 'number' || !Number.isFinite(startsAt)) return null
+  return `Starts at ${new Date(startsAt * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
 }
 
 export function kindBadge(kind: string): { tone: BadgeTone; label: string } {

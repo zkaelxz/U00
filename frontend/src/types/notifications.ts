@@ -32,7 +32,7 @@ export interface NotificationTestResult {
 
 // GET /api/notifications: the header bell's list (in memory on the server,
 // lost on restart). Newest first, at most 50. No job id, link or path.
-export type NotificationKind = 'job_done' | 'job_failed' | 'chapters' | 'remote'
+export type NotificationKind = 'job_done' | 'job_failed' | 'chapters' | 'remote' | 'live'
 
 export interface NotificationItem {
   id: number
@@ -40,6 +40,11 @@ export interface NotificationItem {
   at: number
   kind: NotificationKind
   text: string
+  /** A followed Live channel's entry (POST /api/live/follows/{follow_id}/start for the action). */
+  follow_id?: number | null
+  action?: 'start_live' | null
+  /** Unix seconds (UTC) of a scheduled stream's start; shown in this browser's time. */
+  starts_at?: number | null
 }
 
 export interface NotificationList {
