@@ -1752,15 +1752,19 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
     CANCELLING_MESSAGE (mirrored) until it stops, so a worker blocked in a
     call with no cancel point (a model load) shows the cancel was heard.
 
-    With `owner_user_id`, only that person's run is stopped: a shared job
-    id may have ended and been started again by someone else since the
-    caller checked who may stop it. Returns False (nothing done) only then."""
+    With `owner_user_id`, only that person's queued or running run is
+    stopped: a shared job id may have ended and been started again by
+    someone else since the caller checked who may stop it. Returns False
+    (nothing done) only then. A finished run here says nothing about a run
+    of the same id in another process (the CLI), which job_store's own
+    owner check covers."""
     hooks = []
     with _lock:
         job = _jobs.get(job_id)
         if job is None:
             return True
-        if owner_user_id is not _ANY_OWNER and job.get("owner_user_id") != owner_user_id:
+        if owner_user_id is not _ANY_OWNER and job.get("status") in ("queued", "running") \
+                and job.get("owner_user_id") != owner_user_id:
             return False
         if job.get("status") == "queued":
             hooks = _cancel_queued_locked(job_id, job, requested_at)

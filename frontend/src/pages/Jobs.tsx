@@ -38,6 +38,7 @@ import './jobs/jobs.css'
 
 // The list is capped until asked for more: the endpoint has no paging yet.
 const PAGE = 50
+const QUEUE_POLL_MS = 15_000
 
 const REFUSED_TEXT: Record<number, string> = {
   404: "This server doesn't list jobs.",
@@ -72,13 +73,22 @@ export default function JobsPage() {
   }, [])
 
   const all = jobs ?? []
-  // Re-read the queue when a job starts, waits or ends, not on every progress tick.
+  // Re-read the queue when a job starts, waits or ends here, and every
+  // QUEUE_POLL_MS while the page is visible: other people's jobs move the
+  // counts without changing this list.
   const statusKey = all.map((j) => `${j.job_id}:${j.status}`).join(',')
   const loaded = jobs !== null
+  const [queueTick, setQueueTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (!document.hidden) setQueueTick((n) => n + 1)
+    }, QUEUE_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [])
   useEffect(() => {
     if (!loaded) return
     getQueueSummary().then(setQueue, () => setQueue(null))
-  }, [statusKey, loaded])
+  }, [statusKey, loaded, queueTick])
   const places = useMemo(() => new Map((queue?.mine ?? []).map((m) => [m.job_id, m.position])), [queue])
   const anyActive = all.some((j) => isActive(j.status))
   const now = useNow(anyActive)

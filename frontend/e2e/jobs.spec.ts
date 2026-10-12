@@ -400,7 +400,7 @@ test('the queue: counts for everyone, and the place of each of my waiting jobs',
   jobs.push({ ...jobs[1], job_id: 'dub_3', description: 'Dub Signal', drama_id: 3, owned_by_me: true, started_at: t, updated_at: t })
   await mockJobsApi(page, jobs, true)
   await page.goto('/#/jobs')
-  await expect(page.getByTestId('jobs-queue-line')).toHaveText('1 job running, 2 waiting')
+  await expect(page.getByTestId('jobs-queue-line')).toHaveText('1 job running (all lanes), 2 waiting in the GPU queue')
   await expect(page.getByTestId('job-place-dub_3')).toHaveText('Waiting: #2 in the GPU queue')
   // Someone else's waiting job shows no place, and a running job none either.
   await expect(page.getByTestId('job-place-dub_4')).toHaveCount(0)

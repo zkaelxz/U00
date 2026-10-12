@@ -77,7 +77,7 @@ test('phone: the queue line and my place in the queue fit', async ({ page }) => 
   jobs[1] = { ...jobs[1], owned_by_me: true }
   await mockJobsApi(page, jobs, true)
   await page.goto('/#/jobs')
-  await expect(page.getByTestId('jobs-queue-line')).toHaveText('1 job running, 1 waiting')
+  await expect(page.getByTestId('jobs-queue-line')).toHaveText('1 job running (all lanes), 1 waiting in the GPU queue')
   await expect(page.getByTestId('jobs-cards').getByTestId('job-place-dub_4')).toHaveText('Waiting: #1 in the GPU queue')
   await noSideways(page)
 })

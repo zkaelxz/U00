@@ -261,9 +261,11 @@ def list_bulk_translations(drama_id: int = Path(ge=1)):
              dependencies=[require_permission("jobs.cancel")],
              response_model=TranslateBulkCancelResult,
              summary="Cancel one pending bulk batch (at the provider when possible)",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
-def cancel_bulk_translation(drama_id: int = Path(ge=1), bulk_job_id: int = Path(ge=1)):
-    return translate_run_service.cancel_bulk_translation(drama_id, bulk_job_id)
+             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}})
+def cancel_bulk_translation(request: Request, drama_id: int = Path(ge=1), bulk_job_id: int = Path(ge=1)):
+    return translate_run_service.cancel_bulk_translation(drama_id, bulk_job_id,
+                                                         request.state.principal)
 
 
 @router.post("/dramas/{drama_id}/errors/dismiss", dependencies=[require_permission("lines.edit")],

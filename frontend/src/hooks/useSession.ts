@@ -163,6 +163,11 @@ export function useSession(): SessionState {
   return s
 }
 
+/** cancelsAnyJob for the current session. */
+export function useCancelsAnyJob(): boolean {
+  return cancelsAnyJob(useSession())
+}
+
 /** Test-only: forget the session and the cached /me load. */
 export function resetSessionForTests(next: SessionState = { status: 'loading' }): void {
   load = null

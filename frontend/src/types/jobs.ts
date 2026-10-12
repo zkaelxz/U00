@@ -68,7 +68,7 @@ export interface JobQueueSummary {
 }
 
 export function queueLine(s: Pick<JobQueueSummary, 'running' | 'waiting'>): string {
-  return `${s.running} ${s.running === 1 ? 'job' : 'jobs'} running, ${s.waiting} waiting`
+  return `${s.running} ${s.running === 1 ? 'job' : 'jobs'} running (all lanes), ${s.waiting} waiting in the GPU queue`
 }
 
 export const queuePlace = (position: number) => `Waiting: #${position} in the GPU queue`

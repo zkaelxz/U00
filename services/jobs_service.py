@@ -722,16 +722,16 @@ def queue_summary(principal=None) -> dict:
     place in the GPU line (1 = next) of each waiting job of the caller's
     own (ownership_service.owns_job): the GPU queue is the only one jobs
     wait in. Names, titles, ids and owners of anyone else's jobs never
-    appear, only the counts."""
-    sweep_stale_job_records()
-    statuses = [fp[0] for fp in db.list_job_record_fingerprints().values()]
+    appear, only the counts. A stale row of a dead process counts until
+    GET /api/jobs sweeps it, which the Jobs page does on every load."""
+    counts = db.count_active_job_records()
     order = background_jobs.gpu_queue_order()
     rows = ownership_service.job_drama_ownership(principal, [jid for jid, _o in order])
     mine = [{"job_id": jid, "position": n}
             for n, (jid, owner) in enumerate(order, start=1)
             if ownership_service.owns_job(principal, jid, owner, drama_rows=rows)]
-    return {"lane": "gpu", "running": statuses.count("running"),
-            "waiting": statuses.count("queued"), "mine": mine}
+    return {"lane": "gpu", "running": counts["running"], "waiting": counts["queued"],
+            "mine": mine}
 
 
 # job_records / background_jobs status names of a job that has ended.

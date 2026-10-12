@@ -281,8 +281,8 @@ class JobRecord(BaseModel):
     # Cancel was heard over a minute ago and the worker still runs: the
     # Force stop button's condition (job_force_stop.can_force_stop).
     can_force_stop: bool = False
-    # The caller started this job, or another signed-in user started it on
-    # the caller's title (auth off and the local owner: every job).
+    # The caller started this job or it runs on the caller's title (auth
+    # off and the local owner: every job).
     # Server-computed from the caller's session; true only where the caller
     # may also cancel it (admins may cancel every job).
     owned_by_me: bool = False

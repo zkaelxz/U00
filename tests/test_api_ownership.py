@@ -915,7 +915,7 @@ class TestJobs:
             "remote_admin": (household, world["admin"], {
                 "priv": (False, 200), "shared": (False, 200), "a_fixed": (False, 200),
                 "pc_fixed": (False, 200), "b_fixed": (False, 200),
-                "adm_fixed": (True, 200), "adm_drama": (False, 200)}),
+                "adm_fixed": (True, 200), "adm_drama": (True, 200)}),
             "local_owner": (_local(_app("off")), {"X-Baihe-Local": "1"},
                             {k: (True, 200) for k in jobs}),
         }
@@ -952,7 +952,7 @@ class TestJobs:
             (remote, world["b"], "a_priv", 404),      # invisible stays 404
             (remote, world["b"], "b_on_a", 200),      # their own
             (remote, c, "c_on_a", 200),
-            (remote, world["a"], "pc_on_a", 403),     # no starter: admins/PC only
+            (remote, world["a"], "pc_on_a", 200),     # no starter, but A's title
             (household, world["admin"], "a_on_a", 200),
             (household, world["admin"], "a_priv", 200),
             (local, {"X-Baihe-Local": "1"}, "pc_on_a", 200),
@@ -975,6 +975,71 @@ class TestJobs:
                            headers=world["b"]).status_code == 403
         assert remote.post(f"/api/jobs/{rows['a_priv'][0]}/force-stop",
                            headers=world["b"]).status_code == 404
+
+    @pytest.mark.parametrize("kind", ["from-lines", "from-novel", "spelling-suggestions"])
+    def test_title_glossary_cancel_routes_follow_the_job_rule(self, world, kind):
+        import threading
+        import background_jobs
+        from api.auth import require_permission
+        from services import glossary_extract_service as extract
+        from services import glossary_spelling_service as spelling
+        job_id_of = {"from-lines": extract.lines_glossary_job_id,
+                     "from-novel": extract.novel_glossary_job_id,
+                     "spelling-suggestions": spelling.spelling_job_id}[kind]
+        c_id, c = _login("c@example.com")
+        app = _app()
+        gate = threading.Event()
+
+        @app.post("/api/zz-run/{did}", dependencies=[require_permission("jobs.start")])
+        def start(did: int):
+            jid = job_id_of(did)
+            assert background_jobs.start_job(jid, gate.wait, 10)
+            extract._run_ids[jid] = "r1"
+            return {}
+        client, household = _client(app), _household()
+        heads = {"a": world["a"], "b": world["b"], "c": c}
+
+        def cancel(cl, headers, did):
+            return cl.post(f"/api/glossary/dramas/{did}/{kind}/cancel", headers=headers,
+                           json={"run_id": "r1"}).status_code
+        shared, private = world["shared"], world["private"]
+        try:
+            assert client.post(f"/api/zz-run/{shared}", headers=heads["b"]).status_code == 200
+            assert cancel(client, heads["c"], shared) == 403   # another member's job
+            assert cancel(client, heads["b"], shared) == 200   # their own
+            assert cancel(client, heads["a"], shared) == 200   # the title's owner
+            assert client.post(f"/api/zz-run/{private}", headers=heads["a"]).status_code == 200
+            assert cancel(client, heads["c"], private) == 404
+            # An admin away from the PC, on a member's private title.
+            assert cancel(household, world["admin"], private) == 200
+        finally:
+            gate.set()
+            for did in (shared, private):
+                jid = job_id_of(did)
+                for _ in range(200):
+                    st = background_jobs.get_status(jid)
+                    if not st or st["status"] not in ("queued", "running"):
+                        break
+                    threading.Event().wait(0.02)
+                background_jobs.clear_job(jid)
+                extract._run_ids.pop(jid, None)
+
+    def test_bulk_batch_cancel_is_the_title_owners_or_an_admins(self, world):
+        # A batch records no starter: only its title's owner and admins.
+        c_id, c = _login("c@example.com")
+        jobs = {did: db.create_bulk_job(did, "nllb", "m", "submitted", [(0, "k", "h", "")])
+                for did in (world["shared"], world["private"])}
+
+        def cancel(cl, headers, did):
+            return cl.post(f"/api/translate-run/dramas/{did}/bulk/{jobs[did]}/cancel",
+                           headers=headers).status_code
+        client = _client(_app())
+        assert cancel(client, world["b"], world["shared"]) == 403
+        assert cancel(client, c, world["shared"]) == 403
+        assert db.get_bulk_job(jobs[world["shared"]])["status"] == "submitted"
+        assert cancel(client, world["a"], world["shared"]) == 200
+        assert cancel(client, world["b"], world["private"]) == 404
+        assert cancel(_household(), world["admin"], world["private"]) == 200
 
     def test_cancel_stops_only_the_run_that_was_checked(self, world, monkeypatch):
         # A shared id restarted by someone else between the check and the

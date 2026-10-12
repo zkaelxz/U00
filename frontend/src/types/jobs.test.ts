@@ -43,8 +43,8 @@ describe('job outcome helpers', () => {
   })
 
   it('words the queue in counts and the caller\'s own place', () => {
-    expect(queueLine({ running: 1, waiting: 2 })).toBe('1 job running, 2 waiting')
-    expect(queueLine({ running: 0, waiting: 3 })).toBe('0 jobs running, 3 waiting')
+    expect(queueLine({ running: 1, waiting: 2 })).toBe('1 job running (all lanes), 2 waiting in the GPU queue')
+    expect(queueLine({ running: 0, waiting: 3 })).toBe('0 jobs running (all lanes), 3 waiting in the GPU queue')
     expect(queuePlace(2)).toBe('Waiting: #2 in the GPU queue')
   })
 })
