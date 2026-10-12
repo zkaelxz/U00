@@ -382,7 +382,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             progress_cb=lambda frac: rep.progress(
                 frac, f"Reading captions from video... {frac * 100:.0f}%"))
         if not segments:
-            return {"failed_reason": "empty"}
+            return {"failed_reason": "no_text"}
         # OCR already produces real per-cue timing straight from the video --
         # no separate alignment step needed, same reasoning as the Whisper-
         # text-override branch below, just sourced from captions.

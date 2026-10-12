@@ -15,7 +15,7 @@ from lib import ct2_repo
 import diagnostics
 from services import (diarization_service, jobs_service, notification_service, speech_coverage_service,
                       transcribe_pipeline, transcribe_service)
-from services.service_errors import ConflictError
+from services.service_errors import UnsupportedOperationError
 
 ANIME_LISTING = [
     ".gitattributes", "README.md", "added_tokens.json", "config.json", "generation_config.json",
@@ -115,7 +115,7 @@ class TestRefusedDownloadFailsTheJob:
     def test_no_coverage_check_follows(self, drama):
         did, _ = drama
         _run(*drama)
-        with pytest.raises(ConflictError):
+        with pytest.raises(UnsupportedOperationError):
             speech_coverage_service.start_speech_coverage(did)
         assert background_jobs.get_status(speech_coverage_service.speech_coverage_job_id(did)) is None
 
@@ -145,7 +145,7 @@ class TestZeroLines:
         did, audio = drama
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: [])
         _run(did, audio)
-        with pytest.raises(ConflictError):
+        with pytest.raises(UnsupportedOperationError):
             speech_coverage_service.start_speech_coverage(did)
 
 
@@ -225,3 +225,34 @@ class TestSpeakerNotice:
         monkeypatch.setattr(diarization_service.settings_service, "resolve_key", lambda name: "hf_x")
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
         assert diarization_service.speaker_detection_problem() is None
+
+
+class TestCoverageAfterAFailedRerun:
+    def test_existing_lines_keep_the_check_available(self, isolated_db, drama, monkeypatch):
+        did, audio = drama
+        from core import Line
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="old")])
+        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        assert speech_coverage_service.start_speech_coverage(did) == {
+            "job_id": speech_coverage_service.speech_coverage_job_id(did)}
+
+
+class TestModelDownloadWordingPerJobKind:
+    @pytest.mark.parametrize("job_id,start", [
+        ("transcribe_1", "The speech model could not be downloaded."),
+        ("retime_1", "The aligner model could not be downloaded."),
+        ("resegment_1", "The aligner model could not be downloaded."),
+        ("comparetx_1", "A model could not be downloaded."),
+        ("something_1", "A model could not be downloaded.")])
+    def test_wording(self, job_id, start):
+        text = background_jobs._missing_dependency_error(
+            {"failed_reason": "model_download", "detail": "Not downloading the 'x' model."}, job_id)
+        assert text == f"{start} Not downloading the 'x' model."
+
+
+class TestHardsubNoText:
+    def test_outcome_is_partial_with_reasons(self):
+        outcome, message = jobs_service.derive_outcome("done", None, {"failed_reason": "no_text"})
+        assert outcome == "partial"
+        assert message.startswith("Finished but found no on-screen text")
+        assert "OCR language" in message and "burned-in" in message

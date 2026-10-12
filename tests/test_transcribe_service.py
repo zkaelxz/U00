@@ -1003,7 +1003,7 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
             hardsub_interval=1.0)
 
         result = background_jobs.get_status(job_id)["result"]
-        assert result["failed_reason"] == "empty"
+        assert result["failed_reason"] == "no_text"
         _clear(job_id)
 
     def test_passes_backend_interval_and_tesseract_cmd_through(self, isolated_db, monkeypatch):

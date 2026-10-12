@@ -460,7 +460,7 @@ def _timing_finish(job_id, token, thread_job=True):
 
 # A run that ended because a package it needs is missing, or a model it needs
 # could not be fetched, did nothing, so it must not read as "done" in the job list.
-def _missing_dependency_error(result):
+def _missing_dependency_error(result, job_id=""):
     if not isinstance(result, dict):
         return None
     reason = result.get("failed_reason")
@@ -470,7 +470,10 @@ def _missing_dependency_error(result):
         # The same plain text the outcome line shows; scrubbed because the detail
         # comes from a download error.
         from services import jobs_service
-        return jobs_service.scrub_text(jobs_service.derive_outcome("done", None, result)[1])
+        detail = result.get("detail")
+        text = f"{jobs_service.model_download_message(job_id)} {detail}" if detail \
+            else jobs_service.model_download_message(job_id)
+        return jobs_service.scrub_text(text)
     return None
 
 
@@ -496,7 +499,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                 if _still_running_locked(job_id):
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
-                    _missing = _missing_dependency_error(_result)
+                    _missing = _missing_dependency_error(_result, job_id)
                     _jobs[job_id]["status"] = "error" if _missing else "done"
                     if _missing:
                         _outcome = "error"
@@ -1365,7 +1368,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             elif outcome and outcome[0] == "ok":
                 _jobs[job_id]["result"] = result
                 _jobs[job_id]["finished_at"] = time.time()
-                _missing = _missing_dependency_error(result)
+                _missing = _missing_dependency_error(result, job_id)
                 if _missing:
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = _missing

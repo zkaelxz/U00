@@ -294,10 +294,29 @@ _FAILED_REASON_MESSAGES = {
 }
 
 
+_MODEL_DOWNLOAD_BY_KIND = (
+    (("transcribe_",), "The speech model could not be downloaded."),
+    (("retime_", "resegment_", "resplit_", "resegpreview_"), "The aligner model could not be downloaded."),
+)
+
+
+def model_download_message(job_id: str = "") -> str:
+    """The failed-download sentence for a job kind; the detail that follows names the model."""
+    for prefixes, text in _MODEL_DOWNLOAD_BY_KIND:
+        if (job_id or "").startswith(prefixes):
+            return text
+    return "A model could not be downloaded."
+
+
 NO_LINES_MESSAGE = (
     "Finished but found no lines. Possible reasons: voice detection removed everything "
     "(try Sensitivity: More sensitive); the model returned nothing (try Whisper large-v3-turbo); "
     "or the audio is silent.")
+
+
+NO_TEXT_MESSAGE = (
+    "Finished but found no on-screen text. Possible reasons: wrong OCR language or interval, "
+    "no burned-in subtitles in this video.")
 
 
 def speaker_skip_text(result):
@@ -329,6 +348,8 @@ def derive_outcome(status, error, result):
         return "kept_existing", (f"Nothing new was produced, so the existing {count} line(s) were kept."
                                  if count is not None else
                                  "Nothing new was produced, so the existing lines were kept.")
+    if reason == "no_text":
+        return "partial", NO_TEXT_MESSAGE
     if reason == "no_lines":
         skipped = speaker_skip_text(result)
         return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
