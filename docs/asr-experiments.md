@@ -577,7 +577,7 @@ characters). The subtitles cover about 58% of the characters Whisper heard
 (1,419 of about 2,450), so whole-text CER is 63-80% and says nothing; the figure below
 is reference-side CER: each reference line is matched to the best stretch of output
 text within 2 s of it, both sides converted to Simplified and normalised as
-`services/benchmark_lab_service` does. The Lab now also reports Traditional vs Simplified line and character counts per Chinese transcription run and case (`services/benchmark_script_service`); CER itself still converts to Simplified, so it does not see script. Differences under about 2 points are noise
+`services/benchmark_lab_service` does. The Lab now also reports Traditional vs Simplified line and character counts per Chinese transcription run and case (`services/benchmark_script_service`); CER converts both texts to Simplified before comparing (OpenCC, or the one-script character table in `benchmark_script_service` when OpenCC is not installed; the run records which as `script_normaliser`), so it does not see script. Scores computed before that change were script-sensitive: a Traditional hypothesis against a Simplified reference lost a point per differing character, so do not compare them with newer Chinese scores. Differences under about 2 points are noise
 (one run per row, 513 or 1,419 reference characters).
 
 First 5 min, large-v3-turbo unless noted (default = beam 5, silence 300 ms, threshold 0.5):

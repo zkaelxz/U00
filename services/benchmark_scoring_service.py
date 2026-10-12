@@ -3,13 +3,16 @@ services/benchmark_scoring_service.py -- the Benchmark Lab's scorers. UI-free.
 
 Turns one output and its reference into a 0.0-1.0 score: chrF or difflib
 similarity for translation, 1 - CER / 1 - WER for transcription and OCR
-(jiwer when installed, a built-in edit distance when not). The lab
+(jiwer when installed, a built-in edit distance when not). Chinese texts are
+converted to Simplified on both sides before CER (script_normaliser). The lab
 (benchmark_lab_service) calls score_output and pass_threshold per result.
 """
 import functools
 
 import benchmark
+import segment
 from core import SOURCE_LANGUAGES
+from services.benchmark_script_service import _PAIRS
 
 MAX_TEXT_CHARS = 4000
 # A result at or above this counts as a pass (the per-example pass/fail).
@@ -20,6 +23,33 @@ PASS_THRESHOLD = 0.8
 CHRF_PASS_THRESHOLD = 0.5
 # Languages whose transcripts are scored per character (no word spaces).
 _CHARACTER_LANGUAGES = SOURCE_LANGUAGES
+
+
+# Traditional-only character -> its Simplified form, for when OpenCC is absent.
+_PAIRS_T2S = str.maketrans({p[1]: p[0] for p in _PAIRS})
+
+
+def script_normaliser(stage: str, source_language: str = "zh") -> str:
+    """How a case's texts are brought to one script before CER: "opencc" or
+    "pairs" (the character table, when OpenCC isn't installed) for Chinese
+    transcription and OCR, "none" for everything else. Japanese and Korean
+    are never converted: kanji forms differ by design there."""
+    if stage not in ("transcription", "ocr") or source_language != "zh":
+        return "none"
+    try:
+        segment.opencc_t2s()
+    except ImportError:
+        return "pairs"
+    return "opencc"
+
+
+def _to_simplified(text: str, normaliser: str) -> str:
+    text = text or ""
+    if normaliser == "opencc":
+        return segment.opencc_t2s().convert(text)
+    if normaliser == "pairs":
+        return text.translate(_PAIRS_T2S)
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -114,10 +144,16 @@ def score_output(stage: str, output: str, reference: str, source_language: str =
             return None, "similarity", None
         score, metric = benchmark.translation_similarity(output, reference)
         return score, metric, "sacrebleu" if metric == "chrf" else "builtin"
+    # Both sides go to Simplified first, so CER measures recognition errors,
+    # not which script the model or the reference wrote; the Lab's script
+    # counts still show the script. Before the edit distance, because a
+    # Traditional character is otherwise a substitution.
+    normaliser = script_normaliser(stage, source_language)
     unit = "char" if stage == "ocr" or source_language in _CHARACTER_LANGUAGES else "word"
     metric = "cer" if unit == "char" else "wer"
     if not reference:
         return None, metric, None
+    output, reference = _to_simplified(output, normaliser), _to_simplified(reference, normaliser)
     # User decision (2026-09-30): OCR keeps punctuation in its CER.
     rate, scorer = _jiwer_error_rate(output, reference, unit,
                                      keep_punctuation=stage == "ocr"), "jiwer"
