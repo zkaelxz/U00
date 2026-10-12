@@ -65,13 +65,16 @@ def _saved_ollama_models() -> list:
     return list(dict.fromkeys(tags))
 
 
-def list_engines(env_path: Optional[str] = None) -> list:
+def list_engines(env_path: Optional[str] = None, probe_ollama: bool = True) -> list:
     """One entry per translate_engines.ENGINES key: name, display label,
     whether it's free (translate_engines.FREE_ENGINES), its selectable
     model keys (or None if the engine has no model picker), and whether it
     can run (a key/endpoint is configured, its SDK is installed, a local server answers; never the key value itself -- see
     services.settings_service.key_status). The Gemini label reflects the
-    persisted "Gemini free tier" setting (translate_engines.engine_picker_label)."""
+    persisted "Gemini free tier" setting (translate_engines.engine_picker_label).
+    probe_ollama=False skips the network health check (Ollama then reads as usable): the
+    Translate config only probes for a title that translates with Ollama, via its own
+    ollama_reachable field."""
     from services import model_registry_service  # imports this module at load time
     key_status = settings_service.key_status(env_path)
     gemini_free_tier = settings_service.get("gemini_free_tier")
@@ -80,7 +83,7 @@ def list_engines(env_path: Optional[str] = None) -> list:
         model_dict = ENGINE_MODEL_DICTS.get(name)
         package = _ENGINE_PACKAGES.get(name)
         package_installed = package is None or diagnostics.check_dependency(package)
-        if name == "ollama":
+        if name == "ollama" and probe_ollama:
             # Nothing to configure, but a server that is not answering is not usable either.
             key_configured = translate_run_service.ollama_reachable()
         elif name in _NO_KEY_REQUIRED_ENGINES:

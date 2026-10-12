@@ -55,6 +55,13 @@ def test_list_engines_ollama_that_does_not_answer_is_not_usable(tmp_path, monkey
     assert engines["ollama"]["package_installed"] is True
 
 
+def test_list_engines_can_skip_the_ollama_probe(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: seen.append(1) or False)
+    engines = {e["name"]: e for e in translate_service.list_engines(_write_env(tmp_path, ""), probe_ollama=False)}
+    assert seen == [] and engines["ollama"]["key_configured"] is True
+
+
 def test_list_engines_engine_whose_sdk_is_missing_is_not_usable_even_with_a_key(tmp_path, monkeypatch):
     env_path = _write_env(tmp_path, "BAIHE_DEEPSEEK_KEY=k\nBAIHE_OPENAI_KEY=k\nBAIHE_CLAUDE_KEY=k\n")
     monkeypatch.setattr(translate_service.diagnostics, "check_dependency", lambda name: name != "openai")

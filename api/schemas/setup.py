@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel
 
+__all__ = ["SetupReadiness"]
+
 
 class SetupReadiness(BaseModel):
     """What is installed and configured on the PC. Booleans only: no path, version,
