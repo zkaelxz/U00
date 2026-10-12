@@ -292,6 +292,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "whisper_size": whisper_size,
         "whisper_size_notice": whisper_size_notice(drama),
         "whisper_exclusions": whisper_models.whisper_language_exclusions(),
+        "selectable_whisper_sizes": selectable_whisper_sizes("transcribe"),
         "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_size),
         "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get("use_gpu")),
         "measured_speed_runs": measured_transcribe_runs(whisper_size, settings_service.get("use_gpu")),
@@ -720,11 +721,19 @@ def _allowed_whisper_sizes() -> frozenset:
     return frozenset(whisper_models.WHISPER_MODELS) | frozenset(transcribe_pipeline._MODEL_DOWNLOAD_SIZES)
 
 
+def selectable_whisper_sizes(context: str) -> list:
+    """The sizes a Workspace picker lists: whisper_models' table, plus the hidden ones when
+    Developer Mode is on. Read here (not in whisper_models) so that module stays free of settings."""
+    from services import maintenance_assistant_service
+    return whisper_models.selectable_whisper_sizes(
+        context, developer_mode=maintenance_assistant_service.developer_mode_enabled())
+
+
 def default_whisper_size() -> str:
-    """The model used when a drama has none saved. The same on CPU and GPU:
-    on CPU, turbo was faster than medium and no less accurate in the
-    benchmarks (docs/asr-experiments.md), at a similar download size. A model
-    the user saved is never replaced."""
+    """The model used when a drama has none saved: large-v3 by the owner's choice
+    (readability on his streamer comparisons; docs/asr-experiments.md has the
+    measured CER, where turbo is no worse). The same on CPU and GPU. A model the
+    user saved is never replaced, including one the pickers now hide."""
     return _DEFAULT_TUNING["whisper_size"]
 
 

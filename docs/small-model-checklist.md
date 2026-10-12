@@ -228,10 +228,10 @@ and the model starts forgetting the rules. These habits keep it fresh.
   migrations, concurrency, keys and error text, frozen files (size allowlists), skipped or loosened tests.
 
 Example (a real small fix: `docs/STATUS.md` says the CPU Whisper fallback is still `medium`, but
-`transcribe_service.default_whisper_size()` returns the same turbo default on CPU and GPU):
+`transcribe_service.default_whisper_size()` returns the same default on CPU and GPU):
 ```
 Goal: docs/STATUS.md, "Where the app is" > "Transcription and models", says the CPU fallback is still `medium` and that
-the label says turbo is weaker on Japanese and Korean. The code now uses large-v3-turbo on CPU too, and the label is
+the label says turbo is weaker on Japanese and Korean. The code now uses the same default on CPU too, and the label is
 the per-language note in whisperModelWarning. Make that sentence true.
 Files: docs/STATUS.md only. Read `default_whisper_size` in services/transcribe_service.py and `whisperModelWarning` in frontend/src/pages/workspace/sourceForm.ts first.
 Test: python -m pytest -q tests/test_file_organization.py tests/test_agent_docs.py

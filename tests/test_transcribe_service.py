@@ -101,6 +101,7 @@ class TestGetTranscribeConfig:
             "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
             "whisper_size_notice": None,
             "whisper_exclusions": whisper_models.whisper_language_exclusions(),
+            "selectable_whisper_sizes": ["large-v3", "large-v3-turbo", "ja-1.5b", "kotoba-v2"],
             "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_models.DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
             "measured_speed_runs": 0,

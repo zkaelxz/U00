@@ -348,13 +348,13 @@ test('switching titles does not leak stage state', async ({ page }) => {
   await expect(page.getByTestId('job-panel')).toHaveCount(0)
 })
 
-test('source options offer turbo with a Korean/Chinese note, the Taiwan script label and a GPU note', async ({ page }) => {
+test('source options offer large-v3 as default and turbo with a Korean/Chinese note, the Taiwan script label and a GPU note', async ({ page }) => {
   await enableDeveloperMode(page)
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   const size = page.getByLabel('Whisper model', { exact: true })
   await expect(size.locator('option[value="large-v3-turbo"]')).toHaveCount(1)
-  await expect(size.locator('option[value="large-v3-turbo"]')).toHaveText('large-v3-turbo (default)')
+  await expect(size.locator('option[value="large-v3-turbo"]')).toHaveText('large-v3-turbo (faster)')
   // The Edit details panel has its own "Source language" select; scope to Transcribe.
   const language = transcribeCard(page).getByLabel('Source language', { exact: true })
   await size.selectOption('large-v3-turbo')

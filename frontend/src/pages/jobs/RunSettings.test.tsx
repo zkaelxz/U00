@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { RunSettings, runSettingRows } from './RunSettings'
+import { engineThatRan, RunSettings, runSettingRows } from './RunSettings'
 
 describe('RunSettings', () => {
   it('lists each setting with toggles as on/off', () => {
@@ -25,5 +25,19 @@ describe('RunSettings', () => {
     expect(runSettingRows({ run_settings: 'x' })).toEqual([])
     expect(runSettingRows({ run_settings: ['a'] })).toEqual([])
     expect(runSettingRows({ run_settings: { a: { b: 1 }, c: null, d: 2 } })).toEqual([['d', '2']])
+  })
+
+  it('names the engine that ran when the backend skipped Whisper', () => {
+    const result = { run_settings: { asr_backend: 'qwen3_asr_long', whisper_size: 'large-v3', transcript_mode: 'whisper' } }
+    expect(engineThatRan(result)).toBe('Qwen3-ASR (Whisper model setting not used)')
+    expect(renderToStaticMarkup(<RunSettings result={result} />)).toContain('Engine that ran: Qwen3-ASR (Whisper model setting not used)')
+    expect(engineThatRan({ run_settings: { asr_backend: 'anime_whisper' } })).toBe('Anime-whisper (Whisper model setting not used)')
+  })
+
+  it('says nothing extra for a Whisper run, plain Qwen3 ASR (Whisper still cuts the lines) or an aligned transcript', () => {
+    expect(engineThatRan({ run_settings: { asr_backend: 'whisper', whisper_size: 'large-v3' } })).toBeNull()
+    expect(engineThatRan({ run_settings: { asr_backend: 'qwen3_asr', whisper_size: 'large-v3' } })).toBeNull()
+    expect(engineThatRan({ run_settings: { asr_backend: 'qwen3_asr_long', transcript_mode: 'have_transcript' } })).toBeNull()
+    expect(engineThatRan({ line_count: 3 })).toBeNull()
   })
 })

@@ -152,9 +152,13 @@ Demucs. RoFormer was very slow on 4 CPU cores in one timing (see the snapshot).
 
 ## Which Whisper model to pick
 
-Default `large-v3-turbo`. It was about twice as fast as large-v3 and close in
-accuracy on clean speech, and `medium` was never clearly ahead of it (Chinese clean: 6.84 vs 7.15, within noise), so the CPU default is
-turbo too. Details by language (numbers in the snapshot):
+Default `large-v3`, by the owner's choice: on his streamer comparisons it reads better
+than turbo without any Whisper setting adjusted. That is a readability preference, not a measured
+accuracy gain. Baihe's own streamer VOD test (below) found no CER difference: turbo 16.4 against
+large-v3 18.7 on the first 5 minutes, where differences under about 2 points are noise, and 20.4
+against 20.6 over the full 15 minutes. `large-v3-turbo` stays the fast option: about twice as fast
+as large-v3 and close in accuracy on clean speech. `medium` was never clearly ahead of turbo
+(Chinese clean: 6.84 vs 7.15, within noise). Details by language (numbers in the snapshot):
 
 | Language | What the tests showed |
 |---|---|
@@ -165,7 +169,22 @@ turbo too. Details by language (numbers in the snapshot):
 | Degraded audio | large-v3 beat turbo by 1.4 points at +10 dB and 2.4 at 0 dB; no difference on clean. Medium was worst everywhere. |
 
 Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
-(`transcribe_service._MODEL_DOWNLOAD_SIZES`).
+(`transcribe_pipeline._MODEL_DOWNLOAD_SIZES`). On a CPU large-v3 takes about twice as long as turbo
+(the Transcribe estimate uses 1.5-4x the audio length for large-v3 and 0.6-2x for turbo).
+
+Which sizes the pickers offer is one function, `whisper_models.selectable_whisper_sizes(context)`: the
+Transcribe stage and Compare transcription list `large-v3`, `large-v3-turbo` and the opt-in Japanese models;
+`tiny`, `base`, `small` and `medium` are hidden unless Developer Mode is on. The API, the CLI and saved titles
+still accept the hidden sizes, and a title that saved one shows it as "medium (older choice, hidden)" with a
+one-click switch to large-v3; it is never changed silently. Live keeps its own list
+(`whisper_models.LIVE_WHISPER_SIZES`: tiny to medium and turbo, default small) and the Groq hosted model stays
+`whisper-large-v3-turbo`.
+
+Not combining options: for streamer titles use Whisper large-v3 with vocal separation off. On the owner's
+Japanese test, separation dropped real lines (142 lines against 184), and Qwen3-ASR on long audio gave
+"timing uncertain" on most lines. The Transcribe stage says so beside the model pick, shows one line
+"This run will use: backend · model · GPU on/off" above the button (GPU off when the CUDA runtime is missing,
+since Whisper then runs on the CPU), and turns off the Whisper-only options when the backend skips Whisper.
 
 ### Benchmarking a model that is not in the list
 

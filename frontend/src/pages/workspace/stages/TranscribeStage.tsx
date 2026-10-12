@@ -55,17 +55,22 @@ import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBloc
 import { withoutUntouchedBackend } from './transcribeBackendField'
 import { measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
+import { advisorNote, replacementModel, runLine, whisperOnlyControlReason } from './transcribeRun'
 import './source.css'
 
 // The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
 const WHISPER_LABELS: Record<string, string> = {
-  'large-v3-turbo': 'large-v3-turbo (default)',
+  'large-v3': 'large-v3 (default)',
+  'large-v3-turbo': 'large-v3-turbo (faster)',
   'ja-1.5b': 'Japanese (whisper-ja 1.5B): anime and games, opt-in, about 3 GB, needs a GPU',
   'kotoba-v2': 'Japanese (kotoba-whisper v2.0): opt-in, about 1.5 GB, fast; line timing only',
 }
-function whisperModelHelp(size: string, notDownloaded: boolean): string | undefined {
+// Download sizes, mirrored from services/transcribe_pipeline._MODEL_DOWNLOAD_SIZES for the two models the picker offers.
+const WHISPER_DOWNLOAD: Record<string, string> = { 'large-v3': 'about 3 GB', 'large-v3-turbo': 'about 1.6 GB' }
+function whisperModelHelp(size: string, notDownloaded: boolean, notUsed: string | null, replacement: string | null): string | undefined {
+  if (notUsed) return `${notUsed}. This run will use ${replacement}.`
   const parts = [
-    notDownloaded ? 'This model will be downloaded on first use.' : '',
+    notDownloaded ? `This model will be downloaded on first use${WHISPER_DOWNLOAD[size] ? ` (${WHISPER_DOWNLOAD[size]})` : ''}.` : '',
     size === 'ja-1.5b' ? 'Its licence is not declared; use it for personal work.' : '',
     size === 'kotoba-v2' ? 'It gives line timing only. The Qwen3 forced aligner refines it when installed; otherwise the Whisper line times are kept and the job says so.' : '',
   ].filter(Boolean)
@@ -458,7 +463,10 @@ export default function TranscribeStage({
     }, 50)
   }
 
-  const whisperChoices = cf ? whisperSizeChoices(language, cf.whisper_size, config?.whisper_exclusions) : []
+  const whisperChoices = cf ? whisperSizeChoices(language, cf.whisper_size, config?.whisper_exclusions, config?.selectable_whisper_sizes) : []
+  const hiddenChoice = whisperChoices.find((o) => o.hidden)
+  // A pasted transcript is aligned, not transcribed, so the ASR backend choice does not apply to it.
+  const backendNotUsed = cf && !haveTranscript ? whisperOnlyControlReason(cf.asr_backend_choice, 'model') : null
   const turboWarning = cf ? whisperModelWarning(cf.whisper_size, language) : ''
   // Only runs that go through Whisper (plain ASR, or aligning a pasted
   // transcript with whisper_diff); a file picked but not uploaded yet has no
@@ -509,11 +517,11 @@ export default function TranscribeStage({
             </select>
           </Field>
           {cf && (
-            <Field label="Whisper model" help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached)}>
-              <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
+            <Field label="Whisper model" help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
+              <select value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
                 {whisperChoices.map((o) => (
                   <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>
-                    {WHISPER_LABELS[o.size] ?? o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
+                    {o.hidden ? `${o.size} (older choice, hidden)` : WHISPER_LABELS[o.size] ?? o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
                   </option>
                 ))}
               </select>
@@ -529,7 +537,23 @@ export default function TranscribeStage({
             </Field>
           )}
         </div>
-        {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
+        {hiddenChoice && !backendNotUsed && (
+          <p className="muted" role="note" data-testid="whisper-hidden-size">
+            This title uses {hiddenChoice.size}, which is no longer offered.{' '}
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setC('whisper_size', DEFAULT_WHISPER_SIZE)}>
+              Switch to {DEFAULT_WHISPER_SIZE}
+            </button>
+          </p>
+        )}
+        {backendNotUsed && (
+          <p className="muted" role="note" data-testid="whisper-not-used">
+            {backendNotUsed}: this run will use {replacementModel(cf!.asr_backend_choice)}.
+          </p>
+        )}
+        {turboWarning && !backendNotUsed && <p className="muted" role="note">{turboWarning}</p>}
+        {cf && !haveTranscript && (
+          <p className="muted" role="note" data-testid="transcribe-advisor">{advisorNote(cf.asr_backend_choice, cf.separate_vocals_first)}</p>
+        )}
         {(switchedNotice ?? config?.whisper_size_notice) && (
           <p className="muted" role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
         )}
@@ -551,6 +575,14 @@ export default function TranscribeStage({
           <div id="transcribe-not-installed">
             <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
           </div>
+        )}
+        {cf && (
+          <p className="muted" data-testid="run-line">
+            {runLine({
+              backend: cf.asr_backend_choice, whisperSize: cf.whisper_size, useGroq: cf.use_groq, useGpu,
+              gpuRuntime: config?.gpu_runtime.status, haveTranscript, alignmentMethod: cf.alignment_method,
+            })}
+          </p>
         )}
         <div className="actions">
           <button
@@ -590,7 +622,7 @@ export default function TranscribeStage({
         {tab === 'transcribe' && feedback}
         {cf ? (
           <p className="muted source-summary" data-testid="settings-summary">
-            Whisper {cf.whisper_size} · {LANGUAGE_NAMES[language] ?? language}
+            {LANGUAGE_NAMES[language] ?? language}
             {useGpu !== null && <span data-testid="gpu-note"> · {useGpu && config?.gpu_runtime.status === 'missing' ? `GPU unavailable: ${config.gpu_runtime.reason ?? 'the CUDA libraries are missing'}` : `GPU: ${useGpu ? 'on' : 'off'}`} - change in <a href="#/settings">Settings</a></span>}
           </p>
         ) : (

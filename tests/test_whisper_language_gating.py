@@ -139,13 +139,68 @@ class TestPayloads:
         assert cfg["whisper_exclusions"] == wm.whisper_language_exclusions()
         assert "medium" in cfg["whisper_size_notice"]
 
-    def test_compare_options_list_every_size_and_the_table(self, isolated_db, monkeypatch):
+    def test_compare_options_list_the_selectable_sizes_and_the_table(self, isolated_db, monkeypatch):
         did = isolated_db.create_drama(title_en="t", source_language="zh")
         monkeypatch.setattr(compare_transcription_service, "_backend_problem", lambda *a: None)
         opts = compare_transcription_service.get_options(did)
-        assert {"medium", "ja-1.5b"} <= set(opts["whisper_sizes"])
+        assert {"large-v3", "ja-1.5b"} <= set(opts["whisper_sizes"])
+        assert "medium" not in opts["whisper_sizes"]
         assert opts["whisper_exclusions"] == wm.whisper_language_exclusions()
         assert opts["source_language"] == "zh"
 
     def test_lab_options_carry_the_table(self):
         assert lab.get_options()["whisper_exclusions"] == wm.whisper_language_exclusions()
+
+
+class TestSelectableSizes:
+    """One list feeds every non-Live picker: medium and below are hidden unless Developer
+    Mode is on, but the server keeps accepting them and a title that saved one keeps it."""
+
+    HIDDEN = ("tiny", "base", "small", "medium")
+
+    def test_workspace_pickers_list_only_the_large_models_and_the_opt_ins(self):
+        for context in ("transcribe", "compare"):
+            sizes = wm.selectable_whisper_sizes(context)
+            assert sizes[:2] == ["large-v3", "large-v3-turbo"]
+            assert not set(sizes) & set(self.HIDDEN)
+
+    def test_developer_mode_shows_the_hidden_sizes_again(self):
+        sizes = wm.selectable_whisper_sizes("transcribe", developer_mode=True)
+        assert set(self.HIDDEN) <= set(sizes)
+
+    def test_live_keeps_its_own_list(self):
+        assert wm.selectable_whisper_sizes("live") == list(wm.LIVE_WHISPER_SIZES)
+        assert "medium" in wm.selectable_whisper_sizes("live")
+
+    def test_the_config_route_reads_the_developer_flag(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="D")
+        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: False)
+        assert "medium" not in transcribe_service.get_transcribe_config(did)["selectable_whisper_sizes"]
+        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: True)
+        assert "medium" in transcribe_service.get_transcribe_config(did)["selectable_whisper_sizes"]
+
+    def test_a_saved_hidden_size_is_kept_and_still_accepted(self, isolated_db, monkeypatch):
+        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: False)
+        did = isolated_db.create_drama(title_en="D", source_language="zh")
+        transcribe_service.update_transcribe_config(did, whisper_size="medium")
+        config = transcribe_service.get_transcribe_config(did)
+        assert config["whisper_size"] == "medium"
+        assert "medium" not in config["selectable_whisper_sizes"]
+
+    def test_compare_lists_a_hidden_saved_size_so_the_select_can_show_it(self, isolated_db, monkeypatch):
+        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: False)
+        monkeypatch.setattr(compare_transcription_service, "_backend_problem", lambda *a: None)
+        did = isolated_db.create_drama(title_en="D", source_language="zh")
+        transcribe_service.update_transcribe_config(did, whisper_size="small")
+        options = compare_transcription_service.get_options(did)
+        assert options["saved_whisper_size"] == "small"
+        assert "small" in options["whisper_sizes"] and "tiny" not in options["whisper_sizes"]
+
+    def test_the_default_is_large_v3_and_a_new_title_uses_it(self, isolated_db):
+        assert wm.DEFAULT_WHISPER_SIZE == "large-v3"
+        did = isolated_db.create_drama(title_en="D")
+        assert transcribe_service.get_transcribe_config(did)["whisper_size"] == "large-v3"
+
+    def test_live_default_and_groq_model_are_unchanged(self):
+        assert core.GROQ_DEFAULT_MODEL == "whisper-large-v3-turbo"
+        assert "large-v3-turbo" in wm.LIVE_WHISPER_SIZES

@@ -12,21 +12,28 @@ import cuda_runtime_path
 _whisper_model_cache = {}
 
 # Speech-recognition models offered in the Workspace picker (faster-whisper
-# names). large-v3-turbo is the default: in our benchmarks (docs/asr-experiments.md)
-# it matched large-v3 on Japanese, trailed it by about half a point on Korean and
-# by more on clean Chinese, and ran about twice as fast. medium was never ahead
-# of it. The labels and the Transcribe stage's note say only what was measured.
+# names). large-v3 is the default by the owner's choice: on his streamer comparisons it
+# reads better than turbo without any Whisper settings adjusted. It is a readability
+# preference, not a measured accuracy gain: on Baihe's own VOD test turbo scored 16.4
+# and large-v3 18.7 character errors per 100 on the first 5 minutes (noise about 2
+# points), and docs/asr-experiments.md has the per-language results. turbo stays the
+# fast option at about half the time. The labels say only what was measured.
 WHISPER_MODELS = {
     "small": "small -- fastest, least accurate",
     "medium": "medium -- no faster or more accurate than turbo in our tests",
-    "large-v3": "large-v3 -- slightly more accurate on Korean and clean Chinese, about 2x slower, ~3GB",
-    "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
+    "large-v3": "large-v3 -- default; reads best on streamer audio in the owner's comparisons, about 2x slower than turbo, ~3GB",
+    "large-v3-turbo": "large-v3-turbo -- the fast option; close to large-v3 in our tests, about 2x faster, ~1.6GB",
     "ja-1.5b": ("Japanese (whisper-ja 1.5B) -- anime and games, opt-in, about 3 GB, needs a GPU; "
                 "its licence is not declared"),
     "kotoba-v2": ("Japanese (kotoba-whisper v2.0) -- opt-in, about 1.5 GB, about 6x faster than "
                   "large-v3 on Japanese; line timing only"),
 }
-DEFAULT_WHISPER_SIZE = "large-v3-turbo"
+DEFAULT_WHISPER_SIZE = "large-v3"
+
+# Sizes the Workspace pickers no longer offer. The API, the CLI and titles that saved
+# one still accept them; Developer Mode shows them again. tiny and base exist only here
+# and in Live's list, not in WHISPER_MODELS.
+HIDDEN_WHISPER_SIZES = ("tiny", "base", "small", "medium")
 
 # Keys that name a pinned Hugging Face repo instead of a faster-whisper size. The
 # repo and its full commit sha live only here: a client sends the key, never a repo
@@ -127,6 +134,21 @@ def whisper_language_exclusions() -> dict:
 # Live's choices. small stays its default: Live has to keep up with the stream
 # on a CPU, and turbo takes about 1.5x small's time on the repo's CPU test.
 LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo")
+
+
+
+def selectable_whisper_sizes(context: str, developer_mode: bool = False) -> list:
+    """The Whisper sizes a picker offers, in display order. `context` is "live" (its own
+    list) or any Workspace picker ("transcribe", "compare"). One place decides this so
+    the pickers cannot drift; server validation does not use it and keeps accepting the
+    hidden sizes."""
+    if context == "live":
+        return list(LIVE_WHISPER_SIZES)
+    shown = ["large-v3", "large-v3-turbo", *(k for k in WHISPER_MODELS if k not in HIDDEN_WHISPER_SIZES
+                                              and k not in ("large-v3", "large-v3-turbo"))]
+    if developer_mode:
+        return [*shown, *HIDDEN_WHISPER_SIZES]
+    return shown
 
 
 def release_gpu_models():

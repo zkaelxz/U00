@@ -237,18 +237,19 @@ class TestStart:
         assert "whisper_size" in logged and planted not in logged
 
     @pytest.mark.parametrize("stored,expected", [
-        (None, "large-v3-turbo"), ("", "large-v3-turbo"),
-        ("small", "small"), ("../models/x", "large-v3-turbo"),
-        ("org/model", "large-v3-turbo"), ("medium", "medium"), ("large-v3", "large-v3")])
+        (None, "large-v3"), ("", "large-v3"),
+        ("small", "small"), ("../models/x", "large-v3"),
+        ("org/model", "large-v3"), ("medium", "medium"), ("large-v3-turbo", "large-v3-turbo")])
     def test_stored_whisper_size(self, isolated_db, stored, expected):
         assert transcribe_service.stored_whisper_size(
             {"id": 1, "whisper_size": stored}) == expected
 
-    def test_default_is_turbo_on_cpu_and_gpu_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
+    def test_default_is_large_v3_on_cpu_and_gpu_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
         for gpu in (True, False):
             patch_setting(monkeypatch, "use_gpu", gpu)
-            assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == "large-v3-turbo"
+            assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == "large-v3"
             assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": "medium"}) == "medium"
+            assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": "large-v3-turbo"}) == "large-v3-turbo"
 
     def test_explicit_prompt_overrides(self, isolated_db, captured):
         did, ids = _drama(isolated_db)

@@ -158,6 +158,8 @@ class TranscribeConfig(BaseModel):
     whisper_size_notice: Optional[str] = None
     # {model: {language: reason}} for models not recommended for a language.
     whisper_exclusions: Dict[str, Dict[str, str]]
+    # The sizes the picker lists (whisper_models.selectable_whisper_sizes); the API still accepts the hidden ones.
+    selectable_whisper_sizes: List[str] = []
     whisper_model_cached: bool
     # Audio seconds per second of work on the last finished run of this model and device.
     measured_speed: Optional[float] = None
@@ -523,6 +525,7 @@ class CompareOptions(BaseModel):
     saved_asr_backend: str
     saved_alignment_method: str
     whisper_sizes: List[str]
+    selectable_whisper_sizes: List[str] = []
     source_language: str
     whisper_exclusions: Dict[str, Dict[str, str]]
     backends: List[CompareBackendOption]
