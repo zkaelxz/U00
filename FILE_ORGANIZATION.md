@@ -243,6 +243,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
+- `glossary_name_report_service.py` (read-only "name check across all titles": runs the per-title name scan over every title the caller may see as one cancellable job, merges the clusters that are one name, keeps the owner's right/wrong/skip marks, and exports the unresolved groups as text)
 - `glossary_spelling_service.py` (one bounded model call that proposes how a known name may be spelled in the transcript, kept only when it occurs in the lines; and a read-only check of lines whose English renders a name differently)
 - `glossary_service.py`
 - `glossary_variants_service.py` (read-only scans: other spellings of a glossary term in the source lines, and names that recur under several spellings)
