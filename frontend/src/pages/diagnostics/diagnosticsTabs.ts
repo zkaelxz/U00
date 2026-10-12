@@ -30,4 +30,13 @@ export type DiagnosticsCard = keyof typeof CARD_TAB
 export const isDiagnosticsTab = (v: unknown): v is DiagnosticsTab => DIAGNOSTICS_TABS.some((t) => t.id === v)
 export const isDiagnosticsCard = (v: unknown): v is DiagnosticsCard => typeof v === 'string' && Object.hasOwn(CARD_TAB, v)
 
+// Section storage keys of each tab's cards, in screen order. The conditional install cards come first but
+// start closed (their summary says what is wrong); the first card that is always there starts open.
+export const TAB_FOLD_KEYS: Record<DiagnosticsTab, string[]> = {
+  setup: ['diagnostics.setup'],
+  packages: ['diagnostics.browser', 'diagnostics.cuda-runtime', 'diagnostics.deno', 'diagnostics.packages', 'diagnostics.speaker'],
+  models: ['diagnostics.modelHealth', 'diagnostics.models', 'diagnostics.realModel'],
+  system: ['diagnostics.ports', 'diagnostics.log'],
+}
+
 export const cardAnchorId = (card: DiagnosticsCard) => `diag-card-${card}`

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openFold } from './foldHelpers'
 
 // Library admin (selection bar, Backup and Storage tabs, PC-only deletes).
 // Real API for the bulk flow on two dramas this spec creates and deletes
@@ -69,11 +70,11 @@ test.describe('selection bar (real API)', () => {
 })
 
 test.describe('Backup and Storage tabs (mocked)', () => {
-  async function openSection(page: Page, tab: 'backup' | 'storage' = 'backup') {
+  async function openSection(page: Page, tab: 'organize' | 'backup' | 'storage' = 'backup') {
     await page.goto(`/#/library-tools?tab=${tab}`)
   }
 
-  test('export job reaching done shows the download link', async ({ page }) => {
+  test('export job (Organize tab) reaching done shows the download link', async ({ page }) => {
     let polls = 0
     await page.route('**/api/library/admin/export', (r) =>
       r.fulfill({ json: { job_id: 'library_export_zip', drama_ids: [1] } }))
@@ -90,7 +91,7 @@ test.describe('Backup and Storage tabs (mocked)', () => {
       polls >= 3
         ? r.fulfill({ json: { kind: 'export', name: 'dramas_export_20260929.zip', size: 2048 } })
         : r.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No artifact available.' } } }))
-    await openSection(page)
+    await openSection(page, 'organize')
     await page.getByRole('button', { name: /Export all translated/ }).click()
     const link = page.getByTestId('download-export')
     await expect(link).toHaveText('Download dramas_export_20260929.zip')
@@ -202,7 +203,7 @@ test('preset delete is two-step: first press makes no call, second sends confirm
     return r.fulfill({ json: { preset_id: 7, deleted: true } })
   })
   await page.goto('/#/library-tools')
-  await presetsSummary(page).click()
+  await openFold(page, 'Presets')
   await expect(page.getByText('Titles that used it keep their settings.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Delete Wuxia preset' }).click()
@@ -223,7 +224,7 @@ test('an armed delete reverts after 5 s', async ({ page }) => {
     items: [{ id: 3, name: 'Narrator', language: 'en', clone_engine: null, source_drama: null, clip_available: false }],
   } }))
   await page.goto('/#/library-tools')
-  await page.locator('summary', { hasText: 'Voice bank' }).click()
+  await openFold(page, 'Voice bank')
   await page.getByRole('button', { name: 'Delete Narrator' }).click()
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toHaveCount(0, { timeout: 7000 })
@@ -242,7 +243,7 @@ test('a failed delete re-enables the first step with focus; one press then only 
     return r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job is running.' } } })
   })
   await page.goto('/#/library-tools')
-  await presetsSummary(page).click()
+  await openFold(page, 'Presets')
   await page.getByRole('button', { name: 'Delete Slow preset' }).click()
   await page.getByRole('button', { name: 'Confirm delete Slow preset' }).click()
   const first = page.getByRole('button', { name: 'Delete Slow preset' })

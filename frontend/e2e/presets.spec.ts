@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openFold } from './foldHelpers'
 
 // Parity X03/X04 on the Translate stage and L18/L19 in the Library. The preset
 // list, apply and rename calls are mocked; the Translate config (with the
@@ -67,7 +68,7 @@ test('a preset and a voice can be renamed in the Library', async ({ page }) => {
   })
   await page.goto('/#/library-tools')
 
-  await page.locator('summary', { hasText: 'Presets' }).click()
+  await openFold(page, 'Presets')
   await page.getByRole('button', { name: 'Rename Wuxia preset' }).click()
   const input = page.getByLabel('New name for Wuxia preset')
   await page.getByRole('button', { name: 'Save name' }).click()
@@ -77,7 +78,7 @@ test('a preset and a voice can be renamed in the Library', async ({ page }) => {
   await expect(page.locator('.deletable-list').getByText('Palace preset')).toBeVisible()
   expect(bodies.preset).toEqual({ name: 'Palace preset' })
 
-  await page.locator('summary', { hasText: 'Voice bank' }).click()
+  await openFold(page, 'Voice bank')
   await page.getByRole('button', { name: 'Rename Narrator' }).click()
   await page.getByLabel('New name for Narrator').fill('Host')
   await page.getByRole('button', { name: 'Save name' }).click()
