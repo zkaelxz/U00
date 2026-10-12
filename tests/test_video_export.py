@@ -157,7 +157,8 @@ class TestSoftsubContainer:
         cmd = ve.mux_soft_subtitles_cmd("v.mp4", "s.ass", "out.mkv", sub_format="ass")
         assert cmd[cmd.index("-c:s") + 1] == "ass" and cmd[cmd.index("-i", cmd.index("-i") + 1) + 1] == "s.ass"
         assert cmd[cmd.index("-c:v") + 1] == "copy" and cmd[cmd.index("-c:a") + 1] == "copy"
-        assert "ass" in cmd  # the subtitle input's -format_whitelist
+        i = cmd.index("-i", cmd.index("-i") + 1)
+        assert cmd[i - 4:i] == ve.local_input("ass")
 
     def test_ass_track_refuses_mp4(self):
         with pytest.raises(ValueError):

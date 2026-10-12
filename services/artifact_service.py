@@ -199,3 +199,25 @@ def get_artifact(drama_id: int, kind: str) -> Dict:
         raise NotFoundError(_MISSING)
     return {"path": best[2], "name": best[1], "size": os.path.getsize(best[2]), "kind": kind,
             "language": _download_language(base, best[1])}
+
+
+def remove_other_files(drama_id: int, kind: str, keep: str) -> None:
+    """Deletes the other outputs in a kind folder once `keep` is in place.
+    Only the newest file is ever served, so an export in another container
+    (an .mp4 and then an .mkv of the same title) would otherwise leave a
+    full-size video nobody can download. Best-effort: a file that cannot be
+    removed just stays; symlinks and hidden files (the label) are not touched."""
+    try:
+        base = _kind_dir(drama_id, kind, create=False)
+        names = os.listdir(base)
+    except (OSError, ServiceError):
+        return
+    for name in names:
+        path = os.path.join(base, name)
+        if (name == keep or name.startswith(".") or os.path.islink(path)
+                or not os.path.isfile(path)):
+            continue
+        try:
+            os.remove(path)
+        except OSError:
+            pass

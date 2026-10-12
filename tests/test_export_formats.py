@@ -100,6 +100,12 @@ class TestVtt:
         body = self._cue_bodies(sf.lines_to_vtt(_lines(), "en", notes_by_idx=notes))[0]
         assert body == "Hello there.\n[Qijutang: lit. 'Hall of Sitting Together']"
 
+    def test_a_bare_carriage_return_does_not_end_the_cue(self):
+        lines = _lines()
+        lines[0].en = "one\r\rtwo\rthree"
+        body = self._cue_bodies(sf.lines_to_vtt(lines, "en"))[0]
+        assert body == "one\ntwo\nthree"
+
     def test_srt_and_ass_are_not_entity_escaped(self):
         lines = _lines()
         lines[0].en = "I <3 you & --> her"
@@ -130,6 +136,13 @@ class TestAss:
         lines[0].en = "a {\\b1} trick\nsecond line"
         ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
         assert "a \\{\\\\b1\\} trick\\Nsecond line" in ass
+
+    def test_line_breaks_other_than_newline_cannot_start_a_new_dialogue_line(self):
+        lines = _lines()
+        lines[0].en = "a\r\nb\rc\u2028d\u2029e\x85f"
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
+        assert "a\\Nb\\Nc\\Nd\\Ne\\Nf" in ass
+        assert len(ass.splitlines()) == len(sf.lines_to_ass(_lines(), sf.ASS_PRESETS["Clean"]).splitlines())
 
     def test_presets_differ_and_clean_is_the_old_hardsub_look(self):
         assert sf.ASS_PRESETS["Clean"]["size"] == 24 and sf.ASS_PRESETS["Clean"]["outline_width"] == 2
