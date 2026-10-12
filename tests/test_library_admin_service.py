@@ -805,6 +805,39 @@ def test_an_unreadable_live_library_keeps_its_accounts(isolated_db, monkeypatch)
     assert library_restore_sql.has_accounts(db.DB_PATH) is True
     monkeypatch.setattr(library_restore_sql.sqlite3, "connect", real)
 
+
+def test_the_restore_audit_entry_says_how_many_accounts_came(isolated_db):
+    uid = auth_service.add_user("member@example.com")["id"]
+    data = _backup_bytes()
+    _fresh_pc()
+    _restore(data)
+    [entry] = [e for e in auth_service.list_audit(500) if e["action"] == "library.restore"]
+    assert "accounts restored from the backup: 1" in entry["detail_redacted"]
+    assert db.auth_get_user(uid)
+
+
+def test_a_live_library_that_cannot_be_read_keeps_its_accounts_through_a_restore(
+        isolated_db, monkeypatch):
+    """The account check can't read the live library (locked): the restore must
+    keep the live accounts, not take the backup's."""
+    from services import library_restore_sql
+    auth_service.add_user("in-backup@example.com")
+    data = _backup_bytes()
+    auth_service.add_user("added-later@example.com")
+    live_uri = library_restore_sql._ro_uri(db.DB_PATH)
+    real_connect = sqlite3.connect
+
+    def locked_for_the_check(target, *a, **k):
+        if target == live_uri:
+            raise sqlite3.OperationalError("database is locked")
+        return real_connect(target, *a, **k)
+    monkeypatch.setattr(library_restore_sql.sqlite3, "connect", locked_for_the_check)
+    result = _restore(data)
+    monkeypatch.setattr(library_restore_sql.sqlite3, "connect", real_connect)
+    assert result["accounts_restored"] == 0
+    assert {u["email"] for u in db.auth_list_users()} == {"in-backup@example.com",
+                                                          "added-later@example.com"}
+
 def _follow(owner, pc_owner=True, mode="auto"):
     from sources import live_follow_store
     return live_follow_store.add(owner, pc_owner, "https://www.youtube.com/@chan/live", "chan",

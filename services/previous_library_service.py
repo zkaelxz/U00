@@ -13,6 +13,7 @@ never a path.
 
 import os
 import shutil
+import sqlite3
 import time
 
 import background_jobs
@@ -25,6 +26,8 @@ LABEL = "Previous library kept after restore"
 DELETE_WORD = "DELETE"
 PRE_RESET_MARKER = ".pre_reset_"
 STAGING_PREFIX = ".restore_staging_"
+# A restore writes into its staging folder throughout; one quiet this long died.
+STAGING_STALE_SECONDS = 6 * 3600
 BUSY = "A job, restore or other library task is running. Wait for it to finish, then try again."
 NO_LIBRARY = ("The library is missing or fails a check, so the previous library may be the "
               "only good copy. Restart Baihe; if that doesn't bring the library back, close it "
@@ -61,9 +64,28 @@ def _folders() -> list:
     return out
 
 
+def _title_count(db_path: str):
+    """Titles in a library database, read-only; None when it can't be read."""
+    from services.library_restore_sql import _ro_uri
+    if not os.path.isfile(db_path) or os.path.islink(db_path):
+        return None
+    try:
+        conn = sqlite3.connect(_ro_uri(db_path), uri=True)
+        try:
+            return conn.execute("SELECT COUNT(*) FROM dramas").fetchone()[0]
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+
+
 def _library_checks_out() -> bool:
-    """The live library.db is there and passes quick_check. A restore whose
-    put-back failed leaves a failed one in place and the real library aside."""
+    """The live library.db is there and passes quick_check, and is not an
+    empty library standing where a restore set a library with titles aside.
+    A restore whose put-back failed leaves a failed one in place; a start
+    during a restore can create a fresh, empty one (the real library then
+    sits in .pre_restore_*, and deleting it would lose it). An empty library
+    beside only a reset copy is the normal state after a reset."""
     from services import library_restore_service
     if not os.path.isfile(db.DB_PATH) or os.path.islink(db.DB_PATH):
         return False    # checked first: the check below would create an empty one
@@ -71,7 +93,30 @@ def _library_checks_out() -> bool:
         library_restore_service._require_quick_check(db.DB_PATH, NO_LIBRARY)
     except ValueError:
         return False
+    if _title_count(db.DB_PATH):
+        return True
+    _parent, base = _parent_and_base()
+    for name, path in _folders():
+        if name.lower().startswith((base + db.PRE_RESTORE_MARKER).lower()):
+            if _title_count(os.path.join(path, "library.db")) != 0:
+                return False    # titles there, or unreadable: assume they matter
     return True
+
+
+def _stale(name: str, path: str) -> bool:
+    """A staging folder nothing has written to for STAGING_STALE_SECONDS: no
+    restore is still preparing it (one in another process holds no lock
+    while it extracts). Every other kept copy always counts."""
+    if not name.lower().startswith(STAGING_PREFIX):
+        return True
+    newest = 0.0
+    for root, dirs, files in os.walk(path):
+        for entry in (root, *(os.path.join(root, n) for n in dirs + files)):
+            try:
+                newest = max(newest, os.lstat(entry).st_mtime)
+            except OSError:
+                return False
+    return time.time() - newest > STAGING_STALE_SECONDS
 
 
 def summary() -> dict:
@@ -88,10 +133,12 @@ def summary() -> dict:
 
 
 def delete(confirm_text=None, expected_size_bytes=None) -> dict:
-    """PERMANENT DELETE of every kept copy. Needs the typed word and the size
-    the owner saw; refused while anything holds the library, while a restore
-    may be between its renames, and when the library folder is missing (the
-    start-up recovery puts a previous library back from there)."""
+    """PERMANENT DELETE of every kept copy, except a staging folder another
+    process's restore may still be writing (_stale). Needs the typed word and
+    the size the owner saw; refused while anything holds the library, while a
+    restore may be between its renames, and while the live library is
+    missing, damaged or an empty one standing in for a set-aside library
+    (_library_checks_out)."""
     if confirm_text != DELETE_WORD:
         raise InvalidInputError(f'Type {DELETE_WORD} to delete the previous library.')
     if not background_jobs.acquire_exclusive("Previous library delete"):
@@ -106,8 +153,12 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
             seen = summary()
             if expected_size_bytes is not None and seen["size_bytes"] != expected_size_bytes:
                 raise ConflictError(CHANGED)
-            removed = 0
-            for _name, path in _folders():
+            removed = freed = 0
+            budget = du._Budget()
+            for name, path in _folders():
+                if not _stale(name, path):
+                    continue
+                size = du._measure(path, (name,), budget).size
                 try:
                     trash_svc._remove_tree(path)
                 except OSError:
@@ -115,11 +166,12 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
                                        "(something may be in use). What is left is still "
                                        "there.") from None
                 removed += 1
+                freed += size
         finally:
             db.release_restore_lock(holder)
     finally:
         background_jobs.release_exclusive()
-    return {"deleted": removed, "freed_bytes": seen["size_bytes"]}
+    return {"deleted": removed, "freed_bytes": freed}
 
 
 def keep_before_reset() -> str:
@@ -145,10 +197,15 @@ def keep_before_reset() -> str:
 
 def after_reset(dest: str, ok: bool) -> None:
     """ok: the reset went through, so older copies go (only the last is
-    kept). Otherwise the library still holds its rows: the media goes back
-    and this copy is dropped."""
+    kept). Otherwise, while the live database still holds every title the
+    copy does (the reset failed before deleting it), the media goes back and
+    this copy is dropped; if it was already deleted or emptied, the copy is
+    the only whole one and stays as it is."""
     _parent, base = _parent_and_base()
     if not ok:
+        live, kept = _title_count(db.DB_PATH), _title_count(os.path.join(dest, "library.db"))
+        if live is None or (kept or 0) > live:
+            return
         moved = os.path.join(dest, "dramas")
         if os.path.isdir(moved) and not os.path.lexists(db.DRAMAS_DIR):
             os.rename(moved, db.DRAMAS_DIR)

@@ -1063,7 +1063,9 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
         # The restored database decides Developer Mode, which the echo engine follows.
         echo.set_enabled(maintenance_assistant_service.developer_mode_enabled())
         auth_service.write_audit(actor_id, "library.restore",
-                                 f"library restored from backup; sessions revoked: {revoked}")
+                                 f"library restored from backup; sessions revoked: {revoked}; "
+                                 f"accounts restored from the backup: "
+                                 f"{(outcome or {}).get('accounts_restored', 0)}")
     finally:
         background_jobs.release_exclusive()
     return {"restored": True, "sessions_revoked": revoked, **(outcome or {})}

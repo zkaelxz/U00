@@ -320,9 +320,13 @@ What they skip or keep:
   `.restore_staging_*` folder and the copy kept before a Reset library
   (`<library>.pre_reset_<time>`, the last one only) as one entry, "Previous
   library kept after restore", deleted after typing `DELETE`
-  (`services/previous_library_service.py`; refused while the live `library.db`
-  is missing or fails `quick_check`, since the previous library may then be the
-  only good copy).
+  (`services/previous_library_service.py`). The delete is refused while the live
+  `library.db` is missing, fails `quick_check`, or holds no titles while a
+  `.pre_restore_*` copy does (a start during a restore can create a fresh, empty
+  library while the real one is set aside); the previous library may then be the
+  only good copy. A `.restore_staging_*` folder is taken only once nothing has
+  written to it for 6 hours, since a restore in another process stages without
+  the restore lock.
 - **`<library>.restore-lock`** (beside the library folder) is an OS lock a
   restore holds across its renames and the start-up recovery takes before
   putting a set-aside library back. The holder removes the file when it lets
@@ -332,8 +336,10 @@ What they skip or keep:
   (`db/library_folder.py`).
 - **Reset library** keeps the database (a snapshot) and `dramas/` in
   `<library>.pre_reset_<time>` first and refuses with nothing changed when that
-  copy can't be made. If the reset itself then fails, the media is moved back
-  and that copy dropped; older copies are removed only after a reset succeeded.
+  copy can't be made. If the reset itself then fails while the live database
+  still holds every title, the media is moved back and that copy dropped; if
+  the database was already deleted or emptied, the copy (database and media)
+  stays whole. Older copies are removed only after a reset succeeded.
 - **Backup snapshots are vacuumed** after sessions, device tokens and the
   VTuber-name prompt text are removed: the backup API copies the live file's
   free pages, which can still hold deleted rows where SQLite was built without

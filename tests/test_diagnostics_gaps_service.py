@@ -563,6 +563,34 @@ def test_a_failed_reset_puts_the_media_back_and_keeps_the_older_copy(isolated_db
     assert os.path.isfile(media)
     assert _kept_copies() == [older]
 
+
+def test_a_reset_that_fails_after_deleting_the_database_keeps_the_copy_whole(
+        isolated_db, monkeypatch):
+    """db.reset_library deletes library.db before its last steps; a failure
+    there (a file in use on Windows) leaves no database, so the copy is the
+    only one left: it keeps both the database and the media."""
+    import sqlite3
+    did = isolated_db.create_drama(title_en="Only copy")
+    media = os.path.join(db.DRAMAS_DIR, str(did), "audio.mp3")
+    os.makedirs(os.path.dirname(media))
+    with open(media, "wb") as fh:
+        fh.write(b"a")
+
+    def fails_after_deleting():
+        for suffix in ("", "-wal", "-shm"):
+            if os.path.exists(db.DB_PATH + suffix):
+                os.remove(db.DB_PATH + suffix)
+        raise PermissionError("cedict.txt is in use")
+    monkeypatch.setattr(db, "reset_library", fails_after_deleting)
+    with pytest.raises(PermissionError):
+        svc.reset_library(confirm=True, confirm_text="RESET")
+    [copy] = _kept_copies()
+    copy = os.path.join(os.path.dirname(db.LIBRARY_DIR), copy)
+    assert os.path.isfile(os.path.join(copy, "dramas", str(did), "audio.mp3"))
+    conn = sqlite3.connect(os.path.join(copy, "library.db"))
+    assert conn.execute("SELECT title_en FROM dramas").fetchall() == [("Only copy",)]
+    conn.close()
+
 def test_reset_releases_the_hold_when_it_fails(monkeypatch):
     _no_jobs(monkeypatch)
 
