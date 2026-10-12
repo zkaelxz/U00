@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { PageShell } from './PageShell'
-import { PAGE_WIDTHS, pageShellClass } from './pageShell'
+import { PAGE_WIDTHS, pageShellClass } from './pageShellWidth'
 
 describe('pageShellClass', () => {
   it('maps each of the three presets to its own class, and nothing else', () => {

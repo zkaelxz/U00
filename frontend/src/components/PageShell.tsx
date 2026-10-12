@@ -18,7 +18,7 @@
  * (.app-main), which every page shares.
  */
 import type { ReactNode } from 'react'
-import { pageShellClass, type PageWidth } from './pageShell'
+import { pageShellClass, type PageWidth } from './pageShellWidth'
 
 export function PageShell({ as: Tag = 'section', width, title, meta, actions, back, tabs, className, label, headExtra, children }: {
   /** `main` for the pages that were the app's main landmark before the shell existed. */
