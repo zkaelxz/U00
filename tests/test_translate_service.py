@@ -182,8 +182,9 @@ class TestTranslateSpending:
         # > 8 chunks, so standalone_translate makes a second translate_batch call
         text = "\n\n".join("段" * 1400 for _ in range(10))
         translate_service.translate(text, "claude", "zh", "en")
-        [(_, _, inp, out, _)] = self._usage_rows()
-        assert (inp, out) == (2000, 1000)
+        # One row per request, so the monthly cap sees each as it is billed.
+        rows = self._usage_rows()
+        assert [(r[2], r[3]) for r in rows] == [(1000, 500), (1000, 500)]
 
     def test_cap_spent_refuses_a_paid_engine_before_any_call(self, isolated_db, monkeypatch):
         import db

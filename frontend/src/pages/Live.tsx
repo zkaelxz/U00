@@ -460,7 +460,7 @@ export default function LivePage() {
           </div>
         )}
         <div className="live-feed" aria-live="polite">
-          <p className={status === 'error' ? 'error' : 'muted'} data-testid="live-status">
+          <p className={status === 'error' ? 'error' : session.status?.stop_reason ? 'warn' : 'muted'} data-testid="live-status">
             {session.status ? statusLine(session.status, total) : 'Connecting…'}
           </p>
           {lag && <p className="muted" data-testid="live-lag">{lag}</p>}

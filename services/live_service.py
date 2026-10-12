@@ -44,7 +44,8 @@ import whisper_models
 from core import SOURCE_LANGUAGES
 from lib import url_guard
 from services import (egress_proxy, job_stage_service, jobs_service, language_pack_service,
-                      ownership_service, run_settings_service, settings_service, translate_service)
+                      live_spend_service, ownership_service, run_settings_service, settings_service,
+                      translate_run_service, translate_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -249,6 +250,18 @@ def _require_public(url, bad_message: str) -> None:
         raise InvalidInputError(bad_message) from None
 
 
+def _stop_for_spend(session_id: str, reason: str, label: str) -> None:
+    """Ends the session the way a plain cancel does, keeping the cues shown.
+    The label becomes the status line (the job's own final message is
+    replaced when the job ends); the longer reason stays in the notes."""
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            entry["stop_reason"] = clean_message(label)
+    add_note(session_id, reason, key="spend-stop")
+    background_jobs.request_cancel(session_id)
+
+
 def _make_target(session_id: str):
     def _target(*args, **kwargs):
         try:
@@ -357,6 +370,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             raise ConflictError("The previous session's Whisper call is still finishing. "
                                 "Try again in a moment.")
     engine_name, eng = _build_engine(engine, model)
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(settings_service.get("gemini_free_tier")))
 
     session_id = f"live_{uuid.uuid4().hex}"
     out_dir = storage.new_workdir(session_id)
@@ -403,6 +418,8 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             reply_without_thinking=bool(reply_without_thinking), term_hints=term_hints,
             max_seconds=max_minutes * 60,
+            spend_guard=live_spend_service.LiveSpendGuard(
+                eng, engine_name, functools.partial(_stop_for_spend, session_id)),
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
             run_settings=run_settings_service.build(
@@ -503,8 +520,9 @@ def get_session(session_id, after=0, principal=None) -> dict:
                     "translation": c.get("translation") or (
                         live_cue_feed.FAILED if translated.startswith(live_cue_feed.FAILED_PREFIX)
                         else live_cue_feed.DONE)})
-    return {"session_id": session_id, "status": status, "message": message,
-            "engine": entry.get("engine"), "model": entry.get("model"),
+    stop_reason = entry.get("stop_reason")
+    return {"session_id": session_id, "status": status, "message": stop_reason or message,
+            "stop_reason": stop_reason, "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),
             "notes": list(entry.get("notes") or ()),
             "segment_seconds": int(entry.get("segment_seconds") or 0),

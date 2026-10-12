@@ -300,6 +300,9 @@ class LiveSessionStatus(BaseModel):
     session_id: str
     status: str   # queued | running | done | error | cancelled
     message: str
+    # Why the session ended itself (monthly cap reached, repeated translation
+    # failures); also the message once it has. None for an ordinary session.
+    stop_reason: Optional[str] = None
     engine: Optional[str] = None
     model: Optional[str] = None
     progress: float
