@@ -479,41 +479,40 @@ def job_drama_ownership(principal, job_ids) -> dict:
     return rows
 
 
-def can_see_job(principal, job_id, owner_user_id, writing: bool = False,
-                drama_rows=None) -> bool:
+def can_see_job(principal, job_id, owner_user_id, drama_rows=None) -> bool:
     """Admins, the local owner and auth off see every job. A drama's job
     (`<prefix><drama_id>`) is visible to whoever can see that drama --
     its starter included, so a drama that went private stops showing its
     jobs to them (review L-1). Any other job is visible only to the user
     who started it: another user's or the PC's Discover/Sources/Live/
-    library job is hidden. `writing` (cancel, stop): an admin without the
-    override may act only on the jobs a member could see. `drama_rows`:
-    job_drama_ownership's result, read once for a whole list."""
-    if _everything(principal, writing):
+    library job is hidden. Seeing a job is not leave to stop it
+    (may_cancel_job). `drama_rows`: job_drama_ownership's result, read
+    once for a whole list."""
+    if _sees_everything(principal):
         return True
     drama_id = drama_id_of_job(job_id)
     if drama_id is not None and drama_rows is not None:
         row = drama_rows.get(drama_id)
-        return bool(row) and _visible(principal, "drama", row, writing)
+        return bool(row) and _visible(principal, "drama", row)
     if drama_id is not None:
-        return (can_edit_drama if writing else can_see_drama)(principal, drama_id)
+        return can_see_drama(principal, drama_id)
     uid = user_id(principal)
     return uid is not None and owner_user_id == uid
 
 
 def owns_job(principal, job_id, owner_user_id, drama_rows=None) -> bool:
-    """Is this the caller's own job: they started it (`owner_user_id`) or
-    own the drama it runs on. Auth off and the local owner own every job.
-    Never true for a job the caller may not cancel (can_see_job writing),
-    so a client may offer Cancel wherever it is true. Stricter than that
-    check: a member may also cancel a job on someone else's shared drama,
-    which is not theirs. Computed from the principal only. `drama_rows`: as
+    """Is this the caller's own job (`owned_by_me`): one they can see that
+    they started, or that another signed-in user started on a title they
+    own. A job with no starter (started at the PC, by the CLI or by a
+    job's own thread, or a row from before starters were recorded) is
+    no member's. Auth off and the local owner own every job. A member
+    may cancel exactly these (may_cancel_job). `drama_rows`: as
     can_see_job."""
     if principal is None or principal.get("is_local_owner"):
         return True
     uid = user_id(principal)
-    if uid is None or not can_see_job(principal, job_id, owner_user_id, writing=True,
-                                      drama_rows=drama_rows):
+    if uid is None or owner_user_id is None or not can_see_job(
+            principal, job_id, owner_user_id, drama_rows=drama_rows):
         return False
     if owner_user_id == uid:
         return True
@@ -525,9 +524,19 @@ def owns_job(principal, job_id, owner_user_id, drama_rows=None) -> bool:
     return bool(row) and row.get("owner_user_id") == uid
 
 
+def may_cancel_job(principal, job_id, owner_user_id) -> bool:
+    """Cancel and force stop: the caller's own jobs (owns_job), and for an
+    admin, the local owner or auth off, every job. An admin may do this on
+    the household listener too, unlike their other changes to other
+    people's items, so a runaway job can be stopped from away (owner
+    decision 2026-10-12). A member may not stop another member's job on a
+    shared title: only its starter, the title's owner and admins can."""
+    return _sees_everything(principal) or owns_job(principal, job_id, owner_user_id)
+
 
 def require_job_changeable(principal, job_id, owner_user_id) -> None:
     """For cancel/stop after the visibility check: 403 for a job the
-    principal sees but may not act on (an admin away from the PC)."""
-    if not can_see_job(principal, job_id, owner_user_id, writing=True):
-        raise ForbiddenError("An admin can stop other people's jobs only at the PC.")
+    principal sees but may not stop (may_cancel_job)."""
+    if not may_cancel_job(principal, job_id, owner_user_id):
+        raise ForbiddenError("Only the person who started this job, the title's owner "
+                             "or an admin can stop it.")

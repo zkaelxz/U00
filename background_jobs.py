@@ -335,19 +335,28 @@ def _note_gpu_wait_reason_locked(job_id):
     _refresh_queue_messages_locked()
 
 
+def _queued_in_order_locked() -> list:
+    """Caller holds _lock: the job ids still waiting in _gpu_queue, next first."""
+    return [e["job_id"] for e in _gpu_queue
+            if _jobs.get(e["job_id"], {}).get("status") == "queued"]
+
+
 def _refresh_queue_messages_locked():
     """Caller holds _lock: rewrites each queued job's message to its
     current place in _gpu_queue after the queue changed."""
-    position = 0
-    for entry in _gpu_queue:
-        job = _jobs.get(entry["job_id"])
-        if not job or job.get("status") != "queued":
-            continue
-        position += 1
+    for position, job_id in enumerate(_queued_in_order_locked(), start=1):
+        job = _jobs[job_id]
         message = (job.get("gpu_wait_external") if position == 1 else None) or _queue_message(position)
         if job.get("message") != message:
             job["message"] = message
-            _mirror_locked(entry["job_id"])
+            _mirror_locked(job_id)
+
+
+def gpu_queue_order() -> list:
+    """[(job_id, owner_user_id)] of the jobs waiting for the GPU in this
+    process, next first: the place in line their messages give."""
+    with _lock:
+        return [(jid, _jobs[jid].get("owner_user_id")) for jid in _queued_in_order_locked()]
 
 
 def _gpu_slot_available_locked(job_id, description):
@@ -1724,7 +1733,10 @@ def _cancel_queued_locked(job_id, job, requested_at=None) -> list:
     return hooks
 
 
-def request_cancel(job_id: str, requested_at=None):
+_ANY_OWNER = object()
+
+
+def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> bool:
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
     is_cancel_requested() between units of work, since a thread can't be
@@ -1738,12 +1750,18 @@ def request_cancel(job_id: str, requested_at=None):
     "cancelled" at once and never starts (a process job's on_finish runs
     before this returns). A running job's message becomes
     CANCELLING_MESSAGE (mirrored) until it stops, so a worker blocked in a
-    call with no cancel point (a model load) shows the cancel was heard."""
+    call with no cancel point (a model load) shows the cancel was heard.
+
+    With `owner_user_id`, only that person's run is stopped: a shared job
+    id may have ended and been started again by someone else since the
+    caller checked who may stop it. Returns False (nothing done) only then."""
     hooks = []
     with _lock:
         job = _jobs.get(job_id)
         if job is None:
-            return
+            return True
+        if owner_user_id is not _ANY_OWNER and job.get("owner_user_id") != owner_user_id:
+            return False
         if job.get("status") == "queued":
             hooks = _cancel_queued_locked(job_id, job, requested_at)
         else:
@@ -1753,6 +1771,7 @@ def request_cancel(job_id: str, requested_at=None):
             job["message"] = CANCELLING_MESSAGE
             _mirror_locked(job_id)
     _run_finish_hooks(hooks)
+    return True
 
 
 # A cancel from another process can take up to this long to be seen; the

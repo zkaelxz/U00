@@ -46,14 +46,32 @@ export type JobPage = 'title' | 'sources' | 'discover' | 'live' | 'settings' | '
 export type JobKind =
   | 'transcribe' | 'translate' | 'align' | 'dub' | 'export' | 'review' | 'import' | 'other'
 
-// A remote household admin may cancel only their own jobs; everyone else
-// gets Cancel as before (the server still refuses what they may not stop).
 /** The one label for a job in the header menu, the Jobs page and the stage panel. */
 export const jobName = (j: Pick<JobRecord, 'description' | 'job_id'>) => j.description || j.job_id
 
-export function offersCancel(job: Pick<JobRecord, 'owned_by_me'>, remoteAdmin: boolean): boolean {
-  return !remoteAdmin || job.owned_by_me === true
+// The server's rule: a member stops only their own jobs (owned_by_me); an
+// admin (from away too), the PC owner and auth off stop any (`anyJob`,
+// useSession's cancelsAnyJob).
+export function offersCancel(job: Pick<JobRecord, 'owned_by_me'>, anyJob: boolean): boolean {
+  return anyJob || job.owned_by_me === true
 }
+
+export const CANCEL_RULE_NOTE = 'Only the person who started a job, the title’s owner or an admin can cancel it.'
+
+// Mirrors api/schemas/system.py JobQueueSummary: counts for everyone, places
+// only for the caller's own waiting jobs.
+export interface JobQueueSummary {
+  lane: 'gpu'
+  running: number
+  waiting: number
+  mine: { job_id: string; position: number }[]
+}
+
+export function queueLine(s: Pick<JobQueueSummary, 'running' | 'waiting'>): string {
+  return `${s.running} ${s.running === 1 ? 'job' : 'jobs'} running, ${s.waiting} waiting`
+}
+
+export const queuePlace = (position: number) => `Waiting: #${position} in the GPU queue`
 
 export type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'interrupted' | 'partial' | 'kept_existing'
 
@@ -128,8 +146,8 @@ export const FORCE_STOP_HINT =
   'Cancel was sent but the job has not stopped. Force stop ends it here; its worker may keep running in the background until it finishes.'
 
 // Force stop shares Cancel's permission, so it follows the same rule.
-export function offersForceStop(job: Pick<JobRecord, 'status' | 'can_force_stop' | 'owned_by_me'>, remoteAdmin: boolean): boolean {
-  return job.status === 'running' && job.can_force_stop === true && offersCancel(job, remoteAdmin)
+export function offersForceStop(job: Pick<JobRecord, 'status' | 'can_force_stop' | 'owned_by_me'>, anyJob: boolean): boolean {
+  return job.status === 'running' && job.can_force_stop === true && offersCancel(job, anyJob)
 }
 
 export interface JobCancelResult {

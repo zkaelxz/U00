@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { jobFailed, jobOutcomeDetail, jobOutcomeText, jobSucceeded, offersCancel, shownStatus } from './jobs'
+import { jobFailed, jobOutcomeDetail, jobOutcomeText, jobSucceeded, offersCancel, queueLine, queuePlace, shownStatus } from './jobs'
 
 describe('job outcome helpers', () => {
   it('treats a done job with a failed or cancelled outcome as not a success', () => {
@@ -34,12 +34,18 @@ describe('job outcome helpers', () => {
     expect(jobOutcomeText({})).toBeNull()
   })
 
-  it('offers a remote admin Cancel only on their own jobs', () => {
-    expect(offersCancel({ owned_by_me: true }, true)).toBe(true)
-    expect(offersCancel({ owned_by_me: false }, true)).toBe(false)
-    expect(offersCancel({}, true)).toBe(false)
-    expect(offersCancel({ owned_by_me: false }, false)).toBe(true)
-    expect(offersCancel({}, false)).toBe(true)
+  it('offers a member Cancel only on their own jobs, and an admin on every job', () => {
+    expect(offersCancel({ owned_by_me: true }, false)).toBe(true)
+    expect(offersCancel({ owned_by_me: false }, false)).toBe(false)
+    expect(offersCancel({}, false)).toBe(false)
+    expect(offersCancel({ owned_by_me: false }, true)).toBe(true)
+    expect(offersCancel({}, true)).toBe(true)
+  })
+
+  it('words the queue in counts and the caller\'s own place', () => {
+    expect(queueLine({ running: 1, waiting: 2 })).toBe('1 job running, 2 waiting')
+    expect(queueLine({ running: 0, waiting: 3 })).toBe('0 jobs running, 3 waiting')
+    expect(queuePlace(2)).toBe('Waiting: #2 in the GPU queue')
   })
 })
 

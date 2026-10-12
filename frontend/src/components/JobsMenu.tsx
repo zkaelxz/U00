@@ -13,11 +13,11 @@ import { api } from '../api/client'
 import { cancelJob, forceStopJob } from '../api/jobs'
 import { ConfirmButton } from './ConfirmButton'
 import { jobsRefusal, useJobs, useNow } from '../hooks/useJobs'
-import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
+import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { isActive, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from '../pages/diagnosticsFormat'
 import { jobLinks } from '../pages/jobs/jobsFilter'
 import { routeHref, type Route } from '../router'
-import { FORCE_STOP_HINT, offersCancel, offersForceStop, shownStatus, type JobRecord } from '../types/jobs'
+import { CANCEL_RULE_NOTE, FORCE_STOP_HINT, offersCancel, offersForceStop, shownStatus, type JobRecord } from '../types/jobs'
 import { Badge } from './Badge'
 import { statusTone } from './labels'
 import { activeCount, badgeText, elapsedText, jobsButtonLabel, menuJobs } from './jobsMenuState'
@@ -41,7 +41,7 @@ function panelFitsLeftwards(el: HTMLElement | null): boolean | null {
 }
 
 export function JobsMenu() {
-  const remoteAdmin = isRemoteAdmin(useSession())
+  const anyJob = cancelsAnyJob(useSession())
   const { jobs: loaded, error, reload } = useJobs()
   const jobs = loaded ?? []
   const [open, setOpen] = useState(false)
@@ -86,7 +86,7 @@ export function JobsMenu() {
 
   if (jobsRefusal(error) !== null) return null
   const shown = menuJobs(jobs)
-  const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, remoteAdmin)
+  const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, anyJob)
 
   const toggle = () => {
     if (!open) setAlignStart(panelFitsLeftwards(button.current) === false)
@@ -147,7 +147,7 @@ export function JobsMenu() {
                         </button>
                       )}
                     </div>
-                    {isActive(j.status) && offersForceStop(j, remoteAdmin) && (
+                    {isActive(j.status) && offersForceStop(j, anyJob) && (
                       <div className="jobs-item-meta">
                         <ConfirmButton name={name} label="Force stop…" verb="force stop" confirmLabel="Confirm force stop" onConfirm={() => void cancel(j.job_id, forceStopJob)} />
                         <span className="muted jobs-note">{FORCE_STOP_HINT}</span>
@@ -159,7 +159,7 @@ export function JobsMenu() {
               })}
             </ul>
           )}
-          {shown.some((j) => isActive(j.status) && !cancellable(j)) && <p className="jobs-note">{REMOTE_ADMIN_NOTE} That includes cancelling their jobs.</p>}
+          {shown.some((j) => isActive(j.status) && !cancellable(j)) && <p className="jobs-note">{CANCEL_RULE_NOTE}</p>}
           <p className="jobs-foot">
             <a href={routeHref({ name: 'jobs' })} onClick={() => setOpen(false)}>
               All jobs
