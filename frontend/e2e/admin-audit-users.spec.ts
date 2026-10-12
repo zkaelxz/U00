@@ -287,6 +287,9 @@ test('People and access: first card open the first time, the rest closed and rem
 
   await cards.nth(1).locator('summary').click()
   await cards.nth(0).locator('summary').click()
+  // The toggle event that saves the choice fires after the click, so wait for both before reloading.
+  await page.waitForFunction(() =>
+    window.localStorage.getItem('baihe.section.admin.people') === '0' && window.localStorage.getItem('baihe.section.admin.activity') === '1')
   await page.reload()
   await expect(cards.nth(0)).not.toHaveAttribute('open', '')
   await expect(cards.nth(1)).toHaveAttribute('open', '')
