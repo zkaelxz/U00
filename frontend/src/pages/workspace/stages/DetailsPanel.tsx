@@ -27,6 +27,7 @@ import {
 } from '../detailsForm'
 import { useStage } from '../StageContext'
 import { CreditsCover } from './CreditsCoverPanel'
+import { EpisodeSummaryGenerate } from './EpisodeSummaryGenerate'
 import { ContentModeField } from './SourceModes'
 import { SERIES_HELP } from '../../../helpText'
 
@@ -221,6 +222,10 @@ export function DetailsPanel({ openSignal, onAddCredits }: { openSignal?: number
             >
               <textarea rows={3} value={form.episode_summary} onChange={set('episode_summary')} />
             </Field>
+            <EpisodeSummaryGenerate
+              dramaId={dramaId}
+              onGenerated={(text) => set('episode_summary')({ target: { value: text } })}
+            />
           </Section>
         </form>
         <CreditsCover onAddCredits={onAddCredits} />

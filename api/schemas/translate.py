@@ -160,6 +160,12 @@ class TranslateRunConfig(BaseModel):
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
     translate_by_sentence: Optional[bool] = None
+    # 1-based line numbers of the last run's failed lines: still empty, and
+    # holding the earlier engine's English.
+    failed_untranslated_numbers: List[int] = []
+    failed_kept_earlier_numbers: List[int] = []
+    glossary_flagged_count: int = 0
+    glossary_redo_engine: Optional[str] = None
 
 
 class TranslateRunEstimate(BaseModel):

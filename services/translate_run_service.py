@@ -528,7 +528,11 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
         return {**resp, "fallback_engines": []}
 
+    # Imported here: it needs this module for the drama lookup and Ollama probe.
+    from services import episode_summary_service
     summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
+    summary_skip_reason = ("" if summary_engine is not None
+                           else episode_summary_service.no_engine_reason(allow_paid_summary))
 
     started = background_jobs.start_job(
         job_id, workspace_job_service.run_translate_job,
@@ -539,7 +543,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         cost_cap_usd=cost_cap,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
-        summary_monthly_cap_usd=month_cap_usd() or None,
+        summary_monthly_cap_usd=month_cap_usd() or None, summary_skip_reason=summary_skip_reason,
         target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
         gpu_touching=translate_engines.chain_touches_local_gpu(chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",

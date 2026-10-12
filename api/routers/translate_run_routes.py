@@ -23,7 +23,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
-from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffectedRunStart,
+from api.schemas import (EpisodeSummaryGenerate, EpisodeSummaryGenerated, EpisodeSummaryOptions,
+                         ErrorResponse, GlossaryFlaggedRedoStart, GlossaryFlaggedRedoStarted,
+                         RetryFailedLinesStart, RetryFailedLinesStarted, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, SourceChangedRetranslateStart,
                          SourceChangedRetranslateStarted, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
@@ -31,7 +33,9 @@ from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffecte
                          TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply)
-from services import (glossary_retranslate_service, ownership_service, source_change_service,
+from api.llm_slots import llm_slot
+from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
+                      glossary_retranslate_service, ownership_service, source_change_service,
                       translate_run_service, translate_thinking_service)
 from services.service_errors import ForbiddenError
 
@@ -43,7 +47,9 @@ router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
             responses={404: {"model": ErrorResponse}})
 def get_translate_run_config(drama_id: int = Path(ge=1)):
     return {**translate_run_service.get_translate_config(drama_id),
-            **translate_thinking_service.config_fields(drama_id)}
+            **translate_thinking_service.config_fields(drama_id),
+            **failed_lines_service.summarize(drama_id),
+            **glossary_flagged_service.config_fields(drama_id)}
 
 
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,
@@ -169,6 +175,71 @@ def start_source_changed_run(body: SourceChangedRetranslateStart, request: Reque
         reflect=body.reflect, default_female_pronouns=body.default_female_pronouns,
         include_genre_notes=body.include_genre_notes,
         allow_paid_summary=holds_paid_engines(request))
+
+
+@router.post("/dramas/{drama_id}/retry-failed/run", dependencies=[require_permission("jobs.start")],
+             response_model=RetryFailedLinesStarted,
+             summary="Translate again exactly the lines the last run failed on",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                        503: {"model": ErrorResponse}})
+def start_retry_failed(body: RetryFailedLinesStart, request: Request, drama_id: int = Path(ge=1)):
+    require_engines_allowed(request, body.engine,
+                            *[f.engine for f in (body.fallback_chain or ())])
+    require_cloud_model_allowed(request, (body.engine, body.model),
+                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
+    return translate_thinking_service.start_with_thinking(
+        failed_lines_service.start_retry, drama_id, body.thinking, _may_remember(request, body),
+        engine_name=body.engine, model=body.model, style_preset=body.style_preset,
+        style_note=body.style_note, locale=body.locale, context_window=body.context_window,
+        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
+        gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
+        fallback_chain=[f.model_dump() for f in body.fallback_chain]
+        if body.fallback_chain else None,
+        default_female_pronouns=body.default_female_pronouns,
+        include_genre_notes=body.include_genre_notes,
+        allow_paid_summary=holds_paid_engines(request))
+
+
+@router.post("/dramas/{drama_id}/glossary-flagged/run", dependencies=[require_permission("jobs.start")],
+             response_model=GlossaryFlaggedRedoStarted,
+             summary="Redo the lines flagged for a missing glossary name with the stronger engine",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                        503: {"model": ErrorResponse}})
+def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart = None,
+                                drama_id: int = Path(ge=1)):
+    engine = glossary_flagged_service.engine_name(drama_id)
+    require_engines_allowed(request, engine)
+    require_cloud_model_allowed(request, (engine, None))
+    # The checked name is passed on, so a Settings change in between is refused.
+    return translate_thinking_service.start_with_thinking(
+        glossary_flagged_service.start_redo, drama_id, None, False, engine,
+        allow_paid_summary=holds_paid_engines(request))
+
+
+@router.get("/dramas/{drama_id}/episode-summary", dependencies=[require_permission("library.read")],
+            response_model=EpisodeSummaryOptions,
+            summary="Engines that can write this title's running episode summary",
+            responses={404: {"model": ErrorResponse}})
+def get_episode_summary_options(drama_id: int = Path(ge=1)):
+    return episode_summary_service.options(drama_id)
+
+
+@router.post("/dramas/{drama_id}/episode-summary/generate",
+             dependencies=[require_permission("lines.edit")],
+             response_model=EpisodeSummaryGenerated,
+             summary="Write the running episode summary from the current lines (saves nothing)",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
+                        503: {"model": ErrorResponse}})
+def generate_episode_summary(body: EpisodeSummaryGenerate, request: Request,
+                             drama_id: int = Path(ge=1, le=2**31 - 1)):
+    ownership_service.require_visible(request.state.principal, "drama", drama_id)
+    require_engines_allowed(request, body.engine)
+    require_cloud_model_allowed(request, (body.engine, body.model))
+    with llm_slot(request):
+        return episode_summary_service.generate(drama_id, body.engine, body.model)
 
 
 @router.post("/dramas/{drama_id}/bulk/resume", dependencies=[require_permission("jobs.start")], response_model=TranslateBulkResumeResult,

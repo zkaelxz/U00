@@ -3,6 +3,7 @@
 import inspect
 import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard
+from . import glossary_check
 from .fallback import FallbackEngine
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
@@ -339,6 +340,9 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     hard_failures = []
     spent = 0.0
     allowed_runs = allowed_source_runs(glossary_terms, style_guidelines)
+    # A local model works through a long system prompt unevenly, so for it the
+    # names go beside the lines of each batch as well.
+    glossary_first = getattr(engine, "name", "") == "ollama"
 
     def record_usage(inp, out, cache_read=0, cache_write=0):
         nonlocal spent
@@ -411,6 +415,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
             chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
             chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
+            if glossary_terms and glossary_first:
+                chunk_context = glossary_check.tag_batch(chunk_context, chunk, glossary_terms)
             return chunk_context
 
         def _call_engine(chunk, chunk_context):
@@ -553,12 +559,38 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                     # old English (maybe the user's edit), which must not be re-asked or flagged.
                     _guard_merged_or_shifted(fresh)
 
-        def _guard_merged_or_shifted(chunk):
-            def stop():
-                return bool(stop_run or (cancel_check_cb and cancel_check_cb())
-                            or (cost_cap_usd is not None and spent >= cost_cap_usd)
-                            or (isinstance(engine, FallbackEngine) and engine.cap_exhausted()))
+        def stop():
+            return bool(stop_run or (cancel_check_cb and cancel_check_cb())
+                        or (cost_cap_usd is not None and spent >= cost_cap_usd)
+                        or (isinstance(engine, FallbackEngine) and engine.cap_exhausted()))
 
+        def _check_glossary(chunk):
+            def ask(lines_to_redo, pairs):
+                redo_context = dict(_context_for(lines_to_redo), glossary_required=pairs,
+                                    glossary_correction=True)
+                sources = pronoun_neutral_texts(context, [ln.zh for ln in lines_to_redo])
+                try:
+                    out = call_with_backoff(
+                        lambda: call_batch_bounded(
+                            engine, lambda: engine.translate_batch(sources, redo_context),
+                            on_late_result=lambda: _record_engine_usage(engine, record_usage)))
+                    _record_engine_usage(engine, record_usage)
+                    return out
+                except TranslationCancelled:
+                    return None
+                except Exception as e:
+                    redacted = redact_secrets(str(e))
+                    if stops_translate_run(e):
+                        stop_run.append(True)
+                        errors.append({"batch_index": bi, "lines": [ln.idx for ln in lines_to_redo],
+                                       "error": redacted})
+                    import applog
+                    applog.get_logger().warning(f"glossary re-ask skipped for batch {bi}: {redacted}")
+                    return None
+
+            glossary_check.enforce(chunk, glossary_terms, ask, stop)
+
+        def _guard_merged_or_shifted(chunk):
             def redo(lines_to_redo):
                 try:
                     return _call_engine(lines_to_redo, _context_for(lines_to_redo))
@@ -585,6 +617,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         translated_before = len(translated)
         try:
             _process_chunk(batch, allow_bisect=True)
+            if glossary_terms and len(translated) > translated_before:
+                _check_glossary(translated[translated_before:])
         finally:
             _backoff_wait_var.reset(wait_token)
         if streak.record(failed=bool(hard_failures), succeeded=len(translated) > translated_before) \
