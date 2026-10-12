@@ -207,8 +207,9 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
     the auth tables (current rows, sessions emptied: every session is
     revoked; a live library without accounts takes the upload's accounts)
     and the sources settings table (current rows). When the live accounts
-    are kept, the restored rows' owners are matched to them by email
-    (library_restore_sql.match_owners) and the upload's followed channels
+    are kept, the restored rows' owners, the upload's tracked-series links
+    and extension-only marks included, are matched to them by email
+    (library_restore_sql.owner_map) and the upload's followed channels
     pass to the PC owner with automatic checks off. Returns (accounts
     taken from the upload, titles that changed owner). An upload
     without sources.db gets a snapshot of the live one instead, migrated
@@ -244,6 +245,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
         from_upload = not library_restore_sql.has_accounts(live_lib)
         taken = auth_service.RESTORE_ACCOUNT_TABLES if from_upload else ()
         accounts_restored = titles_reassigned = 0
+        owners = {}
         _rebuild_from_upload(staged, scratch,
                              skip_tables=[t for t in _RESTORE_KEPT_AUTH_TABLES if t not in taken],
                              live_path=live_lib,
@@ -262,7 +264,8 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
                 if from_upload:
                     accounts_restored = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
                 else:
-                    titles_reassigned = library_restore_sql.match_owners(conn, scratch)
+                    owners = library_restore_sql.owner_map(conn, scratch)
+                    titles_reassigned = library_restore_sql.match_owners(conn, owners)
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
                 conn.close()
@@ -287,7 +290,11 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
             _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
                                  live_path=live_src, live_tables=("settings",), message=message)
             if not from_upload:
-                library_restore_sql.hand_follows_to_pc_owner(staged_src)
+                try:
+                    library_restore_sql.match_source_owners(staged_src, owners)
+                    library_restore_sql.hand_follows_to_pc_owner(staged_src)
+                except sqlite3.Error:
+                    raise ValueError(message) from None
         finally:
             os.remove(upload_src)
     else:

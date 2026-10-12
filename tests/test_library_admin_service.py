@@ -786,8 +786,141 @@ def test_the_same_email_with_another_google_sign_in_is_not_a_match(isolated_db):
     auth_service.add_user("someone@example.com")
     live = auth_service.add_user("MEI@example.com")["id"]
     db.auth_update_user(live, google_sub="sub-of-another-person")
-    _restore(data)
+    result = _restore(data)
+    assert result["titles_reassigned"] == 1
     assert _owner_and_private("drama", did) == (None, 1)
+
+
+def test_a_backup_account_without_a_google_sign_in_matches_by_email(isolated_db):
+    uid = auth_service.add_user("mei@example.com")["id"]
+    did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _backup_bytes()
+    _fresh_pc()
+    auth_service.add_user("someone@example.com")
+    live = auth_service.add_user("mei@example.com")["id"]
+    db.auth_update_user(live, google_sub="sub-of-mei")
+    result = _restore(data)
+    assert result["titles_reassigned"] == 1
+    assert _owner_and_private("drama", did) == (live, 1)
+
+
+def test_two_accounts_whose_ids_swapped_each_keep_their_own_titles(isolated_db):
+    a = auth_service.add_user("a@example.com")["id"]
+    b = auth_service.add_user("b@example.com")["id"]
+    a_title = db.create_drama(title_zh="a's", owner_user_id=a, is_private=1)
+    b_title = db.create_drama(title_zh="b's", owner_user_id=b, is_private=1)
+    with db.get_conn() as conn:
+        for job, owner in (("job-a", a), ("job-b", b)):
+            conn.execute("INSERT INTO job_records (job_id, status, updated_at, owner_user_id) "
+                         "VALUES (?, 'done', 0, ?)", (job, owner))
+    data = _backup_bytes()
+    _fresh_pc()
+    live_b = auth_service.add_user("b@example.com")["id"]
+    live_a = auth_service.add_user("a@example.com")["id"]
+    assert (live_a, live_b) == (b, a)
+    result = _restore(data)
+    assert result["titles_reassigned"] == 2
+    assert _owner_and_private("drama", a_title) == (live_a, 1)
+    assert _owner_and_private("drama", b_title) == (live_b, 1)
+    with db.get_conn() as conn:
+        jobs = {r[0]: r[1] for r in conn.execute(
+            "SELECT job_id, owner_user_id FROM job_records WHERE job_id IN ('job-a', 'job-b')")}
+    assert jobs == {"job-a": live_a, "job-b": live_b}
+
+
+def test_tracked_series_links_and_extension_marks_follow_the_email_match(isolated_db):
+    from sources import extension_marker
+    gone = auth_service.add_user("gone@example.com")["id"]
+    mei = auth_service.add_user("mei@example.com")["id"]
+    did = db.create_drama(title_zh="mei's", owner_user_id=mei, is_private=1)
+    src_store.track_series("site", "s1", "Mei's series", drama_id=did, linked_by_user_id=mei)
+    src_store.track_series("site", "s2", "Gone's series", linked_by_user_id=gone)
+    extension_marker.mark("site", user_id=mei)
+    data = _backup_bytes()
+    _fresh_pc()
+    live_mei = auth_service.add_user("mei@example.com")["id"]
+    stranger = auth_service.add_user("stranger@example.com")["id"]
+    assert (live_mei, stranger) == (gone, mei)
+    _restore(data)
+    links = {r["series_id"]: r["linked_by_user_id"] for r in src_store.list_tracked_series()}
+    assert links == {"s1": live_mei, "s2": None}
+    assert extension_marker.get("site")["marked_by_user_id"] == live_mei
+
+
+def _with_backup_users(data, rows, drop=False, id_type="PRIMARY KEY"):
+    """The zip's library.db with its users table replaced by an untyped one
+    holding (id, email) rows a crafted backup chose, or dropped. An untyped
+    PRIMARY KEY may hold NULL."""
+    path = _zip_db(data)
+    try:
+        conn = sqlite3.connect(path)
+        conn.execute("DROP TABLE users")
+        if not drop:
+            conn.execute(f"CREATE TABLE users (id {id_type}, google_sub, email, display_name, "
+                         "is_admin, is_active, created_at, share_by_default)")
+            conn.executemany("INSERT INTO users (id, email) VALUES (?, ?)", rows)
+        conn.commit()
+        conn.close()
+        with open(path, "rb") as f:
+            raw = f.read()
+    finally:
+        os.remove(path)
+    return _rewrite(data, replace={"library.db": raw})
+
+
+@pytest.mark.parametrize("rows, drop", [
+    ([], True),                                                       # no users table
+    ([(None, "mei@example.com")], False),                            # no id
+    ([("1", "mei@example.com")], False),                             # an id that isn't a number
+    ([(1, 42)], False),                                              # an email that isn't text
+    ([(1, b"mei@example.com")], False),
+])
+def test_a_crafted_backups_accounts_name_no_one(isolated_db, rows, drop):
+    """Whatever a crafted backup's users table holds, its owner ids find no
+    live account by accident: the title goes to the PC owner, never a 500."""
+    uid = auth_service.add_user("someone@example.com")["id"]
+    did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _with_backup_users(_backup_bytes(), rows, drop)
+    _fresh_pc()
+    auth_service.add_user("stranger@example.com")
+    auth_service.add_user("mei@example.com")
+    result = _restore(data)
+    assert result["titles_reassigned"] == 1
+    assert _owner_and_private("drama", did) == (None, 1)
+
+
+def test_a_backup_naming_one_account_id_twice_is_refused(isolated_db):
+    uid = auth_service.add_user("someone@example.com")["id"]
+    did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _with_backup_users(_backup_bytes(), [(1, "mei@example.com"),
+                                                (1, "stranger@example.com")], id_type="")
+    _fresh_pc()
+    auth_service.add_user("mei@example.com")
+    with pytest.raises(InvalidInputError):
+        _restore(data)
+    assert _owner_and_private("drama", did) == (uid, 1)
+
+
+def test_a_restore_that_fails_while_matching_owners_leaves_the_live_library(
+        isolated_db, monkeypatch):
+    from services import library_restore_sql
+    uid = auth_service.add_user("mei@example.com")["id"]
+    kept = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    src_store.track_series("site", "s1", "Series", linked_by_user_id=uid)
+    data = _backup_bytes()
+    added = db.create_drama(title_zh="added later", owner_user_id=uid)
+    auth_service.add_user("added-later@example.com")
+    real = library_restore_sql.match_source_owners
+
+    def fails_partway(path, mapping):
+        real(path, mapping)
+        raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(library_restore_sql, "match_source_owners", fails_partway)
+    with pytest.raises(InvalidInputError):
+        _restore(data)
+    assert {d["id"] for d in db.list_dramas()} == {kept, added}
+    assert _owner_and_private("drama", kept) == (uid, 1)
+    assert not [e for e in auth_service.list_audit(500) if e["action"] == "library.restore"]
 
 
 def test_an_account_on_both_with_the_same_id_keeps_its_titles(isolated_db):
