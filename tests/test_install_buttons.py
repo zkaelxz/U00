@@ -8,6 +8,8 @@ real network call or actually installs anything.
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diagnostics
@@ -42,6 +44,10 @@ class TestExternalGpuLoad:
     anything Baihe itself is tracking -- the only way to see a different
     application (Jellyfin's hardware-accelerated transcoding on the same
     card, say) using the same physical GPU."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_driver_cache(self):
+        diagnostics_torch.forget_driver_load()
 
     def _fake_run(self, stdout):
         def run(cmd, timeout):
@@ -100,6 +106,40 @@ class TestExternalGpuLoad:
         monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
         monkeypatch.setattr(diagnostics_torch, "run_captured", self._fake_run("90, 6144, 12288\n"))
         assert diagnostics_torch.with_driver_vram_used(dict(cached))["vram_used_gb"] == 6.0
+
+    def test_overview_total_and_used_come_from_the_same_nvidia_smi_card(self, monkeypatch):
+        # torch's current_device can be a different card than nvidia-smi's first row.
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured", self._fake_run("90, 6144, 24576\n"))
+        out = diagnostics_torch.with_driver_vram_used({"available": True, "name": "RTX", "vram_total_gb": 8.0})
+        assert (out["vram_used_gb"], out["vram_total_gb"]) == (6.0, 24.0)
+
+    def test_overview_reads_share_one_nvidia_smi_run_within_the_cache_window(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured",
+                            lambda cmd, timeout: calls.append(1) or CapturedRun(0, "1, 2048, 8192\n", "", False, False))
+        clock = {"t": 1000.0}
+        monkeypatch.setattr(diagnostics_torch.time, "monotonic", lambda: clock["t"])
+        diagnostics_torch.forget_driver_load()
+        gpu = {"available": True, "name": "RTX", "vram_total_gb": 8.0}
+        diagnostics_torch.with_driver_vram_used(dict(gpu))
+        diagnostics_torch.with_driver_vram_used(dict(gpu))
+        assert len(calls) == 1
+        clock["t"] += diagnostics_torch.DRIVER_LOAD_CACHE_SECONDS + 0.1
+        diagnostics_torch.with_driver_vram_used(dict(gpu))
+        assert len(calls) == 2
+
+    def test_a_failed_reading_is_not_retried_within_the_window(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured",
+                            lambda cmd, timeout: calls.append(1) or CapturedRun(None, "", "", True, False))
+        monkeypatch.setattr(diagnostics_torch.time, "monotonic", lambda: 5000.0)
+        diagnostics_torch.forget_driver_load()
+        for _ in range(3):
+            out = diagnostics_torch.with_driver_vram_used({"available": True, "name": "RTX", "vram_total_gb": 8.0})
+        assert len(calls) == 1 and out["vram_used_gb"] is None
 
     def test_overview_says_not_available_when_nvidia_smi_is_missing(self, monkeypatch):
         monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)

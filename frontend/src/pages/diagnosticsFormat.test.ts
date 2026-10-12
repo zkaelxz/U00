@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import {
   upsertJob, isFinished, orderJobs,
   describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
-  plainJobText, shouldRefreshGpu, splitDependencies,
+  plainJobText, pollWhenSettled, shouldRefreshGpu, splitDependencies,
 } from './diagnosticsFormat'
 
 const job = (o: Partial<JobRecord>): JobRecord => ({
@@ -128,5 +128,35 @@ describe('job wording', () => {
     expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #9)', drama_id: 9 }, titles)).toBe('Transcription')
     expect(jobTitledName({ job_id: 'j', description: 'URL download', drama_id: null }, titles)).toBe('URL download')
     expect(jobTitledName({ job_id: 'j', description: 'Translate Signal', drama_id: 1 }, titles)).toBe('Translate Signal')
+  })
+})
+
+describe('pollWhenSettled', () => {
+  it('starts the next wait only after the previous request settles, so requests never overlap', async () => {
+    vi.useFakeTimers()
+    let release: () => void = () => {}
+    const tick = vi.fn(() => new Promise<void>((resolve) => { release = resolve }))
+    const stop = pollWhenSettled(tick, 3000)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(tick).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(30000)      // still pending: no second request
+    expect(tick).toHaveBeenCalledTimes(1)
+    release()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(tick).toHaveBeenCalledTimes(2)
+    stop()
+    release()
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(tick).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+  it('keeps going after a failed request', async () => {
+    vi.useFakeTimers()
+    const tick = vi.fn(() => Promise.reject(new Error('down')))
+    const stop = pollWhenSettled(tick, 1000)
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(tick).toHaveBeenCalledTimes(3)
+    stop()
+    vi.useRealTimers()
   })
 })

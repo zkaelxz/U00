@@ -36,6 +36,24 @@ export function describeGpu(gpu: GpuStatus): string {
 export const shouldRefreshGpu = (jobs: JobRecord[] | null, hidden: boolean) =>
   !hidden && jobs !== null && jobs.some((j) => isActive(j.status) && j.gpu_touching)
 
+// Waits `ms` after each request settles rather than on a fixed beat: overlapping
+// /api/diagnostics reads race on the library write check and can show a false
+// "library not writable". Returns the stop function.
+export function pollWhenSettled(tick: () => Promise<unknown>, ms: number): () => void {
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const schedule = () => {
+    timer = setTimeout(() => {
+      tick().catch(() => {}).finally(() => { if (!stopped) schedule() })
+    }, ms)
+  }
+  schedule()
+  return () => {
+    stopped = true
+    clearTimeout(timer)
+  }
+}
+
 // Started/finished are epoch seconds. Returns e.g. "42s", "3m 05s", "1h 02m".
 export function formatDuration(job: JobRecord, nowSec: number): string {
   if (job.started_at == null) return 'not started'

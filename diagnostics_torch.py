@@ -62,19 +62,44 @@ def get_gpu_status() -> dict:
             "torch_cuda_version": torch_cuda_version}
 
 
+# Diagnostics polls while a GPU job runs; a short cache (failures included) keeps
+# a wedged nvidia-smi from collecting one stuck child per poll.
+DRIVER_LOAD_CACHE_SECONDS = 2.0
+_driver_load_lock = threading.Lock()
+_driver_load_cache = {"at": None, "value": None}
+
+
+def forget_driver_load() -> None:
+    with _driver_load_lock:
+        _driver_load_cache.update(at=None, value=None)
+
+
+def _recent_driver_load() -> dict | None:
+    # Held across the probe so concurrent readers share one run.
+    with _driver_load_lock:
+        at = _driver_load_cache["at"]
+        if at is None or time.monotonic() - at > DRIVER_LOAD_CACHE_SECONDS:
+            _driver_load_cache.update(value=external_gpu_load())
+            _driver_load_cache["at"] = time.monotonic()
+        return _driver_load_cache["value"]
+
+
 def with_driver_vram_used(gpu: dict) -> dict:
-    """Fills vram_used_gb from nvidia-smi on every call, outside the hour-long
-    cache of get_gpu_status_isolated. torch.cuda.memory_allocated() only sees the process that asks, and
+    """Fills vram_used_gb and vram_total_gb from nvidia-smi on every call,
+    outside the hour-long cache of get_gpu_status_isolated.
+    torch.cuda.memory_allocated() only sees the process that asks, and
     transcription runs in a child, so it read 0 during real work; the driver
-    counts every program."""
+    counts every program. Both numbers come from nvidia-smi's first GPU so
+    they describe one card; torch's current_device can be another one."""
     if not gpu.get("available"):
         return gpu
-    load = external_gpu_load()
+    load = _recent_driver_load()
     if load is None:
         gpu["vram_used_gb"] = None
         gpu["message"] = "GPU memory in use: not available (nvidia-smi could not be read)."
     else:
         gpu["vram_used_gb"] = load["memory_used_mb"] / 1024
+        gpu["vram_total_gb"] = load["memory_total_mb"] / 1024
     return gpu
 
 

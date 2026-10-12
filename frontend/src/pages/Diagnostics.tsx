@@ -33,7 +33,7 @@ import {
   CARD_TAB, DIAGNOSTICS_TABS, TAB_FOLD_KEYS, cardAnchorId, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab,
 } from './diagnostics/diagnosticsTabs'
 import './diagnostics/diagnostics.css'
-import { isActive, shouldRefreshGpu, splitDependencies } from './diagnosticsFormat'
+import { isActive, pollWhenSettled, shouldRefreshGpu, splitDependencies } from './diagnosticsFormat'
 
 const POLL_MS = 3000
 
@@ -160,8 +160,7 @@ function DiagnosticsContent() {
   const refreshGpu = shouldRefreshGpu(jobs, tabHidden)
   useEffect(() => {
     if (!refreshGpu) return
-    const t = setInterval(() => void getDiagnostics().then(setOverview, () => {}), POLL_MS)
-    return () => clearInterval(t)
+    return pollWhenSettled(() => getDiagnostics().then(setOverview), POLL_MS)
   }, [refreshGpu])
   const afterReset = useCallback(() => void refreshJobs(), [refreshJobs])
 
