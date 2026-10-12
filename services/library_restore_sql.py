@@ -274,6 +274,11 @@ def owner_map_between(live_conn, backup_conn) -> dict:
     return _match_accounts(_accounts(live_conn, "main"), _accounts(backup_conn, "main"))
 
 
+def has_usable_accounts(conn) -> bool:
+    """Whether conn's main database has an account owner_map can match."""
+    return bool(_accounts(conn, "main"))
+
+
 def _match_accounts(live_accounts, backup) -> dict:
     live = {email: (uid, sub) for uid, email, sub in live_accounts}
     mapping = {}

@@ -221,7 +221,7 @@ export function describeRestore(r: RestoreDramaDone): string {
   const moved = r.owners_reassigned ?? 0
   if (moved > 0) {
     parts.push(r.copy_has_accounts === false
-      ? 'This copy holds no accounts, so it went to the PC owner.'
+      ? `This copy holds no accounts, so ${moved === 1 ? 'its owner' : plural(moved, 'owner')} went to the PC owner.`
       : `Accounts changed since this copy was made, so ${plural(moved, 'owner')} went to the account` +
         ' with the same email, or to the PC owner where there was none.')
   }

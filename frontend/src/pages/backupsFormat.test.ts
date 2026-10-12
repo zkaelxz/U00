@@ -201,7 +201,9 @@ describe('restore one title', () => {
       .toContain('Accounts changed since this copy was made, so 2 owners went to the account with the same email,' +
         ' or to the PC owner where there was none.')
     expect(describeRestore({ ...r, owners_reassigned: 1, copy_has_accounts: false, skipped_tables: [] }))
-      .toContain('This copy holds no accounts, so it went to the PC owner.')
+      .toContain('This copy holds no accounts, so its owner went to the PC owner.')
+    expect(describeRestore({ ...r, owners_reassigned: 2, copy_has_accounts: false, skipped_tables: [] }))
+      .toContain('This copy holds no accounts, so 2 owners went to the PC owner.')
     expect(describeRestore({ ...r, owners_reassigned: 0, skipped_tables: [] })).not.toContain('owner')
   })
 })

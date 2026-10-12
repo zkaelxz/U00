@@ -2058,6 +2058,61 @@ class TestRestoreOwnersByEmail:
         assert res["series"] == "linked"
         assert db.get_drama(did)["owner_user_id"] == a
 
+    def _private_saga(self, drama_owner):
+        """Copy: private series 'Saga' owned by x@ with drama D owned by
+        `drama_owner`; live afterwards: x@'s id belongs to someone else and
+        the same series (id and name) is Y's private series."""
+        from services import auth_service
+        x = auth_service.add_user("x@example.com")["id"]
+        y = auth_service.add_user("y@example.com")["id"]
+        with contextlib.closing(_conn()) as c:
+            sid = _insert(c, "series", name="Saga", owner_user_id=x, is_private=1)
+            did = _insert(c, "dramas", title_en="D", series_id=sid,
+                          owner_user_id=x if drama_owner == "x" else None, status="aligned")
+            c.commit()
+        _snap()
+        _delete_drama(did)
+        _set_live_users({x: "stranger@example.com", y: "y@example.com"})
+        with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
+            c.execute("UPDATE series SET owner_user_id = ? WHERE id = ?", (y, sid))
+            c.commit()
+        return did, sid
+
+    def test_unmatched_owner_never_links_into_someone_elses_private_series(self, isolated_db):
+        did, _sid = self._private_saga("x")
+        before = _series_rows()
+        res = _restore(did)
+        assert res["series"] == "dropped_private"
+        assert db.get_drama(did)["series_id"] is None
+        assert db.get_drama(did)["owner_user_id"] is None
+        assert _series_rows() == before
+
+    def test_pc_owner_title_still_links_into_private_series(self, isolated_db):
+        did, sid = self._private_saga("pc")
+        res = _restore(did)
+        assert res["series"] == "linked"
+        assert db.get_drama(did)["series_id"] == sid
+
+    def test_empty_users_table_counts_as_no_accounts(self, isolated_db, monkeypatch):
+        a, _b = self._two_users()
+        did = db.create_drama(title_en="A's", owner_user_id=a)
+        _snap()
+        _delete_drama(did)
+        real = drs.extract_db
+
+        def empty_users(zf, dest_dir, *args, **kw):
+            path = real(zf, dest_dir, *args, **kw)
+            with contextlib.closing(sqlite3.connect(path)) as c:
+                c.execute("DELETE FROM user_permissions")
+                c.execute("DELETE FROM users")
+                c.commit()
+            return path
+
+        monkeypatch.setattr(drs, "extract_db", empty_users)
+        res = _restore(did)
+        assert db.get_drama(did)["owner_user_id"] is None
+        assert res["copy_has_accounts"] is False and res["owners_reassigned"] == 1
+
     def test_audit_records_counts_only(self, isolated_db):
         a, _b = self._two_users()
         did = db.create_drama(title_en="A's", owner_user_id=a)
