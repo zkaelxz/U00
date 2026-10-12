@@ -88,6 +88,8 @@ test('fold rule: the first card is open the first time, the rest closed, and the
   await expect(card('Advanced timing')).not.toHaveAttribute('open', '')
   await card('Saved pages').locator(':scope > summary').click()
   await card('Pacing').locator(':scope > summary').click()
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => Object.keys(window.localStorage).filter((k) => k.startsWith('baihe.section.sources.manage.timing.')).length >= 2)
   await page.reload()
   await expect(manage.getByRole('tab', { name: 'Timing & cache' })).toHaveAttribute('aria-selected', 'true')
   await expect(card('Saved pages')).toHaveAttribute('open', '')
