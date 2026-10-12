@@ -469,6 +469,18 @@ class TestPermissions:
         paid = _user("p@example.com", "lines.read", "engines.paid")
         assert remote.post(url, json={"engine": "claude"}, headers=_h(paid)).status_code == 200
 
+    @pytest.mark.parametrize("verb", ["improve", "explain"])
+    def test_improve_and_explain_need_the_paid_permission_for_any_engine(self, remote, monkeypatch, verb):
+        did, ids = _seed()
+        monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
+        monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
+        url = _ai(did, ids[0], verb)
+        reader = _user("r@example.com", "lines.read")
+        for engine in ("ollama", "claude"):
+            assert remote.post(url, json={"engine": engine}, headers=_h(reader)).status_code == 403
+        paid = _user("p@example.com", "lines.read", "engines.paid")
+        assert remote.post(url, json={"engine": "claude"}, headers=_h(paid)).status_code == 200
+
     def test_shorten_needs_lines_edit_and_paid_gate(self, remote, monkeypatch):
         did, _ = _overlong_drama()
         monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",

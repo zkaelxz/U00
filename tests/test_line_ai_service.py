@@ -170,3 +170,147 @@ def test_prompt_names_the_language_including_english():
     finally:
         line_tools.call_llm_json = orig
     assert "English" in prompts[0] and "Chinese" in prompts[1]
+
+
+# --- Engine and model chosen by the caller -------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from engine_backends import llm_tasks  # noqa: E402
+from services import translate_run_service  # noqa: E402
+
+VERBS = ("improve", "explain", "alternatives", "grammar")
+
+
+def _url(did, lid, verb):
+    return f"/api/line-ai/dramas/{did}/lines/{lid}/{verb}"
+
+
+class MeteredEngine:
+    """An engine whose request reports tokens, or fails with a key in the text.
+    Takes the engine name and model it was built with, so a test can tell
+    whether the caller's pick was used."""
+    supports_reference = True
+
+    def __init__(self, name="claude", model=None, error=None):
+        self.name, self.model = name, model or "default-model"
+
+        def create(**_kw):
+            if error:
+                raise RuntimeError(error)
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text="[]")],
+                                   usage=SimpleNamespace(input_tokens=10, output_tokens=5))
+        self.client = SimpleNamespace(messages=SimpleNamespace(create=create))
+
+
+def _usage_rows():
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        return [dict(r) for r in conn.execute("SELECT * FROM usage_log ORDER BY id")]
+
+
+@pytest.mark.parametrize("verb", VERBS)
+@pytest.mark.parametrize("body", [{"engine": "nope"}, {"model": "../etc/passwd"},
+                                  {"model": "bad model name"}, {"model": "x" * 201},
+                                  # matches MODEL_ID_RE, so only the ".." rule refuses it
+                                  {"model": "a/../b"}])
+def test_bad_engine_or_model_is_rejected_before_any_engine_is_built(client, monkeypatch, verb, body):
+    did, ids = _seed()
+    built = []
+    monkeypatch.setattr(translate_engines, "get_engine",
+                        lambda *a, **k: built.append(1) or FakeEngine())
+    r = client.post(_url(did, ids[0], verb), json=body)
+    assert r.status_code in (400, 422)
+    assert built == []
+
+
+@pytest.mark.parametrize("verb", VERBS)
+def test_chosen_engine_and_model_reach_the_engine_and_the_answer(client, monkeypatch, verb):
+    did, ids = _seed()
+    built = []
+    monkeypatch.setattr(translate_engines, "get_engine",
+                        lambda name, key, model, **k: built.append((name, model)) or FakeEngine())
+    monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
+    monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
+    monkeypatch.setattr(line_tools, "alternative_translations", lambda *a, **k: [{"translation": "x"}])
+    monkeypatch.setattr(line_tools, "grammar_breakdown", lambda *a, **k: [{"word": "w"}])
+    r = client.post(_url(did, ids[0], verb), json={"engine": "deepseek", "model": "deepseek-chat"})
+    assert r.status_code == 200 and r.json()["engine"] == "deepseek"
+    assert built == [("deepseek", "deepseek-chat")]
+
+
+@pytest.mark.parametrize("verb", VERBS)
+def test_paid_engine_is_refused_once_the_monthly_cap_is_used_up(client, monkeypatch, verb):
+    did, ids = _seed()
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
+    monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.5)
+    built = []
+    monkeypatch.setattr(translate_engines, "get_engine",
+                        lambda *a, **k: built.append(1) or FakeEngine())
+    r = client.post(_url(did, ids[0], verb), json={"engine": "deepseek"})
+    assert r.status_code == 400 and "spending cap" in r.json()["error"]["message"]
+    assert built == []
+
+
+@pytest.mark.parametrize("verb,op", [("improve", "line_improve"), ("explain", "line_explain")])
+def test_the_call_writes_a_usage_row_for_the_chosen_engine_even_when_it_fails(client, monkeypatch, verb, op):
+    did, ids = _seed()
+    error = []
+    # The title's own engine is claude, so a row naming deepseek proves the pick was used.
+    monkeypatch.setattr(translate_engines, "get_engine", lambda name, key, model=None, **k: MeteredEngine(
+        name, model, error=error[0] if error else None))
+    monkeypatch.setattr(line_tools, "improve_line", lambda zh, en, eng, **k: llm_tasks.call_llm_json(
+        eng, "p", fallback="[]", expect="json_array") and "better")
+    monkeypatch.setattr(line_tools, "explain_translation", lambda zh, en, eng, **k: llm_tasks.call_llm_json(
+        eng, "p", fallback="[]", expect="json_array") and "why")
+    body = {"engine": "deepseek", "model": "deepseek-chat"}
+    assert client.post(_url(did, ids[0], verb), json=body).status_code == 200
+    rows = _usage_rows()
+    assert [(r["engine"], r["model"], r["operation"], r["drama_id"]) for r in rows] == [
+        ("deepseek", "deepseek-chat", op, did)]
+    assert (rows[0]["input_tokens"], rows[0]["output_tokens"]) == (10, 5)
+
+    error.append(f"401 bad key {SECRET}")
+    r = client.post(_url(did, ids[0], verb), json=body)
+    assert r.status_code >= 400 and SECRET not in r.text
+    assert [(r["engine"], r["model"]) for r in _usage_rows()] == [("deepseek", "deepseek-chat")] * 2
+
+
+def test_the_pickers_default_is_the_engine_the_service_will_use(client, monkeypatch):
+    # No saved engine: the config's line_ai_engine must be what the call resolves, not
+    # the translate default.
+    did = db.create_drama(title_zh="D")
+    cfg = client.get(f"/api/translate-run/dramas/{did}/config").json()
+    assert cfg["line_ai_engine"] == svc.tool_engine_name(did)
+    db.update_drama(did, translation_engine="deepseek")
+    cfg = client.get(f"/api/translate-run/dramas/{did}/config").json()
+    assert cfg["line_ai_engine"] == svc.tool_engine_name(did) == "deepseek"
+    # A removed engine falls back the way the service does.
+    db.update_drama(did, translation_engine="gone")
+    cfg = client.get(f"/api/translate-run/dramas/{did}/config").json()
+    assert cfg["line_ai_engine"] == svc.tool_engine_name(did)
+    assert cfg["line_ai_engine"] in translate_engines.ENGINES
+
+
+@pytest.mark.parametrize("tag", ["gemma3:12b", "org/name:tag", "claude-sonnet-5-5", "gpt-5.1-mini"])
+def test_usual_model_ids_pass_the_model_check(client, monkeypatch, tag):
+    did, ids = _seed()
+    monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
+    r = client.post(_url(did, ids[0], "explain"), json={"engine": "ollama", "model": tag})
+    assert r.status_code == 200
+
+
+def test_every_model_the_picker_offers_passes_the_model_check():
+    for entry in translate_service.list_engines():
+        for model in entry["models"] or []:
+            assert translate_engines.MODEL_ID_RE.fullmatch(model) and ".." not in model, (
+                entry["name"], model)
+
+
+@pytest.mark.parametrize("verb", VERBS)
+def test_missing_key_answer_names_no_key_or_path(client, monkeypatch, verb):
+    did, ids = _seed()
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: None)
+    r = client.post(_url(did, ids[0], verb), json={"engine": "openai"})
+    assert r.status_code == 503
+    assert "sk-" not in r.text and ".env" not in r.text

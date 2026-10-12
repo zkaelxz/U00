@@ -142,11 +142,22 @@ describe('line AI', () => {
   it('posts to the improve and explain endpoints without engine or keys', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const out = { line_id: 7, current_en: 'Hello', suggestion: 'Hi', changed: true, engine: 'x', model: null }
-    await review.improveLine(1, 7, ' softer ', fakeFetch(200, out, calls))
+    await review.improveLine(1, 7, ' softer ', undefined, fakeFetch(200, out, calls))
     expect(calls[0].url).toBe('/api/line-ai/dramas/1/lines/7/improve')
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ issue: 'softer' })
-    await review.explainLine(1, 7, fakeFetch(200, { line_id: 7, explanation: 'e', engine: 'x', model: null }, calls))
+    await review.explainLine(1, 7, undefined, fakeFetch(200, { line_id: 7, explanation: 'e', engine: 'x', model: null }, calls))
     expect(calls[1].url).toBe('/api/line-ai/dramas/1/lines/7/explain')
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({})
+  })
+  it('sends the picked engine and model, and never a model without an engine', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    await review.improveLine(1, 7, '', { engine: 'deepseek', model: 'deepseek-chat' }, fakeFetch(200, {}, calls))
+    await review.explainLine(1, 7, { engine: 'ollama' }, fakeFetch(200, {}, calls))
+    await review.lineGrammar(1, 7, { engine: '', model: 'stray' }, fakeFetch(200, {}, calls))
+    expect(calls.map((c) => JSON.parse(String(c.init?.body)))).toEqual([
+      { issue: '', engine: 'deepseek', model: 'deepseek-chat' },
+      { engine: 'ollama' },
+      {},
+    ])
   })
 })

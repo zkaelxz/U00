@@ -149,6 +149,19 @@ def resolve_capability(capability: str) -> str:
     return _stored(capability) or default_engine_for(capability)
 
 
+def line_tool_engine(drama: dict) -> str:
+    """The engine the per-line AI helpers use on this drama when the caller names
+    none: the drama's own translation engine when it can follow instructions;
+    otherwise (none saved, a translation-only engine, or one that was removed) the
+    engine Settings picks for "llm.instructions". Configuration only: never a
+    switch on failure. The Review picker labels its default with this."""
+    own = drama.get("translation_engine")
+    if (own in translate_engines.ENGINES
+            and own not in translate_engines.TRANSLATION_ONLY_ENGINES):
+        return own
+    return resolve_capability("llm.instructions")
+
+
 def set_capability_engine(capability: str, engine) -> dict:
     """Saves the engine for `capability`; None clears it back to the
     default. Returns the capability's refreshed entry."""

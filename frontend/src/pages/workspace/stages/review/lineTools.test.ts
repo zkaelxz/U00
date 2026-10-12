@@ -25,8 +25,8 @@ const tm = (over: Partial<TmSuggestion> = {}): TmSuggestion => ({
 describe('per-line tool api', () => {
   it('posts alternatives and grammar with an empty body (engine chosen on the PC)', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
-    await review.lineAlternatives(2, 9, fakeFetch(200, {}, calls))
-    await review.lineGrammar(2, 9, fakeFetch(200, {}, calls))
+    await review.lineAlternatives(2, 9, undefined, fakeFetch(200, {}, calls))
+    await review.lineGrammar(2, 9, undefined, fakeFetch(200, {}, calls))
     expect(calls.map((c) => c.url)).toEqual([
       '/api/line-ai/dramas/2/lines/9/alternatives',
       '/api/line-ai/dramas/2/lines/9/grammar',
