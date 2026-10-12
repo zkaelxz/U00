@@ -58,6 +58,9 @@ __all__ = [
     "SpellingSuggestRequest", "SpellingSuggestRunResult", "SpellingProposal",
     "SpellingSuggestResult", "SpellingSuggestStatus",
     "NameConsistencyRow", "NameConsistency",
+    "NameReportMarkRequest", "NameReportMarkResult", "NameReportVariant", "NameReportTitle",
+    "NameReportExample", "NameReportGroup", "NameReportCounts", "NameReport", "NameReportStatus",
+    "NameReportRunResult",
 ]
 
 
@@ -582,3 +585,77 @@ class NameConsistency(BaseModel):
     # The scan stopped at its line/character budget; more_rows: more differing lines than are listed.
     truncated: bool
     more_rows: bool = False
+
+
+class NameReportVariant(BaseModel):
+    text: str
+    count: int
+
+
+class NameReportTitle(BaseModel):
+    drama_id: int
+    title: str
+    count: int
+    in_glossary: bool
+    glossary_term: Optional[str] = None
+    glossary_english: Optional[str] = None
+
+
+class NameReportExample(BaseModel):
+    drama_id: int
+    line_idx: int
+    snippet: str
+
+
+class NameReportGroup(BaseModel):
+    key: str
+    canonical: str
+    total: int
+    variants: List[NameReportVariant]
+    titles_total: int
+    titles: List[NameReportTitle]
+    examples: List[NameReportExample] = Field(default_factory=list)
+    mark: Optional[Literal["right", "wrong", "skip"]] = None
+
+
+class NameReportCounts(BaseModel):
+    unresolved: int
+    right: int
+    wrong: int
+    skip: int
+
+
+class NameReport(BaseModel):
+    titles_total: int
+    titles_scanned: int
+    titles_unavailable: int
+    titles_failed: int
+    reasons: List[str] = Field(default_factory=list)
+    # A cap stopped the scan or trimmed the groups; the numbers above say how much.
+    truncated: bool
+    singletons_omitted: int
+    groups_omitted: int
+    groups: List[NameReportGroup]
+    counts: NameReportCounts
+
+
+class NameReportStatus(BaseModel):
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    result: Optional[NameReport] = None
+
+
+class NameReportRunResult(BaseModel):
+    job_id: str
+
+
+class NameReportMarkRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    mark: Literal["right", "wrong", "skip", "clear"]
+
+
+class NameReportMarkResult(BaseModel):
+    key: str
+    mark: Optional[Literal["right", "wrong", "skip"]] = None

@@ -32,14 +32,15 @@ from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkD
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
                          GlossaryNameClusters, GlossaryVariants,
-                         NameConsistency, SpellingSuggestRequest, SpellingSuggestRunResult,
+                         NameConsistency, NameReportMarkRequest, NameReportMarkResult,
+                         NameReportRunResult, NameReportStatus, SpellingSuggestRequest, SpellingSuggestRunResult,
                          SpellingSuggestStatus,
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
                          LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
                          NovelGlossaryStatus)
-from services import (export_service, glossary_service, glossary_spelling_service,
-                      glossary_variants_service)
+from services import (export_service, glossary_name_report_service, glossary_service,
+                      glossary_spelling_service, glossary_variants_service)
 from services.service_errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/glossary", tags=["glossary"])
@@ -121,6 +122,50 @@ def get_term_variants(drama_id: int = Path(ge=1),
             responses={404: {"model": ErrorResponse}})
 def get_name_clusters(drama_id: int = Path(ge=1)):
     return glossary_variants_service.discover_names(drama_id)
+
+
+# --- Name check across all titles -----------------------------------------------------
+# One scan over every title the caller may see, as a cancellable job. The report holds
+# source line snippets, so it needs lines.read like the per-title scans; the scan is the
+# only thing jobs.start adds. Marks are a personal preference, so they need lines.edit.
+
+@router.post("/name-report", dependencies=[require_permission("lines.read", "jobs.start")],
+             response_model=NameReportRunResult,
+             summary="Start the name check over every title you can see (read-only)",
+             responses={409: {"model": ErrorResponse}})
+def post_start_name_report(request: Request):
+    return glossary_name_report_service.start_scan(request.state.principal)
+
+
+@router.get("/name-report", dependencies=[require_permission("lines.read")],
+            response_model=NameReportStatus,
+            summary="Status and (when done) the name groups with your marks")
+def get_name_report(request: Request):
+    return glossary_name_report_service.get_report(request.state.principal)
+
+
+@router.post("/name-report/cancel", dependencies=[require_permission("jobs.cancel")],
+             response_model=JobCancelResult, summary="Cancel your running name check",
+             responses={409: {"model": ErrorResponse}})
+def post_cancel_name_report(request: Request):
+    return glossary_name_report_service.cancel_scan(request.state.principal)
+
+
+@router.post("/name-report/marks", dependencies=[require_permission("lines.read", "lines.edit")],
+             response_model=NameReportMarkResult,
+             summary="Mark a name group right, wrong or skip (or clear the mark)",
+             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_name_report_mark(payload: NameReportMarkRequest, request: Request):
+    return glossary_name_report_service.set_mark(request.state.principal, payload.key, payload.mark)
+
+
+@router.get("/name-report/export.md", dependencies=[require_permission("lines.read")],
+            summary="The unresolved name groups as plain text (names, counts, example lines)",
+            responses={409: {"model": ErrorResponse}})
+def get_name_report_export(request: Request):
+    principal = request.state.principal
+    return Response(content=glossary_name_report_service.export_report(principal),
+                    media_type="text/markdown; charset=utf-8")
 
 
 # --- Suggest spellings (one model call) and the English consistency check ------
