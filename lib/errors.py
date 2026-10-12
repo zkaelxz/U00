@@ -50,6 +50,14 @@ class NewerDatabaseError(ServiceError):
     code = "newer_database"
 
 
+class UnfinishedRestoreError(ServiceError):
+    """The library folder is missing and several restores left a previous
+    library aside, so which one to use can't be decided. Raised at startup,
+    where it is printed and logged."""
+
+    code = "unfinished_restore"
+
+
 class UnsupportedOperationError(ServiceError):
     """Well-formed, but not something this record/engine can do (e.g.
     a manga project asked to transcribe audio). HTTP 400

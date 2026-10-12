@@ -107,6 +107,8 @@ export function RestoreBlock() {
   const [jobsBusy, setJobsBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
+  const [mediaKept, setMediaKept] = useState(false)
+  const [previousKept, setPreviousKept] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
   // While a file is picked (and until a restore succeeds), check every 3 s
@@ -132,8 +134,10 @@ export function RestoreBlock() {
     setBusy(true)
     setError(null)
     restoreBackup(file).then(
-      () => {
+      (r) => {
         setBusy(false)
+        setMediaKept(Boolean(r.media_kept))
+        setPreviousKept(Boolean(r.previous_library_kept))
         setDone(true)
         setFile(null)
       },
@@ -154,7 +158,14 @@ export function RestoreBlock() {
     <div className="admin-block">
       {done ? (
         <div className="actions" role="status">
-          <span>Restored.</span>
+          <span>
+            Restored.
+            {mediaKept && ' Your media files were kept: this backup holds only the database.'}
+            {previousKept &&
+              ' Some files could not be moved into the restored library, so the previous library' +
+                ' was kept in the folder ending in .pre_restore_ beside it. Check the library' +
+                ' before deleting that folder.'}
+          </span>
           <button type="button" className="primary" onClick={() => window.location.reload()}>
             Reload
           </button>

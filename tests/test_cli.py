@@ -378,6 +378,32 @@ class TestCmdTranslateParity:
         assert rows[0]["flag"] == "review"
         assert rows[0]["flag_note"] == "check this"
 
+    def test_an_app_edit_made_while_the_cli_translates_is_kept(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=i + 1.0, zh=f"第{i}句")
+                                     for i in range(2)])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+
+        def fake_translate(lines, engine, save_cb=None, **kwargs):
+            [app_copy, _] = isolated_db.load_line_objects(did)
+            app_copy.en = "Typed in the app"
+            isolated_db.save_lines(did, [app_copy], fields=("en",))
+            for ln in lines:
+                ln.en = f"EN {ln.zh}"
+            save_cb(lines)
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli_translate.cmd_translate(_translate_args(id=did))
+
+        assert [r["en"] for r in isolated_db.load_lines(did)] == ["Typed in the app", "EN 第1句"]
+        [active] = [v for v in isolated_db.list_translation_versions(did) if v["is_active"]]
+        assert [ln["en"] for ln in isolated_db.get_translation_version(active["id"])["lines"]] == [
+            "Typed in the app", "EN 第1句"]
+        assert "kept 1 line(s) edited while it ran" in out.getvalue()
+
     def test_reflect_flag_threads_through_and_saves_notes(self, isolated_db, monkeypatch):
         """CLI/UI parity (Step 7): --reflect must reach translate_lines_with_
         engine the same way the Workspace Translate button's checkbox does,
@@ -388,10 +414,11 @@ class TestCmdTranslateParity:
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
 
         seen = {}
-        def fake_translate(lines, engine, notes_cb=None, **kwargs):
+        def fake_translate(lines, engine, notes_cb=None, save_cb=None, **kwargs):
             seen.update(kwargs)
             if notes_cb:
                 notes_cb([{"line_idx": 0, "term": "", "note_type": "reflection", "note": "a critique"}])
+            save_cb(lines)  # the real loop saves each batch after its critiques arrive
             return lines, []
         monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
 

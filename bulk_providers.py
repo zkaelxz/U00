@@ -1,8 +1,9 @@
 """
 bulk_providers.py -- the batch-API clients behind bulk_translate: submit,
 poll, read results and cancel for Claude Message Batches and the Gemini
-Batch API.
+Batch API, and DeepSeek's off-peak window.
 """
+import datetime
 import json
 
 import translate_engines
@@ -164,3 +165,32 @@ def make_provider(engine_choice: str, engine):
     if engine_choice == "gemini":
         return GeminiBatchProvider(engine)
     return None
+
+
+# DeepSeek's peak hours, UTC, Monday-Friday (datetime.weekday() 0-4);
+# every other hour, and weekends, bill at half price. Checked against
+# api-docs.deepseek.com/quick_start/pricing in September 2026. Chinese
+# public holidays are off-peak too, but aren't listed here -- on one of
+# those a job just waits for a window it didn't strictly need to.
+DEEPSEEK_PEAK_HOURS_UTC = ((1, 4), (6, 10))
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek off-peak window
+# ---------------------------------------------------------------------------
+
+def is_deepseek_offpeak(now: datetime.datetime) -> bool:
+    if now.weekday() >= 5:
+        return True
+    return not any(start <= now.hour < end for start, end in DEEPSEEK_PEAK_HOURS_UTC)
+
+
+def next_deepseek_offpeak_start(now: datetime.datetime) -> datetime.datetime:
+    """now itself if it's already off-peak, else the end of the current
+    peak window."""
+    if is_deepseek_offpeak(now):
+        return now
+    for start, end in DEEPSEEK_PEAK_HOURS_UTC:
+        if start <= now.hour < end:
+            return now.replace(hour=end, minute=0, second=0, microsecond=0)
+    return now
