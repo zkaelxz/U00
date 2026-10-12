@@ -11,6 +11,7 @@ import {
   readSeen,
   seenAfter,
   shortAgo,
+  startsAtText,
   unreadCount,
   writeSeen,
 } from './notificationBellState'
@@ -101,6 +102,14 @@ describe('labels', () => {
     expect(kindBadge('job_done')).toEqual({ tone: 'ok', label: 'Done' })
     expect(kindBadge('chapters')).toEqual({ tone: 'info', label: 'New chapters' })
     expect(kindBadge('something_else')).toEqual({ tone: 'neutral', label: 'Update' })
+    expect(kindBadge('live')).toEqual({ tone: 'accent', label: 'Live' })
+  })
+
+  it('shows a scheduled start in this browser\'s time, and nothing without one', () => {
+    expect(startsAtText(1_800_000_000)).toMatch(/^Starts at \d/)
+    expect(startsAtText(null)).toBeNull()
+    expect(startsAtText(undefined)).toBeNull()
+    expect(startsAtText(Number.NaN)).toBeNull()
   })
 
   it('short relative times', () => {

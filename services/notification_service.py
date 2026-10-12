@@ -45,6 +45,11 @@ shown to one viewer, lost on a restart), whether or not a channel is configured,
 to someone who can see that job (`ownership_service.can_see_job`); new-
 chapter events are household-wide, like the Sources notifications list.
 
+A followed Live channel (services/live_follow_poller.py) adds a "live"
+entry once per stream, for the follow's owner; it goes to Discord/ntfy only
+for the PC owner's own follows (`notify_live_follow`), with no category
+switch of its own.
+
 Categories: "jobs" (a job finished or failed), "chapters" (a tracked-
 series check found new chapters) and "remote" (remote access broke or
 recovered, `services/remote_health_service.py`) can each be switched off for
@@ -556,7 +561,12 @@ def remove_listener(fn) -> None:
         pass
 
 
-def _record(kind, text, job_id, owner_user_id):
+# Optional fields an in-app entry may carry for the bell (a followed channel's
+# "Start Live" action and a scheduled start time); never a URL or path.
+_EXTRA_KEYS = ("follow_id", "action", "starts_at")
+
+
+def _record(kind, text, job_id, owner_user_id, extra=None):
     """The id is the time in milliseconds (bumped to stay increasing), not a
     counter: a gap between two ids a viewer sees says nothing about how
     many events they were not shown."""
@@ -565,7 +575,8 @@ def _record(kind, text, job_id, owner_user_id):
     with _recent_lock:
         _last_id = max(_last_id + 1, int(now * 1000))
         _recent.append({"id": _last_id, "at": now, "kind": kind, "text": text,
-                        "job_id": job_id, "owner_user_id": owner_user_id})
+                        "job_id": job_id, "owner_user_id": owner_user_id,
+                        **{k: v for k, v in (extra or {}).items() if k in _EXTRA_KEYS}})
     for fn in list(_listeners):
         try:
             fn()
@@ -598,7 +609,7 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
                 visible = False
             if not visible:
                 continue
-        out.append({k: e[k] for k in ("id", "at", "kind", "text")})
+        out.append({k: e[k] for k in ("id", "at", "kind", "text", *_EXTRA_KEYS) if k in e})
         if len(out) >= limit:
             break
     return out
@@ -665,6 +676,39 @@ def notify_remote_access(text) -> None:
             return
         with _lock:
             _pending.append(("remote", message, "remote"))
+            if _timer is None:
+                _timer = _schedule_flush()
+    except Exception as exc:
+        try:
+            _log().warning(f"notification: could not queue ({type(exc).__name__})")
+        except Exception:
+            pass
+
+
+def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_action=False,
+                       push=False, push_text=None) -> None:
+    """A followed channel went live or scheduled a stream
+    (services/live_follow_poller.py, once per stream). The in-app entry is
+    seen by the follow's owner (and, like a job of theirs, the PC owner and
+    admins). `push`: also Discord/ntfy, which the poller passes only for
+    the PC owner's own follows, so a member's channel is never named on a
+    channel the household may share; `push_text` replaces the text there
+    (a push has no viewer's clock to show a start time in). Never raises,
+    never blocks."""
+    global _timer
+    try:
+        from translate_engines import redact_secrets
+        message = redact_secrets(_tidy(text, 200))
+        extra = {"follow_id": int(follow_id)}
+        if start_action:
+            extra["action"] = "start_live"
+        if starts_at is not None:
+            extra["starts_at"] = float(starts_at)
+        _record("live", message, None, owner_user_id, extra)
+        if not push or os.environ.get(DISABLED_ENV) == "1" or not configured_channels():
+            return
+        with _lock:
+            _pending.append(("live", redact_secrets(_tidy(push_text or text, 200)), "live"))
             if _timer is None:
                 _timer = _schedule_flush()
     except Exception as exc:
