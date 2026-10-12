@@ -20,7 +20,7 @@ test('the name check fits a phone', async ({ page }) => {
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/glossary/name-report', (route) => route.fulfill({ json: {
     job_id: 'glossary_name_report_pc', status: 'done', progress: 1, message: '',
-    result: { titles_total: 2, titles_scanned: 2, titles_unavailable: 0, titles_failed: 0, reasons: [], truncated: false,
+    result: { titles_total: 2, titles_scanned: 2, titles_unavailable: 0, titles_failed: 0, reasons: [], truncated: false, stopped_early: false,
       singletons_omitted: 0, groups_omitted: 0, groups: [group], counts: { unresolved: 1, right: 0, wrong: 0, skip: 0 } },
   } }))
   await page.goto('/#/drama/1/translate')

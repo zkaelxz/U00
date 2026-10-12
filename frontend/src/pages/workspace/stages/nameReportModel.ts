@@ -27,6 +27,7 @@ export function tabCount(report: NameReport, tab: NameTab): number {
 /** Plain-language notes on what the check did not cover (a cap, a missing reading library, a failed title). */
 export function scanNotes(r: NameReport): string[] {
   const notes: string[] = []
+  if (r.stopped_early) notes.push('The check stopped early because it ran out of time, so this report is partial. Run it again later.')
   if (r.titles_scanned < r.titles_total) {
     notes.push(`Only ${r.titles_scanned} of ${r.titles_total} titles were checked (the newest first). Run it again after clearing some marks or use the per-title check for the rest.`)
   }

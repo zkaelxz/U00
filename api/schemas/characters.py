@@ -60,7 +60,7 @@ __all__ = [
     "NameConsistencyRow", "NameConsistency",
     "NameReportMarkRequest", "NameReportMarkResult", "NameReportVariant", "NameReportTitle",
     "NameReportExample", "NameReportGroup", "NameReportCounts", "NameReport", "NameReportStatus",
-    "NameReportRunResult",
+    "NameReportRunResult", "NameReportCancelRequest",
 ]
 
 
@@ -633,6 +633,8 @@ class NameReport(BaseModel):
     reasons: List[str] = Field(default_factory=list)
     # A cap stopped the scan or trimmed the groups; the numbers above say how much.
     truncated: bool
+    # The time budget ended the scan or the merge before it finished.
+    stopped_early: bool = False
     singletons_omitted: int
     groups_omitted: int
     groups: List[NameReportGroup]
@@ -659,3 +661,8 @@ class NameReportMarkRequest(BaseModel):
 class NameReportMarkResult(BaseModel):
     key: str
     mark: Optional[Literal["right", "wrong", "skip"]] = None
+
+
+class NameReportCancelRequest(BaseModel):
+    # Another person's scan; only the PC owner or an admin at the PC may name one.
+    job_id: Optional[str] = Field(None, max_length=64)

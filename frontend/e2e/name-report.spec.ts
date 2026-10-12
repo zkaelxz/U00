@@ -22,7 +22,7 @@ function report(marks: Record<string, string>) {
   const groups = [GROUP, OTHER].map((g) => ({ ...g, mark: marks[g.key] ?? null }))
   const count = (m: string | null) => groups.filter((g) => g.mark === m).length
   return {
-    titles_total: 2, titles_scanned: 2, titles_unavailable: 0, titles_failed: 0, reasons: [], truncated: false,
+    titles_total: 2, titles_scanned: 2, titles_unavailable: 0, titles_failed: 0, reasons: [], truncated: false, stopped_early: false,
     singletons_omitted: 3, groups_omitted: 0, groups,
     counts: { unresolved: count(null), right: count('right'), wrong: count('wrong'), skip: count('skip') },
   }

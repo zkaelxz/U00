@@ -48,6 +48,12 @@ def _session(*permissions):
                         api_auth.CSRF_HEADER: s["csrf_token"]}
 
 
+@pytest.fixture(autouse=True)
+def _fresh_start_times(monkeypatch):
+    from services import glossary_name_report_service as report
+    monkeypatch.setattr(report, "_last_start", {})
+
+
 @pytest.fixture
 def remote(isolated_db):
     app = create_app(ApiSettings(auth_mode="on", serve_frontend=False))
@@ -155,3 +161,31 @@ def test_the_report_has_no_paths_or_urls(local):
     local.post(BASE)
     text = str(_wait(local))
     assert "http" not in text and "\\" not in text and ".db" not in text
+
+
+def test_starting_again_straight_away_is_rate_limited(local):
+    _titles()
+    assert local.post(BASE).status_code == 200
+    _wait(local)
+    again = local.post(BASE)
+    assert again.status_code == 429 and again.json()["error"]["code"] == "rate_limited"
+
+
+def test_cancel_names_only_a_name_check_and_a_member_cannot_stop_anothers(remote, monkeypatch):
+    import threading
+    from services import glossary_name_report_service as report
+    gate = threading.Event()
+    real = report.scan_titles
+    monkeypatch.setattr(report, "scan_titles", lambda *a, **k: (gate.wait(5), real(*a, **k))[1])
+    _titles()
+    ada_id, ada = _session("lines.read", "jobs.start", "jobs.cancel")
+    _, ben = _session("lines.read", "jobs.start", "jobs.cancel")
+    try:
+        assert remote.post(BASE, headers=ada).status_code == 200
+        theirs = {"job_id": f"glossary_name_report_{ada_id}"}
+        assert remote.post(BASE + "/cancel", headers=ben, json=theirs).status_code == 403
+        assert remote.post(BASE + "/cancel", headers=ben, json={"job_id": "translate_1"}).status_code == 422
+        assert remote.post(BASE + "/cancel", headers=ada, json=theirs).status_code == 200
+    finally:
+        gate.set()
+        background_jobs.wait_for_job_threads(10)

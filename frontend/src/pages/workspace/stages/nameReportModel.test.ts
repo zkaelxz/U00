@@ -15,7 +15,7 @@ const group = (over: Partial<NameReportGroup> = {}): NameReportGroup => ({
 })
 
 const report = (over: Partial<NameReport> = {}): NameReport => ({
-  titles_total: 3, titles_scanned: 3, titles_unavailable: 0, titles_failed: 0, reasons: [], truncated: false,
+  titles_total: 3, titles_scanned: 3, titles_unavailable: 0, titles_failed: 0, reasons: [], truncated: false, stopped_early: false,
   singletons_omitted: 0, groups_omitted: 0, groups: [group({ mark: null }), group({ key: 'b', mark: 'wrong' })],
   counts: { unresolved: 1, right: 0, wrong: 1, skip: 0 }, ...over,
 })
@@ -34,6 +34,9 @@ describe('groupsForTab / tabCount', () => {
 describe('scanNotes', () => {
   it('is empty for a complete scan', () => {
     expect(scanNotes(report())).toEqual([])
+  })
+  it('says when the time budget ended the check', () => {
+    expect(scanNotes(report({ stopped_early: true, truncated: true }))[0]).toContain('stopped early')
   })
   it('says what was not covered', () => {
     const notes = scanNotes(report({ titles_scanned: 2, titles_unavailable: 1, reasons: ['Japanese needs pykakasi.'], titles_failed: 2, groups_omitted: 1 }))

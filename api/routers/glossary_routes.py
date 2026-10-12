@@ -23,7 +23,7 @@ existing terms needs confirm=true and, until network zones exist, the PC),
 export as CSV, and bulk delete by id.
 """
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
@@ -33,7 +33,8 @@ from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkD
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
                          GlossaryNameClusters, GlossaryVariants,
                          NameConsistency, NameReportMarkRequest, NameReportMarkResult,
-                         NameReportRunResult, NameReportStatus, SpellingSuggestRequest, SpellingSuggestRunResult,
+                         NameReportCancelRequest, NameReportRunResult, NameReportStatus,
+                         SpellingSuggestRequest, SpellingSuggestRunResult,
                          SpellingSuggestStatus,
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
@@ -132,7 +133,7 @@ def get_name_clusters(drama_id: int = Path(ge=1)):
 @router.post("/name-report", dependencies=[require_permission("lines.read", "jobs.start")],
              response_model=NameReportRunResult,
              summary="Start the name check over every title you can see (read-only)",
-             responses={409: {"model": ErrorResponse}})
+             responses={409: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
 def post_start_name_report(request: Request):
     return glossary_name_report_service.start_scan(request.state.principal)
 
@@ -145,10 +146,13 @@ def get_name_report(request: Request):
 
 
 @router.post("/name-report/cancel", dependencies=[require_permission("jobs.cancel")],
-             response_model=JobCancelResult, summary="Cancel your running name check",
-             responses={409: {"model": ErrorResponse}})
-def post_cancel_name_report(request: Request):
-    return glossary_name_report_service.cancel_scan(request.state.principal)
+             response_model=JobCancelResult,
+             summary="Cancel your running name check (the PC owner may name another person's)",
+             responses={403: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_cancel_name_report(request: Request, payload: Optional[NameReportCancelRequest] = None):
+    return glossary_name_report_service.cancel_scan(request.state.principal,
+                                                    payload.job_id if payload else None)
 
 
 @router.post("/name-report/marks", dependencies=[require_permission("lines.read", "lines.edit")],

@@ -502,6 +502,8 @@ export interface NameReport {
   reasons: string[]
   /** A cap stopped the scan or trimmed the groups. */
   truncated: boolean
+  /** The time budget ended the scan or the grouping early; the report is partial. */
+  stopped_early: boolean
   singletons_omitted: number
   groups_omitted: number
   groups: NameReportGroup[]
