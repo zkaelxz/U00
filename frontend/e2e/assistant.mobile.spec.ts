@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { mockAssistant, openSection } from './assistantMocks'
+import { mockAssistant, openSection, openTab } from './assistantMocks'
 import { navLink, openMenu } from './settingsNav'
 import { installHitArea } from './hitArea'
 
@@ -61,6 +61,19 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
   await noSideways(page)
   await tallTargets(page)
   await page.screenshot({ path: `${SHOTS}/assistant-phone.png`, fullPage: true })
+  expect(s.unmocked).toEqual([])
+})
+
+test('phone: each tab fits the width, the tab row scrolls inside itself, targets are 44 px', async ({ page }) => {
+  const s = await mockAssistant(page, { developerMode: true })
+  await page.goto('/#/assistant')
+  await expect(page.getByRole('tablist', { name: 'Assistant' })).toBeVisible()
+  for (const label of ['Ask', 'Work list', 'GitHub and tools']) {
+    await openTab(page, label)
+    await expect(page.getByRole('tab', { name: label, exact: true })).toHaveAttribute('aria-selected', 'true')
+    await noSideways(page)
+    await tallTargets(page)
+  }
   expect(s.unmocked).toEqual([])
 })
 

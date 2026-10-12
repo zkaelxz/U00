@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { mockAssistant } from './assistantMocks'
+import { mockAssistant, openEngine } from './assistantMocks'
 import { openSettingsGroups } from './settingsNav'
 
 // A cloud engine needs the owner's per-provider OK to receive code and logs.
@@ -9,6 +9,7 @@ test('a cloud engine without consent is refused with a plain message, then allow
   const s = await mockAssistant(page, { developerMode: true, cloudConsent: { claude: false, gemini: false } })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
+  await openEngine(chat)
   await expect(chat.getByLabel('AI engine', { exact: true }).locator('option').first()).toHaveText('Default (Ollama)')
   await chat.getByLabel('AI engine', { exact: true }).selectOption('claude')
   await chat.getByRole('textbox', { name: 'Question' }).fill('Why?')

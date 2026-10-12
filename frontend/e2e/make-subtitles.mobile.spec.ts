@@ -17,7 +17,7 @@ const noSidewaysScroll = async (page: import('@playwright/test').Page) => {
 test('the card is one column with 44px controls and a full-width primary', async ({ page }) => {
   await mockMakeSubtitles(page)
   await page.setViewportSize({ width: 360, height: 780 })
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = page.getByRole('region', { name: 'Make subtitles' })
   await expect(c).toBeVisible()
   await noSidewaysScroll(page)
@@ -39,7 +39,7 @@ test('the card is one column with 44px controls and a full-width primary', async
 test('a 130-character file name with no spaces keeps the Options line short at 360px', async ({ page }) => {
   await mockMakeSubtitles(page)
   await page.setViewportSize({ width: 360, height: 780 })
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const c = page.getByRole('region', { name: 'Make subtitles' })
   const summary = c.locator('summary', { hasText: 'Options' })
   const pick = (stem: string) =>

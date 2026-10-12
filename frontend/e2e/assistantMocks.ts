@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import type { Locator, Page, Route } from '@playwright/test'
 
 import { ME } from './authMocks'
 
@@ -254,8 +254,30 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
   return s
 }
 
-// The Assistant blocks are folds that start closed (except Ask); open one by its region name.
+// The Assistant's cards sit on three tabs; the last one used is remembered, so open the tab that holds the card first.
+const TAB_OF: Record<string, string> = {
+  Backlog: 'Work list',
+  Changelog: 'Work list',
+  'GitHub pull requests': 'GitHub and tools',
+  Tools: 'GitHub and tools',
+  'Independent review': 'GitHub and tools',
+  'Ask the assistant': 'Ask',
+}
+
+export async function openTab(page: Page, label: string) {
+  const tab = page.getByRole('tab', { name: label, exact: true })
+  if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click()
+}
+
+// Open a fold by its region name, switching to its tab first.
 export async function openSection(page: Page, region: string) {
+  if (TAB_OF[region]) await openTab(page, TAB_OF[region])
   const fold = page.getByRole('region', { name: region }).locator('details.section').first()
+  if (!(await fold.evaluate((e) => (e as HTMLDetailsElement).open))) await fold.locator('summary').first().click()
+}
+
+// The Engine fold inside the Ask card starts closed; its summary shows the current choice.
+export async function openEngine(chat: Locator) {
+  const fold = chat.locator('details.section').filter({ has: chat.page().locator(':scope > summary', { hasText: /^Engine/ }) })
   if (!(await fold.evaluate((e) => (e as HTMLDetailsElement).open))) await fold.locator('summary').first().click()
 }

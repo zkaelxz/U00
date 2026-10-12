@@ -2,37 +2,47 @@ import { expect, test } from '@playwright/test'
 
 import { mockFirstRun } from './getStartedMocks'
 
-// Empty-library view: the Make subtitles card replaces the step list and the
-// translator radios. Stats and engines are mocked; nothing real is changed.
+// Empty-library view: a card that points at the Make subtitles page and the
+// ways to find a title. Stats are mocked; nothing real is changed.
 
-test('shows Make subtitles with the Discover and Sources links, and dismisses for good', async ({ page }) => {
+test('points at Make subtitles, Discover and Sources, and dismisses for good', async ({ page }) => {
   await mockFirstRun(page)
   await page.goto('/')
   const view = page.getByRole('region', { name: 'Get started' })
-  await expect(view.getByRole('region', { name: 'Make subtitles' })).toBeVisible()
-  await expect(view.locator('.get-started-steps')).toHaveCount(0)
-  await expect(view.getByRole('radio')).toHaveCount(0)
+  await expect(view.getByRole('link', { name: 'Make subtitles' })).toHaveAttribute('href', '#/make-subtitles')
   await expect(view.getByRole('link', { name: 'Discover' })).toHaveAttribute('href', '#/discover')
   await expect(view.getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '#/sources')
-
-  // The saved default (Claude) has no key: the card says so.
-  await expect(view.getByLabel('Translator')).toHaveValue('claude')
-  await expect(view.getByTestId('preflight-key')).toBeVisible()
+  // The flow itself lives on its own page now.
+  await expect(page.getByRole('region', { name: 'Make subtitles' })).toHaveCount(0)
+  await expect(page.getByLabel('Audio or video file')).toHaveCount(0)
+  // One entry on the Library while the card shows: the header button waits for the card to go.
+  await expect(page.locator('.app-main').getByRole('link', { name: 'Make subtitles' })).toHaveCount(1)
 
   await view.getByRole('button', { name: 'Dismiss' }).click()
   await expect(view).toHaveCount(0)
-  // Dismissing hides the first-run wrapper only; the card stays on the Library.
-  await expect(page.getByRole('region', { name: 'Make subtitles' })).toBeVisible()
+  await expect(page.locator('.app-main').getByRole('link', { name: 'Make subtitles' })).toHaveCount(1)
   await page.reload()
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
 })
 
-test('a library with a title never shows the first-run view', async ({ page }) => {
+test('the card opens the Make subtitles page', async ({ page }) => {
+  await mockFirstRun(page)
+  await page.goto('/')
+  await page.getByRole('region', { name: 'Get started' }).getByRole('link', { name: 'Make subtitles' }).click()
+  await expect(page).toHaveURL(/#\/make-subtitles$/)
+  await expect(page.getByRole('heading', { name: 'Make subtitles', level: 2 })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Make subtitles' }).getByLabel('Audio or video file')).toBeVisible()
+})
+
+test('a library with a title shows one small Make subtitles button and no first-run card', async ({ page }) => {
   await mockFirstRun(page, 1)
   await page.goto('/')
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
-  // With titles the card is folded behind a one-line disclosure.
-  await expect(page.getByRole('button', { name: 'Make subtitles', expanded: false })).toBeVisible()
+  const button = page.locator('.app-main').getByRole('link', { name: 'Make subtitles' })
+  await expect(button).toHaveCount(1)
+  await expect(button).toHaveClass(/btn-sm/)
+  await expect(button).toHaveAttribute('href', '#/make-subtitles')
+  await expect(page.getByRole('region', { name: 'Make subtitles' })).toHaveCount(0)
 })

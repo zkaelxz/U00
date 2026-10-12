@@ -40,6 +40,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/benchmark')).toEqual({ name: 'benchmark' })
     expect(parseRoute('#/benchmark/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/translate')).toEqual({ name: 'translate' })
+    expect(parseRoute('#/make-subtitles')).toEqual({ name: 'make-subtitles' })
+    expect(routeHref({ name: 'make-subtitles' })).toBe('#/make-subtitles')
     expect(parseRoute('#/translate/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/sources')).toEqual({ name: 'sources' })
     expect(parseRoute('#/sources/extra')).toEqual({ name: 'library' })

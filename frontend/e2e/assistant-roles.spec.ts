@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { mockAssistant } from './assistantMocks'
+import { mockAssistant, openTab } from './assistantMocks'
 
 // The independent review role. Every /api/assistant call is mocked.
 
@@ -31,15 +31,16 @@ test('a fix the reviewer flags is shown with both views', async ({ page }) => {
 test('turning on the review and picking a different engine saves both', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true, engine: 'claude' })
   await page.goto('/#/assistant')
-  const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.locator('summary').filter({ hasText: 'Independent review' }).click()
-  await chat.getByRole('switch', { name: 'Review each proposed fix' }).click()
-  await expect(chat.getByText('Pick a review engine.')).toBeVisible()
-  await chat.getByLabel('Review engine', { exact: true }).selectOption('claude')
-  await expect(chat.getByText('Pick an engine different from the one that answers.')).toBeVisible()
-  await chat.getByLabel('Review engine', { exact: true }).selectOption('ollama')
-  await chat.getByRole('button', { name: 'Save review engine' }).click()
-  await expect(chat.getByText('Pick an engine')).toHaveCount(0)
+  await openTab(page, 'GitHub and tools')
+  const roles = page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Independent review' }) })
+  await roles.locator('summary').first().click()
+  await roles.getByRole('switch', { name: 'Review each proposed fix' }).click()
+  await expect(roles.getByText('Pick a review engine.')).toBeVisible()
+  await roles.getByLabel('Review engine', { exact: true }).selectOption('claude')
+  await expect(roles.getByText('Pick an engine different from the one that answers.')).toBeVisible()
+  await roles.getByLabel('Review engine', { exact: true }).selectOption('ollama')
+  await roles.getByRole('button', { name: 'Save review engine' }).click()
+  await expect(roles.getByText('Pick an engine')).toHaveCount(0)
   const posts = s.calls.filter((c) => c.method === 'POST' && c.path === '/api/assistant/settings').map((c) => c.body)
   expect(posts).toEqual([{ roles_enabled: true }, { review_engine: 'ollama', review_model: null }])
 })
