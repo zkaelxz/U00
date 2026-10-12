@@ -286,13 +286,13 @@ last known state.
 | Automatic backup | `auto_backup_service` (settings in `app_settings`) | same writer | `include_media`, off by default |
 | My-items backup | `write_user_backup_zip`, per `USER_BACKUP_TABLES` | filtered copy: owner's rows only, auth and machine-local tables emptied | owner's drama media |
 | Single-drama restore / import | `drama_restore_service.restore_drama`, `backup_import_service.import_dramas` | `copy_drama` copies rows with new ids | staged, then moved in |
-| Full restore | `library_admin_service.restore_backup` -> `workspace_job_service.restore_library_backup` | staged, rebuilt from the app's own schema, current auth tables kept | staged, rename-aside, rename-in |
+| Full restore | `library_admin_service.restore_backup` -> `library_restore_service.restore_library_backup` | staged, rebuilt from the app's own schema, current auth tables kept | staged, rename-aside, rename-in |
 
 What they skip or keep:
 
 - **Never in a backup:** `backups/`, `profiles/` (saved site sign-ins),
   `source_profiles/`, the extension token, `tmp/`
-  (`workspace_job_service.restore_kept_names`), `source_cache/`, live `-wal` /
+  (`library_restore_service.restore_kept_names`), `source_cache/`, live `-wal` /
   `-shm` files, symlinks and `.env`. A full restore keeps the current copies of
   these instead of taking them from the upload.
 - **A full restore keeps** the live `users`, `user_permissions`, `audit_log`, the

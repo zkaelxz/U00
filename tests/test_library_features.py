@@ -797,7 +797,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
             os.remove(path)
 
     def test_not_a_zip_at_all_leaves_existing_library_intact(self, tmp_path_str):
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
+        from services import library_restore_service as lrs
 
         marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -805,14 +805,14 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
             f.write("original data")
 
         with pytest.raises(Exception):
-            lt.restore_library_backup(b"this is not a zip file at all", tmp_path_str)
+            lrs.restore_library_backup(b"this is not a zip file at all", tmp_path_str)
 
         assert os.path.exists(marker)
         with open(marker) as f:
             assert f.read() == "original data"
 
     def test_valid_zip_missing_library_db_leaves_existing_library_intact(self, tmp_path_str):
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
+        from services import library_restore_service as lrs
 
         marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -821,14 +821,14 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
 
         bad_zip = self._make_zip_bytes({"some_random_file.txt": "not a real backup"})
         with pytest.raises(ValueError, match="doesn't look like"):
-            lt.restore_library_backup(bad_zip, tmp_path_str)
+            lrs.restore_library_backup(bad_zip, tmp_path_str)
 
         assert os.path.exists(marker)
         with open(marker) as f:
             assert f.read() == "original data"
 
     def test_valid_backup_zip_still_restores_correctly(self, tmp_path_str):
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
+        from services import library_restore_service as lrs
 
         marker = os.path.join(tmp_path_str, "dramas", "old_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -839,18 +839,18 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
             "library.db": self._db_bytes(),
             "dramas/new_drama.txt": "restored data",
         })
-        lt.restore_library_backup(good_zip, tmp_path_str)
+        lrs.restore_library_backup(good_zip, tmp_path_str)
 
         assert os.path.exists(os.path.join(tmp_path_str, "library.db"))
         assert os.path.exists(os.path.join(tmp_path_str, "dramas", "new_drama.txt"))
         assert not os.path.exists(marker)
 
     def test_restoring_into_a_library_dir_that_does_not_exist_yet_works(self, tmp_path_str):
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
+        from services import library_restore_service as lrs
 
         library_dir = os.path.join(tmp_path_str, "brand_new_library")
         good_zip = self._make_zip_bytes({"library.db": self._db_bytes()})
-        lt.restore_library_backup(good_zip, library_dir)
+        lrs.restore_library_backup(good_zip, library_dir)
 
         assert os.path.exists(os.path.join(library_dir, "library.db"))
 
@@ -858,10 +858,9 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         """Step 52: a zip whose members would expand past the total-size
         limit must be rejected before extractall() ever runs, not partway
         through with a full disk -- and the existing library survives."""
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
-        from services import workspace_job_service
+        from services import library_restore_service as lrs
 
-        monkeypatch.setattr(workspace_job_service, "MAX_RESTORE_TOTAL_BYTES", 10)
+        monkeypatch.setattr(lrs, "MAX_RESTORE_TOTAL_BYTES", 10)
 
         marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -870,7 +869,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
 
         oversized_zip = self._make_zip_bytes({"library.db": "x" * 100})
         with pytest.raises(ValueError, match="expand to more than"):
-            lt.restore_library_backup(oversized_zip, tmp_path_str)
+            lrs.restore_library_backup(oversized_zip, tmp_path_str)
 
         assert os.path.exists(marker)
         with open(marker) as f:
@@ -879,40 +878,38 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
     def test_backup_with_oversized_single_member_is_rejected(self, tmp_path_str, monkeypatch):
         """Step 52: the per-file limit catches one huge member even if the
         total-size limit wouldn't (e.g. it's the only file in the zip)."""
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
-        from services import workspace_job_service
+        from services import library_restore_service as lrs
 
-        monkeypatch.setattr(workspace_job_service, "MAX_RESTORE_MEMBER_BYTES", 10)
+        monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 10)
 
         oversized_zip = self._make_zip_bytes({"library.db": "x" * 100})
         with pytest.raises(ValueError, match="per-file limit"):
-            lt.restore_library_backup(oversized_zip, tmp_path_str)
+            lrs.restore_library_backup(oversized_zip, tmp_path_str)
 
     def test_backup_over_member_count_limit_is_rejected(self, tmp_path_str, monkeypatch):
         """Step 52: a zip with too many members is rejected up front,
         without ever calling extractall()."""
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
-        from services import workspace_job_service
+        from services import library_restore_service as lrs
 
-        monkeypatch.setattr(workspace_job_service, "MAX_RESTORE_MEMBERS", 1)
+        monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBERS", 1)
 
         many_files_zip = self._make_zip_bytes({
             "library.db": self._db_bytes(),
             "dramas/extra_file.txt": "one file too many",
         })
         with pytest.raises(ValueError, match="file limit"):
-            lt.restore_library_backup(many_files_zip, tmp_path_str)
+            lrs.restore_library_backup(many_files_zip, tmp_path_str)
 
     def test_backup_within_limits_still_restores_normally(self, tmp_path_str):
         """Step 52's new checks shouldn't reject an ordinary, legitimate
         backup -- the limits are generous by design."""
-        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
+        from services import library_restore_service as lrs
 
         good_zip = self._make_zip_bytes({
             "library.db": self._db_bytes(),
             "dramas/new_drama.txt": "restored data",
         })
-        lt.restore_library_backup(good_zip, tmp_path_str)
+        lrs.restore_library_backup(good_zip, tmp_path_str)
 
         assert os.path.exists(os.path.join(tmp_path_str, "library.db"))
         assert os.path.exists(os.path.join(tmp_path_str, "dramas", "new_drama.txt"))

@@ -256,6 +256,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `vdb_names_service.py` (the optional personal VTuber name list, downloaded on demand; personal use only, never exported)
 - `library_admin_service.py`
 - `library_restore_sql.py` (SQL helpers for the library restore)
+- `library_restore_service.py` (restoring a whole-library backup zip: validation, staged databases, the folder swap)
 - `library_service.py`
 - `library_translated_guard.py` (what counts as translated for bulk status and export)
 - `line_ai_service.py`

@@ -55,6 +55,7 @@ from services import (auth_service, drama_service, keep_original_service,
                       maintenance_assistant_service, ownership_service, settings_service,
                       translate_run_service, translate_service)
 from services import library_translated_guard
+from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
 from services.library_restore_sql import _unsafe_member
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -488,7 +489,7 @@ def _backup_excluded_top_level() -> tuple:
     exports, saved site sign-ins, approved source profiles (a restore keeps
     the current ones either way), the browser-extension token and the
     sources raw-content cache (rebuildable: a missing file is a cache miss)."""
-    return wjs.restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
+    return lrs.restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
 
 
 def _backup_files(library_dir: str, skip: set, excluded: tuple) -> list:
@@ -895,7 +896,7 @@ _BUSY = ("A background job is running -- wait for it to finish or cancel it befo
          "restoring.")
 
 # Restore-specific limits for an uploaded (network) zip, tighter than
-# workspace_job_service's generous guardrails: expanded total at
+# library_restore_service's generous guardrails: expanded total at
 # most max(factor x upload size, 2 x current library size, 1 GiB), a
 # member-count cap, and enough free disk for the expanded total plus a
 # margin before anything is extracted.
@@ -951,7 +952,7 @@ def validate_backup_zip(zip_bytes) -> None:
     (member count, expanded total, free disk), no corrupt member.
     Fixed-text InvalidInputError on failure (no member names or paths
     echoed). The library.db itself is checked with SQLite after extraction
-    (workspace_job_service.validate_staged_library_db)."""
+    (library_restore_service.validate_staged_library_db)."""
     if not isinstance(zip_bytes, (bytes, bytearray)) or not zip_bytes:
         raise InvalidInputError("Upload a backup .zip file.")
     _validate_zip(io.BytesIO(zip_bytes), len(zip_bytes), check_disk=True)
@@ -978,12 +979,12 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
     try:
         with zipfile.ZipFile(source) as zf:
             infos = zf.infolist()
-            if check_limits and len(infos) > min(wjs.MAX_RESTORE_MEMBERS, RESTORE_MAX_MEMBERS):
+            if check_limits and len(infos) > min(lrs.MAX_RESTORE_MEMBERS, RESTORE_MAX_MEMBERS):
                 raise InvalidInputError("The backup has too many files; it looks corrupted "
                                         "or unsafe to extract.")
             if "library.db" not in zf.namelist():
                 raise InvalidInputError(_BAD_ZIP + " (no library.db inside).")
-            total_cap = (min(wjs.MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
+            total_cap = (min(lrs.MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
                          if check_limits else None)
             total = 0
             for info in infos:
@@ -991,7 +992,7 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
                     raise InvalidInputError("The backup contains an unsafe file path.")
                 if info.flag_bits & 0x1:
                     raise InvalidInputError("The backup contains an encrypted file.")
-                if check_limits and info.file_size > wjs.MAX_RESTORE_MEMBER_BYTES:
+                if check_limits and info.file_size > lrs.MAX_RESTORE_MEMBER_BYTES:
                     raise InvalidInputError("The backup contains a file that is too large; it "
                                             "looks corrupted or unsafe to extract.")
                 total += info.file_size
@@ -1017,7 +1018,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     (confirm=True, confirm_text "RESTORE") -> take background_jobs'
     exclusive hold (refused if any job runs here; no job can start until
     the restore ends) -> refuse if another process has a fresh running
-    job -> full validation -> workspace_job_service.restore_library_backup
+    job -> full validation -> library_restore_service.restore_library_backup
     (staging extract, SQLite checks, schema migration of the staged
     library.db, current auth tables and sources settings kept, job and
     auth/settings-change re-check right before the rename,
@@ -1045,12 +1046,12 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                 raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
-            outcome = wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR,
+            outcome = lrs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR,
                                                  before_swap=_recheck)
         except ServiceError:
             raise
         except (ValueError, zipfile.BadZipFile, RuntimeError, zlib.error) as e:
-            msg = str(e) if str(e) in wjs.RESTORE_DB_ERRORS else _BAD_ZIP
+            msg = str(e) if str(e) in lrs.RESTORE_DB_ERRORS else _BAD_ZIP
             raise InvalidInputError(msg) from None
         except OSError as e:
             log.exception("Library restore failed")

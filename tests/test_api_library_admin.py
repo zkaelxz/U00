@@ -25,6 +25,7 @@ from api.routers import library_admin_routes
 from api.server import create_app
 from services import auth_service
 from services import library_admin_service as las
+from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
 
 BASE = "/api/library/admin"
@@ -362,7 +363,7 @@ def _restore(client, data, confirm="true", text="RESTORE", headers=None):
 @pytest.fixture
 def no_swap(monkeypatch):
     calls = []
-    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: calls.append(a))
     return calls
 
 

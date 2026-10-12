@@ -11,6 +11,7 @@ import pytest
 import background_jobs
 import db
 from services import library_admin_service as las
+from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -57,7 +58,7 @@ def test_bulk_delete_wrong_confirm_changes_nothing(isolated_db, confirm, text):
 
 def test_restore_wrong_confirm_changes_nothing(isolated_db, monkeypatch):
     called = []
-    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a: called.append(a))
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a: called.append(a))
     good = _zip({"library.db": b"x"})
     for confirm, text in [(False, "RESTORE"), (True, "restore"), (True, "")]:
         with pytest.raises(InvalidInputError):
@@ -261,7 +262,7 @@ def test_backup_job_cancel_marks_job_cancelled(isolated_db, monkeypatch):
 
 def test_restore_refused_while_job_running(isolated_db, monkeypatch):
     called = []
-    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a: called.append(a))
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a: called.append(a))
     import threading
     gate = threading.Event()
     assert background_jobs.start_job("some_job", gate.wait, 5)
@@ -292,7 +293,7 @@ def test_restore_refused_for_other_process_job_record(isolated_db, monkeypatch):
 ])
 def test_invalid_zip_rejected_before_change(isolated_db, monkeypatch, payload):
     called = []
-    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a: called.append(a))
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a: called.append(a))
     did = _new("Keep me")
     if payload == "no_db":
         payload = _zip({"other.txt": b"x"})
@@ -319,17 +320,17 @@ def test_invalid_zip_rejected_before_change(isolated_db, monkeypatch, payload):
 
 def test_oversized_zip_rejected_before_change(isolated_db, monkeypatch):
     called = []
-    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a: called.append(a))
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a: called.append(a))
     data = _zip({"library.db": b"x" * 100, "big.bin": b"y" * 1000})
-    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 500)
+    monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 500)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10 ** 9)
-    monkeypatch.setattr(wjs, "MAX_RESTORE_TOTAL_BYTES", 900)
+    monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 10 ** 9)
+    monkeypatch.setattr(lrs, "MAX_RESTORE_TOTAL_BYTES", 900)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(wjs, "MAX_RESTORE_TOTAL_BYTES", 10 ** 9)
-    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBERS", 1)
+    monkeypatch.setattr(lrs, "MAX_RESTORE_TOTAL_BYTES", 10 ** 9)
+    monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBERS", 1)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert not called
@@ -337,7 +338,7 @@ def test_oversized_zip_rejected_before_change(isolated_db, monkeypatch):
 
 def test_valid_restore_calls_existing_swap(isolated_db, monkeypatch):
     called = []
-    monkeypatch.setattr(wjs, "restore_library_backup",
+    monkeypatch.setattr(lrs, "restore_library_backup",
                         lambda b, d, before_swap=None: called.append(d))
     r = las.restore_backup(_zip({"library.db": b"x", "dramas/1/a.txt": b"x"}),
                            confirm=True, confirm_text="RESTORE")
@@ -349,12 +350,12 @@ def test_restore_that_flips_developer_mode_syncs_the_echo_engine(isolated_db, mo
     from engine_backends import echo, engine_registry
     from services import maintenance_assistant_service as assistant
     echo.set_enabled(False)
-    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
         assistant._SETTINGS_PREFIX + "developer_mode", True))
     try:
         las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
         assert echo.ENGINE_ID in engine_registry.ENGINES
-        monkeypatch.setattr(wjs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
+        monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
             assistant._SETTINGS_PREFIX + "developer_mode", False))
         las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
         assert echo.ENGINE_ID not in engine_registry.ENGINES
@@ -857,7 +858,7 @@ def test_delete_refused_for_other_process_backup(isolated_db):
 
 def test_restore_caps(isolated_db, monkeypatch):
     called = []
-    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: called.append(a))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("library.db", b"x" * 100)
@@ -1049,7 +1050,7 @@ def test_kept_name_variants_removed_from_staging(isolated_db, tmp_path):
         "./backups/exports/planted.zip": _zip({"x": b"x"}),
         "BACKUPS/planted.zip": b"x",
     })
-    wjs.restore_library_backup(data, db.LIBRARY_DIR)
+    lrs.restore_library_backup(data, db.LIBRARY_DIR)
     with pytest.raises(NotFoundError):
         las.admin_artifact_path("export")
     with open(os.path.join(db.LIBRARY_DIR, page_server.TOKEN_FILENAME), "rb") as f:
@@ -1059,7 +1060,7 @@ def test_kept_name_variants_removed_from_staging(isolated_db, tmp_path):
     os.makedirs(os.path.join(lib2, "backups"))
     with open(os.path.join(lib2, "backups", "keep.zip"), "wb") as f:
         f.write(b"k")
-    wjs.restore_library_backup(_rewrite(data, extra={"backups": b"a file"}), lib2)
+    lrs.restore_library_backup(_rewrite(data, extra={"backups": b"a file"}), lib2)
     assert os.path.isfile(os.path.join(lib2, "backups", "keep.zip"))
 
 
@@ -1067,7 +1068,7 @@ def test_sidecar_members_not_extracted(isolated_db):
     _new("A")
     data = _rewrite(_backup_bytes(), extra={"library.db-wal": b"junk", "sources.db-shm": b"j",
                                             "library.db-journal": b"j"})
-    wjs.restore_library_backup(data, db.LIBRARY_DIR)
+    lrs.restore_library_backup(data, db.LIBRARY_DIR)
     for n in ("library.db-journal",):
         assert not os.path.exists(os.path.join(db.LIBRARY_DIR, n))
     assert db.list_dramas()
@@ -1275,7 +1276,7 @@ def test_round_trip_keeps_rows(isolated_db):
     ("CREATE TEMP TABLE x (a)", False),
 ])
 def test_schema_sql_allowlist(sql, ok):
-    assert wjs._schema_sql_allowed(sql) is ok
+    assert lrs._schema_sql_allowed(sql) is ok
 
 
 # ---- round 3: data migrations run on the uploaded rows (R3-1, R3-2) --------
@@ -1340,7 +1341,7 @@ def test_pre_step2_backup_maps_line_ids(isolated_db):
     "CREATE TABLE x (a INTEGER, b INTEGER AS (a * 2) VIRTUAL)",
 ])
 def test_generated_columns_refused(sql):
-    assert wjs._schema_sql_allowed(sql) is False
+    assert lrs._schema_sql_allowed(sql) is False
 
 
 def test_generated_column_backup_refused(isolated_db):
@@ -1442,7 +1443,7 @@ def _record_swap(monkeypatch, events, fail_verify=False):
     """Records fsyncs (by file identity) and renames in order, and the live
     library.db check after the swap, noting whether the previous library
     still sat beside it at that moment."""
-    real_fsync, real_rename, real_check = os.fsync, os.rename, wjs._require_quick_check
+    real_fsync, real_rename, real_check = os.fsync, os.rename, lrs._require_quick_check
     live = os.path.join(db.LIBRARY_DIR, "library.db")
 
     def fsync(fd):
@@ -1462,7 +1463,7 @@ def _record_swap(monkeypatch, events, fail_verify=False):
         real_check(path, message)
     monkeypatch.setattr(os, "fsync", fsync)
     monkeypatch.setattr(os, "rename", rename)
-    monkeypatch.setattr(wjs, "_require_quick_check", check)
+    monkeypatch.setattr(lrs, "_require_quick_check", check)
 
 
 def test_restore_flushes_the_staged_databases_before_the_swap(isolated_db, monkeypatch):
