@@ -681,6 +681,8 @@ def cancel_job(job_id: str, principal=None) -> dict:
         # The owner process has exited, or sent no heartbeat for
         # STALE_JOB_SECONDS: nobody will read the flag. Each close is
         # conditional, so a live owner's heartbeat, "done" or new run wins.
+        # It lists as interrupted, not cancelled: the work had already
+        # stopped when its process died; the Cancel only tidies the row.
         return {"job_id": job_id, "cancel_requested": True, "status": "cancelled"}
     # A queued job here ends at once (request_cancel); a running one says
     # "Cancelling..." until its worker stops.

@@ -5,6 +5,8 @@ import type {
   CharacterEntry,
   CloneEngines,
   CharacterUpdate,
+  EpisodeSummaryGenerated,
+  EpisodeSummaryOptions,
   EstimateParams,
   GlossaryAffectedParams,
   GlossaryAffectedPreview,
@@ -22,6 +24,8 @@ import type {
   NameConsistency,
   NameMark,
   NameReportStatus,
+  RetryFailedBody,
+  RetryFailedStarted,
   SpellingSuggestStatus,
   SourceChangedRunBody,
   SourceChangedRunStarted,
@@ -79,6 +83,17 @@ export const startGlossaryAffectedRun = (id: number, body: GlossaryAffectedRunBo
 /** Translates the given lines still flagged source_changed; 409 when none is. */
 export const startSourceChangedRun = (id: number, body: SourceChangedRunBody, f?: Fetch) =>
   postJson<SourceChangedRunStarted>(`/api/translate-run/dramas/${id}/source-changed/run`, body, f)
+/** Translates exactly the lines the last run failed on, with the form's engine. */
+export const retryFailedLines = (id: number, body: RetryFailedBody, f?: Fetch) =>
+  postJson<RetryFailedStarted>(`/api/translate-run/dramas/${id}/retry-failed/run`, body, f)
+/** Redoes the lines flagged for a missing glossary name with the Settings stronger engine. */
+export const redoGlossaryFlagged = (id: number, f?: Fetch) =>
+  postJson<RetryFailedStarted>(`/api/translate-run/dramas/${id}/glossary-flagged/run`, {}, f)
+export const getEpisodeSummaryOptions = (id: number, f?: Fetch) =>
+  getJson<EpisodeSummaryOptions>(`/api/translate-run/dramas/${id}/episode-summary`, f)
+/** Spends on the chosen engine; returns the text without saving it. */
+export const generateEpisodeSummary = (id: number, engine: string, f?: Fetch) =>
+  postJson<EpisodeSummaryGenerated>(`/api/translate-run/dramas/${id}/episode-summary/generate`, { engine }, f)
 export const applyWorkflowTier = (id: number, tier: string, f?: Fetch) =>
   postJson<WorkflowTierApplied>(`/api/translate-run/dramas/${id}/workflow-tier`, { tier }, f)
 export const applyTranslatePreset = (id: number, presetId: number, f?: Fetch) =>

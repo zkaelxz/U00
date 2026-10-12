@@ -92,6 +92,8 @@ def test_stale_orphan_record_is_closed_on_cancel(client):
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
     assert db.get_job_record("orphan")["status"] == "cancelled"
+    # Its process died before the click, so the list says why it stopped.
+    assert client.get("/api/jobs/orphan").json()["outcome"] == "interrupted"
     assert client.post("/api/jobs/orphan/cancel").status_code == 409
 
 

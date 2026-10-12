@@ -153,6 +153,20 @@ class TestSoftsubContainer:
         assert cmd[cmd.index("-c:s") + 1] == codec
         assert cmd[cmd.index("-c:v") + 1] == "copy" and cmd[cmd.index("-c:a") + 1] == "copy"
 
+    def test_ass_track_is_copied_as_ass_into_mkv(self):
+        cmd = ve.mux_soft_subtitles_cmd("v.mp4", "s.ass", "out.mkv", sub_format="ass")
+        assert cmd[cmd.index("-c:s") + 1] == "ass" and cmd[cmd.index("-i", cmd.index("-i") + 1) + 1] == "s.ass"
+        assert cmd[cmd.index("-c:v") + 1] == "copy" and cmd[cmd.index("-c:a") + 1] == "copy"
+        assert "ass" in cmd  # the subtitle input's -format_whitelist
+
+    def test_ass_track_refuses_mp4(self):
+        with pytest.raises(ValueError):
+            ve.mux_soft_subtitles_cmd("v.mp4", "s.ass", "out.mp4", sub_format="ass")
+
+    def test_srt_stays_the_default(self):
+        cmd = ve.mux_soft_subtitles_cmd("v.mp4", "s.srt", "out.mp4")
+        assert cmd[cmd.index("-c:s") + 1] == "mov_text"
+
     def test_webm_with_vp8_and_opus_muxes_with_real_ffmpeg(self, tmp_path):
         import shutil
         import subprocess

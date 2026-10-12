@@ -39,6 +39,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 _FFMPEG_MISSING = "ffmpeg is not installed or not on PATH, which this export requires."
 # Stream-copy and audio-only re-encodes are fast; this only stops a hung ffmpeg.
 _VIDEO_TIMEOUT_S = 4 * 3600
+SOFTSUB_FORMATS = ("srt", "ass")
 _VIDEO_JOB_PREFIXES = ("burned_video_", "softsub_video_", "dubbed_video_")
 _DUB_ORIGINAL_DB = -20.0   # "mix original audio in quietly"
 
@@ -208,13 +209,16 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
 # Parity E17: soft subtitle track muxed into the video
 # ---------------------------------------------------------------------------
 
-def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language, label):
+def _softsub_video_job(job_id, drama_id, video_path, sub_text, ext, language, label,
+                       sub_format="srt"):
     background_jobs.update_progress(job_id, 0.1, "Adding the subtitle track...")
     with _fixed_write_errors(), storage.job_workdir(job_id) as tmp:
-        with open(os.path.join(tmp, "subs.srt"), "w", encoding="utf-8") as f:
-            f.write(srt_text)
+        sub_name = f"subs.{sub_format}"
+        with open(os.path.join(tmp, sub_name), "w", encoding="utf-8") as f:
+            f.write(sub_text)
         out_name = f"out{ext}"
-        cmd = video_export.mux_soft_subtitles_cmd(video_path, "subs.srt", out_name, language)
+        cmd = video_export.mux_soft_subtitles_cmd(video_path, sub_name, out_name, language,
+                                                  sub_format)
         _run_video_ffmpeg(job_id, cmd, tmp)
         final = artifact_service.output_path(drama_id, "softsub_video",
                                              f"softsub_video_{drama_id}{ext}")
@@ -223,27 +227,39 @@ def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language, la
 
 
 def start_softsub_video_export(drama_id: int, field: str = "en",
-                               include_notes: bool = False) -> dict:
+                               include_notes: bool = False,
+                               subtitle_format: str = "srt") -> dict:
     """Starts the Export stage's softsub "Generate subtitled episode" as
     thread job `softsub_video_<drama_id>`: the SRT for `field` (en, zh or
     bilingual) is added as a selectable subtitle track, video and audio
     are stream-copied. .mp4/.mkv sources keep their container, anything
-    else (.webm, .mov, ...) becomes .mkv (srt). Output kind "softsub_video".
+    else (.webm, .mov, ...) becomes .mkv (srt). subtitle_format "ass" muxes
+    the burned-in export's ASS (overlapping cues and speaker colours kept)
+    and always writes .mkv. Output kind "softsub_video".
     Raises NotFoundError, InvalidInputError (no lines, no source video,
-    bad field), DependencyUnavailableError (ffmpeg missing), ConflictError
+    bad field or subtitle_format), DependencyUnavailableError (ffmpeg missing), ConflictError
     (a video export already running). Returns {"job_id": ...}."""
     drama = _get_drama(drama_id)
     if not db.load_line_objects(drama_id):
         raise InvalidInputError("This title has no lines to export.")
     video_path = _source_video(drama, drama_id)
-    srt_text = export_service.generate_subtitle_text(drama_id, "srt", field,
-                                                     include_notes=include_notes)
+    if subtitle_format not in SOFTSUB_FORMATS:
+        raise InvalidInputError("Unknown subtitle format.")
+    if subtitle_format == "ass":
+        sub_text = export_service.generate_ass_text(drama_id, field=field,
+                                                    include_notes=include_notes,
+                                                    keep_overlaps=True)
+        ext = ".mkv"
+    else:
+        sub_text = export_service.generate_subtitle_text(drama_id, "srt", field,
+                                                         include_notes=include_notes)
+        ext = video_export.softsub_output_extension(video_path)
     _require_ffmpeg()
     job_id = f"softsub_video_{drama_id}"
-    ext = video_export.softsub_output_extension(video_path)
     language = "eng" if field == "en" else "und"
     return _start_video_job(drama_id, job_id, _softsub_video_job, job_id, drama_id, video_path,
-                            srt_text, ext, language, export_service.field_language(drama, field),
+                            sub_text, ext, language, export_service.field_language(drama, field),
+                            subtitle_format,
                             description=f"Soft-subtitle video export (title #{drama_id})")
 
 

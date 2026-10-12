@@ -101,7 +101,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
-                       summary_monthly_cap_usd=None, own_lines_only=False, thinking=None):
+                       summary_monthly_cap_usd=None, own_lines_only=False, thinking=None,
+                       summary_skip_reason=""):
     """
     The actual translation work, run inside a background thread. Touches
     only plain Python objects and the database, both of which are safe
@@ -123,6 +124,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     which skips summary generation entirely rather than failing this job.
     summary_monthly_cap_usd: the monthly cap, re-checked right before a
     paid summary call (skipped once used up); None = no cap.
+    summary_skip_reason: why the caller built no summary engine, for the
+    result's "summary_skipped".
 
     target_ids: optional set of permanent line ids (set by the API
     start) -- only those lines are translated; None = every eligible line.
@@ -138,6 +141,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     """
     if force_retranslate and any(ln.en for ln in lines):
         db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
+    en_before = {ln.id: ln.en for ln in lines} if target_ids is not None else None
     cap_reached = {}
     if isinstance(engine, translate_engines.FallbackEngine):
         # Tokens a provider reported for an attempt that then failed are
@@ -211,8 +215,19 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
     else:
+        if target_ids is not None:
+            # Imported here: it needs translate_run_service, which imports this module.
+            from services import failed_lines_service
+            failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before, errors)
+
+        if summary_engine is not None and not summary_skip_reason:
+            from services import episode_summary_service
+            summary_skip_reason = episode_summary_service.missing_after_run_reason(
+                drama_id, summary_engine_choice, cancelled)
         background_jobs.set_result(job_id, {"errors": errors,
                                             "cap_reached": cap_reached.get("spent"),
+                                            **({"summary_skipped": summary_skip_reason}
+                                               if summary_skip_reason else {}),
                                             **({"flags_needing_recheck": sorted(recheck)}
                                                if recheck else {}),
                                             **({"kept_your_edit": sorted(kept_edits)}
