@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { openFoldFor } from './reviewFolds'
-import { openTranscribeOptions } from './sourceHelpers'
+import { mediaTab } from './mediaTabs'
 import { mockSpeechCoverage } from './speechCoverageMocks'
 
 test.use({ viewport: { width: 1280, height: 800 } })
@@ -11,7 +11,7 @@ test.afterEach(async ({ page }) => {
 
 async function openPanel(page: import('@playwright/test').Page) {
   await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
+  await mediaTab(page, 'tools').click()
   await openFoldFor(page, 'Speech coverage')
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Speech coverage$/ }) })
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

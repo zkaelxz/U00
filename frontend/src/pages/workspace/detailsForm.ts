@@ -223,3 +223,15 @@ export function mediaKind(mediaType: string | null | undefined): MediaKind {
   if (mediaType === 'manga' || mediaType === 'manhua' || mediaType === 'manhwa') return 'comic'
   return 'audio'
 }
+
+/** The fields on the Credits sub-tab; every other field is on Details. */
+export const CREDITS_FIELDS: readonly (keyof DetailsForm)[] = ['author', 'studio', 'director', 'voice_actors', 'genre']
+
+/** Which sub-tabs hold edits not saved yet: one draft covers both, so each tab is marked by its own fields. */
+export function unsavedTabs(form: DetailsForm, initial: DetailsForm): { details: boolean; credits: boolean } {
+  const changed = (Object.keys(form) as (keyof DetailsForm)[]).filter((k) => form[k] !== initial[k])
+  return {
+    details: changed.some((k) => !CREDITS_FIELDS.includes(k)),
+    credits: changed.some((k) => CREDITS_FIELDS.includes(k)),
+  }
+}

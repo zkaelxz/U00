@@ -1,15 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openAdvanced } from './sourceHelpers'
 
 // The (i) beside "ASR backend" and "Use Groq" on the Transcribe stage.
-async function openAdvanced(page: Page) {
+async function openOptions(page: Page) {
   await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
 }
 
 test('the ASR backend (i) lists every backend', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const tip = page.getByRole('button', { name: 'Help: ASR backend' })
   await tip.focus()
   const text = page.getByRole('tooltip').filter({ hasText: 'Whisper:' })
@@ -22,7 +21,7 @@ test('the ASR backend (i) lists every backend', async ({ page }) => {
 })
 
 test('the Use Groq (i) explains the upload', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   await page.getByRole('button', { name: 'Help: Use Groq' }).focus()
   const text = page.getByRole('tooltip').filter({ hasText: 'Groq' })
   await expect(text).toBeVisible()

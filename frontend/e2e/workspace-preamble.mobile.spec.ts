@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openFillIn, openGroup } from './source-groups'
+import { openCreditsTab, openFillIn } from './source-groups'
 
 // Phone (390x844): Edit details' credits and cover, the known platforms list and the EPUB
 // chapter range fit the width.
@@ -14,8 +14,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 test('Source preamble panels fit a phone', async ({ page }) => {
   await page.goto('/#/drama/1/source')
-  await openGroup(page, 'Details and credits')
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
+  await openCreditsTab(page, true)
   await expect(page.getByRole('button', { name: 'Romanize credits' })).toBeVisible()
   await openFillIn(page, 'From a page or text')
   await page.getByText('Known official platforms', { exact: true }).click()

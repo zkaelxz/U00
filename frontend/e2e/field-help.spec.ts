@@ -1,10 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openAdvanced } from './sourceHelpers'
 
-async function openAdvanced(page: Page) {
+async function openOptions(page: Page) {
   await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
 }
 
 function help(page: Page) {
@@ -15,7 +14,7 @@ function help(page: Page) {
 }
 
 test('hover opens the (i) and leaving closes it', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const { button, text } = help(page)
   await button.hover()
   await expect(text).toBeVisible()
@@ -24,7 +23,7 @@ test('hover opens the (i) and leaving closes it', async ({ page }) => {
 })
 
 test('a mouse click on the hovered (i) keeps it open', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const { button, text } = help(page)
   await button.click()
   await expect(text).toBeVisible()
@@ -32,7 +31,7 @@ test('a mouse click on the hovered (i) keeps it open', async ({ page }) => {
 })
 
 test('keyboard: Tab opens, Enter and Space toggle, Escape and blur close', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const { button, text } = help(page)
   await button.focus()
   await expect(text).toBeVisible()
@@ -51,10 +50,10 @@ test('keyboard: Tab opens, Enter and Space toggle, Escape and blur close', async
 })
 
 test('a click outside closes it', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const { button, text } = help(page)
   await button.focus()
   await expect(text).toBeVisible()
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await page.getByRole('heading', { name: 'Advanced options' }).click()
   await expect(text).toBeHidden()
 })

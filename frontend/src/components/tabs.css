@@ -10,3 +10,6 @@
   /* Equal shares with wrapping labels; below min-width the row scrolls instead of squeezing. */
   .ui-tab { flex: 1 1 0; min-width: 5rem; padding-inline: var(--space-2); text-align: center; line-height: 1.2; flex-wrap: wrap; }
 }
+
+/* Edits not saved yet on this tab. */
+.ui-tab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }

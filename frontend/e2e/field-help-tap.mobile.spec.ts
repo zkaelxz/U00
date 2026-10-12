@@ -1,16 +1,15 @@
 import { expect, test, type Page } from '@playwright/test'
-import { nextFrames, openTranscribeOptions } from './sourceHelpers'
+import { nextFrames, openAdvanced } from './sourceHelpers'
 
 // Real touch taps (touch events, then the emulated mouse, focus and click).
 // The focus()-based specs never exercise that sequence.
-async function openAdvanced(page: Page) {
+async function openOptions(page: Page) {
   await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
 }
 
 test('a tap opens the (i), keeps it open, and a second tap closes it', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const button = page.getByRole('button', { name: 'Help: ASR backend' })
   const text = page.getByRole('tooltip').filter({ hasText: 'Whisper:' })
 
@@ -29,18 +28,18 @@ test('a tap opens the (i), keeps it open, and a second tap closes it', async ({ 
 })
 
 test('tapping outside closes the (i)', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const button = page.getByRole('button', { name: 'Help: ASR backend' })
   const text = page.getByRole('tooltip').filter({ hasText: 'Whisper:' })
   await button.tap()
   await expect(text).toBeVisible()
 
-  await page.locator('.section-title', { hasText: /^More options$/ }).tap()
+  await page.getByRole('heading', { name: 'Advanced options' }).tap()
   await expect(text).toBeHidden()
 })
 
 test('tapping the tooltip text keeps the (i) open', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const text = page.getByRole('tooltip').filter({ hasText: 'Whisper:' })
   await page.getByRole('button', { name: 'Help: ASR backend' }).tap()
   await text.tap()
@@ -48,7 +47,7 @@ test('tapping the tooltip text keeps the (i) open', async ({ page }) => {
 })
 
 test('Escape closes a tapped (i)', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   const text = page.getByRole('tooltip').filter({ hasText: 'Whisper:' })
   await page.getByRole('button', { name: 'Help: ASR backend' }).tap()
   await expect(text).toBeVisible()

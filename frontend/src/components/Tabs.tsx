@@ -6,7 +6,8 @@
  *
  * Props
  *   tabs      id + label; optional `count` (a neutral number, e.g. search hits) and
- *             `attention` (a warning number, e.g. problems; announced in the tab's name)
+ *             `attention` (a warning number, e.g. problems; announced in the tab's name) and
+ *             `unsaved` (a small dot for edits not saved yet; announced in the tab's name)
  *   idPrefix  makes the DOM ids; the panels use tabButtonId / tabPanelId with the same prefix
  *   onSelect  called on click and on the arrow keys, Home and End (the arrows wrap)
  *
@@ -17,7 +18,7 @@ import './tabs.css'
 import { tabButtonId, tabPanelId } from './tabIds'
 import { badgeClass } from './uiClasses'
 
-export type TabInfo<T extends string = string> = { id: T; label: string; count?: number; attention?: number }
+export type TabInfo<T extends string = string> = { id: T; label: string; count?: number; attention?: number; unsaved?: boolean }
 
 export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix }: {
   tabs: TabInfo<T>[]
@@ -51,6 +52,11 @@ export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix
         >
           {t.label}
           {t.count !== undefined && <span className="badge section-count">{t.count}</span>}
+          {t.unsaved && (
+            <span className="ui-tab-dot" data-testid={`tab-unsaved-${t.id}`}>
+              <span className="visually-hidden"> (unsaved changes)</span>
+            </span>
+          )}
           {!!t.attention && (
             <span className={badgeClass('warn')} title={`${t.attention} to look at`}>
               {t.attention}<span className="visually-hidden"> to look at</span>

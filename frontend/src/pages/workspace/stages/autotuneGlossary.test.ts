@@ -69,9 +69,9 @@ describe('glossary-from-novel helpers', () => {
     expect(novelGlossaryBlocker(2, null, true)).toEqual({
       text: 'Still needed: a series for this title',
       link: 'set it in Details',
-      href: '#/drama/2/source',
+      href: '#/drama/2/source?tab=details',
     })
-    expect(novelGlossaryBlocker(2, 7, false)?.link).toBe('attach it on Media')
+    expect(novelGlossaryBlocker(2, 7, false)).toMatchObject({ link: 'attach it on Media', href: '#/drama/2/source?tab=add' })
     expect(novelGlossaryBlocker(2, 7, true)).toBeNull()
   })
   it('shows progress as a percent', () => {

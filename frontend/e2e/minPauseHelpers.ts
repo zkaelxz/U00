@@ -1,13 +1,5 @@
 import { expect, type Page } from '@playwright/test'
-import { openFoldFor } from './reviewFolds'
-import { openTranscribeOptions } from './sourceHelpers'
-
-export async function openAdvanced(page: Page) {
-  await openFoldFor(page, 'More options')
-  await openTranscribeOptions(page)
-  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^More options$/ }) }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
-}
+import { openAdvanced } from './sourceHelpers'
 
 // Edits the pause field and saves; the config route is mocked so the shared
 // seeded library is not changed. Returns the body the server received.

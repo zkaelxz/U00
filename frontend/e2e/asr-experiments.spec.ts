@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openTranscribeOptions, openAdvanced } from './sourceHelpers'
 
 // Steps 101/103: Settings > System > Advanced transcription and the "where did speaker detection run" note.
 // Settings hit the real (seeded) API; every change is restored at the end.
@@ -43,7 +43,7 @@ test('advanced transcription saves, and MOSS is not offered', async ({ page }) =
 
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
   const backend = page.getByLabel('ASR backend', { exact: true })
   await expect(backend.locator('option', { hasText: 'MOSS' })).toHaveCount(0)
 
@@ -65,6 +65,6 @@ test('Speakers says where the last speaker detection ran', async ({ page }) => {
     }))
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
   await expect(page.getByTestId('diarize-device')).toHaveText('Last Detect speakers run (pyannote) used the GPU.')
 })
