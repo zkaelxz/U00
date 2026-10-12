@@ -203,6 +203,13 @@ jobs:
           & "$env:APP_DIR\python\python.exe" -s "$env:APP_DIR\app\installer\launcher.py" --stop
           # A marker the uninstaller must leave alone (silent uninstall keeps user data).
           Set-Content -Path "$env:DATA_DIR\.env" -Value "BAIHE_SMOKE_TEST=1"
+          # Files a data folder shared with other programs can hold, and what a restore leaves beside the
+          # library: a silent uninstall keeps all of them; only Baihe's own vtuber_names.json(.part) go.
+          New-Item -ItemType Directory -Force -Path "$env:DATA_DIR\library.pre_restore_1700000000", "$env:DATA_DIR\.restore_staging_abc" | Out-Null
+          foreach ($keep in @("other-program.part", "library.restore-lock", "library.pre_restore_1700000000\library.db", ".restore_staging_abc\x")) {
+            Set-Content -Path (Join-Path $env:DATA_DIR $keep) -Value "keep"
+          }
+          foreach ($own in @("vtuber_names.json", "vtuber_names.json.part")) { Set-Content -Path (Join-Path $env:DATA_DIR $own) -Value "x" }
           $p = Start-Process -FilePath "$env:APP_DIR\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
           # unins000.exe hands off to a temp copy and returns at once; wait for it.
@@ -212,6 +219,12 @@ jobs:
           }
           if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "uninstall removed the library"; exit 1 }
           if (-not (Test-Path "$env:DATA_DIR\.env")) { Write-Error "uninstall removed .env"; exit 1 }
+          foreach ($keep in @("other-program.part", "library.restore-lock", "library.pre_restore_1700000000\library.db", ".restore_staging_abc\x")) {
+            if (-not (Test-Path (Join-Path $env:DATA_DIR $keep))) { Write-Error "silent uninstall removed $keep"; exit 1 }
+          }
+          foreach ($own in @("vtuber_names.json", "vtuber_names.json.part")) {
+            if (Test-Path (Join-Path $env:DATA_DIR $own)) { Write-Error "silent uninstall left $own"; exit 1 }
+          }
           Write-Host "Uninstalled; the data folder was kept."
 
       # Clean uninstall (/CLEAN): a second install into new folders, then
