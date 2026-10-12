@@ -259,10 +259,11 @@ jobs:
           [ "$WINDOWS_SCRIPTS" = success ] || [ "$WINDOWS_SCRIPTS" = skipped ] || exit 1
 
   # Runs the Windows scripts (setup.bat, start.bat up to the server launch,
-  # uninstall.bat) in temp folders with their prompts answered through stdin;
+  # uninstall.bat) in temp folders with their prompts answered through stdin,
+  # and a library backup-and-restore round trip in the installed copy;
   # tools/windows_script_checks.py has the cases and docs/testing-and-ci.md
   # the list of what this does and does not prove. Only when `changes` says a
-  # script, installer/ or this workflow changed (tools/ci_changes.py). The
+  # script, installer/, the restore code or this workflow changed (tools/ci_changes.py). The
   # dependency install is the same pip install start.bat --ci does in
   # windows-bootstrap.yml; nothing else is downloaded. windows-latest bills at
   # 2x, hence the path filter and the timeout. No secrets are used.
@@ -293,7 +294,7 @@ jobs:
       - name: setup.bat reports and installs nothing
         run: python tools/windows_script_checks.py setup
 
-      - name: start.bat installs, then upgrades over a library with data
+      - name: start.bat installs, upgrades over a library with data, then a restore round trip
         run: python tools/windows_script_checks.py install
 
       - name: uninstall.bat prompts, library rule and leftovers
