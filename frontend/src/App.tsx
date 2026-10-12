@@ -36,9 +36,9 @@ import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
 import { useHiddenNav } from './nav/hiddenNav'
 import { NavDrawer } from './nav/NavDrawer'
+import { DOCK_MIN_WIDTH } from './nav/navItems'
 import { SideNav } from './nav/SideNav'
 import { useHeaderHeight } from './nav/useHeaderHeight'
-import { useRailCollapsed } from './nav/useRailCollapsed'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
 import { routeHref, useRoute } from './router'
@@ -156,8 +156,7 @@ export default function App() {
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const [hidden] = useHiddenNav(session)
-  const wide = useMediaQuery('(min-width: 1024px)')
-  const [railCollapsed, toggleRail] = useRailCollapsed()
+  const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`)
   const headerRef = useHeaderHeight()
 
   if (view === 'connecting') {
@@ -232,12 +231,12 @@ export default function App() {
     </>
   )
 
-  // One tree at every width, so crossing 1024px keeps the open page (and a playing video) mounted.
+  // One tree at every width, so crossing 600px keeps the open page (and a playing video) mounted.
   return (
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
       <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
-        {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
+        {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
           {wide ? (
             <header className="app-header" ref={headerRef}>{headerEnd}</header>
