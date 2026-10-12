@@ -625,7 +625,8 @@ class TestRunTranscribeAndApplyJob:
             job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
             "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
 
-        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "empty"}
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["failed_reason"] == "no_lines"
         _clear(job_id)
 
     def test_empty_result_keeps_existing_lines(self, isolated_db, monkeypatch):
@@ -1001,7 +1002,8 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
             video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
             hardsub_interval=1.0)
 
-        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "empty"}
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["failed_reason"] == "empty"
         _clear(job_id)
 
     def test_passes_backend_interval_and_tesseract_cmd_through(self, isolated_db, monkeypatch):
@@ -1776,7 +1778,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
     assert seen == ["gsk_env_key"]
-    assert items[-1] == ("ok", {"failed_reason": "empty"})
+    assert items[-1][1]["failed_reason"] == "no_lines"
 
 
 def test_the_run_uses_the_pause_saved_when_it_started(isolated_db, monkeypatch, tmp_path):

@@ -43,7 +43,7 @@ RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
     "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
-    "coverage_warning", "ollama_notice",
+    "coverage_warning", "ollama_notice", "stage_summary",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
@@ -294,6 +294,12 @@ _FAILED_REASON_MESSAGES = {
 }
 
 
+NO_LINES_MESSAGE = (
+    "Finished but found no lines. Possible reasons: voice detection removed everything "
+    "(try Sensitivity: More sensitive); the model returned nothing (try Whisper large-v3-turbo); "
+    "or the audio is silent.")
+
+
 def derive_outcome(status, error, result):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's
@@ -317,6 +323,8 @@ def derive_outcome(status, error, result):
         return "kept_existing", (f"Nothing new was produced, so the existing {count} line(s) were kept."
                                  if count is not None else
                                  "Nothing new was produced, so the existing lines were kept.")
+    if reason == "no_lines":
+        return "partial", NO_LINES_MESSAGE
     if reason:
         msg = _FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
         return "failed", (f"{msg} {detail}" if detail else msg)

@@ -299,10 +299,11 @@ def _drama_title(description, shared_only=False):
     return _tidy(title, _TITLE_MAX) if title else None
 
 
-def build_message(description, status, shared_only=False, with_errors=False) -> str:
+def build_message(description, status, shared_only=False, with_errors=False,
+                  reason=None) -> str:
     """"Finished: Translation - <drama title>" / "Failed: ...". Only the
     job kind (description up to its first "("), the drama title and the
-    outcome."""
+    outcome, plus the plain reason of a failure that has one."""
     from translate_engines import redact_secrets
     outcome = ("Finished with errors" if with_errors else "Finished") if status == "done" \
         else "Failed"
@@ -311,6 +312,8 @@ def build_message(description, status, shared_only=False, with_errors=False) -> 
     title = _drama_title(description, shared_only)
     if title:
         text += f" - {title}"
+    if reason and status != "done":
+        text += f": {_tidy(reason, 160)}"
     return redact_secrets(text)
 
 
@@ -614,7 +617,7 @@ def _chapter_count(job_id):
 
 
 def notify_job_finished(description, status, job_id=None, owner_user_id=None,
-                        with_errors=False):
+                        with_errors=False, reason=None):
     """Record a job-ended event in the in-app list and queue a push for the
     configured channels. Never raises, never blocks on the network."""
     global _timer
@@ -629,12 +632,12 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
         else:
             category = "jobs"
             kind = "job_done" if status == "done" else "job_failed"
-            message = build_message(description, status, with_errors=with_errors)
+            message = build_message(description, status, with_errors=with_errors, reason=reason)
         _record(kind, message, job_id, owner_user_id)
         if category == "jobs":
             # The in-app list is filtered per viewer; a push channel is not.
             message = build_message(description, status, shared_only=True,
-                                    with_errors=with_errors)
+                                    with_errors=with_errors, reason=reason)
         if os.environ.get(DISABLED_ENV) == "1" or not get_categories()[category]:
             return
         if not configured_channels():

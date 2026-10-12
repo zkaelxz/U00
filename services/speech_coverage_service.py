@@ -238,6 +238,12 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
     if background_jobs.is_running(f"transcribe_{drama_id}"):
         raise ConflictError("A transcription is running for this title. "
                             "Check the coverage when it finishes.")
+    # The screen starts this check after every transcription; a failed one has no new
+    # lines to check, and a "Finished" check would read as if it had worked.
+    last_run = background_jobs.get_status(f"transcribe_{drama_id}") or {}
+    if last_run.get("status") == "error" or (last_run.get("result") or {}).get("failed_reason") == "no_lines":
+        raise ConflictError("The last transcription of this title did not produce lines, "
+                            "so there is nothing to check.")
     job_id = speech_coverage_job_id(drama_id)
     if not background_jobs.start_job(
             job_id, _run_job, job_id, drama_id, audio_path, float(min_gap_seconds),

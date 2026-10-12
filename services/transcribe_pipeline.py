@@ -132,6 +132,18 @@ def _separation_device_label(kind: str) -> str:
     return {"gpu": "on GPU", "cpu": "on CPU (slow)"}.get(kind, "")
 
 
+def _stage_summary(stage_counts: dict) -> str:
+    return "; ".join(f"{label}: {count}" for label, count in stage_counts.items())
+
+
+def _log_stage_counts(stage_counts: dict) -> None:
+    """The newest stage's segment count in the app log, so "found no lines" can be
+    traced to the stage that lost them."""
+    import applog
+    label, count = list(stage_counts.items())[-1]
+    applog.get_logger().info(f"transcription stage '{label}': {count} segment(s)")
+
+
 def _model_loading_message(whisper_size: str, cached: bool) -> str:
     if cached:
         return f"Loading Whisper model {whisper_size}..."
@@ -321,6 +333,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     word_align_error = None
     forced_align_error = None
     coverage_msg = None
+    stage_counts = {}
     detector_notices = []
     coarse_whisper_timing = False
     device_msg = ""
@@ -572,8 +585,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 whisper_models.release_gpu_models()   # hand the VRAM back on a cancel too
                 raise
 
+        stage_counts["ASR output (after voice detection and its text filters)"] = len(segments)
+        _log_stage_counts(stage_counts)
         if not segments:
-            return {"failed_reason": "empty"}
+            return {"failed_reason": "no_lines", "stage_summary": _stage_summary(stage_counts)}
 
         # Only a Whisper transcript carries the notice; a supplied one is aligned below.
         if coarse_whisper_timing and transcript_mode == "whisper" and not rep.cancelled():
@@ -668,6 +683,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                              floors=tuning.floors,
                              rules=asr_backend.sentence_split_rules(tuning) if sentence_lines else None)
                          if s["text"].strip())]
+            stage_counts["lines after splitting long segments"] = len(lines)
+            _log_stage_counts(stage_counts)
             coverage_msg = " ".join(detector_notices + [coverage_warning(
                 segments, _audio_duration_seconds(audio_path),
                 qwen3_asr=raw_backend == "qwen3_asr") or ""]).strip() or None
@@ -717,6 +734,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
             "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
+            "stage_summary": _stage_summary(stage_counts),
             **ollama_unload.take_notice_result(),
             "run_config": {
                 "asr_backend": asr_backend_choice, "whisper_size": whisper_size,

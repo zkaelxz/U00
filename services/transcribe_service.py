@@ -862,6 +862,8 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     if not lines and existing_lines_before:
         return {"failed_reason": "empty_kept_existing",
                 "existing_line_count": len(existing_lines_before)}
+    if not lines:
+        return {"failed_reason": "no_lines", "stage_summary": outcome.get("stage_summary", "")}
 
     background_jobs.cancel_line_jobs(drama_id)
     if existing_lines_before:

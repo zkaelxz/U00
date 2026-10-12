@@ -224,7 +224,7 @@ def set_notify_on_completion(enabled: bool):
 
 
 def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
-                         with_errors=False):
+                         with_errors=False, reason=None):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
@@ -240,7 +240,7 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
         from services import notification_service
         notification_service.notify_job_finished(description, status, job_id=job_id,
                                                  owner_user_id=owner_user_id,
-                                                 with_errors=with_errors)
+                                                 with_errors=with_errors, reason=reason)
     except Exception:
         pass
     if not get_notify_on_completion():
@@ -458,11 +458,19 @@ def _timing_finish(job_id, token, thread_job=True):
         pass
 
 
-# A run that ended because a package it needs is missing did nothing, so it
-# must not read as "done" in the job list.
+# A run that ended because a package it needs is missing, or a model it needs
+# could not be fetched, did nothing, so it must not read as "done" in the job list.
 def _missing_dependency_error(result):
-    if isinstance(result, dict) and result.get("failed_reason") == "dependency_missing":
+    if not isinstance(result, dict):
+        return None
+    reason = result.get("failed_reason")
+    if reason == "dependency_missing":
         return str(result.get("detail") or "A required component is not installed.")
+    if reason == "model_download":
+        # The same plain text the outcome line shows; scrubbed because the detail
+        # comes from a download error.
+        from services import jobs_service
+        return jobs_service.scrub_text(jobs_service.derive_outcome("done", None, result)[1])
     return None
 
 
@@ -475,7 +483,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
         _timing = _timing_start(job_id)
         try:
             target(*args, **kwargs)
-            _description = _owner = None
+            _description = _owner = _reason = None
             _with_errors = False
             _outcome = "done"
             with _lock:
@@ -486,6 +494,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _jobs[job_id]["status"] = "error" if _missing else "done"
                     if _missing:
                         _outcome = "error"
+                        _reason = _missing
                         _jobs[job_id]["error"] = _missing
                         _jobs[job_id]["message"] = ""
                     else:
@@ -496,7 +505,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
             _notify_job_finished(_description, _outcome, job_id=job_id, owner_user_id=_owner,
-                                 with_errors=_with_errors)
+                                 with_errors=_with_errors, reason=_reason)
         except JobCancelled:
             with _lock:
                 _mark_cancelled_locked(job_id)
@@ -1310,6 +1319,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         reap_worker(proc, kill_whole_tree)
         reaped = True
         hook_error = None
+        _jobs_reason = None
         result = outcome[1] if outcome and outcome[0] == "ok" else None
         if outcome and outcome[0] == "ok" and on_done is not None:
             with _lock:
@@ -1353,6 +1363,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = _missing
                     _jobs[job_id]["message"] = ""
+                    _jobs_reason = _missing
                     logger.error(f"job {job_id} failed: {_missing}")
                 else:
                     _jobs[job_id]["status"] = "done"
@@ -1380,7 +1391,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _final_status = _jobs[job_id]["status"]
             _description = _jobs[job_id].get("description")
             _owner = _jobs[job_id].get("owner_user_id")
-        _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner)
+        _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner,
+                             reason=_jobs_reason)
     except Exception as exc:
         # A complete message that fails to unpickle, a broken queue or any
         # other watcher failure: without this the job stays "running"
