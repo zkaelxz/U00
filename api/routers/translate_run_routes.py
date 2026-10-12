@@ -227,7 +227,7 @@ def get_episode_summary_options(drama_id: int = Path(ge=1)):
 
 
 @router.post("/dramas/{drama_id}/episode-summary/generate",
-             dependencies=[require_permission("lines.edit")],
+             dependencies=[require_permission("lines.edit", "lines.read")],
              response_model=EpisodeSummaryGenerated,
              summary="Write the running episode summary from the current lines (saves nothing)",
              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},

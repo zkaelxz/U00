@@ -8,15 +8,20 @@ starts the normal run over just them with the engine picked in Settings
 the usage log and the pre-run undo snapshot all apply as for any run.
 """
 import db
-from engine_backends.glossary_check import GLOSSARY_FLAG
+from engine_backends.glossary_check import GLOSSARY_FLAG, missing_terms
 from services import settings_service, stronger_engine_service, translate_run_service
 from services.service_errors import UnsupportedOperationError
 
 
 def _flagged_rows(drama_id: int) -> list:
+    """Flagged lines whose CURRENT English still lacks a glossary name: a line the
+    person fixed by hand keeps its flag but is no longer a miss."""
+    drama = db.get_drama(drama_id) or {}
+    series_id = drama.get("series_id")
+    terms = db.list_glossary_terms(series_id) if series_id else []
     return [r for r in db.load_lines(drama_id)
             if r.get("flag") == GLOSSARY_FLAG and (r.get("zh") or "").strip()
-            and (r.get("en") or "").strip()]
+            and (r.get("en") or "").strip() and missing_terms(r["zh"], r["en"], terms)]
 
 
 def config_fields(drama_id: int) -> dict:
@@ -37,8 +42,9 @@ def start_redo(drama_id: int, engine: str, allow_paid_summary: bool = True,
                thinking: bool = None) -> dict:
     """Runs the stronger engine over the flagged lines. `engine` is the name the
     caller was checked for; a Settings change since is refused rather than run
-    on an engine nobody checked. A line edited since the count was read keeps
-    its edit."""
+    on an engine nobody checked. Lines that no longer miss a name are left out;
+    a line edited between reading it here and the run's own read is dropped
+    (expected_en), so the run never overwrites English it did not see."""
     name = engine_name(drama_id)
     if name != engine:
         raise UnsupportedOperationError("The stronger engine changed in Settings. Try again.")

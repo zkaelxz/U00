@@ -20,14 +20,19 @@ def _label(choice: str) -> str:
 
 
 def no_engine_reason(allow_paid: bool) -> str:
-    """Why translate_run_service.pick_summary_engine gave no engine."""
-    choice = settings_service.get("episode_summary_engine")
-    if not allow_paid and choice not in translate_engines.FREE_ENGINES:
-        return (f"Summary skipped: {choice} is a paid engine and this account can't use paid "
-                f"engines; {CHOOSE} that is free.")
-    if choice != "ollama" and not translate_service.resolve_api_key(choice):
-        return f"Summary skipped: no {choice} key is saved; {CHOOSE} or add the key."
-    return f"Summary skipped: the {_label(choice)} engine could not be started; {CHOOSE}."
+    """Why translate_run_service.pick_summary_engine gave no engine. Never raises:
+    a bad Settings value gives a reason, not a failed run start."""
+    choice = None
+    try:
+        choice = settings_service.get("episode_summary_engine")
+        if not allow_paid and choice not in translate_engines.FREE_ENGINES:
+            return (f"Summary skipped: {choice} is a paid engine and this account can't use paid "
+                    f"engines; {CHOOSE} that is free.")
+        if choice != "ollama" and not translate_service.resolve_api_key(choice):
+            return f"Summary skipped: no {choice} key is saved; {CHOOSE} or add the key."
+    except Exception:
+        pass
+    return f"Summary skipped: the {_label(choice or 'chosen')} engine could not be started; {CHOOSE}."
 
 
 def missing_after_run_reason(drama_id: int, choice: str, cancelled: bool) -> str:

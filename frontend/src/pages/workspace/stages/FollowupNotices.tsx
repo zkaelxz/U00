@@ -28,6 +28,7 @@ export function FailedBatchesNotice({ config, form, busy, onStarted, onDismissed
   if (!failed) return null
   const { empty, kept } = splitFailed(failed.lineNumbers, config.failed_untranslated_numbers, config.failed_kept_earlier_numbers)
   const total = empty.length + kept.length
+  const canRetry = config.failed_retryable === true
   const blocker = form ? retryBlocker(form, config.translation_engine) : null
   const act = (call: Promise<unknown>, done: () => void) => {
     setPending(true)
@@ -44,8 +45,9 @@ export function FailedBatchesNotice({ config, form, busy, onStarted, onDismissed
       <p className="warn">
         The last translation run had {failed.batches} failed batch{failed.batches === 1 ? '' : 'es'}
         {total > 0 && <>; {failedLinesText(empty, kept)}</>}.
-        {empty.length > 0 && kept.length === 0 && ' Translate again to retry only the missing lines; lines already translated are skipped.'}
-        {kept.length > 0 && ' Retrying replaces the earlier English on those lines with the engine chosen below.'}
+        {canRetry ? null : ' This record is from an older version, so the lines cannot be retried from here.'}
+        {canRetry && empty.length > 0 && kept.length === 0 && ' Translate again to retry only the missing lines; lines already translated are skipped.'}
+        {canRetry && kept.length > 0 && ' Retrying replaces the earlier English on those lines with the engine chosen below.'}
       </p>
       {failed.reasons.length > 0 && (
         <ul className="muted translate-failed-reasons">
@@ -53,10 +55,10 @@ export function FailedBatchesNotice({ config, form, busy, onStarted, onDismissed
           {failed.reasons.length > 3 && <li>and {failed.reasons.length - 3} more</li>}
         </ul>
       )}
-      {blocker && <p className="error" role="alert">{blocker}</p>}
+      {canRetry && blocker && <p className="error" role="alert">{blocker}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <div className="actions">
-        {total > 0 && (
+        {canRetry && total > 0 && (
           <button type="button" onClick={retry} disabled={pending || busy || !form || blocker !== null}>
             {retryLabel(total)}
           </button>

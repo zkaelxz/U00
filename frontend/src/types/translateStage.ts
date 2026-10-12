@@ -46,6 +46,8 @@ export interface TranslateRunConfig {
   // the earlier engine's English. Missing on an older server.
   failed_untranslated_numbers?: number[]
   failed_kept_earlier_numbers?: number[]
+  // False for a record from before line ids were kept: the notice shows, Retry does not.
+  failed_retryable?: boolean
   // Lines flagged for a missing glossary name, and the Settings engine the
   // one-click redo would use (null until one is picked).
   glossary_flagged_count?: number

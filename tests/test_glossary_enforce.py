@@ -49,7 +49,7 @@ def test_wrong_name_then_right_name_is_fixed_by_one_id_keyed_retry():
 
 def test_the_retry_prompt_lists_the_missed_terms_first():
     engine = ScriptedEngine({10: "x", 11: "y", 12: "z"},
-                            {10: "Shirakami Fubuki", 12: "Shirakami Fubuki"})
+                            {10: "Shirakami Fubuki came.", 12: "Hello, Shirakami Fubuki."})
     _run(engine, _lines())
     msg = te.build_batch_user_message(engine.calls[1]["context"], "1. a")
     assert msg.startswith("GLOSSARY CORRECTION") and "白上吹雪 -> Shirakami Fubuki" in msg
@@ -119,3 +119,43 @@ def test_another_flag_is_not_overwritten():
     ln = Line(idx=0, start=0, end=1, zh="吹雪", en="Buki", id=1, flag="content_blocked")
     glossary_check.enforce([ln], TERMS, lambda *a: None, lambda: True)
     assert ln.flag == "content_blocked"
+
+
+def test_a_name_only_reply_is_rejected_and_the_first_try_stays():
+    zh = "白上吹雪今天来到了我们这里参加聚会"
+    lines = [Line(idx=0, start=0, end=1, zh=zh, id=10)]
+    engine = ScriptedEngine({10: "Shirokami Buki arrived today to join our party."},
+                            {10: "Shirakami Fubuki"})
+    out = _run(engine, lines)[0]
+    assert out[0].en == "Shirokami Buki arrived today to join our party."
+    assert out[0].flag == "glossary_missing"
+
+
+def test_a_reply_far_longer_than_its_source_is_rejected():
+    lines = [Line(idx=0, start=0, end=1, zh="吹雪好", id=10)]
+    merged = "Shirakami Fubuki is good. " + "And then the next speaker said something else entirely. " * 4
+    engine = ScriptedEngine({10: "Buki is good."}, {10: merged})
+    out = _run(engine, lines)[0]
+    assert out[0].en == "Buki is good." and out[0].flag == "glossary_missing"
+
+
+def test_the_reask_honours_stop_before_batch():
+    engine = ScriptedEngine({10: "Buki", 11: "ok", 12: "Buki"}, {10: "Shirakami Fubuki came.", 12: "Hi Shirakami Fubuki."})
+    gate = iter([False, True, True])
+    lines = _run(engine, _lines(), stop_before_batch=lambda: next(gate))[0]
+    assert len(engine.calls) == 1 and lines[0].flag == "glossary_missing"
+
+
+def test_a_failed_reask_that_ends_the_run_is_logged_without_naming_lines_as_failed():
+    from engine_backends.shared import TranslationCancelled  # noqa: F401
+    class Dies(ScriptedEngine):
+        def translate_batch(self, zh_lines, context):
+            if self.calls:
+                exc = RuntimeError("quota used up sk-ant-abc123")
+                exc.stops_run = True
+                raise exc
+            return super().translate_batch(zh_lines, context)
+    engine = Dies({10: "Buki", 11: "ok", 12: "Buki"})
+    errors = _run(engine, _lines())[1]
+    assert all(e["lines"] == [] for e in errors) and errors
+    assert "sk-ant-abc123" not in str(errors)

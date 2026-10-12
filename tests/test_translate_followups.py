@@ -47,11 +47,14 @@ def _wait(job_id):
     raise AssertionError("job did not finish")
 
 
-def _title(en=("older 0", "ok 1", "older 2", ""), errors=ERRORS, **drama):
+def _title(en=("older 0", "ok 1", "older 2", ""), errors=ERRORS, legacy=False, **drama):
     did = db.create_drama(title_zh="D", **drama)
     db.save_lines(did, [Line(idx=i, start=i * 5, end=i * 5 + 4, zh=f"句{i}", en=e)
                         for i, e in enumerate(en)])
     if errors is not None:
+        by_idx = {r["idx"]: r["id"] for r in db.load_lines(did)}
+        # The pipeline records ids beside indexes; `legacy` is a record from before that.
+        errors = errors if legacy else [{**e, "line_ids": [by_idx[i] for i in e["lines"]]} for e in errors]
         db.update_drama(did, last_translate_errors=json.dumps(errors))
     return did
 
@@ -65,7 +68,7 @@ def _en(did):
 def test_summary_separates_empty_lines_from_ones_holding_earlier_english(isolated_db):
     did = _title(en=("older 0", "ok 1", "", ""))
     assert failed_lines_service.summarize(did) == {
-        "failed_untranslated_numbers": [3], "failed_kept_earlier_numbers": [1]}
+        "failed_untranslated_numbers": [3], "failed_kept_earlier_numbers": [1], "failed_retryable": True}
 
 
 def test_retry_translates_exactly_the_failed_lines_even_with_earlier_english(isolated_db):
@@ -142,7 +145,11 @@ def _flag(did, idxs):
 
 
 def test_redo_uses_the_stronger_engine_on_flagged_lines_only(isolated_db, monkeypatch):
+    sid = db.get_or_create_series("S")
+    db.upsert_glossary_term(sid, "句0", "Zero Name", aliases=None, banned_translations=None)
+    db.upsert_glossary_term(sid, "句2", "Two Name", aliases=None, banned_translations=None)
     did = _title(en=("Buki", "fine", "Buki", ""), errors=None)
+    db.update_drama(did, series_id=sid)
     _flag(did, {0, 2})
     monkeypatch.setattr(settings_service, "get", _with(settings_service.get, {}))
     from services import stronger_engine_service as sts
@@ -246,3 +253,91 @@ def test_api_summary_options_and_generate(client, monkeypatch):
     assert "fake" in opts["engines"] and opts["engine"]
     r = client.post(f"/api/translate-run/dramas/{did}/episode-summary/generate", json={"engine": "fake"})
     assert r.status_code == 200 and r.json()["summary"] == "S."
+
+
+# --- review fixes ----------------------------------------------------------
+
+def test_a_failed_batch_records_line_ids_next_to_indexes(isolated_db):
+    from engine_backends import translate_pipeline as tp  # noqa: F401
+    did = _title(en=("", "", "", ""), errors=None)
+
+    class Broken(fake_engine.FakeEngine):
+        def translate_batch(self, zh, context):
+            raise ValueError("boom")
+    lines = [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", id=50 + i) for i in range(2)]
+    _, errors = translate_engines.translate_lines_with_engine(
+        lines, Broken(), drama_meta={"source_language": "zh"}, context_window=0, context_window_ahead=0)
+    assert errors[0]["lines"] == [0, 1] and errors[0]["line_ids"] == [50, 51]
+
+
+def _ids(did):
+    return [r["id"] for r in db.load_lines(did)]
+
+
+def test_retry_after_a_merge_touches_only_the_recorded_ids(isolated_db):
+    from services import restructure_service
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    ids = _ids(did)
+    # line 3 (id ids[3]) failed while it was at index 3
+    db.update_drama(did, last_translate_errors=json.dumps(
+        [{"batch_index": 0, "lines": [3], "line_ids": [ids[3]], "error": "got no translation"}]))
+    restructure_service.merge_lines(did, [ids[0], ids[1]], expected_line_ids=ids)
+    now = {r["id"]: r["idx"] for r in db.load_lines(did)}
+    assert now[ids[3]] == 2          # the index moved
+    assert failed_lines_service.summarize(did)["failed_kept_earlier_numbers"] == [3]
+    out = failed_lines_service.start_retry(did, engine_name="fake")
+    assert out["line_ids"] == [ids[3]]
+    _wait(out["job_id"])
+    by_id = {r["id"]: r["en"] for r in db.load_lines(did)}
+    assert by_id[ids[3]] == "[TEST] 句3"
+    assert by_id[ids[2]] == "c"
+
+
+def test_an_old_record_without_ids_shows_the_notice_but_cannot_retry(isolated_db, client):
+    did = _title(legacy=True)
+    assert failed_lines_service.summarize(did)["failed_retryable"] is False
+    with pytest.raises(UnsupportedOperationError, match="older"):
+        failed_lines_service.start_retry(did, engine_name="fake")
+    assert client.get(f"/api/translate-run/dramas/{did}/config").json()["failed_retryable"] is False
+
+
+def test_prune_matches_by_id_and_keeps_entries_without_ids(isolated_db):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    ids = _ids(did)
+    db.update_drama(did, last_translate_errors=json.dumps([
+        {"batch_index": 0, "lines": [0, 1], "line_ids": [ids[0], ids[1]], "error": "x"},
+        {"batch_index": 1, "lines": [2], "error": "legacy"}]))
+    lines = [Line(idx=0, start=0, end=1, zh="z", en="new", id=ids[0]),
+             Line(idx=1, start=1, end=2, zh="z", en="b", id=ids[1])]
+    failed_lines_service.prune_resolved(did, lines, {ids[0], ids[1]}, {ids[0]: "a", ids[1]: "b"}, [])
+    left = json.loads(db.get_drama(did)["last_translate_errors"])
+    assert left[0]["line_ids"] == [ids[1]] and left[0]["lines"] == [1] and left[1]["lines"] == [2]
+
+
+def test_redo_skips_lines_whose_english_was_fixed_by_hand(isolated_db, monkeypatch):
+    sid = db.get_or_create_series("S")
+    db.upsert_glossary_term(sid, "句0", "Zero Name", aliases=None, banned_translations=None)
+    db.upsert_glossary_term(sid, "句2", "Two Name", aliases=None, banned_translations=None)
+    did = _title(en=("Zero Name here", "b", "wrong", ""), errors=None)
+    db.update_drama(did, series_id=sid)
+    _flag(did, {0, 2})
+    from services import stronger_engine_service as sts
+    monkeypatch.setattr(sts, "stronger_engine_or_none", lambda drama_id: "fake")
+    assert glossary_flagged_service.config_fields(did)["glossary_flagged_count"] == 1
+    out = glossary_flagged_service.start_redo(did, "fake")
+    assert len(out["line_ids"]) == 1
+    _wait(out["job_id"])
+    assert _en(did)[0] == "Zero Name here"
+
+
+def test_a_bad_summary_engine_setting_gives_a_reason_not_a_failure(isolated_db, monkeypatch):
+    monkeypatch.setattr(settings_service, "get", _with(settings_service.get,
+                                                       {"episode_summary_engine": "no-such-engine"}))
+    assert "Summary skipped" in episode_summary_service.no_engine_reason(allow_paid=True)
+    monkeypatch.setattr(episode_summary_service.translate_service, "resolve_api_key",
+                        lambda n: (_ for _ in ()).throw(RuntimeError("x")))
+    assert "Summary skipped" in episode_summary_service.no_engine_reason(allow_paid=True)
+
+
+def test_prune_and_dismiss_share_one_lock(isolated_db):
+    assert failed_lines_service.translate_run_service.ERRORS_LOCK is translate_run_service.ERRORS_LOCK

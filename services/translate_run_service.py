@@ -30,6 +30,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 from types import SimpleNamespace
 from typing import Optional
 
@@ -87,6 +88,11 @@ def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False) -> N
 # Claude replies are capped at 4000 output tokens; past this the JSON reply risks
 # being cut off and the batch coming back empty.
 MAX_BATCH_SIZE = 60
+
+
+# Serialises writes to dramas.last_translate_errors: the dismiss route and a
+# retry run's prune both read-modify-write it.
+ERRORS_LOCK = threading.Lock()
 
 
 def _parse_errors(raw) -> Optional[list]:
@@ -776,10 +782,11 @@ def dismiss_translate_errors(drama_id: int) -> dict:
     (db.update_drama(last_translate_errors=None)); lines are untouched, so a
     later "Translate all lines" still retries the missing ones. NotFoundError
     for an unknown drama; `dismissed` is False when there was nothing to clear."""
-    drama = require_drama(drama_id)
-    had = bool(drama.get("last_translate_errors"))
-    if had:
-        db.update_drama(drama_id, last_translate_errors=None)
+    require_drama(drama_id)
+    with ERRORS_LOCK:
+        had = bool((db.get_drama(drama_id) or {}).get("last_translate_errors"))
+        if had:
+            db.update_drama(drama_id, last_translate_errors=None)
     return {"drama_id": drama_id, "dismissed": had}
 
 

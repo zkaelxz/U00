@@ -171,6 +171,8 @@ class TranslateRunConfig(BaseModel):
     # holding the earlier engine's English.
     failed_untranslated_numbers: List[int] = []
     failed_kept_earlier_numbers: List[int] = []
+    # False for a record from before line ids were kept: shown, but no Retry.
+    failed_retryable: bool = False
     glossary_flagged_count: int = 0
     glossary_redo_engine: Optional[str] = None
 

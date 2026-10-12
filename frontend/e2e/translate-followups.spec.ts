@@ -18,6 +18,7 @@ test('failed lines that kept older English are not called untranslated, and can 
     ],
     failed_untranslated_numbers: [],
     failed_kept_earlier_numbers: [468, 469, 1843],
+    failed_retryable: true,
   })
   const bodies: Record<string, unknown>[] = []
   await page.route('**/api/translate-run/dramas/1/retry-failed/run', (route) => {
@@ -43,6 +44,7 @@ test('empty failed lines still read untranslated, with the retry button', async 
     last_translate_errors: [{ batch_index: 0, lines: [0, 1, 2, 8], error: 'engine timed out' }],
     failed_untranslated_numbers: [1, 2, 3, 9],
     failed_kept_earlier_numbers: [],
+    failed_retryable: true,
   })
   await page.goto('/#/drama/1/translate')
   const notice = page.getByRole('region', { name: 'Failed batches' })
@@ -50,10 +52,23 @@ test('empty failed lines still read untranslated, with the retry button', async 
   await expect(notice.getByRole('button', { name: 'Retry these 4 lines' })).toBeEnabled()
 })
 
+test('a record from an older version shows the notice with no Retry button', async ({ page }) => {
+  await withConfig(page, {
+    last_translate_errors: [{ batch_index: 0, lines: [4], error: 'timeout' }],
+    failed_untranslated_numbers: [], failed_kept_earlier_numbers: [], failed_retryable: false,
+  })
+  await page.goto('/#/drama/1/translate')
+  const notice = page.getByRole('region', { name: 'Failed batches' })
+  await expect(notice).toContainText('line 5 is still untranslated')
+  await expect(notice).toContainText('older version')
+  await expect(notice.getByRole('button', { name: /^Retry/ })).toHaveCount(0)
+  await expect(notice.getByRole('button', { name: 'Dismiss notice' })).toBeEnabled()
+})
+
 test('a failed retry shows the error and keeps the notice', async ({ page }) => {
   await withConfig(page, {
     last_translate_errors: [{ batch_index: 0, lines: [4], error: 'timeout' }],
-    failed_untranslated_numbers: [], failed_kept_earlier_numbers: [5],
+    failed_untranslated_numbers: [], failed_kept_earlier_numbers: [5], failed_retryable: true,
   })
   await page.route('**/api/translate-run/dramas/1/retry-failed/run', (route) =>
     route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'The monthly cap is used up.' } } }))
