@@ -40,6 +40,7 @@ import {
   whisperModelWarning,
 } from '../sourceForm'
 import { useDeveloperMode } from '../../assistant/developerMode'
+import { GpuBanner } from '../../diagnostics/GpuBanner'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { useStage } from '../StageContext'
 import type { MediaTab } from '../mediaTabs'
@@ -600,6 +601,7 @@ export default function TranscribeStage({
             <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
           </div>
         )}
+        <GpuBanner onTurnedOn={() => setUseGpu(true)} />
         {cf && (
           <p className="muted" data-testid="run-line">
             {runLine({

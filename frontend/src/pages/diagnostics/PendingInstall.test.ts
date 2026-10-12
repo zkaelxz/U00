@@ -91,6 +91,11 @@ describe('InstallPlanPanel', () => {
     expect(html).not.toContain('Install now')
   })
 
+  it('shows the OpenCV removal line the plan summary carries', () => {
+    const swap = 'Remove opencv-python first: PaddleOCR needs opencv-contrib-python, and the two cannot share one \'cv2\' folder.'
+    expect(panel(plan({ summary: [swap, 'Install paddleocr 3.2.0.'] }))).toContain('Remove opencv-python first')
+  })
+
   it('offers Install now when nothing is in use', () => {
     expect(panel(plan({ summary: ['Change numpy 2.5.3 -> 2.6.0.'] }))).toContain('Install now')
   })
