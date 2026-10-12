@@ -12,7 +12,7 @@ test.afterEach(async ({ page }) => {
 test('estimate line and job card fit at phone width', async ({ page }) => {
   const job: MockJob = { progress: 0.3, message: 'Transcribing... 30%' }
   await mockTranscribeCard(page, { durationSeconds: 7200, cached: false, separate: true }, job)
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await expect(page.getByTestId('transcribe-estimate')).toContainText('Rough estimate')
   await expect(page.getByTestId('separation-note')).toBeVisible()
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()

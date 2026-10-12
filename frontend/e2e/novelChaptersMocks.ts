@@ -39,3 +39,10 @@ export async function mockChapters(page: Page, body: unknown, text: (n: number, 
   })
   return slices
 }
+
+/** The Saved chapters card is closed until opened (the Novel text card is the open one); opens it. */
+export async function openChapters(page: Page) {
+  const fold = page.locator('details.section', { has: page.locator('summary > .section-title', { hasText: /^Saved chapters$/ }) })
+  await fold.waitFor()
+  if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
+}

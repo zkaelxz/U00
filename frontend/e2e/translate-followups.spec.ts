@@ -113,8 +113,7 @@ test('Details: Generate summary fills the episode summary box without saving it'
     return route.fulfill({ json: { drama_id: 1, summary: 'They met at the lake.', engine: 'claude' } })
   })
   await page.goto('/#/drama/1/source')
-  await page.getByText('Details and credits', { exact: true }).click()
-  await page.getByText('Edit details', { exact: true }).click()
+  await page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab', { name: 'Details', exact: true }).click()
   const generate = page.getByTestId('episode-summary-generate')
   // Open by default when the title already has a summary.
   if (!(await generate.getByLabel('Summary engine').isVisible())) await page.getByText('More details', { exact: true }).click()

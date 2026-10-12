@@ -13,7 +13,7 @@ const noSideScroll = () => document.documentElement.scrollWidth <= window.innerW
 
 test('phone: the preflight card stacks and its install button fits the screen', async ({ page }) => {
   await mockTranscription(page, false)
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   const install = page.locator('#transcribe-not-installed').getByRole('button', { name: /Install \(about 80 MB\)/ })
   await expect(install).toBeVisible()
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeDisabled()
