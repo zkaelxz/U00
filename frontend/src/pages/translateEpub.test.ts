@@ -184,7 +184,9 @@ describe('extractEpubText', () => {
     const bomb = declareSize(buildEpub({}, { 'OEBPS/a.xhtml': zeros }), 'OEBPS/a.xhtml', 0)
     expect(bomb.length).toBeLessThan(200_000)
     expect(errorOf(bomb)).toBe('"book.epub" unpacks to more than 100 MB of text, too much to open safely.')
-  })
+    // Deflating and then inflating 100 MB takes about 2 s alone, so the 5 s default timeout is only
+    // 2.5x headroom and the full suite's parallel workers used it up once.
+  }, 30_000)
 
   it('ignores declared sizes: a small chapter declaring a huge size still opens', () => {
     const epub = buildEpub({ 'OEBPS/a.xhtml': '<p>x</p>' })

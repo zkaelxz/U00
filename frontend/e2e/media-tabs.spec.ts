@@ -104,6 +104,8 @@ test('the advanced options are folds; Switches opens first on a new title, and t
   for (const i of [0, 1, 2]) await expect(folds.nth(i)).not.toHaveAttribute('open', '')
   await folds.nth(2).locator(':scope > summary').click()
   await folds.nth(3).locator(':scope > summary').click()
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => Object.keys(window.localStorage).filter((k) => k.startsWith('baihe.section.source.advanced.')).length >= 2)
   await page.reload()
   await expect(mediaTab(page, 'tools')).toHaveAttribute('aria-selected', 'true')
   const again = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' }).locator(':scope > details.section')

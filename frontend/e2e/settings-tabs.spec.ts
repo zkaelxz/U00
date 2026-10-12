@@ -48,6 +48,8 @@ test('a card remembers whether it is open after a reload, and shows its value wh
   await fold(page, 'Notifications').locator('> summary').click()
   await expect(fold(page, 'Notifications').locator('> summary .section-summary')).toHaveText(/^Notify when a job finishes: (On|Off)$/)
   await fold(page, 'App updates').locator('> summary').click()
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => Object.keys(window.localStorage).filter((k) => k.startsWith('baihe.section.settings.card.')).length >= 2)
   await page.reload()
   await tab(page, 'Notifications and backups').click()
   expect(await isOpen(page, 'Notifications')).toBe(false)

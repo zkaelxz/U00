@@ -13,6 +13,7 @@ import base64
 import hashlib
 import os
 import sys
+import tempfile
 import zipfile
 
 import pytest
@@ -128,6 +129,42 @@ class TestCheckUpgradeCandidate:
         monkeypatch.setattr(upgrade_check.tempfile, "mkdtemp", lambda prefix="": str(work))
         _run(tmp_path, parent, wheels, suite, "1.1")
         assert not work.exists()
+
+    def test_the_suite_gets_a_private_temp_folder_that_is_removed_with_the_work_folder(
+            self, tmp_path, monkeypatch):
+        seen = tmp_path / "seen_tmp.txt"
+        suite_src = (
+            "import os, tempfile\n"
+            "def test_makes_temp_files():\n"
+            "    tempfile.mkdtemp(prefix='probe_leak_')\n"
+            "    tempfile.mkstemp(prefix='probe_leak_')\n"
+            f"    open({str(seen)!r}, 'w').write(os.environ['TMP'] + '|' + os.environ['TEMP'] "
+            "+ '|' + os.environ['TMPDIR'] + '|' + tempfile.gettempdir())\n")
+        parent, wheels, suite = _setup(tmp_path, suite_src, {"1.1": 1})
+        work = tmp_path / "work"
+        work.mkdir()
+        monkeypatch.setattr(upgrade_check.tempfile, "mkdtemp", lambda prefix="": str(work))
+        real_tmp = tempfile.gettempdir()
+        before = {n for n in os.listdir(real_tmp) if n.startswith("probe_leak_")}
+        result, _ = _run(tmp_path, parent, wheels, suite, "1.1")
+        assert result["verdict"] == "safe"
+        tmp_vars = seen.read_text().split("|")
+        scratch = str(work / "tmp")
+        assert tmp_vars == [scratch] * 4
+        assert {n for n in os.listdir(real_tmp) if n.startswith("probe_leak_")} == before
+        assert not work.exists()
+
+    def test_a_work_folder_that_cannot_be_removed_is_said_in_the_result(self, tmp_path, monkeypatch):
+        parent, wheels, suite = _setup(tmp_path, SUITE, {"1.1": 1})
+        work = tmp_path / "work"
+        work.mkdir()
+        monkeypatch.setattr(upgrade_check.tempfile, "mkdtemp", lambda prefix="": str(work))
+        monkeypatch.setattr(upgrade_check.shutil, "rmtree", lambda *a, **k: None)
+        monkeypatch.setattr(upgrade_check, "WORK_REMOVE_PAUSE", 0)
+        result, _ = _run(tmp_path, parent, wheels, suite, "1.1")
+        assert result["verdict"] == "safe"
+        assert "couldn't be fully removed" in result["reason"]
+        assert str(work) not in result["reason"]
 
 
 class TestEnsurePytest:
