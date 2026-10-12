@@ -1,0 +1,230 @@
+/* Frost look: translucent panels over a soft colour wash, one control shape, gradient covers.
+   Loaded after index.css and only restyles; sizes, layout and touch targets stay as index.css sets them.
+   The solid tokens (--bg, --surface, --text ...) live in index.css so themeContrast.test.ts covers them;
+   rgba values are kept here because that test only reads hex and hsl. */
+
+/* Light */
+:root {
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-edge: rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 6px 22px rgba(60, 80, 120, 0.12);
+  --btn: #ffffff;
+  --btn-edge: rgba(23, 32, 47, 0.16);
+  --btn-shadow: 0 1px 2px rgba(23, 32, 47, 0.08);
+  --active: #ffffff;
+  --wash-1: #ffd2b3;
+  --wash-2: #a9dcff;
+  --wash-3: #d3e6ff;
+  --wash-4: #e6ddff;
+  --tile-base: #ffffff;
+  --tile-hi: 46%;
+  --tile-lo: 14%;
+}
+
+/* Dark: the system's choice unless light or sepia was picked, and always for dark or oled (same split as index.css). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"], [data-theme="sepia"]) {
+    --glass: rgba(255, 255, 255, 0.07);
+    --glass-edge: rgba(255, 255, 255, 0.14);
+    --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+    --btn: rgba(255, 255, 255, 0.1);
+    --btn-edge: rgba(255, 255, 255, 0.22);
+    --btn-shadow: none;
+    --active: rgba(142, 197, 255, 0.22);
+    --wash-1: #5a3a62;
+    --wash-2: #1f4f78;
+    --wash-3: #17594f;
+    --wash-4: #3a2f6e;
+    --tile-base: #1c2240;
+    --tile-hi: 62%;
+    --tile-lo: 24%;
+  }
+}
+:root:is([data-theme="dark"], [data-theme="oled"]) {
+  --glass: rgba(255, 255, 255, 0.07);
+  --glass-edge: rgba(255, 255, 255, 0.14);
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  --btn: rgba(255, 255, 255, 0.1);
+  --btn-edge: rgba(255, 255, 255, 0.22);
+  --btn-shadow: none;
+  --active: rgba(142, 197, 255, 0.22);
+  --wash-1: #5a3a62;
+  --wash-2: #1f4f78;
+  --wash-3: #17594f;
+  --wash-4: #3a2f6e;
+  --tile-base: #1c2240;
+  --tile-hi: 62%;
+  --tile-lo: 24%;
+}
+/* Glass on pure black has nothing to blur, so OLED keeps a faint edge and only a hint of colour. */
+:root[data-theme="oled"] {
+  --glass: rgba(255, 255, 255, 0.05);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --glass-shadow: none;
+  --btn: rgba(255, 255, 255, 0.08);
+  --wash-1: #1b1030;
+  --wash-2: #07202e;
+  --wash-3: #06241d;
+  --wash-4: #150f2c;
+  --tile-base: #121212;
+  --tile-hi: 58%;
+  --tile-lo: 20%;
+}
+:root[data-theme="sepia"] {
+  --glass: rgba(248, 240, 220, 0.62);
+  --glass-edge: rgba(255, 250, 235, 0.85);
+  --glass-shadow: 0 6px 22px rgba(90, 65, 20, 0.16);
+  --btn: #fbf5e4;
+  --btn-edge: rgba(59, 50, 32, 0.22);
+  --btn-shadow: 0 1px 2px rgba(59, 50, 32, 0.1);
+  --active: #fbf5e4;
+  --wash-1: #f2c9a0;
+  --wash-2: #e6d9a8;
+  --wash-3: #d4e0b4;
+  --wash-4: #ecc9b8;
+  --tile-base: #fbf5e4;
+  --tile-hi: 44%;
+  --tile-lo: 14%;
+}
+
+body {
+  background:
+    radial-gradient(520px 420px at 8% 12%, var(--wash-1), transparent 70%),
+    radial-gradient(620px 520px at 92% 8%, var(--wash-2), transparent 70%),
+    radial-gradient(640px 520px at 70% 100%, var(--wash-3), transparent 70%),
+    radial-gradient(520px 420px at 15% 95%, var(--wash-4), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* Panels */
+.card,
+.review-toolbar,
+.review-toolbox,
+.review-lines,
+.sheet,
+.drama-card {
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+  border-radius: 22px;
+}
+@supports (backdrop-filter: blur(1px)) {
+  .card, .review-toolbar, .review-toolbox, .review-lines, .drama-card { backdrop-filter: blur(22px) saturate(1.4); }
+}
+.review-toolbox { overflow: hidden; }
+
+/* One control shape: pill with a visible edge, so a white button never vanishes on a white panel. */
+.btn,
+.palette-btn,
+.jobs-menu-btn,
+.notify-bell-btn,
+.report-btn,
+.theme-menu-btn {
+  border: 1px solid var(--btn-edge);
+  background: var(--btn);
+  box-shadow: var(--btn-shadow);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  font-weight: var(--weight-bold);
+}
+.btn.btn-primary {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, white), var(--accent));
+  border-color: transparent;
+  color: var(--on-accent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.btn.btn-ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--accent-text); }
+.btn.btn-danger { background: var(--btn); }
+.btn:disabled { opacity: 0.5; }
+
+/* Fields */
+input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
+select,
+textarea {
+  border-radius: var(--radius-sm);
+}
+
+/* Chips and segmented controls */
+.review-chip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--btn-edge);
+  background: var(--btn);
+  box-shadow: var(--btn-shadow);
+  font-weight: var(--weight-bold);
+}
+.review-chip input:checked + span {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  box-shadow: none;
+}
+fieldset.segmented {
+  border-radius: var(--radius-pill);
+  background: var(--glass);
+  border: 1px solid var(--btn-edge);
+}
+.segmented label { border-radius: var(--radius-pill); }
+.segmented label:has(input:checked) { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
+
+/* Tabs: a rounded tray with the selected tab raised on it. */
+.stage-tabs {
+  border: 1px solid var(--btn-edge);
+  background: var(--glass);
+  border-radius: var(--radius-pill);
+  padding: 5px;
+  gap: 2px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.stage-tabs a { border: 0; border-radius: var(--radius-pill); flex: 1 1 auto; min-width: 0; justify-content: center; text-align: center; white-space: nowrap; }
+.stage-tabs a[aria-current='page'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
+.ui-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: 22px; background: var(--glass); flex-wrap: wrap; }
+.ui-tab { border: 0; border-radius: var(--radius-pill); box-shadow: none; background: transparent; }
+.ui-tab[aria-selected='true'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
+
+/* Switches */
+.toggle { border: 1px solid var(--btn-edge); }
+.field-help-btn { background: var(--btn); border: 1px solid var(--btn-edge); box-shadow: none; }
+
+/* Badges: flat tinted pills, no border. */
+.pill { border: 0; box-shadow: none; }
+
+/* Covers: each title's hue (tile-h0..5) fades from strong to soft; the tint is mixed into --tile-base so it reads on every theme. */
+.drama-tile[class*='tile-h'],
+.continue-tile[class*='tile-h'] {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tile) var(--tile-hi), var(--tile-base)), color-mix(in srgb, var(--tile) var(--tile-lo), var(--tile-base)));
+  border-radius: 16px;
+  border: 1px solid var(--glass-edge);
+}
+
+/* Sticky bars sit over scrolling content, so they need a backing. A fade to transparent avoids a hard-edged rectangle on the colour wash; the toolbar is solid so lines never show through it. */
+.app-header,
+.ws-strip {
+  background: transparent;
+  border-bottom: 0;
+  isolation: isolate;
+}
+.app-header::before,
+.ws-strip::before {
+  content: '';
+  position: absolute;
+  inset: 0 -16px -14px;
+  z-index: -1;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  -webkit-mask-image: linear-gradient(#000 72%, transparent);
+  mask-image: linear-gradient(#000 72%, transparent);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .app-header::before, .ws-strip::before { backdrop-filter: blur(14px); }
+}
+.review-toolbar { background: var(--surface); backdrop-filter: none; border-radius: 22px; }
+.review-lines { overflow: hidden; }
+/* backdrop-filter on a rounded, clipped, scrolling panel leaves square corners in Chromium, so these stay un-blurred. */
+.review-toolbox, .review-lines { backdrop-filter: none; }
+.review-line.is-active { border-radius: 14px; }
