@@ -210,13 +210,18 @@ NO_CAP_MESSAGE = ("Set a monthly spending cap (Settings > Spending) before runni
                   "that nobody is watching.")
 
 
+# One status check a minute: about a quarter of an hour without an answer, so a
+# Wi-Fi blip does not end a poller whose batch is still being paid for.
+POLL_FAILURE_LIMIT = 15
+
+
 class PollGuard:
     """Ends a poller that cannot reach the provider, or whose batch is past its
     expiry, with a plain reason instead of polling for ever. A poller that gave
     up leaves the job "submitted", so Check now (or a restart) picks it up."""
 
     def __init__(self):
-        self._streak = FailureStreak()
+        self._streak = FailureStreak(POLL_FAILURE_LIMIT)
 
     def reached(self) -> None:
         self._streak.record(failed=False, succeeded=True)
@@ -255,9 +260,49 @@ def reschedule_for_next_window(bulk_job_id: int, now: datetime.datetime) -> None
         db.update_bulk_job(bulk_job_id, scheduled_for=next_deepseek_offpeak_start(now).isoformat())
 
 
-def stop_check(cancelled, window_open):
-    """One test for "stop before the next batch": the job was cancelled, or
-    the half-price window it was waiting for has closed."""
-    def stop():
-        return (cancelled and cancelled()) or (window_open is not None and not window_open())
-    return stop
+
+class WindowGate:
+    """Between-batch test for the half-price window; `closed` tells afterwards
+    whether it was what ended the run."""
+
+    def __init__(self, window_open):
+        self._open, self.closed = window_open, False
+
+    def __call__(self) -> bool:
+        if self._open is not None and not self._open():
+            self.closed = True
+        return self.closed
+
+
+def job_cap_left(job: dict):
+    """The job's own cost cap less what its earlier windows already spent
+    (the usage log is the record), or None when it has no cap."""
+    cap = (job.get("translate_args") or {}).get("cost_cap_usd")
+    if not cap:
+        return None
+    import contextlib
+    import db
+    with contextlib.closing(db.get_conn()) as conn:
+        spent = conn.execute(
+            "SELECT COALESCE(SUM(estimated_cost_usd), 0) FROM usage_log WHERE drama_id = ? "
+            "AND operation = 'translate_offpeak' AND created_at >= ?",
+            (job["drama_id"], job.get("submitted_at") or "")).fetchone()[0]
+    return float(cap) - float(spent)
+
+
+def offpeak_cap(job: dict, monthly_cap_usd):
+    """(cap, refusal) for an off-peak run about to start."""
+    import db
+    left = job_cap_left(job)
+    cap, refusal = translate_engines.resolve_cost_cap(
+        left if left and left > 0 else None, monthly_cap_usd,
+        db.get_month_spend() if monthly_cap_usd else 0.0)
+    return cap, refusal or run_refusal(cap, left)
+
+
+def run_refusal(cap, left):
+    """Why an off-peak run may not start now: no cap at all, or its own cost
+    cap is used up across the windows so far."""
+    if left is not None and left <= 0:
+        return "This job's cost cap is used up."
+    return None if cap is not None else NO_CAP_MESSAGE

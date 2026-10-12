@@ -337,6 +337,8 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
                                 for p in (job.get("result") or {}).get("proposals") or []
                                 if isinstance(p, dict) and p.get("term") not in ignored]}
     message = job.get("error") if status == "error" else job.get("message")
+    if status == "done" and (job.get("result") or {}).get("stopped"):
+        message = f"{job['result']['stopped']}. The terms found so far are listed."
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
             "message": translate_engines.redact_secrets(str(message)) if message else "",
             "result": result, "run_id": _current_run_id(job_id, job)}

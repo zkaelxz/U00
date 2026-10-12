@@ -28,6 +28,9 @@ from services import (fixflag_transcribe, fixflag_translate, job_timing_service,
                       vdb_names_service)
 
 
+CONSISTENCY_BATCH_SIZE = 60
+
+
 def _id_by_idx(lines):
     """{line idx: permanent line id} as of when a job copied the lines, so
     a result keyed by position lands on the right line even if the user
@@ -492,13 +495,21 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=Non
     with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
                                     "consistency_check") as limits:
         issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
-            lines, engine, source_language=lang,
+            lines, engine, batch_size=CONSISTENCY_BATCH_SIZE, source_language=lang,
             usage_cb=lambda inp, out: db.log_usage(
                 drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
                 inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
-    db.save_consistency_issues(drama_id, issues)
+    if limits.stop_reason:
+        # Batches never sent count as failed, and a partial result must not
+        # replace (or wipe) the issues an earlier run saved.
+        wanted = -(-sum(1 for ln in lines if ln.en.strip()) // CONSISTENCY_BATCH_SIZE)
+        # (the batch it stopped at was counted but never sent)
+        failed_batches = wanted - (total_batches - failed_batches - 1)
+        total_batches = wanted
+    if issues or not limits.stop_reason:
+        db.save_consistency_issues(drama_id, issues)
     background_jobs.set_result(job_id, {
         "issue_count": len(issues),
         "failed_batches": failed_batches,
@@ -654,6 +665,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     # The Settings default the single-title form starts from, so a title
     # translated in bulk matches one translated alone.
     style_note = settings_service.get("default_style_note") or ""
+    if (summary_engine is not None and not monthly_cap
+            and bulk_translate._summary_engine_is_paid(summary_engine, summary_choice)):
+        summary_engine = None  # a paid summary is paid work nobody watches: it needs a cap
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}

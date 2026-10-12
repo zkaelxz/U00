@@ -191,7 +191,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     except TranslateRunStopped as stop:
         # Half-tagged chunks must not be saved as Narrator; the checkpoint
         # keeps the finished batches for the next run.
-        raise RuntimeError(f"{stop}. Chunks already tagged are kept; run it again to continue.") from None
+        raise RuntimeError(f"{str(stop).rstrip('.')}. Chunks already tagged are kept; run it again to continue.") from None
     _raise_if_cancelled(job_id)
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"

@@ -594,7 +594,7 @@ def _start_translate(principal, drama: dict) -> str:
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama["id"], None, False,
         style_note=args["style_note"], locale=args["locale"],
-        allow_paid_summary=holds_paid)["job_id"]
+        allow_paid_summary=holds_paid and settings_service.get_monthly_cap_usd() > 0)["job_id"]
 
 
 def _export(drama: dict) -> None:

@@ -68,7 +68,10 @@ def run_translation(engine, case: dict, key: str = None) -> dict:
         # would otherwise wait for the SDK's own timeout.
         out = translate_engines.call_with_backoff(
             lambda: llm_tasks.call_batch_bounded(
-                engine, lambda: engine.translate_batch([case.get("source_text") or ""], ctx)))
+                engine, lambda: engine.translate_batch([case.get("source_text") or ""], ctx),
+                on_late_result=lambda: paid_calls.record_call(
+                    engine, getattr(engine, "name", ""), "benchmark",
+                    getattr(engine, "last_usage", None))))
         output_text = out[0] if out else ""
         error = None
         usage = getattr(engine, "last_usage", None)

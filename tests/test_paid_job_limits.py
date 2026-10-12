@@ -378,29 +378,55 @@ class TestBulkPoller:
         _did, bulk_id = _bulk_job()
         provider = _DownProvider()
         bt.run_bulk_poller("poll_t", bulk_id, provider=provider, interval=0, sleep=lambda s: None)
-        assert provider.polls == 3
+        assert provider.polls == bulk_providers.POLL_FAILURE_LIMIT == 15  # about a quarter hour
         job = db.get_bulk_job(bulk_id)
         assert job["status"] == "submitted"  # still recoverable: Check now picks it up
-        assert job["last_error"].startswith("Stopped checking: 3 status checks in a row failed")
+        assert job["last_error"].startswith("Stopped checking: 15 status checks in a row failed")
 
-    def test_a_batch_older_than_the_provider_keeps_it_is_failed(self):
-        _did, bulk_id = _bulk_job()
+    def _age(self, bulk_id, hours=60):
         with contextlib.closing(db.get_conn()) as conn:
             conn.execute("UPDATE bulk_jobs SET submitted_at = ? WHERE id = ?",
-                         ((datetime.datetime.utcnow() - datetime.timedelta(hours=60)).isoformat(), bulk_id))
+                         ((datetime.datetime.utcnow() - datetime.timedelta(hours=hours)).isoformat(),
+                          bulk_id))
             conn.commit()
-        provider = _DownProvider()
-        bt.run_bulk_poller("poll_old", bulk_id, provider=provider, interval=0, sleep=lambda s: None)
+
+    def test_a_batch_still_pending_past_the_providers_expiry_is_failed_after_a_poll(self):
+        _did, bulk_id = _bulk_job()
+        self._age(bulk_id)
+
+        class Pending:
+            polls = 0
+
+            def poll(self, batch_id):
+                Pending.polls += 1
+                return "pending"
+        bt.run_bulk_poller("poll_old", bulk_id, provider=Pending(), interval=0, sleep=lambda s: None)
         job = db.get_bulk_job(bulk_id)
-        assert provider.polls == 0 and job["status"] == "failed"
-        assert "expired" in job["last_error"]
+        assert Pending.polls == 1 and job["status"] == "failed" and "expired" in job["last_error"]
+
+    def test_an_old_batch_the_provider_finished_is_applied_not_failed(self, monkeypatch):
+        """The app was closed over a weekend: the results are waiting at the provider."""
+        did, bulk_id = _bulk_job()
+        self._age(bulk_id)
+        seen = []
+
+        def check_once(bulk_job_id, provider, **kw):
+            seen.append(bulk_job_id)
+            db.update_bulk_job(bulk_job_id, status="applied")
+            return "applied"
+        monkeypatch.setattr(bt, "check_once", check_once)
+        bt.run_bulk_poller("poll_weekend", bulk_id, provider=_DownProvider(), interval=0,
+                           sleep=lambda s: None)
+        assert seen == [bulk_id] and db.get_bulk_job(bulk_id)["status"] == "applied"
 
     def test_a_reachable_provider_resets_the_streak(self):
         guard = bulk_providers.PollGuard()
         _did, bulk_id = _bulk_job()
-        assert guard.failed(bulk_id) == "" and guard.failed(bulk_id) == ""
+        for _ in range(14):
+            assert guard.failed(bulk_id) == ""
         guard.reached()
-        assert guard.failed(bulk_id) == "" and guard.failed(bulk_id) == ""
+        for _ in range(14):
+            assert guard.failed(bulk_id) == ""
         assert guard.failed(bulk_id) != ""
 
 
@@ -439,6 +465,34 @@ class TestOffPeakWindow:
         summary = bt.run_scheduled_job(bulk_id, engine, window_open=lambda: window["open"])
         assert engine.seen == ["第0句"] and summary["window_closed"] is True
         assert [r["en"] for r in db.load_lines(did)] == ["DS[第0句]", "", ""]
+
+    def test_a_request_in_flight_when_the_window_closes_is_finished_and_kept(self):
+        did, bulk_id = self._schedule()
+        window = {"open": True}
+
+        def flip():
+            window["open"] = False
+            threading.Event().wait(1.0)  # long enough for an in-flight cancel to be noticed
+        engine = _OffPeakEngine(flip)
+        summary = bt.run_scheduled_job(bulk_id, engine, window_open=lambda: window["open"])
+        assert [r["en"] for r in db.load_lines(did)] == ["DS[第0句]", "", ""]
+        assert engine.seen == ["第0句"] and summary["window_closed"] is True
+
+    def test_the_job_cost_cap_holds_across_windows(self):
+        did, bulk_id = self._schedule()
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("UPDATE bulk_jobs SET translate_args = ? WHERE id = ?",
+                         ('{"cost_cap_usd": 1.0, "batch_size": 1}', bulk_id))
+            conn.commit()
+        job = db.get_bulk_job(bulk_id)
+        assert bulk_providers.job_cap_left(job) == pytest.approx(1.0)
+        db.log_usage(did, "deepseek", "m", "translate_offpeak", 1, 1, 0.4)
+        db.log_usage(did, "deepseek", "m", "translate_offpeak", 1, 1, 0.3)
+        assert bulk_providers.job_cap_left(db.get_bulk_job(bulk_id)) == pytest.approx(0.3)
+        cap, refusal = bulk_providers.offpeak_cap(db.get_bulk_job(bulk_id), 50.0)
+        assert refusal is None and cap == pytest.approx(0.3)
+        db.log_usage(did, "deepseek", "m", "translate_offpeak", 1, 1, 0.5)
+        assert "cost cap is used up" in bulk_providers.offpeak_cap(db.get_bulk_job(bulk_id), 50.0)[1]
 
     def test_a_run_that_finishes_inside_the_window_reports_it_open(self):
         _did, bulk_id = self._schedule(2)
@@ -552,6 +606,7 @@ class TestBenchmarkStops:
         started = time.monotonic()
         timer = threading.Timer(0.3, lambda: cancelled.update(now=True))
         timer.start()
+        engine.last_usage = {"input_tokens": 5, "output_tokens": 5}
         try:
             with llm_tasks.bounded_llm_calls("bench_cancel", lambda: cancelled["now"]):
                 result = cases_svc.run_translation(engine, self._case(1))
@@ -559,6 +614,77 @@ class TestBenchmarkStops:
             release.set()
             timer.cancel()
         assert result["error"] and time.monotonic() - started < 10
+        # The abandoned request was billed: its row is written when it returns.
+        deadline = time.monotonic() + 5
+        while not _usage_rows() and time.monotonic() < deadline:
+            threading.Event().wait(0.05)
+        assert _usage_rows()[0]["operation"] == "benchmark"
+
+
+class TestStopReachesTheUser:
+    def test_a_stopped_job_is_a_partial_outcome_with_its_reason(self):
+        from services import jobs_service
+        projected = jobs_service.project_result({"flagged_count": 2, "stopped": THREE_FAILED})
+        assert projected["stopped"] == THREE_FAILED
+        outcome, message = jobs_service.derive_outcome("done", None, projected)
+        assert outcome == "partial" and THREE_FAILED in message
+
+    def test_a_job_that_was_not_stopped_still_reads_ok(self):
+        from services import jobs_service
+        assert jobs_service.derive_outcome("done", None, {"flagged_count": 2})[0] == "ok"
+
+    def test_the_glossary_status_says_why_it_stopped(self, monkeypatch):
+        from services import glossary_extract_service as gx
+        did = _drama()
+        monkeypatch.setattr(gx.background_jobs, "get_status", lambda j: {
+            "status": "done", "progress": 1.0, "message": "",
+            "result": {"proposals": [], "stopped": CAP_REACHED, "run_id": "r"}})
+        status = gx._extraction_status(did, "lines_glossary_x")
+        assert CAP_REACHED in status["message"]
+
+    def test_a_stopped_consistency_check_keeps_the_issues_saved_before(self):
+        did, engine = _drama(), FakeClaude(fail=True)
+        db.save_consistency_issues(did, [{"term": "X", "variants": ["a", "b"], "note": ""}])
+        status = _run_job("cons_keep", wjs.run_consistency_job, did, _lines(300), engine, "claude")
+        assert status["result"]["stopped"] == THREE_FAILED
+        assert status["result"]["failed_batches"] == status["result"]["total_batches"] == 5
+        assert len(db.load_consistency_issues(did)) == 1
+
+
+class TestSummaryNeedsACapUnattended:
+    def test_a_bulk_series_drops_a_paid_summary_engine_when_no_cap_is_set(self, monkeypatch):
+        did = db.create_drama(title_zh="D", status="aligned", translation_engine="ollama")
+        db.save_lines(did, _lines(2, translated=False))
+        monkeypatch.setattr(translate_run_service, "pick_summary_engine",
+                            lambda *a, **k: (FakeClaude(), "claude"))
+        monkeypatch.setattr(wjs.translate_engines, "get_engine",
+                            lambda *a, **k: SimpleNamespace(model="m", supports_reference=True))
+        seen = []
+        monkeypatch.setattr(wjs.background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: seen.append(kw) or False)
+        wjs.run_bulk_series_translate_job("series_sum", [did], {}, monthly_cap=0)
+        assert seen and seen[0]["summary_engine"] is None
+        seen.clear()
+        wjs.run_bulk_series_translate_job("series_sum2", [did], {}, monthly_cap=50.0)
+        assert seen and seen[0]["summary_engine"] is not None
+
+
+class TestLostUsageRowDoesNotFailTranscription:
+    def _apply(self, did, usage):
+        from services import transcribe_service
+        return transcribe_service._apply_transcription(
+            "j", did, {"failed_reason": "groq", "detail": "x", "groq_usage": usage},
+            source_language="zh", whisper_size="small", use_gpu=False, transcript_mode="whisper",
+            alignment_method=None, hf_token=None, diarize_audio_path=None, expected_speakers=None)
+
+    def test_a_database_error_is_swallowed(self, monkeypatch):
+        monkeypatch.setattr(paid_calls, "record_audio_call",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db locked")))
+        assert self._apply(_drama(), {"seconds": 60.0, "failed": False})["failed_reason"] == "groq"
+
+    def test_an_unreadable_audio_length_is_logged_as_unknown(self):
+        self._apply(_drama(), {"seconds": 0.0, "failed": False})
+        assert _usage_rows()[0]["operation"] == "transcribe_groq_length_unknown"
 
 
 class TestJudgePass:

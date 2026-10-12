@@ -182,8 +182,13 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  scene_aware_batches: bool = False, thinking: bool = None,
                                  translate_by_sentence=None, check_replies: bool = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
-                                 sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS):
-    """thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
+                                 sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
+                                 stop_before_batch=None):
+    """stop_before_batch: checked only between batches, never during a request:
+    a batch already sent is finished and kept (cancel_check_cb is the one that
+    abandons a request in flight).
+
+    thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
     answering; None = the title's remembered choice, else off. Its reasoning is
     never saved with a line.
 
@@ -365,7 +370,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             detail_cb(last_frac, message)
 
     for bi, batch in enumerate(batches):
-        if cancel_check_cb and cancel_check_cb():
+        if (cancel_check_cb and cancel_check_cb()) or (stop_before_batch and stop_before_batch()):
             break
         batch_label = f"Batch {bi + 1} of {n_batches}"
         report(bi / n_batches, batch_label)

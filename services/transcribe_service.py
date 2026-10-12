@@ -856,8 +856,18 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
         applog.get_logger().info(f"transcription of title {drama_id}: {outcome['stage_summary']}")
     groq_usage = outcome.pop("groq_usage", None)
     if groq_usage:
-        paid_calls.record_audio_call("groq", core_module.GROQ_DEFAULT_MODEL, "transcribe_groq",
-                                     **groq_usage, drama_id=drama_id)
+        try:
+            # An audio length that could not be read is logged under its own name,
+            # not as a free request.
+            unknown = not groq_usage["failed"] and not groq_usage["seconds"]
+            paid_calls.record_audio_call(
+                "groq", core_module.GROQ_DEFAULT_MODEL,
+                "transcribe_groq_length_unknown" if unknown else "transcribe_groq",
+                **groq_usage, drama_id=drama_id)
+        except Exception:
+            # A lost usage row must not fail a transcription that was paid for.
+            import applog
+            applog.get_logger().warning("Groq usage was not logged")
     if "failed_reason" in outcome:
         if outcome["failed_reason"] == "no_lines" and diarize_requested:
             return {**outcome, "diarize_skipped_reason": "the transcription produced no lines"}

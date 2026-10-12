@@ -28,9 +28,9 @@ import time
 import uuid
 
 import background_jobs
-from bulk_providers import (NO_CAP_MESSAGE, BulkAuthError, PollGuard, is_deepseek_offpeak,
+from bulk_providers import (BulkAuthError, PollGuard, is_deepseek_offpeak,
                             make_provider, next_deepseek_offpeak_start, reschedule_for_next_window,
-                            stop_check)
+                            WindowGate, offpeak_cap)
 import db
 import emotion
 import job_force_stop
@@ -1267,7 +1267,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
     and whose English hasn't changed since scheduling, as a normal run,
     and finishes it as one (finish_translation_run). Stops at the next
     batch once cancel_check_cb() is true or window_open() is false."""
-    stop = stop_check(cancel_check_cb, window_open)
+    gate = WindowGate(window_open)
     job = db.get_bulk_job(bulk_job_id)
     args = job.get("translate_args") or {}
     did = job["drama_id"]
@@ -1295,7 +1295,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
         target_ids=eligible, locale=args.get("locale", "en-US"),
         glossary_terms=terms, style_guidelines=args.get("style_guidelines", ""),
         context_window=args.get("context_window", 6), character_names=_character_names(did),
-        save_cb=save, cancel_check_cb=stop, **options,
+        save_cb=save, cancel_check_cb=cancel_check_cb, stop_before_batch=gate, **options,
         check_replies=args.get("check_replies"),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
             did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
@@ -1304,10 +1304,10 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
         thinking=args.get("thinking"),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
     finish_translation_run(did, lines, engine, job["engine"], args.get("style_preset", ""), terms,
-                           errors, cancelled=stop(), enforce_ids={ln.id for ln in lines})
+                           errors, cancelled=bool(cancel_check_cb and cancel_check_cb()) or gate.closed, enforce_ids={ln.id for ln in lines})
     return {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
             "kept_your_edit": len(kept), "batch_errors": len(errors), "cap_reached": cap.get("spent"),
-            "window_closed": not (cancel_check_cb and cancel_check_cb()) and stop()}
+            "window_closed": gate.closed}
 
 
 def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
@@ -1346,10 +1346,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
                 continue
             if not db.set_bulk_job_status_if(bulk_job_id, ("scheduled",), "running"):
                 return
-            cap, refusal = translate_engines.resolve_cost_cap(
-                (job.get("translate_args") or {}).get("cost_cap_usd"), monthly_cap_usd,
-                db.get_month_spend() if monthly_cap_usd else 0.0)
-            refusal = refusal or (None if cap is not None else NO_CAP_MESSAGE)
+            cap, refusal = offpeak_cap(job, monthly_cap_usd)
             if refusal:
                 db.update_bulk_job(bulk_job_id, status="failed", last_error=refusal)
                 return
@@ -1370,11 +1367,11 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             db.update_bulk_job(bulk_job_id, result_summary=summary)
             background_jobs.set_result(job_id, summary)
             return
-        if PollGuard.expired(bulk_job_id, job, now):
-            return
         try:
             status = check_once(bulk_job_id, provider, engine=engine, monthly_cap_usd=monthly_cap_usd)
             guard.reached()
+            if status == "submitted" and PollGuard.expired(bulk_job_id, job, now):
+                return
         except BulkAuthError:
             return
         except Exception as e:
