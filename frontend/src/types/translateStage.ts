@@ -458,3 +458,62 @@ export interface NameConsistency {
   /** More differing lines exist than are listed. */
   more_rows: boolean
 }
+
+// GET /api/glossary/name-report: the name check across every title the caller may see.
+export type NameMark = 'right' | 'wrong' | 'skip'
+
+export interface NameReportVariant {
+  text: string
+  count: number
+}
+
+export interface NameReportTitle {
+  drama_id: number
+  title: string
+  count: number
+  in_glossary: boolean
+  glossary_term: string | null
+  glossary_english: string | null
+}
+
+export interface NameReportExample {
+  drama_id: number
+  line_idx: number
+  snippet: string
+}
+
+export interface NameReportGroup {
+  key: string
+  canonical: string
+  total: number
+  variants: NameReportVariant[]
+  /** The real number of titles; `titles` lists the first few. */
+  titles_total: number
+  titles: NameReportTitle[]
+  examples: NameReportExample[]
+  mark: NameMark | null
+}
+
+export interface NameReport {
+  titles_total: number
+  titles_scanned: number
+  titles_unavailable: number
+  titles_failed: number
+  reasons: string[]
+  /** A cap stopped the scan or trimmed the groups. */
+  truncated: boolean
+  /** The time budget ended the scan or the grouping early; the report is partial. */
+  stopped_early: boolean
+  singletons_omitted: number
+  groups_omitted: number
+  groups: NameReportGroup[]
+  counts: { unresolved: number; right: number; wrong: number; skip: number }
+}
+
+export interface NameReportStatus {
+  job_id: string
+  status: string
+  progress: number | null
+  message: string
+  result: NameReport | null
+}

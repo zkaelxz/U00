@@ -20,6 +20,8 @@ import type {
   GlossaryTermUpsert,
   GlossaryVariants,
   NameConsistency,
+  NameMark,
+  NameReportStatus,
   SpellingSuggestStatus,
   SourceChangedRunBody,
   SourceChangedRunStarted,
@@ -35,7 +37,7 @@ import type {
   WorkflowTierApplied,
 } from '../types/translateStage'
 import type { JobCancelResult } from '../types/jobs'
-import { apiUrl, getJson, postJson } from './client'
+import { apiUrl, fetchBody, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -143,3 +145,14 @@ export const cancelSpellingSuggestions = (id: number, runId: string, f?: Fetch) 
 export const getNameConsistency = (id: number, termId: number, english: string, f?: Fetch) =>
   getJson<NameConsistency>(
     `/api/glossary/dramas/${id}/name-consistency?term_id=${termId}&english=${encodeURIComponent(english)}`, f)
+
+/** Starts the name check over every title the caller may see (read-only; one runs at a time). */
+export const startNameReport = (f?: Fetch) => postJson<{ job_id: string }>('/api/glossary/name-report', {}, f)
+export const getNameReport = (f?: Fetch) => getJson<NameReportStatus>('/api/glossary/name-report', f)
+export const cancelNameReport = (f?: Fetch) => postJson<JobCancelResult>('/api/glossary/name-report/cancel', {}, f)
+/** Marks a name group right, wrong or skip; "clear" removes the mark. */
+export const markNameGroup = (key: string, mark: NameMark | 'clear', f?: Fetch) =>
+  postJson<{ key: string; mark: NameMark | null }>('/api/glossary/name-report/marks', { key, mark }, f)
+/** The unresolved groups as plain text (names, counts and example lines only). */
+export const getNameReportText = (f?: Fetch) =>
+  fetchBody('/api/glossary/name-report/export.md', {}, (r) => r.text(), f)
