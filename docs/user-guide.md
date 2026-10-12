@@ -313,7 +313,7 @@ If this PC also runs something else that needs the GPU or RAM (a media server do
 
 ### The Export stage
 
-Export is a list of collapsible blocks, one per thing you can make: Video with a subtitle track, Burned-in video, Video with the dub audio, Audiobook, EPUB and Subtitle file (SRT, VTT, LRC or ASS). The first block is the one that fits the title's kind (a video leads with the video blocks, a novel with EPUB, an audio drama with Audiobook, a comic or an imported subtitle with Subtitle file) and starts open; the other blocks follow and start folded. Every kind still lists every block. Which blocks you keep open is remembered per kind of title. A block that cannot run yet says why in one line (no source video, ffmpeg not installed, no dub or narration yet).
+Export is a list of collapsible blocks, one per thing you can make: Video with a subtitle track (SRT, or ASS to keep overlapping lines and speaker colours; ASS is always saved as MKV and plays in VLC and mpv, while some TVs and phone players ignore the styling), Burned-in video, Video with the dub audio, Audiobook, EPUB and Subtitle file (SRT, VTT, LRC or ASS). The first block is the one that fits the title's kind (a video leads with the video blocks, a novel with EPUB, an audio drama with Audiobook, a comic or an imported subtitle with Subtitle file) and starts open; the other blocks follow and start folded. Every kind still lists every block. Which blocks you keep open is remembered per kind of title. A block that cannot run yet says why in one line (no source video, ffmpeg not installed, no dub or narration yet).
 
 ### Tidy cue timing, and the reading-speed check
 
