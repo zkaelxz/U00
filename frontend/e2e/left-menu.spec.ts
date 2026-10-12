@@ -160,13 +160,14 @@ test('a saved choice wins at both widths', async ({ page }) => {
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
 })
 
-test('a wide screen at 1280 keeps the form-page column at its 1200px cap when the rail is collapsed', async ({ page }) => {
+test('a wide screen at 1280 keeps the form-page column at its 860px preset when the rail is collapsed', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/#/settings')
   await page.getByRole('button', { name: 'Side menu' }).click()
   const main = (await page.locator('.app-main').boundingBox())!
-  expect(main.width).toBeLessThanOrEqual(1200)
   expect(main.width).toBeGreaterThan(1150)
+  const column = (await page.locator('[data-page-shell]').boundingBox())!
+  expect(column.width).toBeLessThanOrEqual(860)
   const scroll = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth])
   expect(scroll[0]).toBeLessThanOrEqual(scroll[1])
 })
