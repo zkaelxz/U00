@@ -15,7 +15,7 @@ import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { api } from '../api/client'
 import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { RetryBanner } from '../components/RetryBanner'
 import { Sheet } from '../components/Sheet'
 import { SourceLink } from './discover/ExternalLink'
 import { useJob } from '../hooks/useJob'
@@ -100,6 +100,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [data, setData] = useState<ComicPagesResponse | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [titleError, setTitleError] = useState<unknown>(null)
+  const [titleTick, setTitleTick] = useState(0)
   // Saved page from the server (1 when unknown or not allowed).
   const [savedPage, setSavedPage] = useState<number | null>(null)
   // The saved page really came from the server. Until it has (or the reader
@@ -135,6 +137,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   useEffect(() => {
     // Title A's link must not show on title B while B loads, or if B's load fails.
     setSourceUrl(null)
+    setTitleError(null)
     let cancelled = false
     api.getDrama(id).then(
       (d) => {
@@ -142,10 +145,16 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         setTitle(d.title_en || d.title_zh || `Title #${d.id}`)
         setSourceUrl(d.source_url ?? null)
       },
-      () => {
-        if (!cancelled) setTitle(null)
+      (e) => {
+        if (!cancelled) setTitleError(e)
       },
     )
+    return () => {
+      cancelled = true
+    }
+  }, [id, titleTick])
+
+  useEffect(() => {
     comicApi.pages(id).then(setData, setError)
     comicApi.progress(id).then(
       (p) => {
@@ -156,9 +165,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       // Unknown (refused or failed): start at page 1 but don't save it.
       () => setSavedPage(1),
     )
-    return () => {
-      cancelled = true
-    }
   }, [id])
 
   // After an upload or a Scanlate job: reload the page list (new pages, new
@@ -540,7 +546,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       {phone ? (
         <header className="reader-phone-head comic-head">
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>
-          <span className="reader-title">{title ?? 'Loading…'}</span>
+          <span className="reader-title">{title ?? (titleError ? `Title #${id}` : 'Loading…')}</span>
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
@@ -579,7 +585,15 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <strong>{FORBIDDEN_TEXT}</strong>
         </div>
       )}
-      <ErrorBanner error={error} />
+      <RetryBanner error={titleError} what="this title" onRetry={() => setTitleTick((n) => n + 1)} />
+      <RetryBanner
+        error={error}
+        what="the pages"
+        onRetry={() => {
+          setError(null)
+          refreshPages()
+        }}
+      />
 
       {empty ? (
         <div className="comic-scanlate comic-empty">

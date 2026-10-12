@@ -21,13 +21,17 @@ export class ApiError extends Error {
   readonly status: number
   readonly code: string
   readonly details?: unknown
+  // The HTTP method of the failed request: a failed read and a failed write
+  // need different wording, so describeError() asks for it.
+  readonly method?: string
 
-  constructor(status: number, info: ErrorInfo) {
+  constructor(status: number, info: ErrorInfo, method?: string) {
     super(info.message)
     this.name = 'ApiError'
     this.status = status
     this.code = info.code
     this.details = info.details
+    this.method = method?.toUpperCase()
   }
 }
 
@@ -91,21 +95,42 @@ function withCsrf(init: RequestInit): RequestInit {
   return { ...init, headers: { ...(init.headers as Record<string, string> | undefined), ...extra } }
 }
 
+// Long enough for the slowest synchronous API call. It only exists so a hung
+// server ends in a message instead of a "Saving..." that never stops.
+const REQUEST_TIMEOUT_MS = 120_000
+
 // Every request goes through here: the CSRF header on mutations, one
-// network-error shape, and the 401 -> signed-out notification.
+// network-error shape, a timeout, and the 401 -> signed-out notification.
 async function send(path: string, init: RequestInit, fetchImpl: Fetch): Promise<Response> {
+  const method = init.method ?? 'GET'
+  // A caller that brings its own signal (withSignal) owns cancellation.
+  const own = init.signal ? null : new AbortController()
+  let timedOut = false
+  const timer = own
+    ? setTimeout(() => {
+        timedOut = true
+        own.abort()
+      }, REQUEST_TIMEOUT_MS)
+    : null
   let resp: Response
   try {
-    resp = await fetchImpl(`${BASE}${path}`, withCsrf(init))
+    resp = await fetchImpl(`${BASE}${path}`, withCsrf(own ? { ...init, signal: own.signal } : init))
   } catch (e) {
+    if (timedOut) {
+      recordFailedRequest(method, path, 0, 'timeout')
+      throw new ApiError(0, { code: 'timeout', message: 'The Baihe API did not answer in time.' }, method)
+    }
     // A superseded pan/zoom request is not a failure worth a report slot.
     if ((e as { name?: string } | null)?.name !== 'AbortError') {
-      recordFailedRequest(init.method ?? 'GET', path, 0, 'network_error')
+      recordFailedRequest(method, path, 0, 'network_error')
     }
-    throw new ApiError(0, {
-      code: 'network_error',
-      message: 'Could not reach the Baihe API. Is it running?',
-    })
+    throw new ApiError(
+      0,
+      { code: 'network_error', message: 'Could not reach the Baihe API. Is it running?' },
+      method,
+    )
+  } finally {
+    if (timer) clearTimeout(timer)
   }
   if (resp.status === 401) unauthorizedListeners.forEach((l) => l())
   return resp
@@ -120,7 +145,11 @@ function failure(method: string | undefined, path: string, status: number, body:
   if (!(status === 429 && path.includes('/peaks'))) {
     recordFailedRequest(method ?? 'GET', path, status, info?.code ?? 'internal_error')
   }
-  return new ApiError(status, info ?? { code: 'internal_error', message: `Request failed (${status}).` })
+  return new ApiError(
+    status,
+    info ?? { code: 'internal_error', message: `Request failed (${status}).` },
+    method ?? 'GET',
+  )
 }
 
 async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Promise<T> {

@@ -1,0 +1,15 @@
+.retry-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.retry-banner-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+/* Phone touch target. */
+.retry-banner button {
+  min-height: 44px;
+}
