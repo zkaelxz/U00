@@ -107,7 +107,9 @@ def get_series_page(principal, series_id) -> dict:
     lines = counts["title_lines"]
     titles = [{"id": d["id"], "title_en": d.get("title_en"), "title_zh": d.get("title_zh"),
                "media_type": d.get("media_type"), "status": d.get("status"),
-               "episode_number": d.get("episode_number"), "line_count": lines[d["id"]]}
+               "episode_number": d.get("episode_number"),
+               "release_date": d.get("release_date") or None,
+               "line_count": lines[d["id"]]}
               for d in db.list_dramas_by_series(series_id) if d["id"] in lines]
     return {"id": row["id"], "name": row["name"], "is_private": bool(row.get("is_private")),
             "owned_by_me": uid is not None and row.get("owner_user_id") == uid,

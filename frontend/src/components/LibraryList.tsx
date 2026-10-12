@@ -7,8 +7,12 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
+import { routeHref } from '../router'
 import { MAX_SELECTION, selectAllVisible, toggleId } from '../pages/libraryAdmin/libraryAdmin'
 import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
+import {
+  GROUP_BYS, TITLE_SORTS, groupTitles, isGroupBy, isTitleSort, type GroupBy, type TitleSort,
+} from '../pages/titleOrder'
 import type { LibraryFilterOptions, LibrarySearchHit } from '../types/library'
 import { Badge } from './Badge'
 import { Card } from './Card'
@@ -47,6 +51,8 @@ interface Props {
   onItems?: (items: DramaSummary[]) => void
   // "New drama" from the empty-library card.
   onCreate?: () => void
+  // The viewer's visible series (GET /api/series); null until loaded or if it failed.
+  series?: { id: number; name: string }[] | null
 }
 
 // Two to three native radios drawn as one segmented control.
@@ -67,7 +73,7 @@ function Segmented<T extends string>({ label, name, value, options, onChange }: 
 }
 
 export function LibraryList({
-  selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems, onCreate,
+  selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems, onCreate, series = null,
 }: Props) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -75,6 +81,21 @@ export function LibraryList({
   const [scope, setScope] = useState<Scope>('titles')
   const [view, setView] = usePersistedState<View>('library.view', 'grid')
   const [more, setMore] = useState<MoreFilters>(NO_MORE_FILTERS)
+  // Remembered in this browser; the suffix is the storage version, bumped if the meaning of a value changes.
+  const [storedSort, setSort] = usePersistedState<string>('library.sort.v1', 'added')
+  const [storedGroup, setGroupBy] = usePersistedState<string>('library.groupBy.v1', 'none')
+  const [collapsedKeys, setCollapsedKeys] = usePersistedState<string[]>('library.groupsCollapsed.v1', [])
+  const sort: TitleSort = isTitleSort(storedSort) ? storedSort : 'added'
+  const wantedGroup: GroupBy = isGroupBy(storedGroup) ? storedGroup : 'none'
+  // Series names come from a second request: until it lands, list ungrouped rather than
+  // filing every title under "No series".
+  const groupBy: GroupBy = wantedGroup === 'series' && series === null ? 'none' : wantedGroup
+  const collapsed = new Set(Array.isArray(collapsedKeys) ? collapsedKeys : [])
+  const toggleGroup = (key: string) => {
+    const next = new Set(collapsed)
+    if (!next.delete(key)) next.add(key)
+    setCollapsedKeys([...next])
+  }
   const [items, setItems] = useState<DramaSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hits, setHits] = useState<LibrarySearchHit[] | null>(null)
@@ -116,6 +137,8 @@ export function LibraryList({
     }
   }, [titleSearch, status, quickFilter, more, reloadKey])
 
+  const groups = items ? groupTitles(items, groupBy, sort, series ?? []) : []
+
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const term = search.trim()
@@ -155,6 +178,78 @@ export function LibraryList({
     )
   )
 
+  // One group's titles (or the whole list): cards, or on desktop the table.
+  const listView = (list: DramaSummary[]) => !table ? (
+    <DramaCards
+      items={list}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      selectMode={selecting && selectMode}
+      checked={checked}
+      onToggle={toggle}
+    />
+  ) : (
+                <div className="table-scroll drama-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        {checking && (
+                          <th className="check-col">
+                            <label className="check-hit">
+                              <input type="checkbox" aria-label="Select all visible" checked={allChecked} onChange={toggleAll} />
+                            </label>
+                          </th>
+                        )}
+                        <th>Title</th>
+                        <th>Type</th>
+                        <th>Language</th>
+                        <th>Released</th>
+                        <th>Status</th>
+                        <th>Tags</th>
+                        <th><span className="visually-hidden">Actions</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((d) => {
+                        const title = dramaName(d)
+                        return (
+                          <tr key={d.id} className={d.id === selectedId ? 'selected' : undefined}>
+                            {checking && (
+                              <td className="check-col">
+                                <label className="check-hit">
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Select ${title}`}
+                                    checked={!!checked?.has(d.id)}
+                                    onChange={() => toggle(d.id)}
+                                  />
+                                </label>
+                              </td>
+                            )}
+                            <td>
+                              <a className="table-title" href={workspaceHref(d.id)}>{title}</a>
+                              {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}
+                              <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
+                            </td>
+                            <td>{mediaTypeLabel(d.media_type)}</td>
+                            <td>{languageLabel(d.source_language)}</td>
+                            <td>{d.release_date}</td>
+                            <td>{d.status && <Badge kind="status" value={d.status} />}</td>
+                            <td>{d.custom_tags.join(', ')}</td>
+                            <td className="row-actions">
+                              <a className={buttonClass('ghost', 'sm')} href={readHref(d)} aria-label={`Read ${title}`}>Read</a>
+                              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
+                                Details
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+  )
+
   return (
     <section className="library-list" aria-labelledby="library-heading">
       <h3 id="library-heading" className="visually-hidden">Titles</h3>
@@ -188,6 +283,16 @@ export function LibraryList({
             label="Search in" name="library-scope" value={scope} onChange={setScope}
             options={[['titles', 'Titles'], ['lines', 'Lines']]}
           />
+          {scope === 'titles' && (
+            <>
+              <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
+                {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+              <select aria-label="Group by" value={wantedGroup} onChange={(e) => setGroupBy(e.target.value)}>
+                {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
+              </select>
+            </>
+          )}
           {!phone && scope === 'titles' && (
             <Segmented<View>
               label="View" name="library-view" value={view} onChange={setView}
@@ -224,75 +329,28 @@ export function LibraryList({
                   <button type="button" className={buttonClass('ghost', 'sm')} onClick={clearFilters}>Clear filters</button>
                 </div>
               )}
-              {items.length > 0 && !table && (
-                <DramaCards
-                  items={items}
-                  selectedId={selectedId}
-                  onSelect={onSelect}
-                  selectMode={selecting && selectMode}
-                  checked={checked}
-                  onToggle={toggle}
-                />
-              )}
-              {items.length > 0 && table && (
-                <div className="table-scroll drama-table">
-                  <table>
-                    <thead>
-                      <tr>
-                        {checking && (
-                          <th className="check-col">
-                            <label className="check-hit">
-                              <input type="checkbox" aria-label="Select all visible" checked={allChecked} onChange={toggleAll} />
-                            </label>
-                          </th>
-                        )}
-                        <th>Title</th>
-                        <th>Type</th>
-                        <th>Language</th>
-                        <th>Status</th>
-                        <th>Tags</th>
-                        <th><span className="visually-hidden">Actions</span></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((d) => {
-                        const title = dramaName(d)
-                        return (
-                          <tr key={d.id} className={d.id === selectedId ? 'selected' : undefined}>
-                            {checking && (
-                              <td className="check-col">
-                                <label className="check-hit">
-                                  <input
-                                    type="checkbox"
-                                    aria-label={`Select ${title}`}
-                                    checked={!!checked?.has(d.id)}
-                                    onChange={() => toggle(d.id)}
-                                  />
-                                </label>
-                              </td>
-                            )}
-                            <td>
-                              <a className="table-title" href={workspaceHref(d.id)}>{title}</a>
-                              {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}
-                              <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
-                            </td>
-                            <td>{mediaTypeLabel(d.media_type)}</td>
-                            <td>{languageLabel(d.source_language)}</td>
-                            <td>{d.status && <Badge kind="status" value={d.status} />}</td>
-                            <td>{d.custom_tags.join(', ')}</td>
-                            <td className="row-actions">
-                              <a className={buttonClass('ghost', 'sm')} href={readHref(d)} aria-label={`Read ${title}`}>Read</a>
-                              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
-                                Details
-                              </button>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              {items.length > 0 && groups.map((g) => (
+                g.label === '' ? <div key={g.key}>{listView(g.items)}</div> : (
+                  <section key={g.key} className="title-group" aria-label={g.label} data-testid="title-group">
+                    <h4 className="title-group-head">
+                      <button
+                        type="button"
+                        className="title-group-toggle"
+                        aria-expanded={!collapsed.has(g.key)}
+                        onClick={() => toggleGroup(g.key)}
+                      >
+                        <span aria-hidden="true">{collapsed.has(g.key) ? '▸' : '▾'}</span>
+                        <span className="title-group-name">{g.label}</span>
+                        <span className="muted">{g.items.length === 1 ? '1 title' : `${g.items.length} titles`}{g.mix && ` · ${g.mix}`}</span>
+                      </button>
+                      {g.seriesId !== undefined && (
+                        <a className="title-group-link" href={routeHref({ name: 'series', id: g.seriesId })} aria-label={`Open series ${g.label}`}>Open series</a>
+                      )}
+                    </h4>
+                    {!collapsed.has(g.key) && listView(g.items)}
+                  </section>
+                )
+              ))}
             </>
           )}
         </>

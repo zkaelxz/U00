@@ -391,6 +391,7 @@ export default function LibraryPage() {
         onSelectModeChange={setSelectMode}
         onItems={onItems}
         onCreate={canCreate ? () => setCreating(true) : undefined}
+        series={allSeries.data?.items ?? null}
       />
       {phone && bar}
 
