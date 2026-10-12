@@ -244,7 +244,10 @@ CLI prints the same sentence.
 - **Running thread job:** the message becomes `CANCELLING_MESSAGE`. The job must notice
   and raise `JobCancelled`, which `_spawn` records as `cancelled`. Check with
   `is_cancel_requested(job_id)` between units of work; external commands go through
-  `run_cancellable` (ffmpeg and friends, killed as a process tree).
+  `run_cancellable` (ffmpeg and friends, killed as a process tree). Inside `job_workdir(job_id)`
+  it notes the command (pid, start time, command digest) in the folder, so if the server dies
+  without stopping it the next start stops it, only while it is still that same process, and
+  removes the folder (`storage.stop_orphaned_job_children`).
 - **Running process job:** `_process_watcher` sees the flag, stops the child
   (`_stop_process`: terminate, then kill; or `kill_tree` for `kill_whole_tree=True`),
   and marks the job `cancelled` ("Cancelled."). `on_done` is not called. A cancel that
