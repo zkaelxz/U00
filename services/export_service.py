@@ -231,7 +231,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                       per_speaker_colors: bool = True, include_notes: bool = False,
                       notes_as_separate_line: bool = False,
                       wrap_chars_en: Optional[int] = None,
-                      wrap_chars_source: Optional[int] = None) -> str:
+                      wrap_chars_source: Optional[int] = None,
+                      keep_overlaps: bool = False) -> str:
     """Generates ASS subtitle text for one drama --
     pure and read-only, returns text only.
 
@@ -245,7 +246,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     true, subtitle_formats.default_speaker_colors picks one per speaker in
     the drama; per_speaker_colors=False means one style for everyone.
     Overlaps are clamped and lines wrapped exactly as generate_subtitle_text
-    does. notes_as_separate_line requires include_notes.
+    does, unless keep_overlaps (the soft-subtitle ASS track, whose point is
+    that players stack overlapping cues). notes_as_separate_line requires
+    include_notes.
 
     Not done here: persisting the style per drama (it's per-request), the
     Package zip, "Mark as exported" (mark_exported), and any binary/file
@@ -275,7 +278,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     check_wrap(wrap_chars_source, "wrap_chars_source")
 
     drama, lines = _load_drama_and_lines(drama_id)
-    export_lines, _ = subtitle_formats.clamp_overlaps(lines)
+    export_lines = lines if keep_overlaps else subtitle_formats.clamp_overlaps(lines)[0]
 
     if not per_speaker_colors:
         colors = {}

@@ -207,6 +207,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_judge_service.py`
 - `benchmark_lab_service.py`
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
+- `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
 - `benchmark_set_builder_service.py`
 - `blocked_retry_service.py`
 - `browser_install_service.py`
@@ -275,6 +276,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `live_service.py`
 - `live_spend_service.py` (cap check, usage log and failure stop for a Live session on a paid engine)
 - `paid_job_service.py` (money limits for a background job's AI calls, and the refusal of unattended paid work with no monthly cap)
+- `episode_summary_service.py` (why a run left the episode summary empty, and writing one on demand with a chosen engine)
+- `failed_lines_service.py` (retry exactly the last run's failed lines, and forget the ones a run fixed)
+- `glossary_flagged_service.py` (one-click redo of the lines flagged for a missing glossary name, with the stronger engine)
 - `lncrawl_service.py`
 - `loaded_models_service.py`
 - `maintenance_assistant_service.py`
@@ -424,7 +428,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
 - `timing_check.py` (the Review "Check timing" shapes)
 - `transcribe.py` (Transcription shapes: transcribe runs and config, diarization, autotune, re-transcribe and live sessions)
-- `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets and bulk jobs)
+- `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets, bulk jobs, retrying failed lines, the glossary redo and the episode summary)
 - `vdb_names.py` (/api/vdb-names: the optional personal VTuber name list; booleans and counts only)
 - `voice.py` (Voice shapes: dubbing, narration and voice-clone setup)
 
@@ -528,6 +532,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `engine_registry.py` (Engine registry: ENGINES, capability tags, notes, model overrides and get_engine)
 - `fallback.py` (Translate fallback chain)
 - `flag_reasons.py` (Flag keys a line can carry, and the text shown for each)
+- `glossary_check.py` (checks a translated batch against the series glossary: one re-ask on the same engine, then a Review flag)
 - `gemini.py` (Gemini engine, its rate-limit status text and free-tier limits)
 - `llm_tasks.py` (Single-prompt LLM calls for features other than a translation batch)
 - `local.py` (Local engine: Ollama)

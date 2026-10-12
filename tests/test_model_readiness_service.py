@@ -50,8 +50,9 @@ def _hf_repo(caches, repo_id, files):
     return snap
 
 
-def _whisper(caches, size="large-v3-turbo"):
+def _whisper(caches, size=None):
     import whisper_models
+    size = size or whisper_models.DEFAULT_WHISPER_SIZE
     repo = whisper_models.faster_whisper_repo(size).replace("/", "--")
     snap = caches["hf"] / f"models--{repo}" / "snapshots" / "r1"
     snap.mkdir(parents=True)
@@ -289,7 +290,7 @@ def test_hf_model_ready_reads_the_snapshot_main_points_at(caches):
 def test_whisper_ready_honours_a_local_model_folder(caches, tmp_path):
     assert mrs.whisper_ready("large-v3-turbo") is False
     assert mrs.whisper_ready("large-v3-turbo", str(tmp_path)) is True
-    _whisper(caches)
+    _whisper(caches, "large-v3-turbo")
     assert mrs.whisper_ready("large-v3-turbo") is True
 
 
