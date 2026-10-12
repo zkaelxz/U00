@@ -34,6 +34,7 @@ import { listSavedSeries } from '../api/savedComics'
 import { SavedSeriesRows } from './SavedManga'
 import './manga/manga.css'
 import { SERIES_HELP } from '../helpText'
+import { PageShell } from '../components/PageShell'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { useRoute } from '../router'
@@ -229,17 +230,17 @@ export default function LibraryToolsPage() {
   const shared = series.data ? sharedSeries(series.data.items) : undefined
   const totalCost = costs.data?.items.reduce((sum, c) => sum + c.estimated_cost_usd, 0)
   return (
-    <main className="library-page library-tools-page">
-      <Breadcrumbs crumbs={routeCrumbs({ name: 'library-tools' })} />
-      <header className="page-head">
-        <div className="page-head-text">
-          <h2 className="page-title">Library tools</h2>
-          <p className="page-meta">Series, saved manga, costs, reading history, presets, backups, storage and the data folder. Titles and Continue stay on the Library page.</p>
-        </div>
-        <ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>
-      </header>
+    <PageShell
+      as="main"
+      width="standard"
+      title="Library tools"
+      className="library-page library-tools-page"
+      back={<Breadcrumbs crumbs={routeCrumbs({ name: 'library-tools' })} />}
+      meta="Series, saved manga, costs, reading history, presets, backups, storage and the data folder. Titles and Continue stay on the Library page."
+      actions={<ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>}
+      tabs={<Tabs label="Library tools" idPrefix="library-tools" tabs={LIBRARY_TOOLS_TABS} active={tab} onSelect={selectTab} />}
+    >
       <ErrorBanner error={stats.error} />
-      <Tabs label="Library tools" idPrefix="library-tools" tabs={LIBRARY_TOOLS_TABS} active={tab} onSelect={selectTab} />
       <section className="tools-stack" aria-label="Library tools">
         {panel('organize', (
           <>
@@ -348,6 +349,6 @@ export default function LibraryToolsPage() {
         {panel('storage', <StorageTab pc={pc} usage={usage} />)}
         {panel('data', pc === 'remote' ? <p className="muted">{PC_ONLY_BODY}</p> : <DataFolderPanel usage={usage} />)}
       </section>
-    </main>
+    </PageShell>
   )
 }

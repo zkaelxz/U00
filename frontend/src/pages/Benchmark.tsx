@@ -14,6 +14,7 @@ import {
   type BenchmarkOptions, type BenchmarkRun, type BenchmarkRunStarted, type BenchmarkSet,
 } from '../api/benchmark'
 import { cancelJob } from '../api/jobs'
+import { PageShell } from '../components/PageShell'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -84,35 +85,41 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
   const finishedText = done && job ? (jobFailed(job) ? jobOutcomeText(job) ?? 'The run failed.' : 'Run finished.') : null
 
   return (
-    <section className="bench-page" aria-label="Benchmark Lab">
-      <header className="page-head">
-        <div className="page-head-text">
-          <h2 className="page-title">
-            Benchmark Lab
-            <HelpTip label="Benchmark Lab" id="bench-page-help" className="bench-help">
-              {BENCH_PAGE_HELP.map((line, i) => (
-                <span key={line} className="bench-help-step">
-                  {i + 1}. {line}
-                </span>
-              ))}
-            </HelpTip>
-          </h2>
-          <p className="page-meta pill-row">
-            {options ? (
-              <>
-                <Badge tone="neutral">Pass mark {Math.round(options.pass_threshold * 100)}% ({Math.round(options.chrf_pass_threshold * 100)}% for chrF)</Badge>
-                <Badge tone="neutral">Up to {options.max_configs} engines per run</Badge>
-                {pc === 'remote' && <Badge tone="warn">View only: runs start on the main PC</Badge>}
-              </>
-            ) : (
-              'Loading…'
-            )}
-          </p>
-        </div>
+    <PageShell
+      width="standard"
+      title={(
+        <>
+          Benchmark Lab
+          <HelpTip label="Benchmark Lab" id="bench-page-help" className="bench-help">
+            {BENCH_PAGE_HELP.map((line, i) => (
+              <span key={line} className="bench-help-step">
+                {i + 1}. {line}
+              </span>
+            ))}
+          </HelpTip>
+        </>
+      )}
+      label="Benchmark Lab"
+      className="bench-page"
+      actions={(
         <ButtonLink href={routeHref({ name: 'diagnostics' })} variant="ghost" size="sm">
           ‹ Diagnostics
         </ButtonLink>
-      </header>
+      )}
+      meta={(
+        <p className="page-meta pill-row">
+          {options ? (
+            <>
+              <Badge tone="neutral">Pass mark {Math.round(options.pass_threshold * 100)}% ({Math.round(options.chrf_pass_threshold * 100)}% for chrF)</Badge>
+              <Badge tone="neutral">Up to {options.max_configs} engines per run</Badge>
+              {pc === 'remote' && <Badge tone="warn">View only: runs start on the main PC</Badge>}
+            </>
+          ) : (
+            'Loading…'
+          )}
+        </p>
+      )}
+    >
       <div className="muted bench-intro" data-testid="bench-intro">
         {BENCH_INTRO.map((line) => (
           <p key={line}>{line}</p>
@@ -177,6 +184,6 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
       {target && <ArenaView target={target} phone={phone} onClose={() => setTarget(null)} />}
 
       {!options && !error && <p className="muted">Loading…</p>}
-    </section>
+    </PageShell>
   )
 }

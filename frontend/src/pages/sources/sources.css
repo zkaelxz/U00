@@ -1,18 +1,10 @@
 /* Sources page (#/sources). Tokens only; shared rules live in index.css. */
 
-.sources-page { display: grid; gap: var(--space-4); max-width: 1200px; margin-inline: auto; min-width: 0; }
-.sources-page > * { min-width: 0; }
-.sources-page h2 { margin: 0; }
 .sources-page h3, .sources-page h4 { margin: 0; }
 .sources-main { align-content: start; }
 .sources-find[hidden] { display: none; }
 .sources-find { display: grid; gap: var(--space-3); min-width: 0; }
 
-/* Page head: title, one meta line (paused sources as a warn badge). */
-.sources-head { display: grid; gap: var(--space-1); }
-.sources-head-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
-.sources-head h2 { font-size: var(--text-2xl); font-weight: 600; }
-.sources-head .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 
 /* "Search by title | Paste a link": two segments, native radios inside. */
 .segmented {
@@ -47,8 +39,8 @@
 
 /* Desktop: search + results left, the open series right. The panel flows with the page:
    a sticky, height-capped panel would be a second scroll area inside the page. */
-.sources-page.wide.has-series { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
-.sources-page.wide.has-series > :not(.sources-main):not(.sources-series) { grid-column: 1 / -1; }
+.sources-page.wide.has-series .page-shell-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.sources-page.wide.has-series .page-shell-body > :not(.sources-main):not(.sources-series) { grid-column: 1 / -1; }
 
 /* Search */
 .sources-search { display: grid; gap: var(--space-2); }

@@ -1,15 +1,11 @@
 /* Settings page layout (UI refresh §3.12): a stack of Cards; rare options
    stay in borderless Sections inside the "Advanced" Card. */
-.settings-page { display: grid; gap: var(--space-5); }
-/* The Cards are the boxes; the page itself draws none (no box inside a box). */
-.panel.settings-page { border: 0; background: none; box-shadow: none; padding-inline: 0; }
-.settings-page > h2 { margin: 0; }
 .settings-page .setting-list { margin: 0; }
 .settings-note { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 
 /* Search above the tabs; the tabs are components/Tabs. */
 .settings-search input { width: 100%; box-sizing: border-box; }
-.settings-panel { display: grid; gap: var(--space-5); min-width: 0; }
+.settings-panel { display: grid; gap: var(--page-gap); min-width: 0; }
 .settings-panel[hidden], .settings-card[hidden], .settings-card:empty { display: none; }
 .settings-card { min-width: 0; scroll-margin-top: var(--space-4); }
 
@@ -50,7 +46,6 @@
 .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-6); }
 
 @media (max-width: 640px) {
-  .settings-page { gap: var(--space-4); }
   .settings-page .status-list > li { padding-inline: var(--space-3); }
   .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-5); }
 }

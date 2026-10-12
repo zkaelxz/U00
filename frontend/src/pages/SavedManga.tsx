@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { listSavedChapters, listSavedSeries } from '../api/savedComics'
 import { ButtonLink } from '../components/Button'
+import { PageShell } from '../components/PageShell'
 import { ErrorBanner } from '../components/ErrorBanner'
 import type { SavedChapterList, SavedSeries } from '../types/savedComics'
 import { chapterCount, loadLastRead, mangaReadHref, mangaSeriesHref, seriesTitle, type LastRead } from './manga/mangaLogic'
@@ -36,13 +37,7 @@ function SeriesList() {
     listSavedSeries().then(setItems, setError)
   }, [])
   return (
-    <>
-      <header className="page-head">
-        <div className="page-head-text">
-          <h2 className="page-title">Saved manga</h2>
-          <p className="page-meta">Chapters saved as CBZ files, to read here or in any comic reader.</p>
-        </div>
-      </header>
+    <PageShell as="main" width="standard" className="manga-page" title="Saved manga" meta="Chapters saved as CBZ files, to read here or in any comic reader.">
       <ErrorBanner error={error} />
       {items === null ? (
         !error && <p className="muted">Loading…</p>
@@ -54,7 +49,7 @@ function SeriesList() {
       ) : (
         <SavedSeriesRows items={items} />
       )}
-    </>
+    </PageShell>
   )
 }
 
@@ -99,30 +94,32 @@ function ChapterList({ source, series }: { source: string; series: string }) {
   const last = lastReadOf(source, series)
   const resume = continueHref(source, series, last)
   return (
-    <>
-      <nav aria-label="Breadcrumb" className="reader-crumbs">
-        <a href="#/manga">Saved manga</a>
-        <span aria-hidden="true"> / </span>
-        <span>{seriesTitle(series)}</span>
-      </nav>
-      <header className="page-head">
-        <div className="page-head-text">
-          <h2 className="page-title">{seriesTitle(series)}</h2>
-          <p className="page-meta">
-            {source}
-            {data && ` · ${chapterCount(data.chapters.length)}`}
-          </p>
-        </div>
-        <div className="actions">
-          {resume ? (
-            <ButtonLink variant="primary" href={resume}>Continue</ButtonLink>
-          ) : (
-            data?.chapters[0] && (
-              <ButtonLink variant="primary" href={mangaReadHref(source, series, data.chapters[0].chapter)}>Start reading</ButtonLink>
-            )
-          )}
-        </div>
-      </header>
+    <PageShell
+      as="main"
+      width="standard"
+      className="manga-page"
+      title={seriesTitle(series)}
+      back={(
+        <nav aria-label="Breadcrumb" className="reader-crumbs">
+          <a href="#/manga">Saved manga</a>
+          <span aria-hidden="true"> / </span>
+          <span>{seriesTitle(series)}</span>
+        </nav>
+      )}
+      meta={(
+        <p className="page-meta">
+          {source}
+          {data && ` · ${chapterCount(data.chapters.length)}`}
+        </p>
+      )}
+      actions={resume ? (
+        <ButtonLink variant="primary" href={resume}>Continue</ButtonLink>
+      ) : (
+        data?.chapters[0] && (
+          <ButtonLink variant="primary" href={mangaReadHref(source, series, data.chapters[0].chapter)}>Start reading</ButtonLink>
+        )
+      )}
+    >
       <ErrorBanner error={error} />
       {data === null ? (
         !error && <p className="muted">Loading…</p>
@@ -136,14 +133,10 @@ function ChapterList({ source, series }: { source: string; series: string }) {
           ))}
         </ol>
       )}
-    </>
+    </PageShell>
   )
 }
 
 export default function SavedMangaPage({ source, series }: { source?: string; series?: string }) {
-  return (
-    <main className="manga-page">
-      {source !== undefined && series !== undefined ? <ChapterList source={source} series={series} /> : <SeriesList />}
-    </main>
-  )
+  return source !== undefined && series !== undefined ? <ChapterList source={source} series={series} /> : <SeriesList />
 }

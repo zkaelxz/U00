@@ -24,6 +24,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId, startSeries, untrackSeries } from '../api/sources'
+import { PageShell } from '../components/PageShell'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { Card } from '../components/Card'
@@ -190,12 +191,12 @@ export default function SourcesPage() {
     : null
 
   return (
-    <div className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}>
-      <header className="page-head sources-head">
-        <div className="sources-head-row">
-          <h2>Sources</h2>
-          <ButtonLink variant="ghost" size="sm" href="#/sources/manage">Manage sources</ButtonLink>
-        </div>
+    <PageShell
+      width="wide"
+      title="Sources"
+      className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}
+      actions={<ButtonLink variant="ghost" size="sm" href="#/sources/manage">Manage sources</ButtonLink>}
+      meta={(
         <p className="page-meta" data-testid="sources-summary">
           {summary ? (
             <>
@@ -206,7 +207,8 @@ export default function SourcesPage() {
             'Loading…'
           )}
         </p>
-      </header>
+      )}
+    >
       <ErrorBanner error={loadError} />
 
       <Card className="sources-main" aria-label="Search or paste a link">
@@ -280,6 +282,6 @@ export default function SourcesPage() {
         />
       )}
 
-    </div>
+    </PageShell>
   )
 }

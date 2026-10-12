@@ -280,7 +280,7 @@ test('People and access: first card open the first time, the rest closed and rem
   await expect(cards.nth(1)).not.toHaveAttribute('open', '')
   await expect(cards.nth(2)).not.toHaveAttribute('open', '')
   // Same page layout as the other pages: no page-specific width.
-  await expect(page.locator('section[aria-label="People and access"]')).toHaveClass(/page-narrow/)
+  await expect(page.locator('section[aria-label="People and access"]')).toHaveAttribute('data-page-shell', 'narrow')
   // Empty text names no command.
   await expect(page.getByText('No one is signed up yet. Ask the first person to sign in on the main PC.')).toBeVisible()
   await expect(page.locator('section[aria-label="People and access"]')).not.toContainText('grant-admin')

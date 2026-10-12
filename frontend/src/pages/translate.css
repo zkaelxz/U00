@@ -1,8 +1,4 @@
 /* Translate page (pages/Translate.tsx). Phone first; two columns from 1024px. */
-.translate-page { display: grid; gap: var(--space-4); max-width: 860px; margin-inline: auto; min-width: 0; }
-.translate-head { display: grid; gap: var(--space-1); }
-.translate-head h2 { margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); }
-.translate-head p { margin: 0; font-size: var(--text-sm); }
 
 .translate-form { display: grid; gap: var(--space-3); min-width: 0; }
 
@@ -61,8 +57,6 @@
 .translate-history-pair p + p { color: var(--muted); }
 
 @media (min-width: 1024px) {
-  /* Wider than the form-page cap so both panes get a readable line length. */
-  .translate-page { max-width: 1120px; gap: var(--space-5); }
   .translate-toolbar { grid-template-columns: minmax(200px, 1fr) minmax(320px, 1.4fr); }
   .translate-toolbar.has-model { grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(320px, 1.4fr); }
   .translate-toolbar .translate-langs, .translate-toolbar:not(.has-model) .translate-engine { grid-column: auto; }

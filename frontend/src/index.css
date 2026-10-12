@@ -31,6 +31,10 @@
   --shadow-pop: 0 2px 8px color-mix(in srgb, #000 16%, transparent);
   --content-max: 1200px;
   --content-max-wide: 1800px;
+  /* PageShell: the three page widths, and the one vertical gap between header, tabs and content blocks. */
+  --page-narrow: 860px;
+  --page-standard: 1120px;
+  --page-gap: var(--space-5);
   --radius: 8px;
   --radius-sm: 6px;
   --space-1: 4px;
@@ -202,10 +206,9 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* Beyond the rail layout body is already narrower than 1200px, so only the rail column needs a wide cap.
-   Pages that cap themselves (Jobs, Sources, Discover, Diagnostics) are released so the column width applies. */
-.has-rail > .app-main[data-width='wide'] { max-width: var(--content-max-wide); }
-.app-main[data-width='wide'] :is(.jobs-page, .sources-page, .discover-page, .page-narrow) { max-width: none; }
+/* The app column (sideNav.css) takes the full wide cap; PageShell narrows a page to its preset inside it, and the routes that
+   have no shell (title workspace, readers) sit in .app-bounded so they keep the 1200px column. */
+.app-bounded { max-width: var(--content-max); margin-inline: auto; }
 
 /* ---- header + top nav ---- */
 /* --app-header-h is the header's measured height (nav/useHeaderHeight); --bar-h is what other sticky pieces offset
@@ -251,8 +254,7 @@ a { color: var(--accent-text); }
   min-width: 0;
   overflow-x: auto;
 }
-/* Standalone pages (Translate, Settings, Diagnostics) keep a readable line length. */
-.page-narrow, #root > .panel { max-width: 860px; margin-inline: auto; }
+#root > .panel { max-width: var(--page-narrow); margin-inline: auto; }
 .panel > :last-child { margin-bottom: 0; }
 /* Specificity 0,1,1: a list class that wants no indent has to use `padding: 0 !important` to win, so those
    `!important`s across the stylesheets are required. */
@@ -710,7 +712,18 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 }
 
 /* ==== Library (pages/Library.tsx, LibraryList, DramaCards, DramaDetailPanel; spec §3.1–3.2) ==== */
-.library-page { display: grid; gap: var(--space-5); min-width: 0; }
+/* PageShell (components/PageShell.tsx). Width is the only thing a page chooses; margins on direct children are
+   reset so the grid gap is the whole spacing. */
+.page-shell { display: grid; gap: var(--page-gap); min-width: 0; width: 100%; margin-inline: auto; align-content: start; }
+.page-shell-narrow { max-width: var(--page-narrow); }
+.page-shell-standard { max-width: var(--page-standard); }
+.page-shell-wide { max-width: none; }
+/* Not dialogs: a modal sheet positions itself with its own auto margins. */
+.page-shell > :not(dialog), .page-shell > .page-shell-body > :not(dialog) { min-width: 0; margin: 0; }
+.page-shell-tabs { display: grid; gap: var(--space-3); }
+/* An empty slot would still take a grid row and add a second --page-gap while a page loads. */
+.page-shell-tabs:empty, .page-shell-body:empty { display: none; }
+.page-shell-body { display: grid; gap: var(--page-gap); align-content: start; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .page-head-text { display: grid; gap: var(--space-1); min-width: 0; }
 .page-title { margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
@@ -818,7 +831,7 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .line-hit-head a { font-weight: var(--weight-bold); }
 
 /* Library tools: rare lists, all folded */
-.tools-stack { display: grid; gap: 0; max-width: 56rem; }
+.tools-stack { display: grid; gap: 0; }
 .tools-stack details.section { margin: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: var(--space-2) 0; }
 .tools-group-title { margin: var(--space-4) 0 var(--space-1); font-size: var(--text-sm); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .tool-body { display: grid; gap: var(--space-2); }
@@ -855,7 +868,6 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 /* ==== Phone rhythm (<=640px): label->field 4, field->field 16, hint->its button 8, field group->action row 24,
    card/section->card/section 24, page region->region 32. Tokens only. ==== */
 @media (max-width: 640px) {
-  .library-page { gap: var(--space-6); }
   .card { gap: var(--space-4); }
   .card-body { gap: var(--space-4); }
   .card-actions { gap: var(--space-3); }

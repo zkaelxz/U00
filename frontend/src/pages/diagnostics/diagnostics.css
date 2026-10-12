@@ -1,16 +1,13 @@
 /* Diagnostics admin sections. Tokens only; phone rules via index.css's coarse-pointer block. */
 
 /* Page: head with a badge strip, then the tabs, then one tab's folds. */
-.diag-page { display: grid; gap: var(--space-5); min-width: 0; }
-.diag-page > * { min-width: 0; margin: 0; }
 .diag-page ul { margin: 0; padding-left: 1.2rem; }
 .diag-page li { padding: 2px 0; }
 .diag-page h3, .diag-page h4 { margin: 0; }
-.diag-head { display: grid; gap: var(--space-2); }
-.diag-head h2 { margin: 0; font-size: var(--text-2xl); font-weight: 600; }
-.diag-head .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-/* Each tab is a stack of folds. */
-.diag-panel { display: grid; gap: var(--space-3); min-width: 0; }
+/* Each tab is a stack of folds, spaced like every other block on a page. */
+.diag-panel, .diag-folds { display: grid; gap: var(--page-gap); min-width: 0; }
+/* Two classes so it out-ranks details.section's own bottom margin. */
+.diag-page .diag-folds > * { margin: 0; }
 .diag-panel[hidden], .diag-card:empty { display: none; }
 .diag-card { min-width: 0; scroll-margin-top: var(--space-4); }
 .diag-card > details.section { margin: 0; background: var(--surface); }
@@ -20,10 +17,6 @@
   .diag-card > details.section > summary, .danger-zone details.section > summary { min-height: 44px; align-items: center; }
 }
 .diag-lab-link { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-@media (max-width: 640px) {
-  .diag-page { gap: var(--space-5); }
-  .diag-panel { gap: var(--space-4); }
-}
 
 .diag-stack { display: grid; gap: var(--space-2); min-width: 0; }
 .diag-stack > p { margin: 0; }

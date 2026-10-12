@@ -12,6 +12,7 @@ import {
 } from '../api/settings'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { PageShell } from '../components/PageShell'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -209,18 +210,26 @@ export default function SettingsPage() {
     : undefined
   // The public address check and the household's accounts live on the People and access page.
   return (
-    <section className="panel page-narrow settings-page" aria-label="Settings">
-      <h2>Settings</h2>
-      {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}
-      {visibleTabs.length > 1 && (
-        <Tabs
-          label="Settings"
-          idPrefix="settings"
-          tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, count: searching ? match.counts[t.id] : undefined }))}
-          active={active}
-          onSelect={setStoredTab}
-        />
+    <PageShell
+      width="narrow"
+      title="Settings"
+      label="Settings"
+      className="settings-page"
+      tabs={(
+        <>
+          {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}
+          {visibleTabs.length > 1 && (
+            <Tabs
+              label="Settings"
+              idPrefix="settings"
+              tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, count: searching ? match.counts[t.id] : undefined }))}
+              active={active}
+              onSelect={setStoredTab}
+            />
+          )}
+        </>
       )}
+    >
       <FoldControls onExpand={() => foldAll('expand')} onCollapse={() => foldAll('collapse')} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {searching && match.total === 0 && <p className="settings-note">No settings match “{query.trim()}”.</p>}
@@ -314,6 +323,6 @@ export default function SettingsPage() {
         ))}
       </VisibleCardsProvider>
       </FoldSignalsProvider>
-    </section>
+    </PageShell>
   )
 }

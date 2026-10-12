@@ -13,6 +13,7 @@ import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../hooks/usePcOnly'
+import { PageShell } from '../components/PageShell'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import type { SourceHealth, SourcesSettings, SourceSummary } from '../types/sources'
@@ -27,19 +28,30 @@ import './sources/sources.css'
 
 const PREFIX = 'sources-manage'
 
+function ManageShell({ meta, tabs, children }: { meta?: ReactNode; tabs?: ReactNode; children: ReactNode }) {
+  return (
+    <PageShell
+      as="main"
+      width="standard"
+      title="Manage sources"
+      className="library-page sources-manage-page"
+      back={<Breadcrumbs crumbs={routeCrumbs({ name: 'sources-manage' })} />}
+      meta={meta}
+      tabs={tabs}
+      actions={<ButtonLink variant="secondary" href="#/sources">Back to Sources</ButtonLink>}
+    >
+      {children}
+    </PageShell>
+  )
+}
+
 export default function SourcesManagePage({ tab = 'sites' }: { tab?: ManageTab }) {
   const pc = usePcOnly()
+  if (pc !== 'remote') return <ManageBody tab={tab} />
   return (
-    <main className="library-page sources-manage-page">
-      <Breadcrumbs crumbs={routeCrumbs({ name: 'sources-manage' })} />
-      <header className="page-head">
-        <div className="page-head-text">
-          <h2 className="page-title">Manage sources</h2>
-        </div>
-        <ButtonLink variant="secondary" href="#/sources">Back to Sources</ButtonLink>
-      </header>
-      {pc === 'remote' ? <p className="muted">{`${PC_ONLY_SUMMARY}. ${PC_ONLY_BODY}`}</p> : <ManageBody tab={tab} />}
-    </main>
+    <ManageShell>
+      <p className="muted">{`${PC_ONLY_SUMMARY}. ${PC_ONLY_BODY}`}</p>
+    </ManageShell>
   )
 }
 
@@ -102,10 +114,11 @@ function ManageBody({ tab }: { tab: ManageTab }) {
   const unavailable = settingsDone ? <p className="muted">{emptyTabMessage('timing')}</p> : loading
 
   return (
-    <>
-      {sources && <p className="page-meta" data-testid="manage-summary">{settingsSummary(settings, sources)}</p>}
+    <ManageShell
+      meta={sources && <p className="page-meta" data-testid="manage-summary">{settingsSummary(settings, sources)}</p>}
+      tabs={<Tabs label="Manage sources" idPrefix={PREFIX} tabs={MANAGE_TABS} active={tab} onSelect={select} />}
+    >
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
-      <Tabs label="Manage sources" idPrefix={PREFIX} tabs={MANAGE_TABS} active={tab} onSelect={select} />
       {panel('sites', !sources ? loading : sources.length === 0
         ? <p className="muted">{emptyTabMessage('sites')}</p>
         : <SitesTab phone={phone} sources={sources} settings={settings} onSource={replaceSource} onHealth={setHealth} />)}
@@ -114,6 +127,6 @@ function ManageBody({ tab }: { tab: ManageTab }) {
         : unavailable)}
       {panel('network', settings ? <NetworkTab settings={settings} onSaved={setSettings} /> : unavailable)}
       {panel('activity', <ActivityTab />)}
-    </>
+    </ManageShell>
   )
 }

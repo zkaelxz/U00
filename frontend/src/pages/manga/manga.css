@@ -1,5 +1,4 @@
 /* Saved manga: the series list, a series' chapters and the save folder card. */
-.manga-page { display: grid; gap: var(--space-5); min-width: 0; }
 .manga-page .reader-crumbs { font-weight: 600; overflow-wrap: anywhere; }
 .manga-page .reader-crumbs a { font-weight: 400; }
 .manga-series { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }

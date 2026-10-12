@@ -12,6 +12,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import { Section } from '../components/Section'
+import { PageShell } from '../components/PageShell'
 import { Sheet } from '../components/Sheet'
 import {
   continueItems, dramaName, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
@@ -320,29 +321,32 @@ export default function LibraryPage() {
   )
 
   return (
-    <main className="library-page">
-      <header className="page-head">
-        <div className="page-head-text">
-          <h2 className="page-title">Library</h2>
+    <PageShell
+      as="main"
+      width="wide"
+      title="Library"
+      className="library-page"
+      meta={(
+        <>
           <ErrorBanner error={stats.error} />
           {stats.data
             ? <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>
             : !stats.error && <p className="page-meta stats-placeholder" aria-hidden="true" />}
-          {stats.data && usageSpent(stats.data.usage) && (
-            <details className="stats-usage">
-              <summary>{usageSpent(stats.data.usage)}</summary>
-              <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
-            </details>
-          )}
-        </div>
-        {canCreate && (
-          <div className="actions">
-            {!getStarted && <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
-            <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
-          </div>
-        )}
-      </header>
-
+        </>
+      )}
+      headExtra={stats.data && usageSpent(stats.data.usage) && (
+        <details className="stats-usage">
+          <summary>{usageSpent(stats.data.usage)}</summary>
+          <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
+        </details>
+      )}
+      actions={canCreate && (
+        <>
+          {!getStarted && <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
+          <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
+        </>
+      )}
+    >
       {notice && (
         <p className="status-line warn" role="status" data-testid="delete-notice">
           <span>{notice}</span>
@@ -406,6 +410,6 @@ export default function LibraryPage() {
           />
         )}
       </Sheet>
-    </main>
+    </PageShell>
   )
 }
