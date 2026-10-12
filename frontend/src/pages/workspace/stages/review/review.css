@@ -228,6 +228,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-ai-ask { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: end; }
 .review-ai-ask label { display: grid; gap: 2px; font-size: var(--text-sm); flex: 1 1 12rem; min-width: 0; }
 .review-ai-ask input { font: inherit; min-width: 0; }
+.review-ai-engine { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: end; border: 0; margin: 0; padding: 0; min-width: 0; }
+.review-ai-engine > * { flex: 1 1 12rem; min-width: 0; }
+.review-ai-engine .review-ai-engine-hint { flex-basis: 100%; margin: 0; font-size: var(--text-sm); }
 .review-ai-compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2) var(--space-4); }
 .review-ai-text { overflow-wrap: anywhere; white-space: pre-wrap; margin: 0; }
 

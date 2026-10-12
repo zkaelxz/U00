@@ -19,7 +19,7 @@ Also here (review parity R17/R18): "Alternatives" (other valid renderings,
 each with what it prioritizes) and "Grammar" (a word-by-word breakdown of
 the source), `line_tools.alternative_translations` / `grammar_breakdown`,
 read-only in the same way. Their results are model output shaped into
-bounded lists of short strings; nothing from them is ever written. They
+bounded lists of short strings; nothing from them is ever written. All four
 refuse a paid engine once the monthly spending cap is used up.
 """
 import core
@@ -86,6 +86,9 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")
+    # The model id goes into the provider request, so only a plausible id gets that far.
+    if model and (not translate_engines.MODEL_ID_RE.fullmatch(model) or ".." in model):
+        raise InvalidInputError("That isn't a valid model name.")
     if (gemini_free_tier and engine_name == "gemini"
             and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
@@ -106,7 +109,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
 
 
 def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
-             need_en: bool = True, check_cap: bool = False):
+             need_en: bool = True, check_cap: bool = True):
     drama = translate_run_service.require_drama(drama_id)
     line = next((ln for ln in core.lines_from_rows(db.load_lines(drama_id))
                  if ln.id == line_id), None)
@@ -210,7 +213,7 @@ def alternatives_for_line(drama_id: int, line_id: int, engine_name: str = None,
     {line_id, current_en, alternatives: [{translation, approach, tradeoff}],
     engine, model}; apply one through the compare-and-set line patch."""
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
-                                         gemini_free_tier, check_cap=True)
+                                         gemini_free_tier)
     rows = run(lambda: line_tools.alternative_translations(
         line.zh, line.en, engine, source_language=_line_language(drama, line)),
         (engine, "line_alternatives", drama_id))
@@ -228,7 +231,7 @@ def grammar_for_line(drama_id: int, line_id: int, engine_name: str = None,
     Needs no translation. Writes nothing. Returns
     {line_id, zh, parts: [{word, reading, meaning, function}], engine, model}."""
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
-                                         gemini_free_tier, need_en=False, check_cap=True)
+                                         gemini_free_tier, need_en=False)
     rows = run(lambda: line_tools.grammar_breakdown(
         line.zh, engine, source_language=_line_language(drama, line)),
         (engine, "line_grammar", drama_id))
