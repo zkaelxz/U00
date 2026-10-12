@@ -104,8 +104,8 @@ for (const size of sizes) {
       if (url.includes('/diagnostics')) await expect(page.getByTestId('pyannote-summary')).toBeAttached()
       // A hash-only navigation keeps the previous page's scroll, and the sticky back button would then sit over this page's content.
       await page.evaluate(() => window.scrollTo(0, 0))
-      // The glossary's instruction editors arrive after networkidle; measure with them present, not sometimes without.
-      if (url.endsWith('/translate')) await expect(page.getByLabel('Series instructions')).toBeVisible()
+      // The glossary's instructions arrive after networkidle; measure with them present, not sometimes without.
+      if (url.endsWith('/translate')) await expect(page.getByTestId('instructions-state')).toBeAttached()
       // Open the folds so their dense buttons are measured too.
       await openFolds(page)
       const res = await page.evaluate(() => {

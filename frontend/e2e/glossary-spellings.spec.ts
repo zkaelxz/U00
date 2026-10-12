@@ -22,7 +22,7 @@ async function openPanel(page: Page, mockTerms = true) {
   if (mockTerms) await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: TERMS }))
   await page.goto('/#/drama/1/translate')
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByLabel('Project instructions')).toBeVisible()
+  await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   await glossary.getByRole('button', { name: 'Suggest spellings of ヤロ' }).click()
   return glossary.getByRole('region', { name: 'Suggest spellings of ヤロ' })
 }

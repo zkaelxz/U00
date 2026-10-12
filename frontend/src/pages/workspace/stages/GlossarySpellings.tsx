@@ -22,14 +22,17 @@ import './glossaryVariants.css'
 // The owner types the name in English and asks for guesses. The model's guesses are kept
 // only when they occur in this title's lines; each one is added as an alias after a
 // confirm, through the normal term update. The consistency check is read-only.
-export function SuggestSpellings({ term, onAdded, onClose }: {
+export function SuggestSpellings({ term, initialEnglish, onEnglish, onAdded, onClose }: {
   term: GlossaryTerm
+  // The English name typed earlier, so reopening the panel doesn't lose it.
+  initialEnglish?: string
+  onEnglish?: (english: string) => void
   onAdded: () => void
   onClose: () => void
 }) {
   const { dramaId } = useStage()
   const inputId = useId()
-  const [english, setEnglish] = useState(term.term_translation)
+  const [english, setEnglish] = useState(initialEnglish ?? term.term_translation)
   const run = useRunStatus(dramaId, getSpellingSuggestions)
   const status = statusForTerm(run.status, term.term_original)
   const active = run.status != null && isActiveStatus(run.status.status)
@@ -88,7 +91,10 @@ export function SuggestSpellings({ term, onAdded, onClose }: {
         and nothing is added until you confirm it.
       </p>
       <Field label="Name in English" help="Used to ask for likely spellings and to check the English lines.">
-        <input id={inputId} value={english} maxLength={80} onChange={(e) => setEnglish(e.target.value)} />
+        <input id={inputId} value={english} maxLength={80} onChange={(e) => {
+          setEnglish(e.target.value)
+          onEnglish?.(e.target.value)
+        }} />
       </Field>
       <div className="actions">
         <button type="button" className={buttonClass('primary', 'sm')} disabled={!english.trim() || active || starting} onClick={start}>

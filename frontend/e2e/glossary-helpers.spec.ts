@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { glossaryTab } from './glossaryTabs'
 import { suggestFrom } from './suggestTerms'
 
 import { ME } from './authMocks'
@@ -457,13 +458,18 @@ test('series instructions follow a series assigned here, so Save never writes th
   })
 
   await page.goto('/#/drama/1/translate')
-  await openSection(page, 'Glossary')
-  const series = page.getByLabel('Series instructions')
-  await expect(series).toHaveValue('')
+  await glossaryTab(page, 'Instructions')
+  await expect(page.getByText('Series instructions need a series')).toBeVisible()
   await page.getByLabel('Project instructions').fill('Project rules, typed')
+  await expect(page.getByTestId('project-instructions-count')).toHaveText('20 characters')
 
+  await glossaryTab(page, 'Terms')
   await page.getByTestId('series-assign').getByRole('button', { name: /^Create series/ }).click()
+  await glossaryTab(page, 'Instructions')
+  const series = page.getByLabel('Series instructions')
+  await page.getByRole('region', { name: 'Glossary' }).getByText('Series instructions', { exact: true }).first().click()
   await expect(series).toHaveValue('Series 7 rules')
+  await expect(page.getByTestId('instructions-state')).toContainText('Series: set, 14 characters')
   // Project text does not depend on the series: unsaved typing stays.
   await expect(page.getByLabel('Project instructions')).toHaveValue('Project rules, typed')
   await page.getByRole('button', { name: 'Save series instructions' }).click()

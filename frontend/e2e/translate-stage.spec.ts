@@ -140,7 +140,7 @@ test('glossary and characters panels load; a title without a series is told it c
   // Glossary starts open; Characters is a collapsed Section, open it to reach the body.
   await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByLabel('Project instructions')).toBeVisible()
+  await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Characters' })).toBeVisible()
 
   // Terms belong to a series: Add term waits for one, and the reason says so.

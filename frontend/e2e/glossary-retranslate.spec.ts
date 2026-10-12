@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { glossaryTab } from './glossaryTabs'
 
 import { ME } from './authMocks'
 
@@ -74,8 +75,8 @@ async function base(page: Page) {
 test('preview ticks machine lines, locks hand-edited ones, and starts only the chosen lines', async ({ page }) => {
   const state = await base(page)
   await page.goto('/#/drama/1/translate')
-  const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByRole('button', { name: 'Re-translate lines affected by the glossary…' }).click()
+  await glossaryTab(page, 'Re-translate')
+  await page.getByRole('button', { name: 'Re-translate lines affected by the glossary…' }).click()
 
   const panel = page.getByTestId('glossary-retranslate')
   await expect(panel).toContainText('3 lines affected, 1 hand-edited.')
@@ -109,8 +110,8 @@ test('preview ticks machine lines, locks hand-edited ones, and starts only the c
 test('cancel makes no request, and a stale preview is refused with a refresh', async ({ page }) => {
   const state = await base(page)
   await page.goto('/#/drama/1/translate')
-  const run = page.getByRole('region', { name: 'Translate run' })
-  const open = run.getByRole('button', { name: 'Re-translate lines affected by the glossary…' })
+  await glossaryTab(page, 'Re-translate')
+  const open = page.getByRole('button', { name: 'Re-translate lines affected by the glossary…' })
   await open.click()
   const panel = page.getByTestId('glossary-retranslate')
   await expect(panel).toContainText('3 lines affected')
@@ -136,6 +137,7 @@ test('fits a phone screen with no sideways scroll', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await base(page)
   await page.goto('/#/drama/1/translate')
+  await glossaryTab(page, 'Re-translate')
   await page.getByRole('button', { name: 'Re-translate lines affected by the glossary…' }).click()
   await expect(page.getByTestId('glossary-retranslate')).toContainText('3 lines affected')
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
