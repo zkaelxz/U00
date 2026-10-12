@@ -209,6 +209,12 @@ def start_background_services() -> dict:
         _log("stale 'aligned' statuses were not corrected: %s", exc)
     try:
         import storage
+        storage.stop_orphaned_job_children()
+    except Exception as exc:
+        from translate_engines import redact_secrets
+        _log("leftover job processes were not stopped: %s", redact_secrets(str(exc)))
+    try:
+        import storage
         storage.sweep_stale_temp()
     except Exception as exc:
         from translate_engines import redact_secrets

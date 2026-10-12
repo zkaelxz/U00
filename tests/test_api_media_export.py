@@ -186,6 +186,26 @@ def test_burned_video_runs_and_writes_artifact(client, drama, isolated_db, fake_
     assert client.get(f"/api/artifacts/dramas/{drama}/video").status_code == 200
 
 
+def test_burned_video_keeps_overlapping_cues(client, drama, isolated_db, monkeypatch):
+    isolated_db.save_lines(drama, [
+        Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+        Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+    ])
+    _add_video(isolated_db, drama)
+    seen = {}
+
+    def fake(job_id, cmd, cwd=None, **kw):
+        with open(os.path.join(cwd, "subs.ass"), encoding="utf-8") as f:
+            seen["ass"] = f.read()
+        with open(os.path.join(cwd, cmd[-1]), "wb") as f:
+            f.write(b"x")
+    monkeypatch.setattr(media_export_service.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(background_jobs, "run_cancellable", fake)
+    assert client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 200
+    assert _wait(f"burned_video_{drama}")["status"] == "done"
+    assert "0:00:00.00,0:00:03.00" in seen["ass"] and "0:00:02.00,0:00:04.00" in seen["ass"]
+
+
 def test_burned_video_ffmpeg_has_a_timeout(client, drama, isolated_db, fake_ffmpeg):
     """B-05 leftover: the burned-video ffmpeg run is bounded like the others."""
     _add_video(isolated_db, drama)
@@ -346,6 +366,24 @@ def test_softsub_ass_forces_mkv_and_keeps_overlapping_cues(client, drama, isolat
     assert cmd[-1].endswith(".mkv") and cmd[cmd.index("-c:s") + 1] == "ass"
     # Line 0 still ends at 0:00:03.00, after line 1 starts at 0:00:02.00.
     assert "0:00:00.00,0:00:03.00" in seen["ass"] and "0:00:02.00,0:00:04.00" in seen["ass"]
+
+
+def test_newer_softsub_export_removes_the_older_one_of_another_container(
+        client, drama, isolated_db, fake_ffmpeg):
+    _add_video(isolated_db, drama)
+    assert client.post(f"/api/export/dramas/{drama}/softsub-video").status_code == 200
+    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    kind_dir = os.path.dirname(artifact_service.get_artifact(drama, "softsub_video")["path"])
+    assert os.listdir(kind_dir).count(f"softsub_video_{drama}.mp4") == 1
+    with background_jobs._lock:
+        background_jobs._jobs.clear()
+    r = client.post(f"/api/export/dramas/{drama}/softsub-video", json={"subtitle_format": "ass"})
+    assert r.status_code == 200
+    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    served = artifact_service.get_artifact(drama, "softsub_video")
+    assert served["name"] == f"softsub_video_{drama}.mkv"
+    assert [n for n in os.listdir(kind_dir) if not n.startswith(".")] == [served["name"]]
+    assert served["language"] == "en"
 
 
 @pytest.mark.parametrize("body", [{"field": "fr"}, {"field": "en", "extra": 1},
@@ -578,6 +616,7 @@ def test_dubbed_refused_while_dub_job_runs(client, drama, isolated_db, fake_ffmp
 # ---- hardening: ffmpeg may only open local files -----------------------------
 
 @pytest.mark.parametrize("path,body", [("burned-video", None), ("softsub-video", None),
+                                       ("softsub-video", {"subtitle_format": "ass"}),
                                        ("dubbed-video", None),
                                        ("dubbed-video", {"keep_original": True})])
 def test_video_ffmpeg_inputs_are_file_only(client, drama, isolated_db, fake_ffmpeg, path, body):

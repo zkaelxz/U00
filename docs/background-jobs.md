@@ -244,7 +244,10 @@ CLI prints the same sentence.
 - **Running thread job:** the message becomes `CANCELLING_MESSAGE`. The job must notice
   and raise `JobCancelled`, which `_spawn` records as `cancelled`. Check with
   `is_cancel_requested(job_id)` between units of work; external commands go through
-  `run_cancellable` (ffmpeg and friends, killed as a process tree).
+  `run_cancellable` (ffmpeg and friends, killed as a process tree). Inside `job_workdir(job_id)`
+  it notes the command (pid, start time, command digest) in the folder, so if the server dies
+  without stopping it the next start stops it, only while it is still that same process, and
+  removes the folder (`storage.stop_orphaned_job_children`).
 - **Running process job:** `_process_watcher` sees the flag, stops the child
   (`_stop_process`: terminate, then kill; or `kill_tree` for `kill_whole_tree=True`),
   and marks the job `cancelled` ("Cancelled."). `on_done` is not called. A cancel that
@@ -267,7 +270,7 @@ does the same plus the `job_records` flag for jobs run by the API.
 
 A GPU job's worker is started through `services/gpu_process_job.py`: `run_in_child` for a thread job whose GPU stage must be killable and whose next stage needs the parent (`comparetx_`, `fixflag_`); the worker may send each finished unit as `("item", x)` so a cancel or timeout keeps what was done. It runs the body under `run_worker` (own process group, a deadline watchdog that closes the result queue before `os._exit`, scratch folder as the temp dir). The child never reads the database: the parent resolves settings and passes plain values.
 
-Every process-job worker hands its result back through `job_process_result.py`: small items go on the queue, a large final result is written to a file and only a short marker is queued, so a child killed mid-write cannot leave the parent blocked on a half-written message. A done job has already removed its result file. A thread job that waits for the pipeline lock takes it with `lib/cancellable_lock.hold(lock, cancel_check)`, which polls the cancel check between acquire attempts so Cancel works while it waits. A URL-media download runs yt-dlp in a killable child (`services/ytdlp_child.py`, started through `lib/proc.stream_tree`), so Cancel and the time cap kill extraction, challenge solving and ffmpeg post-processing together.
+Every process-job worker hands its result back through `job_process_result.py`: small items go on the queue, a large final result is written to a file and only a short marker is queued, so a child killed mid-write cannot leave the parent blocked on a half-written message. A done job has already removed its result file. A thread job that waits for the pipeline lock takes it with `lib/cancellable_lock.hold(lock, cancel_check)`, which polls the cancel check between acquire attempts so Cancel works while it waits. A URL-media download runs yt-dlp in a killable child (`services/ytdlp_child.py`, started through `lib/proc.stream_tree`), so Cancel and the time cap kill extraction, challenge solving and ffmpeg post-processing together. URL downloads queue inside `services/url_media_service.py`, not in the GPU queue: each request's job starts at once and waits in its own thread (message "Queued: Nth in line", status running) until a slot frees, so the Jobs page and Cancel treat it like any running job.
 
 The job store in `jobs/job_store.py` (#1058, merged) is the only writer of `job_records` rows; the in-memory dict still decides what a job this process runs does next.
 

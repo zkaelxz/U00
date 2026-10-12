@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { openBenchSections } from './benchSections'
+import { openBenchTab } from './benchSections'
 import { installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -59,7 +59,7 @@ test('Benchmark Lab on a phone: run cards, stacked Arena, 44px targets, no sidew
   await seedRun(request, setName, 'phone B')
 
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Recent runs')
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
   const runs = page.getByRole('region', { name: 'Recent runs' })
   // Phones get cards, not the table.
@@ -68,11 +68,13 @@ test('Benchmark Lab on a phone: run cards, stacked Arena, 44px targets, no sidew
   await noSideways(page)
 
   // Golden sets as cards too; open the set's cases.
+  await openBenchTab(page, 'Golden sets')
   const sets = page.getByRole('region', { name: 'Golden sets' })
   await sets.getByRole('button', { name: `Show cases in ${setName} (Application)` }).click()
   await expect(sets.getByRole('region', { name: `Cases in ${setName}` }).locator('li')).toHaveCount(2)
   await noSideways(page)
 
+  await openBenchTab(page, 'Recent runs')
   // Tick both runs by tapping their row labels, compare.
   await runs.getByRole('checkbox', { name: /phone A$/ }).check()
   await runs.getByRole('checkbox', { name: /phone B$/ }).check()

@@ -7,6 +7,7 @@ import type { ReadingSpeedMode } from '../../../../types/export'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
 import { Section } from '../../../../components/Section'
+import { checkSourceText } from '../../../../api/sourceSuspect'
 import { useStage } from '../../StageContext'
 import { clearMessage, MODE_HELP, MODE_OPTIONS } from './readingSpeed'
 import { TimingCheck } from './TimingCheck'
@@ -36,6 +37,12 @@ const ACTIONS: Action[] = [
         (r) =>
           `Checked ${plural(r.checked, 'line')}: flagged ${r.flagged}, cleared ${r.cleared}, already flagged ${r.already_flagged}.`,
       ),
+  },
+  {
+    id: 'source',
+    label: 'Check source text',
+    writes: 'Flags lines whose transcription looks wrong or split badly. Only flags and flag notes are written.',
+    run: (id) => checkSourceText(id).then((r) => `Flagged ${plural(r.flagged_count, 'line')}, cleared ${r.cleared_count}.`),
   },
   {
     id: 'dense',
@@ -112,7 +119,7 @@ export function ReviewFlags({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <Section storageKey="review.flags" title="Flag lines for review" summary="Overlaps, auto-QC, dense lines, timing, reading speed">
+    <Section storageKey="review.flags" title="Flag lines for review" summary="Overlaps, auto-QC, source text, dense lines, timing, reading speed">
       <div className="review-flags" aria-label="Flag lines">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {ACTIONS.map((a) => (

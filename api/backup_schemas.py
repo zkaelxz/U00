@@ -123,6 +123,11 @@ class RestoreDramaDone(BaseModel):
         description="linked: back in its series; recreated: its series was gone and came back "
                     "from the snapshot; dropped_private: its series has since been made private "
                     "by someone else, so the drama came back with no series.")
+    owners_reassigned: int = Field(0, description="How many of the title and a recreated series "
+                                                  "went to the live account with the same email, "
+                                                  "or to the PC owner where there was none.")
+    copy_has_accounts: bool = Field(True, description="false: the copy holds no accounts, so "
+                                                      "every owner became the PC owner.")
     counts: Dict[str, int]
     skipped_tables: List[str]
 
