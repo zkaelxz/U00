@@ -322,6 +322,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `scanlate_render_service.py`
 - `scanlate_run_service.py`
 - `series_people_service.py`
+- `series_service.py` (the Series page: titles and counts, rename, delete keeping titles, copy glossary terms between series)
 - `service_errors.py` (re-exports `lib/errors.py` for the existing call sites)
 - `settings_schema_service.py` (the declared settings as the metadata the Settings page builds forms from)
 - `settings_service.py`
@@ -424,6 +425,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `retranscribe_lines.py` (Review's many-line re-transcription and the untranscribed-gap helpers)
 - `review.py` (Review shapes: line views and edits, records and versions, restructure and resegment, and the Review AI extras)
 - `settings.py` (The declared-settings schema the Settings page builds its forms from)
+- `series.py` (/api/series: the Series page, rename, delete and copy-terms shapes; ids, names and counts only)
 - `sources.py` (Sources, Discover and tracked-series shapes)
 - `spend_history.py` (GET /api/settings/spend-history: paid-API spend by month and what caused it)
 - `subtitle_import.py` (Subtitle-file import: what a file contains, what importing it would do, and what it did)
@@ -502,6 +504,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `saved_comics_routes.py`
 - `scanlate_routes.py`
 - `series_people_routes.py`
+- `series_routes.py`
 - `settings_routes.py`
 - `sharing_routes.py`
 - `source_domains_routes.py`

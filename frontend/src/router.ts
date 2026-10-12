@@ -6,6 +6,7 @@ import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, typ
 import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isTranslateTab, type TranslateTab } from './pages/workspace/translateTabs'
 import { isBenchmarkTab, type BenchmarkTab } from './pages/benchmark/benchmarkTabs'
+import { isSeriesTab, type SeriesTab } from './pages/series/seriesModel'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
 export type Route =
@@ -40,6 +41,8 @@ export type Route =
   | { name: 'discover' }
   | { name: 'live' }
   | { name: 'assistant' }
+  // tab: "#/series/3?tab=glossary" opens that tab of a series' page.
+  | { name: 'series'; id: number; tab?: SeriesTab }
   | { name: 'read'; id: number; page: number | null }
   | { name: 'comic'; id: number; page: number | null }
   // Chapters saved as CBZ files: the list, one series, one chapter's pages.
@@ -99,6 +102,10 @@ export function parseRoute(hash: string): Route {
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
   if (head === 'live' && parts.length === 1) return { name: 'live' }
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
+  if (head === 'series' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
+    const tab = new URLSearchParams(qs).get('tab')
+    return isSeriesTab(tab) ? { name: 'series', id: Number(a), tab } : { name: 'series', id: Number(a) }
+  }
   if ((head === 'read' || head === 'comic') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     // "#/read/3?page=2", "#/comic/3?page=2"; a missing or bad page means "resume where I left off".
     const p = new URLSearchParams(qs).get('page')
@@ -154,6 +161,7 @@ export function routeHref(r: Route): string {
     const query = [r.focus && `focus=${r.focus}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
     return query ? `${base}?${query}` : base
   }
+  if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
   if (r.name === 'manga-read') {

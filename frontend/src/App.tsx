@@ -26,6 +26,7 @@ import LoginPage from './pages/Login'
 import ReaderPage from './pages/Reader'
 import SavedMangaPage from './pages/SavedManga'
 import SavedMangaReader from './pages/SavedMangaReader'
+import SeriesPage from './pages/series/SeriesPage'
 import SettingsPage from './pages/Settings'
 import SourcesPage from './pages/Sources'
 import MakeSubtitlesPage from './pages/MakeSubtitlesPage'
@@ -191,6 +192,7 @@ export default function App() {
       {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
       {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
+      {route.name === 'series' && <SeriesPage key={route.id} id={route.id} tab={route.tab} />}
       {route.name === 'manga' && <SavedMangaPage />}
       {route.name === 'manga-series' && (
         <SavedMangaPage key={`${route.source}/${route.series}`} source={route.source} series={route.series} />

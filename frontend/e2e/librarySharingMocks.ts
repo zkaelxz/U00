@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { mockAuth, type AuthMockState, type MeBody } from './authMocks'
 
-// Library sharing control: /api/auth/me, the Library lists and /api/sharing/*
+// Library sharing control: /api/auth/me, the Library lists, /api/series and /api/sharing/*
 // flips are mocked (everything else is authMocks' fixtures or aborted).
 
 const base = {
@@ -36,6 +36,9 @@ export async function mockLibrarySharing(page: Page, me: MeBody): Promise<Sharin
   s.posts = []
   await page.route('**/api/library/dramas', (route) => route.fulfill({ json: { items: DRAMAS, count: DRAMAS.length } }))
   await page.route('**/api/library/series', (route) => route.fulfill({ json: { items: SERIES } }))
+  await page.route('**/api/series', (route) => route.fulfill({
+    json: { items: SERIES.map(({ id, name, is_private, owned_by_me, glossary_term_count, dramas }) => ({ id, name, is_private, owned_by_me, glossary_term_count, title_count: dramas.length })) },
+  }))
   await page.route('**/api/sharing/**', (route) => {
     const r = route.request()
     const m = new URL(r.url()).pathname.match(/^\/api\/sharing\/(dramas|series)\/(\d+)\/private$/)

@@ -11,3 +11,7 @@
 @media (pointer: coarse), (max-width: 640px) {
   .cost-link { display: inline-flex; align-items: center; min-height: 44px; }
 }
+
+/* Library: the folded list of series, each opening its Series page. */
+.library-series-links ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+.library-series-links li { min-width: 0; overflow-wrap: anywhere; }

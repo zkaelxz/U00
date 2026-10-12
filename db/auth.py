@@ -1,6 +1,7 @@
 """Auth storage: users, permissions, sessions and the audit log, plus the
-ownership and sharing fields of dramas and series. The tables are created
-by db.init_db."""
+ownership and sharing fields of dramas and series and the Series page's
+series writes (rename, delete, copying glossary terms). The tables are
+created by db.init_db."""
 
 import contextlib
 import datetime
@@ -128,6 +129,173 @@ def series_has_unowned_drama(series_id: int) -> bool:
     with contextlib.closing(db.get_conn()) as conn:
         return conn.execute("SELECT 1 FROM dramas WHERE series_id = ? AND owner_user_id IS NULL "
                             "LIMIT 1", (series_id,)).fetchone() is not None
+
+
+# ---------------------------------------------------------------------------
+# Series page: rename, delete and copying glossary terms between series.
+# Each write is one BEGIN IMMEDIATE transaction, so its checks and the write
+# see the same rows.
+# ---------------------------------------------------------------------------
+
+def _immediate(conn):
+    conn.isolation_level = None   # explicit BEGIN/COMMIT
+    conn.execute("BEGIN IMMEDIATE")
+
+
+def rename_series(series_id: int, name: str, key, visible_to=None):
+    """Renames a series unless another series has the same `key(name)`
+    (the caller's case/width-insensitive comparison). `visible_to` limits
+    that comparison to the series a non-admin user sees (None = all), as
+    db.list_series does. Returns {"renamed": bool, "clash": other series'
+    name or None}; renamed False and no clash means an unknown series.
+    Raises sqlite3.IntegrityError for an exact name held by a series outside
+    the comparison (series.name is UNIQUE)."""
+    sql, params = "SELECT id, name FROM series WHERE id != ?", [series_id]
+    if visible_to is not None:
+        sql += " AND (owner_user_id = ? OR COALESCE(is_private, 0) = 0)"
+        params.append(visible_to)
+    wanted = key(name)
+    with contextlib.closing(db.get_conn()) as conn:
+        _immediate(conn)
+        try:
+            clash = next((r["name"] for r in conn.execute(sql, params)
+                          if key(r["name"]) == wanted), None)
+            renamed = False
+            if clash is None:
+                renamed = conn.execute("UPDATE series SET name = ? WHERE id = ?",
+                                       (name, series_id)).rowcount > 0
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    return {"renamed": renamed, "clash": clash}
+
+
+# What deleting a series takes with it or detaches; also what the Series
+# page shows. `style_profiles` is the learned style profile, scoped
+# 'series:<id>' (no foreign key).
+_SERIES_COUNTS_SQL = (
+    "SELECT (SELECT COUNT(*) FROM dramas WHERE series_id = s.id) AS titles, "
+    "(SELECT COUNT(*) FROM glossary_terms WHERE series_id = s.id) AS glossary_terms, "
+    "(SELECT COUNT(*) FROM series_characters WHERE series_id = s.id) AS characters, "
+    "(SELECT COUNT(*) FROM translation_memory WHERE series_id = s.id) AS translation_memory, "
+    "(SELECT COUNT(*) FROM glossary_dismissals WHERE series_id = s.id) AS dismissals, "
+    "(SELECT COUNT(*) FROM style_profile WHERE scope = 'series:' || s.id) AS style_profiles, "
+    "TRIM(COALESCE(s.instructions, '')) != '' AS has_instructions "
+    "FROM series s WHERE s.id = ?")
+
+
+def _counts(conn, series_id):
+    row = conn.execute(_SERIES_COUNTS_SQL, (series_id,)).fetchone()
+    if row is None:
+        return None
+    out = dict(row)
+    out["has_instructions"] = bool(out["has_instructions"])
+    return out
+
+
+def series_content_counts(series_id: int, visible_to=None):
+    """Counts of what a series holds, plus `title_lines` ({drama_id: line
+    count} for its titles), or None for an unknown series. `visible_to`: a
+    non-admin user id; `title_lines` then holds only the titles that user
+    may see (db.drama_visible_sql), and `visible_titles` their number."""
+    vis_sql, vis_params = ("1", []) if visible_to is None \
+        else db.drama_visible_sql("d", visible_to)
+    with contextlib.closing(db.get_conn()) as conn:
+        out = _counts(conn, series_id)
+        if out is None:
+            return None
+        lines = conn.execute(
+            "SELECT d.id, (SELECT COUNT(*) FROM lines l WHERE l.drama_id = d.id) AS n "
+            f"FROM dramas d WHERE d.series_id = ? AND {vis_sql}",
+            (series_id, *vis_params)).fetchall()
+    out["title_lines"] = {r["id"]: r["n"] for r in lines}
+    out["visible_titles"] = len(out["title_lines"])
+    return out
+
+
+def delete_series(series_id: int, expected=None):
+    """Deletes a series in one transaction. Returns None for an unknown
+    series; {"deleted": False, "counts": ...} without writing anything when
+    `expected` (series_content_counts' counts, read by the caller) no longer
+    matches, so nothing added since the caller decided is deleted unseen;
+    else {"deleted": True, "counts": ...}.
+
+    Its titles are kept and leave the series: dramas.series_id has no foreign
+    key, so it is cleared here, and a title leaving a private series turns
+    private itself (as unassign_drama_series does). Drama characters linked
+    to its people keep their copied name. The child rows are deleted
+    explicitly as well as by ON DELETE CASCADE, because a database created
+    before those foreign keys existed doesn't have them, and the style
+    profile has none. Touches no files."""
+    sc_ids = "(SELECT id FROM series_characters WHERE series_id = ?)"
+    with contextlib.closing(db.get_conn()) as conn:
+        _immediate(conn)
+        try:
+            counts = _counts(conn, series_id)
+            if counts is None or (expected is not None and any(
+                    counts[k] != expected.get(k) for k in counts)):
+                conn.execute("ROLLBACK")
+                return None if counts is None else {"deleted": False, "counts": counts}
+            conn.execute(
+                "UPDATE dramas SET is_private = CASE WHEN EXISTS (SELECT 1 FROM series s "
+                "WHERE s.id = dramas.series_id AND COALESCE(s.is_private, 0) = 1) THEN 1 "
+                "ELSE COALESCE(is_private, 0) END, series_id = NULL, updated_at = ? "
+                "WHERE series_id = ?", (datetime.datetime.utcnow().isoformat(), series_id))
+            conn.execute(f"UPDATE characters SET series_character_id = NULL WHERE "
+                         f"series_character_id IN {sc_ids}", (series_id,))
+            conn.execute(f"DELETE FROM voice_suggestion_dismissals WHERE "
+                         f"series_character_id IN {sc_ids}", (series_id,))
+            for table in ("glossary_terms", "series_characters", "translation_memory",
+                          "glossary_dismissals"):
+                conn.execute(f"DELETE FROM {table} WHERE series_id = ?", (series_id,))
+            conn.execute("DELETE FROM style_profile WHERE scope = ?", (f"series:{series_id}",))
+            conn.execute("DELETE FROM series WHERE id = ?", (series_id,))
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    return {"deleted": True, "counts": counts}
+
+
+_TERM_COLUMNS = ("term_original", "term_translation", "notes", "category", "policy",
+                 "enforce_exact", "aliases", "banned_translations")
+
+
+def copy_series_terms(series_id: int, terms, key) -> dict:
+    """Adds `terms` (glossary_terms rows) to a series in one transaction,
+    with every column (aliases and banned translations included). A term is
+    skipped when the series already has one with the same `key(original)`,
+    read inside the transaction, or an earlier term in `terms` had it;
+    nothing is overwritten. All or nothing: any error rolls back every
+    insert. Returns {"added": n, "skipped": n}."""
+    added = skipped = 0
+    with contextlib.closing(db.get_conn()) as conn:
+        _immediate(conn)
+        try:
+            taken = {key(r["term_original"]) for r in conn.execute(
+                "SELECT term_original FROM glossary_terms WHERE series_id = ?", (series_id,))}
+            for t in terms:
+                k = key(t.get("term_original"))
+                if not k or k in taken:
+                    skipped += 1
+                    continue
+                taken.add(k)
+                values = [t.get(c) for c in _TERM_COLUMNS]
+                values[1] = values[1] or ""
+                values[2] = values[2] or ""
+                values[5] = int(bool(values[5]))
+                cur = conn.execute(
+                    f"INSERT INTO glossary_terms (series_id, {', '.join(_TERM_COLUMNS)}) "
+                    f"VALUES (?{', ?' * len(_TERM_COLUMNS)}) "
+                    "ON CONFLICT(series_id, term_original) DO NOTHING", (series_id, *values))
+                added += cur.rowcount
+                skipped += 1 - cur.rowcount
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    return {"added": added, "skipped": skipped}
 
 
 def list_item_sharing(limit: int, offset: int):

@@ -161,6 +161,8 @@ test.describe('one open card per sub-tab', () => {
     await expect(panel.getByRole('region', { name: 'Bulk batches' })).toBeVisible()
     await translateTab(page, 'characters').click()
     await translatePanel(page, 'characters').locator('details.section > summary').first().click()
+    // The fold is saved from the <details> toggle event, a task after the click: wait for it before reloading.
+    await page.waitForFunction(() => window.localStorage.getItem('baihe.section.translate.characters') === '0')
     await page.reload()
     await expect.poll(() => topCards(translatePanel(page, 'characters'))).toEqual([{ title: 'Characters', open: false }])
     await translateTab(page, 'translate').click()

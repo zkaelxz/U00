@@ -163,6 +163,32 @@ def require_editable(principal, kind: str, item_id: int) -> None:
         raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
 
 
+def require_series_owner(principal, series_id) -> None:
+    """For deleting a series: 404 when the principal can't see it, 403
+    unless they own it or may override (an admin at the PC, the local
+    owner). Stricter than require_editable: seeing a shared series is
+    enough to edit it, not to delete it for everyone."""
+    series_id = _item_id(series_id)
+    row = db.get_item_ownership("series", series_id)
+    if not row or not _visible(principal, "series", row):
+        raise _not_found("series")
+    if not (_may_override(principal) or _is_owner(principal, row)):
+        raise ForbiddenError("Only the series' owner or an admin at the PC can delete it.")
+
+
+def require_copy_source(principal, series_id) -> None:
+    """For copying glossary terms out of a series: it must be visible and,
+    if private, the principal's own -- an admin who sees every series still
+    never copies another user's private glossary. 404 otherwise, so a
+    private series' existence isn't revealed."""
+    series_id = _item_id(series_id)
+    row = db.get_item_ownership("series", series_id)
+    if not row or not _visible(principal, "series", row):
+        raise _not_found("series")
+    if row["is_private"] and row.get("owner_user_id") != user_id(principal):
+        raise _not_found("series")
+
+
 def visible_to_filter(principal):
     """The `visible_to` argument for db.list_dramas / db.list_series:
     None when the principal sees everything, else their user id (-1 for a

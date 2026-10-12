@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 
 import { createDrama, getContinueReading, getPresets, getRecent, getSeries, getStats } from '../api/library'
 import { coverUrl } from '../api/metadata'
+import { listAllSeries } from '../api/series'
 import type { DramaSummary } from '../api/types'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
@@ -267,6 +268,7 @@ export default function LibraryPage() {
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
   const series = useLoad(getSeries, reloadKey)
+  const allSeries = useLoad(listAllSeries, reloadKey)
   const presets = useLoad(getPresets, reloadKey)
   // One export job for the selection bar.
   const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
@@ -363,6 +365,20 @@ export default function LibraryPage() {
       )}
 
       <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
+
+      {!!allSeries.data?.items.length && (
+        <details className="library-series-links" data-testid="library-series-links">
+          <summary>Series ({allSeries.data.items.length})</summary>
+          <ul>
+            {allSeries.data.items.map((s) => (
+              <li key={s.id}>
+                <a href={routeHref({ name: 'series', id: s.id })}>{s.name}</a>
+                <span className="muted"> · {s.title_count === 1 ? '1 title' : `${s.title_count} titles`}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {!phone && bar}
       {!(phone && bar) && resultLine}

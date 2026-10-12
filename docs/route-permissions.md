@@ -460,6 +460,13 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/scanlate/dramas/{drama_id}/render` | jobs.start |
 | `POST /api/scanlate/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/scanlate/dramas/{drama_id}/run-notes` | library.read |
+| `GET /api/series` | library.read |
+| `GET /api/series/{series_id}` | library.read |
+| `POST /api/series/{series_id}/copy-terms` | lines.edit |
+| `GET /api/series/{series_id}/copy-terms-preview` | library.read |
+| `POST /api/series/{series_id}/delete` | local_only() |
+| `GET /api/series/{series_id}/delete-preview` | library.read |
+| `POST /api/series/{series_id}/rename` | lines.edit |
 | `GET /api/settings` | admin.settings |
 | `POST /api/settings` | local_only() |
 | `GET /api/settings/asr-options` | admin.settings |

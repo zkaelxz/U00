@@ -149,7 +149,7 @@
 		path /api/sources/dramas/*/extraction/save-profile
 		path /api/sources/dramas/*/extraction/approve-profile
 		path /api/library/presets/*/delete /api/library/voice-bank/*/delete
-		path /api/characters/series/*/characters/*/delete
+		path /api/characters/series/*/characters/*/delete /api/series/*/delete
 		path /api/characters/dramas/*/reference-clip /api/characters/dramas/*/reference-clip/remove
 		path /api/scanlate/dramas/*/pages
 		path /api/jobs/clear-finished /api/jobs/*/delete

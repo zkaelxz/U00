@@ -100,6 +100,7 @@ from api.routers import (
     review_lines_routes,
     review_records_routes,
     series_people_routes,
+    series_routes,
     loaded_models_routes,
     settings_routes,
     sharing_routes,
@@ -332,6 +333,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(engine_routing_routes.router)
     app.include_router(stronger_engine_routes.router)
     app.include_router(series_people_routes.router)
+    app.include_router(series_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(admin_users_routes.router)
     app.include_router(device_token_routes.router)
