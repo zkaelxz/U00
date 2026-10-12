@@ -267,16 +267,18 @@ def _make_target(session_id: str):
 
 
 def _reap():
-    """Removes the directory of any session whose job record is gone
-    (cancelled while queued elsewhere, e.g. via the jobs router) --
-    a running job removes its own directory when it ends. A session still
-    being started ("starting": reserved, job not registered yet) is
-    skipped, or its fresh reservation would be torn down."""
+    """Removes the directory of a session whose job ended without running
+    its target (cancelled while queued, via the jobs page or shutdown: the
+    record stays, status "cancelled") or whose record is gone. A job that
+    ran removes its own directory when it ends, and a queued or running one
+    keeps its directory. A session still being started ("starting":
+    reserved, job not registered yet) is skipped, or its fresh reservation
+    would be torn down."""
     with _lock:
         ids = [sid for sid, e in _sessions.items() if e.get("dir") and not e.get("starting")]
     for sid in ids:
         job = background_jobs.get_status(sid)
-        if job is None:
+        if job is None or _status(job) not in ("queued", "running"):
             _remove_dir(sid)
 
 

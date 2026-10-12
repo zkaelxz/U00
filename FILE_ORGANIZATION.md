@@ -1,10 +1,10 @@
 # File organization
 
-A short index: one line per package, with its entry point. Every non-test `.py` file at the top level,
-in `lib/`, in `services/` and in `api/routers/` is named below, because the hook in `.claude/hooks/file-organization-check.py`
-warns when a file's name is missing from this file. A new file there gets its name added to the right group.
-Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier per-file descriptions are kept in
-`docs/archive/file-organization-full.md`.
+A short index: one line per package, then every non-test `.py` file in the directories below with its group. A file's
+name must appear exactly once, in the section of its own folder (`tests/test_file_organization.py` checks that each listed
+name is a real file there and that no module is missing); the hook in `.claude/hooks/file-organization-check.py` warns
+earlier. A new file gets one bullet, in the right group. `test_*.py` lives in `tests/`. The earlier long per-file
+descriptions are kept in `docs/archive/file-organization-full.md`.
 
 ## Packages
 
@@ -351,11 +351,69 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 
 ## api/
 
-Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
-`static_frontend.py`
+Everything directly in `api/`; routers are below, Pydantic models in `api/schemas/` (one module per domain) and the `api/*_schemas.py` modules beside the core files.
 
-`api/schemas/`: `benchmark.py`, `characters.py`, `common.py`, `disk_usage.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `pending_install.py`, `queue.py`, `reader.py`, `retranscribe_lines.py`, `review.py`, `settings.py`, `sources.py`, `spend_history.py`, `system.py`,
-`transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
+- `__main__.py` (`python -m api`: start the Baihe API server with the settings from `BAIHE_API_*`)
+- `admin_users_schemas.py` (response models for user administration and the audit log view)
+- `api_config.py` (where the FastAPI server's own settings come from)
+- `asr_options_schemas.py` (request/response models for the experimental transcription settings)
+- `assistant_schemas.py` (request/response models for the maintenance assistant routes)
+- `auth.py` (the deny-by-default permission layer)
+- `background.py` (the background pieces of the app, started once when the API process starts)
+- `backup_schemas.py` (request/response models for the automatic backup routes)
+- `benchmark_schemas.py` (request/response models for the Benchmark Lab routes)
+- `comic_schemas.py` (request/response models for the comic viewer routes)
+- `diagnostics_install_schemas.py` (Pydantic models for api/routers/diagnostics_installs_routes.py)
+- `disk_usage_schemas.py` (request/response models for the Disk usage routes)
+- `engine_routing_schemas.py` (request/response models for the "Which engine does what" routes)
+- `error_handlers.py` (one JSON error shape for every failure)
+- `jellyfin_schemas.py` (request/response models for the optional Jellyfin connector)
+- `job_stage_schemas.py` (models for the per-stage job timing route)
+- `llm_slots.py` (the shared concurrency cap for SYNCHRONOUS long work in a request handler)
+- `metadata_research_schemas.py` (request/response models for grounded metadata research)
+- `model_reeval_schemas.py` (request/response models for scheduled model re-evaluation and promotion)
+- `model_registry_schemas.py` (request/response models for the model deprecation / migration assistant)
+- `notification_schemas.py` (request/response models for the notification routes added after the first version)
+- `saved_comics_schemas.py` (models for api/routers/saved_comics_routes.py)
+- `scanlate_schemas.py` (request/response models for the automatic Scanlate routes)
+- `server.py` (the FastAPI application: Baihe's HTTP API)
+- `sharing_schemas.py` (request/response models for who can see each drama and series)
+- `sources_extraction_schemas.py` (request/response models for the pasted-URL extraction extras)
+- `sources_import_schemas.py` (response models for the import state route)
+- `sources_tools_schemas.py` (request/response models for the Sources tools routes and the Discover pasted listing route)
+- `static_frontend.py` (serves the built React app from the same FastAPI process and origin as `/api`)
+- `stronger_engine_schemas.py` (request/response models for the "Try with a stronger engine" routes)
+- `web_search_schemas.py` (request/response models for the optional web-search fallback)
+
+### api/schemas/
+
+Models for the domains that have been moved into the package; `from api.schemas import X` works for all.
+
+- `benchmark.py` (Benchmark Lab shapes added with the reviewed-title set builder and the optional LLM judge)
+- `browser.py` (Schemas for Diagnostics > "Install browser support")
+- `characters.py` (Characters, glossary and series-person shapes)
+- `common.py` (Shared building blocks: the error envelope and the API version, plus any model used by more than one domain module)
+- `disk_usage.py` (the per-title size split in the Disk usage scan)
+- `language_packs.py` (/api/language-packs: the built-in language packs, a title's choice of packs, and the per-language default)
+- `library.py` (Library shapes: dramas, series, bulk actions, storage, media and export)
+- `loaded_models.py` (the "Models in memory" panel: names, sizes and states)
+- `novel_chapters.py` (the chapters saved in a drama's raw novel)
+- `pending_install.py` (Pydantic models for api/routers/pending_install_routes.py)
+- `queue.py` (/api/queue: the user-managed job queue on the Jobs page)
+- `reader.py` (Reader and novel shapes: reading views, notes, vocabulary, wiki and novel files)
+- `real_model_check.py` (Pydantic models for api/routers/real_model_check_routes.py)
+- `retranscribe_lines.py` (Review's many-line re-transcription and the untranscribed-gap helpers)
+- `review.py` (Review shapes: line views and edits, records and versions, restructure and resegment, and the Review AI extras)
+- `settings.py` (The declared-settings schema the Settings page builds its forms from)
+- `sources.py` (Sources, Discover and tracked-series shapes)
+- `spend_history.py` (GET /api/settings/spend-history: paid-API spend by month and what caused it)
+- `subtitle_import.py` (Subtitle-file import: what a file contains, what importing it would do, and what it did)
+- `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
+- `timing_check.py` (the Review "Check timing" shapes)
+- `transcribe.py` (Transcription shapes: transcribe runs and config, diarization, autotune, re-transcribe and live sessions)
+- `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets and bulk jobs)
+- `vdb_names.py` (/api/vdb-names: the optional personal VTuber name list; booleans and counts only)
+- `voice.py` (Voice shapes: dubbing, narration and voice-clone setup)
 
 ### api/routers/
 
@@ -447,13 +505,147 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `web_search_routes.py`
 - `workflow_routes.py`
 
+## engine_backends/
+
+Translation engines by provider; `translate_engines.py` is the front door that re-exports them.
+
+- `claude.py` (Claude engine)
+- `echo.py` (the key-free Echo engine so a new PC can exercise the whole app; Developer Mode only)
+- `engine_registry.py` (Engine registry: ENGINES, capability tags, notes, model overrides and get_engine)
+- `fallback.py` (Translate fallback chain)
+- `flag_reasons.py` (Flag keys a line can carry, and the text shown for each)
+- `gemini.py` (Gemini engine, its rate-limit status text and free-tier limits)
+- `llm_tasks.py` (Single-prompt LLM calls for features other than a translation batch)
+- `local.py` (Local engine: Ollama)
+- `openai_compat.py` (DeepSeek and OpenAI engines)
+- `pricing.py` (Model lists, per-million-token prices and cost estimation)
+- `prompts.py` (Prompt builders shared by the LLM engines)
+- `reflect_prompts.py` (Prompts for Reflect mode's three passes)
+- `shared.py` (Helpers every engine uses)
+- `standalone.py` (Standalone text translation)
+- `thinking.py` (Switching a model's reasoning off or on in the request)
+- `translate_pipeline.py` (Reflect mode and the per-run translate loop)
+- `translation_guard.py` (Post-checks on a translated batch for the ways an id-keyed reply can be complete and still wrong)
+
+## jobs/
+
+The job store behind `background_jobs.py`.
+
+- `gpu_slots.py` (the one way any process takes, keeps and frees a GPU slot)
+- `job_store.py` (writes and closes the job_records row of every job)
+
+## sources/
+
+Site adapters, the fetch ladder and the source store (`sources.db`).
+
+- `adaptive.py` (the order things are tried in when a pasted URL has no dedicated adapter)
+- `ai_extract.py` (content extraction with an LLM as the *fallback*, plus the independent confidence checks every result goes through)
+- `auth_browser.py` (signed-in browser sessions)
+- `base.py` (the adapter interface)
+- `cache.py` (the configurable raw-content cache)
+- `chapter_check.py` (scheduled checks for new chapters on tracked series, the same simple shape as Mihon's library update)
+- `chapter_manifest.py` (which chapters sit where in a drama's `raw_novel_context.txt`)
+- `chapter_order.py` (sorting chapter lists the way a reader expects)
+- `charset_sniff.py` (decoding a page that declares no charset)
+- `detect.py` (reading a response and naming what happened)
+- `domains.py` (a domain list for a site that moves between domains)
+- `extension_marker.py` (the person's "this source works only through the browser extension" marker, one row per source in sources.db)
+- `front_door.py` (one "paste any URL" box)
+- `generic_import.py` (one-off "paste a URL" imports for sites with no registered adapter)
+- `health.py` (per-source health, last success/failure and the backoff window that keeps a failing source from being hit again too soon)
+- `http.py` (the one paced HTTP client every adapter and the generic importer go through)
+- `ladder.py` (the access-method ladder)
+- `limiter.py` (the per-source concurrency limit)
+- `lzstring.py` (LZString's Base64 variant, which some sites use to compress data their own page JS unpacks)
+- `mock.py` (an offline demo source)
+- `models.py` (the shared vocabulary of the source-adapter system)
+- `novel_follow.py` (following next-chapter links from a pasted novel URL)
+- `pacing.py` (per-source pace levels and the automatic slowdown)
+- `pipeline.py` (handing fetched content to the rest of the app)
+- `preflight.py` ("will this site work?", answered before anyone commits to an import)
+- `profiles.py` (per-domain extraction profiles)
+- `registry.py` (which adapters exist, which are switched on, and the top-level multi-source search)
+- `site_terms.py` (terms findings for sites that have no adapter but whose terms have been read directly)
+- `store.py` (persistence for the source-adapter system)
+
+### sources/adapters/
+
+One module per site; each is registered in `sources/registry.py` (how to add one: `docs/adding-source.md`).
+
+- `52shuku.py` (52shuku.net)
+- `baozimh.py` (包子漫画 baozimh.org / godamh.com)
+- `bilibili.py` (Bilibili as a real VideoSource adapter)
+- `bilibili_manga.py` (哔哩哔哩漫画 / Bilibili Manga, an authenticated comic source)
+- `fanjiao.py` (饭角 Fanjiao, zh GL audio dramas)
+- `guazimanhua.py` (瓜子漫画 guazimanhua.com)
+- `kuaikan.py` (快看漫画 Kuaikan Manhua)
+- `lightnovel_fun.py` (轻之国度, zh light novels)
+- `mangak.py` (MangaK)
+- `manhuagui.py` (漫画柜 / ManHuaGui)
+- `manhuaku.py` (漫画库 manhuaku.net)
+- `miaoqumh.py` (妙趣漫画 miaoqumh.org)
+- `missevan.py` (猫耳FM / MissEvan: Baihe's first audio-drama adapter)
+- `piaotian.py` (飘天文学, zh web novels on static GBK pages)
+- `ranobes.py` (ranobes.net)
+- `syosetu.py` (小説家になろう, ja web novels)
+- `toonkor.py` (툰코 ToonKor)
+- `twmanga.py` (包子漫畫 on its regional mirrors www.twmanga.com and www.twbzmg.com)
+- `xbanxia.py` (xbanxia.cc)
+- `zerosumonline.py` (Zero-Sum Online)
+
+## scripts/
+
+Build, probe and migration helpers, run by hand or by CI.
+
+- `build_release.py` (packages the built React app as a release zip)
+- `check_constraints.py` (do requirements, constraints.txt and the installer lock agree?)
+- `dependency_canary.py` (does upgrading ONE package break the app?)
+- `smoke_pack.py` (does the transcription pipeline still behave after an upgrade?)
+- `source_probe.py` (which source hosts still answer?)
+- `source_status.py` (builds docs/known-working-sources.md's status board from the adapter registry plus docs/source-status.json)
+
+### scripts/migration/
+
+- `keepboth.py` (one-off migration helper for the keep-both-copies case)
+
+## tools/
+
+Developer tools, not shipped.
+
+- `asr_bench.py` (ASR recipe bench: `python -m tools.asr_bench TITLE_ID --config RECIPE [--config RECIPE ...] [--yes]`)
+- `asr_bench_recipes.py` (Recipes for tools.asr_bench)
+- `check_change.py` (prints the checks that matter for the files you changed, in under 2 KB)
+- `ci_changes.py` (Decides which CI jobs a change needs; used by the `changes` job in .github/workflows/tests.yml)
+- `ja_whisper_models.py` (Prepare Japanese Whisper fine-tunes for the Benchmark Lab's offline-model-folder arm)
+- `repo_map.py` (Print a symbol map of the repo, sized for a model with a small context window)
+- `route_table.py` (Print the route -> permission table for docs/route-permissions.md, derived from the decorators)
+- `self_test.py` (One-run hardware self-test)
+- `translate_context_bench.py` (Context/batch-size bench: `python -m tools.translate_context_bench TITLE_ID [--yes]`)
+- `windows_script_checks.py` (Runs setup.bat, start.bat and uninstall.bat on a Windows runner, in temp folders, with their prompts answered through stdin)
+
+## installer/
+
+Windows installer and boot service, not imported by the app.
+
+- `build_installer.py` (assembles the Windows installer's payload and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe)
+- `launcher.py` (what the installed app's Start-menu shortcut runs)
+- `postinstall.py` (the installer's one post-install step)
+- `service.py` (runs the installed Baihe Studio as a Windows service)
+- `service_checks.py` (Asking what is listening: the loopback health checks, waiting for a condition, and whether this process is an administrator)
+- `service_cli.py` (The service script's command line)
+- `service_config.py` (What the service runs with and the text generated from it)
+- `service_control.py` (Running Windows' own tools for the service)
+- `service_layout.py` (Where Baihe Studio's service files live and which folders the service may be given rights on)
+- `setup_lock.py` (the named mutexes that keep Setup and the owner's service commands from running at the same time)
+- `smoke_child.py` (CI only: stands in for a long-running child of the installed server, to prove the service stops its children)
+
 ## Rules of thumb
 
 - UI code goes in `frontend/`; logic lives at the top level, in `services/` or in `sources/` so it stays testable without a UI.
 - Logic the API and the CLI both need goes in `services/`.
 - Nothing writes outside `library/` except exports you explicitly download.
 - Optional dependencies are imported inside functions, never at module top level.
-- Adding a new top-level module, `services/*.py` or `api/routers/*.py` file? Add it as one bullet, in sorted position, to the right group above, in the same PR (a top-level module also gets one sorted line in `expected_files.py`).
+- Adding a new module in any folder listed here (top level, `services/`, `api/routers/`, `sources/`, `tools/` and so on)? Add it as one bullet to the right group above, in the same PR (a top-level module also gets one sorted line in `expected_files.py`).
 - `sources/chapter_manifest.py`: `raw_novel_chapters.json` beside the raw novel (title, site, time and byte range per imported chapter); `services/novel_chapters_service.py` reads it.
 - `sources/novel_follow.py`: following next-chapter links from a pasted novel URL (`follow_novel`); builds on `sources/adaptive.py`, which does not import it.
 - `sources/extension_marker.py`: the person's "works only through the browser extension" marker per source (`source_extension_only` table in `sources.db`); imports and scheduled checks consult it, `services/sources_extension_service.py` holds the early stop.
