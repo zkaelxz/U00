@@ -11,7 +11,9 @@ loaders decide inside a worker, where refusing would be too late.
 
 Every check reads the local caches only: no network call, no import of the
 heavy model libraries. A check that cannot tell counts as not downloaded,
-which only ever refuses a member; the owner is never checked.
+which only ever refuses a member; the owner is never checked. A run that
+passes away from the PC then loads offline (lib/model_offline.py), so a newer
+upstream revision is not fetched either.
 """
 
 import functools
@@ -21,10 +23,9 @@ import os
 import zipfile
 
 import whisper_models
+from lib import model_offline
+from lib.model_offline import NOT_DOWNLOADED_MESSAGE
 from services.service_errors import ForbiddenError
-
-NOT_DOWNLOADED_MESSAGE = ("This model is not downloaded yet. Ask the owner of the main PC "
-                          "to download it first.")
 
 _WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
 _WEIGHT_INDEXES = ("model.safetensors.index.json", "pytorch_model.bin.index.json")
@@ -40,7 +41,13 @@ def require_ready(at_pc: bool, build, *args, **kwargs) -> None:
     """Raises ModelNotDownloadedError unless the caller is at the PC or every
     check `build(*args, **kwargs)` lists (zero-argument callables) finds its
     model on disk. The list is built only away from the PC, so the owner's
-    run never depends on what the builders import."""
+    run never depends on what the builders import.
+
+    Also marks this request so the job it starts next loads offline away
+    from the PC. FastAPI runs each handler in its own copy of the request's
+    context, so the mark ends with the handler; the queue runner, which
+    outlives one item, sets and resets it itself."""
+    model_offline.set_offline(not at_pc)
     if at_pc:
         return
     for ready in build(*args, **kwargs):
@@ -50,17 +57,7 @@ def require_ready(at_pc: bool, build, *args, **kwargs) -> None:
 
 # --- Cache checks ----------------------------------------------------------
 
-def _hf_snapshot(repo_id: str):
-    """The folder `from_pretrained(repo_id)` resolves offline: the snapshot
-    refs/main points at, in the cache huggingface_hub itself uses."""
-    base = os.path.join(whisper_models._hub_dir(), "models--" + repo_id.replace("/", "--"))
-    try:
-        with open(os.path.join(base, "refs", "main"), encoding="utf-8") as f:
-            revision = f.read().strip()
-    except OSError:
-        return None
-    folder = os.path.join(base, "snapshots", revision)
-    return folder if revision and os.path.isdir(folder) else None
+_hf_snapshot = model_offline.hf_snapshot
 
 
 def _weights_complete(folder: str) -> bool:
@@ -97,6 +94,9 @@ def _tree_has(folder: str, filename: str) -> bool:
     return False
 
 
+_DIARIZATION_REPO = "pyannote/speaker-diarization-community-1"
+
+
 def whisper_ready(size: str, local_model_path=None) -> bool:
     if local_model_path:
         # The loader uses the configured folder as is and downloads nothing.
@@ -116,17 +116,11 @@ def aligner_ready() -> bool:
 
 
 def diarization_ready() -> bool:
-    """load_pipeline tries community-1 first, so that one alone counts; 3.1
-    also counts with the two models its config pulls in."""
-    first, second = ("pyannote/speaker-diarization-community-1",
-                     "pyannote/speaker-diarization-3.1")
-    community = _hf_snapshot(first)
-    if community and os.path.isfile(os.path.join(community, "config.yaml")) \
-            and _tree_has(community, "pytorch_model.bin"):
-        return True
-    return (_hf_has(second, "config.yaml")
-            and _hf_has("pyannote/segmentation-3.0", "pytorch_model.bin")
-            and _hf_has("pyannote/wespeaker-voxceleb-resnet34-LM", "pytorch_model.bin"))
+    """community-1 only: offline, diarize.load_pipeline does not fall back
+    to 3.1, whose sub-models it would otherwise fetch."""
+    community = _hf_snapshot(_DIARIZATION_REPO)
+    return bool(community) and os.path.isfile(os.path.join(community, "config.yaml")) \
+        and _tree_has(community, "pytorch_model.bin")
 
 
 def omnivoice_ready() -> bool:
@@ -182,34 +176,22 @@ def separation_ready(backend: str, use_gpu=None) -> bool:
 
 def sensevoice_ready() -> bool:
     import sensevoice_tags
-    root = os.environ.get("MODELSCOPE_CACHE") or os.path.join(
-        os.path.expanduser("~"), ".cache", "modelscope", "hub")
-    # ModelScope moved its layout to hub/models/<id> in newer releases.
-    return any(os.path.isfile(os.path.join(root, *prefix, *sensevoice_tags.MODEL_ID.split("/"),
-                                           "model.pt"))
-               for prefix in (("models",), ()))
+    return model_offline.modelscope_model_dir(sensevoice_tags.MODEL_ID) is not None
 
 
 def _paddle_ready(lang: str) -> bool:
+    """PaddleX has no offline switch but loads a model folder it finds
+    without fetching. Only Chinese pins the exact folders (ocr._PADDLE_CH_MODELS);
+    other languages are left to PaddleX's own choice, which changes with its
+    version, so they cannot be checked and count as not downloaded."""
     from services import real_model_check_service
-    if lang == "ch":
-        return real_model_check_service._paddle_models_state() == "present"
-    # Other languages are left to PaddleX's own model choice, which changes
-    # with its version: only a recognition folder for the language counts.
-    root = os.environ.get("PADDLE_PDX_CACHE_HOME", "").strip() or os.path.join(
-        os.path.expanduser("~"), ".paddlex")
-    try:
-        names = [n.lower() for n in os.listdir(os.path.join(root, "official_models"))]
-    except OSError:
-        return False
-    return (any(n.endswith("_det") for n in names)
-            and any(n.startswith(f"{lang}_") and n.endswith("_rec") for n in names))
+    return lang == "ch" and real_model_check_service._paddle_models_state() == "present"
 
 
 def ocr_ready(backend: str, paddle_lang: str) -> bool:
     import ocr
     if backend == "manga_ocr":
-        return hf_model_ready("kha-white/manga-ocr-base")
+        return hf_model_ready(ocr.MANGA_OCR_REPO)
     if backend == "paddle_vl_manga":
         return (hf_model_ready(ocr._PADDLE_VL_MANGA_REPO)
                 and _hf_snapshot(ocr._PADDLE_VL_PROCESSOR_REPO) is not None)

@@ -31,6 +31,7 @@ from typing import Optional
 
 import db
 import translate_engines
+from lib import model_offline
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         ServiceError, UnsupportedOperationError)
 from services import (auth_service, artifact_service, export_service, jobs_service,
@@ -258,7 +259,7 @@ def get_queue(principal) -> dict:
 
 # --- changing items ----------------------------------------------------------
 
-def add_item(principal, drama_id: int, step: str, holds_paid: bool, at_pc: bool = True) -> dict:
+def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
     """Validates and appends one item. The title must exist and be the
     caller's; a Translate item on a paid engine needs `engines.paid`, as the
     Translate stage's run does; a Transcribe item added away from the PC
@@ -335,7 +336,7 @@ def remove_item(principal, item_id: int) -> dict:
     return _mutate_item(principal, item_id, change)
 
 
-def retry_item(principal, item_id: int, at_pc: bool = True) -> dict:
+def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
@@ -519,6 +520,9 @@ def _start_item(item: dict) -> Optional[str]:
     if not _holds(principal, needed):
         raise ForbiddenError("The account that added this item can no longer do this step.")
     token = ownership_service.bind_request()
+    # The runner thread outlives this item: the adder's offline mark is set
+    # for this start only.
+    offline = model_offline.set_offline(not item["at_pc"])
     try:
         # Records the job as the adder's, as if they had pressed the button.
         ownership_service.note_acting_principal(principal)
@@ -532,6 +536,7 @@ def _start_item(item: dict) -> Optional[str]:
         _export(drama)
         return None
     finally:
+        model_offline.reset(offline)
         ownership_service.unbind_request(token)
 
 

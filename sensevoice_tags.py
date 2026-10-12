@@ -70,8 +70,16 @@ def _load_model(use_gpu: bool):
         from funasr import AutoModel
     except ImportError as exc:
         raise SenseVoiceUnavailable("Audio emotion tags need: pip install funasr") from exc
+    from lib import model_offline
+    model = MODEL_ID
+    if model_offline.active():
+        # funasr has no offline switch: a local folder is loaded without
+        # asking ModelScope for a newer revision.
+        model = model_offline.modelscope_model_dir(MODEL_ID)
+        if model is None:
+            raise SenseVoiceUnavailable(model_offline.NOT_DOWNLOADED_MESSAGE)
     try:
-        return AutoModel(model=MODEL_ID, device="cuda:0" if use_gpu else "cpu",
+        return AutoModel(model=model, device="cuda:0" if use_gpu else "cpu",
                          disable_update=True)
     except Exception as exc:
         raise SenseVoiceUnavailable(f"Couldn't load {MODEL_ID}: {exc}") from exc

@@ -15,6 +15,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 import db
+from lib import model_offline
 from services import auth_service
 from services import model_readiness_service as mrs
 from services.service_errors import ConflictError, ForbiddenError
@@ -50,7 +51,9 @@ def _hf_repo(caches, repo_id, files):
 
 
 def _whisper(caches, size="large-v3-turbo"):
-    snap = caches["hf"] / f"models--Systran--faster-whisper-{size}" / "snapshots" / "r1"
+    import whisper_models
+    repo = whisper_models.faster_whisper_repo(size).replace("/", "--")
+    snap = caches["hf"] / f"models--{repo}" / "snapshots" / "r1"
     snap.mkdir(parents=True)
     (snap / "model.bin").write_bytes(b"x")
 
@@ -142,7 +145,8 @@ def _stub(monkeypatch, module, function):
     started = []
 
     def start(*a, **k):
-        started.append(1)
+        # Whether the job this would start loads offline (lib/model_offline.py).
+        started.append(model_offline.active())
         raise _Reached("reached")
     monkeypatch.setattr(importlib.import_module(f"services.{module}"), function, start)
     return started
@@ -183,7 +187,7 @@ def test_household_runs_once_model_on_disk(case, isolated_db, caches, monkeypatc
     populate(caches)
     r = _post(_household_client(), url.format(did=did), body, session)
     assert _reached(r), r.text
-    assert started == [1]
+    assert started == [True]   # and it loads offline
 
 
 @pytest.mark.parametrize("case", ROUTES, ids=_route_id)
@@ -193,7 +197,7 @@ def test_owner_at_pc_never_refused(case, isolated_db, caches, monkeypatch):
     did, _session = _owned_drama(audio_filename="a.wav")
     r = _post(_admin_client(), url.format(did=did), body)
     assert _reached(r), r.text
-    assert started == [1]
+    assert started == [False]
 
 
 def test_queue_transcribe_item_refused_then_added(isolated_db, caches):
@@ -227,7 +231,7 @@ def test_household_non_model_jobs_unaffected(isolated_db, caches, monkeypatch):
     did, session = _owned_drama(transcript_mode="whisper")
     client = _household_client()
     r = client.post(f"/api/transcribe/dramas/{did}/speech-coverage", json={}, headers=_h(session))
-    assert _reached(r) and started == [1]
+    assert _reached(r) and len(started) == 1
     r = client.post("/api/queue/items", json={"drama_id": did, "step": "export"},
                     headers=_h(session))
     assert r.status_code == 200
@@ -235,22 +239,25 @@ def test_household_non_model_jobs_unaffected(isolated_db, caches, monkeypatch):
     started = _stub(monkeypatch, "restructure_service", "resplit_long_lines")
     r = client.post(f"/api/restructure/dramas/{did}/resplit", json={"expected_line_ids": []},
                     headers=_h(session))
-    assert _reached(r) and started == [1]
+    assert _reached(r) and len(started) == 1
 
 
 # --- require_ready ----------------------------------------------------------
 
+# require_ready marks the calling context, as it does a request's handler;
+# each call here gets its own context so the test thread stays unmarked.
+
 def test_require_ready_never_builds_the_list_at_the_pc():
     def never(*a, **k): raise AssertionError("built the owner's list")
-    mrs.require_ready(True, never, 1, x=2)
+    _in_own_context(lambda: mrs.require_ready(True, never, 1, x=2))
 
 
 def test_require_ready_refuses_with_a_plain_message():
     with pytest.raises(mrs.ModelNotDownloadedError) as info:
-        mrs.require_ready(False, lambda: [lambda: True, lambda: False])
+        _in_own_context(lambda: mrs.require_ready(False, lambda: [lambda: True, lambda: False]))
     assert isinstance(info.value, ForbiddenError)
     assert info.value.message == MESSAGE and "/" not in info.value.message
-    mrs.require_ready(False, lambda n: [lambda: n], True)
+    _in_own_context(lambda: mrs.require_ready(False, lambda n: [lambda: n], True))
 
 
 # --- Cache checks -----------------------------------------------------------
@@ -283,12 +290,13 @@ def test_whisper_ready_honours_a_local_model_folder(caches, tmp_path):
     assert mrs.whisper_ready("large-v3-turbo") is True
 
 
-def test_diarization_ready_takes_either_pipeline(caches):
-    assert mrs.diarization_ready() is False
+def test_diarization_ready_needs_community_1(caches):
+    """Offline there is no fallback to 3.1, so a 3.1 download alone does not count."""
     _hf_repo(caches, "pyannote/speaker-diarization-3.1", {"config.yaml": "x"})
-    assert mrs.diarization_ready() is False
     _hf_repo(caches, "pyannote/segmentation-3.0", {"pytorch_model.bin": "x"})
     _hf_repo(caches, "pyannote/wespeaker-voxceleb-resnet34-LM", {"pytorch_model.bin": "x"})
+    assert mrs.diarization_ready() is False
+    _pyannote(caches)
     assert mrs.diarization_ready() is True
 
 
@@ -360,3 +368,215 @@ def test_for_transcribe_whisper_extras(isolated_db, monkeypatch):
 
 def test_for_transcribe_groq_needs_no_whisper(isolated_db, monkeypatch):
     assert _needs(monkeypatch, {"transcript_mode": "whisper", "use_groq": 1}) == []
+
+
+# --- Offline loading for a run started away from the PC ----------------------
+
+def test_the_offline_mark_ends_with_the_request(isolated_db, caches, monkeypatch):
+    """The mark lives in the handler's own context: the owner's next request,
+    on a worker thread a member's request used, is not offline."""
+    started = _stub(monkeypatch, "retime_service", "start_retime")
+    did, session = _owned_drama()
+    _aligner(caches)
+    url = f"/api/transcribe/dramas/{did}/retime/run"
+    for _ in range(3):
+        assert _reached(_post(_household_client(), url, {"line_ids": [1]}, session))
+        assert _reached(_post(_admin_client(), url, {"line_ids": [1]}))
+    assert started == [True, False] * 3
+    assert model_offline.active() is False
+
+
+def _in_own_context(fn):
+    import contextvars
+    return contextvars.copy_context().run(fn)
+
+
+def test_a_thread_job_inherits_the_mark(isolated_db):
+    import background_jobs
+    seen = []
+
+    def start(offline):
+        model_offline.set_offline(offline)
+        background_jobs.start_job(f"offline_probe_{offline}", lambda: seen.append(model_offline.active()))
+    for offline in (True, False):
+        _in_own_context(lambda: start(offline))
+        for _ in range(200):
+            if len(seen) == (2 if not offline else 1):
+                break
+            __import__("time").sleep(0.01)
+    assert seen == [True, False]
+
+
+def test_a_process_job_runs_with_the_offline_environment(isolated_db, monkeypatch):
+    """The child sets the libraries' switches in its own environment; its
+    on_done (which may start the next stage) runs offline too."""
+    import background_jobs as bg
+    from tests.test_background_jobs import _install_fake_process, _wait_for_status
+    _install_fake_process(monkeypatch, run_target_on_start=True)
+    monkeypatch.setattr(os, "environ", dict(os.environ))
+    for name in model_offline.OFFLINE_ENV:
+        os.environ.pop(name, None)
+    on_done_offline = []
+
+    def worker(result_queue):
+        result_queue.put(("ok", {name: os.environ.get(name) for name in model_offline.OFFLINE_ENV}))
+
+    def start():
+        model_offline.set_offline(True)
+        bg.start_process_job("offline_process_probe", worker, args=(),
+                             on_done=lambda job_id, result: on_done_offline.append(
+                                 model_offline.active()))
+    _in_own_context(start)
+    status = _wait_for_status("offline_process_probe", "running")
+    assert status["result"] == model_offline.OFFLINE_ENV
+    assert on_done_offline == [True]
+    bg.clear_job("offline_process_probe")
+
+
+def test_an_owner_process_job_stays_online(isolated_db, monkeypatch):
+    import background_jobs as bg
+    from tests.test_background_jobs import _install_fake_process, _wait_for_status
+    _install_fake_process(monkeypatch, run_target_on_start=True)
+    monkeypatch.setattr(os, "environ", dict(os.environ))
+    os.environ.pop("HF_HUB_OFFLINE", None)
+    bg.start_process_job("online_process_probe",
+                         lambda q: q.put(("ok", os.environ.get("HF_HUB_OFFLINE"))), args=())
+    assert _wait_for_status("online_process_probe", "running")["result"] is None
+    bg.clear_job("online_process_probe")
+
+
+def _fake_faster_whisper(monkeypatch):
+    import sys
+    import types
+    import whisper_models
+    built = []
+    fw = types.ModuleType("faster_whisper")
+    fw.WhisperModel = lambda target, device, compute_type, **k: built.append((target, k)) or object()
+    monkeypatch.setitem(sys.modules, "faster_whisper", fw)
+    monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+    monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
+    return built
+
+
+def test_whisper_loads_offline_only_when_marked(caches, monkeypatch):
+    import whisper_models
+    built = _fake_faster_whisper(monkeypatch)
+    _whisper(caches, "small")
+    whisper_models.load_whisper_model("small")
+    assert built[-1] == ("small", {})
+
+    def member():
+        model_offline.set_offline(True)
+        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+        whisper_models.load_whisper_model("small", hf_token="hf_x")
+    _in_own_context(member)
+    assert built[-1] == ("small", {"local_files_only": True})
+
+
+def test_offline_whisper_refuses_a_model_not_on_disk(caches, monkeypatch):
+    import whisper_models
+    built = _fake_faster_whisper(monkeypatch)
+
+    def member():
+        model_offline.set_offline(True)
+        whisper_models.load_whisper_model("medium")
+    with pytest.raises(whisper_models.ModelDownloadError, match="not downloaded yet"):
+        _in_own_context(member)
+    assert built == []
+
+
+def test_qwen_and_transformers_loaders_ask_for_local_files_when_marked():
+    import qwen3_native
+    assert qwen3_native._offline_kwargs() == {}
+    assert _in_own_context(lambda: (model_offline.set_offline(True),
+                                    qwen3_native._offline_kwargs())[1]) == {"local_files_only": True}
+
+
+def _fake_pyannote(monkeypatch, loadable):
+    import sys
+    import types
+    tried = []
+
+    class Pipeline:
+        @staticmethod
+        def from_pretrained(model, token=None):
+            tried.append(model)
+            if model not in loadable:
+                raise OSError("not in the cache")
+            return object()
+    audio = types.ModuleType("pyannote.audio")
+    audio.Pipeline = Pipeline
+    monkeypatch.setitem(sys.modules, "pyannote", types.ModuleType("pyannote"))
+    monkeypatch.setitem(sys.modules, "pyannote.audio", audio)
+    return tried
+
+
+def test_pyannote_fallback_is_refused_offline(monkeypatch):
+    import diarize
+    tried = _fake_pyannote(monkeypatch, loadable={"pyannote/speaker-diarization-3.1"})
+    assert diarize.load_pipeline("hf")[1] == "pyannote/speaker-diarization-3.1"
+
+    def member():
+        model_offline.set_offline(True)
+        diarize.load_pipeline("hf")
+    tried.clear()
+    with pytest.raises(RuntimeError, match="not downloaded yet"):
+        _in_own_context(member)
+    assert tried == ["pyannote/speaker-diarization-community-1"]
+
+
+def test_sensevoice_loads_the_cached_folder_offline(caches, monkeypatch):
+    import sys
+    import types
+    import sensevoice_tags
+    models = []
+    funasr = types.ModuleType("funasr")
+    funasr.AutoModel = lambda model, **k: models.append(model) or object()
+    monkeypatch.setitem(sys.modules, "funasr", funasr)
+
+    def member():
+        model_offline.set_offline(True)
+        sensevoice_tags._load_model(False)
+    with pytest.raises(sensevoice_tags.SenseVoiceUnavailable, match="not downloaded yet"):
+        _in_own_context(member)
+    _sensevoice(caches)
+    _in_own_context(member)
+    assert models == [str(caches["modelscope"] / "models" / "iic" / "SenseVoiceSmall")]
+    sensevoice_tags._load_model(False)
+    assert models[-1] == sensevoice_tags.MODEL_ID
+
+
+def test_manga_ocr_loads_the_cached_folder_offline(caches):
+    import ocr
+    assert ocr._manga_ocr_source() == ()
+
+    def member():
+        model_offline.set_offline(True)
+        return ocr._manga_ocr_source()
+    with pytest.raises(RuntimeError, match="not downloaded yet"):
+        _in_own_context(member)
+    snap = _hf_repo(caches, ocr.MANGA_OCR_REPO, {"config.json": "{}", "pytorch_model.bin": "x"})
+    assert _in_own_context(member) == (str(snap),)
+
+
+def test_queue_add_needs_to_know_where_the_caller_is(isolated_db):
+    from services import queue_service
+    did, _session = _owned_drama()
+    with pytest.raises(TypeError):
+        queue_service.add_item(None, did, "export", True)
+    with pytest.raises(TypeError):
+        queue_service.retry_item(None, 1)
+
+
+def test_a_member_queue_item_starts_offline(isolated_db, caches, monkeypatch):
+    from services import queue_service, transcribe_service
+    seen = []
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run",
+                        lambda did: seen.append(model_offline.active()) or {"job_id": "j"})
+    did, session = _owned_drama(transcript_mode="whisper")
+    _whisper(caches)
+    item = _household_client().post("/api/queue/items", json={"drama_id": did, "step": "transcribe"},
+                                    headers=_h(session)).json()["items"][0]
+    queue_service._start_item(queue_service._find(queue_service._load(), item["id"]))
+    assert seen == [True]
+    assert model_offline.active() is False   # the runner thread is not left offline
