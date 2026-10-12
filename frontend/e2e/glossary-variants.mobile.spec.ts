@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
+import { gotoTranslate } from './translateTabs'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -31,8 +32,7 @@ test('similar spellings and possible names fit a phone', async ({ page }) => {
       }],
     },
   }))
-  await page.goto('/#/drama/1/translate')
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await gotoTranslate(page, 'glossary')
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   await glossary.getByRole('button', { name: 'Find similar spellings of ヤロ' }).click()

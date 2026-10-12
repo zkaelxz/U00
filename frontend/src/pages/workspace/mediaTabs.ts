@@ -42,7 +42,7 @@ export const writeMediaTab = (storage: StorageLike | null, dramaId: number, tab:
 export const MEDIA_TAB_PREFIX = 'media'
 
 /** The location hash with ?tab= set to `tab`, keeping any other query (like autofill) as it is. */
-export function hashWithTab(hash: string, tab: MediaTab): string {
+export function hashWithTab(hash: string, tab: string): string {
   const i = hash.indexOf('?')
   const path = i < 0 ? hash : hash.slice(0, i)
   const params = new URLSearchParams(i < 0 ? '' : hash.slice(i + 1))

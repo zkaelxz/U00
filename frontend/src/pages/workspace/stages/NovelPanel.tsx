@@ -11,6 +11,7 @@ import { Section } from '../../../components/Section'
 import type { NovelAttachResult, NovelMode, NovelStatus } from '../../../types/workspace'
 import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
+import { routeHref } from '../../../router'
 import { useStage } from '../StageContext'
 import { LncrawlPanel } from './LncrawlPanel'
 import { NovelFilePanel } from './NovelFilePanel'
@@ -186,7 +187,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
         </p>
         {(status?.has_novel_text || hasRaw) && (
           <p className="muted">
-            <a href={`#/drama/${dramaId}/translate`}>Build the glossary from this novel in Translate →</a>
+            <a href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Build the glossary from this novel in Translate →</a>
           </p>
         )}
         <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">

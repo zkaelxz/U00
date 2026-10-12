@@ -18,7 +18,7 @@ import { browserStorage } from '../../../hooks/usePersistedState'
 import { parseRoute } from '../../../router'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
-import { MEDIA_TAB_PREFIX, hashWithTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
+import { MEDIA_TAB_PREFIX, hashWithTab, isMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
@@ -88,7 +88,7 @@ export default function SourceStage() {
   const kindOfTitle = titleKind(drama.media_type, drama.content_mode)
   const linkedTab = () => {
     const r = parseRoute(window.location.hash)
-    return r.name === 'drama' && r.id === dramaId ? r.tab : undefined
+    return r.name === 'drama' && r.id === dramaId && isMediaTab(r.tab) ? r.tab : undefined
   }
   const [wantedTab, setWantedTab] = useState<MediaTab | null>(
     () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'credits' : readMediaTab(browserStorage(), dramaId)),

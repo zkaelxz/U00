@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
 import { isManageTab, manageHref, type ManageTab } from './pages/sources/manageTabs'
 import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
+import { isTranslateTab, type TranslateTab } from './pages/workspace/translateTabs'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
 export type Route =
@@ -12,8 +13,9 @@ export type Route =
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
-  // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage.
-  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tab?: MediaTab }
+  // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
+  // "#/drama/3/translate?tab=glossary" that of the Translate stage.
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tab?: MediaTab | TranslateTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads' }
@@ -124,7 +126,7 @@ export function parseRoute(hash: string): Route {
       id: Number(a),
       stage,
       ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' ? { focus } : {}),
-      ...(isMediaTab(tab) ? { tab } : {}),
+      ...((stage === 'translate' ? isTranslateTab(tab) : isMediaTab(tab)) ? { tab: tab as MediaTab | TranslateTab } : {}),
     }
   }
   return { name: 'library' }

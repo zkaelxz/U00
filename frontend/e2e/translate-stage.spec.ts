@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { withTranslateLines } from './stageLineMocks'
+import { gotoTranslate, translateTab } from './translateTabs'
 
 // The run and job endpoints are mocked: nothing is translated. Config,
 // estimate, glossary and characters reads hit the real seeded API.
@@ -136,13 +137,13 @@ test('with every line translated, the reason offers Re-translate in one tap', as
 })
 
 test('glossary and characters panels load; a title without a series is told it cannot hold terms (X09)', async ({ page }) => {
-  await page.goto('/#/drama/1/translate')
-  // Glossary and Characters start folded; open both to reach the bodies.
-  await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await gotoTranslate(page, 'glossary')
+  // Each opens on its own tab.
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
+  await translateTab(page, 'characters').click()
   await expect(page.getByRole('region', { name: 'Characters' })).toBeVisible()
+  await translateTab(page, 'glossary').click()
 
   // Terms belong to a series: Add term waits for one, and the reason says so.
   await expect(glossary.getByTestId('series-assign')).toContainText("can't hold glossary terms")
@@ -159,8 +160,7 @@ test('in a series, the term form checks required fields and shows a failed save'
     r.request().method() === 'GET'
       ? r.fulfill({ json: [] })
       : r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'That term already exists.' } } }))
-  await page.goto('/#/drama/1/translate')
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await gotoTranslate(page, 'glossary')
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossary.getByRole('button', { name: 'Add a term' }).click()
   await glossary.getByRole('button', { name: 'Save term' }).click()

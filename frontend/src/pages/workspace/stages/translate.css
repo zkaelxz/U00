@@ -1,4 +1,8 @@
 .stage-translate { display: grid; gap: var(--space-3); }
+.translate-tabpanel { display: grid; gap: var(--space-3); }
+.translate-tabpanel > * { margin: 0; }
+/* display:grid above would otherwise win over the hidden attribute and show every tab at once. */
+.translate-tabpanel[hidden] { display: none; }
 .stage-translate table { width: 100%; border-collapse: collapse; }
 .stage-translate th, .stage-translate td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .stage-translate details.section { margin: 0; }
