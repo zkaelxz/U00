@@ -591,6 +591,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate-run/dramas/{drama_id}/workflow-tier` | lines.edit |
 | `POST /api/translate-run/presets` | admin.library |
 | `GET /api/translate/engines` | library.read |
+| `POST /api/translate/estimate` | engines.paid |
 | `DELETE /api/translate/history` | local_only() |
 | `GET /api/translate/history` | library.read |
 | `DELETE /api/vdb-names` | local_only() |
