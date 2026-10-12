@@ -716,7 +716,98 @@ def test_restored_accounts_are_not_reused_by_a_new_account(isolated_db):
     _restore(data)
     newcomer = auth_service.add_user("next@example.com")["id"]
     assert newcomer not in (first, gone)
-    assert db.get_drama(did)["owner_user_id"] == gone
+    assert db.get_drama(did)["owner_user_id"] is None
+
+
+def _owner_and_private(kind, item_id):
+    table = "dramas" if kind == "drama" else "series"
+    with db.get_conn() as conn:
+        return tuple(conn.execute(f"SELECT owner_user_id, is_private FROM {table} WHERE id = ?",
+                                  (item_id,)).fetchone())
+
+
+def test_kept_accounts_get_restored_titles_by_email_never_by_id(isolated_db):
+    """Ids repeat across libraries: a backup's account 1 is not the live
+    account 1, so each title goes to the live account with the same email,
+    or to the PC owner, and keeps its private flag."""
+    gone = auth_service.add_user("gone@example.com")["id"]      # 1, not on the new PC
+    mei = auth_service.add_user("mei@example.com")["id"]        # 2, on the new PC as 1
+    gone_title = db.create_drama(title_zh="gone's", owner_user_id=gone, is_private=1)
+    mei_title = db.create_drama(title_zh="mei's", owner_user_id=mei, is_private=1)
+    mei_series = db.create_series("Mei's series", owner_user_id=mei, is_private=True)
+    pc_title = db.create_drama(title_zh="pc's")
+    with db.get_conn() as conn:
+        conn.execute("INSERT INTO translate_history (source_language, target_language, engine, "
+                     "source_text, translated_text, user_id) VALUES ('zh', 'en', 'e', 'a', 'b', ?)",
+                     (mei,))
+        conn.execute("INSERT INTO speaker_merge_undos (id, drama_id, user_id, source_label, "
+                     "target_label, snapshot, created_at, expires_at) "
+                     "VALUES ('u', ?, ?, 'A', 'B', '{}', 0, 9e9)", (mei_title, gone))
+    data = _backup_bytes()
+    _fresh_pc()
+    live_mei = auth_service.add_user("mei@example.com")["id"]
+    stranger = auth_service.add_user("stranger@example.com")["id"]
+    assert (live_mei, stranger) == (gone, mei)                  # the ids collide
+
+    result = _restore(data)
+
+    assert result["accounts_restored"] == 0
+    assert result["titles_reassigned"] == 2
+    assert _owner_and_private("drama", gone_title) == (None, 1)
+    assert _owner_and_private("drama", mei_title) == (live_mei, 1)
+    assert _owner_and_private("series", mei_series) == (live_mei, 1)
+    assert _owner_and_private("drama", pc_title) == (None, 0)
+    with db.get_conn() as conn:
+        assert conn.execute("SELECT user_id FROM translate_history").fetchone()[0] == live_mei
+        assert conn.execute("SELECT user_id FROM speaker_merge_undos").fetchone()[0] is None
+    assert {u["email"] for u in db.auth_list_users()} == {"mei@example.com",
+                                                          "stranger@example.com"}
+    assert db.auth_get_permissions(stranger) == db.auth_get_permissions(live_mei)
+
+
+def test_an_owner_with_no_live_account_of_that_email_goes_to_the_pc_owner(isolated_db):
+    uid = auth_service.add_user("old@example.com")["id"]
+    did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _backup_bytes()
+    _fresh_pc()
+    other = auth_service.add_user("new-pc@example.com")["id"]
+    assert other == uid
+    result = _restore(data)
+    assert result["titles_reassigned"] == 1
+    assert _owner_and_private("drama", did) == (None, 1)
+
+
+def test_the_same_email_with_another_google_sign_in_is_not_a_match(isolated_db):
+    uid = auth_service.add_user("mei@example.com")["id"]
+    db.auth_update_user(uid, google_sub="sub-of-the-first-mei")
+    did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _backup_bytes()
+    _fresh_pc()
+    auth_service.add_user("someone@example.com")
+    live = auth_service.add_user("MEI@example.com")["id"]
+    db.auth_update_user(live, google_sub="sub-of-another-person")
+    _restore(data)
+    assert _owner_and_private("drama", did) == (None, 1)
+
+
+def test_an_account_on_both_with_the_same_id_keeps_its_titles(isolated_db):
+    uid = auth_service.add_user("mei@example.com")["id"]
+    did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _backup_bytes()
+    auth_service.add_user("added-later@example.com")
+    result = _restore(data)
+    assert result["titles_reassigned"] == 0
+    assert _owner_and_private("drama", did) == (uid, 1)
+
+
+def test_a_restore_into_a_library_without_accounts_reassigns_nothing(isolated_db):
+    uid = auth_service.add_user("mei@example.com")["id"]
+    did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _backup_bytes()
+    _fresh_pc()
+    result = _restore(data)
+    assert (result["accounts_restored"], result["titles_reassigned"]) == (1, 0)
+    assert _owner_and_private("drama", did) == (uid, 1)
 
 
 def test_snapshot_strips_sessions_and_device_tokens_but_keeps_accounts(isolated_db):
@@ -813,7 +904,21 @@ def test_the_restore_audit_entry_says_how_many_accounts_came(isolated_db):
     _restore(data)
     [entry] = [e for e in auth_service.list_audit(500) if e["action"] == "library.restore"]
     assert "accounts restored from the backup: 1" in entry["detail_redacted"]
+    assert "titles reassigned to a live account or the PC owner: 0" in entry["detail_redacted"]
     assert db.auth_get_user(uid)
+
+
+def test_the_restore_audit_entry_says_how_many_titles_were_reassigned(isolated_db):
+    uid = auth_service.add_user("old@example.com")["id"]
+    db.create_drama(title_zh="t", owner_user_id=uid)
+    data = _backup_bytes()
+    _fresh_pc()
+    auth_service.add_user("new-pc@example.com")
+    _restore(data)
+    [entry] = [e for e in auth_service.list_audit(500) if e["action"] == "library.restore"]
+    assert "accounts restored from the backup: 0" in entry["detail_redacted"]
+    assert "titles reassigned to a live account or the PC owner: 1" in entry["detail_redacted"]
+    assert "example.com" not in entry["detail_redacted"]
 
 
 def test_a_live_library_that_cannot_be_read_keeps_its_accounts_through_a_restore(

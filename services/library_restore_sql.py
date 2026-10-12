@@ -233,6 +233,59 @@ def settle_accounts(conn, live_path: str) -> None:
                  (floor,))
 
 
+# The account-naming columns of rows that come from the backup when the live
+# accounts are kept (audit_log is the live library's own then).
+_RESTORED_ACCOUNT_ID_COLUMNS = tuple(c for c in _ACCOUNT_ID_COLUMNS if c[0] != "audit_log")
+
+
+def _accounts(conn, schema: str) -> list:
+    try:
+        return conn.execute(f"SELECT id, email, google_sub FROM {schema}.users").fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+
+def match_owners(conn, backup_path: str) -> int:
+    """On the staged library.db (main), which holds the live accounts: each
+    account id the backup's rows name becomes the live account with the
+    same email, or NULL (the PC owner) when there is none. Ids repeat
+    across libraries, so an id alone would hand a member's private titles
+    to a stranger. Emails match only if the two accounts' Google sign-ins
+    don't differ: that would be another person given the address since.
+    Private flags are left as they are. Returns how many titles changed
+    owner."""
+    live = {}
+    for uid, email, sub in _accounts(conn, "main"):
+        live[(email or "").strip().lower()] = (uid, sub)
+    conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(backup_path),))
+    try:
+        backup = _accounts(conn, "up")
+    finally:
+        conn.execute("DETACH DATABASE up")
+    pairs = []
+    for uid, email, sub in backup:
+        match = live.get((email or "").strip().lower())
+        if match and not (sub and match[1] and sub != match[1]):
+            pairs.append((uid, match[0]))
+    conn.execute("CREATE TEMP TABLE owner_map (old INTEGER PRIMARY KEY, new INTEGER)")
+    try:
+        conn.executemany("INSERT INTO temp.owner_map (old, new) VALUES (?, ?)", pairs)
+        reassigned = conn.execute(
+            "SELECT COUNT(*) FROM main.dramas WHERE owner_user_id IS NOT NULL AND "
+            "owner_user_id IS NOT (SELECT new FROM temp.owner_map "
+            "WHERE old = dramas.owner_user_id)").fetchone()[0]
+        for table, column in _RESTORED_ACCOUNT_ID_COLUMNS:
+            cols = {r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")')}
+            if column in cols:
+                # One statement per table, so a swap (1 -> 2, 2 -> 1) can't chain.
+                conn.execute(f'UPDATE main."{table}" SET "{column}" = (SELECT new FROM '
+                             f'temp.owner_map WHERE old = main."{table}"."{column}") '
+                             f'WHERE "{column}" IS NOT NULL')
+    finally:
+        conn.execute("DROP TABLE temp.owner_map")
+    return reassigned
+
+
 def hand_follows_to_pc_owner(sources_path: str) -> None:
     """The restored followed channels name accounts of the backup's library,
     which the live accounts kept by the restore are not: each passes to the

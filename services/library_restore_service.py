@@ -200,15 +200,17 @@ def _carry_app_settings(conn, live_path: str):
         conn.execute("DETACH DATABASE cur")
 
 
-def _build_staged_databases(staging_dir: str, library_dir: str) -> int:
+def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
     """Replaces the uploaded library.db / sources.db in staging with fresh
     files built from the app's own schema (db.migrate_database_file /
     sources.store.migrate_file) and filled with the upload's rows -- except
     the auth tables (current rows, sessions emptied: every session is
-    revoked; a live library without accounts takes the upload's accounts,
-    and the return value is how many) and the sources settings table (current
-    rows). When the live accounts are kept, the upload's followed channels
-    pass to the PC owner with automatic checks off. An upload
+    revoked; a live library without accounts takes the upload's accounts)
+    and the sources settings table (current rows). When the live accounts
+    are kept, the restored rows' owners are matched to them by email
+    (library_restore_sql.match_owners) and the upload's followed channels
+    pass to the PC owner with automatic checks off. Returns (accounts
+    taken from the upload, titles that changed owner). An upload
     without sources.db gets a snapshot of the live one instead, migrated
     the same way; either sources.db must pass quick_check. Running and
     queued job_records rows are marked cancelled and gpu_lock is cleared
@@ -241,7 +243,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> int:
         live_lib = os.path.join(library_dir, "library.db")
         from_upload = not library_restore_sql.has_accounts(live_lib)
         taken = auth_service.RESTORE_ACCOUNT_TABLES if from_upload else ()
-        accounts_restored = 0
+        accounts_restored = titles_reassigned = 0
         _rebuild_from_upload(staged, scratch,
                              skip_tables=[t for t in _RESTORE_KEPT_AUTH_TABLES if t not in taken],
                              live_path=live_lib,
@@ -259,6 +261,8 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> int:
                 library_restore_sql.settle_accounts(conn, live_lib)
                 if from_upload:
                     accounts_restored = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+                else:
+                    titles_reassigned = library_restore_sql.match_owners(conn, scratch)
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
                 conn.close()
@@ -293,12 +297,20 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> int:
         message = SOURCES_DB_NOT_CARRIED
         try:
             if not src_store.snapshot_to(staged_src, source=live_src):
-                return accounts_restored
+                return accounts_restored, titles_reassigned
             src_store.migrate_file(staged_src)
         except sqlite3.Error:
             raise ValueError(message) from None
     _require_quick_check(staged_src, message)
-    return accounts_restored
+    return accounts_restored, titles_reassigned
+
+
+def account_counts(outcome) -> str:
+    """The restore's account counts in words, for its audit entry."""
+    outcome = outcome or {}
+    return (f"accounts restored from the backup: {outcome.get('accounts_restored', 0)}; "
+            f"titles reassigned to a live account or the PC owner: "
+            f"{outcome.get('titles_reassigned', 0)}")
 
 
 def _require_quick_check(path: str, message: str) -> None:
@@ -365,7 +377,9 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     Returns {media_kept: the zip held no media and the current media was
     kept, previous_library_kept: it was left beside the restored one,
     accounts_restored: how many accounts came from the backup (only into a
-    library that had none), folders_left_behind: names of the previous library's other
+    library that had none), titles_reassigned: how many titles' owners
+    became a live account of the same email or the PC owner (only when the
+    live accounts were kept), folders_left_behind: names of the previous library's other
     folders the zip lacks, which stay in the previous library}.
     """
     import io
@@ -429,7 +443,8 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
         if os.path.lexists(staged_src):
             _check_uploaded_db(staged_src, BAD_SOURCES_DB)
         marker = _current_state_marker(library_dir)
-        accounts_restored = _build_staged_databases(staging_dir, library_dir)
+        accounts_restored, titles_reassigned = _build_staged_databases(staging_dir,
+                                                                       library_dir)
         if before_swap is not None:
             before_swap()
         if _current_state_marker(library_dir) != marker:
@@ -482,6 +497,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             return {"media_kept": media_kept,
                     "previous_library_kept": old_dir is not None and not carried,
                     "accounts_restored": accounts_restored,
+                    "titles_reassigned": titles_reassigned,
                     "folders_left_behind": left}
         finally:
             db.release_restore_lock(holder)
