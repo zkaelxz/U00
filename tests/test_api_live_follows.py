@@ -156,8 +156,13 @@ def test_the_bell_carries_the_start_action_for_the_follows_owner_only(env):
     notification_service.notify_live_follow("Ch is live now", alice_id, 7, start_action=True)
     notification_service.notify_live_follow("Ch scheduled a stream", alice_id, 7,
                                             starts_at=1800000000.0)
+    notification_service._record("job_done", "Finished: Translation", None, alice_id)
     items = c.get("/api/notifications", headers=alice).json()["items"]
-    assert [i["kind"] for i in items] == ["live", "live"]
-    assert items[0]["starts_at"] == 1800000000.0 and items[0]["action"] is None
-    assert items[1]["action"] == "start_live" and items[1]["follow_id"] == 7
+    assert [i["kind"] for i in items] == ["job_done", "live", "live"]
+    # A plain entry keeps its four keys; a followed channel's carries only what it has.
+    assert set(items[0]) == {"id", "at", "kind", "text"}
+    assert set(items[1]) == {"id", "at", "kind", "text", "follow_id", "starts_at"}
+    assert items[1]["starts_at"] == 1800000000.0
+    assert set(items[2]) == {"id", "at", "kind", "text", "follow_id", "action"}
+    assert items[2]["action"] == "start_live" and items[2]["follow_id"] == 7
     assert c.get("/api/notifications", headers=bob).json()["items"] == []
