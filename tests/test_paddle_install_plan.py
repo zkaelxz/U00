@@ -33,9 +33,27 @@ def test_the_pyyaml_downgrade_is_listed_without_a_confirmation():
 
 
 @pytest.mark.parametrize("flavour", ["opencv-python", "opencv-python-headless"])
-def test_contrib_beside_a_plain_opencv_is_blocked(flavour):
+def test_a_plain_opencv_is_swapped_out_not_blocked(flavour):
     p = _plan({**APP_ENV, flavour: "4.10.0.84"})
-    assert p["blocked"] and "opencv-contrib-python" in p["blocked"][0]
+    assert p["blocked"] == [] and p["swap"] == [flavour]
+    assert p["summary"][0].startswith(f"Remove {flavour} first")
+    assert p["before"][flavour] == "4.10.0.84"          # so a failed install puts it back
+
+
+def test_a_contrib_environment_gets_no_swap():
+    p = _plan({**APP_ENV, "opencv-contrib-python": "4.9.0.80"})
+    assert p["swap"] == [] and p["blocked"] == []
+
+
+def test_an_environment_without_opencv_gets_no_swap():
+    assert _plan(APP_ENV)["swap"] == []
+
+
+def test_the_swap_counts_a_loaded_cv2_as_in_use_on_windows():
+    p = plan_mod.build_plan(["paddleocr", "paddlepaddle"], report=PADDLE_REPORT, windows=True,
+                            installed={**APP_ENV, "opencv-python": "4.10.0.84"},
+                            in_use=lambda name: name == "opencv-python")
+    assert p["loaded"] == ["opencv-python"] and p["mode"] == "restart"
 
 
 def test_contrib_over_contrib_is_not_a_clash():
@@ -45,3 +63,11 @@ def test_contrib_over_contrib_is_not_a_clash():
 def test_the_registry_offers_both_paddle_packages():
     assert install_registry.unqueueable_reason(["paddleocr", "paddlepaddle"]) is None
     assert {"paddleocr", "paddlepaddle"} <= set(diagnostics.OPTIONAL_DEPENDENCIES)
+
+
+def test_a_plan_without_a_preview_still_discloses_the_removal(monkeypatch):
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: (None, "offline"))
+    p = plan_mod.build_plan(["paddleocr"], windows=False,
+                            installed={**APP_ENV, "opencv-python": "4.10.0.84"})
+    assert p["swap"] == ["opencv-python"] and p["summary"][0].startswith("Remove opencv-python first")
+    assert p["available"] is False

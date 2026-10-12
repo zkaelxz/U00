@@ -52,6 +52,9 @@ _PINS_RE = re.compile(r"^baihe-torch-pins-[A-Za-z0-9_]+\.txt$")      # install_r
 # Mirrors diagnostics.PIP_INSTALL_FLAGS, which this stdlib-only module cannot import;
 # a test keeps the two equal.
 _PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
+# Mirrors install_registry.CV2_SWAP_UNINSTALLABLE for the same reason.
+_UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
+_CV2_CONTRIB = "opencv-contrib-python"
 _FILES = {"pending": "pending.json", "result": "result.json", "lock": "apply.lock"}
 
 
@@ -443,6 +446,20 @@ def _argv_accepted(argv) -> bool:
     return True
 
 
+def _uninstall_steps_accepted(steps) -> bool:
+    """The only other command the apply step runs: `pip uninstall -y NAME` for
+    a plain OpenCV, once per name, with no other flag or argument."""
+    if not isinstance(steps, list) or len(steps) > len(_UNINSTALLABLE):
+        return False
+    names = []
+    for step in steps:
+        if (not isinstance(step, list) or len(step) != 6 or step[0] != sys.executable
+                or step[1:5] != ["-m", "pip", "uninstall", "-y"] or step[5] not in _UNINSTALLABLE):
+            return False
+        names.append(step[5])
+    return len(set(names)) == len(names)
+
+
 def _norm(path: str) -> str:
     return os.path.normcase(os.path.realpath(path))
 
@@ -530,11 +547,23 @@ def wait_while_running(until: float, echo: bool = False, sleep=time.sleep) -> bo
     return True
 
 
+def without_clashing_cv2(wanted: dict, now: dict, before: dict):
+    """(wanted without the plain OpenCV dists to leave removed, their names).
+    Contrib is installed now and was not in `before`, so putting the plain one
+    back would recreate the two-flavour clash the swap exists to avoid. This
+    happens when pip is stopped after contrib landed."""
+    if _CV2_CONTRIB in now and _CV2_CONTRIB not in before:
+        skipped = sorted(n for n in wanted if n in _UNINSTALLABLE)
+        return {n: v for n, v in wanted.items() if n not in skipped}, skipped
+    return wanted, []
+
+
 def _restore(before: dict, now_versions: dict, budget: float, echo: bool):
     """Puts back every package whose version changed or that went missing.
     Returns (restored, failed) dist names."""
     wanted = {n: v for n, v in before.items()
               if now_versions.get(n) != v}
+    wanted, _left_out = without_clashing_cv2(wanted, now_versions, before)
     safe = {n: v for n, v in wanted.items() if _NAME_RE.match(n) and _VERSION_RE.match(v)}
     failed = sorted(set(wanted) - set(safe))
     if not safe:
@@ -594,7 +623,8 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
         if isinstance(plan.get("temp_files"), list):
             temp_files = [p for p in plan["temp_files"] if _is_pins_file(p)]
         argv = plan.get("argv")
-        if not _argv_accepted(argv):
+        uninstall = plan.get("uninstall") or []
+        if not _argv_accepted(argv) or not _uninstall_steps_accepted(uninstall):
             return {"ran": True, **_finish({
                 "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
                 "message": "The queued install was not run: the package list was not accepted. "
@@ -604,18 +634,40 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
         _write_json("result", {"status": "running", "packages": keys, "before": before, "tail": [],
                                "message": "Installing the packages you queued...",
                                "restored": [], "restore_failed": []})
-        argv[1:1] = _python()[1:]
         if echo:
             print("Installing the packages you queued: " + ", ".join(keys), flush=True)
-        rc, lines, timed_out = run_capture(argv, min(PIP_SECONDS, deadline - time.time()), echo)
+        # Each step runs only after the one before it exited 0, so a failed
+        # uninstall never reaches the install and the restore below puts back
+        # whatever it removed.
+        rc, lines, timed_out = 0, [], False
+        if uninstall:
+            # The uninstall is local and always works, but putting the package
+            # back needs the index: so do not start unless pip can resolve the install.
+            check = [argv[0], *_python()[1:], *argv[1:], "--dry-run", "--quiet"]
+            rc, lines, timed_out = run_capture(check, min(PIP_SECONDS, deadline - time.time()), echo)
+            if rc != 0 or timed_out:
+                return {"ran": True, **_finish({
+                    "status": "timed_out" if timed_out else "failed", "packages": keys,
+                    "restored": [], "restore_failed": [],
+                    "message": "The install could not be checked first (are you online?), so "
+                               "nothing was removed or changed."}, lines)}
+        for step in [*uninstall, argv]:
+            step[1:1] = _python()[1:]
+            rc, lines, timed_out = run_capture(step, min(PIP_SECONDS, deadline - time.time()), echo)
+            if rc != 0 or timed_out:
+                break
         if rc == 0 and not timed_out:
             return {"ran": True, **_finish({
                 "status": "ok", "packages": keys, "restored": [], "restore_failed": [],
                 "message": "Installed " + ", ".join(keys) + " when Baihe started."}, lines)}
+        left_out = []
         if _CURRENT["stop"]:
             restored, failed = [], []        # the watchdog is about to exit; a restore would be cut off
         else:
-            restored, failed = _restore(before, snapshot(),
+            now = snapshot()
+            left_out = without_clashing_cv2(
+                {n: v for n, v in before.items() if now.get(n) != v}, now, before)[1]
+            restored, failed = _restore(before, now,
                                         min(RESTORE_SECONDS, max(60.0, deadline - time.time())), echo)
         if timed_out:
             head = "The install did not finish in time and was stopped. "
@@ -628,6 +680,9 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
             tail = "Your earlier packages were put back."
         else:
             tail = "Nothing else was changed."
+        if left_out:
+            tail += (" " + ", ".join(left_out) + " was not put back because opencv-contrib-python "
+                     "is installed now and the two cannot share one 'cv2' folder.")
         return {"ran": True, **_finish({
             "status": "timed_out" if timed_out else "failed", "packages": keys,
             "restored": restored, "restore_failed": failed, "message": head + tail}, lines)}
