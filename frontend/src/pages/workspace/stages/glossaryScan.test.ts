@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { scanBanner, scanBannerText, sourceToShow, type Scans } from './glossaryScan'
+import { scanBanner, scanBannerText, scanSummary, sourceToShow, type Scans } from './glossaryScan'
 
 const idle: Scans = { novel: null, lines: null }
 const done = (n: number) => ({ status: 'done', proposals: new Array(n).fill({}) })
@@ -58,5 +58,11 @@ describe('the scan banner', () => {
 
   it('prefers running over finished', () => {
     expect(scanBanner({ novel: done(2), lines: { status: 'running' } })?.kind).toBe('running')
+  })
+
+  it('has a short form for the folded Glossary section', () => {
+    expect(scanSummary(scanBanner({ novel: null, lines: { status: 'running' } })!)).toBe('scan running')
+    expect(scanSummary(scanBanner({ novel: done(3), lines: null })!)).toBe('scan finished, 3 to review')
+    expect(scanSummary(scanBanner({ novel: { status: 'error' }, lines: null })!)).toBe('scan failed')
   })
 })

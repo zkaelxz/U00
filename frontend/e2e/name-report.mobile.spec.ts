@@ -25,6 +25,7 @@ test('the name check fits a phone', async ({ page }) => {
       singletons_omitted: 0, groups_omitted: 0, groups: [group], counts: { unresolved: 1, right: 0, wrong: 0, skip: 0 } },
   } }))
   await page.goto('/#/drama/1/translate')
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossaryTab(page, 'Names')
   await glossary.getByRole('button', { name: 'Check names across all titles' }).click()

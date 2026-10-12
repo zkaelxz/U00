@@ -16,6 +16,7 @@ from typing import Optional
 
 import background_jobs
 import db
+import diagnostics
 import diarize
 from services import (drama_service, ownership_service, run_settings_service, settings_service,
                       transcribe_pipeline)
@@ -84,6 +85,23 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
             "uncovered_seconds": uncovered}
 
 
+NO_TOKEN_NOTICE = ("Speaker detection needs a Hugging Face token. Add one in Settings (Which engine "
+                   "does what > Hugging Face), and accept the speaker model's terms on the "
+                   "Hugging Face page.")
+NO_PYANNOTE_NOTICE = ("Speaker detection needs the pyannote.audio package. Install it in "
+                      "Diagnostics > Packages.")
+
+
+def speaker_detection_problem():
+    """(code, plain notice) of what stops speaker detection from running, or None.
+    Checks the saved token and whether the package is importable; no network."""
+    if not settings_service.resolve_key("hf_token"):
+        return "no_token", NO_TOKEN_NOTICE
+    if not diagnostics.check_dependency("pyannote.audio"):
+        return "no_pyannote", NO_PYANNOTE_NOTICE
+    return None
+
+
 def get_diarization_config(drama_id: int) -> dict:
     """Read-only Diarize-stage summary for one drama: whether an HF token
     is configured, the expected-speaker-count default from the last real
@@ -101,6 +119,7 @@ def get_diarization_config(drama_id: int) -> dict:
     return {
         "drama_id": drama_id,
         "hf_token_configured": bool(settings_service.resolve_key("hf_token")),
+        "speaker_notice": (speaker_detection_problem() or (None, None))[1],
         "expected_speakers": diarize.load_last_speaker_count(ddir),
         "min_speakers": last_run["min_speakers"],
         "max_speakers": last_run["max_speakers"],

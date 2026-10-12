@@ -21,6 +21,12 @@ async function shot(page: Page, name: string) {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
 }
 
+// The toggle lives in More options, which starts folded.
+async function reviewToggle(page: Page) {
+  await openSection(page, 'More options')
+  return page.getByRole('region', { name: 'Translate run' }).getByRole('switch', { name: 'Review glossary before translating' })
+}
+
 async function openSection(page: Page, title: string) {
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
@@ -159,11 +165,11 @@ test.describe('desktop', () => {
 
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
-    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
-    await expect(run.getByRole('switch', { name: 'Review glossary before translating' })).toHaveAttribute('aria-checked', 'true')
+    await (await reviewToggle(page)).click()
+    await expect((await reviewToggle(page))).toHaveAttribute('aria-checked', 'true')
     // The choice survives a reload of the tab.
     await page.reload()
-    await expect(run.getByRole('switch', { name: 'Review glossary before translating' })).toHaveAttribute('aria-checked', 'true')
+    await expect((await reviewToggle(page))).toHaveAttribute('aria-checked', 'true')
     await expect(run.getByTestId('review-glossary-note')).toContainText('first scan the transcript')
     await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
@@ -192,7 +198,7 @@ test.describe('desktop', () => {
     await mockTranslateRun(page)
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
-    const toggle = run.getByRole('switch', { name: 'Review glossary before translating' })
+    const toggle = (await reviewToggle(page))
     await toggle.click()
     await page.reload()
     return page.getByTestId('glossary-review')
@@ -220,7 +226,7 @@ test.describe('desktop', () => {
     await page.route('**/api/glossary/dramas/1/from-lines', idle)
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
-    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
+    await (await reviewToggle(page)).click()
     await page.reload()
     await expect(run.getByRole('button', { name: 'Scan glossary, then translate' })).toBeVisible()
     await expect(page.getByTestId('glossary-review')).toHaveCount(0)
@@ -239,7 +245,7 @@ test.describe('desktop', () => {
 
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
-    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
+    await (await reviewToggle(page)).click()
     await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
     await expect(review).toContainText("this title's source lines")
@@ -276,7 +282,7 @@ test.describe('desktop', () => {
 
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
-    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
+    await (await reviewToggle(page)).click()
     await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
     await expect(review).toBeVisible()
@@ -297,7 +303,7 @@ test.describe('desktop', () => {
     const runs = await mockTranslateRun(page)
     await page.goto('/#/drama/1/translate')
     const run = page.getByRole('region', { name: 'Translate run' })
-    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
+    await (await reviewToggle(page)).click()
     await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
     await expect(review.getByRole('alert').filter({ hasText: "This engine is paid and this account can't use it." })).toBeVisible()
@@ -328,7 +334,7 @@ test.describe('desktop', () => {
       }).observe(document.body, { subtree: true, childList: true, characterData: true })
     })
     const run = page.getByRole('region', { name: 'Translate run' })
-    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
+    await (await reviewToggle(page)).click()
     await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     const review = page.getByTestId('glossary-review')
     await expect(review.getByTestId('glossary-review-proposals').locator('tbody tr')).toHaveCount(1)
@@ -365,7 +371,7 @@ test.describe('desktop', () => {
 
     // The review before translating starts run-2 while the panel stays mounted.
     const run = page.getByRole('region', { name: 'Translate run' })
-    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
+    await (await reviewToggle(page)).click()
     await run.getByRole('button', { name: 'Scan glossary, then translate' }).click()
     await expect(page.getByTestId('glossary-review-proposals').locator('tbody tr')).toHaveCount(3)
     expect(starts).toEqual(['lines', 'lines'])
@@ -458,6 +464,7 @@ test('series instructions follow a series assigned here, so Save never writes th
   })
 
   await page.goto('/#/drama/1/translate')
+  await openSection(page, 'Glossary')
   await glossaryTab(page, 'Instructions')
   await expect(page.getByText('Series instructions need a series')).toBeVisible()
   await page.getByLabel('Project instructions').fill('Project rules, typed')
@@ -512,7 +519,7 @@ test.describe('phone 390px', () => {
     await base(page, { novel: false })
     await page.route('**/api/glossary/dramas/1/from-lines', idle)
     await page.goto('/#/drama/1/translate')
-    const toggle = page.getByRole('region', { name: 'Translate run' }).getByRole('switch', { name: 'Review glossary before translating' })
+    const toggle = (await reviewToggle(page))
     await expect(toggle).toHaveAttribute('aria-checked', 'false')
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-checked', 'true')

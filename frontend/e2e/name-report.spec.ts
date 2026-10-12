@@ -33,6 +33,7 @@ const done = (marks: Record<string, string>) => ({ job_id: 'glossary_name_report
 async function openPanel(page: Page) {
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: [] }))
   await page.goto('/#/drama/1/translate')
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossaryTab(page, 'Names')
   await glossary.getByRole('button', { name: 'Check names across all titles' }).click()

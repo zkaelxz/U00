@@ -30,7 +30,7 @@ import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
-import { scanBanner, sourceToShow } from './glossaryScan'
+import { scanBanner, scanSummary, sourceToShow } from './glossaryScan'
 import { GLOSSARY_TABS, emptyTabText, instructionsSummary, type GlossaryTab } from './glossaryTabs'
 import { loadGlossaryUi, saveGlossaryUi } from './glossaryUi'
 import { useGlossaryScans, useGlossaryTermsVersion } from './useGlossaryRun'
@@ -127,6 +127,30 @@ export interface RetranslateProps {
   f: RunForm
   busy: boolean
   onStarted: (jobId: string) => void
+}
+
+// The list loads when it opens, not when the page does: it reads every line.
+function RetranslateTab({ retranslate }: { retranslate?: RetranslateProps | null }) {
+  const [open, setOpen] = useState(false)
+  if (!retranslate) return <p className="muted" role="status">Loading the translate options…</p>
+  return (
+    <>
+      <div className="actions">
+        <button type="button" className={`${buttonClass('secondary')} glossary-retranslate-open`} disabled={open} onClick={() => setOpen(true)}>
+          Re-translate lines affected by the glossary…
+        </button>
+        <span className="muted">Uses the settings on the Translate form above.</span>
+      </div>
+      {open && (
+        <GlossaryRetranslate
+          f={retranslate.f}
+          busy={retranslate.busy}
+          onStarted={retranslate.onStarted}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
 }
 
 export function GlossaryPanel({ focusReady, retranslate }: { focusReady?: boolean; retranslate?: RetranslateProps | null }) {
@@ -292,6 +316,8 @@ function GlossaryBody({ focusReady, retranslate }: { focusReady?: boolean; retra
   const tabs = GLOSSARY_TABS.map((t) =>
     t.id === 'find' && held ? { ...t, attention: held.kind === 'ready' ? held.count : 1 } : t,
   )
+  const termsSummary = seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined
+  const sectionSummary = [termsSummary, held ? scanSummary(held) : null].filter(Boolean).join(', ') || undefined
   const panel = (id: GlossaryTab, children: ReactNode) => (
     <div
       id={tabPanelId('glossary', id)}
@@ -313,9 +339,8 @@ function GlossaryBody({ focusReady, retranslate }: { focusReady?: boolean; retra
       storageKey="translate.glossary"
       openSignal={focusSignal}
       title="Glossary"
-      defaultOpen
       count={terms?.length}
-      summary={seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined}
+      summary={sectionSummary}
     >
       <div id="translate-glossary" role="region" aria-label="Glossary" className="stack">
       <Tabs label="Glossary" idPrefix="glossary" tabs={tabs} active={tab} onSelect={setTab} />
@@ -539,9 +564,7 @@ function GlossaryBody({ focusReady, retranslate }: { focusReady?: boolean; retra
           )}
         </>
       ) : <p className="muted" role="status">Loading instructions…</p>)}
-      {panel('retranslate', retranslate
-        ? <GlossaryRetranslate f={retranslate.f} busy={retranslate.busy} onStarted={retranslate.onStarted} />
-        : <p className="muted" role="status">Loading the translate options…</p>)}
+      {panel('retranslate', <RetranslateTab retranslate={retranslate} />)}
       </div>
     </Section>
   )

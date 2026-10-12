@@ -60,3 +60,10 @@ export function scanBannerText(b: ScanBanner): string {
 
 export const scanBannerButton = (b: ScanBanner): string =>
   b.kind === 'running' ? 'Show progress' : b.kind === 'failed' ? 'See details' : 'Review proposals'
+
+// The Glossary section's closed-state summary, so a folded section still says a scan is waiting.
+export function scanSummary(b: ScanBanner): string {
+  if (b.kind === 'running') return 'scan running'
+  if (b.kind === 'failed') return 'scan failed'
+  return `scan finished, ${b.count} to review`
+}

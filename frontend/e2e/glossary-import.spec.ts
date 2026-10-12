@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
 
+// The Glossary section starts folded the first time; these tests need its body.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '1'))
+})
+
 // Parity T03/T04/X13 on the Translate stage's Glossary panel. The seeded
 // dramas have no series, so the terms list, the import and the bulk delete
 // are mocked; catalogues and instructions hit the real seeded API.

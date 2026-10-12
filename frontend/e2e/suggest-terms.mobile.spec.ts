@@ -18,6 +18,7 @@ test('the bar and the start card fit the phone with 44px targets', async ({ page
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: [] }))
   await withExportLines(page, 1, 3)
   await page.goto('/#/drama/1/translate')
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const card = page.getByTestId('glossary-start')
   await expect(card).toBeVisible()
   const targets = [

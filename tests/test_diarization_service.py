@@ -48,6 +48,7 @@ class TestGetDiarizationConfig:
         assert result == {
             "drama_id": did,
             "hf_token_configured": False,
+            "speaker_notice": diarization_service.NO_TOKEN_NOTICE,
             "expected_speakers": None, "min_speakers": None, "max_speakers": None,
             "last_device": None,
             "audio_available": False,

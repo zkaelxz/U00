@@ -15,6 +15,13 @@ const glossary = (page: Page) => page.getByRole('region', { name: 'Glossary' })
 const banner = (page: Page) => page.getByTestId('glossary-scan-banner')
 const REVIEW = 'Review glossary before translating'
 
+// The review option lives in More options, which starts folded.
+async function reviewSwitch(page: Page) {
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^More options$/ }) }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+  return page.getByRole('switch', { name: REVIEW })
+}
+
 async function mock(page: Page, sources: { lines?: ReturnType<typeof heldScan>; novel?: ReturnType<typeof heldScan> }, opts: Parameters<typeof glossarySetup>[1] = {}) {
   await glossarySetup(page, opts)
   const lines = sources.lines ?? heldScan()
@@ -48,7 +55,7 @@ test('a scan that finished while away says so and opens its proposals', async ({
   await mock(page, { lines: heldScan({ status: 'done', progress: 1, proposals: [prop('魏婴', 'Wei Ying'), prop('蓝湛', 'Lan Zhan')] }) })
   await page.goto('/#/drama/1/translate')
   await expect(banner(page)).toContainText('Scan finished: 2 proposals to review')
-  await expect(page.getByRole('switch', { name: REVIEW })).toHaveAttribute('aria-checked', 'false')
+  await expect(await reviewSwitch(page)).toHaveAttribute('aria-checked', 'false')
   await banner(page).getByRole('button', { name: 'Review proposals' }).click()
   const review = page.getByTestId('glossary-review')
   await expect(review.getByTestId('glossary-review-proposals').locator('tbody tr')).toHaveCount(2)
@@ -99,6 +106,14 @@ test('a scan that finishes while the window is in the background is picked up on
   await expect(banner(page)).toContainText('Scan finished: 3 proposals to review')
 })
 
+test('a folded Glossary section still says a scan is waiting', async ({ page }) => {
+  await mock(page, { lines: heldScan({ status: 'done', progress: 1, proposals: [prop('魏婴', 'Wei Ying')] }) })
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '0'))
+  await page.goto('/#/drama/1/translate')
+  const fold = page.locator('details.section', { has: page.locator('.section-title', { hasText: /^Glossary$/ }) }).first()
+  await expect(fold.locator(':scope > summary .section-summary')).toContainText('scan finished, 1 to review')
+})
+
 test('a failed scan is reported with a way to see it', async ({ page }) => {
   await mock(page, { lines: heldScan({ status: 'error', message: 'engine unreachable' }) })
   await page.goto('/#/drama/1/translate')
@@ -117,7 +132,7 @@ test('no banner when nothing is held, or the scan found nothing', async ({ page 
 test('the review option on at load still opens the held scan by itself', async ({ page }) => {
   await mock(page, { lines: heldScan({ status: 'running' }) })
   await page.goto('/#/drama/1/translate')
-  await page.getByRole('switch', { name: REVIEW }).click()
+  await (await reviewSwitch(page)).click()
   await page.reload()
   await expect(page.getByTestId('glossary-review-running')).toContainText('Scanning the transcript')
 })

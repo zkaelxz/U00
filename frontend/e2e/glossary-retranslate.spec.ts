@@ -33,6 +33,11 @@ const preview = (hash: string) => ({
   estimate_with_hand_edited: estimate(0.03, 3),
 })
 
+// The Glossary section starts folded the first time; the Re-translate tab is in its body.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '1'))
+})
+
 async function base(page: Page) {
   await page.route(/\/api\/auth\/me$/, (route) => route.fulfill({ json: ME.authOff }))
   await page.route('**/api/library/dramas/1', async (route) => {

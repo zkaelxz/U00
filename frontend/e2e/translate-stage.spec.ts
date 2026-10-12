@@ -137,8 +137,9 @@ test('with every line translated, the reason offers Re-translate in one tap', as
 
 test('glossary and characters panels load; a title without a series is told it cannot hold terms (X09)', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
-  // Glossary starts open; Characters is a collapsed Section, open it to reach the body.
+  // Glossary and Characters start folded; open both to reach the bodies.
   await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Characters' })).toBeVisible()
@@ -159,6 +160,7 @@ test('in a series, the term form checks required fields and shows a failed save'
       ? r.fulfill({ json: [] })
       : r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'That term already exists.' } } }))
   await page.goto('/#/drama/1/translate')
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossary.getByRole('button', { name: 'Add a term' }).click()
   await glossary.getByRole('button', { name: 'Save term' }).click()

@@ -38,6 +38,8 @@ export function heldScan(first: Held | null = null) {
 
 export async function glossarySetup(page: Page, opts: { terms?: object[]; novel?: boolean; lines?: boolean; series?: boolean } = {}) {
   const { terms = [TERM], novel = false, lines = true, series = true } = opts
+  // The Glossary section starts folded the first time; these specs need its body.
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '1'))
   await page.route(/\/api\/auth\/me$/, (route) => route.fulfill({ json: ME.authOff }))
   if (series) {
     await page.route('**/api/library/dramas/1', async (route) => {
