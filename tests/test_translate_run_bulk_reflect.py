@@ -14,6 +14,7 @@ import db
 import translate_engines as te
 from api.server import create_app
 from core import Line
+from services import bulk_submit_service
 from services import translate_run_service as svc
 from services import translate_service
 from tests.saved_settings import patch_setting
@@ -89,6 +90,8 @@ def _env(monkeypatch):
     FakeProvider.submitted, FakeProvider.cancelled, FakeProvider._jobs = [], [], {}
     FakeProvider.fail, FakeProvider.on_results = {}, {}
     monkeypatch.setattr(bt, "POLL_INTERVAL_SECONDS", 0.02)
+    # A batch or an off-peak run is refused without a monthly cap.
+    monkeypatch.setattr(svc.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "sk-fake")
     monkeypatch.setattr(svc, "pick_summary_engine", lambda *a, **k: (None, None))
     yield
@@ -239,7 +242,7 @@ def test_reflect_live_run_uses_reflect_helper_and_saves_notes(isolated_db, monke
     did = _seed([("你好", ""), ("再见", "keep")])
     seen = []
 
-    def fake_reflect(engine, zh_lines, context, usage_cb=None, max_retries=1, pass_cb=None):
+    def fake_reflect(engine, zh_lines, context, usage_cb=None, max_retries=1, pass_cb=None, resume=None):
         seen.append(list(context["line_ids"]))
         return [f"R:{z}" for z in zh_lines], ["crit" for _ in zh_lines]
     monkeypatch.setattr("engine_backends.translate_pipeline.reflect_translate_batch", fake_reflect)
@@ -283,7 +286,7 @@ def test_resume_starts_poller_for_pending_job(isolated_db, monkeypatch):
 def test_offpeak_schedule_stores_the_runs_batching(isolated_db, monkeypatch):
     patch_setting(monkeypatch, "scene_aware_batches", True)
     did = _seed([("一", ""), ("二", "")], engine="deepseek")
-    submit = svc._bulk_submitter(did, db.get_drama(did), type("E", (), {"model": "m"})(), "deepseek",
+    submit = bulk_submit_service.bulk_submitter(did, db.get_drama(did), type("E", (), {"model": "m"})(), "deepseek",
                                  False, None, [], "", "", "en-US", "audio_drama", 6, 2, 7, False,
                                  None, None, None)
     args = db.get_bulk_job(submit())["translate_args"]
@@ -298,6 +301,6 @@ def test_bulk_submission_gets_the_engines_default_batch_size(isolated_db, monkey
     engine = type("E", (), {"model": "m"})()
     for model, expected in (("claude-sonnet-5-5", 60), ("claude-haiku-4-5-20251001", 30)):
         batch = svc.translate_engines.default_batch_size("claude", model)
-        svc._bulk_submitter(did, db.get_drama(did), engine, "claude", False, None, [], "", "",
+        bulk_submit_service.bulk_submitter(did, db.get_drama(did), engine, "claude", False, None, [], "", "",
                             "en-US", "audio_drama", 6, 2, batch, False, None, None, None)()
         assert sent["batch_size"] == expected

@@ -52,8 +52,8 @@ import resegment
 import segment
 import translate_engines
 from engine_backends import llm_tasks
-from services import (diarization_service, drama_service, settings_service, timing_settings_service,
-                      transcribe_service, translate_service)
+from services import (diarization_service, drama_service, paid_job_service, settings_service,
+                      timing_settings_service, transcribe_service, translate_service)
 from services.resplit_config import RESPLIT_MAX_CHARS, RESPLIT_SENSITIVITIES, _Resplit
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
@@ -402,18 +402,18 @@ def _raise_if_cancelled(job_id):
         raise background_jobs.JobCancelled(job_id)
 
 
-def _bounded(job_id, engine):
+def _bounded(job_id, drama_id, engine, engine_name):
     if engine is None:
         return contextlib.nullcontext()
-    return llm_tasks.bounded_job_calls(
-        job_id, lambda: background_jobs.is_cancel_requested(job_id),
-        deadline=llm_tasks.request_deadline_for(engine), lenient_empty=True)
+    return paid_job_service.job_calls(
+        job_id, drama_id, engine, engine_name, "resegment",
+        deadline=llm_tasks.request_deadline_for(engine))
 
 
 def _run_resegment_job(job_id, drama_id, lines, source_ids, language, engine, engine_name,
                        segments, script, min_pause):
     usage = _usage_logger(drama_id, engine_name, engine) if engine is not None else None
-    with _bounded(job_id, engine):
+    with _bounded(job_id, drama_id, engine, engine_name):
         new_lines, changed = resegment.resegment_lines(
             lines, language, engine=engine, segments=segments, chinese_script=script,
             usage_cb=usage, min_pause=min_pause,
@@ -540,7 +540,7 @@ def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, eng
 
 def _run_llm_preview_job(job_id, drama_id, lines, language, engine, engine_name, segments,
                          script, min_pause):
-    with _bounded(job_id, engine):
+    with _bounded(job_id, drama_id, engine, engine_name):
         new_lines, changed = resegment.resegment_lines(
             [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
             chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),

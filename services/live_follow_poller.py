@@ -413,7 +413,7 @@ def _schedule(row, c, now) -> None:
 
 def _gate_refusal(engine) -> str:
     """Why an automatic start may not happen now, else ""."""
-    from services import line_ai_service, live_service, settings_service
+    from services import line_ai_service, live_service, paid_job_service, settings_service
     from services.service_errors import ServiceError
     if any(s["status"] in ("queued", "running") for s in live_service.list_sessions(None)):
         return "not started: another Live session is running"
@@ -423,6 +423,10 @@ def _gate_refusal(engine) -> str:
     import translate_engines
     if engine not in translate_engines.ENGINES:
         return "not started: that engine is not available"
+    try:
+        paid_job_service.require_cap_for_unattended(engine, bool(settings_service.get("gemini_free_tier")))
+    except ServiceError:
+        return "not started: set a monthly spending cap in Settings first"
     try:
         line_ai_service.refuse_if_over_monthly_cap(engine, settings_service.get("gemini_free_tier"))
     except ServiceError:

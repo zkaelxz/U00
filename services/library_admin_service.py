@@ -52,7 +52,7 @@ import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
 from engine_backends import echo
 from services import (auth_service, drama_service, keep_original_service,
-                      maintenance_assistant_service, ownership_service, settings_service,
+                      maintenance_assistant_service, ownership_service, paid_job_service, settings_service,
                       translate_run_service, translate_service, vdb_names_service)
 from services import library_translated_guard
 from services import library_restore_service as lrs
@@ -362,7 +362,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
             api_keys[engine] = translate_service.resolve_api_key(engine)
         except Exception:
             api_keys[engine] = None
-    cap = settings_service.get_monthly_cap_usd()
+    cap = paid_job_service.require_monthly_cap(engine_by_id[d] for d in queued)
     started = background_jobs.start_job(
         BULK_TRANSLATE_JOB_ID, wjs.run_bulk_series_translate_job,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,

@@ -6,8 +6,8 @@ not it worked, and a run of failed requests ends the session instead of billing
 or failing forever."""
 import applog
 import background_jobs
-import db
 import translate_engines
+from engine_backends import paid_calls
 from engine_backends.local import scrub_error_text
 from engine_backends.run_limits import FailureStreak
 from services import translate_run_service
@@ -69,14 +69,9 @@ class LiveSpendGuard:
                        f"Stopped: {self._streak.count} translation requests failed in a row")
 
     def _log(self) -> None:
-        usage = getattr(self._engine, "last_usage", None) or {}
-        tokens = [usage.get(k, 0) or 0 for k in
-                  ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")]
         try:
-            db.log_usage(None, self._name, getattr(self._engine, "model", self._name),
-                         USAGE_OPERATION, tokens[0], tokens[1],
-                         translate_engines.estimate_cost_for_engine(self._engine, *tokens),
-                         cache_read_tokens=tokens[2])
+            paid_calls.record_call(self._engine, self._name, USAGE_OPERATION,
+                                   getattr(self._engine, "last_usage", None), metered=True)
         except Exception as exc:
             # Losing a usage row must not take the captions down with it.
             applog.get_logger().warning(f"live usage not logged: {scrub_error_text(str(exc))}")

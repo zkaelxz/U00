@@ -60,6 +60,8 @@ class FakeProvider:
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
+    # A batch is refused without a monthly cap.
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
     yield

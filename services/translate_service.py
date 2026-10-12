@@ -16,6 +16,7 @@ from typing import Optional
 import bulk_translate
 import db
 import translate_engines
+from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_run_service
 from services.service_errors import (
     DependencyUnavailableError,
@@ -210,13 +211,11 @@ class _UsageMeter:
 
     def _log(self, input_tokens: int, output_tokens: int, cache_read: int = 0,
              cache_write: int = 0) -> None:
-        if not (input_tokens or output_tokens or self._capped()):
-            return  # a free engine's empty row says nothing
-        db.log_usage(None, self._engine_name, getattr(self._engine, "model", self._engine_name),
-                     self._operation, input_tokens, output_tokens,
-                     translate_engines.estimate_cost_for_engine(
-                         self._engine, input_tokens, output_tokens, cache_read, cache_write),
-                     cache_read_tokens=cache_read)
+        paid_calls.record_call(
+            self._engine, self._engine_name, self._operation,
+            {"input_tokens": input_tokens, "output_tokens": output_tokens,
+             "cache_read_tokens": cache_read, "cache_write_tokens": cache_write},
+            metered=self._capped())
 
 
 def translate_metered(engine, engine_name: str, text: str, source_language: str,
