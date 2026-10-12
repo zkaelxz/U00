@@ -831,7 +831,9 @@ def get_install_presets() -> dict:
 
 
 def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
-    """Irreversible. It does not cancel running jobs; it refuses instead,
+    """Irreversible from inside the app, but the database and the titles'
+    media are first kept beside the library (previous_library_service, the
+    last reset only). It does not cancel running jobs; it refuses instead,
     so a caller must stop them first. `confirm_text`, when given (the API
     always gives it), must be exactly "RESET"."""
     if confirm_text is not None and confirm_text != RESET_CONFIRM_TEXT:
@@ -853,6 +855,8 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
         if not background_jobs.wait_for_job_threads(10.0):
             raise AdminActionJobsRunning(
                 "A background job is still finishing; try again in a moment.")
+        from services import previous_library_service
+        previous_library_service.keep_before_reset()
         db.reset_library()
         background_jobs.clear_all_jobs()
     finally:

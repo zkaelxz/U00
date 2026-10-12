@@ -2645,6 +2645,30 @@ class TestInterruptedRestoreRecovery:
         assert seen == [b"old"]
         assert "library.pre_restore_100" in capsys.readouterr().out
 
+
+    def test_the_lock_file_goes_at_a_clean_finish(self, tmp_path):
+        lock = tmp_path / "library.restore-lock"
+        holder = db.hold_restore_lock(str(tmp_path / "library"))
+        assert lock.exists()
+        db.release_restore_lock(holder)
+        assert not lock.exists()
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        db.library_startup_notes(str(tmp_path / "library"))
+        assert not lock.exists()
+
+    def test_the_lock_file_stays_while_a_restore_holds_it(self, tmp_path):
+        lock = tmp_path / "library.restore-lock"
+        holder = db.hold_restore_lock(str(tmp_path / "library"))
+        try:
+            assert db.hold_restore_lock(str(tmp_path / "library")) is None
+            db.library_startup_notes(str(tmp_path / "library"))
+            assert lock.exists()
+        finally:
+            db.release_restore_lock(holder)
+        again = db.hold_restore_lock(str(tmp_path / "library"))
+        assert again is not None and lock.exists()
+        db.release_restore_lock(again)
+
     def test_fsync_dir_does_nothing_on_windows(self, tmp_path, monkeypatch):
         opened = []
         monkeypatch.setattr(os, "name", "nt")

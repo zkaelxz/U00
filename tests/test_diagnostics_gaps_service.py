@@ -216,8 +216,11 @@ def test_log_tail_and_support_report_strip_ansi(isolated_db, monkeypatch):
 
 
 def _no_jobs(monkeypatch, running=False):
-    from services import library_admin_service
+    from services import library_admin_service, previous_library_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: running)
+    # These tests fake the reset itself; the copy kept before it would move the
+    # session library's media away for good.
+    monkeypatch.setattr(previous_library_service, "keep_before_reset", lambda: None)
 
 
 def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
@@ -496,6 +499,48 @@ def test_reset_waits_for_a_finished_jobs_thread_to_exit(isolated_db, monkeypatch
     assert result.get("ok") is True
     assert order == ["job thread done with the database", "reset"]
 
+
+
+def _kept_copies():
+    parent, base = os.path.split(db.LIBRARY_DIR)
+    return sorted(n for n in os.listdir(parent) if n.startswith(base + ".pre_reset_"))
+
+
+def test_reset_keeps_the_last_library_beside_it(isolated_db):
+    import sqlite3
+    first = isolated_db.create_drama(title_en="First")
+    os.makedirs(os.path.join(db.DRAMAS_DIR, str(first)))
+    with open(os.path.join(db.DRAMAS_DIR, str(first), "audio.mp3"), "wb") as fh:
+        fh.write(b"a")
+    svc.reset_library(confirm=True, confirm_text="RESET")
+    assert isolated_db.list_dramas() == []
+    [copy] = _kept_copies()
+    copy = os.path.join(os.path.dirname(db.LIBRARY_DIR), copy)
+    assert os.path.isfile(os.path.join(copy, "dramas", str(first), "audio.mp3"))
+    conn = sqlite3.connect(os.path.join(copy, "library.db"))
+    assert conn.execute("SELECT title_en FROM dramas").fetchall() == [("First",)]
+    conn.close()
+
+    isolated_db.create_drama(title_en="Second")
+    svc.reset_library(confirm=True, confirm_text="RESET")
+    [copy] = _kept_copies()
+    conn = sqlite3.connect(os.path.join(os.path.dirname(db.LIBRARY_DIR), copy, "library.db"))
+    assert conn.execute("SELECT title_en FROM dramas").fetchall() == [("Second",)]
+    conn.close()
+
+
+def test_reset_changes_nothing_when_the_copy_cannot_be_kept(isolated_db, monkeypatch):
+    from services.service_errors import ServiceError
+    did = isolated_db.create_drama(title_en="Kept")
+
+    def full_disk(dest):
+        raise OSError("disk full")
+    monkeypatch.setattr(db, "snapshot_database", full_disk)
+    with pytest.raises(ServiceError):
+        svc.reset_library(confirm=True, confirm_text="RESET")
+    assert isolated_db.get_drama(did)["title_en"] == "Kept"
+    assert _kept_copies() == []
+    assert background_jobs.exclusive_active() is False
 
 def test_reset_releases_the_hold_when_it_fails(monkeypatch):
     _no_jobs(monkeypatch)

@@ -91,6 +91,8 @@ LINK_INSIDE = ("This folder contains a link or junction, so it can't be cleared 
 UNREADABLE = ("Part of this folder couldn't be read, so it can't be checked for database or key "
               "files. Open it and clear items inside instead.")
 NOT_BAIHE = "Not created by Baihe"
+PREVIOUS_LIBRARY = ("Previous library kept after restore. Delete it under Previous library "
+                    "below once you have checked the library.")
 SCAN_BUSY = "Another scan is already running. Wait for it to finish, then try again."
 MAX_ITEMS = 2000
 
@@ -300,6 +302,11 @@ class _Ctx:
         self.backup_real = _backup_folder_real()
         self.top_level = _baihe_top_level_names()
         self.linked = None      # set by a scan only; clear and restore never measure link targets
+
+
+def _previous_library(name: str) -> bool:
+    from services import previous_library_service   # it measures with this module
+    return previous_library_service.is_previous_library_name(name)
 
 
 def _under_backups(parts) -> bool:
@@ -526,6 +533,8 @@ def _protection(parts: tuple, real: str, flagged: bool, ctx: _Ctx):
         return True, "Install or installer file."
     if low[0] == TRASH_DIRNAME.lower():
         return True, TRASH_PROTECTED
+    if len(low) == 1 and _previous_library(parts[0]):
+        return True, PREVIOUS_LIBRARY
     if low[0] not in ctx.top_level:
         return True, NOT_BAIHE
     if _SECRET_NAME_RE.search(name):

@@ -77,6 +77,10 @@ export interface LibraryRestoreDone {
   sessions_revoked: number
   media_kept: boolean
   previous_library_kept: boolean
+  // The library had no accounts, so the backup's accounts came with it.
+  accounts_restored: boolean
+  // Names of the previous library's folders this backup lacks; they stay in the previous library.
+  folders_left_behind: string[]
 }
 
 export interface LibraryStorageCategory {

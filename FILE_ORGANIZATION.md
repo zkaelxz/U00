@@ -219,6 +219,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
+- `previous_library_service.py` (the library copies kept beside the library folder after a restore or before a Reset library: size for Disk usage, delete, the reset safety copy)
 - `diarization_service.py`
 - `discover_catalog_service.py`
 - `discover_lookup_service.py`

@@ -643,6 +643,133 @@ def test_restore_never_takes_extension_device_tokens_from_the_upload(isolated_db
     assert [t["label"] for t in device_token_service.list_own(uid)] == ["New laptop", "Old laptop"]
 
 
+def _fresh_pc():
+    """The live library loses every account, as on a rebuilt PC whose new
+    library never had any."""
+    with db.get_conn() as conn:
+        for table in ("auth_sessions", "extension_device_tokens", "user_permissions", "users"):
+            conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'users'")
+
+
+def _with_planted_secrets(data, uid):
+    """The zip's library.db gains a session and a device token for `uid`
+    whose values a crafted backup chose."""
+    from services import device_token_service
+    path = _zip_db(data)
+    try:
+        conn = sqlite3.connect(path)
+        now = time.time()
+        conn.execute("INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, "
+                     "last_seen_at, csrf_hash) VALUES (?, ?, ?, ?, ?, 'x')",
+                     (auth_service._hash("chosen-token"), uid, now, now + 9999, now))
+        conn.execute("INSERT INTO extension_device_tokens (user_id, label, token_hash, created_at) "
+                     "VALUES (?, 'planted', ?, ?)",
+                     (uid, device_token_service._hash("baihe_dt_" + "d" * 43), now))
+        conn.commit()
+        conn.close()
+        with open(path, "rb") as f:
+            raw = f.read()
+    finally:
+        os.remove(path)
+    return _rewrite(data, replace={"library.db": raw})
+
+
+def test_restore_into_a_library_without_accounts_brings_the_backups_accounts(isolated_db):
+    uid = auth_service.add_user("member@example.com", display_name="Mei")["id"]
+    auth_service.grant_permission(uid, "lines.edit")
+    did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _with_planted_secrets(_backup_bytes(), uid)
+    _fresh_pc()
+    result = _restore(data)
+    assert result["accounts_restored"] is True
+    owner = db.get_drama(did)["owner_user_id"]
+    assert owner == uid
+    assert db.auth_get_user(owner)["email"] == "member@example.com"
+    assert "lines.edit" in db.auth_get_permissions(uid)
+    assert auth_service.resolve_session("chosen-token") is None
+    with db.get_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM auth_sessions").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM extension_device_tokens").fetchone()[0] == 0
+
+
+def test_restore_into_a_library_with_accounts_keeps_the_live_accounts(isolated_db):
+    uid = auth_service.add_user("old@example.com")["id"]
+    db.create_drama(title_zh="t", owner_user_id=uid)
+    data = _backup_bytes()
+    _fresh_pc()
+    auth_service.add_user("new-pc@example.com")
+    result = _restore(data)
+    assert result["accounts_restored"] is False
+    assert {u["email"] for u in db.auth_list_users()} == {"new-pc@example.com"}
+
+
+def test_restored_accounts_are_not_reused_by_a_new_account(isolated_db):
+    """A title owned by an account the restore did not bring must not pass
+    to whoever signs up next under the same id."""
+    first = auth_service.add_user("a@example.com")["id"]
+    gone = auth_service.add_user("b@example.com")["id"]
+    did = db.create_drama(title_zh="t", owner_user_id=gone, is_private=1)
+    data = _backup_bytes()
+    _fresh_pc()
+    auth_service.add_user("only@example.com")
+    _restore(data)
+    newcomer = auth_service.add_user("next@example.com")["id"]
+    assert newcomer not in (first, gone)
+    assert db.get_drama(did)["owner_user_id"] == gone
+
+
+def test_snapshot_strips_sessions_and_device_tokens_but_keeps_accounts(isolated_db):
+    from services import device_token_service
+    uid = auth_service.add_user("a@example.com")["id"]
+    auth_service.grant_permission(uid, "extension.send")
+    auth_service.create_session(uid)
+    device_token_service.create_token({"user_id": uid, "is_admin": False,
+                                       "permissions": ["extension.send"]}, "Laptop")
+    dest = os.path.join(tempfile.mkdtemp(), "snap.db")
+    las._sanitized_snapshot(dest)
+    conn = sqlite3.connect(dest)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM auth_sessions").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM extension_device_tokens").fetchone()[0] == 0
+        assert conn.execute("SELECT email FROM users").fetchall() == [("a@example.com",)]
+        assert conn.execute("SELECT COUNT(*) FROM user_permissions").fetchone()[0] == \
+            len(db.auth_get_permissions(uid))
+    finally:
+        conn.close()
+
+
+def _follow(owner, pc_owner=True, mode="auto"):
+    from sources import live_follow_store
+    return live_follow_store.add(owner, pc_owner, "https://www.youtube.com/@chan/live", "chan",
+                                 mode, "{}", 60, auto_check=True)
+
+
+def test_followed_channels_keep_their_owner_when_accounts_are_restored(isolated_db):
+    from sources import live_follow_store
+    uid = auth_service.add_user("owner@example.com")["id"]
+    fid = _follow(uid)
+    data = _backup_bytes()
+    _fresh_pc()
+    _restore(data)
+    row = live_follow_store.get(fid)
+    assert (row["owner_user_id"], row["pc_owner"], row["auto_check"], row["mode"]) == \
+        (uid, 1, 1, "auto")
+
+
+def test_followed_channels_pass_to_the_pc_owner_when_live_accounts_are_kept(isolated_db):
+    from sources import live_follow_store
+    uid = auth_service.add_user("owner@example.com")["id"]
+    fid = _follow(uid)
+    data = _backup_bytes()
+    _fresh_pc()
+    auth_service.add_user("someone-else@example.com")
+    _restore(data)
+    row = live_follow_store.get(fid)
+    assert (row["owner_user_id"], row["pc_owner"], row["auto_check"], row["mode"]) == \
+        (None, 0, 0, "notify")
+
+
 def test_restore_keeps_current_sources_settings(isolated_db):
     _new("A")
     src_store.set_setting("http_proxy_url", "http://evil.example:8080")
@@ -1545,6 +1672,26 @@ def test_a_database_only_backup_keeps_the_media(isolated_db, monkeypatch):
     assert ("verify", True) in events   # the old folder still existed at the check
     assert not _leftovers()
 
+
+
+def test_folders_a_database_only_backup_lacks_are_named_and_kept(isolated_db):
+    _new("A")
+    data = _db_only_backup()
+    _write(os.path.join("my_notes", "plan.txt"), b"mine")
+    _write(os.path.join("logs", "app.log"), b"log")
+    r = _restore(data)
+    assert r["folders_left_behind"] == ["my_notes"]
+    assert r["previous_library_kept"] is True
+    [aside] = [n for n in _leftovers() if ".pre_restore_" in n]
+    with open(os.path.join(os.path.dirname(db.LIBRARY_DIR), aside, "my_notes", "plan.txt"),
+              "rb") as f:
+        assert f.read() == b"mine"
+
+
+def test_restore_lock_file_is_gone_after_a_restore(isolated_db):
+    _new("A")
+    _restore(_backup_bytes())
+    assert not os.path.exists(os.path.abspath(db.LIBRARY_DIR) + ".restore-lock")
 
 def test_a_full_backup_still_replaces_the_media(isolated_db):
     did = _new("Backed up")

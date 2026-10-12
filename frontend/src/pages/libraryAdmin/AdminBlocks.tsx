@@ -109,6 +109,8 @@ export function RestoreBlock() {
   const [done, setDone] = useState(false)
   const [mediaKept, setMediaKept] = useState(false)
   const [previousKept, setPreviousKept] = useState(false)
+  const [accountsRestored, setAccountsRestored] = useState(false)
+  const [leftBehind, setLeftBehind] = useState<string[]>([])
   const [error, setError] = useState<unknown>(null)
 
   // While a file is picked (and until a restore succeeds), check every 3 s
@@ -138,6 +140,8 @@ export function RestoreBlock() {
         setBusy(false)
         setMediaKept(Boolean(r.media_kept))
         setPreviousKept(Boolean(r.previous_library_kept))
+        setAccountsRestored(Boolean(r.accounts_restored))
+        setLeftBehind(r.folders_left_behind ?? [])
         setDone(true)
         setFile(null)
       },
@@ -164,7 +168,10 @@ export function RestoreBlock() {
             {previousKept &&
               ' Some files could not be moved into the restored library, so the previous library' +
                 ' was kept in the folder ending in .pre_restore_ beside it. Check the library' +
-                ' before deleting that folder.'}
+                ' before deleting that folder (Storage > Previous library).'}
+            {leftBehind.length > 0 &&
+              ` Folders this backup does not have stayed in the previous library: ${leftBehind.join(', ')}.`}
+            {accountsRestored && ' This library had no accounts, so the accounts in the backup were restored.'}
           </span>
           <button type="button" className="primary" onClick={() => window.location.reload()}>
             Reload
@@ -197,6 +204,12 @@ export function RestoreBlock() {
               <p>
                 Replaces the whole library with this backup. Back up first if unsure. Everyone will
                 need to sign in again.
+              </p>
+              <p className="muted">
+                A database-only backup keeps your current media for the titles it holds. Media of titles
+                added since that backup, and folders the backup does not have, stay in the previous library
+                beside this one (Storage &gt; Previous library) until you delete it. Accounts come from the
+                backup only when this library has none; otherwise the current accounts stay.
               </p>
             </TypedConfirm>
           )}

@@ -1,5 +1,5 @@
 """Helpers for the library restore: its SQL, and which zip members are
-unsafe to extract (services/workspace_job_service, library_admin_service)."""
+unsafe to extract (services/library_restore_service, library_admin_service)."""
 import contextlib
 import logging
 import os
@@ -177,3 +177,78 @@ def carry_across(old_dir: str, library_dir: str, names, media) -> tuple:
                 "place beside the restored one.", name)
     _fsync_dir(library_dir)
     return media_kept, carried
+
+
+def has_accounts(db_path: str) -> bool:
+    """Whether a library database holds any account (False when it, or its
+    users table, is missing)."""
+    if not os.path.isfile(db_path):
+        return False
+    conn = sqlite3.connect(_ro_uri(db_path), uri=True)
+    try:
+        return conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+
+
+# Columns naming an account. An id one of them still names must never go to
+# a new account: it would inherit that person's private titles and history.
+_ACCOUNT_ID_COLUMNS = (("dramas", "owner_user_id"), ("series", "owner_user_id"),
+                       ("job_records", "owner_user_id"), ("translate_history", "user_id"),
+                       ("speaker_merge_undos", "user_id"), ("audit_log", "user_id"))
+
+
+def settle_accounts(conn, live_path: str) -> None:
+    """On the staged library.db (main): drops permissions of accounts it
+    doesn't hold, and starts new account ids above every id its rows or the
+    live library ever used."""
+    conn.execute("DELETE FROM main.user_permissions WHERE user_id NOT IN "
+                 "(SELECT id FROM main.users)")
+    floor = conn.execute("SELECT COALESCE(MAX(id), 0) FROM main.users").fetchone()[0]
+    for table, column in _ACCOUNT_ID_COLUMNS:
+        cols = {r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")')}
+        if column in cols:
+            floor = max(floor, conn.execute(
+                f'SELECT COALESCE(MAX("{column}"), 0) FROM main."{table}" '
+                f"WHERE typeof(\"{column}\") = 'integer'").fetchone()[0])
+    if os.path.isfile(live_path):
+        conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_path),))
+        try:
+            row = conn.execute("SELECT seq FROM cur.sqlite_sequence WHERE name = 'users'") \
+                .fetchone()
+            floor = max(floor, int(row[0] or 0) if row else 0)
+        except sqlite3.OperationalError:
+            pass
+        finally:
+            conn.execute("DETACH DATABASE cur")
+    conn.execute("INSERT INTO main.sqlite_sequence (name, seq) SELECT 'users', 0 WHERE NOT EXISTS "
+                 "(SELECT 1 FROM main.sqlite_sequence WHERE name = 'users')")
+    conn.execute("UPDATE main.sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'users'",
+                 (floor,))
+
+
+def hand_follows_to_pc_owner(sources_path: str) -> None:
+    """The restored followed channels name accounts of the backup's library,
+    which the live accounts kept by the restore are not: each passes to the
+    PC owner (no account), without the owner's powers or automatic checks
+    until someone turns them back on."""
+    conn = _open_carry_conn(sources_path)
+    try:
+        if "followed_channels" in _table_names(conn, "main"):
+            conn.execute("UPDATE followed_channels SET owner_user_id = NULL, pc_owner = 0, "
+                         "auto_check = 0, mode = 'notify'")
+    finally:
+        conn.close()
+
+
+def folders_left_behind(old_dir: str, skip) -> list:
+    """Names of the folders still in the previous library that are not in
+    `skip` (what the zip held, media, folders the app rebuilds)."""
+    try:
+        with os.scandir(old_dir) as entries:
+            return sorted(e.name for e in entries
+                          if e.is_dir(follow_symlinks=False) and e.name not in skip)
+    except OSError:
+        return []

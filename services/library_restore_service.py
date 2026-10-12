@@ -57,6 +57,10 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
 # none: a database-only backup still names these files.
 _RESTORE_MEDIA_DIRS = ("dramas", "voice_bank", "benchmark_cases")
 
+# Library folders the app rebuilds on its own: a zip without them doesn't
+# keep the previous library just for them.
+_REBUILDABLE_DIRS = ("logs", "source_cache", "source_review_tmp", "updates", "piper_voices")
+
 # SQLite side files a restore never extracts: the validated library.db /
 # sources.db image must be exactly what goes live.
 _RESTORE_SKIPPED_SIDECARS = tuple(f"{base}{ext}" for base in ("library.db", "sources.db")
@@ -196,12 +200,15 @@ def _carry_app_settings(conn, live_path: str):
         conn.execute("DETACH DATABASE cur")
 
 
-def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
+def _build_staged_databases(staging_dir: str, library_dir: str) -> bool:
     """Replaces the uploaded library.db / sources.db in staging with fresh
     files built from the app's own schema (db.migrate_database_file /
     sources.store.migrate_file) and filled with the upload's rows -- except
     the auth tables (current rows, sessions emptied: every session is
-    revoked) and the sources settings table (current rows). An upload
+    revoked; a live library without accounts takes the upload's accounts,
+    and the return value says so) and the sources settings table (current
+    rows). When the live accounts are kept, the upload's followed channels
+    pass to the PC owner with automatic checks off. An upload
     without sources.db gets a snapshot of the live one instead, migrated
     the same way; either sources.db must pass quick_check. Running and
     queued job_records rows are marked cancelled and gpu_lock is cleared
@@ -231,9 +238,14 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
             logging.getLogger(__name__).warning("Restore: staged database migration failed",
                                                 exc_info=True)
             raise ValueError(BAD_LIBRARY_DB) from None
-        _rebuild_from_upload(staged, scratch, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
-                             live_path=os.path.join(library_dir, "library.db"),
-                             live_tables=auth_service.RESTORE_LIVE_TABLES,
+        live_lib = os.path.join(library_dir, "library.db")
+        accounts_restored = not library_restore_sql.has_accounts(live_lib)
+        taken = auth_service.RESTORE_ACCOUNT_TABLES if accounts_restored else ()
+        _rebuild_from_upload(staged, scratch,
+                             skip_tables=[t for t in _RESTORE_KEPT_AUTH_TABLES if t not in taken],
+                             live_path=live_lib,
+                             live_tables=[t for t in auth_service.RESTORE_LIVE_TABLES
+                                          if t not in taken],
                              message=BAD_LIBRARY_DB)
         try:
             conn = _open_carry_conn(staged)
@@ -242,7 +254,8 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
                              "cancel_requested = 0 WHERE status IN ('queued', 'running')",
                              (time.time(),))
                 gpu_slots.clear(conn)
-                _carry_app_settings(conn, os.path.join(library_dir, "library.db"))
+                _carry_app_settings(conn, live_lib)
+                library_restore_sql.settle_accounts(conn, live_lib)
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
                 conn.close()
@@ -266,6 +279,8 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
                 raise ValueError(message) from None
             _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
                                  live_path=live_src, live_tables=("settings",), message=message)
+            if not accounts_restored:
+                library_restore_sql.hand_follows_to_pc_owner(staged_src)
         finally:
             os.remove(upload_src)
     else:
@@ -275,11 +290,12 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
         message = SOURCES_DB_NOT_CARRIED
         try:
             if not src_store.snapshot_to(staged_src, source=live_src):
-                return
+                return accounts_restored
             src_store.migrate_file(staged_src)
         except sqlite3.Error:
             raise ValueError(message) from None
     _require_quick_check(staged_src, message)
+    return accounts_restored
 
 
 def _require_quick_check(path: str, message: str) -> None:
@@ -344,7 +360,10 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     raises, nothing is changed and the exception propagates.
 
     Returns {media_kept: the zip held no media and the current media was
-    kept, previous_library_kept: it was left beside the restored one}.
+    kept, previous_library_kept: it was left beside the restored one,
+    accounts_restored: the accounts came from the backup (the library had
+    none), folders_left_behind: names of the previous library's other
+    folders the zip lacks, which stay in the previous library}.
     """
     import io
     import shutil
@@ -407,7 +426,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
         if os.path.lexists(staged_src):
             _check_uploaded_db(staged_src, BAD_SOURCES_DB)
         marker = _current_state_marker(library_dir)
-        _build_staged_databases(staging_dir, library_dir)
+        accounts_restored = _build_staged_databases(staging_dir, library_dir)
         if before_swap is not None:
             before_swap()
         if _current_state_marker(library_dir) != marker:
@@ -448,13 +467,19 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             # A backup without media must not delete the current media.
             media = tuple(n for n in _RESTORE_MEDIA_DIRS if n not in zipped)
             media_kept = carried = False
+            left = []
             if old_dir is not None:
                 media_kept, carried = library_restore_sql.carry_across(old_dir, library_dir,
                                                                        kept + media, media)
+                left = library_restore_sql.folders_left_behind(
+                    old_dir, zipped | set(_RESTORE_MEDIA_DIRS + _REBUILDABLE_DIRS))
+                carried = carried and not left
                 if carried:
                     shutil.rmtree(old_dir, ignore_errors=True)
             return {"media_kept": media_kept,
-                    "previous_library_kept": old_dir is not None and not carried}
+                    "previous_library_kept": old_dir is not None and not carried,
+                    "accounts_restored": accounts_restored,
+                    "folders_left_behind": left}
         finally:
             db.release_restore_lock(holder)
     finally:
