@@ -310,7 +310,8 @@ def cmd_translate(args):
         # Same as the Workspace Translate job: writes `en` only, and
         # records each translated line's provenance.
         if target_ids is not None:
-            save_cb, notes_cb = bulk_translate.own_lines_callbacks(d["id"], lines, provenance)
+            save_cb, notes_cb, _kept = bulk_translate.own_lines_callbacks(d["id"], lines,
+                                                                          provenance)
         else:
             def save_cb(ls, did=d["id"]):
                 db.save_lines(did, ls, fields=("en",))

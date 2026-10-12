@@ -79,6 +79,6 @@ test('shows a no-matches state', async ({ page }) => {
   await expectNoMatches(page, viaShortcut(page))
 })
 
-test('a page hidden through Customize menu is not listed, but its address still works', async ({ page }) => {
+test('a page hidden through Menu items is not listed, but its address still works', async ({ page }) => {
   await expectHiddenItemNotListed(page, viaShortcut(page))
 })

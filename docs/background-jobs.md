@@ -189,9 +189,9 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
    `heartbeat` touch only this process's rows, so two servers sharing a job id never free
    or refresh each other's slot. The table has at most `GPU_LOCK_MAX_SLOTS` (4) rows.
 3. **External load.** For the first holder (`check_external_load=True`, which UI jobs
-   pass), `diagnostics.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
+   pass), `gpu_probe.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
    did not start (a game, a transcoder) keeps the job queued, with a message that says
-   so (`_external_gpu_wait_message`: numbers only, never process names). No nvidia-smi,
+   so (`gpu_wait_message.external_gpu_wait_message`: numbers only, never process names). No nvidia-smi,
    or a failing check, is ignored for the first job.
 
 The "GPU jobs at once" setting (`get_gpu_max_parallel`, `app_settings.gpu_max_parallel`,
@@ -250,8 +250,9 @@ CLI prints the same sentence.
   about that long. If no live owner exists (pid gone or no heartbeat for
   `STALE_JOB_SECONDS`), `cancel_job` closes the row itself as `cancelled`.
 
-Related: `cancel_queued` clears a still-queued job (re-checking under the lock that it
-was not just promoted); `clear_job` removes a finished record, and for a live process job
+Related: `cancel_queued` ends a still-queued job as `cancelled` and keeps its record, so
+the Jobs page lists the cancelled run (re-checking under the lock that it was not just
+promoted); `clear_job` removes a finished record, and for a live process job
 also stops the process; `cancel_line_jobs(drama_id)` cancels the line-writing jobs
 (`LINE_WRITING_JOB_PREFIXES`) before something replaces all of a title's lines. The CLI
 does the same plus the `job_records` flag for jobs run by the API.
@@ -473,7 +474,7 @@ in `cmd_translate`) and writes no `job_records` rows. Differences that matter:
 - A final status does not mean the thread is done (see Threads that outlive the status).
 - In tests, wait for job threads before asserting (`background_jobs.wait_for_job_threads`,
   or poll the status). Tests are mocked: no network, GPU or real models.
-- Poll a background process with `kill -0 <pid>`. Never use `pgrep -f <pattern>` when
+- Poll a background process with `kill -0 <pid>` (PowerShell: `Get-Process -Id <pid> -ErrorAction SilentlyContinue`). Never use `pgrep -f <pattern>` when
   the pattern also appears in your own command line: it matches itself and never ends
   (`docs/testing-and-ci.md`).
 

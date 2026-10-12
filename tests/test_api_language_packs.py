@@ -73,3 +73,23 @@ def test_language_default_is_readable(client, isolated_db):
     client.post("/api/language-packs/defaults/ko", json={"packs": {"ko-address": None}})
     assert client.get("/api/language-packs/defaults/ko").json() == {"language": "ko", "packs": ["ko-address"]}
     assert client.get("/api/language-packs/defaults/fr").status_code == 422
+
+
+def test_language_default_write_is_pc_only(isolated_db):
+    """An app-wide settings write: refused to any caller not at the PC, even an admin."""
+    from api import auth as api_auth
+    from services import auth_service
+    app = create_app(ApiSettings(auth_mode="on"))
+    remote = TestClient(app, base_url="https://baihe.example.com", raise_server_exceptions=False)
+    url = "/api/language-packs/defaults/ko"
+    body = {"packs": {"ko-address": None}}
+    for user in (auth_service.add_user("kid@example.com"),
+                 auth_service.grant_admin_local("admin@example.com")):
+        s = auth_service.create_session(user["id"])
+        headers = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+                   api_auth.CSRF_HEADER: s["csrf_token"]}
+        assert remote.post(url, json=body, headers=headers).status_code == 403
+        assert remote.get(url, headers=headers).status_code == 200
+    local = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
+                       raise_server_exceptions=False)
+    assert local.post(url, json=body).status_code == 200

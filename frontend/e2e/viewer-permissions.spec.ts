@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { ME } from './authMocks'
-import { openExportBlocks } from './exportBlocks'
+import { mockExportReady, openExportBlock } from './exportBlocks'
 import { clearDrama3Lines, clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 import { withExportLines, withTranslateLines } from './stageLineMocks'
 
@@ -86,6 +86,7 @@ test('Translate: editing the drama (create series) is refused plainly', async ({
 test('Export: Mark as exported and the media job starts are refused plainly', async ({ page }) => {
   const refused = await signInAsMember(page)
   await withExportLines(page, DRAMA)
+  await mockExportReady(page)
   await page.goto(`/#/drama/${DRAMA}/export`)
   await expect(page.getByTestId('readiness')).toContainText('lines')
   expect(refused).toEqual([])
@@ -94,8 +95,7 @@ test('Export: Mark as exported and the media job starts are refused plainly', as
   await expect(refusal(page)).toBeVisible()
   expect(refused).toEqual([`POST /api/export/dramas/${DRAMA}/mark-exported`])
 
-  await page.getByText('Video and audio', { exact: true }).click()
-  await openExportBlocks(page)
+  await openExportBlock(page, 'Video with a subtitle track')
   await page.getByRole('button', { name: 'Start subtitle-track video export' }).click()
   await expect.poll(() => refused).toContain(`POST /api/export/dramas/${DRAMA}/softsub-video`)
   await expect(page.getByTestId('job-status')).toHaveCount(0)
@@ -111,7 +111,9 @@ test('Settings: a member gets no keys, engines or system tabs and no sharing lis
   // Nothing that writes a key or an engine choice is on the page at all.
   await expect(page.getByRole('tab')).toHaveCount(0)
   await expect(page.locator('input[type="password"]')).toHaveCount(0)
-  await expect(page.getByRole('switch', { name: 'Discover' })).toHaveCount(1) // Customize menu is the member's own
+  // Menu items is the member's own; it starts closed beside the open Sharing card.
+  await page.getByRole('button', { name: 'Expand all' }).click()
+  await expect(page.getByRole('switch', { name: 'Discover' })).toHaveCount(1)
   await expect(page.getByText('Stronger translation for hard lines')).toHaveCount(0)
   // The admin-only per-item sharing list is hidden, not just refused.
   await expect(sharing.getByRole('list', { name: 'Titles and series' })).toHaveCount(0)

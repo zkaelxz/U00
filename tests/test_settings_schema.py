@@ -70,10 +70,11 @@ DYNAMIC_KEYS = {
 }
 
 
-def _tracked(*patterns):
-    out = subprocess.run(["git", "ls-files", *patterns], cwd=ROOT, capture_output=True,
-                         text=True, check=True).stdout.split()
-    return sorted(out)
+def _tracked(*patterns, root=ROOT):
+    # --others so a new file passes or fails the same before and after `git add`.
+    out = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", *patterns],
+                         cwd=root, capture_output=True, text=True, check=True).stdout.split()
+    return sorted(set(out))
 
 
 def _read(rel):
@@ -432,3 +433,11 @@ def test_reply_guard_setting_defaults_to_auto_and_maps_to_the_pipeline_argument(
         assert settings_service.run_options()["check_replies"] is expected
     with pytest.raises(Exception):
         settings_service.set_settings({"translate_reply_guard": "sometimes"})
+
+
+def test_tracked_sees_untracked_files(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "new_module.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    assert _tracked("*.py", root=tmp_path) == ["new_module.py"]

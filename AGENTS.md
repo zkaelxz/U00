@@ -4,17 +4,25 @@ OpenCode loads this file, not `CLAUDE.md`. You must still read the project rules
 `CLAUDE.md`; if the two disagree, `CLAUDE.md` wins. Read the section below that touches your task.
 
 ## How to work
-- Search before opening. `python tools/repo_map.py --find "<word>"` searches names, signatures
-  and docstrings only. For function bodies, tests and docs use `git grep -n "<text>"`.
+- Search before opening, and bound it: `python tools/repo_map.py --find "<word>"` (names, signatures, docstrings),
+  `python tools/repo_map.py --callers <name>` (max 30 lines), or `git grep -n -m 3 -w <name> -- '*.py'`.
 - Read the module you change and one caller. List a module first
   (`python tools/repo_map.py <module>`), then read by line range.
 - Files listed in `OVERSIZED_MODULE_BYTES` (`tests/test_static_analysis.py`): use `--part N`, never open whole.
 - A task brief's allowed files are binding. More than about four files: stop and say how to split the task.
-- Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Before pushing, run the area's tests plus
-  the quick guards: `python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_file_organization.py`.
-  CI runs the full suite; don't run it locally as well.
+- Iterate with one test file (per-area lists: `docs/testing-and-ci.md`). Before pushing run `python tools/check_change.py`:
+  it prints the lean pytest command for your diff (mapped tests plus all the guards, `--run` runs it). The guard set,
+  including the hidden ones, is in `docs/testing-and-ci.md` ("Guard set and lean output"). CI runs the full suite; don't.
+- Test output: `PYTEST_ADDOPTS` is already lean in the local-coder shell. Without it use
+  `python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>`;
+  never a blanket `-W ignore` (it hides crashing threads). Don't run `tools/route_table.py` without `--write` (36 KB).
 - Never skip, loosen or delete a test to get CI green. A test may go when its behaviour is gone, when another named test pins the same behaviour, when it pinned an implementation detail and a behaviour test replaces it, or when it could not fail; the only test of a live behaviour stays, and the PR names each removed test and the reason.
-- Skip `docs/archive/` (history only), `docs/specs/`, `docs/design/` and `.claude/` unless the task is about them.
+- Skip list, never read unless the task is about them: `FILE_ORGANIZATION.md`, `docs/STATUS.md`, `docs/engineering-standards.md`,
+  `.test_durations`, `reports/`, `research_notes/`, `docs/session-harvest/`, `docs/archive/`, `docs/specs/`, `docs/design/`, `.claude/`.
+- More rules (mocked tests and `isolated_db`, frontend commands, SQL-kwarg whitelist, `save_lines` full sync, `sources.db`,
+  optional dependencies, comments, how to finish) and recipe cards (Settings row, API route, language pack, DB column,
+  flaky test, optional dependency, UI label rename): `docs/local-coder-recipes.md`. UI work: `docs/react-ui-guidelines.md`,
+  `docs/frontend-design-system.md`.
 
 ## Rules that bite
 A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set.
@@ -28,6 +36,9 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db` and is listed in
   `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
 - When you change shared logic, the CLI must not break. New features are app-only unless asked. The CLI is maintenance-only.
+- Tests are mocked (no network, GPU, models or keys); use `isolated_db` for DB tests and `pytest.importorskip` for optional libraries.
+- A new optional dependency goes in `diagnostics.OPTIONAL_DEPENDENCIES`; a new `sources.db` column in `_ADDED_COLUMNS` (`sources/store.py`).
+- Comments explain WHY only, never a Step or PR id. No new files, settings or abstractions beyond the task.
 - Keep the removed-name sets, because old saved settings still name removed engines:
   `REMOVED_ENGINES` (`engine_backends/engine_registry.py`), `REMOVED_VOICE_ENGINES` (`dub.py`),
   `REMOVED_ASR_BACKENDS` (`services/asr_options_service.py`), `REMOVED_SOURCES` (`sources/registry.py`).
@@ -50,7 +61,7 @@ Done means:
 2. Callers import from the new module. Old names stay importable only through the front doors
    `db`, `translate_engines`, `api.schemas`, or where the brief says.
 3. A test patch on a moved name points at the module that now uses it; no assertion removed or loosened; same pass count.
-4. Inside the `db` package (once it exists) call other db functions as `db.<name>`.
+4. Inside the `db` package call other db functions as `db.<name>`.
 5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
    expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
 6. Split PRs do not edit `OVERSIZED_MODULE_BYTES`, except the `db/__init__.py` split series, whose PRs are strictly
@@ -87,6 +98,11 @@ whole: `db`, `background_jobs`, `diagnostics`, `cli`, `core`, plus every file li
 | Settings / backups | Settings.tsx, settings/, libraryAdmin/ | settings_routes.py, backup_routes.py, library_admin_routes.py | settings_service.py, auto_backup_service.py, drama_restore_service.py, backup_import_service.py | storage.py, lib/settings_schema.py | app_settings | test_settings_service.py, test_auto_backup_service.py, test_api_backups.py, test_user_backup.py | settings*.spec.ts, backups.spec.ts | database.md, runbook.md |
 | Auth / permissions | Login.tsx, Admin.tsx, settings/ExtensionDevicesCard.tsx | auth_routes.py, admin_users_routes.py, sharing_routes.py, device_token_routes.py | auth_service.py, oidc_service.py, ownership_service.py, device_token_service.py | api/auth.py, action_tiers.py, device_tokens.py | users, user_permissions, auth_sessions, audit_log, extension_device_tokens | test_api_permissions.py, test_auth_service.py, test_auth_login.py, test_api_admin_users.py, test_device_tokens.py | signin.spec.ts, admin-audit-users.spec.ts, extension-devices*.spec.ts | route-permissions.md, remote-access-decision.md |
 | Installer / updates | Settings.tsx, settings/AppUpdatesCard.tsx | update_routes.py | update_service.py | installer/ (service.py is big), portable.py | n/a | test_installer_service.py, test_installer_iss.py, test_update_service.py | app-updates.spec.ts | windows-installer-design.md, RELEASE.md |
+| Export | workspace/stages/ExportStage.tsx | export_routes.py | export_service.py, media_export_service.py | subtitle_formats.py, video_export.py, vocab_export.py, glossary_io.py | n/a | test_export_service.py, test_export_formats.py, test_api_export_ass.py, test_api_media_export.py, test_video_export.py, test_vocab_export.py | export-*.spec.ts | user-guide.md |
+| Language packs | settings/LanguagePacksCard.tsx | language_pack_routes.py | language_pack_service.py | language_packs.py, language_pack_data/ (JSON glossaries) | app_settings | test_language_packs.py, test_api_language_packs.py | language-packs*.spec.ts, settings-language-packs*.spec.ts | user-guide.md |
+| Reader | Reader.tsx, reader/, SavedMangaReader.tsx | reader_routes.py | reader_service.py | reader.py | n/a | test_reader_service.py, test_api_reader_m4.py, test_reader_no_segmenter.py | reader.spec.ts | n/a |
+| Assistant | Assistant.tsx, assistant/ | assistant_routes.py, assistant_github_routes.py | maintenance_assistant_service.py, assistant_github_service.py, assistant_roles_service.py | n/a | app_settings | test_maintenance_assistant.py, test_assistant_github.py, test_assistant_roles.py | assistant*.spec.ts | n/a |
+| Jellyfin | settings/JellyfinSection.tsx | jellyfin_routes.py | jellyfin_service.py | n/a | app_settings (`jellyfin` key; API key in .env) | test_jellyfin.py | jellyfin.spec.ts | n/a |
 
 Layer rules for the folders above: `docs/api-and-services.md`. Frontend stages:
 `frontend/src/pages/workspace/stages/README.md`.

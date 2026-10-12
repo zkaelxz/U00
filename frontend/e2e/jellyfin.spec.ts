@@ -40,7 +40,7 @@ test('settings: off by default, saves the address, never shows the key, scan is 
   await page.route('**/api/jellyfin/test', (route) => route.fulfill({ json: { ok: true, server_name: 'Den', version: '10.9.0' } }))
   await page.route('**/api/jellyfin/scan', (route) => route.fulfill({ json: report }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Preferences')
+  await openSettingsGroups(page, 'Integrations')
   const card = page.getByRole('region', { name: 'Jellyfin' })
   await expect(card).toContainText('Off')
   const sw = card.getByRole('switch', { name: 'Use Jellyfin' })
@@ -74,7 +74,7 @@ test('settings: off by default, saves the address, never shows the key, scan is 
 test('export: Send to Jellyfin is hidden while the connector is off', async ({ page }) => {
   await mockConfig(page, { ...on, enabled: false })
   await page.goto('/#/drama/1/export')
-  await expect(page.getByRole('heading', { name: 'Export' }).or(page.getByText('Video and audio')).first()).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Export' }).or(page.getByText('Subtitle file')).first()).toBeVisible()
   await expect(page.getByRole('region', { name: 'Send to Jellyfin' })).toHaveCount(0)
 })
 

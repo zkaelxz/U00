@@ -13,6 +13,7 @@ import {
 import { listAllLines, restoreSnapshot } from '../../../../api/restructure'
 import { deleteVersion } from '../../../../api/stageDeletes'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { isForbidden, LINES_READ_FORBIDDEN } from '../../../../components/errorMessages'
 import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
@@ -33,7 +34,8 @@ interface Records {
   notes: ReviewNote[]
   versions: VersionItem[]
   history: HistoryItem[]
-  tm: TmSuggestion[]
+  // null: refused (403), the account can't read line text.
+  tm: TmSuggestion[] | null
 }
 
 interface Props {
@@ -72,7 +74,10 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
       listNotes(dramaId),
       listVersions(dramaId),
       listHistory(dramaId),
-      listTmSuggestions(dramaId),
+      listTmSuggestions(dramaId).catch((e: unknown) => {
+        if (isForbidden(e)) return null
+        throw e
+      }),
     ]).then(
       ([notes, versions, history, tm]) => {
         if (cancelled) return
@@ -202,7 +207,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
 
   if (!records) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
   const { notes, versions, history } = records
-  const tm = visibleTm(records.tm, tmDismissed)
+  const tm = visibleTm(records.tm ?? [], tmDismissed)
   const counts: [string, number][] = [
     ['Notes', notes.length],
     ['TM suggestions', tm.length],
@@ -246,6 +251,12 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
             ))}
           </ul>
           {jumpNote && <p role="status" data-testid="note-jump-status">{jumpNote}</p>}
+        </>
+      )}
+      {records.tm === null && (
+        <>
+          <h4>Translation memory suggestions</h4>
+          <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>
         </>
       )}
       {tm.length > 0 && (

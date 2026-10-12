@@ -596,8 +596,9 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
 def _follow_job(job_id, child_id, deadline_s):
     """Mirrors child_id's progress onto job_id until the child ends and
     forwards a cancel to it; a child error or cancel ends job_id the same way.
-    A queued child is removed outright by cancel_queued, so once a cancel
-    has been forwarded a vanished child also counts as cancelled. A child
+    A queued child ends cancelled through cancel_queued; one cleared
+    meanwhile is gone, so once a cancel has been forwarded a vanished child
+    also counts as cancelled. A child
     still going after deadline_s seconds of running is stopped and job_id ends
     as an error, so this job can't wait forever. Time spent queued behind
     another title's GPU job doesn't count: the clock starts when it runs."""

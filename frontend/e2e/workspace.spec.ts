@@ -219,6 +219,8 @@ test('upload-and-transcribe waits for the replace box, also after the server ask
   await expect(page.getByTestId('media-status')).toContainText('No audio')
   await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
   const transcribe = page.getByRole('button', { name: 'Transcribe', exact: true })
+  // The transcript box only exists once the saved mode has loaded; count() below does not wait.
+  await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
   await transcribe.click()
@@ -229,7 +231,7 @@ test('upload-and-transcribe waits for the replace box, also after the server ask
   await expect(transcribe).toBeEnabled()
   await expect(page.getByTestId('transcribe-staged-unused')).toContainText('Replace the current audio/video')
   await expect(page.getByTestId('kept-media')).toContainText('2 files, 3.5 MB')
-  await expect(page.getByTestId('kept-media')).toContainText('Disk usage')
+  await expect(page.getByTestId('kept-media')).toContainText('Storage')
 
   await box.check()
   await expect(transcribe).toBeEnabled()

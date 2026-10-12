@@ -42,7 +42,7 @@ describe('settings api', () => {
   })
 
   it('has an opt-in toggle for resuming translation batches, sent as one boolean', async () => {
-    expect(TOGGLES.find((t) => t.key === 'bulk_auto_resume')?.label).toBe('Resume batches on start')
+    expect(TOGGLES.find((t) => t.key === 'bulk_auto_resume')?.label).toBe('Resume translation batches on start')
     expect(buildUpdate('bulk_auto_resume', true)).toEqual({ bulk_auto_resume: true })
     const f = ok({ ...overview, bulk_auto_resume: true })
     await updateSetting('bulk_auto_resume', true, f)

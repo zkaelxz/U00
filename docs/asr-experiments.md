@@ -16,11 +16,11 @@ table) is in `archive/asr-experiments-history.md`.
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
 | Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
-| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`. |
-| Qwen3-ASR batch size | Settings > Transcription experiments (PC only) | 1 | Range 1-16. |
+| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (app only, not in the CLI; see "anime-whisper in the app"). |
+| Qwen3-ASR batch size | Settings > System > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
 | Mixed languages | same card | off | |
-| Voice detector | Settings > Transcription experiments (PC only) | `auto` | Choices come from `settings_service._voice_detector_choices`. Used by the speech-detection backends. |
+| Voice detector | the Transcribe stage's voice detector field (no Settings card holds it) | `auto` | Choices come from `settings_service._voice_detector_choices`. Used by the speech-detection backends. |
 | Separate vocals first | per title | off | |
 | Sensitivity | per title | `normal` | `sensitive` lowers the VAD threshold to 0.35 (`sensitivity_preset.py`). |
 | Min silence, VAD threshold, Beam size | per title (Developer Mode) | 300 ms, 0.5, 5 | Whisper's own pass. Min silence is not used when "Split lines by sentences" is on. |
@@ -45,7 +45,7 @@ or a model that `whisper_models.WHISPER_LANGUAGE_RULES` excludes for the title's
 
 | Part | Values | Applies to |
 |---|---|---|
-| `BACKEND` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long` | |
+| `BACKEND` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, `anime_whisper` (Japanese titles only) | |
 | `:MODEL` | any key of `whisper_models.WHISPER_MODELS` (default: the title's saved model) | `whisper`, `qwen3_asr` (its Whisper pass) |
 | `vad=` | `normal`, `sensitive` (`sensitivity_preset.py`; default: the title's preset) | `whisper`, `qwen3_asr` |
 | `beam=` | 1-20 (default: the title's value) | `whisper`, `qwen3_asr` |
@@ -59,7 +59,7 @@ Timing, merged and missed lines are measured against the reference lines fully i
 Accuracy uses `benchmark_scoring_service.score_output`, the Benchmark Lab's scorer. Loops and stock phrases are counted after the app's own
 repeat filter, so they show what survives it. "In silence" uses the app's default speech detector on the window.
 Peak VRAM is whole-GPU memory above the level before the recipe, read from `nvidia-smi`, so other programs count too; it is n/a on CPU or when unreadable.
-A new recipe backend (an `anime_whisper`, say) is one `BackendSpec` entry in `tools/asr_bench_recipes.py`.
+A new recipe backend is one `BackendSpec` entry in `tools/asr_bench_recipes.py`.
 
 ### Which backend a title gets
 
@@ -172,7 +172,7 @@ Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
 A candidate such as a Japanese fine-tune can be tried in the Benchmark Lab without
 changing the model of any title:
 
-1. On the PC, set Settings > Offline Whisper model folder to the downloaded
+1. On the PC, set Settings > System > Offline, paths and limits > Offline Whisper model folder to the downloaded
    faster-whisper (CTranslate2) model folder.
 2. In the Lab, pick the Transcription stage and add an arm with the model
    `local-folder`. It is listed in the Whisper sizes and shows as "offline model
@@ -199,7 +199,7 @@ document shows it worse; Live's own size list is separate and not gated. Today:
 | `ja-1.5b` | Chinese, Korean | A Japanese fine-tune, only for Japanese titles. |
 | `kotoba-v2` | Chinese, Korean | Trained on Japanese speech only (ReazonSpeech), so only for Japanese titles. |
 
-Adding a model (anime-whisper, say) is a `WHISPER_MODELS` label plus, if it is language-bound, one
+Adding a model is a `WHISPER_MODELS` label plus, if it is language-bound, one
 `LanguageRule`. `ja-1.5b` is never the default.
 
 | | |
@@ -218,8 +218,42 @@ CPU sample test (40 clips per set, int8, beam 5; character error rate, lower is 
 | Galgame shard 114 | 0.050 / 0.085 | 0.094 / 0.398 |
 | joujiboi | 0.200 / 0.232 | 0.333 / 0.357 |
 
-Word timestamps work out of the box and no repetition loops appeared. anime-whisper (its word
-timestamps break) is not in the app; the 760M sibling is not added. kotoba is, see below.
+Word timestamps work out of the box and no repetition loops appeared. anime-whisper is an opt-in
+backend of its own (its word timestamps break; see "anime-whisper in the app"); the 760M sibling is
+not added. kotoba is in the app, see below.
+
+#### anime-whisper in the app
+
+`asr_backend_choice = anime_whisper` (`asr_backend.AnimeWhisperBackend`): opt-in, Japanese only (other
+languages are refused in the picker, by the server and by the backend), never the default.
+**Personal, non-commercial use only**: the model card says MIT, but the training data forbids commercial
+use of models trained on it. Baihe never ships the weights; the first use downloads one pinned
+CTranslate2 build (`whisper_models.ANIME_WHISPER_PIN`) into `model_cache/anime_whisper`.
+
+Why it is not a Whisper size: the model writes one leading timestamp and never a closing one, so
+faster-whisper's segment times are unusable (median end error 3.4 s), and `word_timestamps=True`
+makes it seek back and re-decode, inventing text on 64 of 80 clips at 2-3x the time. So the backend
+decodes whole windows with timestamps off, force-aligns the text with the model's own cross-attention
+(heads calibrated for its 2-layer decoder: layer 1, heads 14, 8, 12) and places each word in the fine
+Silero speech span that holds it. CPU test, 8 multi-utterance files: 0 merged and 1 of 40 utterances
+missed (turbo path: 5 merged, 5 missed), start/end error 0.09/0.13 s median (turbo 0.33/0.29 s),
+CER 0.162 (turbo 0.295).
+
+Decode settings: `language="ja"`, beam 5, `without_timestamps=True`, `word_timestamps=False`,
+`condition_on_previous_text=False`, `vad_filter=False`, windows of at most 30 s decoded independently
+(the model collapses on long sequential decoding). No initial prompt is ever sent, not even the
+title's glossary: the card says it causes hallucination. The repeat guard applies only when the title
+turned it on. The pinned model.bin is byte-identical to `tools/ja_whisper_models.py convert-anime-whisper`.
+
+Safety: the repository listing is checked against the CTranslate2 allow-list before any download (a
+script, pickle or second `.bin` refuses the whole download), the revision is a full commit sha,
+`model.bin` is checked against the pinned sha256, and the download is built in a side folder and moved
+into place only after every check passed.
+
+Compare it with `python -m tools.asr_bench` on a Japanese anime or ASMR clip:
+`TITLE_ID --config whisper:large-v3-turbo --config qwen3_asr_vad --config anime_whisper`. Pass if CER is 2+
+points better than turbo, no more hallucinated lines in silence, at most 10% missed lines, median
+start/end error at most 0.3 s with 70%+ within 0.3 s, and RTF at most 1.5x turbo's.
 
 #### kotoba-whisper v2.0 in the app
 
