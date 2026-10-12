@@ -56,6 +56,9 @@ def _wait_finished(job_id, timeout=20.0):
     while time.time() < end:
         job = background_jobs.get_status(job_id)
         if job and job["status"] in ("done", "error", "cancelled"):
+            # The status is set before the notification and cleanup run; a thread still
+            # unwinding after the test would reach the real library once the fixtures end.
+            assert background_jobs.wait_for_job_threads(10)
             return job
         time.sleep(0.02)
     raise AssertionError("job did not finish")
