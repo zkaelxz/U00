@@ -29,8 +29,6 @@ export function routeCrumbs(route: Route, opts: CrumbOptions = {}): Crumb[] {
   switch (route.name) {
     case 'library-tools':
       return [library, { label: labelOf('library-tools') }]
-    case 'sources-manage':
-      return [{ label: labelOf('sources'), href: routeHref({ name: 'sources' }) }, { label: 'Manage sources' }]
     case 'drama': {
       const stage = opts.stage ?? route.stage
       const title = { label: opts.title || `Title #${route.id}`, href: routeHref({ name: 'drama', id: route.id, stage: null }) }

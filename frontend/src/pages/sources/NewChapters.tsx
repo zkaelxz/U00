@@ -196,7 +196,7 @@ export function NewChapters({
               const current = t.drama_id !== null && !choices.some((d) => d.id === t.drama_id)
               return (
                 <li key={key}>
-                  <span>
+                  <div className="sources-tracked-title">
                     {t.title || t.series_id} · {display(t.source)}
                     {t.extension_only ? (
                       <span className="muted"> · extension only: skipped</span>
@@ -209,43 +209,45 @@ export function NewChapters({
                         {' '}· checked <time dateTime={isoTime(t.last_checked)}>{ago(t.last_checked)}</time>
                       </>
                     )}
-                  </span>
-                  {canAct && (
-                    <label className="sources-autoimport">
-                      <span>Auto-import into</span>
-                      <select
-                        value={t.drama_id ?? ''}
-                        disabled={!dramas.items || linking === key}
-                        onChange={(e) => link(t, e.target.value)}
-                      >
-                        <option value="">None</option>
-                        {current && <option value={t.drama_id!}>Title #{t.drama_id}</option>}
-                        {choices.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {dramaLabel(d)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {canAct && source?.supports.get_pages && (
-                    <label className="sources-autoimport">
-                      <input
-                        type="checkbox"
-                        checked={t.save_cbz}
-                        disabled={linking === key}
-                        onChange={(e) => saveCbz(t, e.target.checked)}
-                      />
-                      <span>Save new chapters as CBZ</span>
-                    </label>
-                  )}
-                  <ConfirmButton
-                    label="Stop tracking…"
-                    verb="stop tracking"
-                    name={t.title || t.series_id}
-                    busy={untrackBusy === key}
-                    onConfirm={() => onUntrack(t)}
-                  />
+                  </div>
+                  <div className="sources-tracked-controls">
+                    {canAct && (
+                      <label className="sources-autoimport">
+                        <span>Auto-import into</span>
+                        <select
+                          value={t.drama_id ?? ''}
+                          disabled={!dramas.items || linking === key}
+                          onChange={(e) => link(t, e.target.value)}
+                        >
+                          <option value="">None</option>
+                          {current && <option value={t.drama_id!}>Title #{t.drama_id}</option>}
+                          {choices.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {dramaLabel(d)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {canAct && source?.supports.get_pages && (
+                      <label className="sources-autoimport">
+                        <input
+                          type="checkbox"
+                          checked={t.save_cbz}
+                          disabled={linking === key}
+                          onChange={(e) => saveCbz(t, e.target.checked)}
+                        />
+                        <span>Save new chapters as CBZ</span>
+                      </label>
+                    )}
+                    <ConfirmButton
+                      label="Stop tracking…"
+                      verb="stop tracking"
+                      name={t.title || t.series_id}
+                      busy={untrackBusy === key}
+                      onConfirm={() => onUntrack(t)}
+                    />
+                  </div>
                 </li>
               )
             })}

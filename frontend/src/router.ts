@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
-import { isManageTab, manageHref, type ManageTab } from './pages/sources/manageTabs'
+import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, type SourcesTab } from './pages/sources/manageTabs'
 import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
@@ -26,8 +26,10 @@ export type Route =
   | { name: 'benchmark'; compare?: string }
   | { name: 'translate' }
   | { name: 'make-subtitles' }
-  | { name: 'sources' }
-  // tab: "#/sources/manage?tab=network"; no tab opens Sites.
+  // tab: "#/sources?tab=new"; no tab opens Find.
+  | { name: 'sources'; tab?: SourcesTab }
+  // The old Manage sources page, kept as a deep link: it opens the Manage sources tab of Sources and
+  // scrolls to the area named by "?tab=network".
   | { name: 'sources-manage'; tab?: ManageTab }
   | { name: 'discover' }
   | { name: 'live' }
@@ -75,7 +77,10 @@ export function parseRoute(hash: string): Route {
   }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
-  if (head === 'sources' && parts.length === 1) return { name: 'sources' }
+  if (head === 'sources' && parts.length === 1) {
+    const tab = new URLSearchParams(qs).get('tab')
+    return isSourcesTab(tab) ? { name: 'sources', tab } : { name: 'sources' }
+  }
   if (head === 'sources' && a === 'manage' && parts.length === 2) {
     const tab = new URLSearchParams(qs).get('tab')
     return isManageTab(tab) ? { name: 'sources-manage', tab } : { name: 'sources-manage' }
@@ -145,6 +150,7 @@ export function routeHref(r: Route): string {
   if (r.name === 'library-tools' && r.tab) return `#/library-tools?tab=${r.tab}`
   if (r.name === 'diagnostics' && (r.card || r.tab)) return r.card ? `#/diagnostics?card=${r.card}` : `#/diagnostics?tab=${r.tab}`
   if (r.name === 'sources-manage') return manageHref(r.tab)
+  if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
   return `#/${r.name}`

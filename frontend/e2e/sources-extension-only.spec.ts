@@ -59,7 +59,7 @@ test('a tracked series of a marked source reads "extension only: skipped"', asyn
     drama_id: null, last_checked: null, last_check_error: null, extension_only: true }]
   const s = await mockSources(page, { tracked })
   await mockExtensionOnly(page, s, { on: true })
-  await page.goto('/#/sources')
+  await page.goto('/#/sources?tab=new')
   const news = page.getByRole('region', { name: 'New chapters' })
   await expect(news.getByText('extension only: skipped')).toBeVisible()
   await expect(news.getByText('not checked yet')).toHaveCount(0)
