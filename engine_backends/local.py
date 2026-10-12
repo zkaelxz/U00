@@ -72,12 +72,17 @@ def id_keyed_schema(ids) -> dict:
 _schema_refused = set()
 
 
+# Ollama's wording when it can't use a schema in `format`; any other 400 that
+# happens to say "format" (a date, an option) is not about structured output.
+_SCHEMA_REFUSAL_RE = re.compile(r"schema|invalid format|format\b.{0,40}\b(?:not supported|unsupported)",
+                                re.IGNORECASE | re.DOTALL)
+
+
 def _refuses_schema(exc) -> bool:
     import requests
     if not isinstance(exc, requests.HTTPError) or getattr(exc.response, "status_code", None) != 400:
         return False
-    body = (getattr(exc, "body_text", None) or "").lower()
-    return "format" in body or "schema" in body
+    return bool(_SCHEMA_REFUSAL_RE.search(getattr(exc, "body_text", None) or ""))
 
 
 # Local Ollama models offered in the picker. gemma4:12b is the default: it fits
@@ -268,7 +273,8 @@ def ollama_task_reply(chat, engine, messages: list, max_tokens: int, expect: str
     being parsed. A "text" reply must be prose: empty or JSON raises, and
     with translation_of (the source line it renders) so does a reply that
     isn't a usable English line for it."""
-    from .shared import unusable_line_reply
+    from .shared import is_apology_refusal
+    from .translation_guard import unusable_reply
     estimated = estimate_ollama_prompt_tokens(*(m["content"] for m in messages))
     num_predict = max(1, min(int(max_tokens), OLLAMA_MAX_NUM_PREDICT))
     num_ctx = engine.num_ctx_for(estimated + num_predict)
@@ -290,7 +296,10 @@ def ollama_task_reply(chat, engine, messages: list, max_tokens: int, expect: str
         raise OllamaReplyError("The model returned an empty reply.")
     if text.startswith("{"):
         raise OllamaReplyError("The model answered in JSON instead of plain text.")
-    reason = unusable_line_reply(translation_of, text) if translation_of else None
+    reason = None
+    if translation_of:
+        reason = ("a refusal" if is_apology_refusal(text)
+                  else unusable_reply(translation_of, text))
     if reason:
         raise OllamaReplyError(f"The model's reply wasn't a usable English line ({reason}).")
     return text
@@ -416,7 +425,7 @@ def _ollama_server_error(exc, status, body: str):
             detail = parsed["error"]
     except ValueError:
         pass
-    detail = _URL_RE.sub("[url]", redact_secrets(detail or "")).strip()[:300]
+    detail = scrub_error_text(detail)
     message = f"Ollama answered with an error (HTTP {status})" + (f": {detail}" if detail else ".")
     err = requests.HTTPError(message, response=exc.response, request=getattr(exc, "request", None))
     err.body_text = body
@@ -424,6 +433,17 @@ def _ollama_server_error(exc, status, body: str):
 
 
 _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s\"'<>]+", re.IGNORECASE)
+# Drive paths (C:\..., C:/...), UNC shares (\\host\share) and absolute POSIX
+# paths: Ollama's errors name its model files, whose path holds the account name.
+_PATH_RE = re.compile(r"[A-Za-z]:[\\/][^\s\"'<>:]*|\\\\[^\s\"'<>:]+"
+                      r"|(?<![\w.:/\\])/[^\s\"'<>/:]+(?:/[^\s\"'<>/:]*)+")
+
+
+def scrub_error_text(text: str) -> str:
+    """Server error text fit to store and show: secrets redacted, URLs and
+    filesystem paths removed, cut to 300 characters."""
+    text = _URL_RE.sub("[url]", redact_secrets(text or ""))
+    return _PATH_RE.sub("[path]", text).strip()[:300]
 
 
 def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None) -> dict:
@@ -562,7 +582,7 @@ class OllamaEngine:
             if self._failures_in_a_row < self.consecutive_failure_limit:
                 raise
             stop = OllamaRunStopped(f"Stopped: {self._failures_in_a_row} batches in a row failed "
-                                    f"({redact_secrets(str(exc))})")
+                                    f"({scrub_error_text(str(exc))})")
             raise stop from exc
         self._failures_in_a_row = 0
         return out
@@ -610,6 +630,10 @@ class OllamaEngine:
                 if payload["format"] == "json" or not _refuses_schema(exc):
                     raise
                 _schema_refused.add((self.base_url, self.model))
+                import applog
+                applog.get_logger().warning(
+                    f"Ollama refused a JSON schema for {self.model}; using plain JSON mode "
+                    "for it until restart.")
                 resp = send({**payload, "format": "json"})
             usage = ollama_usage(resp)
             for key, value in usage.items():
@@ -632,13 +656,19 @@ class OllamaEngine:
                 zh_lines, context.get("speaker_labels"), call_model,
                 line_ids=line_ids, engine_name="ollama",
                 line_languages=context.get("line_languages"),
-                sentence_groups=context.get("sentence_groups"), check_replies=True,
+                sentence_groups=context.get("sentence_groups"), recover_replies=True,
+                # The reply guard set to Off in Settings switches these off too.
+                check_replies=context.get("check_replies") is not False,
                 allowed_runs=allowed_source_runs(context.get("glossary_terms"),
                                                  context.get("style_guidelines") or ""),
                 rejected=rejected)
         finally:
-            self.last_rejected = {line_ids[p]: reason for p, reason in rejected.items()
-                                  if p < len(line_ids) and isinstance(line_ids[p], int)}
+            # Merged, not replaced: an extra call for some of a batch's lines
+            # (sentence mode, the reply guard) must not unflag the others.
+            for line_id in line_ids:
+                self.last_rejected.pop(line_id, None)
+            self.last_rejected.update({line_ids[p]: reason for p, reason in rejected.items()
+                                       if p < len(line_ids) and isinstance(line_ids[p], int)})
 
 
 # {base_url: (checked_at, reachable)} -- Ollama is exempted from the

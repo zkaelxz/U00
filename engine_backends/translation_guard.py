@@ -3,6 +3,7 @@ complete and still wrong: two lines merged into one reply, text shifted onto a
 neighbouring id, or source script left in the English. Pure functions; the
 retry and flagging live in translate_pipeline."""
 
+import json
 import math
 import re
 
@@ -68,6 +69,16 @@ def leftover_source_script(reply: str, allowed_runs=()) -> bool:
     return bool(_CJK.search(text))
 
 
+def _parses_as_json(text: str) -> bool:
+    # A line may open with a stage direction ("[Sighs] Fine."); only a JSON
+    # array written as the line is a malformed reply.
+    try:
+        json.loads(text)
+    except ValueError:
+        return False
+    return True
+
+
 def unusable_reply(source: str, reply: str, allowed_runs=()):
     """Why this reply can't be written as the English for source at all
     (None when it can): empty, JSON, reasoning markers, source script left
@@ -76,7 +87,7 @@ def unusable_reply(source: str, reply: str, allowed_runs=()):
     text = reply.strip()
     if not text:
         return "empty"
-    if text[0] in "{[":
+    if text[0] == "{" or (text[0] == "[" and _parses_as_json(text)):
         return "JSON instead of a line"
     if _REASONING_MARKER.search(text):
         return "reasoning text"

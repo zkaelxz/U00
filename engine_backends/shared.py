@@ -675,8 +675,9 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
 
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
                                      line_ids=None, engine_name: str = None, line_languages=None,
-                                     sentence_groups=None, check_replies: bool = False,
-                                     allowed_runs=(), rejected: dict = None):
+                                     sentence_groups=None, recover_replies: bool = False,
+                                     check_replies: bool = False, allowed_runs=(),
+                                     rejected: dict = None):
     """
     The shared id-keyed request/parse/retry-missing logic behind every
     LLM translation engine's own translate_batch (Claude/DeepSeek/
@@ -706,13 +707,14 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
     is still one translation per fragment id. Omitted, the request is
     exactly the plain numbered list.
 
-    check_replies (local models): call_model_fn(numbered_text, ids) also gets
-    the ids asked for, a draft or cut-off reply is recovered (see
-    _recover_id_keyed), and each value is checked before it is used: a
-    refusal, the prompt's own numbering or speaker prefix, source script
+    recover_replies (local models): call_model_fn(numbered_text, ids) also
+    gets the ids asked for, and a draft or cut-off reply is recovered (see
+    _recover_id_keyed). check_replies: each value is checked before it is
+    used: the prompt's own numbering or speaker prefix, JSON, source script
     outside allowed_runs, reasoning or an absurd length makes it missing.
-    rejected (a dict) gets {position in zh_lines: reason} for lines left
-    untranslated that way.
+    A refusal opener is not checked per line ("I won't leave you." is
+    dialogue); the whole-reply check above still applies. rejected (a dict)
+    gets {position in zh_lines: reason} for lines left untranslated that way.
     """
     ids = list(range(1, len(zh_lines) + 1))
     # The lines' own permanent ids when every line has one and
@@ -755,11 +757,11 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
         p = pos[int(key)]
         if _echoed_label(value, key, speaker_names[p] if speaker_names else None):
             return "copied the prompt's numbering or speaker"
-        return unusable_line_reply(zh_lines[p], value, allowed_runs)
+        return unusable_reply(zh_lines[p], value, allowed_runs)
 
     still_rejected = {}
     result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries,
-                                         engine_name=engine_name, recover=check_replies,
+                                         engine_name=engine_name, recover=recover_replies,
                                          check_value=check_value if check_replies else None,
                                          rejected=still_rejected)
     if rejected is not None:
@@ -818,11 +820,14 @@ def _detect_soft_refusal_text(text: str):
     return None
 
 
-def unusable_line_reply(source: str, reply: str, allowed_runs=()):
-    """unusable_reply plus a refusal sentence written as the line."""
-    if _detect_soft_refusal_text(reply):
-        return "a refusal"
-    return unusable_reply(source, reply, allowed_runs)
+# Openers that apologise first. "I can't"/"I won't" alone open real dialogue
+# ("I won't leave you."), so only these count when one reply is one line.
+_APOLOGY_REFUSAL_OPENERS = tuple(o for o in _SOFT_REFUSAL_OPENERS
+                                 if o.startswith(("sorry", "i'm sorry", "i apologize")))
+
+
+def is_apology_refusal(text: str) -> bool:
+    return text.strip().lower().startswith(_APOLOGY_REFUSAL_OPENERS)
 
 
 # Per-request timeout (seconds) for the Anthropic/OpenAI SDK clients, so a

@@ -33,9 +33,11 @@ class _Chat:
 def _clean_ollama_state():
     thinking._think_refused.clear()
     getattr(local, "_warm_until", {}).clear()
+    getattr(local, "_schema_refused", set()).clear()
     yield
     thinking._think_refused.clear()
     getattr(local, "_warm_until", {}).clear()
+    getattr(local, "_schema_refused", set()).clear()
 
 
 @pytest.fixture
@@ -111,6 +113,13 @@ class TestReplyShape:
         task_chat(_reply(bad))
         with pytest.raises(local.OllamaReplyError):
             line_tools.improve_line("你好", "Hi", _engine())
+
+    @pytest.mark.parametrize("line", ["I won't leave you.", "I can't do this anymore.",
+                                      "I cannot lose you.", "[Sighs] Fine."])
+    def test_improve_line_accepts_dialogue_that_only_sounds_like_a_refusal(self, task_chat, line):
+        import line_tools
+        task_chat(_reply(line))
+        assert line_tools.improve_line("我不会离开你", "Hi", _engine()) == line
 
     def test_explain_is_plain_text(self, task_chat):
         import line_tools
@@ -292,8 +301,8 @@ class TestLeakedDraft:
 
 class TestValuesAreChecked:
     @pytest.mark.parametrize("bad", [
-        "I'm sorry, but I can't translate this.",
         "12. Thank you.",
+        '["Thank you."]',
         "[Xiaoling] Thank you.",
         "谢谢你",
         "Okay, the user wants me to translate this line. " * 6,
@@ -305,6 +314,44 @@ class TestValuesAreChecked:
         assert out == ["Hello.", "", "Goodbye."]
         assert len(fake.bodies) == 2 and "12." in _user_text(fake.bodies[1])
         assert set(engine.last_rejected) == {12}
+
+    @pytest.mark.parametrize("line", ["I won't leave you.", "I can't do this anymore.",
+                                      "I cannot lose you.", "[Sighs] Fine."])
+    def test_dialogue_that_only_sounds_like_a_refusal_is_written(self, batch_chat, line):
+        fake = batch_chat(_reply('{"11": "Hello.", "12": %s, "13": "Goodbye."}' % _json(line)))
+        engine = _engine()
+        assert engine.translate_batch(["你好", "我不会离开你", "再见了"], dict(_IDS))[1] == line
+        assert len(fake.bodies) == 1 and engine.last_rejected == {}
+
+    def test_a_whole_reply_refusal_still_reads_as_one(self, batch_chat):
+        from engine_backends.shared import ContentModerationBlocked
+        batch_chat(_reply("I'm sorry, but I can't help with that."))
+        with pytest.raises(ContentModerationBlocked):
+            _engine().translate_batch(_SOURCES, dict(_IDS))
+
+    def test_rejections_from_a_later_call_do_not_erase_earlier_ones(self, batch_chat):
+        batch_chat(_reply('{"11": "Hello.", "12": "谢谢你", "13": "Goodbye."}'),
+                   _reply('{"12": "谢谢你"}'), _reply('{"13": "Bye."}'))
+        engine = _engine()
+        engine.translate_batch(_SOURCES, dict(_IDS))
+        assert set(engine.last_rejected) == {12}
+        engine.translate_batch(["再见了"], {"line_ids": [13]})
+        assert set(engine.last_rejected) == {12}
+
+    def test_reply_guard_off_skips_the_value_checks(self, batch_chat):
+        fake = batch_chat(_reply('{"11": "Hello.", "12": "谢谢你", "13": "Goodbye."}'))
+        out = _engine().translate_batch(_SOURCES, dict(_IDS, check_replies=False))
+        assert out == ["Hello.", "谢谢你", "Goodbye."] and len(fake.bodies) == 1
+
+    def test_the_run_passes_reply_guard_off_to_the_engine(self, monkeypatch):
+        from core import Line
+        from engine_backends import translate_pipeline
+        monkeypatch.setattr(local, "_ollama_chat", _Chat(_reply('{"11": "谢谢你"}')))
+        line = Line(idx=0, start=0, end=1, zh="谢谢你", en="")
+        line.id = 11
+        out, _ = translate_pipeline.translate_lines_with_engine(
+            [line], _engine(), drama_meta={}, check_replies=False)
+        assert out[0].en == "谢谢你"
 
     def test_a_bad_value_that_comes_back_good_is_written(self, batch_chat):
         batch_chat(_reply('{"11": "Hello.", "12": "谢谢你", "13": "Goodbye."}'),
@@ -322,14 +369,14 @@ class TestValuesAreChecked:
         from core import Line
         from engine_backends import translate_pipeline
         monkeypatch.setattr(local, "_ollama_chat", _Chat(
-            _reply('{"11": "Hello.", "12": "I cannot translate this."}')))
+            _reply('{"11": "Hello.", "12": "谢谢你"}')))
         lines = [Line(idx=0, start=0, end=1, zh="你好", en=""),
                  Line(idx=1, start=1, end=2, zh="谢谢你", en="")]
         lines[0].id, lines[1].id = 11, 12
         out, errors = translate_pipeline.translate_lines_with_engine(
-            lines, _engine(), drama_meta={}, check_replies=False)
+            lines, _engine(), drama_meta={})
         assert [ln.en for ln in out] == ["Hello.", ""]
-        assert out[1].flag == "uncertain_translation" and "refusal" in out[1].flag_note
+        assert out[1].flag == "uncertain_translation" and "source text" in out[1].flag_note
         assert errors
 
 
@@ -354,6 +401,18 @@ class TestPerBatchSchema:
         assert fake.bodies[1]["format"] == "json"
         engine.translate_batch(_SOURCES, dict(_IDS))
         assert fake.bodies[2]["format"] == "json"  # remembered
+
+    def test_an_unrelated_400_mentioning_format_keeps_the_schema(self, batch_chat):
+        resp = requests.Response()
+        resp.status_code = 400
+        resp._content = b'{"error": "invalid date format in keep_alive"}'
+        err = requests.HTTPError("400", response=resp)
+        err.body_text = resp._content.decode()
+        batch_chat(err, _reply('{"11": "Hello.", "12": "Thanks.", "13": "Bye."}'))
+        engine = _engine()
+        with pytest.raises(requests.HTTPError):
+            engine.translate_batch(_SOURCES, dict(_IDS))
+        assert (engine.base_url, engine.model) not in local._schema_refused
 
 
 class TestServerErrors:
@@ -381,6 +440,24 @@ class TestServerErrors:
         text = str(info.value)
         assert "out of memory" in text and "500" in text
         assert "192.168" not in text and "http" not in text and "11434" not in text
+
+    @pytest.mark.parametrize("path", [
+        r"C:\Users\mai.tran\.ollama\models\blobs\sha256-abc",
+        r"\\nas\share\mai.tran\models\blob",
+        "/home/mai.tran/.ollama/models/blobs/sha256-abc",
+        "/Users/mai.tran/.ollama/models/blobs/sha256-abc",
+    ])
+    def test_filesystem_paths_never_reach_the_message(self, monkeypatch, path):
+        import json
+        self._post_500(monkeypatch, json.dumps({"error": f"open {path}: no such file"}).encode())
+        engine = local.OllamaEngine()
+        for _ in range(local.OllamaEngine.consecutive_failure_limit - 1):
+            with pytest.raises(requests.HTTPError) as info:
+                engine.translate_batch(["你好"], {})
+            assert "mai.tran" not in str(info.value) and ": no such file" in str(info.value)
+        with pytest.raises(local.OllamaRunStopped) as stopped:
+            engine.translate_batch(["你好"], {})
+        assert "mai.tran" not in str(stopped.value)
 
     def test_the_run_stops_after_repeated_engine_failures_and_keeps_its_work(self, monkeypatch):
         from core import Line

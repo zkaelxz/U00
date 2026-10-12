@@ -465,6 +465,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         engine, drama_meta, style_note=style_note, novel_reference=novel_reference, locale=locale,
         glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         ollama_num_ctx_override=ollama_num_ctx_override, thinking=thinking)
+    context["check_replies"] = check_replies
     errors = []
     stop_run = []
     translated = []
