@@ -118,21 +118,25 @@ def get_series_page(principal, series_id) -> dict:
             "titles": titles}
 
 
+_NAME_UNUSABLE = "That name can't be used. Pick another name for the series."
+
+
 def rename_series(principal, series_id, name) -> dict:
     """Trimmed, at most MAX_NAME_LEN characters, no control or invisible
     characters. ConflictError when another series the caller can see has the
     same name ignoring case and width (checked in the same transaction as the
     write), or when one they can't see has exactly this name (series.name is
-    unique across the library)."""
+    unique across the library). Both get the same message, so the answer
+    doesn't tell a visible clash from another user's private series."""
     ownership_service.require_editable(principal, "series", series_id)
     name = _clean_name(name)
     try:
         result = db.rename_series(series_id, name, term_key,
                                   visible_to=ownership_service.visible_to_filter(principal))
     except sqlite3.IntegrityError:
-        raise ConflictError("That series name is taken.") from None
+        raise ConflictError(_NAME_UNUSABLE) from None
     if result["clash"] is not None:
-        raise ConflictError(f"There is already a series called “{result['clash']}”.")
+        raise ConflictError(_NAME_UNUSABLE)
     if not result["renamed"]:
         raise NotFoundError("Series not found.")
     return {"id": series_id, "name": name}
