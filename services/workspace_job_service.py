@@ -7,7 +7,6 @@ Python objects, `background_jobs` for progress/result reporting, and the
 database -- never any UI state.
 """
 
-import logging
 import os
 import time
 
@@ -17,17 +16,19 @@ import background_jobs
 import ollama_unload
 import translate_engines
 import translation_guide as tguide
+from engine_backends.run_limits import FailureStreak
 import bulk_translate
 import emotion
 import core as core_module
 import whisper_models
 from core import transcribe_for_timing
-from services.library_restore_sql import (_current_state_marker, _fsync_dir, _open_carry_conn,
-                                          _ro_uri, _schema_sql_allowed, _table_names)
-from services import (auth_service, fixflag_transcribe, fixflag_translate, job_timing_service,
-                      language_pack_service, library_restore_sql, line_provenance_service,
+from services import (fixflag_transcribe, fixflag_translate, job_timing_service,
+                      language_pack_service, line_provenance_service, paid_job_service,
                       run_settings_service, settings_service, timing_settings_service,
                       vdb_names_service)
+
+
+CONSISTENCY_BATCH_SIZE = 60
 
 
 def _id_by_idx(lines):
@@ -404,17 +405,18 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
     translation itself, and losing its result to a page refresh (session
     state doesn't survive one) meant re-running it and re-paying for it.
     """
-    emap = emotion.detect_emotions(
-        lines, engine, use_audio_cues=use_audio_cues,
-        progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice, "emotion_detect") as limits:
+        emap = emotion.detect_emotions(
+            lines, engine, use_audio_cues=use_audio_cues,
+            progress_cb=lambda frac: background_jobs.update_progress(
+                job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
-    background_jobs.set_result(job_id, {"emotions": emap})
+    background_jobs.set_result(job_id, {"emotions": emap, **paid_job_service.stop_fields(limits)})
 
 
 def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
@@ -456,14 +458,15 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
     """
     started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
     stats = {}
-    translate_engines.flag_uncertain_lines(
-        lines, engine, source_language=lang, stats=stats,
-        progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice, "flag_review") as limits:
+        translate_engines.flag_uncertain_lines(
+            lines, engine, source_language=lang, stats=stats,
+            progress_cb=lambda frac: background_jobs.update_progress(
+                job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     items = []
     for ln in lines:
@@ -479,7 +482,8 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
     saved = {r["id"]: bool(r["flag"]) for r in db.load_lines(drama_id)}
     flagged = sum(saved.get(ln.id, False) if ln.id is not None else bool(ln.flag)
                   for ln in lines)
-    background_jobs.set_result(job_id, {"flagged_count": flagged, **stats})
+    background_jobs.set_result(job_id, {"flagged_count": flagged, **stats,
+                                        **paid_job_service.stop_fields(limits)})
 
 
 def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
@@ -488,18 +492,29 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=Non
     same as Review queue and Emotion detection, is what lets it run at the same time as those instead of forcing them
     to queue up one after another.
     """
-    issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
-        lines, engine, source_language=lang,
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
+                                    "consistency_check") as limits:
+        issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
+            lines, engine, batch_size=CONSISTENCY_BATCH_SIZE, source_language=lang,
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
-    db.save_consistency_issues(drama_id, issues)
+    if limits.stop_reason:
+        # Batches never sent count as failed, and a partial result must not
+        # replace (or wipe) the issues an earlier run saved.
+        wanted = -(-sum(1 for ln in lines if ln.en.strip()) // CONSISTENCY_BATCH_SIZE)
+        # (the batch it stopped at was counted but never sent)
+        failed_batches = wanted - (total_batches - failed_batches - 1)
+        total_batches = wanted
+    if issues or not limits.stop_reason:
+        db.save_consistency_issues(drama_id, issues)
     background_jobs.set_result(job_id, {
         "issue_count": len(issues),
         "failed_batches": failed_batches,
         "total_batches": total_batches,
+        **paid_job_service.stop_fields(limits),
     })
 
 
@@ -508,16 +523,19 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
     Runs generate_translation_notes_llm in a background thread -- same
     reasoning as run_consistency_job above.
     """
-    found_notes = tguide.generate_translation_notes_llm(
-        lines, engine,
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
+                                    "translation_notes") as limits:
+        found_notes = tguide.generate_translation_notes_llm(
+            lines, engine,
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     if found_notes:
         db.save_translation_notes(drama_id, found_notes, id_by_idx=_id_by_idx(lines))
-    background_jobs.set_result(job_id, {"note_count": len(found_notes)})
+    background_jobs.set_result(job_id, {"note_count": len(found_notes),
+                                        **paid_job_service.stop_fields(limits)})
 
 
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
@@ -576,14 +594,16 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     if cancelled or hearing_error:
         flagged = [ln for ln in flagged if ln.idx in heard_by_idx]
     try:
-        outcome = fixflag_translate.fix_lines(
-            flagged, engine=engine, engine_choice=engine_choice, drama_id=drama_id,
-            base_context=base_context, character_names=character_names,
-            source_language=source_language, heard_by_idx=heard_by_idx,
-            translate=not cancelled, cost_cap_usd=cost_cap_usd, errors=errors, all_lines=lines,
-            check_cancel=lambda: None if cancelled else _raise_if_cancelled(job_id),
-            on_progress=lambda done, total: background_jobs.update_progress(
-                job_id, done / max(total, 1), f"Fixing flagged lines... {done}/{total}"))
+        with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
+                                        "fix_flagged_line") as limits:
+            outcome = fixflag_translate.fix_lines(
+                flagged, engine=engine, engine_choice=engine_choice, drama_id=drama_id,
+                base_context=base_context, character_names=character_names,
+                source_language=source_language, heard_by_idx=heard_by_idx,
+                translate=not cancelled, cost_cap_usd=cost_cap_usd, errors=errors, all_lines=lines,
+                check_cancel=lambda: None if cancelled else _raise_if_cancelled(job_id),
+                on_progress=lambda done, total: background_jobs.update_progress(
+                    job_id, done / max(total, 1), f"Fixing flagged lines... {done}/{total}"))
     finally:
         if audio_path and os.path.exists(audio_path):
             whisper_models.release_gpu_models()  # re-transcription stage done
@@ -592,455 +612,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
         raise background_jobs.JobCancelled(job_id)
     background_jobs.set_result(job_id, {
         "fixed_count": outcome["fixed"], "total_flagged": total_flagged, "errors": errors[:20],
-        "cap_reached": outcome["cap_reached"],
+        "cap_reached": outcome["cap_reached"], **paid_job_service.stop_fields(limits),
         **({"timing_skipped_count": timing_skipped} if timing_skipped else {}),
         **({"unchanged_count": outcome["unchanged"]} if outcome["unchanged"] else {}), **kept})
-
-
-# Restore-a-backup guardrails -- generous, not tight, since a
-# full library backup legitimately includes media (audio, video); they
-# exist to catch a corrupted or accidentally-huge zip failing safely
-# (before it fills the disk), not to defend against a malicious upload in
-# this single-user app.
-MAX_RESTORE_MEMBERS = 500_000
-MAX_RESTORE_MEMBER_BYTES = 50 * 1024 ** 3  # 50 GiB, any one file
-MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
-
-
-# Top-level library entries a restore never takes from an upload and
-# instead carries across from the current library: saved backups/exports,
-# saved site sign-ins, approved source profiles and the browser-extension
-# token, plus the temp folder of in-flight work. (Upload members under these names are skipped, so a planted
-# backups/exports/x.zip can never become the "latest export".)
-def restore_kept_names():
-    import page_server
-    import storage
-    from sources import store as src_store
-    return ("backups", src_store.BROWSER_PROFILES_DIRNAME, "source_profiles",
-            page_server.TOKEN_FILENAME, storage.TEMP_DIRNAME)
-
-
-# Who may sign in and what they may do: never from the upload (auth_service).
-_RESTORE_KEPT_AUTH_TABLES = auth_service.RESTORE_KEPT_TABLES
-
-# app_settings keys a restore takes from the current library, never from the
-# upload: the automatic-backup identity (auto_backup_service.IDENTITY_KEY),
-# settings and state. A backup from another library must not bring that
-# library's id (its copies in a shared folder would then look like this
-# one's and be rotated out), an older backup must not roll the copy sequence
-# back, and an uploaded file must not choose where this library's copies
-# are written.
-_RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
-                              "auto_backup.state")
-
-
-# Media folders a restore keeps from the current library when the zip has
-# none: a database-only backup still names these files.
-_RESTORE_MEDIA_DIRS = ("dramas", "voice_bank", "benchmark_cases")
-
-# SQLite side files a restore never extracts: the validated library.db /
-# sources.db image must be exactly what goes live.
-_RESTORE_SKIPPED_SIDECARS = tuple(f"{base}{ext}" for base in ("library.db", "sources.db")
-                                  for ext in ("-wal", "-shm", "-journal"))
-
-
-BAD_LIBRARY_DB = ("The backup's library.db is not a readable Baihe library "
-                   "database.")
-BAD_SOURCES_DB = "The backup's sources.db is not a readable database."
-SOURCES_DB_NOT_CARRIED = ("The current sources.db could not be copied into the restored "
-                          "library (it may be damaged); nothing was changed. To restore "
-                          "without it, move sources.db out of the library folder (tracked "
-                          "series and source settings go with it) and try again.")
-RESTORED_DB_FAILED = ("The restored library.db failed a check once in place; your previous "
-                      "library was put back unchanged.")
-RESTORE_NOT_PUT_BACK = ("The restore failed and the previous library could not be put back: it "
-                        "is in the folder ending in .pre_restore_ beside the library folder. "
-                        "Don't delete it; if a restart doesn't bring your library back, close "
-                        "Baihe and rename that folder to the library folder's name.")
-RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED, RESTORED_DB_FAILED)
-
-
-def _check_uploaded_db(db_path: str, message: str, need_table: str = None) -> None:
-    """Raises ValueError(message) unless the uploaded file is SQLite,
-    passes quick_check and every sqlite_master row is a plain table or
-    index (see _schema_sql_allowed; NULL sql only for sqlite_autoindex_*).
-
-    Why this is safe to open: read-only + immutable, trusted_schema OFF,
-    and the only statements run are PRAGMA quick_check and a SELECT on
-    sqlite_master. Loading the schema parses CREATE text but executes
-    nothing: a trigger only runs on a write (none here) and a virtual
-    table's module is only connected when that table is queried (never
-    here). A schema SQLite can't parse fails the open -> refused.
-    (Python 3.11's sqlite3 has no Connection.setconfig for
-    SQLITE_DBCONFIG_DEFENSIVE, so that option isn't used.)"""
-    import sqlite3
-    if not os.path.isfile(db_path) or os.path.islink(db_path):
-        raise ValueError(message)
-    conn = None
-    try:
-        conn = sqlite3.connect(_ro_uri(db_path) + "&immutable=1", uri=True)
-        conn.execute("PRAGMA trusted_schema = OFF")
-        conn.execute("PRAGMA ignore_check_constraints = ON")
-        rows = conn.execute("SELECT type, name, sql FROM sqlite_master").fetchall()
-        for _type, name, sql in rows:
-            if sql is None:
-                if not str(name).startswith("sqlite_autoindex_"):
-                    raise ValueError(message)
-            elif not _schema_sql_allowed(sql):
-                raise ValueError(message)
-        if [r[0] for r in conn.execute("PRAGMA quick_check").fetchall()] != ["ok"]:
-            raise ValueError(message)
-        if need_table and not any(t == "table" and n == need_table for t, n, _ in rows):
-            raise ValueError(message)
-    except sqlite3.Error:
-        raise ValueError(message) from None
-    finally:
-        if conn is not None:
-            conn.close()
-
-
-def validate_staged_library_db(db_path: str) -> None:
-    """ValueError (fixed text, no path) unless an uploaded library.db is
-    SQLite, passes quick_check, holds only plain tables/indexes and has a
-    dramas table."""
-    _check_uploaded_db(db_path, BAD_LIBRARY_DB, need_table="dramas")
-
-
-def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
-                         live_path: str = None, live_tables=(), message: str = ""):
-    """fresh_path already holds the app's own schema. Copies rows from the
-    (validated) upload for every app table except skip_tables, and rows
-    from the live database for live_tables, never taking a table
-    definition from either. Raises ValueError(message) on any SQLite
-    error."""
-    import sqlite3
-    try:
-        conn = _open_carry_conn(fresh_path)
-        try:
-            conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(upload_path) + "&immutable=1",))
-            if live_path and os.path.isfile(live_path):
-                conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_path),))
-            else:
-                live_path = None
-            conn.execute("BEGIN")
-            up_tables = set(_table_names(conn, "up"))
-            cur_tables = set(_table_names(conn, "cur")) if live_path else set()
-            for t in _table_names(conn, "main"):
-                if t in live_tables:
-                    if t in cur_tables:
-                        library_restore_sql.copy_rows(conn, "cur", t)
-                elif t not in skip_tables and t in up_tables:
-                    library_restore_sql.copy_rows(conn, "up", t)
-            conn.execute("COMMIT")
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        raise ValueError(message) from None
-
-
-def _prepare_scratch(path: str):
-    """Drops sqlite_stat* tables (query-planner statistics the app never
-    writes) from the scratch copy before anything is run on it."""
-    conn = _open_carry_conn(path)
-    try:
-        for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
-                                    "AND name LIKE 'sqlite_stat%'").fetchall():
-            conn.execute(f'DROP TABLE "{name}"')
-    finally:
-        conn.close()
-
-
-def _checkpoint(path: str):
-    conn = _open_carry_conn(path)
-    try:
-        conn.execute("PRAGMA journal_mode = DELETE")
-    finally:
-        conn.close()
-
-
-def _carry_app_settings(conn, live_path: str):
-    """Replaces the staged library's _RESTORE_KEPT_APP_SETTINGS rows with the
-    live library's (none there = none in the restored one, so a new
-    identity is made on first use)."""
-    marks = ", ".join("?" for _ in _RESTORE_KEPT_APP_SETTINGS)
-    conn.execute(f"DELETE FROM main.app_settings WHERE key IN ({marks})",
-                 _RESTORE_KEPT_APP_SETTINGS)
-    if not os.path.isfile(live_path):
-        return
-    conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_path),))
-    try:
-        if "app_settings" in _table_names(conn, "cur"):
-            conn.execute(f"INSERT INTO main.app_settings (key, value) SELECT key, value "
-                         f"FROM cur.app_settings WHERE key IN ({marks})",
-                         _RESTORE_KEPT_APP_SETTINGS)
-    finally:
-        conn.execute("DETACH DATABASE cur")
-
-
-def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
-    """Replaces the uploaded library.db / sources.db in staging with fresh
-    files built from the app's own schema (db.migrate_database_file /
-    sources.store.migrate_file) and filled with the upload's rows -- except
-    the auth tables (current rows, sessions emptied: every session is
-    revoked) and the sources settings table (current rows). An upload
-    without sources.db gets a snapshot of the live one instead, migrated
-    the same way; either sources.db must pass quick_check. Running and
-    queued job_records rows are marked cancelled and gpu_lock is cleared
-    (a backup can only hold stale ones). The uploaded files never become
-    a live schema: they are only ATTACHed read-only after
-    _check_uploaded_db."""
-    import shutil
-    import sqlite3
-    from jobs import gpu_slots
-    from sources import store as src_store
-    staged = os.path.join(staging_dir, "library.db")
-    upload = os.path.join(staging_dir, ".uploaded_library.db")
-    os.replace(staged, upload)
-    # The app's data migrations (line refs -> line ids, profiles)
-    # run on a scratch COPY of the validated upload -- safe because the
-    # allowlist leaves only plain tables/indexes; its DDL is discarded, only
-    # its rows are copied into the fresh file below.
-    scratch = os.path.join(staging_dir, ".migrated_upload.db")
-    try:
-        shutil.copyfile(upload, scratch)
-        try:
-            _prepare_scratch(scratch)
-            db.migrate_database_file(scratch)
-            _checkpoint(scratch)
-            db.migrate_database_file(staged)
-        except Exception:
-            logging.getLogger(__name__).warning("Restore: staged database migration failed",
-                                                exc_info=True)
-            raise ValueError(BAD_LIBRARY_DB) from None
-        _rebuild_from_upload(staged, scratch, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
-                             live_path=os.path.join(library_dir, "library.db"),
-                             live_tables=auth_service.RESTORE_LIVE_TABLES,
-                             message=BAD_LIBRARY_DB)
-        try:
-            conn = _open_carry_conn(staged)
-            try:
-                conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
-                             "cancel_requested = 0 WHERE status IN ('queued', 'running')",
-                             (time.time(),))
-                gpu_slots.clear(conn)
-                _carry_app_settings(conn, os.path.join(library_dir, "library.db"))
-                conn.execute("PRAGMA journal_mode = DELETE")
-            finally:
-                conn.close()
-        except sqlite3.Error:
-            raise ValueError(BAD_LIBRARY_DB) from None
-    finally:
-        for path in (upload, scratch, scratch + "-wal", scratch + "-shm"):
-            if os.path.lexists(path):
-                os.remove(path)
-
-    staged_src = os.path.join(staging_dir, "sources.db")
-    live_src = os.path.join(library_dir, "sources.db")
-    if os.path.lexists(staged_src):
-        message = BAD_SOURCES_DB
-        upload_src = os.path.join(staging_dir, ".uploaded_sources.db")
-        os.replace(staged_src, upload_src)
-        try:
-            try:
-                src_store.migrate_file(staged_src)
-            except sqlite3.Error:
-                raise ValueError(message) from None
-            _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
-                                 live_path=live_src, live_tables=("settings",), message=message)
-        finally:
-            os.remove(upload_src)
-    else:
-        # A backup without sources.db (database-only, an older backup) must
-        # not delete the tracked series and source settings: the restored
-        # library keeps the live ones.
-        message = SOURCES_DB_NOT_CARRIED
-        try:
-            if not src_store.snapshot_to(staged_src, source=live_src):
-                return
-            src_store.migrate_file(staged_src)
-        except sqlite3.Error:
-            raise ValueError(message) from None
-    _require_quick_check(staged_src, message)
-
-
-def _require_quick_check(path: str, message: str) -> None:
-    import sqlite3
-    try:
-        conn = _open_carry_conn(path)
-        try:
-            ok = [r[0] for r in conn.execute("PRAGMA quick_check").fetchall()] == ["ok"]
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        ok = False
-    if not ok:
-        raise ValueError(message)
-
-
-def _put_back(old_dir, library_dir: str, failed_dir: str = None) -> None:
-    from services.service_errors import ServiceError
-    try:
-        if failed_dir:
-            os.rename(library_dir, failed_dir)
-        if old_dir:
-            os.rename(old_dir, library_dir)
-    except OSError as e:
-        logging.getLogger(__name__).exception("Restore: the previous library was not put back")
-        raise ServiceError(RESTORE_NOT_PUT_BACK) from e
-
-
-def _remove_entry(path: str):
-    import shutil
-    if os.path.isdir(path) and not os.path.islink(path):
-        shutil.rmtree(path)
-    else:
-        os.remove(path)
-
-
-def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None) -> dict:
-    """Validate an uploaded backup zip and swap it in for
-    library_dir, without ever destroying the existing library if the
-    upload turns out to be invalid.
-
-    Order, all before library_dir is touched: size/member checks; extract
-    to a staging directory, skipping kept names and SQLite side files,
-    then deleting anything the filesystem resolves to a kept name (case,
-    trailing dots); check the uploaded library.db (and sources.db) with
-    SQLite (quick_check, only plain tables/indexes, dramas table); build
-    FRESH databases from the app's own schema and copy the upload's rows
-    into them (_build_staged_databases -- the upload never becomes a live
-    schema, and auth rows and sources settings come from the current
-    library), so an unusable upload is refused here rather than after the
-    swap; then before_swap() and a check that the live
-    auth/settings state didn't change meanwhile. Only then is library_dir
-    renamed aside and the staging directory renamed in (the original is
-    renamed back on failure). The current kept entries (backups/, browser
-    profiles, source profiles, extension token) are then moved into the
-    restored library; if one can't be moved, the previous library is left
-    beside the restored one instead of being deleted. Raises (ValueError,
-    zipfile.BadZipFile, OSError, ServiceError, ...) with nothing changed
-    if any check fails.
-
-    before_swap: optional callable run right before the rename; if it
-    raises, nothing is changed and the exception propagates.
-
-    Returns {media_kept: the zip held no media and the current media was
-    kept, previous_library_kept: it was left beside the restored one}.
-    """
-    import io
-    import shutil
-    import sqlite3
-    import tempfile
-    import zipfile
-
-    from services.service_errors import ConflictError
-
-    kept = restore_kept_names()
-    staging_dir = None
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            if "library.db" not in zf.namelist():
-                raise ValueError("This doesn't look like a Baihe library "
-                                  "backup (no library.db found inside the zip).")
-
-            infos = zf.infolist()
-            if len(infos) > MAX_RESTORE_MEMBERS:
-                raise ValueError(
-                    f"Backup zip contains {len(infos):,} files, more than the "
-                    f"{MAX_RESTORE_MEMBERS:,}-file limit -- this looks corrupted "
-                    "or unsafe to extract.")
-            total_size = 0
-            for info in infos:
-                if info.file_size > MAX_RESTORE_MEMBER_BYTES:
-                    raise ValueError(
-                        f"Backup zip contains a file ({info.filename}) that would "
-                        f"expand to {info.file_size / 1024 ** 3:.1f} GiB, more than "
-                        f"the {MAX_RESTORE_MEMBER_BYTES / 1024 ** 3:.0f} GiB "
-                        "per-file limit -- this looks corrupted or unsafe to extract.")
-                total_size += info.file_size
-                if total_size > MAX_RESTORE_TOTAL_BYTES:
-                    raise ValueError(
-                        f"Backup zip would expand to more than "
-                        f"{MAX_RESTORE_TOTAL_BYTES / 1024 ** 3:.0f} GiB total -- "
-                        "this looks corrupted or unsafe to extract.")
-
-            if zf.testzip() is not None:
-                raise ValueError("Backup zip is corrupted.")
-            parent_dir = os.path.dirname(os.path.abspath(library_dir)) or "."
-            staging_dir = tempfile.mkdtemp(prefix=".restore_staging_", dir=parent_dir)
-            zipped = set()
-            for info in infos:
-                norm = info.filename.replace("\\", "/")
-                top = norm.lstrip("/").split("/", 1)[0]
-                zipped.add(top)
-                if top in kept or norm in _RESTORE_SKIPPED_SIDECARS:
-                    continue
-                zf.extract(info, staging_dir)
-        # Whatever the filesystem maps to a kept name (./backups, BACKUPS,
-        # "extension_token.txt." on Windows) is removed from staging.
-        for name in kept + _RESTORE_SKIPPED_SIDECARS:
-            path = os.path.join(staging_dir, name)
-            if os.path.lexists(path):
-                _remove_entry(path)
-
-        validate_staged_library_db(os.path.join(staging_dir, "library.db"))
-        staged_src = os.path.join(staging_dir, "sources.db")
-        if os.path.lexists(staged_src):
-            _check_uploaded_db(staged_src, BAD_SOURCES_DB)
-        marker = _current_state_marker(library_dir)
-        _build_staged_databases(staging_dir, library_dir)
-        if before_swap is not None:
-            before_swap()
-        if _current_state_marker(library_dir) != marker:
-            raise ConflictError("Sign-in or source settings changed while the restore was "
-                                "being prepared; nothing was changed -- try again.")
-
-        # The renames can reach disk before the staged data does: a power
-        # loss after the old library is deleted must not leave empty files.
-        for name in ("library.db", "sources.db"):
-            if os.path.isfile(os.path.join(staging_dir, name)):
-                with open(os.path.join(staging_dir, name), "r+b") as fh:
-                    os.fsync(fh.fileno())
-        _fsync_dir(staging_dir)
-        # Held until the swap is done: another process's start-up check
-        # must not take the moment between the renames for a crash.
-        holder = db.hold_restore_lock(library_dir)
-        if holder is None:
-            raise ConflictError("Baihe is starting in another window; try again in a moment.")
-        try:
-            old_dir = None
-            if os.path.exists(library_dir):
-                old_dir = f"{library_dir}{db.PRE_RESTORE_MARKER}{int(time.time())}"
-                os.rename(library_dir, old_dir)
-            try:
-                os.rename(staging_dir, library_dir)
-            except Exception:
-                _put_back(old_dir, library_dir)
-                raise
-            failed_dir, staging_dir = staging_dir, None
-            _fsync_dir(parent_dir)
-            try:
-                _require_quick_check(os.path.join(library_dir, "library.db"), RESTORED_DB_FAILED)
-            except ValueError:
-                _put_back(old_dir, library_dir, failed_dir)
-                staging_dir = failed_dir
-                raise
-            library_restore_sql.flush_tree(library_dir)
-            # A backup without media must not delete the current media.
-            media = tuple(n for n in _RESTORE_MEDIA_DIRS if n not in zipped)
-            media_kept = carried = False
-            if old_dir is not None:
-                media_kept, carried = library_restore_sql.carry_across(old_dir, library_dir,
-                                                                       kept + media, media)
-                if carried:
-                    shutil.rmtree(old_dir, ignore_errors=True)
-            return {"media_kept": media_kept,
-                    "previous_library_kept": old_dir is not None and not carried}
-        finally:
-            db.release_restore_lock(holder)
-    finally:
-        if staging_dir is not None:
-            shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
@@ -1091,11 +665,16 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     # The Settings default the single-title form starts from, so a title
     # translated in bulk matches one translated alone.
     style_note = settings_service.get("default_style_note") or ""
+    if (summary_engine is not None and not monthly_cap
+            and bulk_translate._summary_engine_is_paid(summary_engine, summary_choice)):
+        summary_engine = None  # a paid summary is paid work nobody watches: it needs a cap
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}
     models = models or {}
     total = len(drama_ids) or 1
+    # A broken key or an engine that is down fails every title the same way.
+    failed_titles = FailureStreak()
     for i, did in enumerate(drama_ids):
         if background_jobs.is_cancel_requested(job_id):
             break
@@ -1138,6 +717,11 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         # that spend too.
         cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier)
         cost_cap = None
+        if cap_applies and not monthly_cap:
+            # Unattended spend needs a ceiling; the start refuses without one,
+            # so this is a cap removed since.
+            results["skipped_cap"].append(did)
+            continue
         if cap_applies and monthly_cap:
             cost_cap, refusal = translate_engines.resolve_cost_cap(
                 None, monthly_cap, db.get_month_spend())
@@ -1234,6 +818,12 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             # ends "done": only a clean run (or a fully translated drama) counts.
             results["partial"][did] = ("cost cap reached" if per_result.get("cap_reached") is not None
                                        else "batch errors")
+        # A title stopped by the cap says nothing about the engine.
+        if failed_titles.record(failed=did in results["errors"] or (
+                did in results["partial"] and results["partial"][did] == "batch errors"),
+                succeeded=did in results["translated"]):
+            results["stopped"] = f"Stopped: {failed_titles.count} titles in a row failed"
+            break
 
     results["cancelled"] = background_jobs.is_cancel_requested(job_id)
     background_jobs.update_progress(job_id, 1.0, "Done")

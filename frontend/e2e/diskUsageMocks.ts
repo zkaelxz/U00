@@ -63,9 +63,9 @@ export interface DiskUsageMock {
   setPartial(on: boolean): void
 }
 
-export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean; kept?: boolean }[]; clips?: { title: string; clips: MockClip[] }[]; clipsInUse?: number; clipsFailPost?: number } = {}): Promise<DiskUsageMock> {
+export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean; kept?: boolean }[]; clips?: { title: string; clips: MockClip[] }[]; clipsInUse?: number; clipsFailPost?: number; previousLibraryBytes?: number } = {}): Promise<DiskUsageMock> {
   const tree: Record<string, Node[]> = JSON.parse(JSON.stringify(TREE))
-  const state = { busy: null as string | null, partial: false }
+  const state = { busy: null as string | null, partial: false, previous: opts.previousLibraryBytes ?? 0 }
   const trash: TrashEntry[] = (opts.trash ?? []).map((t, i) => {
     const parent = t.path.includes('/') ? t.path.slice(0, t.path.lastIndexOf('/')) : ''
     const name = t.path.split('/').pop()!
@@ -91,6 +91,19 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
     if (opts.slow) await new Promise((r) => setTimeout(r, 1500))
     const isScan = url.pathname === '/api/data-usage' && req.method() === 'GET'
     if (opts.slowScan && isScan) await new Promise((r) => setTimeout(r, opts.slowScan))
+    if (url.pathname === '/api/data-usage/previous-library') {
+      return route.fulfill({ json: {
+        present: state.previous > 0, label: 'Previous library kept after restore', size_bytes: state.previous,
+        file_count: state.previous ? 12 : 0, folder_count: state.previous ? 1 : 0, partial: false,
+      } })
+    }
+    if (url.pathname === '/api/data-usage/previous-library/delete') {
+      const body = req.postDataJSON()
+      mock.posts.push({ path: 'previous-library-delete', body })
+      const freed = state.previous
+      state.previous = 0
+      return route.fulfill({ json: { deleted: 1, freed_bytes: freed } })
+    }
     if (url.pathname === '/api/data-usage/unused-voice-clips' && req.method() === 'GET') {
       const titles = mock.clips.filter((t) => t.clips.length).map((t) => ({
         title: t.title, size_bytes: t.clips.reduce((s, c) => s + c.size, 0),

@@ -1,6 +1,12 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { withExportLines } from './stageLineMocks'
+import { glossaryTab } from './glossaryTabs'
 import { suggestFrom } from './suggestTerms'
+
+// The Glossary section starts folded the first time; these tests need its body.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '1'))
+})
 
 // Glossary > Suggest terms bar and the empty-state card. Drama reads hit the
 // real seeded API (drama 1, reported as in series 7); terms, novel status and
@@ -49,17 +55,16 @@ async function mockLinesRun(page: Page) {
 
 const bar = (page: Page) => page.getByRole('region', { name: 'Glossary' }).locator('.suggest-bar')
 
-test('the bar sits at the top of the Glossary section with its help line', async ({ page }) => {
+test('the bar sits on the Find terms tab with its help line, the table on Terms', async ({ page }) => {
   await setup(page, { terms: [TERM] })
   await page.goto('/#/drama/1/translate')
+  await expect(page.locator('table.glossary-table')).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Suggest terms from' })).toBeHidden()
+  await glossaryTab(page, 'Find terms')
   const picker = page.getByRole('combobox', { name: 'Suggest terms from' })
   await expect(picker).toBeVisible()
   await expect(page.getByText('Uses your translation engine. You review the suggestions before anything is added.')).toBeVisible()
-  const table = page.locator('table.glossary-table')
-  await expect(table).toBeVisible()
-  const barBox = await bar(page).boundingBox()
-  const tableBox = await table.boundingBox()
-  expect(barBox!.y).toBeLessThan(tableBox!.y)
+  await expect(page.locator('table.glossary-table')).toBeHidden()
   await expect(page.getByRole('button', { name: 'Suggest more terms' })).toBeVisible()
   await expect(page.getByTestId('glossary-start')).toHaveCount(0)
 })
@@ -76,6 +81,7 @@ test('an empty glossary shows the start card with three actions', async ({ page 
   const ys = await card.getByRole('button').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))
   expect(new Set(ys).size).toBe(1)
   // The bar button reads "Suggest terms" while there is nothing yet.
+  await glossaryTab(page, 'Find terms')
   await expect(bar(page).getByRole('button', { name: 'Suggest terms', exact: true })).toBeVisible()
 })
 
@@ -84,7 +90,10 @@ test('Add a term opens the editor and Import a file opens the import fold', asyn
   await page.goto('/#/drama/1/translate')
   const card = page.getByTestId('glossary-start')
   await card.getByRole('button', { name: 'Import a file' }).click()
+  // Import lives on Find terms, so the card takes the person there.
+  await expect(page.getByRole('tab', { name: 'Find terms' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('details.glossary-import')).toHaveAttribute('open', '')
+  await glossaryTab(page, 'Terms')
   await card.getByRole('button', { name: 'Add a term' }).click()
   await expect(page.getByRole('group', { name: 'Add term' })).toBeVisible()
   await expect(page.getByTestId('glossary-start')).toHaveCount(0)
@@ -103,6 +112,7 @@ test('the bar button starts a run from the picked source', async ({ page }) => {
   await setup(page, { terms: [TERM] })
   const starts = await mockLinesRun(page)
   await page.goto('/#/drama/1/translate')
+  await glossaryTab(page, 'Find terms')
   await bar(page).getByRole('button', { name: 'Suggest more terms' }).click()
   await expect(page.getByTestId('lines-glossary-running')).toBeVisible()
   expect(starts).toEqual(['lines'])
@@ -111,6 +121,7 @@ test('the bar button starts a run from the picked source', async ({ page }) => {
 test('the dropdown offers both sources when the title has both, starting on the transcript for audio', async ({ page }) => {
   await setup(page, { terms: [TERM], novel: true })
   await page.goto('/#/drama/1/translate')
+  await glossaryTab(page, 'Find terms')
   const picker = page.getByRole('combobox', { name: 'Suggest terms from' })
   await expect(picker.locator('option')).toHaveText(['Transcript', 'Novel'])
   await expect(picker.locator('option:disabled')).toHaveCount(0)
@@ -122,16 +133,18 @@ test('the dropdown offers both sources when the title has both, starting on the 
 test('only the available source is enabled, with the reason for the other', async ({ page }) => {
   await setup(page, { terms: [TERM] })
   await page.goto('/#/drama/1/translate')
+  await glossaryTab(page, 'Find terms')
   const picker = page.getByRole('combobox', { name: 'Suggest terms from' })
   await expect(picker.locator('option', { hasText: 'Novel' })).toBeDisabled()
   await expect(page.getByTestId('suggest-reason-novel')).toContainText('Still needed: novel text')
-  await expect(page.getByTestId('suggest-reason-novel').getByRole('link', { name: 'attach it on Media' })).toHaveAttribute('href', '#/drama/1/source')
+  await expect(page.getByTestId('suggest-reason-novel').getByRole('link', { name: 'attach it on Media' })).toHaveAttribute('href', '#/drama/1/source?tab=add')
 })
 
 test('a title with only a novel starts on the novel and the card offers it', async ({ page }) => {
   await setup(page, { novel: true, lines: false })
   await page.goto('/#/drama/1/translate')
+  await expect(page.getByTestId('glossary-start').getByRole('button', { name: 'Suggest terms from the novel' })).toBeEnabled()
+  await glossaryTab(page, 'Find terms')
   await expect(page.getByRole('combobox', { name: 'Suggest terms from' })).toHaveValue('novel')
   await expect(page.getByTestId('suggest-reason-lines')).toContainText('Still needed: transcript lines')
-  await expect(page.getByTestId('glossary-start').getByRole('button', { name: 'Suggest terms from the novel' })).toBeEnabled()
 })

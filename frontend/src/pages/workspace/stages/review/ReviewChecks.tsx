@@ -195,7 +195,7 @@ function SourceChangedSection({ dramaId, data, jobRunning, onChanged }: {
   }
 
   return (
-    <Section storageKey="review.sourceChanged" title="Source changed" count={count} summary="English may not match the new source text" defaultOpen>
+    <Section storageKey="review.sourceChanged" title="Source changed" count={count} summary="English may not match the new source text">
       <div data-testid="source-changed">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {count > 0 && <p data-testid="source-changed-count">{sourceChangedText(count)}.</p>}

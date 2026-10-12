@@ -1,5 +1,5 @@
 import { test } from '@playwright/test'
-import { expectStackedLayout } from './voiceDetectorLayout'
+import { expectInputsBesideLabels, expectRowInputsAligned, expectStackedLayout, openVoiceDetector } from './voiceDetectorLayout'
 
 // Phone width: a single column, so the stacked notes are taller than on desktop but must not overflow.
 for (const state of ['not-downloaded', 'failed', 'downloaded', 'standard'] as const) {
@@ -7,3 +7,9 @@ for (const state of ['not-downloaded', 'failed', 'downloaded', 'standard'] as co
     await expectStackedLayout(page, state, 400)
   })
 }
+
+test('Transcribe options grid lines up on the phone', async ({ page }) => {
+  await openVoiceDetector(page, 'standard')
+  await expectInputsBesideLabels(page)
+  await expectRowInputsAligned(page.getByRole('region', { name: 'Advanced options' }))
+})

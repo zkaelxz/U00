@@ -80,6 +80,7 @@ test('Translate: Translate is refused plainly and starts no job', async ({ page 
 test('Translate: editing the drama (create series) is refused plainly', async ({ page }) => {
   const refused = await signInAsMember(page)
   await page.goto(`/#/drama/${DRAMA}/translate`)
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   await page.getByRole('button', { name: /^Create series/ }).click()
   await expect(refusal(page)).toBeVisible()
   expect(refused).toEqual([`POST /api/dramas/${DRAMA}/metadata`])

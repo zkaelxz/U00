@@ -3,6 +3,7 @@ tests/test_bulk_translate.py -- Step 9's bulk mode. Every provider here
 is a fake: no network, no real batch API.
 """
 import datetime
+import itertools
 import json
 import os
 import re
@@ -629,10 +630,12 @@ class TestDeepSeekOffPeak:
         lines[1].en = "Mine."
         isolated_db.save_lines(did, lines, fields=("en",))
 
-        clock = iter([peak, datetime.datetime(2026, 9, 23, 4, 0, 5)])
+        offpeak = datetime.datetime(2026, 9, 23, 4, 0, 5)
+        # The window is re-read before every batch, so the clock keeps answering.
+        clock = itertools.chain([peak], itertools.repeat(offpeak))
         engine = self._engine()
         bt.run_bulk_poller("t_ds", bulk_id, engine=engine, sleep=lambda s: None,
-                           now_fn=lambda: next(clock))
+                           now_fn=lambda: next(clock), monthly_cap_usd=50.0)
 
         rows = isolated_db.load_lines(did)
         assert [r["en"] for r in rows] == ["DS[第0句]", "Mine.", "DS[第2句]", ""]
@@ -650,7 +653,7 @@ class TestDeepSeekOffPeak:
         isolated_db.update_bulk_job(bulk_id, status="running")
         background_jobs.clear_all_jobs()
         engine = self._engine()
-        out = bt.resume_pending(did, lambda e, m: engine)
+        out = bt.resume_pending(did, lambda e, m: engine, monthly_cap_usd=50.0)
         assert out == {bulk_id: "polling"}
         _wait_for(bt.poll_job_id(bulk_id))
         assert all(r["en"].startswith("DS[") for r in isolated_db.load_lines(did))
@@ -1245,6 +1248,18 @@ class TestSpokenLanguage:
         bulk_id = _submit(isolated_db, did, engine, batch_size=10)
         assert len(isolated_db.list_bulk_job_lines(bulk_id)) == 2
 
+    def test_an_edit_made_while_submission_copies_english_lines_is_kept(self, isolated_db):
+        engine = _claude_engine()
+        did = _mixed_drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        english = next(ln for ln in lines if ln.zh == "hello there")
+        with isolated_db.get_conn() as conn:
+            conn.execute("UPDATE lines SET en = 'Hi, typed meanwhile' WHERE id = ?", (english.id,))
+        bt.submit_bulk_translation(did, lines, engine, "claude", {"drama_meta": {}},
+                                   translate_args={"style_preset": "audio_drama"}, batch_size=10)
+        rows = {r["zh"]: r for r in isolated_db.load_lines(did)}
+        assert rows["hello there"]["en"] == "Hi, typed meanwhile"
+
     def test_single_language_bulk_prompt_has_no_tag(self, isolated_db):
         engine = _claude_engine()
         did = _drama(isolated_db)
@@ -1743,7 +1758,7 @@ class TestBulkReflectMatchesLiveReflect:
         return did, drama, args
 
     def test_the_faithful_prompt_is_the_live_pass_one_prompt(self, isolated_db, monkeypatch):
-        from engine_backends import translate_pipeline
+        from engine_backends import reflect_pass
         import translation_guide
         did, drama, args = self._setup(isolated_db)
         engine = _claude_engine()
@@ -1752,7 +1767,7 @@ class TestBulkReflectMatchesLiveReflect:
         bulk_prompt = _request_text(engine)
 
         seen = []
-        monkeypatch.setattr(translate_pipeline, "call_llm_json",
+        monkeypatch.setattr(reflect_pass, "call_llm_json",
                             lambda eng, prompt, system=None, **k: seen.append(f"{system}\n\n{prompt}") or "{}")
         names = translation_guide.build_speaker_labels(
             isolated_db.list_characters_with_series_names(did), [])
@@ -1814,7 +1829,7 @@ class TestOffPeakRunFinishes:
         bulk_id = self._schedule(isolated_db, did, {"batch_size": 1})
         engine = self._engine(on_call=lambda: bt.cancel_bulk_job(bulk_id))
 
-        bt.start_poller(bulk_id, engine=engine)
+        bt.start_poller(bulk_id, engine=engine, monthly_cap_usd=50.0)
         _wait_for(bt.poll_job_id(bulk_id))
 
         assert engine.seen == [["第0句"]]
@@ -1828,7 +1843,7 @@ class TestOffPeakRunFinishes:
                                                     "style_preset": "audio_drama"})
 
         bt.run_bulk_poller("t_ds_finish", bulk_id, engine=self._engine(block="第1句"),
-                           sleep=lambda s: None, now_fn=lambda: self._saturday)
+                           sleep=lambda s: None, now_fn=lambda: self._saturday, monthly_cap_usd=50.0)
 
         rows = isolated_db.load_lines(did)
         assert rows[0]["en"] == "Xiao Ming says 第0句"

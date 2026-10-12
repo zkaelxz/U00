@@ -1,7 +1,9 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { glossaryTab } from './glossaryTabs'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
-import { openTranscribeOptions } from './sourceHelpers'
+import { mediaTab } from './mediaTabs'
+import { openAdvanced } from './sourceHelpers'
 
 // Auto-tune (Transcribe > Advanced), Glossary > Suggest terms, and the PC-only
 // stage deletes. Drama reads hit the real seeded API; the auto-tune and
@@ -27,7 +29,8 @@ async function shot(page: Page, name: string) {
 
 async function openSection(page: Page, title: string) {
   await openFoldFor(page, title)
-  if (['More options', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
+  // Auto-tune and the Advanced options folds are on the Tools tab.
+  if (title === 'Auto-tune min silence') await mediaTab(page, 'tools').click()
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
@@ -61,7 +64,6 @@ const done = (results: { candidate_ms: number; long_lines: number; total_lines: 
 test.describe('Auto-tune min silence', () => {
   test('is disabled with its reason when the title has no audio', async ({ page }) => {
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     await expect(page.getByRole('button', { name: 'Start auto-tune' })).toBeDisabled()
     await expect(page.getByTestId('autotune')).toContainText('Still needed: audio on this title.')
@@ -104,7 +106,6 @@ test.describe('Auto-tune min silence', () => {
     })
 
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     const start = page.getByRole('button', { name: 'Start auto-tune' })
     await expect(start).toBeEnabled()
@@ -127,6 +128,8 @@ test.describe('Auto-tune min silence', () => {
     await table.getByRole('button', { name: 'Use 800 ms' }).click()
     await expect(page.getByTestId('autotune')).toContainText('Min silence set to 800 ms. Transcribe again to apply.')
     expect(JSON.parse(applyBody)).toEqual({ candidate_ms: 800 })
+    // Min silence is in the Timing fold, which is closed until opened.
+    await openAdvanced(page)
     await expect(page.getByRole('spinbutton', { name: 'Min silence' })).toHaveValue('800')
   })
 
@@ -139,7 +142,6 @@ test.describe('Auto-tune min silence', () => {
       route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished auto-tune results for this title.' } } }),
     )
     await page.goto('/#/drama/1/source')
-    await openSection(page, 'More options')
     await openSection(page, 'Auto-tune min silence')
     await page.getByRole('button', { name: 'Use 800 ms' }).click()
     await expect(page.getByRole('alert').filter({ hasText: 'Run auto-tune again (results are kept only until the app restarts).' })).toBeVisible()
@@ -157,10 +159,11 @@ test.describe('Glossary from novel', () => {
   test('is disabled without a series, with a link to Details', async ({ page }) => {
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
+    await glossaryTab(page, 'Find terms')
     const bar = page.getByTestId('lines-glossary')
     await expect(bar.getByRole('button', { name: 'Suggest terms', exact: true })).toBeDisabled()
     await expect(bar.getByTestId('suggest-reason-novel')).toContainText('Still needed: a series for this title')
-    await expect(bar.getByTestId('suggest-reason-novel').getByRole('link', { name: 'set it in Details' })).toHaveAttribute('href', '#/drama/1/source')
+    await expect(bar.getByTestId('suggest-reason-novel').getByRole('link', { name: 'set it in Details' })).toHaveAttribute('href', '#/drama/1/source?tab=details')
   })
 
   test('a paid-engine 403 shows the paid copy', async ({ page }) => {
@@ -472,7 +475,7 @@ test.describe('PC-only stage deletes', () => {
 
   test('remove audio/video and raw novel on the PC', async ({ page }) => {
     await withAudio(page)
-    // The raw novel is shown and removed by NovelFilePanel (Transcribe).
+    // The raw novel is shown and removed by NovelFilePanel (Tools).
     let rawPresent = true
     await page.route('**/api/novel/dramas/1/raw-novel', (route) =>
       route.fulfill({ json: { drama_id: 1, present: rawPresent, size_bytes: rawPresent ? 9 : 0, char_count: rawPresent ? 3 : 0 } }))
@@ -493,11 +496,14 @@ test.describe('PC-only stage deletes', () => {
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
     await expect(page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })).toHaveAttribute('href', '#/drama/1/translate')
+    // The raw novel's own panel sits on the Tools tab.
+    await mediaTab(page, 'tools').click()
     const raw = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
     await raw.locator('.section-title').click()
     await raw.getByRole('button', { name: 'Remove raw novel', exact: true }).click()
     await raw.getByRole('button', { name: 'Confirm remove raw novel' }).click()
     await expect(raw.getByRole('status')).toHaveText('Removed.')
+    await mediaTab(page, 'add').click()
     await expect(page.getByRole('link', { name: /Build the glossary from this novel/ })).toHaveCount(0)
     expect(posted.map((u) => new URL(u).pathname)).toEqual([
       '/api/media/dramas/1/remove',

@@ -19,6 +19,7 @@ import re
 import json
 from core import LANGUAGE_NAMES
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
+from engine_backends.run_limits import TranslateRunStopped
 from translate_engines import PRONOUN_DEFAULT_MARKER, call_llm_json, parse_json_array
 
 
@@ -423,8 +424,11 @@ def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb
             cancel_check()
         batch = translated[start:start + batch_size]
         prompt = build_translation_notes_prompt(batch)
-        text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb,
-                             expect="json_array")
+        try:
+            text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb,
+                                 expect="json_array")
+        except TranslateRunStopped:
+            break  # the notes found so far are still returned
         notes = parse_json_array(text, 0)
         if isinstance(notes, list):
             for n in notes:
@@ -668,8 +672,11 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         text = response_cache[0](prompt) if response_cache else None
         cached = text is not None
         if not cached:
-            text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
-                                 usage_cb=usage_cb, expect="json_array")
+            try:
+                text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
+                                     usage_cb=usage_cb, expect="json_array")
+            except TranslateRunStopped:
+                break  # the terms from earlier windows are still returned
         entries = parse_json_array(text, 0)
         if (response_cache and not cached and isinstance(entries, list)
                 and any(isinstance(e, dict) and e.get("term") for e in entries)):

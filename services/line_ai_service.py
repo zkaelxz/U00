@@ -26,6 +26,7 @@ import core
 import db
 import line_tools
 import translate_engines
+from engine_backends import paid_calls
 from services import (engine_routing_service, settings_service, translate_run_service,
                       translate_service, workspace_job_service)
 from services.service_errors import (
@@ -124,9 +125,15 @@ def _line_language(drama: dict, line) -> str:
     return line.lang or drama.get("source_language") or "zh"
 
 
-def run(fn):
+def run(fn, meter=None):
+    """meter: (engine, operation, drama_id), so the call reaches the usage log,
+    failed requests included."""
     try:
-        return fn()
+        if meter is None:
+            return fn()
+        engine, operation, drama_id = meter
+        with paid_calls.logged_calls(engine, operation, drama_id=drama_id):
+            return fn()
     except ServiceError:
         raise
     except Exception as e:  # engine/network failure: never leak a key
@@ -151,7 +158,7 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
     suggestion = run(lambda: line_tools.improve_line(
         line.zh, line.en, engine, issue=issue,
         source_language=_line_language(drama, line),
-        style_guidelines=guidelines))
+        style_guidelines=guidelines), (engine, "line_improve", drama_id))
     return {"line_id": line.id, "current_en": line.en, "suggestion": suggestion,
             "changed": suggestion != line.en, "engine": name,
             "model": getattr(engine, "model", model)}
@@ -167,7 +174,7 @@ def explain_line(drama_id: int, line_id: int, engine_name: str = None, model: st
     glossary = db.list_glossary_terms(series_id) if series_id else None
     text = run(lambda: line_tools.explain_translation(
         line.zh, line.en, engine, source_language=_line_language(drama, line),
-        glossary_terms=glossary))
+        glossary_terms=glossary), (engine, "line_explain", drama_id))
     text = (text or "").strip() if isinstance(text, str) else ""
     if not text:
         raise ServiceError("The engine returned no explanation. Try again.")
@@ -205,7 +212,8 @@ def alternatives_for_line(drama_id: int, line_id: int, engine_name: str = None,
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
                                          gemini_free_tier, check_cap=True)
     rows = run(lambda: line_tools.alternative_translations(
-        line.zh, line.en, engine, source_language=_line_language(drama, line)))
+        line.zh, line.en, engine, source_language=_line_language(drama, line)),
+        (engine, "line_alternatives", drama_id))
     alts = _clean_rows(rows, ("translation", "approach", "tradeoff"),
                        MAX_ALTERNATIVES)
     if not alts:
@@ -222,7 +230,8 @@ def grammar_for_line(drama_id: int, line_id: int, engine_name: str = None,
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
                                          gemini_free_tier, need_en=False, check_cap=True)
     rows = run(lambda: line_tools.grammar_breakdown(
-        line.zh, engine, source_language=_line_language(drama, line)))
+        line.zh, engine, source_language=_line_language(drama, line)),
+        (engine, "line_grammar", drama_id))
     parts = _clean_rows(rows, ("word", "reading", "meaning", "function"),
                         MAX_GRAMMAR_PARTS)
     if not parts:

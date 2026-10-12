@@ -1,4 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
+import { glossaryTab } from './glossaryTabs'
+
+// The Glossary section starts folded the first time; these tests need its body.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '1'))
+})
 
 // Parity T03/T04/X13 on the Translate stage's Glossary panel. The seeded
 // dramas have no series, so the terms list, the import and the bulk delete
@@ -9,10 +15,10 @@ const TERMS = [
   { id: 12, term_original: '沈清疑', term_translation: 'Shen Qingyi', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] },
 ]
 
-async function openGlossary(page: Page) {
+async function openGlossary(page: Page, tab: 'Terms' | 'Find terms' = 'Find terms') {
   await page.goto('/#/drama/1/translate')
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByLabel('Project instructions')).toBeVisible()
+  await glossaryTab(page, tab)
   return glossary
 }
 
@@ -92,7 +98,7 @@ test('bulk delete sends the chosen ids in one request', async ({ page }) => {
     bodies.push(route.request().postDataJSON())
     return route.fulfill({ json: { deleted: [11], not_found: [12] } })
   })
-  const glossary = await openGlossary(page)
+  const glossary = await openGlossary(page, 'Terms')
   await glossary.getByLabel('Select all terms').check()
   await glossary.getByRole('button', { name: 'Delete selected (2)' }).click()
   await glossary.getByRole('button', { name: 'Yes, delete' }).click()

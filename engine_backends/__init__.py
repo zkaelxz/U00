@@ -22,5 +22,8 @@ translate_engines at call time.
   flag_reasons.py       flag keys and their labels
   reflect_prompts.py    the three Reflect-mode prompts
   translation_guard.py  merged/shifted/untranslated reply checks
-  translate_pipeline.py Reflect mode and the per-run translate loop
+  run_limits.py         failed-batch streak and rate-limit wait budget
+  paid_calls.py         usage rows for a paid call; stop rules for a job's AI calls
+  reflect_pass.py       Reflect mode (three passes over one batch)
+  translate_pipeline.py The per-run translate loop
 """

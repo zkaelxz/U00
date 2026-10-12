@@ -56,6 +56,7 @@ import raw_transcript
 import sensitivity_preset as presets
 import source_change
 import storage
+from engine_backends import paid_calls
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
@@ -623,7 +624,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             min_speakers=min_speakers, max_speakers=max_speakers,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             gpu_app_settings=gpu_app_settings,
-            gpu_touching=True, description=description, run_settings=run_settings)
+            gpu_touching=True, description=description, run_settings=run_settings,
+            diarize_requested=run_diarize)
     else:
         # The worker's temp files go here; removed by on_finish however the
         # run ends, since a killed worker cannot clean up after itself.
@@ -659,7 +661,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                     alignment_method=alignment_method, hf_token=hf_token,
                     diarize_audio_path=diarize_audio_path, expected_speakers=expected_speakers,
                     min_speakers=min_speakers, max_speakers=max_speakers,
-                    gpu_app_settings=gpu_app_settings),
+                    gpu_app_settings=gpu_app_settings, diarize_requested=run_diarize),
                 on_finish=functools.partial(transcribe_pipeline._remove_scratch_dir, scratch_dir,
                                             part_dir=os.path.dirname(audio_path)))
         except BaseException:
@@ -784,7 +786,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    min_speakers=None, max_speakers=None,
                                    hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
                                    min_pause_sec=segment_splitting.MIN_WORD_GAP_SECONDS,
-                                   gpu_app_settings=None):
+                                   gpu_app_settings=None, diarize_requested=False):
     """The thread-job body (start_transcribe_run uses it for hardsub_ocr):
     runs the pipeline in this thread (_transcribe_pipeline), applies the
     result to the drama's lines and optionally chain-starts diarization
@@ -825,7 +827,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         use_gpu=use_gpu, transcript_mode=transcript_mode, alignment_method=alignment_method,
         hf_token=hf_token, diarize_audio_path=diarize_audio_path,
         expected_speakers=expected_speakers, min_speakers=min_speakers,
-        max_speakers=max_speakers, gpu_app_settings=gpu_app_settings))
+        max_speakers=max_speakers, gpu_app_settings=gpu_app_settings,
+        diarize_requested=diarize_requested))
 
 
 def _apply_on_done(job_id, outcome, **apply_kwargs):
@@ -837,14 +840,37 @@ def _apply_on_done(job_id, outcome, **apply_kwargs):
 def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_size, use_gpu,
                          transcript_mode, alignment_method, hf_token, diarize_audio_path,
                          expected_speakers, min_speakers=None, max_speakers=None,
-                         gpu_app_settings=None) -> dict:
+                         gpu_app_settings=None, diarize_requested=False) -> dict:
     """Applies a _transcribe_pipeline outcome to the drama and returns the
     job's result: replaces its lines (history snapshot first), writes the
     raw transcript, marks it "aligned", chain-starts
     diarization when hf_token and diarize_audio_path are set, and records
     the run's speed. A failed outcome is returned unchanged and writes
-    nothing; so does a run whose cancel arrived before the write."""
+    nothing; so does a run whose cancel arrived before the write.
+    diarize_requested is the "Detect speakers after transcribing" switch: when it
+    is on and no detection starts, the result says why (diarize_skipped_reason)."""
+    # Logged here, not in the pipeline: a spawned worker has no redirected library, so its
+    # logger would write to the real one.
+    if outcome.get("stage_summary"):
+        import applog
+        applog.get_logger().info(f"transcription of title {drama_id}: {outcome['stage_summary']}")
+    groq_usage = outcome.pop("groq_usage", None)
+    if groq_usage:
+        try:
+            # An audio length that could not be read is logged under its own name,
+            # not as a free request.
+            unknown = not groq_usage["failed"] and not groq_usage["seconds"]
+            paid_calls.record_audio_call(
+                "groq", core_module.GROQ_DEFAULT_MODEL,
+                "transcribe_groq_length_unknown" if unknown else "transcribe_groq",
+                **groq_usage, drama_id=drama_id)
+        except Exception:
+            # A lost usage row must not fail a transcription that was paid for.
+            import applog
+            applog.get_logger().warning("Groq usage was not logged")
     if "failed_reason" in outcome:
+        if outcome["failed_reason"] == "no_lines" and diarize_requested:
+            return {**outcome, "diarize_skipped_reason": "the transcription produced no lines"}
         return outcome
     lines, segments = outcome["lines"], outcome["segments"]
     gpu_fallback_msg = outcome["gpu_fallback_msgs"]
@@ -862,6 +888,10 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     if not lines and existing_lines_before:
         return {"failed_reason": "empty_kept_existing",
                 "existing_line_count": len(existing_lines_before)}
+    if not lines:
+        return {"failed_reason": "no_lines", "stage_summary": outcome.get("stage_summary", ""),
+                **({"diarize_skipped_reason": "the transcription produced no lines"}
+                   if diarize_requested else {})}
 
     background_jobs.cancel_line_jobs(drama_id)
     if existing_lines_before:
@@ -882,7 +912,14 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     timing_check_service.after_run(drama_id, outcome)
 
     diarize_started = False
-    if hf_token and diarize_audio_path:
+    diarize_skipped_reason = None
+    if diarize_requested and not hf_token:
+        diarize_skipped_reason = "no Hugging Face token"
+    elif diarize_requested and not diarize_audio_path:
+        diarize_skipped_reason = "no audio file for this title"
+    elif diarize_requested and not diagnostics.check_dependency("pyannote.audio"):
+        diarize_skipped_reason = "pyannote.audio is not installed"
+    elif hf_token and diarize_audio_path:
         import diarize as diarize_module
         try:
             diarize_started = background_jobs.start_process_job(
@@ -939,6 +976,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
         "coverage_warning": outcome["coverage_warning"],
         "ollama_notice": outcome.get("ollama_notice"),
         "diarize_started": diarize_started,
+        "diarize_skipped_reason": diarize_skipped_reason,
     }
 
 

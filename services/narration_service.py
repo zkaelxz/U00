@@ -28,7 +28,8 @@ import db
 import dub_narration
 import translate_engines
 from core import Line
-from services import job_checkpoint_service, job_timing_service, settings_service
+from engine_backends.run_limits import TranslateRunStopped
+from services import job_checkpoint_service, job_timing_service, paid_job_service, settings_service
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -178,13 +179,19 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         background_jobs.update_progress(
             job_id, 0.2, f"Resuming: {len(done)} of {len(lines)} chunks already tagged...")
 
-    by_idx = translate_engines.tag_speakers_by_id(
-        {ln.idx: ln.zh for ln in lines}, engine, known,
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        done=done, on_batch=_checkpoint,
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    try:
+        with paid_job_service.job_calls(job_id, drama_id, engine, engine_name, "tag_speakers"):
+            by_idx = translate_engines.tag_speakers_by_id(
+                {ln.idx: ln.zh for ln in lines}, engine, known,
+                usage_cb=lambda inp, out: db.log_usage(
+                    drama_id, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
+                    inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+                done=done, on_batch=_checkpoint,
+                cancel_check=lambda: _raise_if_cancelled(job_id))
+    except TranslateRunStopped as stop:
+        # Half-tagged chunks must not be saved as Narrator; the checkpoint
+        # keeps the finished batches for the next run.
+        raise RuntimeError(f"{str(stop).rstrip('.')}. Chunks already tagged are kept; run it again to continue.") from None
     _raise_if_cancelled(job_id)
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"

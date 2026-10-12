@@ -182,7 +182,7 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
       )}
       <span className="muted">
         Re-transcribe with Whisper large-v3-turbo for word timings:{' '}
-        <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>open Media</a>
+        <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source', tab: 'transcribe' })}>open Media → Transcribe</a>
       </span>
     </div>
   )

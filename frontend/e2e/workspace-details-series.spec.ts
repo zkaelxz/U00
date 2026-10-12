@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openGroup } from './source-groups'
+import { openCreditsTab, openDetailsTab } from './source-groups'
 
 // Parity P10 (the rest of Edit details), P11 ("+ New series…") and X09 (the
 // series picker in the glossary box). The drama read is the real seeded
@@ -44,12 +44,15 @@ test('Edit details shows and saves genre, status, counts, source URL and episode
     source_url: 'https://example.com/d/2', episode_summary: 'Before.',
   })
   await page.goto('/#/drama/2/source')
-  await openGroup(page, 'Details and credits')
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
-  await expect(page.getByLabel('Genre', { exact: true })).toHaveValue('xianxia')
+  await openDetailsTab(page)
+  await page.locator('.section-title', { hasText: 'More details' }).click()
   await expect(page.getByLabel('Chapter count', { exact: true })).toHaveValue('120')
   await expect(page.getByLabel('Source URL', { exact: true })).toHaveValue('https://example.com/d/2')
+  // Genre is on Credits; one draft covers both tabs, so the single Save below sends it too.
+  await openCreditsTab(page)
+  await expect(page.getByLabel('Genre', { exact: true })).toHaveValue('xianxia')
   await page.getByLabel('Genre', { exact: true }).fill('romance')
+  await openDetailsTab(page)
   await page.getByLabel('Publication status', { exact: true }).selectOption('completed')
   await page.getByLabel('Chapter count', { exact: true }).fill('')
   await page.getByLabel('Episode number', { exact: true }).fill('3')
@@ -76,8 +79,7 @@ test('Edit details shows and saves genre, status, counts, source URL and episode
 test('Edit details "+ New series…" sends the name and then shows the new series', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: null })
   await page.goto('/#/drama/2/source')
-  await openGroup(page, 'Details and credits')
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
+  await openDetailsTab(page)
   const series = page.getByLabel('Series', { exact: true })
   await series.selectOption('new')
   await page.getByRole('button', { name: 'Save details' }).click()
@@ -93,6 +95,7 @@ test('Edit details "+ New series…" sends the name and then shows the new serie
 test('the glossary box explains a title without a series and creates one in one tap', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: null })
   await page.goto('/#/drama/2/translate')
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const box = page.getByTestId('series-assign')
   await expect(box).toContainText("isn't in a series, so it can't hold glossary terms")
   await expect(page.getByRole('button', { name: 'Add term' })).toBeDisabled()
@@ -105,6 +108,7 @@ test('the glossary box explains a title without a series and creates one in one 
 test('the glossary box can move the title to another series', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: 41 })
   await page.goto('/#/drama/2/translate')
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const box = page.getByTestId('series-assign')
   await expect(box.getByLabel('Series', { exact: true })).toHaveValue('41')
   await box.getByLabel('Series', { exact: true }).selectOption('7')

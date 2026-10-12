@@ -4,12 +4,12 @@ summary, the last run's pacing, the Generate job and the finished-track
 download. All logic lives in services/dub_service.py.
 """
 
-from fastapi import APIRouter, Path
-from api.auth import require_permission
+from fastapi import APIRouter, Path, Request
+from api.auth import is_at_pc, require_permission
 from fastapi.responses import FileResponse
 
 from api.schemas import DubConfig, DubPacing, DubRunRequest, DubRunStarted, ErrorResponse
-from services import dub_service, export_service
+from services import dub_service, export_service, model_readiness_service
 
 router = APIRouter(prefix="/api/dub", tags=["dub"])
 
@@ -32,7 +32,10 @@ def get_dub_pacing(drama_id: int = Path(ge=1)):
              summary="Start the dub/narration track job (poll GET /api/jobs/{job_id})",
              responses={404: {"model": ErrorResponse},
                         409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
-def start_dub_run(body: DubRunRequest, drama_id: int = Path(ge=1)):
+def start_dub_run(body: DubRunRequest, request: Request, drama_id: int = Path(ge=1)):
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_dub, drama_id,
+        keep_background=body.keep_background, tts_engine=body.tts_engine)
     return dub_service.start_dub_run(
         drama_id, tts_engine=body.tts_engine, max_speedup=body.max_speedup,
         max_slowdown=body.max_slowdown, narration_language=body.narration_language,

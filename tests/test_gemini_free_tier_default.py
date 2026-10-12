@@ -164,7 +164,7 @@ def test_line_ai_defaults_to_setting(_env, monkeypatch):
     lid = db.load_lines(did)[0]["id"]
     with pytest.raises(UnsupportedOperationError):
         line_ai_service.explain_line(did, lid, "gemini", PRO)
-    monkeypatch.setattr(line_ai_service, "run", lambda fn: "x")
+    monkeypatch.setattr(line_ai_service, "run", lambda fn, meter=None: "x")
     line_ai_service.explain_line(did, lid, "gemini")
     line_ai_service.improve_line(did, lid, "gemini", gemini_free_tier=False)
     assert [kw["free_tier"] for kw in _env] == [True, False]
@@ -183,7 +183,8 @@ def test_api_translate_setting_and_no_client_url(_env, monkeypatch):
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda k, *a, **kw: "http://127.0.0.1:11434" if k == "ollama_url"
                         else real(k, *a, **kw))
-    monkeypatch.setattr(translate_engines, "standalone_translate", lambda *a, **kw: "out")
+    monkeypatch.setattr(translate_engines, "standalone_translate_partial",
+                        lambda *a, **kw: ("out", None))
     c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     body = {"text": "你好", "engine": "gemini", "source_language": "zh", "target_language": "en"}
     assert c.post("/api/translate", json=body).status_code == 200

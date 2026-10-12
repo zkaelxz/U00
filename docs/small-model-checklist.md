@@ -56,6 +56,49 @@ hundred bytes (the lean command in `docs/testing-and-ci.md`). `-GpuProfile 32gb`
 `instructions` keys were checked against opencode.ai/docs/permissions and /docs/config on 2026-10-11 (last matching
 rule wins, so `*` comes first); not run against a live OpenCode.
 
+## Local model on a 32 GB V100 (Ollama + OpenCode)
+
+Picks: `qwen3.6:35b` (Qwen3.6-35B-A3B, about 23-24 GB, 256K native context, thinking on by default) and, as the
+fallback, `qwen3-coder:30b` (Qwen3-Coder 30B-A3B, 19 GB). The V100 has fp16 but no bf16.
+
+Evidence quality: chosen from model cards and Ollama pages. Speed on a V100 under Ollama is not measured, the
+Qwen3.5/3.6 think-off plus structured-output bug is still open (below), and nothing here was run on Windows.
+
+Ollama environment (PowerShell: `$env:NAME=value`, then `ollama serve`):
+```
+OLLAMA_CONTEXT_LENGTH=65536
+OLLAMA_FLASH_ATTENTION=1
+OLLAMA_KV_CACHE_TYPE=q8_0
+OLLAMA_MAX_LOADED_MODELS=1
+OLLAMA_KEEP_ALIVE=2m
+```
+`opencode.json` in the dev clone (the model id equals the Ollama tag; for the fallback set
+`"model": "ollama/qwen3-coder:30b"`):
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ollama/qwen3.6:35b",
+  "provider": { "ollama": {
+    "npm": "@ai-sdk/openai-compatible", "name": "Ollama (local)",
+    "options": { "baseURL": "http://localhost:11434/v1" },
+    "models": {
+      "qwen3.6:35b": { "name": "Qwen3.6 35B-A3B", "limit": { "context": 65536, "output": 8192 } },
+      "qwen3-coder:30b": { "name": "Qwen3-Coder 30B-A3B", "limit": { "context": 65536, "output": 8192 } }
+    }
+  } }
+}
+```
+Turning thinking off for Qwen3.6 (`/no_think` is not supported):
+- llama-server: `--reasoning off` (what `tools/start-local-coder.ps1` passes), or per request
+  `chat_template_kwargs: {"enable_thinking": false}`.
+- Native Ollama API: `"think": false` in the request. The OpenAI-compatible `/v1` endpoint OpenCode uses has no such field.
+- Known open Ollama bug for Qwen3.5/3.6: the JSON `format` is ignored when thinking is off (ollama#14645). Prefer
+  llama-server for these models; `qwen3-coder:30b` has no thinking mode, so it is not affected.
+
+GPU rule: the coder, Whisper and a translation model do not fit in 32 GB together. `OLLAMA_MAX_LOADED_MODELS=1` and
+`OLLAMA_KEEP_ALIVE=2m` unload the coder when idle; run `ollama stop <tag>` (and stop llama-server) before a
+transcription or translation job, and load the coder again afterwards.
+
 ## Task brief (paste into a local-model session)
 Objective: <one line: symptom, or what moves where>
 Allowed files: <paths; anything else means stop and ask>

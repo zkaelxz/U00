@@ -83,3 +83,14 @@ test('the first card of a tab is open the first time, the rest are closed, and a
   await openTab(page, 'Restructure')
   await expect(card('Structure')).not.toHaveAttribute('open', '')
 })
+
+test('no tab shows more than its first card open by default', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/#/drama/3/review')
+  await expect(tablist(page)).toBeVisible()
+  for (const name of TABS) {
+    await openTab(page, name)
+    const open = page.locator('.review-toolbox-panel:not([hidden]) details.section[open]:not(details.section details.section)')
+    expect(await open.count(), `${name}: open cards`).toBeLessThanOrEqual(1)
+  }
+})

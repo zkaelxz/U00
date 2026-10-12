@@ -110,7 +110,7 @@ test('a timing-uncertain line offers Snap to speech, Check timing and the Whispe
   const actions = row.getByTestId('timing-uncertain-actions')
   await expect(actions).toBeVisible()
   await expect(actions).toContainText('Re-transcribe with Whisper large-v3-turbo for word timings')
-  await expect(actions.getByRole('link', { name: 'open Media' })).toHaveAttribute('href', '#/drama/3/source')
+  await expect(actions.getByRole('link', { name: 'open Media → Transcribe' })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
   await actions.getByRole('button', { name: 'Check timing' }).click()
   await expect.poll(() => runs).toBe(1)
 })

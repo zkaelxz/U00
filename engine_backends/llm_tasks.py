@@ -13,6 +13,7 @@ from .gemini import GeminiEngine
 from .local import (OllamaEngine, _ollama_chat, abort_check_var, ollama_max_request_seconds,
                     ollama_task_reply)
 from .openai_compat import OpenAIEngine
+from .paid_calls import TranslateRunStopped, current_limits
 from .shared import (
     _backoff_wait_var,
     _cancel_check_var,
@@ -108,14 +109,14 @@ def bounded_llm_calls(job_id: str, cancel_check, on_wait=None,
 
 @contextlib.contextmanager
 def bounded_job_calls(job_id: str, cancel_check, deadline: float = None,
-                      lenient_empty: bool = False):
+                      lenient_empty: bool = False, on_wait=None, no_thinking: bool = False):
     """bounded_llm_calls for a thread job that ends "cancelled": a cancel
     inside a call or its retry wait raises TranslationCancelled, which
     background_jobs would record as an error."""
     import background_jobs
     try:
-        with bounded_llm_calls(job_id, cancel_check, deadline=deadline,
-                               lenient_empty=lenient_empty):
+        with bounded_llm_calls(job_id, cancel_check, on_wait=on_wait, deadline=deadline,
+                               no_thinking=no_thinking, lenient_empty=lenient_empty):
             yield
     except TranslationCancelled:
         raise background_jobs.JobCancelled(job_id) from None
@@ -127,6 +128,9 @@ _BATCH_REQUESTS = 2
 
 
 def _request_timeout_for(engine) -> float:
+    # A usage-metering wrapper hides the engine's class, and a slow Ollama
+    # model would otherwise get the short SDK timeout.
+    engine = getattr(engine, "unwrapped_engine", engine)
     if isinstance(engine, OllamaEngine):
         return ollama_max_request_seconds(engine.model)
     return SDK_REQUEST_TIMEOUT
@@ -277,6 +281,14 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None,
     return box["value"]
 
 
+def _limited(run, usage_cb, logs: bool = True):
+    """Runs a request under the job's CallLimits; a worker's is counted outside."""
+    limits = current_limits()
+    if limits is None or _in_worker_var.get():
+        return run(usage_cb)
+    return limits.call(run, usage_cb, logs=logs)
+
+
 def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "[]",
                    usage_cb=None, system: str = None, expect: str = "json_object",
                    translation_of: str = None) -> str:
@@ -316,9 +328,12 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     Always has a total deadline; inside bounded_llm_calls it can also be
     cancelled and reports retries.
     """
-    return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system,
-                                           expect, translation_of),
-                    engine)
+    def run(callback, on_late_result=None):
+        return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, callback, system,
+                                               expect, translation_of),
+                        engine, on_late_result=on_late_result)
+
+    return _limited(run, usage_cb)
 
 
 def _bounded(fn, engine, deadline: float = None, on_late_result=None):
@@ -350,7 +365,10 @@ def call_batch_bounded(engine, fn, on_late_result=None):
     batch deadline, so a hung engine ends the call and Cancel is noticed within
     a moment instead of after the SDK's own timeouts. on_late_result() runs once
     if fn returns after the call was abandoned (see _run_bounded)."""
-    return _bounded(fn, engine, batch_deadline_for(engine), on_late_result)
+    def run(_callback, late_result=None):
+        return _bounded(fn, engine, batch_deadline_for(engine), late_result or on_late_result)
+
+    return _limited(run, None, logs=False)
 
 
 def _is_deepseek(engine) -> bool:
@@ -648,6 +666,8 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
             if text is None:
                 failed_batches += 1
                 continue
+        except TranslateRunStopped:
+            break
         except Exception as e:
             failed_batches += 1  # a check failing shouldn't block anything -- just skip that batch
             import applog
@@ -792,6 +812,8 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]",
                                   usage_cb=usage_cb, expect="json_array")
+        except TranslateRunStopped:
+            break
         except Exception:
             text = "[]"  # a check failing shouldn't block anything -- just skip that batch
             failed_batches += 1

@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test'
-import { openAdvanced } from './minPauseHelpers'
+import { openAdvanced } from './sourceHelpers'
 
 // Picks "More sensitive" in Transcribe > Advanced and saves; the config route
 // is mocked so the shared seeded library is not changed. Returns the body the

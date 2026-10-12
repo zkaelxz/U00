@@ -1,7 +1,8 @@
 import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
-import { openTranscribeOptions, enableDeveloperMode } from './sourceHelpers'
+import { mediaTab } from './mediaTabs'
+import { openTranscribeOptions, openAdvanced, enableDeveloperMode, transcribeCard } from './sourceHelpers'
 
 // Offline paths only: the run/job endpoints are mocked, so nothing is
 // transcribed. Reads and the upload pre-check hit the real seeded API.
@@ -27,15 +28,6 @@ async function mockRun(page: Page, dramaId: number) {
     await route.fulfill({ json: { job_id: 'fake-job', cancel_requested: true, status: 'cancelled' } })
   })
   return { bodies }
-}
-
-// Advanced options are collapsed by default (and remembered once opened).
-async function openAdvanced(page: Page) {
-  await openTranscribeOptions(page)
-  const details = page.locator('.section-title', { hasText: /^More options$/ }).locator('xpath=ancestor::details[1]')
-  await expect(details).toBeVisible()
-  if ((await details.getAttribute('open')) === null) await details.locator(':scope > summary').click()
-  await expect(details).toHaveAttribute('open', '')
 }
 
 test('opens the workspace from the library and navigates stages', async ({ page }) => {
@@ -183,11 +175,11 @@ test('upload-and-transcribe over a video drops the stale video badge while the r
   await page.goto('/#/drama/1/source')
   await expect(page.getByTestId('media-status')).toContainText('Source video attached')
   await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  await page.getByLabel(/Replace the current audio\/video/).check()
   // The transcript box only exists once the saved mode has loaded; count() below does not wait.
   await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
-  await page.getByLabel(/Replace the current audio\/video/).check()
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(page.getByTestId('media-status')).toContainText('No source video')
@@ -225,15 +217,18 @@ test('upload-and-transcribe waits for the replace box, also after the server ask
   if (await transcript.count()) await transcript.fill('line one')
   await transcribe.click()
 
-  const box = page.getByLabel(/Replace the current audio\/video/)
-  await expect(box).toBeVisible()
   // The staged file is not part of a run until Replace is ticked, so Transcribe is not held back for it.
   await expect(transcribe).toBeEnabled()
   await expect(page.getByTestId('transcribe-staged-unused')).toContainText('Replace the current audio/video')
+  // The box is on Add media, one tap from the note.
+  await page.getByTestId('transcribe-staged-unused').getByRole('button', { name: 'Open Add media' }).click()
+  const box = page.getByLabel(/Replace the current audio\/video/)
+  await expect(box).toBeVisible()
   await expect(page.getByTestId('kept-media')).toContainText('2 files, 3.5 MB')
   await expect(page.getByTestId('kept-media')).toContainText('Storage')
 
   await box.check()
+  await openTranscribeOptions(page)
   await expect(transcribe).toBeEnabled()
   await transcribe.click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
@@ -259,20 +254,22 @@ test('after upload-and-transcribe the next run transcribes the stored audio inst
   await page.goto('/#/drama/1/source')
   await expect(page.getByTestId('media-status')).toContainText('Audio attached')
   await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  const box = page.getByLabel(/Replace the current audio\/video/)
+  await box.check()
   // The transcript box only exists once the saved mode has loaded; count() below does not wait.
   await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
-  const box = page.getByLabel(/Replace the current audio\/video/)
-  await box.check()
   const transcribe = page.getByRole('button', { name: 'Transcribe', exact: true })
   await transcribe.click()
   await expect(page.getByTestId('job-status')).toContainText('Done')
   expect(uploads).toEqual(['true'])
 
   // The picked file and the replace tick are spent: the next run uses the stored audio.
+  await mediaTab(page, 'add').click()
   await expect(box).not.toBeChecked()
   await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeDisabled()
+  await openTranscribeOptions(page)
   await expect(transcribe).toBeEnabled()
   await transcribe.click()
   await expect.poll(() => runs.length).toBe(1)
@@ -283,12 +280,13 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await enableDeveloperMode(page)
   const run = await mockRun(page, 1)
   await page.goto('/#/drama/1/source')
-  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  await openTranscribeOptions(page)
   // The config form (and the Transcript text box, which depends on it) renders only once the config has loaded.
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Extra names to expect', { exact: true }).fill('names: Wei')
   await page.getByLabel('Expected speakers', { exact: true }).fill('2')
+  await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
 
@@ -313,12 +311,15 @@ test('an out-of-range option is caught before saving and a server 409 shows a ba
   await page.getByRole('button', { name: 'Save options' }).click()
   await expect(page.getByRole('alert')).toContainText('Beam size')
   // Running with the bad value is caught too, and nothing is sent.
+  await openTranscribeOptions(page)
   const draft = page.getByLabel('Transcript text', { exact: true })
   if (await draft.count()) await draft.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Beam size')
+  await openAdvanced(page)
   await page.getByLabel('Beam size', { exact: true }).fill('5')
 
+  await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
@@ -333,14 +334,16 @@ test('switching titles does not leak stage state', async ({ page }) => {
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Extra names to expect', { exact: true }).fill('leaky prompt')
+  await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByTestId('job-panel')).toBeVisible()
   const firstTitle = await page.getByTestId('drama-title').innerText()
 
-  await page.goto('/#/drama/2/source')
+  await page.goto('/#/drama/3/source')
   await expect(page.getByTestId('drama-title')).not.toHaveText(firstTitle)
+  await openAdvanced(page)
   await expect(page.getByLabel('Extra names to expect', { exact: true })).toHaveValue('')
   await expect(page.getByTestId('job-panel')).toHaveCount(0)
 })
@@ -348,13 +351,12 @@ test('switching titles does not leak stage state', async ({ page }) => {
 test('source options offer turbo with a Korean/Chinese note, the Taiwan script label and a GPU note', async ({ page }) => {
   await enableDeveloperMode(page)
   await page.goto('/#/drama/1/source')
-  await openAdvanced(page)
-  await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
+  await openTranscribeOptions(page)
   const size = page.getByLabel('Whisper model', { exact: true })
   await expect(size.locator('option[value="large-v3-turbo"]')).toHaveCount(1)
   await expect(size.locator('option[value="large-v3-turbo"]')).toHaveText('large-v3-turbo (default)')
   // The Edit details panel has its own "Source language" select; scope to Transcribe.
-  const language = page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language', { exact: true })
+  const language = transcribeCard(page).getByLabel('Source language', { exact: true })
   await size.selectOption('large-v3-turbo')
   await language.selectOption('ko')
   await expect(page.getByRole('note').filter({ hasText: 'half a point' })).toContainText('about twice as slow')
@@ -380,6 +382,7 @@ test('form state and the running job survive a stage-tab switch', async ({ page 
   await expect(page.getByLabel('Extra names to expect', { exact: true })).toHaveValue('keep me')
   await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(page.getByTestId('job-percent')).toHaveText('40%')
+  await openTranscribeOptions(page)
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeDisabled()
   await expect(page.getByText(/already running/)).toBeVisible()
 })
@@ -395,6 +398,7 @@ test('a second run with the same job id shows the new run, not the stale done', 
   await page.goto('/#/drama/1/source')
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
+  await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
@@ -417,15 +421,16 @@ test('the primary action is Transcribe, options are collapsed and changed option
     return route.fulfill({ json: { ...current, ...body } })
   })
   await page.goto('/#/drama/1/source')
-  const region = page.getByRole('region', { name: 'Transcribe' })
+  await openTranscribeOptions(page)
+  const region = transcribeCard(page)
   await expect(region.locator('button.primary')).toHaveText('Transcribe')
   await expect(page.getByTestId('settings-summary')).toContainText('Chinese')
-  // Collapsed: the tuning fields are not visible until Advanced is opened.
+  // On Tools, not here: the tuning fields are not visible on the Transcribe tab.
   await expect(page.getByLabel('Beam size', { exact: true })).toBeHidden()
-  await openTranscribeOptions(page)
-  await expect(region.locator('details.section > summary').filter({ hasText: 'More options' }).first()).toContainText(/defaults/i)
   await openAdvanced(page)
+  await expect(page.getByTestId('advanced-summary')).toContainText(/defaults/i)
   await page.getByLabel('Beam size', { exact: true }).fill('7')
+  await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
 

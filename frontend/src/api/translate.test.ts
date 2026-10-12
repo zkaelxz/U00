@@ -90,6 +90,23 @@ describe('translate api', () => {
     expect(out).toBe('yo')
     expect(calls[0].init?.method).toBe('POST')
   })
+  it('keeps the stop message of a run the monthly cap ended early', async () => {
+    const out = await translateApi.translateWithNotice(
+      { text: 'hi', engine: 'claude', source_language: 'zh', target_language: 'en' },
+      fakeFetch(200, { translated_text: 'part', message: 'Stopped at chunk 9 of 10: the next chunk would pass your monthly cap.' }),
+    )
+    expect(out.translated_text).toBe('part')
+    expect(out.message).toMatch(/Stopped at chunk 9 of 10/)
+  })
+  it('asks for the price without translating', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const est = await translateApi.estimate(
+      { text: 'hi', engine: 'claude', source_language: 'zh', target_language: 'en' },
+      fakeFetch(200, { estimated_usd: 0.4, cap_applies: true, monthly_cap_usd: 5, cap_left_usd: 4, fits_cap: true }, calls),
+    )
+    expect(est.cap_left_usd).toBe(4)
+    expect(calls[0].url).toBe('/api/translate/estimate')
+  })
   it('clears history as a confirmed PC-only DELETE', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     expect(await translateApi.clearHistory(fakeFetch(200, { cleared: true }, calls))).toEqual({ cleared: true })

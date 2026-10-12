@@ -1,17 +1,17 @@
-"""Reflect mode and the per-run translate loop."""
+"""The per-run translate loop."""
 
 import inspect
 import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard
 from .fallback import FallbackEngine
-from .llm_tasks import (bounded_llm_calls, call_batch_bounded, call_llm_json,
+from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
+from .local import scrub_error_text
 from .pricing import estimate_cost_for_engine
-from .prompts import (MALE_PRONOUN_WORD, batch_context_for, build_stable_prompt, is_male_speaker_label,
-                      known_male_names, pronoun_batch_note, pronoun_default_active,
-                      pronoun_neutral_texts)
-from .reflect_prompts import (build_reflect_expressive_task, build_reflect_faithful_task,
-                              build_reflect_reflection_task)
+from .run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
+from .prompts import (MALE_PRONOUN_WORD, is_male_speaker_label, known_male_names,
+                      pronoun_default_active, pronoun_neutral_texts)
+from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
 from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
 from .translation_guard import allowed_source_runs, flag_unusable_replies, guard_batch
@@ -19,157 +19,14 @@ from .shared import (
     ContentModerationBlocked,
     _backoff_wait_var,
     _cancel_check_var,
-    _id_keyed_batch_request,
     call_with_backoff,
     is_english_line,
-    spoken_language_tag,
     tagged_line_languages,
     redact_secrets,
     TranslationCancelled,
     stops_translate_run,
 )
 import source_change
-
-
-REFLECT_PASSES = ("draft", "critique", "rewrite")
-
-
-def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1,
-                            pass_cb=None, passes: int = len(REFLECT_PASSES)):
-    """
-    "High quality" Reflect mode: three separate LLM passes for
-    one batch, instead of translate_batch's single call --
-
-      1. Faithfulness: a literal translation preserving exact meaning,
-         not yet polished for how it reads.
-      2. Reflection: the same engine critiques that SPECIFIC draft --
-         where it's technically correct but reads unnaturally, plus
-         accuracy, pronouns/gender, glossary use, tone and register.
-      3. Expressiveness: rewrites using the reflection, now optimizing
-         for how it reads as a subtitle.
-
-    Deliberately three real passes, not VideoLingo's two-call version
-    (their reflection is folded invisibly into the rewrite prompt) --
-    giving the critique its own pass means it can be stored and shown
-    (as translation notes), not just silently baked into a rewrite.
-
-    Goes through call_llm_json, not each engine's own translate_batch:
-    call_llm_json already dispatches Claude/DeepSeek/Gemini/Ollama
-    uniformly for a single free-form prompt, which is exactly what three
-    differently-worded passes need -- translate_batch is fixed to one
-    particular (already-natural-reading) prompt shape and isn't reusable
-    for this. Every pass is id-keyed via _id_keyed_batch_request, the
-    same exact-id matching translate_batch uses -- deliberately
-    not VideoLingo's own SequenceMatcher fuzzy-similarity matching, which
-    is strictly less robust than an exact id.
-
-    context: same shape translate_batch's engines already take
-    (style_note, drama_meta, novel_reference, locale, glossary_terms,
-    style_guidelines, recent_context, upcoming_lines, speaker_labels,
-    line_ids) -- built once by translate_lines_with_engine either way.
-
-    Returns (translations, critiques): both lists parallel to zh_lines.
-    translations is the expressiveness pass's final wording, falling
-    back to the faithfulness draft for any line expressiveness never
-    returned, then "" if even that never came back. critiques is the
-    reflection pass's critique for that line, or "" if it had none (a
-    draft judged already good) or the pass never returned one.
-
-    pass_cb: optional callable (pass_no, name) invoked as each pass is
-    about to start (pass_no 1-3, name from REFLECT_PASSES), so a caller can
-    show which of the three slow calls is running.
-
-    passes: 3 (default) runs all of the above; 1 stops after the faithfulness
-    draft and returns it as the translation with no critiques. Internal: no
-    setting selects it.
-
-    The stable instructions go in a system block (cached on Claude), so the
-    three passes and every later batch re-read them from the cache.
-    usage_cb must therefore accept (input, output, cache_read, cache_write).
-    """
-    if passes not in (1, len(REFLECT_PASSES)):
-        raise ValueError("Reflect runs 1 pass (draft only) or all 3")
-    if not getattr(engine, "supports_reference", False):
-        raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run Reflect "
-                           "mode (needs an LLM engine, not a translation-only one).")
-
-    ids = list(range(1, len(zh_lines) + 1))
-    line_ids = context.get("line_ids")
-    if (line_ids is not None and len(line_ids) == len(zh_lines)
-            and all(isinstance(i, int) for i in line_ids) and len(set(line_ids)) == len(line_ids)):
-        ids = list(line_ids)
-    pos = {i: p for p, i in enumerate(ids)}
-    speaker_names = context.get("speaker_labels")
-    line_languages = context.get("line_languages")
-    if line_languages and len(line_languages) == len(zh_lines):
-        # Tagged here so all three passes show the model each source's language.
-        zh_lines = [spoken_language_tag(lang) + zh for lang, zh in zip(line_languages, zh_lines)]
-
-    # build_llm_instructions() alone never actually inserts the
-    # reference novel text anywhere -- only build_stable_prompt()'s own
-    # novel_block does that (the normal, non-Reflect path already goes
-    # through it). Calling build_llm_instructions() directly here meant
-    # Reflect mode's own instructions told the model to consult "the
-    # reference novel translation below," but nothing was ever below it.
-    instructions, novel_block = build_stable_prompt(context)
-    if novel_block:
-        instructions = instructions + "\n\n" + novel_block
-    batch_ctx = batch_context_for(context)
-    batch_ctx = batch_ctx + "\n" if batch_ctx else ""
-    batch_ctx = pronoun_batch_note(context.get("style_guidelines"),
-                                   context.get("source_language", "zh")) + batch_ctx
-
-    def call(prompt):
-        return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb,
-                             system=instructions)
-
-    def build_faithful_batch(batch_ids):
-        return build_reflect_faithful_task(
-            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids},
-            {i: speaker_names[pos[i]] for i in batch_ids} if speaker_names else None)
-
-    def announce(pass_no):
-        if pass_cb:
-            pass_cb(pass_no, REFLECT_PASSES[pass_no - 1])
-
-    announce(1)
-    direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
-    direct = {i: direct_map.get(str(i), "") for i in ids}
-    if passes == 1:
-        return [direct[i] for i in ids], ["" for _ in ids]
-
-    def build_reflection_batch(batch_ids):
-        return build_reflect_reflection_task(
-            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct)
-
-    # Only ids with an actual faithfulness draft go on to reflection/
-    # expressiveness -- there's nothing sensible to critique or rewrite
-    # for a line that never got one (an empty "Draft: " in the prompt).
-    # No retry on the reflection call itself (unlike the other two
-    # passes): a line the model chose NOT to critique is a normal,
-    # expected answer here -- most lines in a real batch have nothing
-    # worth flagging -- and treating every omitted id as "missing, must
-    # retry" would re-request the whole batch on almost every run, since
-    # it's rare for every single line to get a critique. An id absent
-    # here just means "no critique".
-    has_draft_ids = [i for i in ids if direct[i]]
-    if has_draft_ids:
-        announce(2)
-    critique_map = (_id_keyed_batch_request(has_draft_ids, build_reflection_batch, call, max_retries=0)
-                   if has_draft_ids else {})
-
-    def build_expressive_batch(batch_ids):
-        return build_reflect_expressive_task(
-            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct,
-            {i: critique_map.get(str(i)) for i in batch_ids})
-
-    if has_draft_ids:
-        announce(3)
-    final_map = (_id_keyed_batch_request(has_draft_ids, build_expressive_batch, call, max_retries)
-                if has_draft_ids else {})
-    translations = [final_map.get(str(i), direct.get(i, "")) for i in ids]
-    critiques = [critique_map.get(str(i), "") for i in ids]
-    return translations, critiques
 
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
@@ -291,6 +148,10 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
                     on_late_result=lambda: _record_engine_usage(engine, record_usage)))
             _record_engine_usage(engine, record_usage)
         except Exception as e:
+            if stops_translate_run(e):
+                if retried and save_cb:
+                    save_cb(lines)
+                raise
             import applog
             applog.get_logger().warning(f"pronoun re-check skipped a batch: {redact_secrets(str(e))}")
             continue
@@ -321,8 +182,13 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  scene_aware_batches: bool = False, thinking: bool = None,
                                  translate_by_sentence=None, check_replies: bool = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
-                                 sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS):
-    """thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
+                                 sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
+                                 stop_before_batch=None):
+    """stop_before_batch: checked only between batches, never during a request:
+    a batch already sent is finished and kept (cancel_check_cb is the one that
+    abandons a request in flight).
+
+    thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
     answering; None = the title's remembered choice, else off. Its reasoning is
     never saved with a line.
 
@@ -469,6 +335,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     errors = []
     stop_run = []
     translated = []
+    streak = FailureStreak()
+    hard_failures = []
     spent = 0.0
     allowed_runs = allowed_source_runs(glossary_terms, style_guidelines)
 
@@ -502,7 +370,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             detail_cb(last_frac, message)
 
     for bi, batch in enumerate(batches):
-        if cancel_check_cb and cancel_check_cb():
+        if (cancel_check_cb and cancel_check_cb()) or (stop_before_batch and stop_before_batch()):
             break
         batch_label = f"Batch {bi + 1} of {n_batches}"
         report(bi / n_batches, batch_label)
@@ -590,9 +458,11 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             chunk_context = _context_for(chunk)
             if reflect:
                 sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
+                finished_passes = {}  # a retry must not pay again for a pass that finished
                 return call_with_backoff(
                     lambda: reflect_translate_batch(engine, sources, chunk_context,
-                                                    usage_cb=record_usage, pass_cb=_on_pass))
+                                                    usage_cb=record_usage, pass_cb=_on_pass,
+                                                    resume=finished_passes))
             chunk_groups = sentence_groups.complete_groups(chunk, groups)
             if chunk_groups:
                 position = {id(ln): p for p, ln in enumerate(chunk)}
@@ -635,6 +505,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 return
             except Exception as e:
                 redacted = redact_secrets(str(e))
+                hard_failures.append(e)
                 errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
                                "error": redacted})
                 # After a timeout the abandoned request may still be running, so
@@ -710,10 +581,17 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                     ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 
         wait_token = _backoff_wait_var.set(_on_wait if detail_cb else None)
+        hard_failures.clear()
+        translated_before = len(translated)
         try:
             _process_chunk(batch, allow_bisect=True)
         finally:
             _backoff_wait_var.reset(wait_token)
+        if streak.record(failed=bool(hard_failures), succeeded=len(translated) > translated_before) \
+                and not stop_run:
+            stop_run.append(True)
+            errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
+                           "error": streak.stop_message(scrub_error_text(str(hard_failures[-1])))})
         if save_cb:
             save_cb(lines)
         if detail_cb:
@@ -734,10 +612,16 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             break
     else:
         if not stop_run and not (cancel_check_cb and cancel_check_cb()):
-            _recheck_male_pronouns(
-                engine, lines, translated, context, character_names, size, save_cb,
-                record_usage, lambda: cost_cap_usd is not None and spent >= cost_cap_usd,
-                cancel_check_cb)
+            try:
+                _recheck_male_pronouns(
+                    engine, lines, translated, context, character_names, size, save_cb,
+                    record_usage, lambda: cost_cap_usd is not None and spent >= cost_cap_usd,
+                    cancel_check_cb)
+            except Exception as e:
+                if not stops_translate_run(e):
+                    raise
+                errors.append({"batch_index": n_batches - 1, "lines": [],
+                               "error": redact_secrets(str(e))})
     return lines, errors
 
 
@@ -750,6 +634,7 @@ def translate_lines_with_engine(*args, **kwargs):
     bound = inspect.signature(_translate_lines_with_engine).bind(*args, **kwargs)
     cancel_check = bound.arguments.get("cancel_check_cb")
     token = _cancel_check_var.set(cancel_check)
+    budget_token = _rate_limit_budget_var.set(RateLimitWaitBudget())
     try:
         if llm_tasks_scope_active():
             return _translate_lines_with_engine(*args, **kwargs)
@@ -765,4 +650,5 @@ def translate_lines_with_engine(*args, **kwargs):
                                deadline=request_deadline_for(engine)):
             return _translate_lines_with_engine(*args, **kwargs)
     finally:
+        _rate_limit_budget_var.reset(budget_token)
         _cancel_check_var.reset(token)

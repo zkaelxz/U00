@@ -132,6 +132,10 @@ def _separation_device_label(kind: str) -> str:
     return {"gpu": "on GPU", "cpu": "on CPU (slow)"}.get(kind, "")
 
 
+def _stage_summary(stage_counts: dict) -> str:
+    return "; ".join(f"{label}: {count}" for label, count in stage_counts.items())
+
+
 def _model_loading_message(whisper_size: str, cached: bool) -> str:
     if cached:
         return f"Loading Whisper model {whisper_size}..."
@@ -321,8 +325,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     word_align_error = None
     forced_align_error = None
     coverage_msg = None
+    stage_counts = {}
     detector_notices = []
     coarse_whisper_timing = False
+    groq_usage = None
     device_msg = ""
     device_suffix = ""
     # The other backends, and a supplied transcript, bring their own lines.
@@ -369,7 +375,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             progress_cb=lambda frac: rep.progress(
                 frac, f"Reading captions from video... {frac * 100:.0f}%"))
         if not segments:
-            return {"failed_reason": "empty"}
+            return {"failed_reason": "no_text"}
         # OCR already produces real per-cue timing straight from the video --
         # no separate alignment step needed, same reasoning as the Whisper-
         # text-override branch below, just sourced from captions.
@@ -486,6 +492,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     vad_stage["ticker"].stop()
         elif use_groq:
             rep.progress(0.0, "Transcribing via Groq's cloud API...")
+            # Billed by audio length; the parent writes the usage row (a worker
+            # process must not read the database).
+            groq_usage = {"seconds": _audio_duration_seconds(audio_path) or 0.0, "failed": True}
             try:
                 segments = core_module.transcribe_with_groq(
                     audio_path, source_language, groq_api_key,
@@ -497,7 +506,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 # separation and model download here); jobs_service.
                 # project_result redacts "detail" before it is returned or
                 # mirrored to job_records.
-                return {"failed_reason": "groq", "detail": str(exc)}
+                return {"failed_reason": "groq", "detail": str(exc), "groq_usage": groq_usage}
+            groq_usage["failed"] = False
         else:
             try:
                 model_cached = bool(local_model_path) or whisper_models.is_whisper_model_cached(
@@ -572,8 +582,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 whisper_models.release_gpu_models()   # hand the VRAM back on a cancel too
                 raise
 
+        stage_counts["ASR output (after voice detection and its text filters)"] = len(segments)
         if not segments:
-            return {"failed_reason": "empty"}
+            return {"failed_reason": "no_lines", "stage_summary": _stage_summary(stage_counts)}
 
         # Only a Whisper transcript carries the notice; a supplied one is aligned below.
         if coarse_whisper_timing and transcript_mode == "whisper" and not rep.cancelled():
@@ -668,6 +679,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                              floors=tuning.floors,
                              rules=asr_backend.sentence_split_rules(tuning) if sentence_lines else None)
                          if s["text"].strip())]
+            stage_counts["lines after splitting long segments"] = len(lines)
             coverage_msg = " ".join(detector_notices + [coverage_warning(
                 segments, _audio_duration_seconds(audio_path),
                 qwen3_asr=raw_backend == "qwen3_asr") or ""]).strip() or None
@@ -717,6 +729,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
             "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
+            "stage_summary": _stage_summary(stage_counts),
+            **({"groq_usage": groq_usage} if groq_usage else {}),
             **ollama_unload.take_notice_result(),
             "run_config": {
                 "asr_backend": asr_backend_choice, "whisper_size": whisper_size,

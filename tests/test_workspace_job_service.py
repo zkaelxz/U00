@@ -16,8 +16,9 @@ def test_every_moved_workspace_function_is_exported():
 
 
 def test_every_moved_library_function_is_exported():
-    for name in ("restore_library_backup", "run_bulk_series_translate_job"):
-        assert callable(getattr(wjs, name, None)), f"{name} missing or not callable"
+    from services import library_restore_service as lrs
+    assert callable(getattr(wjs, "run_bulk_series_translate_job", None))
+    assert callable(getattr(lrs, "restore_library_backup", None))
 
 
 # --- Parity with translate_run_service (bulk + fix-flagged context) ---
@@ -202,7 +203,7 @@ def test_bulk_series_passes_translate_toggles(isolated_db, monkeypatch):
     monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
     monkeypatch.setattr(wjs.background_jobs, "start_job", lambda *a, **k: False)
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
-    wjs.run_bulk_series_translate_job("bulk_toggles", [did], {"claude": "k"},
+    wjs.run_bulk_series_translate_job("bulk_toggles", [did], {"claude": "k"}, monthly_cap=50.0,
                                       include_genre_notes=False, default_female_pronouns=True)
     background_jobs.clear_job("bulk_toggles")
     assert calls[0]["include_genre_notes"] is False

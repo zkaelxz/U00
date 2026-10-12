@@ -10,21 +10,23 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { ApiError } from '../../api/client'
 import {
   addQueueItem, clearFinishedQueueItems, getQueue, moveQueueItem, pauseQueue, removeQueueItem, retryQueueItem,
-  setQueuePolicy, setQueueSchedule, startQueue,
+  getQueueStepSettings, setQueuePolicy, setQueueSchedule, startQueue,
 } from '../../api/queue'
 import { getTranslateConfig } from '../../api/translateStage'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { humanize } from '../../components/labels'
+import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
-import type { QueueItem, QueueState, QueueStep } from '../../types/queue'
+import type { QueueItem, QueueState, QueueStep, QueueStepSettings } from '../../types/queue'
 import {
   HHMM, STEP_HELP, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText,
-  statusLabel, statusTone, translateCostNote,
+  savedSettingValue, settingsStage, statusLabel, statusTone, translateCostNote,
 } from './queueModel'
 
 // Fast while something runs, so a finished item shows up without a reload.
@@ -71,7 +73,7 @@ export function JobQueue({ titles }: Props) {
       (c) => {
         if (!live) return
         const engine = c.engines.find((e) => e.name === c.translation_engine)
-        const label = engine?.label ?? humanize('engine', c.translation_engine)
+        const label = humanize('engine', c.translation_engine)
         setCostNote(translateCostNote(label, !(engine?.free ?? false), c.monthly_cap_usd ?? 0))
       },
       () => undefined,
@@ -176,6 +178,7 @@ export function JobQueue({ titles }: Props) {
       <p className="muted queue-help" data-testid="queue-step-help">
         {STEP_HELP[step]}{step === 'translate' && costNote ? ` ${costNote}` : ''}
       </p>
+      {Number(dramaId) > 0 && <SavedSettings dramaId={Number(dramaId)} step={step} />}
       {full && <p className="muted">The queue holds at most {queue.max_items} items. Clear finished items first.</p>}
 
       {queue.can_control ? (
@@ -229,6 +232,42 @@ export function JobQueue({ titles }: Props) {
         </div>
       )}
     </Card>
+  )
+}
+
+/** What the queued step will use for the chosen title, read from the server's own resolver. Collapsed and read-only. */
+function SavedSettings({ dramaId, step }: { dramaId: number; step: QueueStep }) {
+  const [open, setOpen] = useState(false)
+  const [data, setData] = useState<QueueStepSettings | null>(null)
+  const [error, setError] = useState<unknown>(null)
+
+  useEffect(() => {
+    setData(null)
+    setError(null)
+    if (!open) return
+    let live = true
+    getQueueStepSettings(dramaId, step).then(
+      (d) => { if (live) setData(d) },
+      (e) => { if (live) setError(e) },
+    )
+    return () => { live = false }
+  }, [open, dramaId, step])
+
+  const where = settingsStage(step)
+  return (
+    <Section title="Saved settings for this step" onToggle={setOpen}>
+      <ErrorBanner error={error} />
+      {data && (
+        <dl className="queue-settings" data-testid="queue-saved-settings">
+          {data.rows.map((r) => (
+            <div key={r.label} className="queue-setting"><dt>{r.label}</dt><dd>{savedSettingValue(r)}</dd></div>
+          ))}
+        </dl>
+      )}
+      <ButtonLink href={routeHref({ name: 'drama', id: dramaId, stage: where.stage })} size="sm">
+        Change in the title's {where.label} stage
+      </ButtonLink>
+    </Section>
   )
 }
 

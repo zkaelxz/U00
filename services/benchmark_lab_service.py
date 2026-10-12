@@ -53,7 +53,8 @@ import benchmark
 import db
 import translate_engines
 from core import SOURCE_LANGUAGES
-from engine_backends import llm_tasks
+from engine_backends import llm_tasks, paid_calls
+from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
 from services import settings_service, translate_service
 from services.benchmark_case_service import (redact, require_whisper_fits_cases, whisper_options, run_file_case as _run_case_file,
                                                    run_translation as _run_translation)
@@ -568,6 +569,9 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
         _reset_vram()
         spent, scores, passed, errors, durations = 0.0, [], 0, 0, []
         status = "done"
+        streak, stop_note = FailureStreak(), None
+        # Per engine: one engine's waits must not use up the next one's budget.
+        budget_token = _rate_limit_budget_var.set(RateLimitWaitBudget())
         for case in ordered:
             if background_jobs.is_cancel_requested(job_id):
                 status = "cancelled"
@@ -585,6 +589,10 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                 with llm_tasks.bounded_llm_calls(
                         job_id, lambda: background_jobs.is_cancel_requested(job_id)):
                     r = _run_translation(engine, case, api_key)
+                stop_note = r.pop("stop_reason", "")
+                if not stop_note and streak.record(failed=bool(r.get("error")),
+                                                   succeeded=not r.get("error")):
+                    stop_note = paid_calls.failure_stop_reason(streak.count)
                 if r["cost_usd"] or r["usage"]:
                     db.log_usage(None, cfg["engine"], getattr(engine, "model", cfg["model"]) or "",
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
@@ -617,6 +625,12 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                 passed += 1 if r["passed"] else 0
             durations.append(r.get("duration_seconds") or 0.0)
             step += 1
+            if stop_note:
+                # This engine is not answering: its remaining cases would only
+                # repeat the failure (or the bill). The next config still runs.
+                status = "failed"
+                break
+        _rate_limit_budget_var.reset(budget_token)
         run_spent += spent
         db.update_benchmark_session(
             session_id, status=status, scored_count=len(scores), passed_count=passed,
@@ -624,7 +638,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
             aggregate_score=(sum(scores) / len(scores)) if scores else None,
             avg_latency_seconds=(sum(durations) / len(durations)) if durations else None,
             total_cost_usd=round(spent, 6), peak_vram_mb=_peak_vram_mb(),
-            note="Stopped at the spending cap." if capped else None, finished_at=_now())
+            note="Stopped at the spending cap." if capped else stop_note or None, finished_at=_now())
         if status == "cancelled":
             for sid, _cfg, _k in plan[plan.index((session_id, cfg, api_key)) + 1:]:
                 db.update_benchmark_session(sid, status="cancelled", finished_at=_now())

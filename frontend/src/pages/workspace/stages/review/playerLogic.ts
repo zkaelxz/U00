@@ -5,6 +5,7 @@
 import { captionUrl } from '../../../../api/reader'
 import type { CaptionTrack } from '../../../../types/reader'
 import type { ReviewLine } from '../../../../types/review'
+import { formatDuration } from './reviewLogic'
 
 export type SubtitleChoice = CaptionTrack | 'off'
 
@@ -125,3 +126,8 @@ export function overlayText(cue: string): string {
 
 // Controls over a full-screen picture hide after this long without activity.
 export const FULLSCREEN_IDLE_MS = 3000
+
+// The Jump box shows the live playback time until the viewer focuses it or types; typed text always wins.
+export function jumpPlaceholder(time: number, focused: boolean, typed: string): string {
+  return focused || typed !== '' ? 'mm:ss' : formatDuration(time)
+}

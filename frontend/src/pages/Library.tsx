@@ -23,6 +23,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
 import { languageLabel, mediaTypeLabel } from '../labels'
+import { routeHref } from '../router'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { SelectionBar } from './libraryAdmin/SelectionBar'
 import { pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
@@ -33,7 +34,6 @@ import {
   validateCreate, type CreateExtras,
 } from './libraryForm'
 import { GetStarted } from './libraryParity/GetStarted'
-import { MakeSubtitles } from './makeSubtitles/MakeSubtitles'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
   autofillHref, libraryHeadline, usageLine, usageSpent,
@@ -116,37 +116,6 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 
 
 const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: '' }
-
-const MAKE_SUBTITLES_PREF = 'library.makeSubtitles.open'
-
-// The Make subtitles card is the first-run action; once there are titles,
-// "New title" is the page's one primary, so the card folds to one line. It
-// stays mounted while folded so a run in progress isn't lost.
-function MakeSubtitlesPanel({ hasTitles }: { hasTitles: boolean | null }) {
-  const [pref, setPref] = usePersistedState(MAKE_SUBTITLES_PREF, '')
-  // Until the title count is known neither state is right: folded would flash
-  // before an empty library's card expands.
-  if (hasTitles === null) return null
-  const open = !hasTitles || pref === 'open'
-  return (
-    <div className="make-subtitles-panel">
-      {hasTitles && (
-        <button
-          type="button"
-          className={`${buttonClass('ghost')} disclosure-toggle`}
-          aria-expanded={open}
-          aria-controls="make-subtitles-body"
-          onClick={() => setPref(open ? 'closed' : 'open')}
-        >
-          <span aria-hidden="true">{open ? '▾' : '▸'}</span> Make subtitles
-        </button>
-      )}
-      <div id="make-subtitles-body" hidden={!open}>
-        <MakeSubtitles />
-      </div>
-    </div>
-  )
-}
 
 // What has been typed into "New drama". The page keeps it, so closing the
 // Sheet (Esc, backdrop, ×) and reopening it doesn't lose the input; only a
@@ -293,6 +262,7 @@ export default function LibraryPage() {
   const [startedDismissed, setStartedDismissed] = usePersistedState(GET_STARTED_PREF, false)
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
+  const getStarted = showGetStarted(stats.data?.total_dramas, startedDismissed)
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
   const series = useLoad(getSeries, reloadKey)
@@ -367,6 +337,7 @@ export default function LibraryPage() {
         </div>
         {canCreate && (
           <div className="actions">
+            {!getStarted && <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
             <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
           </div>
         )}
@@ -379,9 +350,7 @@ export default function LibraryPage() {
         </p>
       )}
 
-      {showGetStarted(stats.data?.total_dramas, startedDismissed)
-        ? <GetStarted onDismiss={() => setStartedDismissed(true)} />
-        : <MakeSubtitlesPanel hasTitles={stats.data ? stats.data.total_dramas !== 0 : stats.error ? true : null} />}
+      {getStarted && <GetStarted canCreate={canCreate} onDismiss={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
         <p className="muted" data-testid="member-empty-note">

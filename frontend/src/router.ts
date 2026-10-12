@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
 import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
+import { isManageTab, manageHref, type ManageTab } from './pages/sources/manageTabs'
+import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
 export type Route =
@@ -12,7 +14,8 @@ export type Route =
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
   // tools: "#/drama/3/review?tools=coverage" opens that tab of the Review tools panel.
-  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tools?: ReviewToolsTab }
+  // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage.
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tools?: ReviewToolsTab; tab?: MediaTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads' }
@@ -24,7 +27,10 @@ export type Route =
   // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
   | { name: 'benchmark'; compare?: string }
   | { name: 'translate' }
+  | { name: 'make-subtitles' }
   | { name: 'sources' }
+  // tab: "#/sources/manage?tab=network"; no tab opens Sites.
+  | { name: 'sources-manage'; tab?: ManageTab }
   | { name: 'discover' }
   | { name: 'live' }
   | { name: 'assistant' }
@@ -70,7 +76,12 @@ export function parseRoute(hash: string): Route {
     return compare && compare.length <= 1000 ? { name: 'benchmark', compare } : { name: 'benchmark' }
   }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
+  if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
   if (head === 'sources' && parts.length === 1) return { name: 'sources' }
+  if (head === 'sources' && a === 'manage' && parts.length === 2) {
+    const tab = new URLSearchParams(qs).get('tab')
+    return isManageTab(tab) ? { name: 'sources-manage', tab } : { name: 'sources-manage' }
+  }
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
   if (head === 'live' && parts.length === 1) return { name: 'live' }
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
@@ -110,12 +121,14 @@ export function parseRoute(hash: string): Route {
     const q = new URLSearchParams(qs)
     const focus = q.get('focus')
     const tools = q.get('tools')
+    const tab = q.get('tab')
     return {
       name: 'drama',
       id: Number(a),
       stage,
       ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
       ...(isReviewToolsTab(tools) ? { tools } : {}),
+      ...(isMediaTab(tab) ? { tab } : {}),
     }
   }
   return { name: 'library' }
@@ -124,7 +137,7 @@ export function parseRoute(hash: string): Route {
 export function routeHref(r: Route): string {
   if (r.name === 'drama') {
     const base = r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
-    const query = [r.focus && `focus=${r.focus}`, r.tools && `tools=${r.tools}`].filter(Boolean).join('&')
+    const query = [r.focus && `focus=${r.focus}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
     return query ? `${base}?${query}` : base
   }
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
@@ -135,6 +148,7 @@ export function routeHref(r: Route): string {
   }
   if (r.name === 'library-tools' && r.tab) return `#/library-tools?tab=${r.tab}`
   if (r.name === 'diagnostics' && (r.card || r.tab)) return r.card ? `#/diagnostics?card=${r.card}` : `#/diagnostics?tab=${r.tab}`
+  if (r.name === 'sources-manage') return manageHref(r.tab)
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
   return `#/${r.name}`

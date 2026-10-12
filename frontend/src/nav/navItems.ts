@@ -74,11 +74,17 @@ export const NAV_ITEMS: NavItem[] = [
     requires: 'library.read',
     rail: { group: 'library', active: ['library-tools', 'manga', 'manga-series', 'manga-read'] },
   }),
+  // Creating a title is what the run does first, so the item needs the same permission as the Library's New title.
+  item('Make subtitles', { name: 'make-subtitles' }, {
+    requires: 'admin.library',
+    hideWithoutPermission: true,
+    rail: { group: 'tools', active: ['make-subtitles'] },
+  }),
   item('Quick translate', { name: 'translate' }, {
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
-  item('Sources', { name: 'sources' }, { requires: 'library.read', rail: { group: 'find', active: ['sources'] } }),
+  item('Sources', { name: 'sources' }, { requires: 'library.read', rail: { group: 'find', active: ['sources', 'sources-manage'] } }),
   item('Discover', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover'] } }),
   item('Live', { name: 'live' }, { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
   // The header's Jobs button is the glance; this is the page.
@@ -89,7 +95,7 @@ export const NAV_ITEMS: NavItem[] = [
   }),
   // A member sees only Sharing and devices here, which needs library.read.
   item('Settings', { name: 'settings' }, { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
-  item('Admin', { name: 'admin' }, {
+  item('People and access', { name: 'admin' }, {
     requires: 'admin.users.read',
     hideWithoutPermission: true,
     rail: { group: 'system', active: ['admin'] },

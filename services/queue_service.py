@@ -31,10 +31,11 @@ from typing import Optional
 
 import db
 import translate_engines
+from lib import model_offline
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         ServiceError, UnsupportedOperationError)
 from services import (auth_service, artifact_service, export_service, jobs_service,
-                      ownership_service, settings_service, transcribe_service,
+                      model_readiness_service, ownership_service, settings_service, transcribe_service,
                       translate_run_service, translate_thinking_service)
 
 QUEUE_KEY = "job_queue"
@@ -93,6 +94,10 @@ def _clean_item(raw) -> Optional[dict]:
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
+            # Items saved before "at_pc" was recorded count as away from the PC:
+            # "override" is also true for an admin on the admin listener who
+            # was not at the PC.
+            "at_pc": bool(raw.get("at_pc", False)),
             "added_at": raw.get("added_at"), "started_at": raw.get("started_at"),
             "finished_at": raw.get("finished_at")}
 
@@ -254,21 +259,133 @@ def get_queue(principal) -> dict:
     }
 
 
-# --- changing items ----------------------------------------------------------
+# --- saved settings of a step -------------------------------------------------
 
-def add_item(principal, drama_id: int, step: str, holds_paid: bool) -> dict:
-    """Validates and appends one item. The title must exist and be the
-    caller's; a Translate item on a paid engine needs `engines.paid`, as the
-    Translate stage's run does."""
+_LANGUAGES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
+
+
+def _words(code) -> str:
+    return str(code or "").replace("_", " ").capitalize()
+
+
+def _on(flag) -> str:
+    return "On" if flag else "Off"
+
+
+def _row(label: str, value, engine: Optional[str] = None) -> dict:
+    # `engine` is the engine's id: the page words it, since engine names live in the frontend's label table.
+    return {"label": label, "value": str(value), "engine": engine}
+
+
+def _cap_left() -> str:
+    cap = settings_service.get_monthly_cap_usd()
+    if cap <= 0:
+        return "No cap set"
+    return f"${max(cap - db.get_month_spend(since_reset=True), 0):.2f} of ${cap:.2f}"
+
+
+def _translate_cost(drama_id: int, engine: str) -> str:
+    if engine in translate_engines.FREE_ENGINES:
+        return "Free"
+    try:
+        est = translate_run_service.estimate_translate_cost(drama_id)
+    except ServiceError:
+        return "No estimate yet; uses your API key and costs money"
+    return f"About ${est['estimated_usd']:.2f}; uses your API key and costs money"
+
+
+def _translate_rows(drama: dict) -> list:
+    from engine_backends import engine_registry
+    import translation_guide
+    from services import language_pack_service, vdb_names_service
+    drama_id = drama["id"]
+    args = _translate_run_args(drama)
+    engine = args["engine"]
+    model = translate_engines.effective_default_model(engine)
+    novel = drama.get("content_mode") == "novel_narration"
+    preset = translation_guide.STYLE_PRESETS["novel" if novel else "audio_drama"]
+    options = translate_run_service.get_translate_config_defaults(novel, engine, model)
+    thinking = translate_thinking_service.effective(
+        [engine], translate_thinking_service.get_title_choice(drama_id))
+    series_id = drama.get("series_id")
+    terms = len(db.list_glossary_terms(series_id)) if series_id else 0
+    packs = [p["name"] for p in language_pack_service.get_title_packs(drama_id)["packs"] if p["enabled"]]
+    override = settings_service.reply_guard_override()
+    guard = engine_registry.default_reply_guard(engine, model) if override is None else override
+    return [
+        _row("Engine and model", model or "", engine),
+        _row("Tone and character voice", preset["label"]),
+        _row("Source language", _LANGUAGES.get(drama.get("source_language") or "zh", "Chinese")),
+        _row("English variant", args["locale"]),
+        _row("Style note", "Set" if args["style_note"] else "None"),
+        _row("Batch size", options["batch_size"]),
+        _row("Thinking", _on(thinking)),
+        _row("Glossary", f"On, {terms} terms" if terms else "Off, no glossary terms yet"),
+        _row("Language packs", ", ".join(packs) if packs else "Off"),
+        _row("VTuber names", _on(vdb_names_service.is_enabled(drama_id))),
+        _row("Reply check", _on(guard)),
+        # Only a bulk run waits for DeepSeek's off-peak hours; the queue starts a normal one.
+        _row("Off-peak start", "Off: the queue runs it right away"),
+        _row("Cost", _translate_cost(drama_id, engine)),
+        _row("Monthly cap left", _cap_left()),
+    ]
+
+
+def _transcribe_rows(drama: dict) -> list:
+    config = transcribe_service.get_transcribe_config(drama["id"])
+    backend = config["asr_backend_choice"]
+    model = f"Whisper {config['whisper_size']}" if backend == "whisper" else _words(backend)
+    rows = [
+        _row("Speech model", model),
+        _row("Source language", _LANGUAGES.get(drama.get("source_language") or "zh", "Chinese")),
+        _row("Transcript", _words(config["transcript_mode"])),
+        _row("Alignment", _words(config["alignment_method"])),
+        _row("Voice detection", _words(config["sensitivity_preset"])),
+        _row("Beam size", config["beam_size"]),
+        _row("Separate vocals first", _on(config["separate_vocals_first"])),
+        _row("Groq (paid)", _on(config["use_groq"])),
+    ]
+    if (drama.get("source_language") or "zh") == "zh":
+        rows.insert(2, _row("Chinese script", _words(drama.get("chinese_script") or "simplified")))
+    return rows
+
+
+def step_settings(principal, drama_id: int, step: str) -> dict:
+    """Read-only: the settings a queued `step` would use for this title,
+    resolved by the same functions the queue's own run calls."""
     if step not in STEPS:
         raise InvalidInputError("Step must be transcribe, translate or export.")
     drama = db.get_drama(drama_id)
     if drama is None or not _owns_title(principal, drama_id):
-        raise NotFoundError("Drama not found.")
+        raise NotFoundError("Title not found.")
+    if step == "translate":
+        rows = _translate_rows(drama)
+    elif step == "transcribe":
+        rows = _transcribe_rows(drama)
+    else:
+        rows = [_row("Format", "SRT"), _row("Language", "English"),
+                _row("Saved as", "The title's subtitle download")]
+    return {"drama_id": drama_id, "step": step, "title": _title_name(drama), "rows": rows}
+
+
+# --- changing items ----------------------------------------------------------
+
+def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
+    """Validates and appends one item. The title must exist and be the
+    caller's; a Translate item on a paid engine needs `engines.paid`, as the
+    Translate stage's run does; a Transcribe item added away from the PC
+    needs its models on disk (model_readiness_service)."""
+    if step not in STEPS:
+        raise InvalidInputError("Step must be transcribe, translate or export.")
+    drama = db.get_drama(drama_id)
+    if drama is None or not _owns_title(principal, drama_id):
+        raise NotFoundError("Title not found.")
     if step == "translate" and not holds_paid \
             and _translate_engine(drama) not in translate_engines.FREE_ENGINES:
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
+    if step == "transcribe":
+        model_readiness_service.require_ready(at_pc, model_readiness_service.for_transcribe, drama_id)
     with _lock:
         doc = _load()
         if len(doc["items"]) >= MAX_ITEMS:
@@ -281,7 +398,7 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool) -> dict:
                                 "queue. Clear your finished items first.")
         item = {"id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": ownership_service.user_id(principal),
-                "override": _overrides(principal), "added_at": _clock(),
+                "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
                 "started_at": None, "finished_at": None}
         doc["next_id"] += 1
         doc["items"].append(item)
@@ -330,11 +447,12 @@ def remove_item(principal, item_id: int) -> dict:
     return _mutate_item(principal, item_id, change)
 
 
-def retry_item(principal, item_id: int) -> dict:
+def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
-        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None)
+        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
+                    at_pc=item["at_pc"] and at_pc)
     return _mutate_item(principal, item_id, change)
 
 
@@ -457,20 +575,26 @@ def _start_transcribe(principal, drama: dict) -> str:
     return transcribe_service.start_transcribe_run(drama["id"])["job_id"]
 
 
+def _translate_run_args(drama: dict) -> dict:
+    """What a queued translate run is started with beyond the title's own
+    saved options; "Saved settings" on the Jobs page reads the same values."""
+    locale = settings_service.get("default_locale")
+    return {"engine": _translate_engine(drama),
+            "style_note": settings_service.get("default_style_note") or "",
+            "locale": locale if locale in settings_service.LOCALE_CHOICES else "en-US"}
+
+
 def _start_translate(principal, drama: dict) -> str:
-    engine = _translate_engine(drama)
+    args = _translate_run_args(drama)
     holds_paid = _holds(principal, "engines.paid")
-    if engine not in translate_engines.FREE_ENGINES and not holds_paid:
+    if args["engine"] not in translate_engines.FREE_ENGINES and not holds_paid:
         raise ForbiddenError("This title translates with a paid engine, which the account "
                              "that added it can't use.")
     _check_translate_spend(drama["id"])
-    locales = settings_service.LOCALE_CHOICES
-    locale = settings_service.get("default_locale")
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama["id"], None, False,
-        style_note=settings_service.get("default_style_note") or "",
-        locale=locale if locale in locales else "en-US",
-        allow_paid_summary=holds_paid)["job_id"]
+        style_note=args["style_note"], locale=args["locale"],
+        allow_paid_summary=holds_paid and settings_service.get_monthly_cap_usd() > 0)["job_id"]
 
 
 def _export(drama: dict) -> None:
@@ -513,16 +637,23 @@ def _start_item(item: dict) -> Optional[str]:
     if not _holds(principal, needed):
         raise ForbiddenError("The account that added this item can no longer do this step.")
     token = ownership_service.bind_request()
+    # The runner thread outlives this item: the adder's offline mark is set
+    # for this start only.
+    offline = model_offline.set_offline(not item["at_pc"])
     try:
         # Records the job as the adder's, as if they had pressed the button.
         ownership_service.note_acting_principal(principal)
         if item["step"] == "transcribe":
+            # Again at start: the title's model choice may have changed since it was added.
+            model_readiness_service.require_ready(
+                item["at_pc"], model_readiness_service.for_transcribe, drama["id"])
             return _start_transcribe(principal, drama)
         if item["step"] == "translate":
             return _start_translate(principal, drama)
         _export(drama)
         return None
     finally:
+        model_offline.reset(offline)
         ownership_service.unbind_request(token)
 
 

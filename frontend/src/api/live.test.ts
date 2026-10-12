@@ -108,6 +108,9 @@ describe('sessions', () => {
     expect(statusLine({ status: 'running', message: 'Chunk 3' }, 1)).toBe('Chunk 3 · 1 line')
     expect(statusLine({ status: 'queued', message: '' }, 0)).toMatch(/GPU/)
     expect(statusLine({ status: 'cancelled', message: 'Cancelled.' }, 4)).toBe('Stopped · 4 lines')
+    expect(statusLine({ status: 'cancelled', message: 'x', stop_reason: 'Stopped: monthly cap reached' }, 4)).toBe(
+      'Stopped: monthly cap reached · 4 lines',
+    )
     expect(statusLine({ status: 'error', message: 'ffmpeg failed' }, 0)).toBe('Stopped with an error: ffmpeg failed')
   })
 
@@ -131,6 +134,8 @@ describe('sessions', () => {
 describe('errors', () => {
   it('explains a refused start', () => {
     expect(describeLiveError(new ApiError(403, { code: 'forbidden', message: 'x' }))).toBe(LIVE_FORBIDDEN)
+    expect(describeLiveError(new ApiError(403, { code: 'model_not_downloaded', message: 'x' })))
+      .toMatch(/not downloaded yet/)
     expect(describeLiveError(new ApiError(409, { code: 'conflict', message: 'x' }))).toMatch(/already running/)
     expect(describeLiveError(new ApiError(503, { code: 'dependency_unavailable', message: 'No deepseek key is configured.' })))
       .toMatch(/No deepseek key/)

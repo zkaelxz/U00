@@ -25,6 +25,7 @@ from api.routers import library_admin_routes
 from api.server import create_app
 from services import auth_service
 from services import library_admin_service as las
+from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
 
 BASE = "/api/library/admin"
@@ -189,6 +190,7 @@ class TestBulkTranslate:
             captured.update(job_id=job_id, args=args, kwargs=kwargs)
             return True
         monkeypatch.setattr(background_jobs, "start_job", fake_start)
+        monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
         r = _clean(client.post(f"{BASE}/bulk/translate", json={"drama_ids": [a, b, c]}))
         assert r.status_code == 200, r.text
         body = r.json()
@@ -362,7 +364,7 @@ def _restore(client, data, confirm="true", text="RESTORE", headers=None):
 @pytest.fixture
 def no_swap(monkeypatch):
     calls = []
-    monkeypatch.setattr(wjs, "restore_library_backup", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: calls.append(a))
     return calls
 
 
@@ -422,8 +424,34 @@ class TestRestore:
         r = _clean(_restore(client, data))
         assert r.status_code == 200, r.text
         assert r.json() == {"restored": True, "sessions_revoked": 0, "media_kept": False,
-                            "previous_library_kept": False}
+                            "previous_library_kept": False, "accounts_restored": 0,
+                            "titles_reassigned": 0, "folders_left_behind": []}
         assert [d["id"] for d in db.list_dramas()] == [a]
+
+    def test_the_response_says_how_many_accounts_came_and_which_folders_stayed(self, client):
+        from services import auth_service
+        auth_service.add_user("a@example.com")
+        auth_service.add_user("b@example.com")
+        _new("Kept")
+        data = _db_only_zip()
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM user_permissions")
+            conn.execute("DELETE FROM users")
+        os.makedirs(os.path.join(db.LIBRARY_DIR, "my_notes"))
+        background_jobs.clear_all_jobs()
+        r = _clean(_restore(client, data))
+        assert r.status_code == 200, r.text
+        assert r.json()["accounts_restored"] == 2
+        assert r.json()["folders_left_behind"] == ["my_notes"]
+
+
+
+def _db_only_zip():
+    import tempfile
+    path = os.path.join(tempfile.mkdtemp(), "db_only.zip")
+    las.write_backup_zip(path, include_media=False)
+    with open(path, "rb") as f:
+        return f.read()
 
 
 # ---- storage -----------------------------------------------------------------
@@ -584,6 +612,7 @@ class TestAuthOn:
 
     def test_household_with_paid_engine_allowed(self, isolated_db, monkeypatch):
         monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
         c = _remote_app()
         a = _new("A")
         r = c.post(f"{BASE}/bulk/translate", headers=_household("engines.paid"),

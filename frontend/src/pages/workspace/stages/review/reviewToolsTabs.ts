@@ -22,7 +22,7 @@ export const isReviewToolsTab = (v: unknown): v is ReviewToolsTab => REVIEW_TOOL
 export const FIRST_CARD: Record<ReviewToolsTab, string | null> = {
   check: 'review.consistency',
   fix: 'review.flags',
-  coverage: 'review.coverage',
+  coverage: 'review.sourceChanged',
   restructure: 'review.structure',
   history: null,
   extras: 'review.aiExtras.sensevoice',

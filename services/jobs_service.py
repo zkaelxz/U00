@@ -43,7 +43,7 @@ RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
     "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
-    "coverage_warning", "ollama_notice",
+    "coverage_warning", "ollama_notice", "stage_summary", "diarize_skipped_reason",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
@@ -61,6 +61,8 @@ RESULT_ALLOWED_KEYS = (
     # Re-split long lines: counts, the timing mode and a one-line note.
     "split_lines", "lines_before", "aligned_lines", "cleared_translations",
     "speakers_reassigned", "timing", "note",
+    # A paid job a money rule ended early: the plain reason ("Stopped: ...").
+    "stopped",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -294,6 +296,37 @@ _FAILED_REASON_MESSAGES = {
 }
 
 
+_MODEL_DOWNLOAD_BY_KIND = (
+    (("transcribe_",), "The speech model could not be downloaded."),
+    (("retime_", "resegment_", "resplit_", "resegpreview_"), "The aligner model could not be downloaded."),
+)
+
+
+def model_download_message(job_id: str = "") -> str:
+    """The failed-download sentence for a job kind; the detail that follows names the model."""
+    for prefixes, text in _MODEL_DOWNLOAD_BY_KIND:
+        if (job_id or "").startswith(prefixes):
+            return text
+    return "A model could not be downloaded."
+
+
+NO_LINES_MESSAGE = (
+    "Finished but found no lines. Possible reasons: voice detection removed everything "
+    "(try Sensitivity: More sensitive); the model returned nothing (try Whisper large-v3-turbo); "
+    "or the audio is silent.")
+
+
+NO_TEXT_MESSAGE = (
+    "Finished but found no on-screen text. Possible reasons: wrong OCR language or interval, "
+    "no burned-in subtitles in this video.")
+
+
+def speaker_skip_text(result):
+    """"Speaker detection did not run: <reason>." when the switch was on and nothing started."""
+    why = result.get("diarize_skipped_reason") if isinstance(result, dict) else None
+    return f"Speaker detection did not run: {why}." if why else None
+
+
 def derive_outcome(status, error, result):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's
@@ -317,6 +350,11 @@ def derive_outcome(status, error, result):
         return "kept_existing", (f"Nothing new was produced, so the existing {count} line(s) were kept."
                                  if count is not None else
                                  "Nothing new was produced, so the existing lines were kept.")
+    if reason == "no_text":
+        return "partial", NO_TEXT_MESSAGE
+    if reason == "no_lines":
+        skipped = speaker_skip_text(result)
+        return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
     if reason:
         msg = _FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
         return "failed", (f"{msg} {detail}" if detail else msg)
@@ -361,6 +399,9 @@ def derive_outcome(status, error, result):
         parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
     if errors:
         parts.append(f"{len(errors)} problem(s), first: {errors[0]}")
+    stopped = result.get("stopped")
+    if stopped:
+        parts.append(f"{str(stopped).rstrip('.')}. Finished work was kept.")
     if result.get("partial"):
         parts.append("Only part of the work finished.")
     # Transcribe warnings: the job worked, but not the way the user asked,
@@ -386,6 +427,10 @@ def derive_outcome(status, error, result):
     if result.get("ollama_notice"):
         parts.append(str(result["ollama_notice"]))
         warned = True
+    skipped_speakers = speaker_skip_text(result)
+    if skipped_speakers:
+        parts.append(skipped_speakers)
+        warned = True
     if result.get("flags_needing_recheck"):
         parts.append("Some lines changed while the job ran, so their review flags "
                      "weren't saved; recheck them.")
@@ -394,7 +439,7 @@ def derive_outcome(status, error, result):
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
             f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
-    if cap is not None or errors or result.get("partial") or warned:
+    if cap is not None or errors or stopped or result.get("partial") or warned:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")
 
