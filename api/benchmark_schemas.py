@@ -137,6 +137,17 @@ class BenchmarkRunStarted(BaseModel):
     estimated_cost_usd: float
 
 
+class BenchmarkScriptCounts(BaseModel):
+    """Traditional vs Simplified in a Chinese transcript; shown beside CER, which ignores script."""
+    traditional_lines: int = 0
+    simplified_lines: int = 0
+    mixed_lines: int = 0
+    neutral_lines: int = 0
+    traditional_chars: int = 0
+    simplified_chars: int = 0
+    neutral_chars: int = 0
+
+
 class BenchmarkRun(BaseModel):
     id: int
     label: Optional[str] = ""
@@ -161,6 +172,7 @@ class BenchmarkRun(BaseModel):
     case_filter: dict = Field(default_factory=dict)
     delta_vs_first: Optional[float] = None
     judge: Optional[BenchmarkJudgeSummary] = None
+    script_counts: Optional[BenchmarkScriptCounts] = None
 
 
 class BenchmarkRunList(BaseModel):
@@ -181,6 +193,7 @@ class BenchmarkResult(BaseModel):
     cost_usd: float = 0.0
     error: Optional[str] = None
     judge: Optional[BenchmarkJudgeScore] = None
+    script_counts: Optional[BenchmarkScriptCounts] = None
 
 
 class BenchmarkRunDetail(BaseModel):
