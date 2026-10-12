@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  CARDS, LIBRARY_TOOLS_TABS, SHORT_TAB_MAX, cardStartsOpen, cardStorageKey, cardsOf, isLibraryToolsTab,
+  CARDS, LIBRARY_TOOLS_TABS, cardStartsOpen, cardStorageKey, cardsOf, isLibraryToolsTab,
   type LibraryToolsCard,
 } from './libraryToolsTabs'
 
@@ -21,25 +21,15 @@ describe('Library tools tabs', () => {
 
   it('maps the cards the owner named to their tabs', () => {
     expect(cardsOf('backup').map((c) => CARDS[c].title)).toEqual([
-      'Export', 'Backup', 'Backup of just my stuff', 'Restore', 'Automatic backup copies',
+      'Back up', 'Restore', 'Automatic backup copies',
     ])
     expect(cardsOf('storage').map((c) => CARDS[c].title)).toEqual(['Cleanup', 'Unused voice clips', 'Trash', 'Temp files', 'Previous library'])
     expect(cardsOf('activity').map((c) => CARDS[c].title)).toEqual(['Cost by title', 'Reading history'])
   })
 
-  it('opens every card of a short tab', () => {
+  it('starts each tab with only its first card open', () => {
     for (const t of LIBRARY_TOOLS_TABS) {
-      if (cardsOf(t.id).length <= SHORT_TAB_MAX) expect(cardsOf(t.id).every(cardStartsOpen)).toBe(true)
-    }
-  })
-
-  it('opens only 1 to 3 cards of a longer tab', () => {
-    for (const t of LIBRARY_TOOLS_TABS) {
-      const cards = cardsOf(t.id)
-      if (cards.length <= SHORT_TAB_MAX) continue
-      const open = cards.filter(cardStartsOpen).length
-      expect(open).toBeGreaterThanOrEqual(1)
-      expect(open).toBeLessThanOrEqual(3)
+      expect(cardsOf(t.id).filter(cardStartsOpen)).toEqual([cardsOf(t.id)[0]])
     }
   })
 

@@ -47,16 +47,9 @@ describe('settings tabs', () => {
     expect(tabOfCard('loaded-models')).toBeUndefined()
   })
 
-  it('opens every card of a short tab and only the first of a long one, except the closed Past costs', () => {
+  it('opens only the first card of every tab', () => {
     for (const tab of SETTINGS_TABS) {
-      const open = tab.cards.filter((c) => c.open).map((c) => c.id)
-      if (tab.cards.length <= 3) {
-        const closedOnPurpose = tab.id === 'costs' ? ['past-costs'] : []
-        expect(tab.cards.map((c) => c.id).filter((id) => !open.includes(id))).toEqual(closedOnPurpose)
-      } else {
-        expect(open.length).toBeGreaterThanOrEqual(1)
-        expect(open.length).toBeLessThanOrEqual(3)
-      }
+      expect(tab.cards.filter((c) => cardStartsOpen(c.id)).map((c) => c.id)).toEqual([tab.cards[0].id])
     }
     expect(cardStartsOpen('notifications')).toBe(true)
     expect(cardStartsOpen('app-updates')).toBe(false)

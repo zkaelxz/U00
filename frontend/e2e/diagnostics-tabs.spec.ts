@@ -66,18 +66,22 @@ test('Reset library is the last card of System and stays closed unless a link na
   await expect(fold(page, /^Reset library/)).toHaveJSProperty('open', true)
 })
 
-test('short tabs start open and each card collapses and is remembered; Packages starts with only the used cards open', async ({ page }) => {
+test('each tab starts with only its first card open; a card collapses and is remembered', async ({ page }) => {
   await guardWrites(page)
   await mockDiagnostics(page)
   await page.goto('/#/diagnostics?tab=models')
-  for (const title of [/^Model status/, /^Models/, /^Test my models/]) await expect(fold(page, title)).toHaveJSProperty('open', true)
+  await expect(fold(page, /^Model status/)).toHaveJSProperty('open', true)
+  for (const title of [/^Models/, /^Test my models/]) await expect(fold(page, title)).toHaveJSProperty('open', false)
   await fold(page, /^Models/).locator('> summary').click()
-  await expect(fold(page, /^Models/)).toHaveJSProperty('open', false)
-  await expect(fold(page, /^Models/).locator('> summary')).toContainText('GB')
+  await expect(fold(page, /^Models/)).toHaveJSProperty('open', true)
+  await fold(page, /^Model status/).locator('> summary').click()
+  await expect(fold(page, /^Model status/)).toHaveJSProperty('open', false)
   // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
-  await page.waitForFunction(() => localStorage.getItem('baihe.section.diagnostics.models') === '0')
+  await page.waitForFunction(() => localStorage.getItem('baihe.section.diagnostics.models') === '1'
+    && localStorage.getItem('baihe.section.diagnostics.modelHealth') === '0')
   await page.reload()
-  await expect(fold(page, /^Models/)).toHaveJSProperty('open', false)
+  await expect(fold(page, /^Models/)).toHaveJSProperty('open', true)
+  await expect(fold(page, /^Model status/)).toHaveJSProperty('open', false)
 
   await page.goto('/#/diagnostics?tab=packages')
   await expect(fold(page, /^Packages/)).toHaveJSProperty('open', true)

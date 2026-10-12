@@ -26,6 +26,7 @@ import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { DataFolderPanel } from './diskUsage/DiskUsageSection'
 import { useDiskUsage } from './diskUsage/useDiskUsage'
 import { exportableCount } from './libraryAdmin/libraryAdmin'
+import { ExportBlock } from './libraryAdmin/AdminBlocks'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
 import { RENAME_MAX, groupHistory, showFold, validateRename } from './libraryForm'
 import { costLabel, costMeta, countsLine, sharedLine, sharedSeries } from './libraryParity/libraryParity'
@@ -38,21 +39,37 @@ import { PageShell } from '../components/PageShell'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { useRoute } from '../router'
+import { seedPageTabFolds } from '../components/sectionStorage'
 import { BackupTab } from './libraryTools/BackupTab'
 import { StorageTab } from './libraryTools/StorageTab'
 import { TabCard } from './libraryTools/TabCard'
-import { CARDS, LIBRARY_TOOLS_TABS, isLibraryToolsTab, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
+import { CARDS, LIBRARY_TOOLS_TABS, cardStorageKey, cardsOf, isLibraryToolsTab, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
 
-// A "Library tools" fold: rare lists stay collapsed (spec rule 16); one with
-// nothing in it renders nothing, but a failed load stays visible.
-function ToolSection({ card, count, summary, error, children }: {
-  card: LibraryToolsCard; count?: number; summary?: string; error: unknown; children: ReactNode
+const ORGANIZE_EMPTY =
+  'No shared series, presets, voice-bank entries or saved manga yet. Make a series from a title\'s Details, '
+  + 'save a preset from the Translate stage, save a voice to the voice bank from a character\'s voice, '
+  + 'and save manga chapters as CBZ from Sources.'
+const ACTIVITY_EMPTY =
+  'No translation costs or reading history yet. Costs appear once a title is translated with a paid engine; '
+  + 'reading history appears as you read a title.'
+
+// What a tab shows when every one of its sections is empty (and none failed to load).
+function EmptyTab({ children }: { children: ReactNode }) {
+  return <p className="muted" data-testid="tools-empty">{children}</p>
+}
+
+// A "Library tools" fold: rare lists stay collapsed (spec rule 16); one with nothing in it renders
+// nothing while another section on the tab has content, but a failed load stays visible.
+// `first` marks the first section on screen, which starts open; it is only known once every list
+// on the tab has loaded, so nothing mounts before then (a fold reads its default when it mounts).
+function ToolSection({ card, count, summary, error, first, ready, children }: {
+  card: LibraryToolsCard; count?: number; summary?: string; error: unknown; first: boolean; ready: boolean; children: ReactNode
 }) {
-  if (!showFold(count, error)) return null
+  if (!ready || !showFold(count, error)) return null
   return (
-    <TabCard card={card} count={count} summary={summary}>
+    <TabCard card={card} count={count} summary={summary} defaultOpen={first}>
       <section aria-label={CARDS[card].title} className="tool-body">
         <ErrorBanner error={error} />
         {children}
@@ -195,6 +212,8 @@ function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) 
 // Series, costs, reading history, presets, voice bank and backups: the Library's
 // rarely used controls, each folded so people open them on purpose.
 export default function LibraryToolsPage() {
+  useState(() => seedPageTabFolds('library-tools',
+    Object.fromEntries(LIBRARY_TOOLS_TABS.map((t) => [t.id, cardsOf(t.id).map(cardStorageKey)]))))
   const [reloadKey, setReloadKey] = useState(0)
   const pc = usePcOnly()
   const stats = useLoad(getStats, reloadKey)
@@ -228,6 +247,17 @@ export default function LibraryToolsPage() {
   )
   const grouped = history.data ? groupHistory(history.data.items) : undefined
   const shared = series.data ? sharedSeries(series.data.items) : undefined
+  // Which sections of the two list tabs are on screen, in order: only the first starts open, and when
+  // none are the tab shows one empty note instead of nothing.
+  const organizeShown = [
+    showFold(shared?.length, series.error), showFold(presets.data?.items.length, presets.error),
+    showFold(voices.data?.items.length, voices.error), showFold(saved.data?.length, saved.error),
+  ]
+  const activityShown = [showFold(costs.data?.items.length, costs.error), showFold(grouped?.length, history.error)]
+  const firstOf = (shown: boolean[]) => shown.indexOf(true)
+  const settled = (...loads: { data: unknown; error: unknown }[]) => loads.every((l) => l.data !== null || !!l.error)
+  const organizeReady = settled(series, presets, voices, saved)
+  const activityReady = settled(costs, history)
   const totalCost = costs.data?.items.reduce((sum, c) => sum + c.estimated_cost_usd, 0)
   return (
     <PageShell
@@ -244,7 +274,7 @@ export default function LibraryToolsPage() {
       <section className="tools-stack" aria-label="Library tools">
         {panel('organize', (
           <>
-        <ToolSection card="series" count={shared?.length} summary={SERIES_HELP} error={series.error}>
+        <ToolSection card="series" ready={organizeReady} first={firstOf(organizeShown) === 0} count={shared?.length} summary={SERIES_HELP} error={series.error}>
           <ul className="tool-list series-list">
             {shared?.map((x) => (
               <li key={x.id} className="series-item">
@@ -272,7 +302,7 @@ export default function LibraryToolsPage() {
             ))}
           </ul>
         </ToolSection>
-        <ToolSection card="presets" count={presets.data?.items.length} error={presets.error}>
+        <ToolSection card="presets" ready={organizeReady} first={firstOf(organizeShown) === 1} count={presets.data?.items.length} error={presets.error}>
           <DeletableList
             pc={pc}
             help="Titles that used it keep their settings."
@@ -284,7 +314,7 @@ export default function LibraryToolsPage() {
             onDeleted={onChanged}
           />
         </ToolSection>
-        <ToolSection card="voice-bank" count={voices.data?.items.length} error={voices.error}>
+        <ToolSection card="voice-bank" ready={organizeReady} first={firstOf(organizeShown) === 2} count={voices.data?.items.length} error={voices.error}>
           <DeletableList
             pc={pc}
             help="Characters that used it keep their own copy."
@@ -296,15 +326,25 @@ export default function LibraryToolsPage() {
               ? <VoiceBankPlayButton entryId={id} name={name} /> : null}
           />
         </ToolSection>
-        <ToolSection card="saved-manga" count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
+        <ToolSection card="saved-manga" ready={organizeReady} first={firstOf(organizeShown) === 3} count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
           {saved.data && <SavedSeriesRows items={saved.data} />}
         </ToolSection>
+        {!organizeReady && <p className="muted">Loading…</p>}
+        {organizeReady && !organizeShown.some(Boolean) && <EmptyTab>{ORGANIZE_EMPTY}</EmptyTab>}
+        {pc !== 'remote' && (
+          <div className="tools-export">
+            <h3 className="tools-group-title">Export</h3>
+            <ExportBlock exportable={exportableCount(stats.data?.by_status)} job={exporter} />
+          </div>
+        )}
           </>
         ))}
         {panel('activity', (
           <>
         <ToolSection
           card="cost"
+          ready={activityReady}
+          first={firstOf(activityShown) === 0}
           count={costs.data?.items.length}
           summary={totalCost !== undefined ? `$${totalCost.toFixed(2)} in all` : undefined}
           error={costs.error}
@@ -323,7 +363,7 @@ export default function LibraryToolsPage() {
             ))}
           </ul>
         </ToolSection>
-        <ToolSection card="history" count={grouped?.length} error={history.error}>
+        <ToolSection card="history" ready={activityReady} first={firstOf(activityShown) === 1} count={grouped?.length} error={history.error}>
           <ul className="tool-list">
             {grouped?.map(({ entry: h, count }) => (
               <li key={`${h.drama_id}-${h.accessed_at}`}>
@@ -343,9 +383,11 @@ export default function LibraryToolsPage() {
           </ul>
           <ClearHistory pc={pc} onCleared={onChanged} />
         </ToolSection>
+        {!activityReady && <p className="muted">Loading…</p>}
+        {activityReady && !activityShown.some(Boolean) && <EmptyTab>{ACTIVITY_EMPTY}</EmptyTab>}
           </>
         ))}
-        {panel('backup', <BackupTab pc={pc} exportable={exportableCount(stats.data?.by_status)} exporter={exporter} />)}
+        {panel('backup', <BackupTab pc={pc} />)}
         {panel('storage', <StorageTab pc={pc} usage={usage} />)}
         {panel('data', pc === 'remote' ? <p className="muted">{PC_ONLY_BODY}</p> : <DataFolderPanel usage={usage} />)}
       </section>
