@@ -110,6 +110,7 @@ def _move_labelled(drama_id, kind, src, final, language):
     except BaseException:
         artifact_service.restore_download_label(drama_id, kind, name, previous)
         raise
+    artifact_service.remove_other_files(drama_id, kind, name)
 
 
 def _run_video_ffmpeg(job_id, cmd, cwd):
@@ -247,8 +248,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
         raise InvalidInputError("Unknown subtitle format.")
     if subtitle_format == "ass":
         sub_text = export_service.generate_ass_text(drama_id, field=field,
-                                                    include_notes=include_notes,
-                                                    keep_overlaps=True)
+                                                    include_notes=include_notes)
         ext = ".mkv"
     else:
         sub_text = export_service.generate_subtitle_text(drama_id, "srt", field,

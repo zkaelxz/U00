@@ -360,3 +360,55 @@ def test_a_failed_move_over_an_existing_export_restores_its_language(isolated_db
         with pytest.raises(OSError):
             media_export_service._move_labelled(did, "video", str(src), final, "zh")
     assert artifact_service.get_artifact(did, "video")["language"] == "en"
+
+
+class TestRemoveOtherFiles:
+    def _write(self, did, kind, name):
+        path = artifact_service.output_path(did, kind, name)
+        with open(path, "wb") as f:
+            f.write(b"x")
+        return path
+
+    def test_keeps_only_the_named_file(self, did):
+        keep = self._write(did, "softsub_video", "a.mkv")
+        old = self._write(did, "softsub_video", "a.mp4")
+        artifact_service.remove_other_files(did, "softsub_video", "a.mkv")
+        assert os.path.exists(keep) and not os.path.exists(old)
+
+    def test_a_linked_kind_folder_is_never_followed(self, did, isolated_db):
+        exports = os.path.join(isolated_db.drama_dir(did), "exports")
+        os.makedirs(exports, exist_ok=True)
+        elsewhere = os.path.join(isolated_db.drama_dir(did), "dub_clips")
+        os.makedirs(elsewhere)
+        victim = os.path.join(elsewhere, "keep_me.wav")
+        with open(victim, "wb") as f:
+            f.write(b"x")
+        try:
+            os.symlink(elsewhere, os.path.join(exports, "softsub_video"), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("this platform cannot create symlinks")
+        artifact_service.remove_other_files(did, "softsub_video", "new.mkv")
+        assert os.path.exists(victim)
+
+    def test_a_linked_exports_folder_is_never_followed(self, did, isolated_db):
+        ddir = isolated_db.drama_dir(did)
+        elsewhere = os.path.join(ddir, "other")
+        os.makedirs(os.path.join(elsewhere, "softsub_video"))
+        victim = os.path.join(elsewhere, "softsub_video", "keep_me.wav")
+        with open(victim, "wb") as f:
+            f.write(b"x")
+        try:
+            os.symlink(elsewhere, os.path.join(ddir, "exports"), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("this platform cannot create symlinks")
+        artifact_service.remove_other_files(did, "softsub_video", "new.mkv")
+        assert os.path.exists(victim)
+
+    def test_a_failing_lookup_does_not_raise(self, did, monkeypatch):
+        old = self._write(did, "softsub_video", "a.mp4")
+
+        def locked(*a, **k):
+            raise RuntimeError("database is locked")
+        monkeypatch.setattr(artifact_service.db, "get_drama", locked)
+        artifact_service.remove_other_files(did, "softsub_video", "a.mkv")
+        assert os.path.exists(old)

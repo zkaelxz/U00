@@ -231,8 +231,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                       per_speaker_colors: bool = True, include_notes: bool = False,
                       notes_as_separate_line: bool = False,
                       wrap_chars_en: Optional[int] = None,
-                      wrap_chars_source: Optional[int] = None,
-                      keep_overlaps: bool = False) -> str:
+                      wrap_chars_source: Optional[int] = None) -> str:
     """Generates ASS subtitle text for one drama --
     pure and read-only, returns text only.
 
@@ -245,10 +244,10 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     {speaker_label: "#RRGGBB"}; when omitted and per_speaker_colors is
     true, subtitle_formats.default_speaker_colors picks one per speaker in
     the drama; per_speaker_colors=False means one style for everyone.
-    Overlaps are clamped and lines wrapped exactly as generate_subtitle_text
-    does, unless keep_overlaps (the soft-subtitle ASS track, whose point is
-    that players stack overlapping cues). notes_as_separate_line requires
-    include_notes.
+    Overlapping cues keep their saved times (players stack them, which is
+    how two speakers talking at once stay readable); SRT is the format that
+    trims them. Lines are wrapped as generate_subtitle_text does.
+    notes_as_separate_line requires include_notes.
 
     Not done here: persisting the style per drama (it's per-request), the
     Package zip, "Mark as exported" (mark_exported), and any binary/file
@@ -278,7 +277,6 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     check_wrap(wrap_chars_source, "wrap_chars_source")
 
     drama, lines = _load_drama_and_lines(drama_id)
-    export_lines = lines if keep_overlaps else subtitle_formats.clamp_overlaps(lines)[0]
 
     if not per_speaker_colors:
         colors = {}
@@ -293,7 +291,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
 
     return subtitle_formats.lines_to_ass(
-        export_lines, merged_style, field, notes_by_idx,
+        lines, merged_style, field, notes_by_idx,
         speaker_colors=colors, speaker_names=speaker_names,
         wrap_chars=build_wrap_chars(wrap_chars_en, wrap_chars_source),
         title=drama.get("title_en") or drama.get("title_zh") or "",
@@ -412,9 +410,9 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
 
     fmt: "srt", "vtt" or "lrc". field: "en", "zh", or "bilingual" (both formats
     support all three -- see subtitle_formats.lines_to_vtt/core.
-    lines_to_srt/lines_to_bilingual_srt). Overlapping cues are trimmed
-    first (subtitle_formats.clamp_overlaps), as generate_ass_text does,
-    so the formats never disagree about what "the export" contains.
+    lines_to_srt/lines_to_bilingual_srt). SRT and LRC get overlapping cues
+    trimmed first (subtitle_formats.clamp_overlaps) because they cannot show
+    two cues at once; VTT keeps the saved times, as ASS does.
 
     include_notes folds in this drama's saved translation notes
     (db.list_translation_notes), appended inline -- ASS's separate-note-line
@@ -428,8 +426,8 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     subtitle_formats.tidy_cue_timing at `fps`; without one, the frame rate
     ffprobe reads from the title's video (bounded timeout), else 24: it is
     not stored on the title. The fps used comes back as "fps" (None when
-    nothing was tidied). VTT, LRC and
-    ASS keep the overlap-clamped times as they are. Returns {"text",
+    nothing was tidied). VTT and ASS keep the saved times, LRC the
+    overlap-clamped ones. Returns {"text",
     "cues_extended", "cues_trimmed", "cues_left_long" (cue numbers), "fps"}.
 
     Raises NotFoundError for an unknown drama id, InvalidInputError for
@@ -452,7 +450,7 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
 
     if fmt == "vtt":
-        return _export_result(subtitle_formats.lines_to_vtt(export_lines, field, notes_by_idx, wrap_chars))
+        return _export_result(subtitle_formats.lines_to_vtt(lines, field, notes_by_idx, wrap_chars))
     if fmt == "lrc":
         return _export_result(subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars))
 

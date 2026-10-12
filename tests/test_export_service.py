@@ -85,6 +85,17 @@ class TestGetExportReadiness:
         result = export_service.get_export_readiness(did)
         assert result["overlap_count"] == 1
 
+    def test_overlap_count_does_not_depend_on_the_export_format(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="a", en="One"),
+            Line(idx=1, start=2.0, end=5.0, zh="b", en="Two"),
+            Line(idx=2, start=4.0, end=6.0, zh="c", en="Three"),
+        ])
+        export_service.generate_ass_text(did)
+        export_service.generate_subtitle_text(did, "vtt", "en")
+        assert export_service.get_export_readiness(did)["overlap_count"] == 2
+
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             export_service.get_export_readiness(999999)
@@ -130,15 +141,27 @@ class TestGenerateSubtitleText:
         assert "00:00:00,000 --> 00:00:03,000" not in text
         assert "00:00:00,000 --> 00:00:02,000" in text
 
-    def test_ass_clamps_overlaps_unless_asked_to_keep_them(self, isolated_db):
+    def test_ass_and_vtt_keep_overlapping_cues_as_saved(self, isolated_db):
         did = _drama(isolated_db)
         isolated_db.save_lines(did, [
             Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
             Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
         ])
-        assert "0:00:00.00,0:00:03.00" not in export_service.generate_ass_text(did)
-        kept = export_service.generate_ass_text(did, keep_overlaps=True)
-        assert "0:00:00.00,0:00:03.00" in kept and "0:00:02.00,0:00:04.00" in kept
+        ass = export_service.generate_ass_text(did)
+        assert "0:00:00.00,0:00:03.00" in ass and "0:00:02.00,0:00:04.00" in ass
+        vtt = export_service.generate_subtitle_text(did, "vtt", "en")
+        assert "00:00:00.000 --> 00:00:03.000" in vtt and "00:00:02.000 --> 00:00:04.000" in vtt
+
+    def test_srt_and_bilingual_srt_still_trim_the_same_overlap(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        for field in ("en", "bilingual"):
+            text = export_service.generate_subtitle_text(did, "srt", field)
+            assert "00:00:00,000 --> 00:00:02,000" in text
+            assert "00:00:03,000" not in text
 
     def test_wrap_chars_applies_to_srt(self, isolated_db):
         did = _drama(isolated_db)
@@ -457,8 +480,7 @@ class TestGetAssStyleOptions:
 class TestGenerateAssText:
     def _expected(self, db, did, style, field="en", **kw):
         lines = lines_from_rows(db.load_lines(did))
-        clamped, _ = sf.clamp_overlaps(lines)
-        return sf.lines_to_ass(clamped, style, field, title="D", **kw)
+        return sf.lines_to_ass(lines, style, field, title="D", **kw)
 
     def test_en_matches_real_formatter(self, isolated_db):
         did = _ass_drama(isolated_db)
@@ -500,14 +522,14 @@ class TestGenerateAssText:
                                       speaker_colors={}, speaker_names={})
         assert "Meiryo,40" in text and "Arial Black" not in text
 
-    def test_overlaps_clamped_like_srt(self, isolated_db):
+    def test_overlaps_are_kept_unlike_srt(self, isolated_db):
         did = _ass_drama(isolated_db, [
             Line(idx=0, start=0.0, end=3.0, zh="a", en="One"),
             Line(idx=1, start=2.0, end=4.0, zh="b", en="Two"),
         ])
         text = export_service.generate_ass_text(did)
-        assert "Dialogue: 0,0:00:00.00,0:00:02.00" in text
-        assert "0:00:03.00" not in text
+        assert "Dialogue: 0,0:00:00.00,0:00:03.00" in text
+        assert "Dialogue: 0,0:00:02.00,0:00:04.00" in text
 
     def test_wrap_applied(self, isolated_db):
         long_text = "This is a very long English subtitle line that should wrap onto more lines"

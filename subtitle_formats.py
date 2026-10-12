@@ -477,8 +477,20 @@ def _ass_ts(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
+# A script is split into records at CR and LF, and some parsers also treat
+# the Unicode separators as line ends, so a bare one in the Text field could
+# begin a forged Dialogue or section line.
+_ASS_LINE_BREAKS = re.compile(r"\r\n|[\n\r\u0085\u2028\u2029]")
+
+
+_ASS_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
 def _ass_escape(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+    text = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+    # Other control characters have no meaning in dialogue text and a parser
+    # may mishandle them, so they become spaces as in _ass_clean.
+    return _ASS_CONTROLS.sub(" ", _ASS_LINE_BREAKS.sub(r"\\N", text))
 
 
 def _style_line(name: str, style: dict, primary: str) -> str:

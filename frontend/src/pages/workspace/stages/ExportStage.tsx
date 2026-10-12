@@ -90,7 +90,6 @@ export default function ExportStage() {
   const r = readiness
   const review: string[] = []
   if (r) {
-    if (r.overlap_count > 0) review.push(plural(r.overlap_count, 'overlapping line'))
     if (r.auto_qc_issue_count > 0) review.push(plural(r.auto_qc_issue_count, 'auto-QC issue'))
     if (r.dense_line_count > 0) review.push(plural(r.dense_line_count, 'dense line'))
   }
@@ -140,9 +139,15 @@ export default function ExportStage() {
               <Badge>{plural(r.total_lines, 'line')}</Badge>{' '}
               <Badge tone={r.total_lines === 0 ? 'neutral' : r.fully_translated ? 'ok' : 'warn'}>{r.en_filled} translated</Badge>
             </p>
-            {(untranslated || review.length > 0) && (
+            {(untranslated || review.length > 0 || r.overlap_count > 0) && (
               <ul className="export-warnings" data-testid="readiness-warnings">
                 {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have gaps.</li>}
+                {r.overlap_count > 0 && (
+                  <li className="muted">
+                    {plural(r.overlap_count, 'cue')} overlap; both stay fully visible in ASS and VTT and are shortened in SRT.{' '}
+                    <a href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
+                  </li>
+                )}
                 {review.length > 0 && (
                   <li className="muted">
                     {review.join(', ')}. <a href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
