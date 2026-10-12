@@ -23,6 +23,7 @@ export type Route =
   // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
   | { name: 'benchmark'; compare?: string }
   | { name: 'translate' }
+  | { name: 'make-subtitles' }
   | { name: 'sources' }
   // tab: "#/sources/manage?tab=network"; no tab opens Sites.
   | { name: 'sources-manage'; tab?: ManageTab }
@@ -71,6 +72,7 @@ export function parseRoute(hash: string): Route {
     return compare && compare.length <= 1000 ? { name: 'benchmark', compare } : { name: 'benchmark' }
   }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
+  if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
   if (head === 'sources' && parts.length === 1) return { name: 'sources' }
   if (head === 'sources' && a === 'manage' && parts.length === 2) {
     const tab = new URLSearchParams(qs).get('tab')

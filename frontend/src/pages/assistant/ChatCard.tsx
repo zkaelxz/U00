@@ -16,7 +16,6 @@ import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, ChatTurn
 import { CloudConsent } from './CloudConsent'
 import { CopyButton } from './CopyButton'
 import { DeliverPr } from './DeliverPr'
-import { ReviewRolesSection } from './ReviewRolesSection'
 import { verdictInfo } from './reviewFormat'
 import {
   MODE_OFF_TEXT,
@@ -204,7 +203,6 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
         onSettings={onSettings}
       />
       <LadderSection settings={settings} onSettings={onSettings} />
-      <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={onSettings} />
       {offer && (
         <EscalateDialog
           offer={offer}
@@ -569,7 +567,7 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
   }
 
   return (
-    <Section title="Engine" defaultOpen summary={summary} storageKey="assistant.engine">
+    <Section title="Engine" summary={summary} storageKey="assistant.engine">
       <div className="assistant-engine">
         <Field label={AI_ENGINE_LABEL} help="Which AI answers. The default, Ollama, runs on this PC; a cloud engine needs your OK to receive code and logs.">
           <select

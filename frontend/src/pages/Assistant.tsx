@@ -8,18 +8,23 @@
  * Reached by URL with the mode off, the page shows only a link to the Developer
  * Mode card in Settings; from another device, only a "PC only" line.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { addBacklogItem, getAssistantSettings, listBacklog } from '../api/assistant'
 import { getGithubStatus } from '../api/assistantGithub'
 import { getPcMode, loadPcMode } from '../api/pcOnly'
 import { Card } from '../components/Card'
+import { Tabs } from '../components/Tabs'
+import { tabButtonId, tabPanelId } from '../components/tabIds'
+import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref } from '../router'
 import type { AssistantSettings, BacklogItem, BacklogKind, GithubStatus } from '../types/assistant'
 import { BacklogCard } from './assistant/BacklogCard'
 import { ChangelogCard } from './assistant/ChangelogCard'
 import { ChatCard } from './assistant/ChatCard'
 import { GithubCard } from './assistant/GithubCard'
+import { ASSISTANT_TABS, resolveAssistantTab, type AssistantTab } from './assistant/assistantTabs'
+import { ReviewRolesSection } from './assistant/ReviewRolesSection'
 import { PC_ONLY_TEXT, assistantErrorText, isForbidden } from './assistant/assistantFormat'
 import { ToolsCard } from './assistant/ToolsCard'
 import './assistant/assistant.css'
@@ -32,6 +37,10 @@ export default function AssistantPage() {
   const [backlogError, setBacklogError] = useState<string | null>(null)
   // Null until loaded (or when the status call fails: the card and Deliver stay hidden).
   const [github, setGithub] = useState<GithubStatus | null>(null)
+  // The third tab waits for the status call so its first card is the right one to open.
+  const [githubKnown, setGithubKnown] = useState(false)
+  const [storedTab, setTab] = usePersistedState<string>('assistant.tab', 'ask')
+  const tab = resolveAssistantTab(storedTab)
   // The engine and model for this visit's asks and changelogs; blank = the saved default / server default.
   const [engine, setEngine] = useState('')
   const [model, setModel] = useState('')
@@ -68,8 +77,16 @@ export default function AssistantPage() {
       (e: unknown) => live && setBacklogError(assistantErrorText(e)),
     )
     getGithubStatus().then(
-      (s) => live && setGithub(s),
-      () => live && setGithub(null),
+      (s) => {
+        if (!live) return
+        setGithub(s)
+        setGithubKnown(true)
+      },
+      () => {
+        if (!live) return
+        setGithub(null)
+        setGithubKnown(true)
+      },
     )
     return () => {
       live = false
@@ -109,9 +126,16 @@ export default function AssistantPage() {
     body = <ModeOffMessage />
   } else {
     const settings = load.settings
+    const panel = (id: AssistantTab, children: ReactNode) => (
+      <div id={tabPanelId('assistant', id)} role="tabpanel" aria-labelledby={tabButtonId('assistant', id)} className="assistant-panel" hidden={tab !== id}>
+        {children}
+      </div>
+    )
     body = (
       <>
-        <ChatCard
+        <Tabs label="Assistant" idPrefix="assistant" tabs={ASSISTANT_TABS} active={tab} onSelect={setTab} />
+        {panel('ask', (
+          <ChatCard
           settings={settings}
           engine={engine}
           model={model}
@@ -121,11 +145,21 @@ export default function AssistantPage() {
           onModeOff={refresh}
           onAddToBacklog={addToBacklog}
           github={github}
-        />
-        <BacklogCard items={backlog} loadError={backlogError} onItems={setBacklog} onAdd={addToBacklog} />
-        <ChangelogCard engine={engine} model={model} onModeOff={refresh} />
-        {github && <GithubCard status={github} onStatus={setGithub} />}
-        <ToolsCard />
+          />
+        ))}
+        {panel('work', (
+          <>
+            <BacklogCard items={backlog} loadError={backlogError} onItems={setBacklog} onAdd={addToBacklog} />
+            <ChangelogCard engine={engine} model={model} onModeOff={refresh} />
+          </>
+        ))}
+        {panel('tools', githubKnown && (
+          <>
+            {github && <GithubCard status={github} onStatus={setGithub} />}
+            <ToolsCard githubConfigured={!!github} />
+            <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={(s) => setLoad({ state: 'ready', settings: s })} githubConfigured={!!github} />
+          </>
+        ))}
       </>
     )
   }

@@ -11,6 +11,7 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import type { AssistantSettings, AssistantSettingsPatch } from '../../types/assistant'
 import { assistantErrorText } from './assistantFormat'
+import { cardStartsOpen } from './assistantTabs'
 import { CloudConsent } from './CloudConsent'
 import { reviewEngineProblem } from './reviewFormat'
 
@@ -18,9 +19,10 @@ type Props = {
   settings: AssistantSettings
   implementEngine: string
   onSettings: (s: AssistantSettings) => void
+  githubConfigured: boolean
 }
 
-export function ReviewRolesSection({ settings, implementEngine, onSettings }: Props) {
+export function ReviewRolesSection({ settings, implementEngine, onSettings, githubConfigured }: Props) {
   const [reviewEngine, setReviewEngine] = useState(settings.review_engine ?? '')
   const [reviewModel, setReviewModel] = useState(settings.review_model ?? '')
   const [busy, setBusy] = useState(false)
@@ -52,6 +54,7 @@ export function ReviewRolesSection({ settings, implementEngine, onSettings }: Pr
       title="Independent review"
       summary={on ? `On · ${reviewEngine ? humanize('engine', reviewEngine) : 'no engine'}` : 'Off'}
       storageKey="assistant.review"
+      defaultOpen={cardStartsOpen('review', githubConfigured)}
     >
       <Field
         label="Review each proposed fix"
