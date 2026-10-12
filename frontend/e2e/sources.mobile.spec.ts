@@ -107,7 +107,7 @@ test('phone: the sites render as cards with 44 px toggles', async ({ page }) => 
   await expect(cards.nth(1)).toContainText('Signed in')
   await expect(settings.getByRole('switch', { name: 'On: Alpha Comics' })).toBeChecked()
   await noSideways(page)
-  await tallTargets(page, '.sources-manage-page')
+  await tallTargets(page, '.sources-manage-panel')
   expect(s.unmocked).toEqual([])
 })
 
@@ -226,4 +226,24 @@ test('open series with many rows scrolls with the page, no inner scrollbar', asy
   await expect(panel.getByRole('heading', { level: 4, name: 'Extras' })).toBeVisible()
   await noInnerScroll(page)
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(await page.evaluate(() => innerHeight))
+})
+
+test('phone: a tracked series with a long title wraps and its controls stay inside the screen', async ({ page }) => {
+  const title = `A very long tracked series title that would not fit on one line of a phone screen ${'LongUnbrokenWord'.repeat(6)}`
+  const s = await mockSources(page, {
+    tracked: [{ source: 'alpha', series_id: 'a0', title, url: '', drama_id: null, last_checked: 1, last_check_error: 'Timed out waiting for the site to answer, try again later.', save_cbz: false }],
+  })
+  await mockAccess(page, s)
+  await page.goto('/#/sources?tab=new')
+  const row = page.locator('.sources-tracked > li')
+  await expect(row.getByText(title)).toBeVisible()
+  const cbz = row.getByText('Save new chapters as CBZ')
+  await expect(cbz).toBeVisible()
+  const box = await cbz.boundingBox()
+  expect(box!.x + box!.width, 'CBZ label runs off the right edge').toBeLessThanOrEqual(390)
+  expect((await row.getByText(title).boundingBox())!.height, 'title wraps').toBeGreaterThan(30)
+  expect((await row.getByText(title).boundingBox())!.width, 'title inside the screen').toBeLessThanOrEqual(390)
+  await noSideways(page)
+  await tallTargets(page)
+  expect(s.unmocked).toEqual([])
 })

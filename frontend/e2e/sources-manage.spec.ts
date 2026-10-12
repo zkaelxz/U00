@@ -3,12 +3,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { mockDomains } from './sourceDomainsMocks'
 import { mockSources, openManage } from './sourcesMocks'
 
-// Manage sources (#/sources/manage), desktop 1280x800: one level of tabs, the fold rule,
-// the empty state, and no sideways scroll in light and dark. Every call is mocked.
+// Sources tabs and Manage sources, desktop 1280x800: one level of tabs, the fold rule, the old
+// #/sources/manage link, the empty state, and no sideways scroll in light and dark. Every call is mocked.
 
 test.use({ viewport: { width: 1280, height: 800 } })
 
-const TABS = ['Sites', 'Timing & cache', 'Network', 'Activity']
+const TABS = ['Find', 'New chapters', 'Manage sources']
 
 async function noSideways(page: Page) {
   const { scroll, client } = await page.evaluate(() => ({
@@ -23,32 +23,35 @@ test('every tab fits at 1280x800 in light and dark, with one level of tabs', asy
   await mockDomains(page)
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
-    const manage = await openManage(page)
-    await expect(manage.getByRole('heading', { level: 2, name: 'Manage sources' })).toBeVisible()
+    await openManage(page)
+    await expect(page.getByRole('heading', { level: 2, name: 'Sources' })).toBeVisible()
     for (const name of TABS) {
-      await manage.getByRole('tab', { name }).click()
-      await expect(manage.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
+      await page.getByRole('tab', { name }).click()
+      await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
       await noSideways(page)
-      await page.screenshot({ path: `test-results/screens/sources-manage-${name.split(' ')[0].toLowerCase()}-${scheme}.png`, fullPage: true })
+      await page.screenshot({ path: `test-results/screens/sources-${name.split(' ')[0].toLowerCase()}-${scheme}.png`, fullPage: true })
     }
     // One tablist, and no tab or tablist nested in a panel.
     await expect(page.getByRole('tablist')).toHaveCount(1)
-    await expect(manage.getByRole('tabpanel').getByRole('tab')).toHaveCount(0)
+    await expect(page.getByRole('tabpanel').getByRole('tab')).toHaveCount(0)
   }
   expect(s.unmocked).toEqual([])
 })
 
-test('the header matches the other tabbed pages: breadcrumb, title row, back link', async ({ page }) => {
+test('the header is the Sources page header with its tabs; switching tabs keeps the Find search', async ({ page }) => {
   await mockSources(page)
-  const manage = await openManage(page)
-  await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Sources' })).toBeVisible()
-  const head = manage.locator('header.page-head')
-  await expect(head.getByRole('heading', { level: 2 })).toHaveText('Manage sources')
-  await head.getByRole('link', { name: 'Back to Sources' }).click()
-  await expect(page).toHaveURL(/#\/sources$/)
-  // The Sources page leads here with one quiet link.
-  await page.getByRole('link', { name: 'Manage sources' }).click()
-  await expect(page).toHaveURL(/#\/sources\/manage$/)
+  await page.goto('/#/sources')
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)
+  await expect(page.locator('header.page-head').getByRole('heading', { level: 2 })).toHaveText('Sources')
+  await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
+  await page.getByRole('tab', { name: 'Manage sources' }).click()
+  await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
+  await page.goBack()
+  await expect(page.getByRole('tab', { name: 'Find' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('searchbox', { name: 'Title' })).toHaveValue('Heaven')
+  // Find leads here with one quiet line.
+  await page.getByRole('tabpanel').getByRole('link', { name: 'Manage sources' }).click()
+  await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
 })
 
 test('Sites is a compact row: name, status, On, Rules, Details', async ({ page }) => {
@@ -63,14 +66,17 @@ test('Sites is a compact row: name, status, On, Rules, Details', async ({ page }
   await expect(manage.getByRole('columnheader', { name: /Adult|Sign-in|Health/ })).toHaveCount(0)
 })
 
-test('a tab link opens that tab, and keyboard focus is visible on its controls', async ({ page }) => {
+test('the old Manage sources link opens that tab and scrolls to the area; keyboard focus is visible on its controls', async ({ page }) => {
   await mockSources(page)
   await mockDomains(page)
   const manage = await openManage(page, 'network')
-  await expect(manage.getByRole('tab', { name: 'Network' })).toHaveAttribute('aria-selected', 'true')
-  await manage.getByRole('tab', { name: 'Sites' }).click()
+  await expect(page.getByRole('tab', { name: 'Manage sources' })).toHaveAttribute('aria-selected', 'true')
+  await expect(manage.locator('#sources-manage-network')).toBeInViewport()
+  await page.getByRole('tab', { name: 'Find' }).click()
+  await expect(page).toHaveURL(/#\/sources$/)
+  await page.getByRole('tab', { name: 'Manage sources' }).click()
   const details = manage.getByRole('button', { name: 'Details: Alpha Comics' })
-  for (let i = 0; i < 40 && !(await details.evaluate((e) => e === document.activeElement)); i++) await page.keyboard.press('Tab')
+  for (let i = 0; i < 60 && !(await details.evaluate((e) => e === document.activeElement)); i++) await page.keyboard.press('Tab')
   await expect(details).toBeFocused()
   const ring = await details.evaluate((e) => {
     const c = getComputedStyle(e)
@@ -79,27 +85,28 @@ test('a tab link opens that tab, and keyboard focus is visible on its controls',
   expect(ring, 'focus ring').not.toBe('none')
 })
 
-test('fold rule: the first card is open the first time, the rest closed, and the choice is remembered', async ({ page }) => {
+test('fold rule: only the first card of the tab is open the first time, and the choice is remembered', async ({ page }) => {
   await mockSources(page)
-  const manage = await openManage(page, 'timing')
+  await openManage(page)
   const card = (title: string) => page.locator(`details.section:has(> summary > .section-title:text-is("${title}"))`)
-  await expect(card('Pacing')).toHaveAttribute('open', '')
+  await expect(card('All sites')).toHaveAttribute('open', '')
+  await expect(card('Pacing')).not.toHaveAttribute('open', '')
   await expect(card('Saved pages')).not.toHaveAttribute('open', '')
   await expect(card('Advanced timing')).not.toHaveAttribute('open', '')
-  await card('Saved pages').locator(':scope > summary').click()
   await card('Pacing').locator(':scope > summary').click()
+  await card('All sites').locator(':scope > summary').click()
   // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
-  await page.waitForFunction(() => Object.keys(window.localStorage).filter((k) => k.startsWith('baihe.section.sources.manage.timing.')).length >= 2)
+  await page.waitForFunction(() => ['sites.sites', 'timing.pacing'].every((k) => localStorage.getItem(`baihe.section.sources.manage.${k}`) !== null))
   await page.reload()
-  await expect(manage.getByRole('tab', { name: 'Timing & cache' })).toHaveAttribute('aria-selected', 'true')
-  await expect(card('Saved pages')).toHaveAttribute('open', '')
-  await expect(card('Pacing')).not.toHaveAttribute('open', '')
+  await expect(page.getByRole('tab', { name: 'Manage sources' })).toHaveAttribute('aria-selected', 'true')
+  await expect(card('Pacing')).toHaveAttribute('open', '')
+  await expect(card('All sites')).not.toHaveAttribute('open', '')
 })
 
-test('Activity with nothing to list says so instead of showing a blank tab', async ({ page }) => {
+test('Activity with nothing to list says so instead of showing a blank area', async ({ page }) => {
   const s = await mockSources(page)
   const manage = await openManage(page, 'activity')
   await expect(manage.getByText('Nothing yet. Pages you import from a link are listed here.')).toBeVisible()
-  await expect(manage.getByRole('tabpanel').locator('details.section')).toHaveCount(0)
+  await expect(manage.locator('#sources-manage-activity details.section')).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })

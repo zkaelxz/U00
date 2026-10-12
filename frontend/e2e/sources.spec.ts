@@ -25,8 +25,17 @@ test('nav, header, empty-state and disabled reasons', async ({ page }) => {
   await page.goto('/#/sources')
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sources' })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { level: 2, name: 'Sources' })).toBeVisible()
+  // One level of tabs; the sources summary lives on Manage sources, with one line leading there from Find.
+  await expect(page.getByRole('tab')).toHaveText(['Find', 'New chapters', 'Manage sources'])
+  await expect(page.getByRole('tab', { name: 'Find' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('sources-summary')).toHaveCount(0)
+  await expect(page.getByRole('tabpanel').getByRole('link', { name: 'Manage sources' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Manage sources' }).click()
+  await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
   await expect(page.getByTestId('sources-summary')).toHaveText('3 sources on · 2 searchable · 1 paused')
   await expect(page.getByTestId('sources-summary').locator('.pill-warn')).toHaveText('1 paused')
+  await page.getByRole('tab', { name: 'Find' }).click()
+  await expect(page).toHaveURL(/#\/sources$/)
   // One card, one input at a time: Search by title first, Paste a link one tap away.
   await expect(page.getByRole('radio', { name: 'Search by title' })).toBeChecked()
   await expect(page.getByRole('textbox', { name: 'Paste a link' })).toBeHidden()
@@ -173,7 +182,7 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
     s.calls.push({ method: 'POST', path: '/api/sources/tracked', body: route.request().postDataJSON() })
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify([tracked[0]]) })
   })
-  await page.goto('/#/sources')
+  await page.goto('/#/sources?tab=new')
   const box = page.getByRole('region', { name: 'New chapters' })
   await expect(box.getByText('Chapter 125 · Alpha Comics · 2 h ago')).toBeVisible()
   await expect(box.getByText('· last check failed: Timed out.')).toBeVisible()
@@ -215,10 +224,10 @@ test('remote: search and Manage sources are PC only, no settings request', async
   await page.goto('/#/sources')
   await expect(page.getByText('Searching sources is PC only for now.')).toBeVisible()
   await expect(page.getByRole('search')).toHaveCount(0)
-  await page.getByRole('link', { name: 'Manage sources' }).click()
-  const manage = page.locator('.sources-manage-page')
+  await page.getByRole('tab', { name: 'Manage sources' }).click()
+  const manage = page.locator('.sources-manage-panel')
   await expect(manage.getByText('PC only. Run this on the main PC.')).toBeVisible()
-  // Members see that one line: no tabs, no site list.
+  // Members see that one line: no inner tabs, no site list.
   await expect(manage.getByRole('tablist')).toHaveCount(0)
   await expect(manage.locator('table, ul.source-cards')).toHaveCount(0)
   // The page's own mount reads are issued in the same commit as a settings read would be.
@@ -409,16 +418,12 @@ test('manage sources, Timing & cache: one Save, validation, cache limit, Clear c
   })
 
   const manage = await openManage(page)
-  // One tab level through the shared Tabs; Back returns to the tab that was left.
-  await expect(manage.getByRole('tab')).toHaveCount(4)
-  await manage.getByRole('tab', { name: 'Timing & cache' }).click()
-  await expect(page).toHaveURL(/#\/sources\/manage\?tab=timing$/)
-  await page.goBack()
-  await expect(manage.getByRole('tab', { name: 'Sites' })).toHaveAttribute('aria-selected', 'true')
-  await page.goForward()
-  await expect(manage.getByRole('tab', { name: 'Timing & cache' })).toHaveAttribute('aria-selected', 'true')
+  // One tab level through the shared Tabs: the Sources tabs, none inside Manage sources.
+  await expect(page.getByRole('tab')).toHaveCount(3)
+  await expect(manage.getByRole('tab')).toHaveCount(0)
 
-  // The Pacing card is open the first time, with one summary row; the rest is behind Advanced timing.
+  // The Pacing card is closed the first time (only All sites starts open), with one summary row; the rest is behind Advanced timing.
+  await manage.locator('summary', { hasText: 'Pacing' }).click()
   await expect(manage.getByTestId('pacing-summary')).toHaveText('3–8 s gap · 1 at a time · 3 retries · breaks every 8–20')
   const gapTo = manage.getByLabel('Wait between requests, to (s)')
   await expect(gapTo).toBeHidden()
@@ -485,7 +490,7 @@ test('New chapters: auto-import and the check interval sit on the card and apply
     current = { ...current, ...body }
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) })
   })
-  await page.goto('/#/sources')
+  await page.goto('/#/sources?tab=new')
   const box = page.getByRole('region', { name: 'New chapters' })
   const auto = box.getByRole('switch', { name: 'Auto-import new chapters' })
   await expect(auto).not.toBeChecked()
@@ -502,9 +507,10 @@ test('New chapters: auto-import and the check interval sit on the card and apply
   await hours.fill('12')
   await hours.press('Enter')
   await expect.poll(() => posted(s, '/api/sources/settings').at(-1)?.body).toEqual({ check_interval_hours: 12 })
-  // Nothing about Sources settings is left on this page: the link leads to the rest.
+  // Nothing about Sources settings is left on this page: the link on Find leads to the rest.
   await expect(page.getByRole('region', { name: 'Source settings' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'Manage sources' })).toHaveAttribute('href', '#/sources/manage')
+  await page.getByRole('tab', { name: 'Find' }).click()
+  await expect(page.getByRole('link', { name: 'Manage sources' })).toHaveAttribute('href', '#/sources?tab=manage')
   expect(s.unmocked).toEqual([])
 })
 

@@ -39,8 +39,11 @@
 
 /* Desktop: search + results left, the open series right. The panel flows with the page:
    a sticky, height-capped panel would be a second scroll area inside the page. */
-.sources-page.wide.has-series .page-shell-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
-.sources-page.wide.has-series .page-shell-body > :not(.sources-main):not(.sources-series) { grid-column: 1 / -1; }
+.sources-panel { display: grid; gap: var(--page-gap); min-width: 0; align-content: start; }
+.sources-panel[hidden] { display: none; }
+.sources-page.wide.has-series .sources-find-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.sources-page.wide.has-series .sources-find-panel > :not(.sources-main):not(.sources-series) { grid-column: 1 / -1; }
+.sources-manage-link { margin: 0; }
 
 /* Search */
 .sources-search { display: grid; gap: var(--space-2); }
@@ -91,6 +94,10 @@ ul.source-results > li {
 .sources-rows { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-1); }
 .sources-rows > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .sources-rows > li > span:first-child { min-width: 0; flex: 1 1 14rem; }
+/* A tracked series: the title (which may be long) on its own lines, then the controls, wrapping as a group. */
+.sources-tracked > li { display: grid; justify-content: stretch; gap: var(--space-2); min-width: 0; padding-block: var(--space-2); border-top: 1px solid var(--border); }
+.sources-tracked-title { min-width: 0; overflow-wrap: anywhere; }
+.sources-tracked-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); min-width: 0; }
 
 /* Source settings */
 .sources-subsection { display: grid; gap: var(--space-2); min-width: 0; margin-block: var(--space-3); }
@@ -112,8 +119,9 @@ ul.source-results > li {
 .source-profile { display: grid; gap: var(--space-1); }
 .sources-pacing { display: grid; gap: var(--space-3); min-width: 0; }
 .manage-panel { display: grid; gap: var(--space-3); min-width: 0; align-content: start; }
-.manage-panel[hidden] { display: none; }
-.sources-manage-page .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.manage-summaries { display: grid; gap: var(--space-1); }
+.manage-area { display: grid; gap: var(--space-3); min-width: 0; scroll-margin-top: var(--space-3); }
+.manage-panel .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .source-signed-in { white-space: nowrap; }
 .source-detail-wrap { display: grid; gap: var(--space-2); min-width: 0; }
 /* The two New chapters settings sit on one line and wrap under each other on a phone. */
@@ -222,7 +230,9 @@ ul.source-cards > li {
 .sources-check { display: grid; gap: var(--space-1); }
 .sources-check details ul { margin: 0; padding-left: 1.2rem; }
 .sources-check p, .sources-auto-help { margin: 0; }
-.sources-autoimport { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); min-width: 0; }
+.sources-autoimport { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); min-width: 0; max-width: 100%; }
+.sources-autoimport span { min-width: 0; overflow-wrap: anywhere; }
+.sources-autoimport input[type='checkbox'] { flex: 0 0 auto; width: auto; }
 .sources-autoimport select { max-width: 14rem; min-width: 0; }
 .source-access, .source-signin, .sources-proxy { display: grid; gap: var(--space-2); min-width: 0; }
 .source-access > *, .source-signin > *, .sources-proxy > * { margin: 0; }
@@ -230,10 +240,12 @@ ul.source-cards > li {
 .source-signin h4 { margin: 0; }
 @media (pointer: coarse), (max-width: 640px) {
   .sources-autoimport { min-height: 44px; }
+  .sources-manage-link a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 @media (max-width: 640px) {
   .sources-autoimport { flex: 1 1 100%; justify-content: space-between; }
   .sources-autoimport select { flex: 1 1 auto; max-width: none; }
+  .sources-autoimport:has(input[type='checkbox']) { justify-content: flex-start; }
   .source-access .actions > button, .source-signin .actions > button { flex: 1 1 100%; }
 }
 .sources-find details.section { margin-bottom: 0; }

@@ -1,61 +1,34 @@
 /*
- * Manage sources (#/sources/manage, PC only): the site list, timing and cache, the network
- * settings and the pasted-link log, split over four tabs so each is short. The tab is in the URL
- * ("?tab=network"), so Back returns to the tab the person came from. Other devices see one line.
+ * The Manage sources tab of Sources (PC only): the site list, timing and cache, the network
+ * settings and the pasted-link log as one list of folds, the first open. Other devices see one line.
+ * The old link "#/sources/manage?tab=network" lands here and scrolls to that area.
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { getPcMode, loadPcMode } from '../api/pcOnly'
 import { clearSourcesCache, getSourcesSettings, listSources } from '../api/sources'
-import { ButtonLink } from '../components/Button'
+import { Badge } from '../components/Badge'
 import { ErrorBanner } from '../components/ErrorBanner'
-import { Tabs } from '../components/Tabs'
-import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../hooks/usePcOnly'
-import { PageShell } from '../components/PageShell'
-import { Breadcrumbs } from '../nav/BreadcrumbNav'
-import { routeCrumbs } from '../nav/breadcrumbs'
 import type { SourceHealth, SourcesSettings, SourceSummary } from '../types/sources'
 import { useDeveloperMode } from './assistant/developerMode'
 import { ActivityTab } from './sources/ActivityTab'
-import { MANAGE_TABS, emptyTabMessage, manageHref, type ManageTab } from './sources/manageTabs'
+import { emptyTabMessage, manageAreaId, type ManageTab } from './sources/manageTabs'
 import { NetworkTab } from './sources/NetworkTab'
 import { SitesTab } from './sources/SitesTab'
+import { pageSummary } from './sources/sourcesFormat'
 import { settingsSummary } from './sources/sourcesSettings'
 import { TimingTab } from './sources/TimingTab'
 import './sources/sources.css'
 
-const PREFIX = 'sources-manage'
-
-function ManageShell({ meta, tabs, children }: { meta?: ReactNode; tabs?: ReactNode; children: ReactNode }) {
-  return (
-    <PageShell
-      as="main"
-      width="standard"
-      title="Manage sources"
-      className="library-page sources-manage-page"
-      back={<Breadcrumbs crumbs={routeCrumbs({ name: 'sources-manage' })} />}
-      meta={meta}
-      tabs={tabs}
-      actions={<ButtonLink variant="secondary" href="#/sources">Back to Sources</ButtonLink>}
-    >
-      {children}
-    </PageShell>
-  )
-}
-
-export default function SourcesManagePage({ tab = 'sites' }: { tab?: ManageTab }) {
+export default function SourcesManagePanel({ area }: { area?: ManageTab }) {
   const pc = usePcOnly()
-  if (pc !== 'remote') return <ManageBody tab={tab} />
-  return (
-    <ManageShell>
-      <p className="muted">{`${PC_ONLY_SUMMARY}. ${PC_ONLY_BODY}`}</p>
-    </ManageShell>
-  )
+  if (pc !== 'remote') return <ManageBody area={area} />
+  return <p className="muted">{`${PC_ONLY_SUMMARY}. ${PC_ONLY_BODY}`}</p>
 }
 
-function ManageBody({ tab }: { tab: ManageTab }) {
+function ManageBody({ area }: { area?: ManageTab }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const developerMode = useDeveloperMode()
   const [sources, setSources] = useState<SourceSummary[] | null>(null)
@@ -78,6 +51,12 @@ function ManageBody({ tab }: { tab: ManageTab }) {
       off = true
     }
   }, [])
+
+  // The areas mount late (they wait for their data), so scroll once the one the link names exists.
+  const ready = sources !== null && settingsDone
+  useEffect(() => {
+    if (area && ready) document.getElementById(manageAreaId(area))?.scrollIntoView({ block: 'start' })
+  }, [area, ready])
 
   const replaceSource = useCallback(
     (s: SourceSummary) => setSources((cur) => (cur ? cur.map((x) => (x.name === s.name ? s : x)) : cur)),
@@ -102,31 +81,37 @@ function ManageBody({ tab }: { tab: ManageTab }) {
     }
   }
 
-  const select = (id: ManageTab) => {
-    window.location.hash = manageHref(id)
-  }
-  const panel = (id: ManageTab, children: ReactNode) => (
-    <div key={id} id={tabPanelId(PREFIX, id)} role="tabpanel" aria-labelledby={tabButtonId(PREFIX, id)} className="manage-panel" hidden={tab !== id}>
-      {children}
-    </div>
-  )
   const loading = <p className="muted">Loading…</p>
   const unavailable = settingsDone ? <p className="muted">{emptyTabMessage('timing')}</p> : loading
+  const summary = sources ? pageSummary(sources) : null
 
   return (
-    <ManageShell
-      meta={sources && <p className="page-meta" data-testid="manage-summary">{settingsSummary(settings, sources)}</p>}
-      tabs={<Tabs label="Manage sources" idPrefix={PREFIX} tabs={MANAGE_TABS} active={tab} onSelect={select} />}
-    >
+    <div className="manage-panel">
+      {sources && summary && (
+        <div className="manage-summaries">
+          <p className="page-meta" data-testid="sources-summary">
+            {summary.on} · {summary.paused ? <Badge tone="warn">{summary.paused} paused</Badge> : '0 paused'}
+          </p>
+          <p className="page-meta" data-testid="manage-summary">{settingsSummary(settings, sources)}</p>
+        </div>
+      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
-      {panel('sites', !sources ? loading : sources.length === 0
-        ? <p className="muted">{emptyTabMessage('sites')}</p>
-        : <SitesTab phone={phone} sources={sources} settings={settings} onSource={replaceSource} onHealth={setHealth} />)}
-      {panel('timing', settings
-        ? <TimingTab settings={settings} developerMode={developerMode} onSaved={setSettings} onClearCache={clearCache} clearing={clearing} />
-        : unavailable)}
-      {panel('network', settings ? <NetworkTab settings={settings} onSaved={setSettings} /> : unavailable)}
-      {panel('activity', <ActivityTab />)}
-    </ManageShell>
+      <div id={manageAreaId('sites')} className="manage-area">
+        {!sources ? loading : sources.length === 0
+          ? <p className="muted">{emptyTabMessage('sites')}</p>
+          : <SitesTab phone={phone} sources={sources} settings={settings} onSource={replaceSource} onHealth={setHealth} />}
+      </div>
+      <div id={manageAreaId('timing')} className="manage-area">
+        {settings
+          ? <TimingTab settings={settings} developerMode={developerMode} onSaved={setSettings} onClearCache={clearCache} clearing={clearing} />
+          : unavailable}
+      </div>
+      <div id={manageAreaId('network')} className="manage-area">
+        {settings ? <NetworkTab settings={settings} onSaved={setSettings} /> : unavailable}
+      </div>
+      <div id={manageAreaId('activity')} className="manage-area">
+        <ActivityTab />
+      </div>
+    </div>
   )
 }

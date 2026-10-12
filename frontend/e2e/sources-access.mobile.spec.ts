@@ -33,7 +33,7 @@ async function tallTargets(page: Page, root: string) {
 test('phone: check now and the auto-import title fit, 44 px targets', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED })
   await mockAccess(page, s)
-  await page.goto('/#/sources')
+  await page.goto('/#/sources?tab=new')
   const news = page.getByRole('region', { name: 'New chapters' })
   await news.getByRole('button', { name: 'Check now' }).click()
   await expect(news.getByText('Checked 1 series · 1 new chapter.')).toBeVisible({ timeout: 15_000 })

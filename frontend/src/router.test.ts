@@ -50,6 +50,9 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'make-subtitles' })).toBe('#/make-subtitles')
     expect(parseRoute('#/translate/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/sources')).toEqual({ name: 'sources' })
+    expect(parseRoute('#/sources?tab=new')).toEqual({ name: 'sources', tab: 'new' })
+    expect(parseRoute('#/sources?tab=manage')).toEqual({ name: 'sources', tab: 'manage' })
+    expect(parseRoute('#/sources?tab=nope')).toEqual({ name: 'sources' })
     expect(parseRoute('#/sources/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/sources/manage')).toEqual({ name: 'sources-manage' })
     expect(parseRoute('#/sources/manage?tab=network')).toEqual({ name: 'sources-manage', tab: 'network' })
@@ -132,7 +135,7 @@ describe('parseRoute', () => {
   })
 
   it('round-trips through routeHref', () => {
-    for (const r of [{ name: 'library' }, { name: 'jobs' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'benchmark' }, { name: 'sources' }, { name: 'sources-manage' }, { name: 'sources-manage', tab: 'activity' }, { name: 'discover' }, { name: 'assistant' }, { name: 'drama', id: 4, stage: 'export' }, { name: 'drama', id: 4, stage: null }] as const) {
+    for (const r of [{ name: 'library' }, { name: 'jobs' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'benchmark' }, { name: 'sources' }, { name: 'sources', tab: 'new' }, { name: 'sources', tab: 'manage' }, { name: 'sources-manage' }, { name: 'sources-manage', tab: 'activity' }, { name: 'discover' }, { name: 'assistant' }, { name: 'drama', id: 4, stage: 'export' }, { name: 'drama', id: 4, stage: null }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r)
     }
   })
