@@ -5,6 +5,7 @@ import json
 import time
 
 import pytest
+from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -97,7 +98,8 @@ def test_bulk_flag_applies_by_line_id_with_field_scoped_write(monkeypatch):
     calls = []
     real = db.save_lines
     monkeypatch.setattr(db, "save_lines",
-                        lambda d, ls, fields=None: (calls.append(fields), real(d, ls, fields=fields))[1])
+                        lambda d, ls, fields=None, **kw: (calls.append(fields),
+                                                          real(d, ls, fields=fields, **kw))[1])
     monkeypatch.setitem(svc._BULK_SUBMIT, "flag",
                         lambda *a, **k: _real_flag(*a, batch_size=1, **k))
     out = svc.start_flag_review(did, engine_name="claude", bulk=True)
@@ -156,6 +158,7 @@ _real_emotion = bulk_translate.submit_bulk_emotion
 @pytest.mark.parametrize("engine,free", [("deepseek", False), ("ollama", False),
                                          ("gemini", True)])
 def test_bulk_needs_a_paid_batch_engine(monkeypatch, engine, free):
+    patch_setting(monkeypatch, "gemini_free_tier", free)  # a request alone can't grant it
     did = _seed()
     with pytest.raises(UnsupportedOperationError):
         svc.start_flag_review(did, engine_name=engine, gemini_free_tier=free, bulk=True)

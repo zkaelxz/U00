@@ -63,7 +63,7 @@ def extract_listing_entries_llm(page_text: str, engine, source_name: str = "",
         'Return ONLY a JSON array: [{"title": "...", "author": "...", "has_audio_drama": true/false, '
         '"tags": "comma, separated"}]. No preamble, no markdown fences.\n\n' + snippet
     )
-    text = call_llm_json(engine, prompt, max_tokens=4000, fallback=None)
+    text = call_llm_json(engine, prompt, max_tokens=4000, fallback=None, expect="json_array")
     if text is None:
         return []
 

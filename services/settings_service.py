@@ -184,8 +184,11 @@ def key_status(env_path: str = None) -> dict:
 
 def resolve_gemini_free_tier(value) -> bool:
     """A request's gemini_free_tier: None (omitted) means the persisted
-    setting; an explicit True/False is kept."""
-    return get("gemini_free_tier") if value is None else bool(value)
+    setting. A request may turn the free tier off for one run, but never on:
+    the free tier lifts the spending cap and logs $0, so only the saved
+    setting (what the owner told the server about the key) can grant it."""
+    saved = bool(get("gemini_free_tier"))
+    return saved if value is None else bool(value) and saved
 
 
 def get_settings_overview(env_path: str = None) -> dict:
