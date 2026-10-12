@@ -8,6 +8,7 @@ import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import type { CheckResult, OpenSeries, SourceNotification, SourceSummary, TrackedSeries } from '../../types/sources'
 import { ago, isoTime, percent } from './sourcesFormat'
+import { AutoImportLine } from './AutoImportLine'
 import { checkSummary, trackedDramaChoices } from './sourcesSettings'
 import { dramaLabel } from './urlImportFormat'
 import { useDramaList } from './useDramaList'
@@ -32,7 +33,7 @@ type Props = {
 }
 
 const AUTO_HELP =
-  'Auto-import into: where a series’ new chapters go when “Auto-import new chapters” is on in Source settings. Otherwise they are only listed here.'
+  'Auto-import into: where a series’ new chapters go when auto-import is on. Otherwise they are only listed here.'
 
 // A Card (always open), only rendered when there are notifications or tracked series.
 export function NewChapters({
@@ -123,6 +124,7 @@ export function NewChapters({
         ) : undefined
       }
     >
+      {canAct && <AutoImportLine />}
       <ErrorBanner error={error ?? untrackError} onDismiss={() => (error ? setError(null) : clearUntrackError())} />
       {canAct && tracked.length > 0 && (
         <div className="sources-check" data-testid="sources-check">
