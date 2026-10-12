@@ -7,6 +7,11 @@ import { balanceLinkFor } from './settings/providerBalanceLinks'
 import { SAVED_ON_PC_NOTE } from './settings/preferences'
 import { initialKeyForm, keyFormReducer } from './settingsKeys'
 
+// Speaker detection (pyannote) downloads gated models, so the token alone is not enough.
+const HF_TOKEN_HELP =
+  'Get the token at huggingface.co/settings/tokens (read access is enough), then accept the terms of the ' +
+  'pyannote speaker models (speaker-diarization-community-1 and speaker-diarization-3.1) on their Hugging Face pages.'
+
 type Props = {
   engine: string
   label: string
@@ -51,7 +56,7 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
     <div className="status-form">
       <Field
         label={`${label} key`}
-        help={SAVED_ON_PC_NOTE}
+        help={engine === 'hf_token' ? `${HF_TOKEN_HELP} ${SAVED_ON_PC_NOTE}` : SAVED_ON_PC_NOTE}
         error={s.error}
       >
         <input

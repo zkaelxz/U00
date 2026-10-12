@@ -122,6 +122,8 @@ export interface TranscribeRunRequest {
 export interface DiarizationConfig {
   drama_id: number
   hf_token_configured: boolean
+  // Plain text of what stops speaker detection (no token, no pyannote); null when it can run.
+  speaker_notice?: string | null
   expected_speakers: number | null // the last run's count (D03)
   min_speakers: number | null
   max_speakers: number | null

@@ -91,10 +91,10 @@ def _wait(out):
     raise AssertionError("job did not finish")
 
 
-def _run(did, **kw):
+def _run(did, expect="done", **kw):
     kw.setdefault("selection", {"kind": "range", "from_number": 1, "to_number": 3})
     out = svc.start_compare(did, **kw)
-    assert _wait(out)["status"] == "done"
+    assert _wait(out)["status"] == expect
     return out
 
 
@@ -288,9 +288,10 @@ class TestRun:
             raise whisper_models.ModelDownloadError(f"failed token={SECRET}")
         monkeypatch.setattr(core, "transcribe_for_timing", boom)
         did, _ = _drama(2)
-        out = _run(did)
-        result = background_jobs.get_status(out["job_id"])["result"]
-        assert result["failed_reason"] == "model_download" and SECRET not in str(result)
+        out = _run(did, expect="error")
+        job = background_jobs.get_status(out["job_id"])
+        assert job["result"]["failed_reason"] == "model_download"
+        assert SECRET not in str(job["result"]) and SECRET not in job["error"]
 
     def test_one_job_per_title(self):
         did, _ = _drama(2)
