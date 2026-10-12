@@ -14,10 +14,12 @@ from services import translate_run_service
 from services.service_errors import UnsupportedOperationError
 
 USAGE_OPERATION = "live_translate"
+CAP_LABEL = "Stopped: monthly cap reached"
 
 
 class LiveSpendGuard:
-    """stop(reason) ends the session and shows the reason; it is called once."""
+    """stop(reason, label) ends the session; it is called once. reason is the
+    full sentence for the session notes, label the short one for the status line."""
 
     def __init__(self, engine, engine_name: str, stop):
         self._engine, self._name, self._stop = engine, engine_name, stop
@@ -29,10 +31,10 @@ class LiveSpendGuard:
         self._metered = (engine_name not in translate_engines.FREE_ENGINES
                          or translate_engines.is_ollama_cloud_model(model))
 
-    def _halt(self, reason: str) -> None:
+    def _halt(self, reason: str, label: str) -> None:
         if not self._halted:
             self._halted = True
-            self._stop(reason)
+            self._stop(reason, label)
 
     def before(self) -> None:
         """Called before each translation request. Raises JobCancelled once the
@@ -43,7 +45,7 @@ class LiveSpendGuard:
                 translate_run_service.refuse_when_cap_spent(
                     self._name, bool(getattr(self._engine, "free_tier", False)))
             except UnsupportedOperationError as refusal:
-                self._halt(f"Live stopped: {refusal}")
+                self._halt(f"Live stopped: {refusal}", CAP_LABEL)
         if self._halted:
             raise background_jobs.JobCancelled("live translate")
         # Engines set last_usage only on success; a failed request must not
@@ -51,15 +53,20 @@ class LiveSpendGuard:
         if isinstance(getattr(self._engine, "last_usage", None), dict):
             self._engine.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
-    def after(self, error=None) -> None:
-        """Called after each translation request that was not cancelled."""
+    def after(self, error=None, usable: bool = True) -> None:
+        """Called after each translation request that was not cancelled. A reply
+        that came back but cannot be used is logged (it was billed) and counts
+        neither as a success nor as a failure."""
         if self._metered:
             self._log()
+        if error is None and not usable:
+            return
         if error is None:
             self._streak.record(failed=False, succeeded=True)
         elif self._streak.record(failed=True, succeeded=False):
             self._halt(f"Live stopped: {self._streak.count} translation requests in a row failed "
-                       f"({scrub_error_text(str(error))}). The cues already shown are kept.")
+                       f"({scrub_error_text(str(error))}). The cues already shown are kept.",
+                       f"Stopped: {self._streak.count} translation requests failed in a row")
 
     def _log(self) -> None:
         usage = getattr(self._engine, "last_usage", None) or {}

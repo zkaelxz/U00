@@ -52,7 +52,7 @@ def guard_env(isolated_db, monkeypatch):
 
 def _guard(engine, stops):
     from services import live_spend_service
-    return live_spend_service.LiveSpendGuard(engine, "claude", stops.append)
+    return live_spend_service.LiveSpendGuard(engine, "claude", lambda reason, label: stops.append(reason))
 
 
 def _spend(usd):
@@ -113,7 +113,7 @@ class TestDuringTheSession:
         engine = _PaidEngine()
         engine.name, engine.model = "ollama", "qwen3:8b"
         from services import live_spend_service
-        guard = live_spend_service.LiveSpendGuard(engine, "ollama", guard_env.append)
+        guard = live_spend_service.LiveSpendGuard(engine, "ollama", lambda reason, label: guard_env.append(reason))
         CueTranslator(engine, "zh", spend_guard=guard).translate("a")
         assert _usage_rows() == []
 
@@ -168,3 +168,69 @@ class TestDuringTheSession:
         notes = live_service.get_session(sid)["notes"]
         assert any("in a row" in n for n in notes)
         assert engine.calls == 3
+
+
+class TestStopReasonOnTheStatusLine:
+    def _run_failing_session(self, live, monkeypatch):
+        engine = _PaidEngine(["fail"])
+        import translate_engines
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+
+        def run(job_id, url, out_dir, *a, spend_guard=None, **k):
+            t = CueTranslator(engine, "zh", spend_guard=spend_guard)
+            for text in "abcd":
+                if background_jobs.is_cancel_requested(job_id):
+                    break
+                t.translate(text)
+            background_jobs.update_progress(job_id, 1.0, "Stopped.")
+        monkeypatch.setattr(live_translate, "run_live_job", run)
+        sid = _start(engine="claude", model=next(iter(translate_service.ENGINE_MODEL_DICTS["claude"])))
+        assert _terminal(sid)
+        return sid
+
+    def test_a_failure_stop_is_the_status_message_and_stop_reason(self, live, monkeypatch):
+        sid = self._run_failing_session(live, monkeypatch)
+        status = live_service.get_session(sid)
+        assert status["stop_reason"] == "Stopped: 3 translation requests failed in a row"
+        assert status["message"] == status["stop_reason"]
+
+    def test_a_cap_stop_says_the_monthly_cap_was_reached(self, guard_env):
+        engine = _PaidEngine()
+        labels = []
+        from services import live_spend_service
+        guard = live_spend_service.LiveSpendGuard(engine, "claude", lambda r, label: labels.append(label))
+        _spend(2.0)
+        with pytest.raises(background_jobs.JobCancelled):
+            CueTranslator(engine, "zh", spend_guard=guard).translate("a")
+        assert labels == ["Stopped: monthly cap reached"]
+
+    def test_a_plain_session_has_no_stop_reason(self, live, monkeypatch):
+        monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: None)
+        sid = _start()
+        assert _terminal(sid)
+        assert live_service.get_session(sid)["stop_reason"] is None
+
+
+class TestUnusableRepliesAreNotSuccesses:
+    def test_a_reply_of_the_wrong_length_does_not_reset_the_streak(self, guard_env):
+        class Mismatch(_PaidEngine):
+            def translate_batch(self, texts, context):
+                self.calls += 1
+                self.last_usage = {"input_tokens": 100, "output_tokens": 10}
+                if len(texts) > 1:
+                    return ["only one"]   # a reply that cannot be matched back to its cues
+                raise RuntimeError("down")
+        engine = Mismatch()
+        t = CueTranslator(engine, "zh", spend_guard=_guard(engine, guard_env))
+        t.translate("a")
+        t.translate("b")
+        assert t.translate_chunk(["c", "d"]) == {}
+        t.translate("e")
+        assert len(guard_env) == 1 and "3" in guard_env[0]
+
+    def test_an_unusable_reply_is_still_logged(self, guard_env):
+        engine = _PaidEngine()
+        engine.translate_batch = lambda texts, context: ["one"]
+        t = CueTranslator(engine, "zh", spend_guard=_guard(engine, guard_env))
+        assert t.translate_chunk(["c", "d"]) == {}
+        assert len(_usage_rows()) == 1

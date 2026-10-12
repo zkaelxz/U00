@@ -250,9 +250,14 @@ def _require_public(url, bad_message: str) -> None:
         raise InvalidInputError(bad_message) from None
 
 
-def _stop_for_spend(session_id: str, reason: str) -> None:
-    """Ends the session the way a plain cancel does, keeping the cues shown,
-    and leaves the reason where the status reads it."""
+def _stop_for_spend(session_id: str, reason: str, label: str) -> None:
+    """Ends the session the way a plain cancel does, keeping the cues shown.
+    The label becomes the status line (the job's own final message is
+    replaced when the job ends); the longer reason stays in the notes."""
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            entry["stop_reason"] = clean_message(label)
     add_note(session_id, reason, key="spend-stop")
     background_jobs.request_cancel(session_id)
 
@@ -515,8 +520,9 @@ def get_session(session_id, after=0, principal=None) -> dict:
                     "translation": c.get("translation") or (
                         live_cue_feed.FAILED if translated.startswith(live_cue_feed.FAILED_PREFIX)
                         else live_cue_feed.DONE)})
-    return {"session_id": session_id, "status": status, "message": message,
-            "engine": entry.get("engine"), "model": entry.get("model"),
+    stop_reason = entry.get("stop_reason")
+    return {"session_id": session_id, "status": status, "message": stop_reason or message,
+            "stop_reason": stop_reason, "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),
             "notes": list(entry.get("notes") or ()),
             "segment_seconds": int(entry.get("segment_seconds") or 0),

@@ -210,11 +210,26 @@ class _UsageMeter:
 
     def _log(self, input_tokens: int, output_tokens: int, cache_read: int = 0,
              cache_write: int = 0) -> None:
+        if not (input_tokens or output_tokens or self._capped()):
+            return  # a free engine's empty row says nothing
         db.log_usage(None, self._engine_name, getattr(self._engine, "model", self._engine_name),
                      self._operation, input_tokens, output_tokens,
                      translate_engines.estimate_cost_for_engine(
                          self._engine, input_tokens, output_tokens, cache_read, cache_write),
                      cache_read_tokens=cache_read)
+
+
+def translate_metered(engine, engine_name: str, text: str, source_language: str,
+                      target_language: str) -> tuple:
+    """(translated text, stop message or None) for a built engine: refused when
+    this month's cap is already spent, stopped before the request that would
+    pass it, and every request logged. Shared by every path that sends pasted
+    or captured text to a paid engine."""
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(getattr(engine, "free_tier", False)))
+    metered = _UsageMeter(engine, engine_name)
+    return translate_engines.standalone_translate_partial(
+        text, metered, source_language, target_language, REQUEST_CHUNKS, budget=metered)
 
 
 def _checked_request(text, engine_name, source_language, target_language, model, free_tier):
@@ -261,11 +276,10 @@ def translate(text: str, engine_name: str, source_language: str, target_language
         engine_name, api_key, model, free_tier=use_free_tier,
         base_url=((settings_service.resolve_key("ollama_url") or None)
                   if engine_name == "ollama" else None))
-    metered = _UsageMeter(engine, engine_name)
 
     try:
-        translated_text, stopped = translate_engines.standalone_translate_partial(
-            text, metered, source_language, target_language, REQUEST_CHUNKS, budget=metered)
+        translated_text, stopped = translate_metered(
+            engine, engine_name, text, source_language, target_language)
     except translate_engines.UnsupportedDirectionError as exc:
         raise UnsupportedOperationError(str(exc)) from exc
     except translate_engines.OllamaUnavailableError as exc:

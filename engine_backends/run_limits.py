@@ -22,6 +22,9 @@ class RateLimitWaitBudget:
 
     def charge(self, delay: float):
         if delay > self.remaining:
+            # Spent for good: a later, shorter wait must not slip through and
+            # let the run send another paid request.
+            self.remaining = 0.0
             raise TranslateRunStopped(RATE_LIMIT_STOP_MESSAGE)
         self.remaining -= delay
 

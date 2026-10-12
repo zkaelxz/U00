@@ -128,6 +128,23 @@ class TestEveryRequestIsLogged:
         assert len(_rows()) == 1
 
 
+class TestFreeEnginesLeaveNoEmptyRows:
+    def test_a_free_engine_that_reports_no_tokens_is_not_logged(self, isolated_db, monkeypatch):
+        class Free(_Billed):
+            name = "ollama"
+            model = "qwen3:8b"
+        engine = Free(tokens=(0, 0))
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "local")
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: engine)
+        translate_service.translate(TEXT, "ollama", "zh", "en")
+        assert _rows() == []
+
+    def test_a_failed_paid_request_with_no_tokens_is_still_logged(self, paid):
+        paid.tokens = (0, 0)
+        translate_service.translate("你好", "claude", "zh", "en")
+        assert len(_rows()) == 1
+
+
 class TestUsageMeterIsTransparent:
     def test_a_slow_ollama_model_keeps_its_long_timeout_behind_the_meter(self):
         from engine_backends.local import OllamaEngine, ollama_max_request_seconds

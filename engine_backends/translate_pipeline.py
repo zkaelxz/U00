@@ -1,4 +1,4 @@
-"""Reflect mode and the per-run translate loop."""
+"""The per-run translate loop."""
 
 import inspect
 import sentence_groups
@@ -148,6 +148,10 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
                     on_late_result=lambda: _record_engine_usage(engine, record_usage)))
             _record_engine_usage(engine, record_usage)
         except Exception as e:
+            if stops_translate_run(e):
+                if retried and save_cb:
+                    save_cb(lines)
+                raise
             import applog
             applog.get_logger().warning(f"pronoun re-check skipped a batch: {redact_secrets(str(e))}")
             continue
@@ -601,10 +605,16 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             break
     else:
         if not stop_run and not (cancel_check_cb and cancel_check_cb()):
-            _recheck_male_pronouns(
-                engine, lines, translated, context, character_names, size, save_cb,
-                record_usage, lambda: cost_cap_usd is not None and spent >= cost_cap_usd,
-                cancel_check_cb)
+            try:
+                _recheck_male_pronouns(
+                    engine, lines, translated, context, character_names, size, save_cb,
+                    record_usage, lambda: cost_cap_usd is not None and spent >= cost_cap_usd,
+                    cancel_check_cb)
+            except Exception as e:
+                if not stops_translate_run(e):
+                    raise
+                errors.append({"batch_index": n_batches - 1, "lines": [],
+                               "error": redact_secrets(str(e))})
     return lines, errors
 
 

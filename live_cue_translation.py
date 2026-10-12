@@ -90,8 +90,9 @@ class CueTranslator:
         except Exception as exc:
             self._after(exc)
             return {}
-        self._after()
-        if not isinstance(replies, list) or len(replies) != len(ids):
+        usable = isinstance(replies, list) and len(replies) == len(ids)
+        self._after(usable=usable)
+        if not usable:
             return {}
         by_id = dict(zip(ids, replies))
         found = {}
@@ -106,9 +107,9 @@ class CueTranslator:
         if self.spend_guard is not None:
             self.spend_guard.before()
 
-    def _after(self, error=None) -> None:
+    def _after(self, error=None, usable: bool = True) -> None:
         if self.spend_guard is not None:
-            self.spend_guard.after(error)
+            self.spend_guard.after(error, usable)
 
     def _hints(self, texts) -> list:
         """A lookup that fails must not cost the cue its translation."""
