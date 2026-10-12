@@ -1917,6 +1917,159 @@ def _assert_only_restored_rows_added(before, after, live_id):
                 pytest.fail(f"unexpected new row in {t}: {row}")
 
 
+def _set_live_users(accounts):
+    """Replaces the live accounts with {id: email}, as if people were removed
+    and added since the copy was made."""
+    with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
+        c.execute("DELETE FROM user_permissions")
+        c.execute("DELETE FROM users")
+        for uid, email in accounts.items():
+            c.execute("INSERT INTO users (id, email) VALUES (?, ?)", (uid, email))
+        c.commit()
+
+
+def _audit_details(action="library.restore_drama"):
+    with contextlib.closing(_conn()) as c:
+        return [r[0] for r in c.execute(
+            "SELECT detail_redacted FROM audit_log WHERE action = ? ORDER BY id", (action,))]
+
+
+class TestRestoreOwnersByEmail:
+    """A copy's account ids mean the accounts of the library when it was
+    made: a title's owner is matched to a live account by email, never by
+    id, or goes to the PC owner."""
+
+    def _two_users(self):
+        from services import auth_service
+        a = auth_service.add_user("a@example.com")["id"]
+        b = auth_service.add_user("b@example.com")["id"]
+        return a, b
+
+    def test_clashing_id_goes_to_same_email(self, isolated_db):
+        a, b = self._two_users()
+        did = db.create_drama(title_en="A's", owner_user_id=a)
+        _snap()
+        _delete_drama(did)
+        _set_live_users({a: "stranger@example.com", 7: "a@example.com"})
+        res = _restore(did)
+        assert db.get_drama(did)["owner_user_id"] == 7
+        assert res["owners_reassigned"] == 1 and res["copy_has_accounts"] is True
+
+    def test_clashing_id_without_match_goes_to_pc_owner(self, isolated_db):
+        a, _b = self._two_users()
+        did = db.create_drama(title_en="A's", owner_user_id=a)
+        _snap()
+        _delete_drama(did)
+        _set_live_users({a: "stranger@example.com"})
+        res = _restore(did)
+        assert db.get_drama(did)["owner_user_id"] is None
+        assert res["owners_reassigned"] == 1
+
+    def test_swapped_ids(self, isolated_db):
+        a, b = self._two_users()
+        da = db.create_drama(title_en="A's", owner_user_id=a)
+        dbb = db.create_drama(title_en="B's", owner_user_id=b)
+        _snap()
+        _delete_drama(da)
+        _delete_drama(dbb)
+        _set_live_users({a: "b@example.com", b: "a@example.com"})
+        _restore(da)
+        _restore(dbb)
+        assert db.get_drama(da)["owner_user_id"] == b
+        assert db.get_drama(dbb)["owner_user_id"] == a
+
+    def test_same_id_and_email_kept(self, isolated_db):
+        a, _b = self._two_users()
+        did = db.create_drama(title_en="A's", owner_user_id=a)
+        _snap()
+        _delete_drama(did)
+        res = _restore(did)
+        assert db.get_drama(did)["owner_user_id"] == a
+        assert res["owners_reassigned"] == 0 and res["copy_has_accounts"] is True
+
+    def test_copy_without_accounts_goes_to_pc_owner(self, isolated_db, monkeypatch):
+        a, _b = self._two_users()
+        did = db.create_drama(title_en="A's", owner_user_id=a)
+        _snap()
+        _delete_drama(did)
+        real = drs.extract_db
+
+        def no_users(zf, dest_dir, *args, **kw):
+            path = real(zf, dest_dir, *args, **kw)
+            with contextlib.closing(sqlite3.connect(path)) as c:
+                c.execute("DROP TABLE user_permissions")
+                c.execute("DROP TABLE users")
+                c.commit()
+            return path
+
+        monkeypatch.setattr(drs, "extract_db", no_users)
+        res = _restore(did)
+        assert db.get_drama(did)["owner_user_id"] is None
+        assert res["copy_has_accounts"] is False and res["owners_reassigned"] == 1
+
+    def test_private_title_stays_private(self, isolated_db):
+        a, b = self._two_users()
+        did = db.create_drama(title_en="A's", owner_user_id=a, is_private=1)
+        _snap()
+        _delete_drama(did)
+        _set_live_users({a: "b@example.com", b: "a@example.com"})
+        _restore(did)
+        restored = db.get_drama(did)
+        assert restored["owner_user_id"] == b and restored["is_private"] == 1
+
+    def test_recreated_series_owner_by_email(self, isolated_db):
+        a, b = self._two_users()
+        with contextlib.closing(_conn()) as c:
+            sid = _insert(c, "series", name="A's saga", owner_user_id=a, is_private=0)
+            did = _insert(c, "dramas", title_en="D", series_id=sid, owner_user_id=a,
+                          status="aligned")
+            c.commit()
+        _snap()
+        _delete_drama(did)
+        _delete_series(sid)
+        _set_live_users({a: "b@example.com", b: "a@example.com"})
+        res = _restore(did)
+        assert res["series"] == "recreated"
+        new_sid = db.get_drama(did)["series_id"]
+        assert _series_rows()[new_sid]["owner_user_id"] == b
+        assert db.get_drama(did)["owner_user_id"] == b
+        assert res["owners_reassigned"] == 2
+
+    def test_private_series_check_uses_matched_owner(self, isolated_db):
+        """The copy's owner id now names someone else; matched by email the
+        drama is the live series owner's, so it links back into their
+        private series rather than being dropped (or linked for a stranger)."""
+        a, b = self._two_users()
+        with contextlib.closing(_conn()) as c:
+            sid = _insert(c, "series", name="Saga", owner_user_id=b, is_private=1)
+            did = _insert(c, "dramas", title_en="D", series_id=sid, owner_user_id=b,
+                          status="aligned")
+            c.commit()
+        _snap()
+        _delete_drama(did)
+        with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
+            c.execute("UPDATE users SET email = 'tmp@example.com' WHERE id = ?", (a,))
+            c.execute("UPDATE users SET email = 'a@example.com' WHERE id = ?", (b,))
+            c.execute("UPDATE users SET email = 'b@example.com' WHERE id = ?", (a,))
+            c.execute("UPDATE series SET owner_user_id = ? WHERE id = ?", (a,sid))
+            c.commit()
+        res = _restore(did)
+        # copy owner b (b@) is now live id a; the live series is a's private one.
+        assert res["series"] == "linked"
+        assert db.get_drama(did)["owner_user_id"] == a
+
+    def test_audit_records_counts_only(self, isolated_db):
+        a, _b = self._two_users()
+        did = db.create_drama(title_en="A's", owner_user_id=a)
+        _snap()
+        _delete_drama(did)
+        _set_live_users({a: "stranger@example.com", 7: "a@example.com"})
+        _restore(did)
+        detail = _audit_details()[-1]
+        assert "1 owner" in detail
+        assert "@" not in detail
+
+
 class TestRestoreMedia:
     def _media_drama(self):
         a = db.create_drama(title_en="A")

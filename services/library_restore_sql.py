@@ -259,12 +259,23 @@ def owner_map(conn, backup_path: str) -> dict:
     accounts' Google sign-ins don't differ: that would be another person
     given the address since. An id the backup names twice for different
     people is left out (an unknown owner)."""
-    live = {email: (uid, sub) for uid, email, sub in _accounts(conn, "main")}
     conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(backup_path),))
     try:
         backup = _accounts(conn, "up")
     finally:
         conn.execute("DETACH DATABASE up")
+    return _match_accounts(_accounts(conn, "main"), backup)
+
+
+def owner_map_between(live_conn, backup_conn) -> dict:
+    """owner_map for two open connections (each one's main database): the
+    single-title restore reads the copy on its own connection, inside the
+    live library's transaction, where an ATTACH is not allowed."""
+    return _match_accounts(_accounts(live_conn, "main"), _accounts(backup_conn, "main"))
+
+
+def _match_accounts(live_accounts, backup) -> dict:
+    live = {email: (uid, sub) for uid, email, sub in live_accounts}
     mapping = {}
     for uid, email, sub in backup:
         match = live.get(email)

@@ -218,6 +218,13 @@ export function describeRestore(r: RestoreDramaDone): string {
   if (r.series === 'dropped_private') {
     parts.push("Its series is now someone else's private series, so the title is back without a series.")
   }
+  const moved = r.owners_reassigned ?? 0
+  if (moved > 0) {
+    parts.push(r.copy_has_accounts === false
+      ? 'This copy holds no accounts, so it went to the PC owner.'
+      : `Accounts changed since this copy was made, so ${plural(moved, 'owner')} went to the account` +
+        ' with the same email, or to the PC owner where there was none.')
+  }
   const skipped = r.skipped_tables.map((t) => SKIPPED_WORDS[t]).filter(Boolean)
   if (skipped.length) {
     const list = skipped.length > 1 ? `${skipped.slice(0, -1).join(', ')} and ${skipped[skipped.length - 1]}` : skipped[0]

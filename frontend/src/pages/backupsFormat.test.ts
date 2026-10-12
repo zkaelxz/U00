@@ -197,5 +197,11 @@ describe('restore one title', () => {
       .toContain('Its series was gone, so it was restored from the snapshot too.')
     expect(describeRestore({ ...r, skipped_tables: ['bulk_jobs', 'metadata_research_results', 'usage_log'] }))
       .toContain('Not restored: provider batch jobs, cached online research and spending history.')
+    expect(describeRestore({ ...r, owners_reassigned: 2, copy_has_accounts: true, skipped_tables: [] }))
+      .toContain('Accounts changed since this copy was made, so 2 owners went to the account with the same email,' +
+        ' or to the PC owner where there was none.')
+    expect(describeRestore({ ...r, owners_reassigned: 1, copy_has_accounts: false, skipped_tables: [] }))
+      .toContain('This copy holds no accounts, so it went to the PC owner.')
+    expect(describeRestore({ ...r, owners_reassigned: 0, skipped_tables: [] })).not.toContain('owner')
   })
 })
