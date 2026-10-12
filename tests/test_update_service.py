@@ -4,6 +4,7 @@ verified download and the Setup hand-off. The HTTP layer (requests.get) is
 faked; nothing touches the network or starts a process.
 """
 
+import base64
 import hashlib
 import json
 import threading
@@ -22,6 +23,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 API_URL = "https://api.github.com/repos/zkaelxz/U00/releases?per_page=10"
 EXE_URL = "https://github.com/zkaelxz/U00/releases/download/v0.2.0/BaiheStudio-Setup-0.2.0.exe"
 HASH_URL = EXE_URL + ".sha256"
+SIG_URL = EXE_URL + ".sig"
 CDN_URL = "https://release-assets.githubusercontent.com/x/BaiheStudio-Setup-0.2.0.exe"
 PAYLOAD = b"MZ fake installer " * 100
 NAME = "BaiheStudio-Setup-0.2.0.exe"
@@ -80,11 +82,13 @@ class FakeHttp:
 
 def _release_obj(tag="v0.2.0", prerelease=False, draft=False, size=len(PAYLOAD), with_hash=True,
                  exe_url=EXE_URL, body="## What's new\n* Faster export in https://github.com/x/y/pull/1",
-                 with_exe=True):
+                 with_exe=True, with_sig=False):
     name = f"BaiheStudio-Setup-{tag.lstrip('v')}.exe"
     assets = [{"name": name, "size": size, "browser_download_url": exe_url}] if with_exe else []
     if with_hash:
         assets.append({"name": name + ".sha256", "size": 90, "browser_download_url": HASH_URL})
+    if with_sig:
+        assets.append({"name": name + ".sig", "size": 89, "browser_download_url": SIG_URL})
     return {"tag_name": tag, "prerelease": prerelease, "draft": draft, "body": body,
             "assets": assets}
 
@@ -119,6 +123,8 @@ def http(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(us, "_verified", None)
     monkeypatch.setattr(us, "_is_installed", lambda: True)
     monkeypatch.setattr(us, "current_version", lambda: "0.1.0")
+    # Not the committed key file: these tests must not change when the owner adds a key.
+    monkeypatch.setattr(us, "PUBLIC_KEY_PATH", str(tmp_path / "release_public_key.txt"))
     monkeypatch.delenv(us.REPO_ENV, raising=False)
     from services import settings_service
     monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
@@ -893,3 +899,200 @@ def test_small_body_read_over_cap_is_closed():
     with pytest.raises(DependencyUnavailableError, match="larger than allowed"):
         us._read_capped(resp, 10)
     assert resp.closed
+
+
+# --- release signature ------------------------------------------------------------
+
+rs = pytest.importorskip("lib.release_signature")
+pytest.importorskip("cryptography")
+
+
+def _keypair():
+    private, public = rs.generate()
+    return rs.parse_private_key(private), public
+
+
+def _sig_file(seed, data=PAYLOAD, name=NAME):
+    return rs.format_signature(rs.sign(seed, name, hashlib.sha256(data).hexdigest())).encode()
+
+
+@pytest.fixture
+def signed(http):
+    """This copy has a release key; the release is signed with it."""
+    seed, public = _keypair()
+    with open(us.PUBLIC_KEY_PATH, "w", encoding="utf-8") as fh:
+        fh.write("# release key\n" + public + "\n")
+    _serve_release(http, with_sig=True)
+    http.add(SIG_URL, body=_sig_file(seed))
+    return types.SimpleNamespace(http=http, seed=seed, public=public)
+
+
+def _updates_files():
+    folder = us.updates_dir()
+    return sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+
+
+def _refused(match, error=ConflictError):
+    us.check()
+    with pytest.raises(error, match=match) as info:
+        us.download()
+    message = us._plain_error(info.value)
+    from translate_engines import redact_secrets
+    assert message == redact_secrets(message)
+    assert "http" not in message and "/" not in message and "\\" not in message
+    assert us.status()["verified"] is False
+    assert _updates_files() == []   # nothing kept: no installer, no partial download
+    return message
+
+
+def test_signed_release_verifies(signed):
+    us.check()
+    us.download()
+    st = us.status()
+    assert st["verified"] and st["signature_check"] and st["signature_verified"]
+    assert _updates_files() == [NAME]
+
+
+def test_tampered_installer_with_a_matching_hash_file_is_refused(signed):
+    # A tampered release can carry a .sha256 that matches; only the signature catches it.
+    bad = PAYLOAD.replace(b"fake", b"evil")
+    signed.http.add(HASH_URL, body=_hash_file(bad))
+    signed.http.add(CDN_URL, body=bad, headers={"Content-Length": str(len(bad))})
+    _refused("signature doesn't match")
+
+
+@pytest.mark.parametrize("sig", [
+    "valid-for-other-bytes", "valid-for-other-version", "garbage", "too-short", "empty", "binary"])
+def test_tampered_or_swapped_signature_is_refused(signed, sig):
+    body = {"valid-for-other-bytes": lambda: _sig_file(signed.seed, data=b"other"),
+            "valid-for-other-version": lambda: _sig_file(
+                signed.seed, name="BaiheStudio-Setup-0.1.0.exe"),
+            "garbage": lambda: b"not base64 at all!!",
+            "too-short": lambda: base64.b64encode(b"x" * 63),
+            "empty": lambda: b"",
+            "binary": lambda: b"\xff" * 88}[sig]()
+    signed.http.add(SIG_URL, body=body)
+    _refused("signature")
+
+
+def test_signature_from_another_key_is_refused(signed):
+    other_seed, _ = _keypair()
+    signed.http.add(SIG_URL, body=_sig_file(other_seed))
+    _refused("signature doesn't match")
+
+
+def test_missing_signature_is_refused_once_a_key_is_present(signed):
+    # A release stripped of its .sig is a downgrade to SHA-256 only: refused,
+    # and the installer is never fetched.
+    signed.http.add(API_URL, body=_release(with_sig=False))
+    _refused("isn't signed")
+    assert not any(url in (EXE_URL, CDN_URL) for url, _ in signed.http.calls)
+
+
+def test_oversized_signature_is_refused(signed):
+    signed.http.add(SIG_URL, body=b"A" * (us.MAX_SIGNATURE_FILE_BYTES + 1))
+    _refused("larger than allowed", DependencyUnavailableError)
+
+
+@pytest.mark.parametrize("key_text", [
+    "ed25519-public:not-base64", "ed25519-public:" + "A" * 10,
+    "ed25519-private:" + "A" * 43 + "=", "something else",
+    "ed25519-public:" + "A" * 43 + "=\ned25519-public:" + "B" * 43 + "="])
+def test_a_damaged_key_file_refuses_updates_instead_of_skipping_the_check(signed, key_text):
+    with open(us.PUBLIC_KEY_PATH, "w", encoding="utf-8") as fh:
+        fh.write(key_text)
+    assert us.status()["signature_check"] is True
+    message = _refused("release key file")
+    assert "ed25519" not in message
+
+
+def test_no_key_file_keeps_sha256_only_and_says_so(http):
+    assert not os.path.exists(us.PUBLIC_KEY_PATH)
+    _serve_release(http)    # no .sig asset at all
+    us.check()
+    us.download()
+    st = us.status()
+    assert st["verified"] and st["signature_check"] is False and st["signature_verified"] is False
+    assert not any(url == SIG_URL for url, _ in http.calls)
+
+
+def test_a_key_file_with_only_comments_counts_as_no_key(http):
+    with open(us.PUBLIC_KEY_PATH, "w", encoding="utf-8") as fh:
+        fh.write("# no key yet\n\n")
+    _serve_release(http)
+    us.check()
+    us.download()
+    assert us.status()["signature_check"] is False and us.status()["verified"]
+
+
+def test_missing_cryptography_fails_closed_once_a_key_is_present(signed, monkeypatch):
+    import builtins
+    real_import = builtins.__import__
+
+    def no_crypto(name, *a, **kw):
+        if name.startswith("cryptography"):
+            raise ImportError(name)
+        return real_import(name, *a, **kw)
+    monkeypatch.setattr(builtins, "__import__", no_crypto)
+    us.check()
+    with pytest.raises(DependencyUnavailableError, match="cryptography"):
+        us.download()
+    assert _updates_files() == []
+
+
+@pytest.fixture
+def signed_verified(signed, monkeypatch):
+    us.check()
+    us.download()
+    FakePopen.calls = []
+    monkeypatch.setattr(us.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(us.background_jobs, "active_job_ids", lambda: [])
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    return signed
+
+
+def test_install_checks_the_signature_of_the_copy_it_starts(signed_verified, monkeypatch):
+    checked = []
+    real = rs.verify
+
+    def spy(public, signature, name, sha):
+        checked.append(sha)
+        return real(public, signature, name, sha)
+    monkeypatch.setattr(us.release_signature, "verify", spy)
+    us.install()
+    (args, _), = FakePopen.calls
+    assert checked == [us._file_sha256(args[0])]
+
+
+def test_install_refuses_when_the_verified_signature_no_longer_matches(signed_verified):
+    # The recorded signature is swapped after download: the check before Setup catches it.
+    other_seed, _ = _keypair()
+    us._verified["signature"] = rs.sign(other_seed, NAME, hashlib.sha256(PAYLOAD).hexdigest())
+    with pytest.raises(ConflictError, match="isn't signed with this copy's release key"):
+        us.install()
+    assert FakePopen.calls == [] and _setup_copies() == [] and us.status()["verified"] is False
+
+
+def test_install_refuses_an_unsigned_download_once_a_key_appears(http, monkeypatch):
+    # Downloaded while this copy had no key; a key is now present: fail closed.
+    _serve_release(http)
+    us.check()
+    us.download()
+    seed, public = _keypair()
+    with open(us.PUBLIC_KEY_PATH, "w", encoding="utf-8") as fh:
+        fh.write(public)
+    FakePopen.calls = []
+    monkeypatch.setattr(us.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(us.background_jobs, "active_job_ids", lambda: [])
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    with pytest.raises(ConflictError, match="isn't signed"):
+        us.install()
+    assert FakePopen.calls == []
+
+
+def test_install_refuses_a_swapped_file_even_when_signed(signed_verified):
+    with open(us._verified["path"], "r+b") as fh:
+        fh.write(b"XX")
+    with pytest.raises(ConflictError, match="changed or is missing"):
+        us.install()
+    assert FakePopen.calls == []
