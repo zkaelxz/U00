@@ -35,7 +35,8 @@ def fake_repo(tmp_path):
         "api/__init__.py", "api/__main__.py", "services/settings_service.py",
         "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
         "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
-        "installer/launcher.py", "installer/postinstall.py", "run_tests.py",
+        "installer/launcher.py", "installer/postinstall.py", "installer/release_public_key.txt",
+        "run_tests.py",
         # Never ships
         ".env", ".env.local", ".env.example", "services/.env",
         "library/library.db", "library/dramas/1/audio.mp3",
@@ -64,7 +65,8 @@ SHIPS = {
     "api/__init__.py", "api/__main__.py", "services/settings_service.py",
     "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
     "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
-    "installer/launcher.py", "installer/postinstall.py", "run_tests.py",
+    "installer/launcher.py", "installer/postinstall.py", "installer/release_public_key.txt",
+    "run_tests.py",
 }
 
 
@@ -163,7 +165,8 @@ class TestCheckPayload:
         dest = tmp_path / "app"
         for rel in ("frontend/dist/index.html", "api/__main__.py", "portable.py", "process_guard.py",
                     "requirements-core.txt", "constraints.txt", "check_setup.py",
-                    "installer/launcher.py", "installer/postinstall.py"):
+                    "installer/launcher.py", "installer/postinstall.py",
+                    "installer/release_public_key.txt"):
             _touch(dest, rel)
         return dest
 
@@ -176,6 +179,18 @@ class TestCheckPayload:
         dest = self._good(tmp_path)
         _touch(dest, rel)
         with pytest.raises(bi.BuildError, match="isn't safe to ship"):
+            bi.check_payload(dest)
+
+    def test_rejects_a_private_release_key(self, tmp_path):
+        dest = self._good(tmp_path)
+        _touch(dest, "installer/release_public_key.txt", "ed25519-private:" + "A" * 43 + "=\n")
+        with pytest.raises(bi.BuildError, match="holds a private key"):
+            bi.check_payload(dest)
+
+    def test_rejects_a_missing_release_key_file(self, tmp_path):
+        dest = self._good(tmp_path)
+        (dest / "installer" / "release_public_key.txt").unlink()
+        with pytest.raises(bi.BuildError, match="missing: installer/release_public_key.txt"):
             bi.check_payload(dest)
 
     def test_rejects_a_missing_key_file(self, tmp_path):
