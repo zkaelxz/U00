@@ -19,7 +19,7 @@ const ITEMS: [string, RegExp][] = [
   ['Live', /#\/live$/],
   ['Jobs', /#\/jobs$/],
   ['Settings', /#\/settings$/],
-  ['Admin', /#\/admin$/],
+  ['People and access', /#\/admin$/],
   ['Diagnostics', /#\/diagnostics$/],
   ['Benchmark Lab', /#\/benchmark$/],
 ]
@@ -171,11 +171,11 @@ test('a wide screen at 1280 keeps the form-page column at its 1200px cap when th
   expect(scroll[0]).toBeLessThanOrEqual(scroll[1])
 })
 
-test('household member: no Admin, Diagnostics or Benchmark Lab; Jobs sits under System', async ({ page }) => {
+test('household member: no People and access, Diagnostics or Benchmark Lab; Jobs sits under System', async ({ page }) => {
   await mockAuth(page, { ...ME.signedIn, permissions: ['library.read', 'lines.read', 'lines.edit', 'review.use', 'jobs.start', 'jobs.cancel'] })
   await page.goto('/#/library')
   await expect(rail(page).getByRole('link', { name: 'Library', exact: true })).toBeVisible()
-  await expect(rail(page).getByRole('link', { name: 'Admin', exact: true })).toHaveCount(0)
+  await expect(rail(page).getByRole('link', { name: 'People and access', exact: true })).toHaveCount(0)
   await expect(rail(page).getByRole('link', { name: 'Assistant', exact: true })).toHaveCount(0)
   await expect(rail(page).getByRole('link', { name: 'Diagnostics', exact: true })).toHaveCount(0)
   await expect(rail(page).getByRole('link', { name: 'Benchmark Lab', exact: true })).toHaveCount(0)

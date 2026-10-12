@@ -879,6 +879,21 @@ class TestJobQueue:
                            ("/api/queue/policy", {"stop_on_failure": True})):
             assert c.post(path, json=body, headers=_h(sa)).status_code == 403, path
 
+    def test_saved_settings_need_jobs_start_and_the_callers_own_title(self, isolated_db):
+        c = _remote(_app())
+        a, sa = _user_named("a@example.com", "jobs.start")
+        v, sv = _user_named("viewer@example.com")
+        auth_service.revoke_permission(v["id"], "jobs.start")
+        b, _sb = _user_named("b@example.com", "jobs.start")
+        mine = db.create_drama(title_en="Mine", owner_user_id=a["id"], is_private=1)
+        theirs = db.create_drama(title_en="Theirs", owner_user_id=b["id"], is_private=1)
+        url = "/api/queue/settings"
+        assert c.get(url, params={"drama_id": mine, "step": "export"}, headers=_h(sv)).status_code == 403
+        r = c.get(url, params={"drama_id": mine, "step": "export"}, headers=_h(sa))
+        assert r.status_code == 200 and r.json()["title"] == "Mine"
+        assert c.get(url, params={"drama_id": theirs, "step": "export"}, headers=_h(sa)).status_code == 404
+        assert c.get(url, params={"drama_id": mine, "step": "dub"}, headers=_h(sa)).status_code == 422
+
     def test_paid_translate_item_needs_engines_paid(self, isolated_db):
         c = _remote(_app())
         a, sa = _user_named("a@example.com", "jobs.start")
