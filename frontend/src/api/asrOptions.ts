@@ -38,6 +38,8 @@ export interface AsrOptionsUpdate {
 interface DiarizationConfig {
   drama_id: number
   hf_token_configured: boolean
+  // Plain text of what stops speaker detection (no token, no pyannote); null when it can run.
+  speaker_notice?: string | null
   expected_speakers: number | null
   min_speakers: number | null
   max_speakers: number | null

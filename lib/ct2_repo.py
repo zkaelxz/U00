@@ -10,10 +10,18 @@ rather than filtered.
 CT2_ALLOWED = frozenset({
     "config.json", "model.bin", "tokenizer.json", "vocabulary.json", "vocabulary.txt",
     "preprocessor_config.json", "README.md", "LICENSE", ".gitattributes",
+    "added_tokens.json", "generation_config.json", "normalizer.json",
+    "special_tokens_map.json", "tokenizer_config.json",
 })
 CT2_REQUIRED = ("config.json", "model.bin", "tokenizer.json", "preprocessor_config.json")
 # Harmless text a repo always carries; allowed in a listing but not worth fetching.
-CT2_NOT_FETCHED = frozenset({"README.md", "LICENSE", ".gitattributes"})
+# The Hugging Face tokenizer/generation JSON files are inert data that faster-whisper
+# never reads (it loads config, tokenizer.json, vocabulary and preprocessor_config).
+CT2_NOT_FETCHED = frozenset({
+    "README.md", "LICENSE", ".gitattributes",
+    "added_tokens.json", "generation_config.json", "normalizer.json",
+    "special_tokens_map.json", "tokenizer_config.json",
+})
 _VOCABULARY = ("vocabulary.json", "vocabulary.txt")
 
 

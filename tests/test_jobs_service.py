@@ -48,7 +48,7 @@ def _run_job_with_result(job_id, result):
     import background_jobs
     background_jobs.start_job(job_id, lambda: background_jobs.set_result(job_id, result))
     deadline = time.time() + 3
-    while (background_jobs.get_status(job_id) or {}).get("status") != "done":
+    while (background_jobs.get_status(job_id) or {}).get("status") not in ("done", "error"):
         assert time.time() < deadline
         time.sleep(0.01)
 
@@ -79,11 +79,12 @@ class TestJobResults:
             "failed_reason": "model_download",
             "detail": "could not fetch /home/someone/models/large-v3 with key sk-ABCDEFGHIJKLMNOP12345"})
         job = jobs_service.get_job("transcribe_1")
-        assert job["status"] == "done"
+        assert job["status"] == "error"
         assert job["outcome"] == "failed"
-        assert "sk-ABCDEFGHIJKLMNOP12345" not in job["outcome_message"]
-        assert "/home/someone" not in job["outcome_message"]
-        assert "downloaded" in job["outcome_message"]
+        for text in (job["outcome_message"], job["error"]):
+            assert "sk-ABCDEFGHIJKLMNOP12345" not in text
+            assert "/home/someone" not in text
+            assert "downloaded" in text
 
     def test_result_survives_a_restart(self, isolated_db):
         import background_jobs

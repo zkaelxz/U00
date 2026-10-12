@@ -303,7 +303,11 @@ Safety rules the tool enforces:
 
 - Only CTranslate2 or safetensors files. It lists the repository first and refuses, naming
   the file, if anything is outside the allowlist; `.py`, `.pt`, `.pth`, `.pkl`, `.ckpt` and
-  any `.bin` other than `model.bin` are never downloaded or loaded.
+  any `.bin` other than `model.bin` are never downloaded or loaded. The allowlist lives in
+  `lib/ct2_repo.py` (shared with the app). Besides the model files it admits only inert
+  Hugging Face metadata JSON (`added_tokens.json`, `generation_config.json`,
+  `normalizer.json`, `special_tokens_map.json`, `tokenizer_config.json`), which is allowed in
+  a listing but never fetched.
 - Every download is at a pinned full commit sha, never a branch. A new revision means a
   reviewed change to the constants in the tool.
 - No initial prompt for anime-whisper: its card says a prompt degrades the output.

@@ -70,6 +70,8 @@ class TestFindGaps:
 def drama(isolated_db):
     did = isolated_db.create_drama(title_en="D", audio_filename="audio.wav")
     open(os.path.join(isolated_db.drama_dir(did), "audio.wav"), "wb").close()
+    # A title with no lines is refused: there is nothing to compare the speech against.
+    isolated_db.save_lines(did, [Line(idx=0, start=100.0, end=101.0, zh="x")])
     return did
 
 
@@ -160,6 +162,14 @@ class TestJob:
 
     def test_idle_before_any_run(self, isolated_db, drama):
         assert svc.get_speech_coverage(drama)["status"] == "idle"
+
+
+class TestNoLinesRefusal:
+    def test_a_title_without_lines_is_refused_with_its_own_error(self, isolated_db):
+        did = isolated_db.create_drama(title_en="E", audio_filename="audio.wav")
+        open(os.path.join(isolated_db.drama_dir(did), "audio.wav"), "wb").close()
+        with pytest.raises(UnsupportedOperationError, match="no lines"):
+            svc.start_speech_coverage(did)
 
 
 class TestStartRefusals:

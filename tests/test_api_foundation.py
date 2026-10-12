@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
+from services import diarization_service
 import core
 import whisper_models
 from core import Line
@@ -643,6 +644,7 @@ class TestDiarizationEndpoints:
         body = client.get(f"/api/diarization/dramas/{did}/config").json()
         assert body == {
             "drama_id": did, "hf_token_configured": False,
+            "speaker_notice": diarization_service.NO_TOKEN_NOTICE,
             "expected_speakers": None, "min_speakers": None, "max_speakers": None,
             "last_device": None, "audio_available": False,
             "manual_speaker_count": 0, "speaker_summary": None,
