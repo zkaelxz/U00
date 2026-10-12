@@ -165,14 +165,14 @@ def _run_job(job_id, run_id, drama_id, engine, engine_name, term_text, aliases, 
     background_jobs.update_progress(job_id, 0.1, "Asking the model for likely spellings...")
     prompt = build_prompt(language, english, [term_text, *aliases][:MAX_KNOWN_FORMS])
     try:
-        with extract._bounded_calls(job_id):
+        with extract._bounded_calls(job_id, drama_id, engine, engine_name, "glossary_spellings"):
             reply = llm_tasks.call_llm_json(
                 engine, prompt, max_tokens=REPLY_MAX_TOKENS, fallback="",
                 usage_cb=lambda inp, out: db.log_usage(
                     drama_id, engine_name, getattr(engine, "model", engine_name),
                     "glossary_spellings", inp, out,
                     translate_engines.estimate_cost_for_engine(engine, inp, out)))
-    except TranslationCancelled:
+    except (TranslationCancelled, background_jobs.JobCancelled):
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError("Suggesting spellings failed. "

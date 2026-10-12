@@ -15,10 +15,9 @@ import background_jobs
 import db
 import translate_engines
 import translation_guide as tguide
-from engine_backends import llm_tasks
 from engine_backends.shared import TranslationCancelled
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
-from services import job_checkpoint_service
+from services import job_checkpoint_service, paid_job_service
 from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
 from services.service_errors import (
     ConflictError,
@@ -134,22 +133,23 @@ def _novel_glossary_cache(engine, engine_name, fresh=False):
     return get, put
 
 
-def _bounded_calls(job_id):
+def _bounded_calls(job_id, drama_id, engine, engine_name, operation):
     """Deadline and Cancel for the job's LLM calls, with retry notices in its
-    message so a wait never looks like a hang."""
+    message so a wait never looks like a hang, plus the cap and failure-streak
+    limits every paid job has."""
     def on_wait(delay, next_attempt, max_retries):
         # Keep the bar where it is: this notice can arrive mid-run.
         current = (background_jobs.get_status(job_id) or {}).get("progress") or 0.0
         background_jobs.update_progress(
             job_id, current, f"The AI engine is slow or busy; retrying (attempt {next_attempt} of {max_retries})...")
-    return llm_tasks.bounded_llm_calls(
-        job_id, lambda: background_jobs.is_cancel_requested(job_id), on_wait, no_thinking=True)
+    return paid_job_service.job_calls(job_id, drama_id, engine, engine_name, operation,
+                                      lenient_empty=False, on_wait=on_wait, no_thinking=True)
 
 
 def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_text, en_text,
                             source_language, known_terms, fresh=False):
     try:
-        with _bounded_calls(job_id):
+        with _bounded_calls(job_id, drama_id, engine, engine_name, "glossary_from_novel") as limits:
             proposals = tguide.extract_glossary_from_novel(
                 src_text, engine, source_language=source_language, english_translation=en_text,
                 known_terms=known_terms,
@@ -160,14 +160,14 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
                     drama_id, engine_name, getattr(engine, "model", engine_name),
                     "glossary_from_novel", inp, out,
                     translate_engines.estimate_cost_for_engine(engine, inp, out)))
-    except TranslationCancelled:
+    except (TranslationCancelled, background_jobs.JobCancelled):
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
             _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
     background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms, src_text),
-                                        "run_id": run_id})
+                                        "run_id": run_id, **paid_job_service.stop_fields(limits)})
 
 
 # The run_id of each extraction job id's latest started run, for the status
@@ -337,6 +337,8 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
                                 for p in (job.get("result") or {}).get("proposals") or []
                                 if isinstance(p, dict) and p.get("term") not in ignored]}
     message = job.get("error") if status == "error" else job.get("message")
+    if status == "done" and (job.get("result") or {}).get("stopped"):
+        message = f"{job['result']['stopped']}. The terms found so far are listed."
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
             "message": translate_engines.redact_secrets(str(message)) if message else "",
             "result": result, "run_id": _current_run_id(job_id, job)}
@@ -507,14 +509,14 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
         raise background_jobs.JobCancelled()
     background_jobs.update_progress(job_id, 0.1, f"Scanning {len(source_lines)} lines...")
     try:
-        with _bounded_calls(job_id):
+        with _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
             proposals = tguide.extract_terms_llm(
                 source_lines, engine, source_language=source_language, known_terms=known_terms,
                 usage_cb=lambda inp, out: db.log_usage(
                     drama_id, engine_name, getattr(engine, "model", engine_name),
                     "extract_terms", inp, out,
                     translate_engines.estimate_cost_for_engine(engine, inp, out)))
-    except TranslationCancelled:
+    except (TranslationCancelled, background_jobs.JobCancelled):
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError(
@@ -527,7 +529,7 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
                  for p in proposals if isinstance(p, dict)]
     background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms,
                                                                   "\n".join(source_lines)),
-                                        "run_id": run_id})
+                                        "run_id": run_id, **paid_job_service.stop_fields(limits)})
 
 
 def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -> dict:

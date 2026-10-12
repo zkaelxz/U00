@@ -25,11 +25,15 @@ source, the reference and every engine's output, and scores each output
   limit); a judge failure never fails the run it follows.
 """
 import random
+import time
 
 import background_jobs
 import db
 import translate_engines
 from core import LANGUAGE_NAMES
+from engine_backends import llm_tasks, paid_calls
+from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
+from engine_backends.shared import TranslationCancelled
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
 from services.service_errors import (InvalidInputError, MissingKeyError,
@@ -39,6 +43,9 @@ DIMENSIONS = ("accuracy", "tone", "naturalness")
 SETTING_PREFIX = "benchmark_judge."
 USAGE_OPERATION = "benchmark_judge"
 JUDGE_MAX_TOKENS = 800
+# Past this the pass is cut off: each case takes seconds, so a pass that has
+# run this long is stuck on a slow or failing judge.
+PASS_DEADLINE_SECONDS = 30 * 60
 # Fixed instructions plus the JSON the judge writes per candidate (estimate only).
 _PROMPT_OVERHEAD_TOKENS = 350
 _REPLY_TOKENS_PER_CANDIDATE = 45
@@ -291,11 +298,30 @@ def _run_pass(job_id, sessions, judge, state):
                      if r.get("case_id") is not None} for sid in sessions}
     cases = {c["id"]: c for c in db.list_benchmark_cases("translation")}
     case_ids = [cid for cid in cases if any(cid in results[sid] for sid in sessions)]
+    deadline = time.monotonic() + PASS_DEADLINE_SECONDS
+    streak = FailureStreak()
+    budget_token = _rate_limit_budget_var.set(RateLimitWaitBudget())
+    try:
+        _judge_cases(job_id, sessions, judge, state, engine, key, results, cases, case_ids,
+                     deadline, streak)
+    finally:
+        _rate_limit_budget_var.reset(budget_token)
+
+
+def _stop_pass(state, note):
+    for s in state.values():
+        s["status"], s["note"] = "failed", note
+
+
+def _judge_cases(job_id, sessions, judge, state, engine, key, results, cases, case_ids,
+                 deadline, streak):
     for n, cid in enumerate(case_ids):
         if background_jobs.is_cancel_requested(job_id):
             for s in state.values():
                 s["status"] = "cancelled"
             return
+        if time.monotonic() > deadline:
+            return _stop_pass(state, "Stopped: judging ran past its time limit.")
         if lab._cap_applies(judge["engine"]):
             _cap, refusal = translate_engines.resolve_cost_cap(
                 None, settings_service.get_monthly_cap_usd(), db.get_month_spend())
@@ -317,12 +343,20 @@ def _run_pass(job_id, sessions, judge, state):
         if not usable:
             continue
         tokens = [0, 0]
+        stop_note = ""
         try:
-            judged = judge_case(engine, cases[cid], usable, usage=tokens)
+            # Cancel and a deadline inside the call, not only between cases.
+            with llm_tasks.bounded_llm_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id)):
+                judged = judge_case(engine, cases[cid], usable, usage=tokens)
+            streak.record(failed=False, succeeded=True)
         except Exception as exc:
             for sid in usable:
                 state[sid]["note"] = lab.redact(exc, key)
             judged = None
+            stop_note = paid_calls.stop_reason_for(exc)
+            if not stop_note and not isinstance(exc, TranslationCancelled) \
+                    and streak.record(failed=True, succeeded=False):
+                stop_note = paid_calls.failure_stop_reason(streak.count)
         finally:
             # Every billed call counts toward the monthly cap, even when a later
             # call or the parse failed.
@@ -332,6 +366,8 @@ def _run_pass(job_id, sessions, judge, state):
                              USAGE_OPERATION, tokens[0], tokens[1], cost)
         if judged is None:
             _charge(state, usable, tokens, cost)
+            if stop_note:
+                return _stop_pass(state, stop_note)
             continue
         judged.pop("_usage", None)
         _charge(state, usable, tokens, cost)

@@ -36,6 +36,7 @@ No FastAPI import; plain dicts in and out.
 import background_jobs
 import db
 import translate_engines
+from engine_backends import paid_calls
 from services import settings_service, translate_run_service, translate_service
 from services.review_lines_service import line_dict
 from services.service_errors import (
@@ -112,15 +113,8 @@ def _build_engine(engine_name: str):
 def _log_usage(drama_id: int, engine_name: str, engine) -> None:
     """Every call to a paid engine is logged, blocked or failed too: the
     provider may have billed it."""
-    if engine_name in translate_engines.FREE_ENGINES:
-        return
-    usage = getattr(engine, "last_usage", None) or {}
-    tokens = [usage.get(k, 0) or 0 for k in
-              ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")]
-    db.log_usage(drama_id, engine_name, getattr(engine, "model", None) or engine_name,
-                 USAGE_OPERATION, tokens[0], tokens[1],
-                 translate_engines.estimate_cost_for_engine(engine, *tokens),
-                 cache_read_tokens=tokens[2])
+    paid_calls.record_call(engine, engine_name, USAGE_OPERATION,
+                           getattr(engine, "last_usage", None), drama_id=drama_id)
 
 
 def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_ENGINE) -> dict:

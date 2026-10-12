@@ -11,6 +11,7 @@ import db
 import translate_engines
 import whisper_models
 from core import SOURCE_LANGUAGES
+from engine_backends import llm_tasks, paid_calls
 from lib.errors import InvalidInputError
 
 
@@ -58,24 +59,32 @@ def _translation_context(case: dict) -> dict:
 def run_translation(engine, case: dict, key: str = None) -> dict:
     started = time.monotonic()
     usage = None
+    stop_reason = ""
     try:
         # Same retry as a normal translation: a transient 429/5xx shouldn't
         # score 0 and skew the Arena.
         ctx = _translation_context(case)
+        # Bounded, because a Cancel pressed while a hung engine is answering
+        # would otherwise wait for the SDK's own timeout.
         out = translate_engines.call_with_backoff(
-            lambda: engine.translate_batch([case.get("source_text") or ""], ctx))
+            lambda: llm_tasks.call_batch_bounded(
+                engine, lambda: engine.translate_batch([case.get("source_text") or ""], ctx),
+                on_late_result=lambda: paid_calls.record_call(
+                    engine, getattr(engine, "name", ""), "benchmark",
+                    getattr(engine, "last_usage", None))))
         output_text = out[0] if out else ""
         error = None
         usage = getattr(engine, "last_usage", None)
     except Exception as exc:
         output_text, error = "", redact(exc, key)
+        stop_reason = paid_calls.stop_reason_for(exc)
     cost = 0.0
     if usage:
         cost = translate_engines.estimate_cost_for_engine(
             engine, usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0,
             usage.get("cache_read_tokens", 0) or 0, usage.get("cache_write_tokens", 0) or 0)
     return {"output_text": output_text, "error": error, "cost_usd": cost, "usage": usage or {},
-            "duration_seconds": time.monotonic() - started}
+            "duration_seconds": time.monotonic() - started, "stop_reason": stop_reason}
 
 
 def run_file_case(stage: str, cfg: dict, case: dict, use_gpu: bool) -> dict:

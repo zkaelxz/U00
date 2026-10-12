@@ -164,7 +164,7 @@ def test_line_ai_defaults_to_setting(_env, monkeypatch):
     lid = db.load_lines(did)[0]["id"]
     with pytest.raises(UnsupportedOperationError):
         line_ai_service.explain_line(did, lid, "gemini", PRO)
-    monkeypatch.setattr(line_ai_service, "run", lambda fn: "x")
+    monkeypatch.setattr(line_ai_service, "run", lambda fn, meter=None: "x")
     line_ai_service.explain_line(did, lid, "gemini")
     line_ai_service.improve_line(did, lid, "gemini", gemini_free_tier=False)
     assert [kw["free_tier"] for kw in _env] == [True, False]

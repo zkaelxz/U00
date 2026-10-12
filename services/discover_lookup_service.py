@@ -32,6 +32,7 @@ import metadata_lookup
 import navigator
 import title_library
 import translate_engines
+from engine_backends import paid_calls
 from services import discover_catalog_service as _catalog
 from services import ownership_service, safe_fetch, settings_service
 from services.service_errors import (
@@ -103,6 +104,11 @@ def _build_engine(engine_name: str):
         engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"))
 
 
+def _metered(engine, operation: str):
+    """Logs every request of this block to the usage log, failed ones too."""
+    return paid_calls.logged_calls(engine, operation)
+
+
 # ----- input checks ---------------------------------------------------------
 
 def _check_text(name, value, cap, required=True) -> str:
@@ -163,7 +169,8 @@ def translate_query(q, engine_name: Optional[str] = None) -> dict:
         return {"query": q, "translated": q, "engine": engine_name}
     engine = _build_engine(engine_name)
     try:
-        translated = title_library.translate_query_to_zh(q, engine)
+        with _metered(engine, "discover_translate_query"):
+            translated = title_library.translate_query_to_zh(q, engine)
     except Exception:
         raise DependencyUnavailableError(_ENGINE_FAILED) from None
     translated = _redact(translated if isinstance(translated, str) else q)[:MAX_QUERY_LEN]
@@ -196,7 +203,8 @@ def import_suggestion(url, engine_name: Optional[str] = None) -> dict:
         return {"suggestion": {}, "found": False, "needs_manual": True,
                 "message": _redact(page.message)}
     try:
-        found = metadata_lookup.extract_metadata_llm(page.text, engine)
+        with _metered(engine, "discover_import_suggestion"):
+            found = metadata_lookup.extract_metadata_llm(page.text, engine)
     except Exception:
         raise DependencyUnavailableError(_ENGINE_FAILED) from None
     suggestion = {k: _redact(v.strip()) for k, v in (found or {}).items()
@@ -259,6 +267,11 @@ def _clean_entry(e) -> Optional[dict]:
 
 
 def _run_bulk_extract(job_id, urls, source_label, engine):
+    with _metered(engine, "discover_bulk_extract"):
+        _extract_pages(job_id, urls, source_label, engine)
+
+
+def _extract_pages(job_id, urls, source_label, engine):
     rows, entries, seen, full_urls = [], [], set(), {}
     run = uuid.uuid4().hex[:12]   # ids from an earlier run never match this one's
     for i, url in enumerate(urls):
@@ -335,7 +348,8 @@ def _run_bulk_extract_pasted(job_id, text, source_label, engine):
     entries, seen, full_urls = [], set(), {}
     background_jobs.update_progress(job_id, 0.1, "Reading the pasted text")
     try:
-        found = bulk_import.extract_listing_from_text(text, engine, source_name=source_label)
+        with _metered(engine, "discover_bulk_extract"):
+            found = bulk_import.extract_listing_from_text(text, engine, source_name=source_label)
         for raw in found or []:
             e = _clean_entry(raw)
             if e is None or e["title"] in seen:
@@ -461,6 +475,11 @@ def _labels_from_text(text: str) -> list:
 
 
 def _run_navigation_help(job_id, url, goal, target_language, engine):
+    with _metered(engine, "discover_navigation"):
+        _navigation_steps(job_id, url, goal, target_language, engine)
+
+
+def _navigation_steps(job_id, url, goal, target_language, engine):
     result = {"labels": {}, "steps": "", "needs_manual": False, "message": ""}
     try:
         page = _fetch(url)

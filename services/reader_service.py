@@ -60,6 +60,7 @@ import subtitle_formats
 import translate_engines
 import universe_wiki
 import vocab_export
+from engine_backends import paid_calls
 from services import drama_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from services.service_errors import (
@@ -256,10 +257,15 @@ def llm_engine(engine_name=None, model=None):
     return engine
 
 
-def _run_engine(fn):
+def _run_engine(fn, meter=None):
+    """meter: (engine, operation, drama_id) for a paid call, so its usage is
+    logged whether or not it worked."""
     import dictionary
     try:
-        return fn()
+        if meter is None:
+            return fn()
+        with paid_calls.logged_calls(meter[0], meter[1], drama_id=meter[2]):
+            return fn()
     except ServiceError:
         raise
     except dictionary.CedictDownloadError as e:  # already user-ready, not an engine failure
@@ -512,7 +518,7 @@ def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAUL
             defs.update(_define_words_llm(needs_llm, [ln.zh for ln in page_lines], engine, lang))
         return defs
 
-    defs = _run_engine(work)
+    defs = _run_engine(work, (engine, "reader_define", drama_id) if engine is not None else None)
     for word, entry in defs.items():
         first_line = next((ln.idx for ln in page_lines if word in ln.zh), None)
         db.save_vocab_lookup(drama_id, word, entry.get("reading"),
@@ -618,7 +624,8 @@ def who_is_character(drama_id: int, name: str, up_to_line_idx: int = None,
     name = _text_arg(name, "name", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
     engine = llm_engine(engine_name, model)
-    answer = _run_engine(lambda: story_context.who_is_character(name, scoped, drama, engine))
+    answer = _run_engine(lambda: story_context.who_is_character(name, scoped, drama, engine),
+                         (engine, "reader_who_is", drama_id))
     return {"drama_id": drama_id, "answer": answer}
 
 
@@ -629,7 +636,8 @@ def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
     engine = llm_engine(engine_name, model)
     answer = _run_engine(lambda: story_context.explain_reference(
-        phrase, scoped, engine, source_language=drama.get("source_language") or "zh"))
+        phrase, scoped, engine, source_language=drama.get("source_language") or "zh"),
+        (engine, "reader_explain", drama_id))
     return {"drama_id": drama_id, "answer": answer}
 
 
@@ -653,7 +661,7 @@ def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
     section = section[start:]
     engine = llm_engine(engine_name, model)
     summary = _run_engine(lambda: story_context.summarize_section(
-        section, engine, section_label=f"up to page {page}"))
+        section, engine, section_label=f"up to page {page}"), (engine, "reader_recap", drama_id))
     return {"drama_id": drama_id, "summary": summary, "truncated": len(section) < full}
 
 
@@ -664,7 +672,8 @@ def relationship_map(drama_id: int, up_to_line_idx: int = None,
     _require_drama(drama_id)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
     engine = llm_engine(engine_name, model)
-    rel = _run_engine(lambda: story_context.build_relationship_map(scoped, engine)) or {}
+    rel = _run_engine(lambda: story_context.build_relationship_map(scoped, engine),
+                      (engine, "reader_relationships", drama_id)) or {}
     has_chars = bool(rel.get("characters"))
     return {"drama_id": drama_id, "characters": rel.get("characters") or [],
             "relationships": rel.get("relationships") or [],
@@ -716,7 +725,8 @@ def update_wiki(drama_id: int, up_to_line_idx: int = None,
         return {"drama_id": drama_id, "updated": 0, "remaining": 0, "next_line_idx": None}
     batch_limit = batch[-1].idx if remaining else limit
     found = _run_engine(lambda: universe_wiki.extract_wiki_entries(
-        batch, engine, batch_limit, drama, existing_entries=db.list_wiki_entries(drama_id)))
+        batch, engine, batch_limit, drama, existing_entries=db.list_wiki_entries(drama_id)),
+        (engine, "reader_wiki", drama_id))
     for e in found:
         db.upsert_wiki_entry(
             drama_id, e["entry_type"], e["name"], description=e.get("description"),
@@ -774,5 +784,6 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list = None,
     lines = _require_lines(drama_id)
     engine = llm_engine(engine_name, model)
     answer = _run_engine(lambda: qa.ask_about_drama(question, lines, drama, engine,
-                                                    chat_history=history))
+                                                    chat_history=history),
+                         (engine, "reader_ask", drama_id))
     return {"drama_id": drama_id, "answer": answer}

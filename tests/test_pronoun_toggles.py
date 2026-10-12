@@ -12,7 +12,7 @@ import db
 import translate_engines
 import translation_guide as tguide
 from core import Line
-from services import (line_ai_service, review_jobs_service,
+from services import (bulk_submit_service, line_ai_service, review_jobs_service,
                       translate_run_service, workspace_job_service)
 
 FEMALE = tguide.FEMALE_PRONOUN_DEFAULT_GUIDANCE.strip().splitlines()[0]
@@ -127,7 +127,8 @@ def test_library_bulk_translate_without_toggles_reuses_each_titles_choice(isolat
     monkeypatch.setattr(wjs.background_jobs, "start_job", lambda *a, **k: False)
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     wjs.run_bulk_series_translate_job("bulk_toggles", [did], {"claude": "k"},
-                                      include_genre_notes=None, default_female_pronouns=None)
+                                      monthly_cap=50.0, include_genre_notes=None,
+                                      default_female_pronouns=None)
     assert builder_calls == [(False, True)]
 
 
@@ -172,7 +173,7 @@ def test_the_chosen_toggles_are_baked_into_the_persisted_bulk_args(isolated_db, 
     captured = {}
     monkeypatch.setattr(bulk_translate, "schedule_offpeak_translation",
                         lambda drama_id, lines, name, model, args, **kw: captured.update(args) or 1)
-    submit = translate_run_service._bulk_submitter(
+    submit = bulk_submit_service.bulk_submitter(
         did, drama, type("E", (), {"model": "m"})(), "deepseek", False, None, None, guidelines,
         "", "en-US", "audio_drama", 6, 3, 20, False, None, None, True)
     submit()
@@ -188,7 +189,7 @@ def test_library_bulk_translate_rows_carry_their_own_run_settings(isolated_db, m
     seen = []
     monkeypatch.setattr(wjs.background_jobs, "start_job",
                         lambda job_id, *a, **k: seen.append((job_id, k["run_settings"])) or False)
-    wjs.run_bulk_series_translate_job("bulk_rs", [did], {"claude": "k"})
+    wjs.run_bulk_series_translate_job("bulk_rs", [did], {"claude": "k"}, monthly_cap=50.0)
     assert seen[0][0] == f"translate_{did}"
     assert seen[0][1]["engine"] == "claude"
     assert seen[0][1]["pronoun_hint"] is True and seen[0][1]["genre_notes"] is False

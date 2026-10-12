@@ -61,6 +61,8 @@ RESULT_ALLOWED_KEYS = (
     # Re-split long lines: counts, the timing mode and a one-line note.
     "split_lines", "lines_before", "aligned_lines", "cleared_translations",
     "speakers_reassigned", "timing", "note",
+    # A paid job a money rule ended early: the plain reason ("Stopped: ...").
+    "stopped",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -397,6 +399,9 @@ def derive_outcome(status, error, result):
         parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
     if errors:
         parts.append(f"{len(errors)} problem(s), first: {errors[0]}")
+    stopped = result.get("stopped")
+    if stopped:
+        parts.append(f"{str(stopped).rstrip('.')}. Finished work was kept.")
     if result.get("partial"):
         parts.append("Only part of the work finished.")
     # Transcribe warnings: the job worked, but not the way the user asked,
@@ -434,7 +439,7 @@ def derive_outcome(status, error, result):
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
             f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
-    if cap is not None or errors or result.get("partial") or warned:
+    if cap is not None or errors or stopped or result.get("partial") or warned:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")
 

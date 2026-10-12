@@ -7,6 +7,7 @@ import datetime
 import json
 
 import translate_engines
+from engine_backends.run_limits import FailureStreak
 from lib import http
 
 # A finished Gemini batch carries every result inline in one reply, and
@@ -194,3 +195,114 @@ def next_deepseek_offpeak_start(now: datetime.datetime) -> datetime.datetime:
         if start <= now.hour < end:
             return now.replace(hour=end, minute=0, second=0, microsecond=0)
     return now
+
+
+# ---------------------------------------------------------------------------
+# Limits on a poller
+# ---------------------------------------------------------------------------
+
+# A batch the provider has not finished by then expired there (Claude's limit
+# is 24 hours, Gemini's 48), so waiting longer can only wait for nothing.
+BATCH_GIVE_UP_AFTER = datetime.timedelta(hours=49)
+
+
+NO_CAP_MESSAGE = ("Set a monthly spending cap (Settings > Spending) before running paid work "
+                  "that nobody is watching.")
+
+
+# One status check a minute: about a quarter of an hour without an answer, so a
+# Wi-Fi blip does not end a poller whose batch is still being paid for.
+POLL_FAILURE_LIMIT = 15
+
+
+class PollGuard:
+    """Ends a poller that cannot reach the provider, or whose batch is past its
+    expiry, with a plain reason instead of polling for ever. A poller that gave
+    up leaves the job "submitted", so Check now (or a restart) picks it up."""
+
+    def __init__(self):
+        self._streak = FailureStreak(POLL_FAILURE_LIMIT)
+
+    def reached(self) -> None:
+        self._streak.record(failed=False, succeeded=True)
+
+    def failed(self, bulk_job_id: int) -> str:
+        """The reason once the last checks all failed, else ''."""
+        if not self._streak.record(failed=True, succeeded=False):
+            return ""
+        import db
+        reason = (f"Stopped checking: {self._streak.count} status checks in a row failed. "
+                  "Press Check now to try again.")
+        db.update_bulk_job(bulk_job_id, last_error=reason)
+        return reason
+
+    @staticmethod
+    def expired(bulk_job_id: int, job: dict, now: datetime.datetime) -> bool:
+        """Fails a job whose batch has expired at the provider."""
+        try:
+            age = now - datetime.datetime.fromisoformat(job["submitted_at"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        if age <= BATCH_GIVE_UP_AFTER:
+            return False
+        import db
+        db.update_bulk_job(bulk_job_id, status="failed", last_error=(
+            "The provider did not finish this batch within 48 hours, so it has expired there. "
+            "Run it again."))
+        return True
+
+
+def reschedule_for_next_window(bulk_job_id: int, now: datetime.datetime) -> None:
+    """An off-peak run the window closed on goes back to waiting; the lines it
+    already translated are skipped when it runs again."""
+    import db
+    if db.set_bulk_job_status_if(bulk_job_id, ("running",), "scheduled"):
+        db.update_bulk_job(bulk_job_id, scheduled_for=next_deepseek_offpeak_start(now).isoformat())
+
+
+
+class WindowGate:
+    """Between-batch test for the half-price window; `closed` tells afterwards
+    whether it was what ended the run."""
+
+    def __init__(self, window_open):
+        self._open, self.closed = window_open, False
+
+    def __call__(self) -> bool:
+        if self._open is not None and not self._open():
+            self.closed = True
+        return self.closed
+
+
+def job_cap_left(job: dict):
+    """The job's own cost cap less what its earlier windows already spent
+    (the usage log is the record), or None when it has no cap."""
+    cap = (job.get("translate_args") or {}).get("cost_cap_usd")
+    if not cap:
+        return None
+    import contextlib
+    import db
+    with contextlib.closing(db.get_conn()) as conn:
+        spent = conn.execute(
+            "SELECT COALESCE(SUM(estimated_cost_usd), 0) FROM usage_log WHERE drama_id = ? "
+            "AND operation = 'translate_offpeak' AND created_at >= ?",
+            (job["drama_id"], job.get("submitted_at") or "")).fetchone()[0]
+    return float(cap) - float(spent)
+
+
+def offpeak_cap(job: dict, monthly_cap_usd):
+    """(cap, refusal) for an off-peak run about to start."""
+    import db
+    left = job_cap_left(job)
+    cap, refusal = translate_engines.resolve_cost_cap(
+        left if left and left > 0 else None, monthly_cap_usd,
+        db.get_month_spend() if monthly_cap_usd else 0.0)
+    return cap, refusal or run_refusal(cap, left)
+
+
+def run_refusal(cap, left):
+    """Why an off-peak run may not start now: no cap at all, or its own cost
+    cap is used up across the windows so far."""
+    if left is not None and left <= 0:
+        return "This job's cost cap is used up."
+    return None if cap is not None else NO_CAP_MESSAGE

@@ -190,6 +190,7 @@ class TestBulkTranslate:
             captured.update(job_id=job_id, args=args, kwargs=kwargs)
             return True
         monkeypatch.setattr(background_jobs, "start_job", fake_start)
+        monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
         r = _clean(client.post(f"{BASE}/bulk/translate", json={"drama_ids": [a, b, c]}))
         assert r.status_code == 200, r.text
         body = r.json()
@@ -611,6 +612,7 @@ class TestAuthOn:
 
     def test_household_with_paid_engine_allowed(self, isolated_db, monkeypatch):
         monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
         c = _remote_app()
         a = _new("A")
         r = c.post(f"{BASE}/bulk/translate", headers=_household("engines.paid"),

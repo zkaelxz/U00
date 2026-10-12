@@ -481,7 +481,8 @@ class TestBulkSeriesTranslate:
         job_id = "test_bulk_series"
         background_jobs.clear_job(job_id)
         started = background_jobs.start_job(
-            job_id, lt.run_bulk_series_translate_job, job_id, drama_ids, kw.pop("api_keys", {}), **kw)
+            job_id, lt.run_bulk_series_translate_job, job_id, drama_ids, kw.pop("api_keys", {}),
+            **{"monthly_cap": 50.0, **kw})
         assert started
         _wait_for_job(job_id)
         return background_jobs.get_status(job_id)

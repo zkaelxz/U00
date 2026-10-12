@@ -41,8 +41,9 @@ import db
 import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
-from services import (bulk_job_view, engine_routing_service, library_service, ownership_service,
-                      run_settings_service, settings_service, translate_service, workspace_job_service)
+from services import (bulk_job_view, bulk_submit_service, engine_routing_service, library_service,
+                      ownership_service, paid_job_service, run_settings_service, settings_service,
+                      translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -468,6 +469,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         built.append((name, api_key, c["model"], free_tier))
 
     if bulk:
+        # A batch or an off-peak run is paid for with nobody watching.
+        paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier)
         job_id = bulk_job_id(drama_id)
         if db.list_bulk_jobs(drama_id, statuses=db.BULK_PENDING_STATUSES + ("running",)):
             raise ConflictError("A bulk translation is already pending for this title.")
@@ -510,7 +513,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         force_retranslate=force_retranslate, thinking=thinking, own_lines_only=own_lines_only)
     if bulk:
-        submit = _bulk_submitter(drama_id, drama, engines[0], engine_name, reflect,
+        submit = bulk_submit_service.bulk_submitter(drama_id, drama, engines[0], engine_name, reflect,
                                  novel_reference, glossary_terms, style_guidelines,
                                  style_note or "", locale, style_preset, context_window,
                                  context_window_ahead, batch_size, force_retranslate,
@@ -568,52 +571,6 @@ def save_style_toggles(drama_id: int, include_genre_notes=None,
 
 def bulk_job_id(drama_id: int) -> str:
     return f"bulk_translate_{drama_id}"
-
-
-def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_reference,
-                    glossary_terms, style_guidelines, style_note, locale, style_preset,
-                    context_window, context_window_ahead, batch_size, force_retranslate,
-                    job_cost_cap_usd, series_id, thinking):
-    """A zero-arg callable that submits the bulk translation (or bulk
-    Reflect) batch (same translate_args, context and character names as a
-    normal run) and returns the bulk job id. Called inside the job so the provider
-    call never blocks the request. Lines are re-read from the DB at submit
-    time so each carries its permanent id and current English."""
-    def submit() -> int:
-        lines = db.load_line_objects(drama_id)
-        if force_retranslate and any(ln.en for ln in lines):
-            db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
-        if reflect:
-            return bulk_translate.submit_reflect_pipeline(
-                drama_id, lines, engine, engine_name,
-                {"style_note": style_note, "drama_meta": drama, "novel_reference": novel_reference,
-                 "locale": locale, "glossary_terms": glossary_terms,
-                 "style_guidelines": style_guidelines, "style_preset": style_preset},
-                batch_size=batch_size, force_retranslate=force_retranslate)
-        if engine_name == "deepseek":
-            # the run's own thinking: the job starts later
-            return bulk_translate.schedule_offpeak_translation(
-                drama_id, lines, engine_name, getattr(engine, "model", ""),
-                {"style_note": style_note, "locale": locale, "glossary_terms": glossary_terms,
-                 "style_guidelines": style_guidelines, "style_preset": style_preset,
-                 "context_window": context_window, "cost_cap_usd": job_cost_cap_usd or None,
-                 "novel_reference": novel_reference, "thinking": thinking, "batch_size": batch_size,
-                 "context_window_ahead": context_window_ahead,
-                 **settings_service.run_options()},
-                force_retranslate=force_retranslate)
-        character_names = translation_guide.build_speaker_labels(
-            db.list_characters_with_series_names(drama_id),
-            db.list_series_characters(series_id) if series_id else [])
-        context = translate_engines.build_translation_context(
-            engine, drama, style_note=style_note, novel_reference=novel_reference, locale=locale,
-            glossary_terms=glossary_terms, style_guidelines=style_guidelines)
-        return bulk_translate.submit_bulk_translation(
-            drama_id, lines, engine, engine_name, context,
-            translate_args={"glossary_terms": glossary_terms, "style_preset": style_preset},
-            force_retranslate=force_retranslate, context_window=context_window,
-            context_window_ahead=context_window_ahead, batch_size=batch_size,
-            character_names=character_names)
-    return submit
 
 
 _NEXT_REFLECT_STAGE = {"faithful": "reflect", "reflect": "expressive"}

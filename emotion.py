@@ -17,6 +17,7 @@ Two things happen here:
 
 import re
 import json
+from engine_backends.run_limits import TranslateRunStopped
 from translate_engines import call_llm_json
 
 # Registers worth distinguishing because they change word choice in English.
@@ -167,8 +168,11 @@ def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = 
         batch = scoped[start:start + batch_size]
         prompt = build_emotion_prompt(batch, use_audio_cues=use_audio_cues)
 
-        text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb,
-                             expect="json_array")
+        try:
+            text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb,
+                                 expect="json_array")
+        except TranslateRunStopped:
+            break  # the tags read so far are still returned
         if progress_cb:
             # Reported right after the call, before parsing -- a batch
             # whose response fails to parse below still counts as

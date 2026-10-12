@@ -346,12 +346,12 @@ def prompt_safe(prompt: str) -> str:
 
 
 def ask_json(engine, prompt: str, max_tokens: int = 2000):
-    """One call through call_llm_json -- the only one in the sources
-    package, and always through prompt_safe(). Returns the parsed JSON
-    object or None. Network/provider errors propagate to the caller, which
-    records them (redacted) as the reason."""
+    """The sources package's one call_llm_json: via prompt_safe(), logged to the
+    usage log. Returns the parsed JSON object or None."""
+    from engine_backends.paid_calls import logged_calls
     from translate_engines import call_llm_json
-    text = call_llm_json(engine, prompt_safe(prompt), max_tokens=max_tokens, fallback=None)
+    with logged_calls(engine, "sources_ai_fallback"):
+        text = call_llm_json(engine, prompt_safe(prompt), max_tokens=max_tokens, fallback=None)
     if not text:
         return None
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()

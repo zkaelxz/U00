@@ -34,6 +34,7 @@ import db
 import media_inspect
 import metadata_lookup
 import translate_engines
+from engine_backends import paid_calls
 from services import drama_service, settings_service
 from lib import http, url_guard
 from services.service_errors import (
@@ -217,7 +218,8 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
             engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
-        found = metadata_lookup.extract_metadata_llm(text, engine)
+        with paid_calls.logged_calls(engine, "metadata_autofill", drama_id=drama_id):
+            found = metadata_lookup.extract_metadata_llm(text, engine)
     except Exception as e:
         raise DependencyUnavailableError("The metadata lookup service is unavailable.") from e
     suggestion = {k: v.strip() for k, v in (found or {}).items()
