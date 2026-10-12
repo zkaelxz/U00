@@ -15,6 +15,7 @@ import { isActive } from '../diagnosticsFormat'
 import { installBlockedReason, type AdminBusy } from '../diagnostics/diagnosticsAdmin'
 import { InstallProgress } from '../diagnostics/InstallProgress'
 import { runInstallJob } from '../diagnostics/installJob'
+import { useInstallPlan } from '../diagnostics/useInstallPlan'
 import { formatApproxMb, missingTranscription, taskConfirmLabel } from '../diagnostics/installPresets'
 import { SettingsKeyForm } from '../SettingsKeyForm'
 import { engineLabel } from '../../labels'
@@ -103,7 +104,6 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
   }, [loaded.done, ready, onReady])
 
   const recheck = useCallback(() => setTick((t) => t + 1), [])
-  const blocked = installBlockedReason(loaded.jobsActive, busy)
   const task = missingTranscription(loaded.presets.data)
 
   const install = async (label: string, run: (onJob: (job: NonNullable<AdminBusy>['job']) => void) => Promise<{ ok: boolean; cancelled?: boolean; hint?: string | null }>) => {
@@ -123,15 +123,34 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
     }
   }
 
-  const installWhisper = () => install('transcription', async (onJob) => {
+  const installWhisper = (acceptedRisks: string[]) => install('transcription', async (onJob) => {
     // One package at a time (the server runs one pip); the first failure ends the run.
     let last = { ok: true } as Awaited<ReturnType<typeof runInstallJob>>
     for (const pkg of task?.to_install ?? []) {
-      last = await runInstallJob(() => installDependency(pkg), onJob, pkg)
+      last = await runInstallJob(() => installDependency(pkg, undefined, acceptedRisks), onJob, pkg)
       if (!last.ok) break
     }
     return last
   })
+  const { planned, withPlan, view: planView } = useInstallPlan({
+    onChecking: (label) => {
+      setFailure(null)
+      setNote(null)
+      setBusy({ kind: 'install', name: `Checking what ${label} will change` })
+    },
+    onChecked: () => setBusy(null),
+    onQueued: (label) => {
+      setBusy(null)
+      setNote(`${label} is queued. It installs when you restart Baihe.`)
+    },
+    onQueueFailed: (_label, e) => {
+      setBusy(null)
+      setFailure(e)
+    },
+  })
+  // An open plan holds the install buttons: a second install would swap the plan under a ticked "I understand".
+  const blocked = installBlockedReason(loaded.jobsActive, busy) ?? (planned ? 'Close the install preview below first.' : null)
+  const previewWhisper = () => void withPlan('transcription', task?.to_install ?? [], async (accepted) => installWhisper(accepted))
   const installGpu = () => install('GPU PyTorch', (onJob) => runInstallJob(() => setupGpuTorch(), onJob, 'GPU PyTorch'))
 
   if (!rows.length) return null
@@ -147,7 +166,7 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
           name="transcription" verb="install" tone="primary"
           label={size ? `Install (${size.replace('approx.', 'about')})…` : 'Install…'}
           confirmLabel={taskConfirmLabel(task)}
-          busy={!!busy} disabled={!!blocked} onConfirm={installWhisper}
+          busy={!!busy} disabled={!!blocked} onConfirm={previewWhisper}
         />
       )
     }
@@ -210,12 +229,13 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
       </ul>
       {busy && (busy.job
         ? <InstallProgress job={busy.job} name={busy.name} />
-        : <p className="muted" role="status">Starting the install…</p>)}
+        : <p className="muted" role="status">{busy.name.startsWith('Checking') ? `${busy.name}…` : 'Starting the install…'}</p>)}
       {!busy && blocked && !readOnly && rows.some((r) => r.need === 'whisper' || r.need === 'gpu') && (
         <p className="muted" role="note">{blocked}</p>
       )}
       {note && <p className="muted" role="status">{note}</p>}
       <ErrorBanner error={failure} describe={{ pcOnly: true, serverText: true }} />
+      {planView}
       {!!failure && !busy && (
         <div className="actions">
           <button type="button" className={buttonClass('secondary')} onClick={() => retry.current?.()}>
