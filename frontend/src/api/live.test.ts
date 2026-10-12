@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
@@ -35,6 +35,36 @@ describe('buildStartBody', () => {
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', glossary_drama_id: 7 }).glossary_drama_id).toBe(7)
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('glossary_drama_id')
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', glossary_drama_id: 0 })).not.toHaveProperty('glossary_drama_id')
+  })
+
+  it('sends a series instead of a title, never both', () => {
+    const body = buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', series_id: 3, glossary_drama_id: 7 })
+    expect(body.series_id).toBe(3)
+    expect(body).not.toHaveProperty('glossary_drama_id')
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('series_id')
+  })
+
+  it('lists series first, then titles under their series, then titles with no series', () => {
+    const opts = glossaryChoices(
+      [{ id: 3, name: 'Moon' }],
+      [{ id: 7, name: 'Letters', series_id: null }, { id: 8, name: 'Two', series_id: 3 }, { id: 9, name: 'Lost', series_id: 99 }],
+    )
+    expect(opts.map((o) => [o.value, o.label])).toEqual([
+      ['s:3', 'Series: Moon'],
+      ['t:8', 'Two (in Moon)'],
+      ['t:9', 'Lost (in a series)'],
+      ['t:7', "Letters (No series: only this title's packs)"],
+    ])
+  })
+
+  it('resolves a remembered choice, an old title-only one included, and drops a gone one', () => {
+    const opts = glossaryChoices([{ id: 3, name: 'Moon' }], [{ id: 7, name: 'Letters', series_id: null }])
+    expect(glossaryValue({ glossary_drama_id: 7, series_id: null }, opts)).toBe('t:7')
+    expect(glossaryValue({ glossary_drama_id: null, series_id: 3 }, opts)).toBe('s:3')
+    expect(glossaryValue({ glossary_drama_id: 99, series_id: null }, opts)).toBe('')
+    expect(glossaryIds('s:3')).toEqual({ glossary_drama_id: null, series_id: 3 })
+    expect(glossaryIds('t:7')).toEqual({ glossary_drama_id: 7, series_id: null })
+    expect(glossaryIds('')).toEqual({ glossary_drama_id: null, series_id: null })
   })
 
   it('clamps numbers, caps overlap at half the chunk and drops unknown choices', () => {
