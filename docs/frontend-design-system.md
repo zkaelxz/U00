@@ -89,6 +89,7 @@ Kit components are in `frontend/src/components/`; classes are in the design-kit 
 
 | Component | Use it for |
 |---|---|
+| `PageShell` | The frame of every top-level page (not a title's workspace stage): header, optional tabs, content. See "Page shell" below. |
 | `Card` | Always-open block with optional title, one-line meta and actions. What people use on most visits (rule 16). |
 | `Section` | A `<details>` fold for rare, advanced or destructive content. Props include `summary` (current values while closed), `count`, `storageKey` (remembers open or closed), `openSignal`, `group` (accordion). Do not render an empty one (rule 8). |
 | `Field` | Label + exactly one control + optional unit, `help` (tap-to-open) and `error`. It wires `id`, `aria-describedby` and `aria-invalid`; do not also wrap the control in a `<label>`. |
@@ -105,6 +106,10 @@ Kit components are in `frontend/src/components/`; classes are in the design-kit 
 | `SharingControl` | The private or household switch on a title. |
 
 Related hooks: `useShortcut` (list shortcuts; skips text fields and IME composition), `usePcOnly` (hide or replace PC-only controls when the viewer is remote, with the shared wording constants), `usePersistedState` (section 5).
+
+### Page shell
+
+Every top-level page renders inside `PageShell` (`components/PageShell.tsx`) and picks one of three widths: `narrow` (860 px: forms and settings-like pages), `standard` (1120 px: tools and two-pane pages) or `wide` (the whole app column: lists, tables, catalogues). The shell owns the header (`title`, `meta`, `actions`, a `back` link slot), the tab-bar slot under it, and one gap token, `--page-gap` (24 px), between the header, the tabs and each content block; the side padding and top spacing come from the app column that every page shares. A page does not set its own `max-width`, padding or header margins, and a new page takes its shell from here. Title workspace stages and the readers do not use it yet and sit in `.app-bounded` (1200 px). `e2e/page-shell.spec.ts` checks every page against these rules.
 
 ## 5. Per-viewer memory
 
@@ -183,7 +188,7 @@ Three layers; all of them run in CI (`frontend` job in `.github/workflows/tests.
 
 ## 12. Checklist: adding a screen or control
 
-1. **Page or stage?** A page: `pages/<Name>.tsx`, a `Route` variant and a `parseRoute` / `routeHref` branch in `router.ts` (with a case in `router.test.ts`), a render line in `App.tsx`, and a `NAV` or `gearItems` entry if it needs a link. A stage: section 2.
+1. **Page or stage?** A page: `pages/<Name>.tsx`, a `Route` variant and a `parseRoute` / `routeHref` branch in `router.ts` (with a case in `router.test.ts`), a render line in `App.tsx`, a `PageShell` with one of the three widths (section 4), and a `NAV` or `gearItems` entry if it needs a link. A stage: section 2.
 2. **API first.** The route must exist, with its permission. Add a typed function in `api/<area>.ts` and its interface in `types/<area>.ts` (section 7), and a `<area>.test.ts`. Do not call `fetch` anywhere else.
 3. **Build from the kit.** `Card` or `Section`, `Field`, `Toggle`, `buttonClass`, `ButtonLink`, `Badge`, `ErrorBanner`. One primary action per Card; collapse advanced options; show a one-line summary; no raw API values; no empty panels (rules 1 to 22).
 4. **Style with tokens only.** Colours from variables, sizes from `--text-*` and `--space-*`, one radius. Put page CSS in a `.css` file beside the page; no inline layout styles. Check it in light, dark, sepia and OLED.

@@ -26,6 +26,7 @@ import {
 } from '../api/live'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
+import { PageShell } from '../components/PageShell'
 import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
@@ -282,209 +283,210 @@ export default function LivePage() {
   const delay = delayAuto ? (autoValue ?? estimate) : videoDelay
 
   return (
-    <section className={videoLive ? 'panel live-page live-wide' : 'panel page-narrow live-page'} aria-label="Live">
-      <h2>Live</h2>
-      {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
-      <form onSubmit={start} className="live-form" noValidate>
-        <Field label="Stream link" help="A live stream or video page (YouTube, Bilibili, …) that yt-dlp can open. Signed-in (cookie) streams don't work from here.">
-          <input
-            type="url"
-            inputMode="url"
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={MAX_URL_LEN}
-            placeholder="https://www.youtube.com/watch?v=…"
-            value={url}
-            disabled={active}
-            onChange={(e) => setUrl(e.target.value)}
-          />
-        </Field>
-        <div className="field-row">
-          <Field label="Language">
-            <select value={form.source_language} disabled={active} onChange={(e) => setOpt('source_language', e.target.value)}>
-              {LIVE_LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
+    <PageShell width="standard" title="Live" className={videoLive ? 'live-page live-wide' : 'live-page'}>
+      <div className="panel">
+        {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
+        <form onSubmit={start} className="live-form" noValidate>
+          <Field label="Stream link" help="A live stream or video page (YouTube, Bilibili, …) that yt-dlp can open. Signed-in (cookie) streams don't work from here.">
+            <input
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={MAX_URL_LEN}
+              placeholder="https://www.youtube.com/watch?v=…"
+              value={url}
+              disabled={active}
+              onChange={(e) => setUrl(e.target.value)}
+            />
           </Field>
-          <Field label={AI_ENGINE_LABEL} help="Engines without a key are hidden; add keys in Settings.">
-            <select value={engine} disabled={active || !usable.length} onChange={(e) => setOpt('engine', e.target.value)}>
-              {!usable.length && <option value="">{engines ? 'No engine with a key' : 'Loading…'}</option>}
-              {usable.map((en) => (
-                <option key={en.name} value={en.name}>
-                  {engineShortName(en)}
-                  {en.free ? '' : ' (paid)'}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <ModelSelect engine={engineEntry} value={model} disabled={active} onChange={(m) => setOpt('model', m)}
-            defaultModel={engine === LIVE_DEFAULT_ENGINE ? LIVE_DEFAULT_MODEL : undefined}
-            help={engine === LIVE_DEFAULT_ENGINE
-              ? 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.'
-              : 'Engine default uses the model the engine runs on its own.'} />
-        </div>
-        <Field label="Use glossary and packs from title"
-          help="Optional. The names and terms of this title that occur in the stream are sent with each translation request. Nothing is written to the title.">
-          <select value={glossaryTitle ?? ''} disabled={active} data-testid="live-glossary-title"
-            onChange={(e) => setOpt('glossary_drama_id', e.target.value ? Number(e.target.value) : null)}>
-            <option value="">None</option>
-            {(titles ?? []).map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {ollamaNote && (
-          <p className="error" role="alert" data-testid="live-ollama-note">
-            {ollamaNote} Pick another engine above, or fix Ollama and{' '}
-            <button type="button" className="link" onClick={() => setRecheck((n) => n + 1)}>check again</button>.
-          </p>
-        )}
-        {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
-        <Section storageKey="live.advanced" title="Advanced" summary={advancedSummary(form)}>
           <div className="field-row">
-            <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active}
-              onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
-              Fast captions
-            </button>
-            <p className="muted">Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).</p>
-          </div>
-          <div className="field-row">
-            <Field label="Whisper model" help={WHISPER_HELP}>
-              <select value={form.whisper_size} disabled={active} onChange={(e) => setOpt('whisper_size', e.target.value)}>
-                {WHISPER_SIZES.map((w) => (
-                  <option key={w} value={w}>
-                    {w}
+            <Field label="Language">
+              <select value={form.source_language} disabled={active} onChange={(e) => setOpt('source_language', e.target.value)}>
+                {LIVE_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
                   </option>
                 ))}
               </select>
             </Field>
-            <Field label="Chunk" unit="s" help="Shorter shows lines sooner; longer transcribes better per chunk.">
-              <input type="number" min={SEGMENT_RANGE[0]} max={SEGMENT_RANGE[1]} step={1} value={numValue(form.segment_seconds)} disabled={active}
-                onChange={(e) => setOpt('segment_seconds', e.target.valueAsNumber)} />
+            <Field label={AI_ENGINE_LABEL} help="Engines without a key are hidden; add keys in Settings.">
+              <select value={engine} disabled={active || !usable.length} onChange={(e) => setOpt('engine', e.target.value)}>
+                {!usable.length && <option value="">{engines ? 'No engine with a key' : 'Loading…'}</option>}
+                {usable.map((en) => (
+                  <option key={en.name} value={en.name}>
+                    {engineShortName(en)}
+                    {en.free ? '' : ' (paid)'}
+                  </option>
+                ))}
+              </select>
             </Field>
-            <Field label="Overlap" unit="s" help="Re-hears this much of the previous chunk so a sentence cut at a boundary is heard whole. 0 turns it off; at most half the chunk.">
-              <input type="number" min={OVERLAP_RANGE[0]} max={OVERLAP_RANGE[1]} step={1} value={numValue(form.overlap_seconds)} disabled={active}
-                onChange={(e) => setOpt('overlap_seconds', e.target.valueAsNumber)} />
-            </Field>
-            <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends).">
-              <input type="number" min={MAX_MINUTES_RANGE[0]} max={MAX_MINUTES_RANGE[1]} step={1} value={numValue(form.max_minutes)} disabled={active}
-                onChange={(e) => setOpt('max_minutes', e.target.valueAsNumber)} />
-            </Field>
+            <ModelSelect engine={engineEntry} value={model} disabled={active} onChange={(m) => setOpt('model', m)}
+              defaultModel={engine === LIVE_DEFAULT_ENGINE ? LIVE_DEFAULT_MODEL : undefined}
+              help={engine === LIVE_DEFAULT_ENGINE
+                ? 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.'
+                : 'Engine default uses the model the engine runs on its own.'} />
           </div>
-          <label className="live-check">
-            <input type="checkbox" checked={form.use_gpu} disabled={active} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
-            Use GPU for Whisper
-          </label>
-          <Field label="Reply without thinking"
-            help="Faster lines: the translator answers straight away instead of reasoning first. Works with Ollama and DeepSeek.">
-            <Toggle checked={form.reply_without_thinking && canSwitchThinking}
-              disabled={active || !canSwitchThinking}
-              onChange={(v) => setOpt('reply_without_thinking', v)} />
+          <Field label="Use glossary and packs from title"
+            help="Optional. The names and terms of this title that occur in the stream are sent with each translation request. Nothing is written to the title.">
+            <select value={glossaryTitle ?? ''} disabled={active} data-testid="live-glossary-title"
+              onChange={(e) => setOpt('glossary_drama_id', e.target.value ? Number(e.target.value) : null)}>
+              <option value="">None</option>
+              {(titles ?? []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
           </Field>
-          {!canSwitchThinking && (
-            <p className="muted" data-testid="live-thinking-note">
-              {engineShortName({ name: engine })} can't switch thinking off from here, so this setting doesn't apply to it.
+          {ollamaNote && (
+            <p className="error" role="alert" data-testid="live-ollama-note">
+              {ollamaNote} Pick another engine above, or fix Ollama and{' '}
+              <button type="button" className="link" onClick={() => setRecheck((n) => n + 1)}>check again</button>.
             </p>
           )}
-        </Section>
-        <div className="actions">
-          {active ? (
-            <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping === 'now'}>
-              {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
-            </button>
-          ) : (
-            <button type="submit" className="primary" disabled={!!blocker || busy}>
-              {busy ? 'Starting…' : 'Start'}
-            </button>
-          )}
-        </div>
-        {!active && blocker && <p className="muted">{blocker}</p>}
-        {pc === 'remote' && !active && (
-          <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
-        )}
-      </form>
-      {error && (
-        <p className="error live-error" role="alert">
-          {error}
-        </p>
-      )}
-      <FollowedChannels liveOptions={followOptions(buildStartBody({ ...form, engine, model, glossary_drama_id: glossaryTitle }))} />
-
-      {session && (
-        <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>
-        {videoLive && (
-          <div className="card live-video" role="group" aria-label="Stream video">
-            <div className="card-head">
-              <h3 className="card-title">Video</h3>
-              <div className="live-theater-field">
-                <Field label="Larger video" help="Gives the video the full width and puts the lines under it.">
-                  <Toggle checked={theater} onChange={setTheater} />
-                </Field>
-              </div>
-              <Field label="Captions over video" help="Draws the current line over the picture, the translation once it is ready and the transcript until then.">
-                <Toggle checked={captionsOn} onChange={setCaptionsOn} />
+          {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
+          <Section storageKey="live.advanced" title="Advanced" summary={advancedSummary(form)}>
+            <div className="field-row">
+              <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active}
+                onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
+                Fast captions
+              </button>
+              <p className="muted">Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).</p>
+            </div>
+            <div className="field-row">
+              <Field label="Whisper model" help={WHISPER_HELP}>
+                <select value={form.whisper_size} disabled={active} onChange={(e) => setOpt('whisper_size', e.target.value)}>
+                  {WHISPER_SIZES.map((w) => (
+                    <option key={w} value={w}>
+                      {w}
+                    </option>
+                  ))}
+                </select>
               </Field>
-              <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
-                <Toggle checked={showVideo} onChange={setShowVideo} />
+              <Field label="Chunk" unit="s" help="Shorter shows lines sooner; longer transcribes better per chunk.">
+                <input type="number" min={SEGMENT_RANGE[0]} max={SEGMENT_RANGE[1]} step={1} value={numValue(form.segment_seconds)} disabled={active}
+                  onChange={(e) => setOpt('segment_seconds', e.target.valueAsNumber)} />
+              </Field>
+              <Field label="Overlap" unit="s" help="Re-hears this much of the previous chunk so a sentence cut at a boundary is heard whole. 0 turns it off; at most half the chunk.">
+                <input type="number" min={OVERLAP_RANGE[0]} max={OVERLAP_RANGE[1]} step={1} value={numValue(form.overlap_seconds)} disabled={active}
+                  onChange={(e) => setOpt('overlap_seconds', e.target.valueAsNumber)} />
+              </Field>
+              <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends).">
+                <input type="number" min={MAX_MINUTES_RANGE[0]} max={MAX_MINUTES_RANGE[1]} step={1} value={numValue(form.max_minutes)} disabled={active}
+                  onChange={(e) => setOpt('max_minutes', e.target.valueAsNumber)} />
               </Field>
             </div>
-            {!streamRef && <p className="muted">This site can't be shown here; the lines still work.</p>}
-            {streamRef && showVideo && (
-              <>
-                <StreamEmbed stream={streamRef} delay={delay}
-                  captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
-                {canDelay(streamRef) && (
-                  <>
-                    <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
-                      <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay}
-                        onChange={(e) => {
-                          setDelayAuto(false)
-                          setVideoDelay(e.target.valueAsNumber)
-                        }} />
-                    </Field>
-                    <Field label="Automatic video delay" help="Sets the delay from the chunk length and how long the last chunks took to caption.">
-                      <Toggle checked={delayAuto} onChange={setDelayAuto} />
-                    </Field>
-                    <p className="muted" data-testid="live-delay-mode">
-                      {delayAuto ? `Video delay: auto (about ${delay} s)` : `Video delay: ${videoDelay} s, set by hand`}
-                    </p>
-                  </>
-                )}
-              </>
+            <label className="live-check">
+              <input type="checkbox" checked={form.use_gpu} disabled={active} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
+              Use GPU for Whisper
+            </label>
+            <Field label="Reply without thinking"
+              help="Faster lines: the translator answers straight away instead of reasoning first. Works with Ollama and DeepSeek.">
+              <Toggle checked={form.reply_without_thinking && canSwitchThinking}
+                disabled={active || !canSwitchThinking}
+                onChange={(v) => setOpt('reply_without_thinking', v)} />
+            </Field>
+            {!canSwitchThinking && (
+              <p className="muted" data-testid="live-thinking-note">
+                {engineShortName({ name: engine })} can't switch thinking off from here, so this setting doesn't apply to it.
+              </p>
+            )}
+          </Section>
+          <div className="actions">
+            {active ? (
+              <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping === 'now'}>
+                {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
+              </button>
+            ) : (
+              <button type="submit" className="primary" disabled={!!blocker || busy}>
+                {busy ? 'Starting…' : 'Start'}
+              </button>
             )}
           </div>
-        )}
-        <div className="live-feed" aria-live="polite">
-          <p className={status === 'error' ? 'error' : session.status?.stop_reason ? 'warn' : 'muted'} data-testid="live-status">
-            {session.status ? statusLine(session.status, total) : 'Connecting…'}
+          {!active && blocker && <p className="muted">{blocker}</p>}
+          {pc === 'remote' && !active && (
+            <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
+          )}
+        </form>
+        {error && (
+          <p className="error live-error" role="alert">
+            {error}
           </p>
-          {lag && <p className="muted" data-testid="live-lag">{lag}</p>}
-          {!!session.status?.notes?.length && (
-            <ul className="muted live-notes" data-testid="live-notes" aria-label="Live events">
-              {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}
-            </ul>
+        )}
+        <FollowedChannels liveOptions={followOptions(buildStartBody({ ...form, engine, model, glossary_drama_id: glossaryTitle }))} />
+
+        {session && (
+          <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>
+          {videoLive && (
+            <div className="card live-video" role="group" aria-label="Stream video">
+              <div className="card-head">
+                <h3 className="card-title">Video</h3>
+                <div className="live-theater-field">
+                  <Field label="Larger video" help="Gives the video the full width and puts the lines under it.">
+                    <Toggle checked={theater} onChange={setTheater} />
+                  </Field>
+                </div>
+                <Field label="Captions over video" help="Draws the current line over the picture, the translation once it is ready and the transcript until then.">
+                  <Toggle checked={captionsOn} onChange={setCaptionsOn} />
+                </Field>
+                <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
+                  <Toggle checked={showVideo} onChange={setShowVideo} />
+                </Field>
+              </div>
+              {!streamRef && <p className="muted">This site can't be shown here; the lines still work.</p>}
+              {streamRef && showVideo && (
+                <>
+                  <StreamEmbed stream={streamRef} delay={delay}
+                    captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
+                  {canDelay(streamRef) && (
+                    <>
+                      <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
+                        <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay}
+                          onChange={(e) => {
+                            setDelayAuto(false)
+                            setVideoDelay(e.target.valueAsNumber)
+                          }} />
+                      </Field>
+                      <Field label="Automatic video delay" help="Sets the delay from the chunk length and how long the last chunks took to caption.">
+                        <Toggle checked={delayAuto} onChange={setDelayAuto} />
+                      </Field>
+                      <p className="muted" data-testid="live-delay-mode">
+                        {delayAuto ? `Video delay: auto (about ${delay} s)` : `Video delay: ${videoDelay} s, set by hand`}
+                      </p>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
           )}
-          {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
-          {feed.length > 0 && (
-            <ol className="live-cues" aria-label="Live lines, newest first">
-              {feed.map((c) => (
-                <li key={c.id}>
-                  <span className="live-ts">{fmtTs(c.start)}</span>
-                  <span className="live-src" lang={form.source_language}>{c.text}</span>
-                  <TranslationText cue={c} waiting={active} />
-                </li>
-              ))}
-            </ol>
-          )}
-          {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
-        </div>
-        </div>
-      )}
-    </section>
+          <div className="live-feed" aria-live="polite">
+            <p className={status === 'error' ? 'error' : session.status?.stop_reason ? 'warn' : 'muted'} data-testid="live-status">
+              {session.status ? statusLine(session.status, total) : 'Connecting…'}
+            </p>
+            {lag && <p className="muted" data-testid="live-lag">{lag}</p>}
+            {!!session.status?.notes?.length && (
+              <ul className="muted live-notes" data-testid="live-notes" aria-label="Live events">
+                {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}
+              </ul>
+            )}
+            {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
+            {feed.length > 0 && (
+              <ol className="live-cues" aria-label="Live lines, newest first">
+                {feed.map((c) => (
+                  <li key={c.id}>
+                    <span className="live-ts">{fmtTs(c.start)}</span>
+                    <span className="live-src" lang={form.source_language}>{c.text}</span>
+                    <TranslationText cue={c} waiting={active} />
+                  </li>
+                ))}
+              </ol>
+            )}
+            {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
+          </div>
+          </div>
+        )}
+      </div>
+    </PageShell>
   )
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { getDiagnostics, getModelCache, getSetupChecks } from '../api/diagnostics'
+import { PageShell } from '../components/PageShell'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -40,10 +41,9 @@ const POLL_MS = 3000
 export default function DiagnosticsPage() {
   if (!useHolds('admin.diagnostics')) {
     return (
-      <section className="page-narrow diag-page" aria-label="Diagnostics">
-        <header className="page-head"><h2>Diagnostics</h2></header>
+      <PageShell width="standard" title="Diagnostics" className="diag-page">
         <p className="muted" data-testid="diagnostics-not-allowed">Only an admin can see this page.</p>
-      </section>
+      </PageShell>
     )
   }
   return <DiagnosticsContent />
@@ -165,25 +165,29 @@ function DiagnosticsContent() {
   const card = (id: DiagnosticsCard, children: ReactNode) => <div id={cardAnchorId(id)} className="diag-card">{children}</div>
 
   return (
-    <section className="page-narrow diag-page" aria-label="Diagnostics">
-      <header className="page-head diag-head">
-        <h2>Diagnostics</h2>
+    <PageShell
+      width="standard"
+      title="Diagnostics"
+      className="diag-page"
+      meta={(
         <p className="page-meta pill-row" data-testid="diagnostics-summary">
           {badges.length ? badges.map((b) => <Badge key={b.key} tone={b.tone}>{b.text}</Badge>) : 'Loading…'}
         </p>
-        <RemoteHealthLine />
-      </header>
+      )}
+      headExtra={<RemoteHealthLine />}
+      tabs={(
+        <Tabs
+          label="Diagnostics"
+          idPrefix="diagnostics"
+          tabs={DIAGNOSTICS_TABS.map((t) => ({ ...t, attention: attention[t.id] }))}
+          active={tab}
+          onSelect={selectTab}
+        />
+      )}
+    >
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <ErrorBanner error={jobsError} />
       <ErrorBanner error={cacheError} />
-
-      <Tabs
-        label="Diagnostics"
-        idPrefix="diagnostics"
-        tabs={DIAGNOSTICS_TABS.map((t) => ({ ...t, attention: attention[t.id] }))}
-        active={tab}
-        onSelect={selectTab}
-      />
 
       {panel('setup', (
         card('setup', setup ? (
@@ -260,6 +264,6 @@ function DiagnosticsContent() {
           ))}
         </>
       ))}
-    </section>
+    </PageShell>
   )
 }

@@ -11,6 +11,7 @@ import { cancelJob, clearFinishedJobs, deleteJob, forceStopJob } from '../api/jo
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ConfirmButton } from '../components/ConfirmButton'
+import { PageShell } from '../components/PageShell'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { statusTone } from '../components/labels'
 import { buttonClass } from '../components/uiClasses'
@@ -108,12 +109,12 @@ export default function JobsPage() {
   }
 
   return (
-    <section className="page-narrow jobs-page" aria-label="Jobs">
-      <header className="page-head">
-        <h2>Jobs</h2>
-        {jobs && <p className="page-meta">{counts.active} active · {counts.all} in all</p>}
-      </header>
-
+    <PageShell
+      width="wide"
+      title="Jobs"
+      className="jobs-page"
+      meta={jobs ? `${counts.active} active · ${counts.all} in all` : undefined}
+    >
       <JobQueue titles={titles} />
 
       {refused !== null ? (
@@ -224,7 +225,7 @@ export default function JobsPage() {
           )}
         </>
       )}
-    </section>
+    </PageShell>
   )
 }
 
