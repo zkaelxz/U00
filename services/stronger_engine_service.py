@@ -278,9 +278,8 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
             engine_name, api_key, None, free_tier=free_tier,
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
-    except ImportError:
-        raise DependencyUnavailableError(
-            f"The {engine_name} engine isn't installed on this PC.") from None
+    except DependencyUnavailableError:
+        raise  # a missing package is its own cause, not "could not be started"
     except Exception as e:
         _log_failure(e)
         raise ServiceError("The engine could not be started.") from None

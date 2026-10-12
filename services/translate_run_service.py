@@ -47,8 +47,10 @@ from services import (bulk_job_view, bulk_submit_service, engine_routing_service
                       translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
+    DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
+    MissingPackageError,
     NotFoundError,
     UnsupportedOperationError,
 )
@@ -671,7 +673,11 @@ def resume_interrupted_at_startup() -> dict:
             if _spend_cap_used_up(engine_name):
                 why[engine_name] = "the monthly spending cap is used up"
                 return None
-            engine = _bulk_engine_factory(engine_name, model)
+            try:
+                engine = _bulk_engine_factory(engine_name, model)
+            except MissingPackageError:
+                why[engine_name] = "its Python package is not installed"
+                return None
             if engine is None:
                 why[engine_name] = "no API key is set for the engine"
             return engine
@@ -721,9 +727,18 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
     if job["status"] not in bulk_job_view.CANCELLABLE:
         raise ConflictError(f"Bulk job {bulk_job_id} is {job['status']} and cannot be cancelled.")
     key = translate_service.resolve_api_key(job["engine"])
-    engine = translate_engines.get_engine(job["engine"], key, job.get("model") or None) if key else None
+    package_missing = False
+    try:
+        engine = translate_engines.get_engine(
+            job["engine"], key, job.get("model") or None) if key else None
+    except DependencyUnavailableError:
+        # Still cancel here: the batch keeps running at the provider, which the note says.
+        engine, package_missing = None, True
     provider = bulk_providers.make_provider(job["engine"], engine) if engine else None
     note = bulk_translate.cancel_bulk_job(bulk_job_id, provider)
+    if package_missing:
+        note += (" The Python package for this engine is not installed, so the batch was not "
+                 "cancelled at the provider; cancel it in the provider's console.")
     return {"drama_id": drama_id, "bulk_job": bulk_job_view.bulk_entry(db.get_bulk_job(bulk_job_id)),
             "message": note}
 

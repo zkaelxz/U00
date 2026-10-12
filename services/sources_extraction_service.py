@@ -146,9 +146,8 @@ def build_ai_engine(name: Optional[str]):
         return translate_engines.get_engine(
             name, key, base_url=base_url,
             free_tier=name == "gemini" and settings_service.get("gemini_free_tier"))
-    except ImportError:
-        raise DependencyUnavailableError(
-            f"The {name} engine isn't installed on this PC.") from None
+    except DependencyUnavailableError:
+        raise  # a missing package keeps its own 503 and package name
     except Exception as e:
         # Never the key: the message is redacted and the cause dropped.
         raise DependencyUnavailableError(
