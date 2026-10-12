@@ -62,3 +62,45 @@ test('groups by media type and by status', async ({ page }) => {
   await page.getByLabel('Group by').selectOption('status')
   await expect(page.getByTestId('title-group')).toHaveCount(1)
 })
+
+test('select all in a grouped Library never takes titles hidden in a collapsed group', async ({ page }) => {
+  await page.getByLabel('Group by').selectOption('series')
+  const groups = page.getByTestId('title-group')
+  await expect(groups).toHaveCount(3)
+  await groups.nth(1).getByRole('button', { name: /Saga/ }).click()
+  await page.getByRole('button', { name: 'Select', exact: true }).click()
+  await page.getByRole('button', { name: 'Select all', exact: true }).click()
+  const bar = page.getByRole('region', { name: 'Selection' })
+  // Alpha (1) + No series (2); Saga's two titles are collapsed away.
+  await expect(bar.getByTestId('selected-count')).toHaveText('3 selected')
+  await bar.getByRole('button', { name: 'Delete…' }).click()
+  await expect(bar).toContainText('Permanently deletes 3 titles with their lines and files. No undo.')
+  await expect(bar.getByRole('button', { name: 'Delete 3' })).toBeVisible()
+})
+
+test('a group header selects only its own rows, and collapsing drops its titles from the selection', async ({ page }) => {
+  await page.getByLabel('Group by').selectOption('series')
+  await page.getByRole('button', { name: 'Select', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Select all in Saga' }).check()
+  const bar = page.getByRole('region', { name: 'Selection' })
+  await expect(bar.getByTestId('selected-count')).toHaveText('2 selected')
+  await page.getByTestId('title-group').nth(1).getByRole('button', { name: /Saga/ }).click()
+  await expect(page.getByTestId('selected-count')).toHaveText('0 selected')
+})
+
+test('when the series list fails, grouping by series falls back to the plain list with a Retry', async ({ page }) => {
+  let fail = true
+  await page.route('**/api/series', (r) =>
+    fail ? r.fulfill({ status: 500, json: { error: { code: 'x', message: 'down' } } }) : r.fallback())
+  await page.reload()
+  await expect(page.getByTestId('drama-count')).toHaveText('5 titles')
+  await page.getByLabel('Group by').selectOption('series')
+  await expect(page.getByTestId('series-load-failed')).toContainText('Series could not be loaded; showing the plain list.')
+  await expect(page.getByLabel('Group by')).toHaveValue('none')
+  await expect(page.getByTestId('title-group')).toHaveCount(0)
+  fail = false
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByTestId('title-group')).toHaveCount(3)
+  await expect(page.getByLabel('Group by')).toHaveValue('series')
+  await expect(page.getByTestId('series-load-failed')).toHaveCount(0)
+})

@@ -8,7 +8,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
 import { routeHref } from '../router'
-import { MAX_SELECTION, selectAllVisible, toggleId } from '../pages/libraryAdmin/libraryAdmin'
+import { MAX_SELECTION, allSelected, selectAllVisible, selectIds, toggleId, visibleTitles } from '../pages/libraryAdmin/libraryAdmin'
 import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
 import {
   GROUP_BYS, TITLE_SORTS, groupTitles, isGroupBy, isTitleSort, type GroupBy, type TitleSort,
@@ -53,6 +53,11 @@ interface Props {
   onCreate?: () => void
   // The viewer's visible series (GET /api/series); null until loaded or if it failed.
   series?: { id: number; name: string }[] | null
+  // GET /api/series failed: grouping by series falls back to the plain list, with a Retry.
+  seriesError?: boolean
+  onRetrySeries?: () => void
+  // The titles on screen (expanded groups, display order), for pruning the selection to what the viewer can see.
+  onVisible?: (items: DramaSummary[]) => void
 }
 
 // Two to three native radios drawn as one segmented control.
@@ -73,7 +78,8 @@ function Segmented<T extends string>({ label, name, value, options, onChange }: 
 }
 
 export function LibraryList({
-  selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems, onCreate, series = null,
+  selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems, onCreate, series = null, seriesError = false,
+  onRetrySeries, onVisible,
 }: Props) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -90,6 +96,8 @@ export function LibraryList({
   // Series names come from a second request: until it lands, list ungrouped rather than
   // filing every title under "No series".
   const groupBy: GroupBy = wantedGroup === 'series' && series === null ? 'none' : wantedGroup
+  // The select shows what is actually applied once the series list is known to have failed.
+  const shownGroup: GroupBy = wantedGroup === 'series' && series === null && seriesError ? 'none' : wantedGroup
   const collapsed = new Set(Array.isArray(collapsedKeys) ? collapsedKeys : [])
   const toggleGroup = (key: string) => {
     const next = new Set(collapsed)
@@ -102,13 +110,13 @@ export function LibraryList({
   const [hitsError, setHitsError] = useState<unknown>(null)
   const phone = useMediaQuery('(max-width: 640px)')
   const onItemsRef = useRef(onItems)
+  const onVisibleRef = useRef(onVisible)
   useEffect(() => {
     onItemsRef.current = onItems
+    onVisibleRef.current = onVisible
   })
   const selecting = !!checked && !!onCheckedChange
   const toggle = (id: number) => checked && onCheckedChange?.(toggleId(checked, id))
-  const allChecked = !!items?.length && !!checked && items.slice(0, MAX_SELECTION).every((d) => checked.has(d.id))
-  const toggleAll = () => items && onCheckedChange?.(allChecked ? new Set() : selectAllVisible(items).ids)
   // Phones always get cards; List view is the desktop table.
   const table = view === 'list' && !phone
   const titleSearch = scope === 'titles' ? search : ''
@@ -138,6 +146,16 @@ export function LibraryList({
   }, [titleSearch, status, quickFilter, more, reloadKey])
 
   const groups = items ? groupTitles(items, groupBy, sort, series ?? []) : []
+  // Select all, the bulk-action count and delete only ever see what is on screen: a collapsed group's titles are not.
+  const visible = visibleTitles(groups, collapsed)
+  const allChecked = !!checked && allSelected(checked, visible)
+  const toggleAll = () => onCheckedChange?.(allChecked ? new Set() : selectAllVisible(visible).ids)
+  const visibleKey = visible.map((d) => d.id).join(',')
+  useEffect(() => {
+    if (items) onVisibleRef.current?.(visible)
+    // visibleKey stands for the list's contents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleKey, items === null])
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -179,7 +197,7 @@ export function LibraryList({
   )
 
   // One group's titles (or the whole list): cards, or on desktop the table.
-  const listView = (list: DramaSummary[]) => !table ? (
+  const listView = (list: DramaSummary[], label = '') => !table ? (
     <DramaCards
       items={list}
       selectedId={selectedId}
@@ -196,7 +214,7 @@ export function LibraryList({
                         {checking && (
                           <th className="check-col">
                             <label className="check-hit">
-                              <input type="checkbox" aria-label="Select all visible" checked={allChecked} onChange={toggleAll} />
+                              <input type="checkbox" aria-label={label ? `Select all visible in ${label}` : 'Select all visible'} checked={!!checked && allSelected(checked, list)} onChange={() => checked && onCheckedChange?.(selectIds(checked, list))} />
                             </label>
                           </th>
                         )}
@@ -288,7 +306,7 @@ export function LibraryList({
               <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
                 {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
-              <select aria-label="Group by" value={wantedGroup} onChange={(e) => setGroupBy(e.target.value)}>
+              <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
                 {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
               </select>
             </>
@@ -308,6 +326,12 @@ export function LibraryList({
       ) : (
         <>
           {error && <p className="error" role="alert">{error}</p>}
+          {wantedGroup === 'series' && series === null && seriesError && (
+            <p className="status-line warn" role="status" data-testid="series-load-failed">
+              <span>Series could not be loaded; showing the plain list.</span>
+              {onRetrySeries && <button type="button" className={buttonClass('ghost', 'sm')} onClick={onRetrySeries}>Retry</button>}
+            </p>
+          )}
           {!error && items === null && <SkeletonGrid />}
           {!error && items !== null && (
             <>
@@ -333,6 +357,16 @@ export function LibraryList({
                 g.label === '' ? <div key={g.key}>{listView(g.items)}</div> : (
                   <section key={g.key} className="title-group" aria-label={g.label} data-testid="title-group">
                     <h4 className="title-group-head">
+                      {checking && !collapsed.has(g.key) && (
+                        <label className="check-hit">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select all in ${g.label}`}
+                            checked={!!checked && allSelected(checked, g.items)}
+                            onChange={() => checked && onCheckedChange?.(selectIds(checked, g.items))}
+                          />
+                        </label>
+                      )}
                       <button
                         type="button"
                         className="title-group-toggle"
@@ -347,7 +381,7 @@ export function LibraryList({
                         <a className="title-group-link" href={routeHref({ name: 'series', id: g.seriesId })} aria-label={`Open series ${g.label}`}>Open series</a>
                       )}
                     </h4>
-                    {!collapsed.has(g.key) && listView(g.items)}
+                    {!collapsed.has(g.key) && listView(g.items, g.label)}
                   </section>
                 )
               ))}

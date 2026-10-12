@@ -267,7 +267,8 @@ export default function LibraryPage() {
   const getStarted = showGetStarted(stats.data?.total_dramas, startedDismissed)
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
-  const allSeries = useLoad(listAllSeries, reloadKey)
+  const [seriesRetries, setSeriesRetries] = useState(0)
+  const allSeries = useLoad(listAllSeries, reloadKey + seriesRetries * 1_000_000)
   const presets = useLoad(getPresets, reloadKey)
   // One export job for the selection bar.
   const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
@@ -275,13 +276,13 @@ export default function LibraryPage() {
   const [bulkResult, setBulkResult] = useState<string | null>(null)
   const reload = () => setReloadKey((k) => k + 1)
 
-  // Prune the selection on every reload so it only holds dramas still listed;
-  // with nothing listed there is nothing to select.
+  // With nothing listed there is nothing to select.
   const onItems = useCallback((next: DramaSummary[]) => {
     setItems(next)
-    setChecked((c) => pruneSelection(c, next))
     if (next.length === 0) setSelectMode(false)
   }, [])
+  // The selection holds only titles the viewer can see: a collapsed group, a filter or a reload drops the rest.
+  const onVisible = useCallback((visible: DramaSummary[]) => setChecked((c) => pruneSelection(c, visible)), [])
 
   const openDetails = (id: number) => {
     const d = items.find((x) => x.id === id)
@@ -392,6 +393,9 @@ export default function LibraryPage() {
         onItems={onItems}
         onCreate={canCreate ? () => setCreating(true) : undefined}
         series={allSeries.data?.items ?? null}
+        seriesError={!!allSeries.error}
+        onRetrySeries={() => setSeriesRetries((n) => n + 1)}
+        onVisible={onVisible}
       />
       {phone && bar}
 
