@@ -63,6 +63,15 @@ export function jobFailed(job: Pick<JobRecord, 'status' | 'outcome'>): boolean {
   return job.status === 'error' || job.outcome === 'failed' || job.outcome === 'cancelled'
 }
 
+// The status a person should read. The server calls a job `done` when its
+// worker returned, even when the work failed (a missing model, say); the
+// outcome says what happened, so a done job with a failed or cancelled
+// outcome reads as Failed or Cancelled in every list, pill and filter.
+export function shownStatus(job: Pick<JobRecord, 'status' | 'outcome'>): string {
+  if (job.status !== 'done' || !jobFailed(job)) return job.status
+  return job.outcome === 'cancelled' ? 'cancelled' : 'error'
+}
+
 // Done and not failed/cancelled: safe to treat the job's output as ready.
 export function jobSucceeded(job: Pick<JobRecord, 'status' | 'outcome'> | null | undefined): boolean {
   return !!job && job.status === 'done' && !jobFailed(job)
@@ -76,11 +85,26 @@ const OUTCOME_LABELS: Record<JobOutcome, string> = {
   kept_existing: 'Nothing new; existing lines kept',
 }
 
+const bare = (text: string) => text.trim().replace(/[.\s]+$/, '').toLowerCase()
+
 // Plain-words outcome line for a finished job, or null when there is none.
+// A message that only repeats the label ("Finished" / "Finished.") shows once.
 export function jobOutcomeText(job: Pick<JobRecord, 'outcome' | 'outcome_message'>): string | null {
   if (!job.outcome) return null
   const label = OUTCOME_LABELS[job.outcome] ?? job.outcome
-  return job.outcome_message ? `${label}: ${job.outcome_message}` : label
+  const message = job.outcome_message?.trim()
+  if (!message) return label
+  return bare(message) === bare(label) ? message : `${label}: ${message}`
+}
+
+// The line under a status pill. The pill already says Failed or Cancelled,
+// so those show the reason alone; a plain "Finished" adds nothing.
+export function jobOutcomeDetail(job: Pick<JobRecord, 'status' | 'outcome' | 'outcome_message'>): string | null {
+  if (!job.outcome) return null
+  const message = job.outcome_message?.trim() || null
+  if (job.outcome === 'failed' || job.outcome === 'cancelled') return message && bare(message) !== bare(OUTCOME_LABELS[job.outcome]) ? message : null
+  if (job.outcome === 'ok') return message && bare(message) !== bare(OUTCOME_LABELS.ok) ? message : null
+  return jobOutcomeText(job)
 }
 
 export interface JobListResponse {

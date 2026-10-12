@@ -9,14 +9,15 @@
  */
 import { useEffect, useId, useRef, useState } from 'react'
 
+import { api } from '../api/client'
 import { cancelJob, forceStopJob } from '../api/jobs'
 import { ConfirmButton } from './ConfirmButton'
 import { jobsRefusal, useJobs, useNow } from '../hooks/useJobs'
 import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
-import { isActive, jobDetail, statusLabel } from '../pages/diagnosticsFormat'
+import { isActive, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from '../pages/diagnosticsFormat'
 import { jobLinks } from '../pages/jobs/jobsFilter'
 import { routeHref, type Route } from '../router'
-import { FORCE_STOP_HINT, jobName, offersCancel, offersForceStop, type JobRecord } from '../types/jobs'
+import { FORCE_STOP_HINT, offersCancel, offersForceStop, shownStatus, type JobRecord } from '../types/jobs'
 import { Badge } from './Badge'
 import { statusTone } from './labels'
 import { activeCount, badgeText, elapsedText, jobsButtonLabel, menuJobs } from './jobsMenuState'
@@ -45,6 +46,7 @@ export function JobsMenu() {
   const jobs = loaded ?? []
   const [open, setOpen] = useState(false)
   const [alignStart, setAlignStart] = useState(false)
+  const [titles, setTitles] = useState<ReadonlyMap<number, string>>(new Map())
   const wrap = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const panelId = useId()
@@ -52,6 +54,17 @@ export function JobsMenu() {
   const running = activeCount(jobs)
   // Elapsed times keep counting while the panel shows a running job.
   const now = useNow(open && running > 0)
+
+  // Names of the titles the jobs run on, read once when the panel first opens; a failed read leaves the plain job names.
+  const titlesAsked = useRef(false)
+  useEffect(() => {
+    if (!open || titlesAsked.current) return
+    titlesAsked.current = true
+    api.listDramas().then(
+      (r) => setTitles(new Map(r.items.map((d) => [d.id, d.title_en || d.title_zh || `#${d.id}`]))),
+      () => undefined,
+    )
+  }, [open])
 
   // Close on a click elsewhere or Escape, like the bell.
   useEffect(() => {
@@ -118,7 +131,7 @@ export function JobsMenu() {
           ) : (
             <ul className="jobs-list">
               {shown.map((j) => {
-                const name = jobName(j)
+                const name = jobTitledName(j, titles)
                 const detail = jobDetail(j)
                 return (
                   <li key={j.job_id} className="jobs-item">
@@ -126,7 +139,7 @@ export function JobsMenu() {
                       <a href={routeHref(jobTarget(j))} onClick={() => setOpen(false)}>{name}</a>
                     </p>
                     <div className="jobs-item-meta">
-                      <Badge tone={statusTone(j.status)}>{statusLabel(j.status)}</Badge>
+                      <Badge tone={statusTone(shownStatus(j))}>{jobStatusLabel(j)}</Badge>
                       <span>{elapsedText(j, now)}</span>
                       {cancellable(j) && (
                         <button type="button" className={buttonClass('secondary', 'sm', 'jobs-cancel')} aria-label={`Cancel ${name}`} onClick={() => void cancel(j.job_id)}>
@@ -140,7 +153,7 @@ export function JobsMenu() {
                         <span className="muted jobs-note">{FORCE_STOP_HINT}</span>
                       </div>
                     )}
-                    {detail && <span className="muted jobs-note">{detail}</span>}
+                    {detail && <span className="muted jobs-note">{plainJobText(detail)}</span>}
                   </li>
                 )
               })}

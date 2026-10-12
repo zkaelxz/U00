@@ -37,3 +37,22 @@ for (const width of [390, 360]) {
     await expect(card.getByRole('button', { name: 'Pause' })).toBeVisible()
   })
 }
+
+test('phone: Saved settings opens as a stacked list that fits, with a 44px link', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockJobsApi(page, [], true)
+  await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await card.getByLabel('Title').selectOption({ label: 'Signal' })
+  await card.getByLabel('Step').selectOption('translate')
+  const panel = card.locator('details.section').filter({ hasText: 'Saved settings for this step' })
+  await panel.locator('summary').tap()
+  await expect(panel.getByTestId('queue-saved-settings')).toContainText('Monthly cap left')
+  const link = panel.getByRole('link', { name: "Change in the title's Translate stage" })
+  expect(await link.evaluate((e) => window.hitHeight(e))).toBeGreaterThanOrEqual(44)
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+})

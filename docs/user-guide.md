@@ -6,8 +6,8 @@ Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engin
 
 ## What the app is
 
-- **Pages.** Library, Library tools (with Saved manga), Quick translate, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
-- **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). **Audit log** and **Users** are on the Admin page.
+- **Pages.** Library, Library tools (with Saved manga), Quick translate, Sources, Discover, Live, Jobs, Settings, People and access, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
+- **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). The **Activity log** and **People** are on the People and access page.
 - **Background services.** `python -m api` also starts the scheduled chapter check and other schedulers (`api/background.py`), and the browser-extension bridge (`page_server.py`) when the extension setting is on.
 - **Three content modes**: audio drama (your audio or video plus a transcript, aligned to real timing), novel narration (paste the text; the app chunks it, tags speakers with the LLM, translates, and can generate a narration/dub) and streamer VOD (see [Streamer VODs and series](#streamer-vods-and-series)).
 - **Video input**: upload `.mp4`/`.mov`/`.mkv`/`.webm` or download from a URL via yt-dlp; the audio is extracted for alignment and the video kept for export.
@@ -280,7 +280,7 @@ The Jobs page has a Queue card for lining up work and letting it run hands-off, 
 - Batch work isolates failures: a CLI batch continues past a failing drama and prints which ids to retry with `--id` (`BAIHE_CLI_DEBUG=1` for tracebacks); one failed TTS line leaves only that line silent; one failed page doesn't stop a bulk scanlate job; diarization failure keeps the alignment already saved.
 - API calls back off exponentially on rate limits (up to 5 attempts) and fail fast on real errors.
 - Translation saves after every batch and skips already-translated lines on re-run; use "force re-translate everything" for a full redo.
-- Settings holds each API key once; keys are never shown back by the API. Settings has six tabs (Translation and keys, Costs, Notifications and backups, Sharing and devices, Integrations, System) and a search box that opens the tab and card it finds. Every card folds; the app remembers which are open, and "Expand all" / "Collapse all" act on the tab you are on. On a short tab every card starts open; on a longer one only the most used cards do, and a closed card shows its current value in one line. Someone without the settings permission sees only the Sharing and devices cards, with no tab bar or search. Remote access and the sign-in accounts are on the Admin page, and ports are on Diagnostics > System.
+- Settings holds each API key once; keys are never shown back by the API. Settings has six tabs (Translation and keys, Costs, Notifications and backups, Sharing and devices, Integrations, System) and a search box that opens the tab and card it finds. Every card folds; the app remembers which are open, and "Expand all" / "Collapse all" act on the tab you are on. On a short tab every card starts open; on a longer one only the most used cards do, and a closed card shows its current value in one line. Someone without the settings permission sees only the Sharing and devices cards, with no tab bar or search. The public address check and the sign-in accounts are on the People and access page, and ports are on Diagnostics > System.
 - SQLite runs in WAL mode; the review table is paginated; real token usage is logged per drama (estimates only, since prices change).
 - GPU acceleration is optional (Whisper, diarization, local cloning) and falls back to CPU if CUDA isn't available.
 - The novel reference is sent as a prompt-cached block per drama. A very long novel (200k+ Chinese characters) may not fit; trim to the relevant arc or compress it into a glossary.
@@ -309,7 +309,7 @@ If this PC also runs something else that needs the GPU or RAM (a media server do
 
 ### GPU PyTorch (NVIDIA)
 
-`pip install torch` gives a CPU-only build on Windows, and installing torch, torchvision and torchaudio separately can leave mismatched versions. Diagnostics > Packages > GPU PyTorch shows your GPU, driver and installed torch family, and "Set up GPU PyTorch…" (PC only) installs the matched CUDA build the app is tested with, then checks that CUDA works. Afterwards every Install/Update pins the installed torch family, so a package wanting a different torch is refused instead of replacing your CUDA build.
+`pip install torch` gives a CPU-only build on Windows, and installing torch, torchvision and torchaudio separately can leave mismatched versions. Diagnostics > Packages and installs > GPU PyTorch shows your GPU, driver and installed torch family, and "Set up GPU PyTorch…" (PC only) installs the matched CUDA build the app is tested with, then checks that CUDA works. Afterwards every Install/Update pins the installed torch family, so a package wanting a different torch is refused instead of replacing your CUDA build.
 
 ### The Export stage
 
@@ -347,7 +347,7 @@ The Diagnostics page (nav item "Diagnostics") has four tabs, the same kind of ta
 - **Models** -- **Model status** lists every model the app is set up to use, flagged when it is retired, deprecated or no longer listed by its provider (the provider check runs only when you press "Check providers now"; engines that need a key link to Settings). **Models** lists each engine with its version and the model files you have downloaded (size, Delete); an engine that isn't installed says what it is for and links to Packages and installs. **Test my models** runs one transcription, OCR read and Ollama translation with the models you have. **Models in memory** shows what Ollama, the app and the GPU hold right now, with Refresh and a confirmed "Free app models" (PC only, disabled while a GPU job runs). A link to the Benchmark Lab, which is its own page (below), sits at the bottom.
 - **System** -- **Ports**, **Log** (recent redacted lines of the app's own log, 50/100/200) and, last and closed, **Reset library** (described in [Resetting for testing](#resetting-for-testing)).
 
-The list of every background job (translate, transcribe, dub, diarize, Live capture, etc.) with progress, cancel and delete is the separate **Jobs** page; accounts and the audit log are on **Admin**.
+The list of every background job (translate, transcribe, dub, diarize, Live capture, etc.) with progress, cancel and delete is the separate **Jobs** page; accounts and the activity log are on **People and access**.
 
 The redacted support report (strips API keys, paths and user names) is in the header's "Report a problem" dialog ("Copy a report for a bug"). The App Assistant (Developer Mode, PC only) is its own page.
 
