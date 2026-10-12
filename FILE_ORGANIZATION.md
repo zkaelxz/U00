@@ -427,8 +427,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
 - `timing_check.py` (the Review "Check timing" shapes)
 - `transcribe.py` (Transcription shapes: transcribe runs and config, diarization, autotune, re-transcribe and live sessions)
-- `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets and bulk jobs)
-- `translate_followup.py` (Shapes for retrying failed lines, the glossary redo and the episode summary)
+- `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets, bulk jobs, retrying failed lines, the glossary redo and the episode summary)
 - `vdb_names.py` (/api/vdb-names: the optional personal VTuber name list; booleans and counts only)
 - `voice.py` (Voice shapes: dubbing, narration and voice-clone setup)
 
