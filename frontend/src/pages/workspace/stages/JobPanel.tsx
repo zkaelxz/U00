@@ -239,14 +239,13 @@ function LastRunCard({ dramaId, ids, retryFor }: LastRunProps) {
         <p className={status === 'failed' ? 'error' : undefined} data-testid="last-run-text">{text}</p>
       )}
       {counts && <p className="muted" data-testid="last-run-counts">{counts}</p>}
-      <div className="job-panel-actions">
-        {retry && (
+      {retry && (
+        <div className="job-panel-actions">
           <button type="button" className={buttonClass('secondary')} onClick={retry} data-testid="last-run-retry">
             Retry
           </button>
-        )}
-        <a href="#/jobs">All jobs</a>
-      </div>
+        </div>
+      )}
     </section>
   )
 }

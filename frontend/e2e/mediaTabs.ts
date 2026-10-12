@@ -1,0 +1,39 @@
+import { expect, type Locator, type Page } from '@playwright/test'
+
+export type MediaTabName = 'add' | 'transcribe' | 'tools' | 'details'
+export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Transcribe', tools: 'Tools', details: 'Details' }
+
+/** Opens a title's Media stage on one sub-tab through the deep link. */
+export async function gotoMedia(page: Page, tab: MediaTabName, id = 1) {
+  await page.goto(`/#/drama/${id}/source?tab=${tab}`)
+  await expect(mediaTab(page, tab)).toHaveAttribute('aria-selected', 'true')
+}
+
+export const mediaTab = (page: Page, tab: MediaTabName) =>
+  page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab', { name: TAB_LABEL[tab], exact: true })
+
+/** The visible body of one sub-tab. */
+export const mediaPanel = (page: Page, tab: MediaTabName) => page.getByRole('tabpanel', { name: TAB_LABEL[tab], exact: true })
+
+/** Opens every fold in a sub-tab: their state is remembered, so a plain click could as well close one. */
+export async function openAllFolds(scope: Locator) {
+  const folds = scope.locator('details.section')
+  // The Advanced options folds appear once the saved options load, ahead of the folds already there.
+  if ((await scope.getAttribute('id')) === 'media-panel-tools') await scope.getByRole('region', { name: 'Advanced options' }).waitFor()
+  // A tab may have no folds at all (Transcribe).
+  await folds.first().waitFor({ state: 'visible', timeout: 3000 }).catch(() => undefined)
+  for (let i = 0; i < (await folds.count()); i++) {
+    const fold = folds.nth(i)
+    if ((await fold.getAttribute('open')) !== null) continue
+    await fold.locator(':scope > summary').click()
+    await expect(fold).toHaveAttribute('open', '')
+  }
+}
+
+export async function expectNoSidewaysScroll(page: Page, what: string) {
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, `${what}: page scrolls sideways`).toBeLessThanOrEqual(client)
+}

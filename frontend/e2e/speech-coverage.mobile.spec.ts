@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
 import { openFoldFor } from './reviewFolds'
-import { openTranscribeOptions } from './sourceHelpers'
+import { mediaTab } from './mediaTabs'
 import { mockSpeechCoverage } from './speechCoverageMocks'
 
 // Phone project (390x844, touch): gaps are cards that fit the width and keep 44px touch targets.
@@ -17,7 +17,7 @@ test.afterEach(async ({ page }) => {
 test('gap cards fit the phone and their buttons are 44px tall', async ({ page }) => {
   await mockSpeechCoverage(page)
   await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
+  await mediaTab(page, 'tools').click()
   await openFoldFor(page, 'Speech coverage')
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Speech coverage$/ }) })
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

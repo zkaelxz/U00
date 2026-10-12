@@ -38,6 +38,10 @@
 
 /* Three long mode names don't fit one nowrap row at 390px, so let them wrap inside their segment. */
 .fill-in-modes label { min-width: 0; white-space: normal; text-align: center; }
+@media (pointer: coarse), (max-width: 640px) {
+  /* "Read burned-in subtitles" is a third segment of the same kind; nowrap clipped it and widened the page. */
+  .segmented label { min-width: 0; white-space: normal; text-align: center; line-height: 1.2; }
+}
 
 /* Transcribe's blocker line: the reason plus a one-tap fix (rule 22). */
 .source-needed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--warn); border-radius: var(--radius-md); background: var(--warn-soft); color: var(--text); overflow-wrap: anywhere; }
@@ -55,6 +59,17 @@
 .stage-source section.panel[aria-label]:not([aria-label="Job"]) { border: 0; padding: 0; background: none; overflow: visible; }
 .stage-source details.section details.section { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding-inline: 0; margin: 0; }
 .source-group { display: grid; gap: var(--space-3); min-width: 0; }
+
+/* A sub-tab's panels: display:grid would otherwise win over the hidden attribute. */
+.media-tabpanel[hidden] { display: none; }
+.stage-source > .ui-tabs { margin-bottom: var(--space-2); }
+
+/* Two label lines are reserved, bottom-aligned: a label that wraps ("Pause that can split a long line") would
+   otherwise push its input below its neighbours' in the same row, and a short label still sits on its input.
+   On a phone the grid is one column, so there is no row to line up. */
+@media (min-width: 641px) {
+  .source-grid .field-label-row { min-height: 2lh; align-items: flex-end; }
+}
 
 /* Phone rhythm: 16px between fields, the Transcribe button on its own row (24px below the fields) with its hint
    and blocker 8px under it. */

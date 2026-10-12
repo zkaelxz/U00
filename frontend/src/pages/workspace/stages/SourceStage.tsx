@@ -13,9 +13,13 @@ import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
 import type { MediaStatus } from '../../../types/workspace'
 import { Section } from '../../../components/Section'
-import { writeSectionOpen } from '../../../components/sectionStorage'
+import { Tabs } from '../../../components/Tabs'
+import { browserStorage } from '../../../hooks/usePersistedState'
+import { parseRoute } from '../../../router'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
+import { MEDIA_TAB_PREFIX, hashWithTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
+import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
@@ -41,6 +45,8 @@ import { NovelPanel } from './NovelPanel'
 import { novelSections, stableNovelSections } from './novelFile'
 import { useNovelPresence } from './novelFileEvents'
 import TranscribeStage from './TranscribeStage'
+import { MediaTabPanel } from './MediaTabPanel'
+import { TranscriptModePicker } from './SourceModes'
 import { UrlDownload } from './UrlDownload'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
 
@@ -77,21 +83,44 @@ export default function SourceStage() {
   }, [saveDraft, from])
   const fromUrl = from === 'url'
 
-  // Arriving from Library "Create and auto-fill" must show the Auto-fill panel,
-  // which lives in the collapsed "Details and credits" group's Fill in details fold.
-  useState(() => {
-    if (wantsAutofill(window.location.hash)) {
-      try {
-        writeSectionOpen(window.localStorage, 'source.group.details', true)
-      } catch {
-        // storage unavailable: the group stays closed
-      }
+  // The sub-tab: a link's ?tab= first, Library's "Create and auto-fill" (which needs Fill in details), then the
+  // one this title was last left on.
+  const kindOfTitle = titleKind(drama.media_type, drama.content_mode)
+  const linkedTab = () => {
+    const r = parseRoute(window.location.hash)
+    return r.name === 'drama' && r.id === dramaId ? r.tab : undefined
+  }
+  const [wantedTab, setWantedTab] = useState<MediaTab | null>(
+    () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'details' : readMediaTab(browserStorage(), dramaId)),
+  )
+  // A link followed while this stage is open (a blocker's "set it in Details") moves the tab too.
+  useEffect(() => {
+    const follow = () => {
+      const next = linkedTab()
+      if (next) setWantedTab(next)
     }
-  })
+    window.addEventListener('hashchange', follow)
+    return () => window.removeEventListener('hashchange', follow)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dramaId])
+  const tab = resolveMediaTab(wantedTab, kindOfTitle)
+  const selectTab = (next: MediaTab) => {
+    setWantedTab(next)
+    writeMediaTab(browserStorage(), dramaId, next)
+    // Keep the address true to the tab shown, so a reload or Back lands here and not on the tab first linked.
+    // replaceState sends no hashchange, so this does not come back through the listener above.
+    try {
+      window.history.replaceState(null, '', hashWithTab(window.location.hash, next))
+    } catch {
+      // the address stays as it was
+    }
+  }
+  // Where the lines come from, once the picker on Add media has changed it.
+  const [transcriptMode, setTranscriptMode] = useState<string | null>(null)
   // Buttons next to a "Still needed" line reveal the section that resolves it.
   const [revealDetails, setRevealDetails] = useState(0)
-  const [revealMedia, setRevealMedia] = useState(0)
   const addCredits = () => {
+    selectTab('details')
     setRevealDetails((n) => n + 1)
     setTimeout(() => {
       const el = document.querySelector<HTMLElement>('[aria-label="Edit details"] input[name="author"]')
@@ -100,7 +129,7 @@ export default function SourceStage() {
     }, 50)
   }
   const needMedia = () => {
-    setRevealMedia((n) => n + 1)
+    selectTab('add')
     setTimeout(() => {
       const el = document.getElementById(mediaFileInputId(dramaId))
       el?.scrollIntoView({ block: 'center' })
@@ -287,12 +316,12 @@ export default function SourceStage() {
     </>
   )
 
-  // The workflow for the drama's media type comes first and opens by default.
+  // Novel text and chapter images come first for a novel or comic; for audio they are the optional extra.
   const kind = mediaKind(drama.media_type)
   const novelPresence = useNovelPresence(dramaId, reloads)
   const presenceSections = novelSections(kind, drama.media_type, drama.content_mode, novelPresence)
   // A panel must not move under the viewer's hands: saving a raw novel from the optional row
-  // leaves it there, and removing one from Transcribe leaves that panel (and its "Removed."
+  // leaves it there, and removing one from Tools leaves that panel (and its "Removed."
   // notice) there, until the page is reloaded or another title is opened.
   const [optionalFor, setOptionalFor] = useState<number | null>(null)
   const [fullFor, setFullFor] = useState<number | null>(null)
@@ -300,40 +329,13 @@ export default function SourceStage() {
   // Record what is shown, not what was read, so a held layout never counts as the other one.
   if (novelPresence && sections === 'optional' && optionalFor !== dramaId) setOptionalFor(dramaId)
   if (novelPresence && sections === 'full' && fullFor !== dramaId) setFullFor(dramaId)
-  const transcribe = (
-    <Section
-      key="transcribe"
-      storageKey="source.group.transcribe"
-      defaultOpen={kind === 'audio'}
-      openSignal={revealMedia}
-      title="Transcribe audio or video"
-      summary={hasMedia ? 'audio attached' : 'upload or download a file'}
-    >
-      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
-        replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
-        showRawNovel={sections === 'full'}
-        retryRef={transcribeRetry}
-        onJobStarted={(id, expected, sentFile) => {
-          // Otherwise every later run would upload the same file again and keep another full copy.
-          if (sentFile) {
-            setFile(null)
-            setReplace(false)
-            setServerHasMedia(false)
-            // An audio file is in place already, so the badges and notes are stale.
-            setReloads((n) => n + 1)
-          }
-          setExpectedSeconds(expected ?? null)
-          setJobId(id)
-        }}
-      />
-    </Section>
-  )
   const novel = sections !== 'hidden' && (
     <div key="novel" className="source-group">
       {kind === 'novel' && <NovelChaptersPanel />}
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} optional={sections === 'optional'} />
     </div>
   )
+  const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
   const subtitles = (
     <Section
       key="subtitles"
@@ -344,34 +346,70 @@ export default function SourceStage() {
       <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
     </Section>
   )
-  const groups = kind === 'audio' ? [transcribe, novel, subtitles] : [novel, transcribe, subtitles]
+  const addMedia = (
+    <>
+      {kind === 'audio' ? (
+        <>
+          {hasTranscribe && <TranscriptModePicker onChanged={setTranscriptMode} />}
+          {mediaSlot}
+          {novel}
+        </>
+      ) : (
+        <>
+          {novel}
+          {mediaSlot}
+        </>
+      )}
+      {subtitles}
+      <KeepOriginal />
+    </>
+  )
+
+  // A live job shows on every tab; the finished run belongs to Transcribe.
+  const showJob = jobId !== null || tab === 'transcribe'
 
   return (
     <div className="stage-source">
-      {groups}
-      <KeepOriginal />
-      <Section
-        storageKey="source.group.details"
-        openSignal={revealDetails}
-        title="Details and credits"
-        summary={`${drama.title_en || drama.title_zh || `#${dramaId}`} · credits, cover, fill in`}
-      >
+      <Tabs label="Media sections" idPrefix={MEDIA_TAB_PREFIX} tabs={mediaTabsFor(kindOfTitle)} active={tab} onSelect={selectTab} />
+      <MediaTabPanel id="add" active={tab}>{addMedia}</MediaTabPanel>
+      {hasTranscribe && (
+        <TranscribeStage tab={tab} goTab={selectTab} transcriptMode={transcriptMode} media={media} file={file} confirmReplace={confirmReplace}
+          replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
+          showRawNovel={sections === 'full'}
+          retryRef={transcribeRetry}
+          onJobStarted={(id, expected, sentFile) => {
+            // Otherwise every later run would upload the same file again and keep another full copy.
+            if (sentFile) {
+              setFile(null)
+              setReplace(false)
+              setServerHasMedia(false)
+              // An audio file is in place already, so the badges and notes are stale.
+              setReloads((n) => n + 1)
+            }
+            setExpectedSeconds(expected ?? null)
+            setJobId(id)
+          }}
+        />
+      )}
+      <MediaTabPanel id="details" active={tab}>
         <DetailsPanel openSignal={revealDetails} onAddCredits={addCredits} />
         <FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />
-      </Section>
-      <JobPanel
-        jobId={jobId}
-        job={job}
-        pollError={pollError}
-        liveEta={!!jobId?.startsWith('transcribe_')}
-        expectedSeconds={expectedSeconds}
-        lastRun={{
-          dramaId,
-          ids: sourceJobIds(dramaId),
-          // Only a transcription has a form here to run again.
-          retryFor: (j) => (j.job_id.startsWith('transcribe_') ? () => transcribeRetry.current?.() : null),
-        }}
-      />
+      </MediaTabPanel>
+      {showJob && (
+        <JobPanel
+          jobId={jobId}
+          job={job}
+          pollError={pollError}
+          liveEta={!!jobId?.startsWith('transcribe_')}
+          expectedSeconds={expectedSeconds}
+          lastRun={{
+            dramaId,
+            ids: sourceJobIds(dramaId),
+            // Only a transcription has a form here to run again.
+            retryFor: (j) => (j.job_id.startsWith('transcribe_') ? () => transcribeRetry.current?.() : null),
+          }}
+        />
+      )}
     </div>
   )
 }

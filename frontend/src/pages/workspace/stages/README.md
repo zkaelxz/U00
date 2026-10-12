@@ -2,8 +2,11 @@
 
 The Workspace stages. `../stageRegistry.ts` maps each stage id to its
 component: `SourceStage`, `TranslateStage`, `ReviewStage` (with `review/`),
-`DubStage`, `ExportStage`. Transcription renders inside `SourceStage`
-(`TranscribeStage.tsx`). Stages take no props; they read the drama id from
+`DubStage`, `ExportStage`. `SourceStage` (Media) is four sub-tabs through the
+shared `Tabs` (`../mediaTabs.ts`: Add media, Transcribe, Tools, Details; a novel or comic has
+only the first and last). `TranscribeStage.tsx` owns the Transcribe and Tools panels, and
+`TranscribeAdvanced.tsx` the Advanced options folds (`advancedGroups.ts` says which control sits
+in which fold). Stages take no props; they read the drama id from
 `useStage()` (`../StageContext.ts`).
 
 ## Start here

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openTranscribeOptions, transcribeCard, openAdvanced } from './sourceHelpers'
 
 // Parity D03 (Expected speakers defaults to the last run), D06 (ask before
 // replacing hand-corrected speakers) and D04 (time estimates). The
@@ -39,10 +39,10 @@ async function mockSpeakers(page: Page, config: Record<string, unknown>) {
 }
 
 async function openSpeakers(page: Page) {
-  await page.goto('/#/drama/1/source')
-  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  await page.goto('/#/drama/1/source?tab=transcribe')
+  await expect(transcribeCard(page)).toBeVisible()
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
 }
 
 test('Expected speakers starts at the last run\'s count; corrections are kept by default (D03, D06)', async ({ page }) => {
