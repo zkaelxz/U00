@@ -1,18 +1,18 @@
 import { useId } from 'react'
 
 import type { SourcePace, SourceSummary } from '../../types/sources'
-import { PACE_LABELS, paceHelp } from './sourcesFormat'
+import { PACE_LABELS, paceHelp, paceOptionLabel } from './sourcesFormat'
 
 type Props = { s: SourceSummary; onChange: (pace: SourcePace) => void }
 
-/** A source's Pace: careful, normal or (only where the site's rules were checked) fast. */
+/** A site's Rules: Gentle, Standard or (only where the site's rules were checked) Fast. */
 export function PaceSelect({ s, onChange }: Props) {
   const helpId = useId()
   const help = paceHelp(s)
   return (
     <div className="source-pace">
       <select
-        aria-label={`Pace: ${s.display_name}`}
+        aria-label={`Rules: ${s.display_name}`}
         aria-describedby={help ? helpId : undefined}
         value={s.pace}
         onChange={(e) => onChange(e.target.value as SourcePace)}
@@ -20,7 +20,7 @@ export function PaceSelect({ s, onChange }: Props) {
         <option value="careful">{PACE_LABELS.careful}</option>
         <option value="normal">{PACE_LABELS.normal}</option>
         <option value="fast" disabled={!s.fast_allowed}>
-          {PACE_LABELS.fast}
+          {paceOptionLabel('fast', s.fast_allowed)}
         </option>
       </select>
       {help && (

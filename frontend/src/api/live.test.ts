@@ -108,6 +108,9 @@ describe('sessions', () => {
     expect(statusLine({ status: 'running', message: 'Chunk 3' }, 1)).toBe('Chunk 3 · 1 line')
     expect(statusLine({ status: 'queued', message: '' }, 0)).toMatch(/GPU/)
     expect(statusLine({ status: 'cancelled', message: 'Cancelled.' }, 4)).toBe('Stopped · 4 lines')
+    expect(statusLine({ status: 'cancelled', message: 'x', stop_reason: 'Stopped: monthly cap reached' }, 4)).toBe(
+      'Stopped: monthly cap reached · 4 lines',
+    )
     expect(statusLine({ status: 'error', message: 'ffmpeg failed' }, 0)).toBe('Stopped with an error: ffmpeg failed')
   })
 
