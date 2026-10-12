@@ -1,9 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { glossaryTab, type GlossaryTabName } from './glossaryTabs'
 import { glossarySetup } from './glossaryScanMocks'
+import { mockLanguagePacks } from './languagePacksMocks'
 import { gotoTranslate } from './translateTabs'
 
-// The Glossary panel under one level of tabs: Terms | Find terms | Names | Instructions |
+// The Glossary panel under one level of tabs: Terms | Find terms | Names | Packs | Instructions |
 // Re-translate. Terms, instructions and the scans are mocked.
 
 test.use({ viewport: { width: 1280, height: 800 } })
@@ -12,7 +13,7 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-const TABS: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Instructions', 'Re-translate']
+const TABS: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Re-translate']
 const region = (page: Page) => page.getByRole('region', { name: 'Glossary' })
 
 async function open(page: Page, opts: Parameters<typeof glossarySetup>[1] = {}) {
@@ -22,7 +23,7 @@ async function open(page: Page, opts: Parameters<typeof glossarySetup>[1] = {}) 
   await expect(region(page).getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
 }
 
-test('five tabs in one row, and no other tab row inside the Glossary', async ({ page }) => {
+test('six tabs in one row, and no other tab row inside the Glossary', async ({ page }) => {
   await open(page)
   await expect(region(page).getByRole('tablist')).toHaveCount(1)
   await expect(region(page).getByRole('tab')).toHaveText(TABS)
@@ -123,3 +124,23 @@ for (const scheme of ['light', 'dark'] as const) {
     }
   })
 }
+
+test('Packs holds Language packs and VTuber names, and Terms keeps only the terms', async ({ page }) => {
+  await mockLanguagePacks(page)
+  await open(page)
+  const packs = region(page).getByText('Language packs', { exact: true })
+  const vtubers = region(page).getByText('VTuber names', { exact: true })
+  await expect(packs).toBeHidden()
+  await expect(vtubers).toBeHidden()
+  await glossaryTab(page, 'Packs')
+  await expect(packs).toBeVisible()
+  await expect(vtubers).toBeVisible()
+  // Both cards start folded so the tab stays one screen; opening one shows its body.
+  await expect(region(page).getByText('Starter packs, review them.')).toBeHidden()
+  await packs.click()
+  await expect(region(page).getByText('Starter packs, review them.')).toBeVisible()
+  await expect(region(page).getByText('A personal list of VTuber names')).toBeHidden()
+  await page.reload()
+  await expect(region(page).getByRole('tab', { name: 'Packs', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(packs).toBeVisible()
+})
