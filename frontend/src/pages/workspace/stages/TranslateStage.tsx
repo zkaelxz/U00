@@ -72,9 +72,11 @@ import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
 import { engineNotesHelp, engineOptionLabel } from '../../../api/translate'
-import { GlossaryRetranslate } from './GlossaryRetranslate'
+import { GlossaryScanBanner } from './GlossaryScanBanner'
 import { GlossaryReview } from './GlossaryReview'
-import { useResumableScan } from './useGlossaryRun'
+import type { GlossarySource } from './glossaryExtract'
+import { scanBanner } from './glossaryScan'
+import { useGlossaryScans } from './useGlossaryRun'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import { SourceChangedWarning } from './SourceChangedWarning'
@@ -227,6 +229,7 @@ function RunPanel({
   onTierApplied,
   onPresetApplied,
   onRecheckOllama,
+  onForm,
   busy,
   bulkPending,
   retryRef,
@@ -236,6 +239,8 @@ function RunPanel({
   onTierApplied: (t: WorkflowTierApplied) => void
   onPresetApplied: (p: TranslatePresetApplied) => void
   onRecheckOllama: () => Promise<void>
+  // The Glossary's Re-translate tab runs with this form's settings.
+  onForm: (f: RunForm) => void
   busy: boolean
   // The running job is a bulk batch (the busy reason points to Bulk batches).
   bulkPending: boolean
@@ -253,27 +258,33 @@ function RunPanel({
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
-  // A scan started before leaving the stage (or reloading) is picked up here.
-  // Only a stage opened with the option already on resumes; flipping it on later must not pop a stale scan open.
+  // A scan outlives this page: one started before leaving the stage (or reloading) is shown here
+  // whether or not the review option is on. With the option already on at mount the review opens
+  // by itself; otherwise the banner offers it.
+  const scans = useGlossaryScans(dramaId)
+  const banner = scans.loaded ? scanBanner(scans.scans) : null
   const [reviewOnMount] = useState(reviewFirst && canReview)
-  const resumable = useResumableScan(dramaId, reviewOnMount)
-  const [resumedFor, setResumedFor] = useState<number | null>(null)
+  const [resumeSource, setResumeSource] = useState<GlossarySource | undefined>(undefined)
   const [resumeOpen, setResumeOpen] = useState(false)
+  const openResume = (source: GlossarySource) => {
+    setResumeSource(source)
+    setResumeOpen(true)
+    setReviewing((n) => n + 1)
+  }
+  const autoResumed = useRef(false)
   useEffect(() => {
-    if (resumable && resumedFor !== dramaId) {
-      setResumedFor(dramaId)
-      setResumeOpen(true)
-      setReviewing(1)
-    }
-  }, [resumable, resumedFor, dramaId])
+    if (!banner || !reviewOnMount || autoResumed.current) return
+    autoResumed.current = true
+    openResume(banner.source)
+  }, [banner, reviewOnMount])
   const [f, setF] = useState<RunForm>(restored.form)
+  useEffect(() => onForm(f), [onForm, f])
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [estimate, setEstimate] = useState<TranslateRunEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
   // Set while the start request is in flight, so a double click can't send two runs.
   const [starting, setStarting] = useState(false)
-  const [retranslating, setRetranslating] = useState(false)
   const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
   useEffect(() => {
     saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst }, defaultBatchSize(config, f)))
@@ -361,6 +372,7 @@ function RunPanel({
     if (reviewFirst && canReview && !afterReview) {
       setReviewNote(null)
       setResumeOpen(false)
+      setResumeSource(undefined)
       setReviewing((n) => n + 1)
       return
     }
@@ -459,16 +471,6 @@ function RunPanel({
           </p>
         )}
         <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
-        {canReview && (
-          <button
-            type="button"
-            className={`${buttonClass('secondary')} glossary-retranslate-open`}
-            disabled={retranslating}
-            onClick={() => setRetranslating(true)}
-          >
-            Re-translate lines affected by the glossary…
-          </button>
-        )}
         {estimate && <EstimateView e={estimate} />}
       </div>
       {f.force && (
@@ -486,13 +488,11 @@ function RunPanel({
           I understand this replaces existing English (a snapshot is saved first)
         </label>
       )}
-      {canReview && retranslating && (
-        <GlossaryRetranslate f={f} busy={busy} onStarted={onStarted} onClose={() => setRetranslating(false)} />
-      )}
       {reviewing > 0 && (
         <GlossaryReview
           key={reviewing}
           resume={resumeOpen}
+          resumeSource={resumeSource}
           engine={config.translation_engine}
           onStart={(note) => {
             setReviewing(0)
@@ -502,6 +502,7 @@ function RunPanel({
           onCancel={() => setReviewing(0)}
         />
       )}
+      {banner && reviewing === 0 && <GlossaryScanBanner banner={banner} onOpen={() => openResume(banner.source)} />}
       {reviewNote && <p className="muted" role="status">Glossary: {reviewNote}</p>}
       {busy && (
         <p className="muted" id="translate-busy" data-testid="translate-busy">
@@ -730,6 +731,7 @@ export default function TranslateStage() {
     },
   })
   const busy = jobId !== null && !done && !pollError
+  const [runForm, setRunForm] = useState<RunForm | null>(null)
   // X24 "Check again": re-read the config but take only the reachability flag,
   // so the loaded config (and the form built from it) stays as it is.
   const recheckOllama = () =>
@@ -758,6 +760,7 @@ export default function TranslateStage() {
           onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
           onPresetApplied={(p) => setConfig((c) => (c ? withPresetEngine(c, p) : c))}
           onRecheckOllama={recheckOllama}
+          onForm={setRunForm}
           retryRef={retry}
         />
       )}
@@ -769,7 +772,10 @@ export default function TranslateStage() {
       />
       <BulkBatchesPanel reloadKey={reloads} />
       <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
-      <GlossaryPanel focusReady={config !== null || error !== null} />
+      <GlossaryPanel
+        focusReady={config !== null || error !== null}
+        retranslate={config && runForm ? { f: runForm, busy, onStarted: setJobId } : null}
+      />
       <CharactersPanel focusReady={config !== null || error !== null} />
     </div>
   )

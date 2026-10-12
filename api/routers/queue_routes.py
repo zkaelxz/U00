@@ -12,7 +12,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import holds_paid_engines, require_permission
+from api.auth import holds_paid_engines, is_at_pc, require_permission
 from api.schemas import (ErrorResponse, QueueAddItem, QueueMove, QueuePolicy,
                          QueueScheduleSet, QueueState, QueueStepSettings)
 from services import queue_service
@@ -41,7 +41,7 @@ def step_settings(request: Request, drama_id: int = Query(ge=1, lt=2**63),
              summary="Add a title's step to the end of the queue", responses=_ERRORS)
 def add_item(body: QueueAddItem, request: Request):
     return queue_service.add_item(request.state.principal, body.drama_id, body.step,
-                                  holds_paid_engines(request))
+                                  holds_paid_engines(request), at_pc=is_at_pc(request))
 
 
 @router.post("/items/{item_id}/move", dependencies=[require_permission("jobs.start")],
@@ -60,7 +60,7 @@ def remove_item(request: Request, item_id: int = _ITEM):
              response_model=QueueState, summary="Put a failed, skipped or interrupted item back to waiting",
              responses=_ERRORS)
 def retry_item(request: Request, item_id: int = _ITEM):
-    return queue_service.retry_item(request.state.principal, item_id)
+    return queue_service.retry_item(request.state.principal, item_id, at_pc=is_at_pc(request))
 
 
 @router.post("/clear-finished", dependencies=[require_permission("jobs.start")],

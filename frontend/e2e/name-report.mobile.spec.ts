@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { glossaryTab } from './glossaryTabs'
 import { hitHeight, installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -26,7 +27,7 @@ test('the name check fits a phone', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByLabel('Project instructions')).toBeVisible()
+  await glossaryTab(page, 'Names')
   await glossary.getByRole('button', { name: 'Check names across all titles' }).click()
   const panel = glossary.getByRole('region', { name: 'Name check across all titles' })
   await expect(panel.getByRole('listitem', { name: 'Name Yalo' })).toBeVisible()

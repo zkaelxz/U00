@@ -79,7 +79,7 @@ test('a batch size typed equal to the default is remembered as blank and shows n
   await expect.poll(() => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? 'null')?.values?.form?.batch_size, DRAFT_KEY)).toBe('')
 })
 
-test('Style is one control and the action row holds the three actions', async ({ page }) => {
+test('Style is one control and the action row holds Translate and Estimate (re-translating lives in the Glossary)', async ({ page }) => {
   await setup(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
@@ -89,10 +89,9 @@ test('Style is one control and the action row holds the three actions', async ({
 
   const translate = await run.getByRole('button', { name: 'Translate 4 lines' }).boundingBox()
   const estimate = await run.getByRole('button', { name: 'Estimate cost' }).boundingBox()
-  const retranslate = await run.getByRole('button', { name: /Re-translate lines affected by the glossary/ }).boundingBox()
-  expect(translate && estimate && retranslate).toBeTruthy()
+  expect(translate && estimate).toBeTruthy()
   expect(Math.abs(translate!.y - estimate!.y)).toBeLessThan(8)
-  expect(Math.abs(translate!.y - retranslate!.y)).toBeLessThan(8)
+  await expect(run.getByRole('button', { name: /Re-translate lines affected by the glossary/ })).toHaveCount(0)
 
   // Review glossary lives in More options.
   await expect(run.getByRole('switch', { name: 'Review glossary before translating' })).toBeHidden()
@@ -106,6 +105,8 @@ test('the cards below the run start folded and a section stays as the viewer lef
   const section = (title: string) => page.locator('details.section').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
   for (const title of ['Glossary', 'Characters', 'More options']) await expect(section(title)).not.toHaveAttribute('open', /.*/)
   await section('Glossary').locator(':scope > summary').click()
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => window.localStorage.getItem('baihe.section.translate.glossary') !== null)
   await page.reload()
   await expect(section('Glossary')).toHaveAttribute('open', /.*/)
   await expect(section('Characters')).not.toHaveAttribute('open', /.*/)

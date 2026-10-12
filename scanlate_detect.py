@@ -191,9 +191,11 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
 
     global _bubble_ml_model, _bubble_ml_processor
     if "_bubble_ml_model" not in globals():
+        import qwen3_native
+        offline = qwen3_native._offline_kwargs()
         globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
-            _BUBBLE_ML_REPO, token=_tok)
-        model = AutoModelForObjectDetection.from_pretrained(_BUBBLE_ML_REPO, token=_tok)
+            _BUBBLE_ML_REPO, token=_tok, **offline)
+        model = AutoModelForObjectDetection.from_pretrained(_BUBBLE_ML_REPO, token=_tok, **offline)
         model.eval()
         globals()["_bubble_ml_model"] = model
 

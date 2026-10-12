@@ -93,7 +93,9 @@ def _copy_english_lines(drama_id: int, targets: list) -> list:
         for ln in english:
             ln.en = ln.zh
             source_change.clear_for_new_english(ln)
-        db.save_lines(drama_id, english, fields=("en", "flag", "flag_note"))
+        # Compare-and-set, as bulk apply: an edit saved since the load is kept.
+        db.save_lines(drama_id, english, fields=("en", "flag", "flag_note"),
+                      only_if_unchanged=True, guard_fields=("zh",))
     return [ln for ln in targets if not translate_engines.is_english_line(ln)]
 
 

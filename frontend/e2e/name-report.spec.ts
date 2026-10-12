@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { glossaryTab } from './glossaryTabs'
 
 // "Check names across all titles" on the Translate stage's Glossary panel. The whole API
 // is mocked (names are invented): the scan, the marks, the export and the glossary term
@@ -34,7 +35,7 @@ async function openPanel(page: Page) {
   await page.goto('/#/drama/1/translate')
   await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByLabel('Project instructions')).toBeVisible()
+  await glossaryTab(page, 'Names')
   await glossary.getByRole('button', { name: 'Check names across all titles' }).click()
   return glossary.getByRole('region', { name: 'Name check across all titles' })
 }
@@ -65,7 +66,7 @@ test('runs the check and lists the groups with counts, titles and examples', asy
   await expect(yalo).toContainText('2 titles · 6 mentions')
   await expect(yalo).toContainText('in glossary as “Yalo” → “Yarrow”')
   await expect(yalo).toContainText('Beta Stream #5: then Yaloch left')
-  await expect(panel.getByRole('tab', { name: /To check/ })).toContainText('2')
+  await expect(panel.getByRole('button', { name: /To check/ })).toContainText('2')
   await expect(panel.getByRole('button', { name: 'Check again' })).toBeVisible()
 })
 
@@ -75,13 +76,13 @@ test('marking a group wrong hides it from To check and keeps it under Wrong unti
   await panel.getByRole('button', { name: 'Check names' }).click()
   await panel.getByRole('button', { name: 'Mark Mirel wrong' }).click()
   await expect(panel.getByRole('listitem', { name: 'Name Mirel' })).toHaveCount(0)
-  await expect(panel.getByRole('tab', { name: /Wrong/ })).toContainText('1')
-  await panel.getByRole('tab', { name: /Wrong/ }).click()
+  await expect(panel.getByRole('button', { name: /Wrong/ })).toContainText('1')
+  await panel.getByRole('button', { name: /Wrong/ }).click()
   const mirel = panel.getByRole('listitem', { name: 'Name Mirel' })
   await expect(mirel.getByRole('button', { name: 'Mark Mirel wrong' })).toHaveAttribute('aria-pressed', 'true')
   await mirel.getByRole('button', { name: 'Undo mark' }).click()
   await expect(panel.getByText('Nothing marked wrong yet.')).toBeVisible()
-  await panel.getByRole('tab', { name: /To check/ }).click()
+  await panel.getByRole('button', { name: /To check/ }).click()
   await expect(panel.getByRole('listitem', { name: 'Name Mirel' })).toBeVisible()
 })
 
@@ -98,7 +99,7 @@ test('a group marked right is added to the chosen glossaries only after a confir
     if (route.request().method() === 'POST') { saved.push({ id: 1, body: route.request().postDataJSON() }); return route.fulfill({ json: {} }) }
     return route.fulfill({ json: [{ id: 11, term_original: 'Yalo', term_translation: 'Yarrow', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }] })
   })
-  await panel.getByRole('tab', { name: /Right/ }).click()
+  await panel.getByRole('button', { name: /Right/ }).click()
   const yalo = panel.getByRole('listitem', { name: 'Name Yalo' })
   await yalo.getByRole('button', { name: 'Apply to titles…' }).click()
   const form = yalo.getByRole('group', { name: 'Apply Yalo to titles' })

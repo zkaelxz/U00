@@ -11,7 +11,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status) | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
@@ -89,6 +89,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `sensitivity_preset.py`
 - `vad_segments.py`
 - `voice_id.py`
+- `cuda_runtime_path.py` (puts the folders holding cuBLAS 12 and cuDNN 9 on the Windows DLL search path so CTranslate2 can use the GPU; inspects folders only)
 - `whisper_models.py` (loads or releases the Whisper model on the right device and explains why it fell back to the CPU; the model list, GPU status and download-error diagnosis)
 - `word_align.py`
 
@@ -182,10 +183,12 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
 - `gzip_text.py` (`pack`/`unpack`: gzip for stored text that readers must take in both plain and compressed form, with a capped inflate)
 - `ct2_repo.py` (which files of a Hugging Face CTranslate2 Whisper repo may be downloaded; refuses a listing holding code-bearing files; shared by `whisper_models` and `tools/ja_whisper_models.py`)
+- `ort_telemetry.py` (`disable`: switches off ONNX Runtime's usage reporting in this process before a session is made; called by the Whisper loader and the ASMR voice detector)
 - `file_lock.py` (`hold`: an exclusive cross-process lock on a file, for a model download two processes must not run at once)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
+- `model_offline.py` (offline model loads for a run started away from the PC: the per-run mark jobs carry into their thread or child process, and the Hugging Face / ModelScope cache folders)
 - `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
 
 ## services/
@@ -216,9 +219,11 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `delete_service.py`
 - `device_token_service.py`
 - `diagnostics_gaps_service.py`
+- `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
+- `previous_library_service.py` (the library copies kept beside the library folder after a restore or before a Reset library: size for Disk usage, delete, the reset safety copy)
 - `diarization_service.py`
 - `discover_catalog_service.py`
 - `discover_lookup_service.py`
@@ -257,6 +262,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `vdb_names_service.py` (the optional personal VTuber name list, downloaded on demand; personal use only, never exported)
 - `library_admin_service.py`
 - `library_restore_sql.py` (SQL helpers for the library restore)
+- `library_restore_service.py` (restoring a whole-library backup zip: validation, staged databases, the folder swap)
 - `library_service.py`
 - `library_translated_guard.py` (what counts as translated for bulk status and export)
 - `line_ai_service.py`
@@ -276,6 +282,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `media_upload_service.py`
 - `metadata_research_service.py`
 - `metadata_service.py`
+- `model_readiness_service.py` (whether a run's models are on disk; refuses a run started away from the PC that would download one)
 - `model_reeval_service.py`
 - `model_registry_service.py`
 - `narration_service.py`

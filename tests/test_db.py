@@ -2645,6 +2645,48 @@ class TestInterruptedRestoreRecovery:
         assert seen == [b"old"]
         assert "library.pre_restore_100" in capsys.readouterr().out
 
+
+    def test_the_lock_file_goes_at_a_clean_finish(self, tmp_path):
+        lock = tmp_path / "library.restore-lock"
+        holder = db.hold_restore_lock(str(tmp_path / "library"))
+        assert lock.exists()
+        db.release_restore_lock(holder)
+        assert not lock.exists()
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        db.library_startup_notes(str(tmp_path / "library"))
+        assert not lock.exists()
+
+    def test_the_lock_file_stays_while_a_restore_holds_it(self, tmp_path):
+        lock = tmp_path / "library.restore-lock"
+        holder = db.hold_restore_lock(str(tmp_path / "library"))
+        try:
+            assert db.hold_restore_lock(str(tmp_path / "library")) is None
+            db.library_startup_notes(str(tmp_path / "library"))
+            assert lock.exists()
+        finally:
+            db.release_restore_lock(holder)
+        again = db.hold_restore_lock(str(tmp_path / "library"))
+        assert again is not None and lock.exists()
+        db.release_restore_lock(again)
+
+    def test_a_lock_on_a_file_its_last_holder_removed_is_retried(self, tmp_path, monkeypatch):
+        """The first open locked a file the last holder had just removed (the
+        name no longer points at it): that lock counts for nothing, and the
+        second attempt locks the file now at the name."""
+        from db import library_folder
+        if os.name != "posix":
+            pytest.skip("the name check is POSIX-only")
+        real_still_named, real_lock = library_folder._still_named, db._lock_file
+        answers, locks = [False], []
+        monkeypatch.setattr(library_folder, "_still_named",
+                            lambda fd, path: answers.pop() if answers else real_still_named(fd, path))
+        monkeypatch.setattr(db, "_lock_file",
+                            lambda path, create: locks.append(path) or real_lock(path, create))
+        holder = db.hold_restore_lock(str(tmp_path / "library"))
+        assert holder is not None and len(locks) == 2
+        db.release_restore_lock(holder)
+        assert not (tmp_path / "library.restore-lock").exists()
+
     def test_fsync_dir_does_nothing_on_windows(self, tmp_path, monkeypatch):
         opened = []
         monkeypatch.setattr(os, "name", "nt")

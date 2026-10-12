@@ -63,6 +63,9 @@ MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
 # into overlapping windows, run each one through the backend separately,
 # and recombine with a short linear crossfade at each boundary so the
 # seam isn't audible.
+# demucs' htdemucs model is one torch.hub checkpoint with this name.
+HTDEMUCS_CHECKPOINT = "955717e8-8726e21a.th"
+
 DEFAULT_CHUNK_SECONDS = 30.0
 DEFAULT_CHUNK_OVERLAP_SECONDS = 1.0
 
@@ -385,6 +388,13 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     backend name, before the model is downloaded/loaded, which cannot report
     progress) and "device" ("gpu" or "cpu", once the model is loaded)."""
     order = {"auto": ("audio_separator", "demucs")}.get(backend, (backend,))
+    from lib import model_offline
+    # Offline (a run started away from the PC) "auto" falls back to Demucs only
+    # when its weights are there: torch.hub ignores the Hugging Face switches.
+    skipped_fallback = (backend == "auto" and model_offline.active()
+                        and not model_offline.torch_hub_checkpoint(HTDEMUCS_CHECKPOINT))
+    if skipped_fallback:
+        order = ("audio_separator",)
     errors = []
     runners = [_BACKENDS[name] for name in order]  # an unknown name fails before anything else
     # Before the loop: a refusal must not be mistaken for a backend failure
@@ -399,6 +409,8 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
             raise
         except VocalSeparationError as exc:
             errors.append(str(exc))
+    if skipped_fallback:
+        errors.append(model_offline.NOT_DOWNLOADED_MESSAGE)
     raise VocalSeparationError("\n".join(errors))
 
 

@@ -454,7 +454,10 @@ class TestAuthOn:
         assert glossary_service.start_novel_glossary_run(
             did, engine_name="claude")["engine"] == "claude"
 
-    def test_household_can_autotune_and_apply(self, isolated_db, fake_process_job):
+    def test_household_can_autotune_and_apply(self, isolated_db, fake_process_job, monkeypatch):
+        from services import model_readiness_service
+        # On disk, so the remote run is refused only by the rule under test.
+        monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a: True)
         c = _remote()
         did = _audio_drama(isolated_db)
         h = _session()

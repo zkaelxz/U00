@@ -31,10 +31,11 @@ from typing import Optional
 
 import db
 import translate_engines
+from lib import model_offline
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         ServiceError, UnsupportedOperationError)
 from services import (auth_service, artifact_service, export_service, jobs_service,
-                      ownership_service, settings_service, transcribe_service,
+                      model_readiness_service, ownership_service, settings_service, transcribe_service,
                       translate_run_service, translate_thinking_service)
 
 QUEUE_KEY = "job_queue"
@@ -93,6 +94,10 @@ def _clean_item(raw) -> Optional[dict]:
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
+            # Items saved before "at_pc" was recorded count as away from the PC:
+            # "override" is also true for an admin on the admin listener who
+            # was not at the PC.
+            "at_pc": bool(raw.get("at_pc", False)),
             "added_at": raw.get("added_at"), "started_at": raw.get("started_at"),
             "finished_at": raw.get("finished_at")}
 
@@ -365,10 +370,11 @@ def step_settings(principal, drama_id: int, step: str) -> dict:
 
 # --- changing items ----------------------------------------------------------
 
-def add_item(principal, drama_id: int, step: str, holds_paid: bool) -> dict:
+def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
     """Validates and appends one item. The title must exist and be the
     caller's; a Translate item on a paid engine needs `engines.paid`, as the
-    Translate stage's run does."""
+    Translate stage's run does; a Transcribe item added away from the PC
+    needs its models on disk (model_readiness_service)."""
     if step not in STEPS:
         raise InvalidInputError("Step must be transcribe, translate or export.")
     drama = db.get_drama(drama_id)
@@ -378,6 +384,8 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool) -> dict:
             and _translate_engine(drama) not in translate_engines.FREE_ENGINES:
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
+    if step == "transcribe":
+        model_readiness_service.require_ready(at_pc, model_readiness_service.for_transcribe, drama_id)
     with _lock:
         doc = _load()
         if len(doc["items"]) >= MAX_ITEMS:
@@ -390,7 +398,7 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool) -> dict:
                                 "queue. Clear your finished items first.")
         item = {"id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": ownership_service.user_id(principal),
-                "override": _overrides(principal), "added_at": _clock(),
+                "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
                 "started_at": None, "finished_at": None}
         doc["next_id"] += 1
         doc["items"].append(item)
@@ -439,11 +447,12 @@ def remove_item(principal, item_id: int) -> dict:
     return _mutate_item(principal, item_id, change)
 
 
-def retry_item(principal, item_id: int) -> dict:
+def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
-        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None)
+        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
+                    at_pc=item["at_pc"] and at_pc)
     return _mutate_item(principal, item_id, change)
 
 
@@ -628,16 +637,23 @@ def _start_item(item: dict) -> Optional[str]:
     if not _holds(principal, needed):
         raise ForbiddenError("The account that added this item can no longer do this step.")
     token = ownership_service.bind_request()
+    # The runner thread outlives this item: the adder's offline mark is set
+    # for this start only.
+    offline = model_offline.set_offline(not item["at_pc"])
     try:
         # Records the job as the adder's, as if they had pressed the button.
         ownership_service.note_acting_principal(principal)
         if item["step"] == "transcribe":
+            # Again at start: the title's model choice may have changed since it was added.
+            model_readiness_service.require_ready(
+                item["at_pc"], model_readiness_service.for_transcribe, drama["id"])
             return _start_transcribe(principal, drama)
         if item["step"] == "translate":
             return _start_translate(principal, drama)
         _export(drama)
         return None
     finally:
+        model_offline.reset(offline)
         ownership_service.unbind_request(token)
 
 

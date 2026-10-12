@@ -90,4 +90,18 @@ describe('isForbidden', () => {
     expect(isForbidden(new ApiError(500, { code: 'internal_error', message: '' }))).toBe(false)
     expect(isForbidden(null)).toBe(false)
   })
+
+  it('is false for a model that is not downloaded, whose sentence says what to do', () => {
+    expect(isForbidden(new ApiError(403, { code: 'model_not_downloaded', message: 'x' }))).toBe(false)
+  })
+})
+
+describe('describeError for a model that is not downloaded', () => {
+  const err = new ApiError(403, { code: 'model_not_downloaded', message: 'x' })
+
+  it('shows the plain sentence, also where a 403 would read as PC-only', () => {
+    const want = 'This model is not downloaded yet. Ask the owner of the main PC to download it first.'
+    expect(describeError(err).title).toBe(want)
+    expect(describeError(err, { pcOnly: true }).title).toBe(want)
+  })
 })

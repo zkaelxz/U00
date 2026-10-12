@@ -21,8 +21,9 @@ import { getSourceConfig } from '../../../api/source'
 import { getGlossaryCatalogues } from '../../../api/translateStage'
 import { getNovelStatus } from '../../../api/workspace'
 import type { GlossaryCatalogues } from '../../../types/translateStage'
-import { ENGINE_CHANGED_TEXT, isActiveStatus, isResumableScan, novelGlossaryStartErrorText } from './autotuneGlossary'
-import { reviewSource, scopedValue, type GlossarySource, type RunScoped } from './glossaryExtract'
+import { ENGINE_CHANGED_TEXT, isActiveStatus, novelGlossaryStartErrorText } from './autotuneGlossary'
+import { scopedValue, type GlossarySource, type RunScoped } from './glossaryExtract'
+import type { ScanStatus, Scans } from './glossaryScan'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
 
@@ -109,29 +110,57 @@ export function startExtraction(
   )
 }
 
-// Whether the server still holds a scan worth reviewing for this drama
-// (running, failed, or finished with proposals not yet applied or dismissed).
-// Read once per drama so a scan survives leaving the stage or a reload;
-// null while reading. enabled=false answers false without a request.
-export function useResumableScan(dramaId: number, enabled: boolean): boolean | null {
-  const hasNovel = useHasNovel(dramaId, null)
-  const [state, setState] = useState<{ id: number; value: boolean } | null>(null)
-  const source = hasNovel === null ? null : reviewSource(hasNovel)
+// Both sources' scans as the server holds them. Reads both, because the one looked at may be
+// idle while the other runs, and re-reads when the window is focused or shown again, after any
+// panel starts, cancels or applies, and every few seconds while a scan runs, so a scan that
+// finished while the person was away is picked up. loaded=false until the first read of this
+// drama; a failed read keeps what was known before instead of hiding a running scan.
+const SCAN_POLL_MS = 3000
+
+export function useGlossaryScans(dramaId: number): { loaded: boolean; scans: Scans } {
+  const [state, setState] = useState<{ id: number; scans: Scans } | null>(null)
+  const [tick, setTick] = useState(0)
+  const readVersions = () => versions.novel + versions.lines
+  const version = useSyncExternalStore(subscribe, readVersions, readVersions)
   useEffect(() => {
-    if (!enabled || !source) return
     let cancelled = false
-    GLOSSARY_API[source].get(dramaId).then(
-      (s) => {
-        if (!cancelled) setState({ id: dramaId, value: isResumableScan(s) })
-      },
-      () => !cancelled && setState({ id: dramaId, value: false }),
-    )
+    const read = (source: GlossarySource) =>
+      GLOSSARY_API[source].get(dramaId).then(
+        (s): ScanStatus | null | undefined => (s.status === 'idle' ? null : s),
+        () => undefined,
+      )
+    Promise.all([read('novel'), read('lines')]).then(([novel, lines]) => {
+      if (cancelled) return
+      setState((cur) => {
+        const before = cur && cur.id === dramaId ? cur.scans : { novel: null, lines: null }
+        return { id: dramaId, scans: { novel: novel === undefined ? before.novel : novel, lines: lines === undefined ? before.lines : lines } }
+      })
+    })
     return () => {
       cancelled = true
     }
-  }, [dramaId, enabled, source])
-  if (!enabled) return false
-  return state && state.id === dramaId ? state.value : null
+  }, [dramaId, tick, version])
+  useEffect(() => {
+    const again = () => {
+      if (!document.hidden) setTick((n) => n + 1)
+    }
+    window.addEventListener('focus', again)
+    document.addEventListener('visibilitychange', again)
+    return () => {
+      window.removeEventListener('focus', again)
+      document.removeEventListener('visibilitychange', again)
+    }
+  }, [])
+  const mine = state && state.id === dramaId ? state.scans : null
+  const running = !!mine && (isActiveStatus(mine.novel?.status) || isActiveStatus(mine.lines?.status))
+  useEffect(() => {
+    if (!running) return
+    const id = window.setInterval(() => {
+      if (!document.hidden) setTick((n) => n + 1)
+    }, SCAN_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [running])
+  return { loaded: mine !== null, scans: mine ?? { novel: null, lines: null } }
 }
 
 // State that belongs to one run's proposals (selection, edits, a pending
