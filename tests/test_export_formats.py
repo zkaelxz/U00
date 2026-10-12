@@ -144,6 +144,13 @@ class TestAss:
         assert "a\\Nb\\Nc\\Nd\\Ne\\Nf" in ass
         assert len(ass.splitlines()) == len(sf.lines_to_ass(_lines(), sf.ASS_PRESETS["Clean"]).splitlines())
 
+    def test_other_control_characters_become_spaces(self):
+        lines = _lines()
+        lines[0].en = "a\x0bb\x0cc\x1cd\x1ee\x00f\x7fg\th"
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
+        assert "a b c d e f g\th" in ass
+        assert not any(ch in ass for ch in "\x0b\x0c\x1c\x1d\x1e\x00\x7f")
+
     def test_presets_differ_and_clean_is_the_old_hardsub_look(self):
         assert sf.ASS_PRESETS["Clean"]["size"] == 24 and sf.ASS_PRESETS["Clean"]["outline_width"] == 2
         assert sf.ASS_PRESETS["Streamer clip"]["bold"] is True

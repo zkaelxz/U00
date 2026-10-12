@@ -483,9 +483,14 @@ def _ass_ts(seconds: float) -> str:
 _ASS_LINE_BREAKS = re.compile(r"\r\n|[\n\r\u0085\u2028\u2029]")
 
 
+_ASS_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
 def _ass_escape(text: str) -> str:
     text = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
-    return _ASS_LINE_BREAKS.sub(r"\\N", text)
+    # Other control characters have no meaning in dialogue text and a parser
+    # may mishandle them, so they become spaces as in _ass_clean.
+    return _ASS_CONTROLS.sub(" ", _ASS_LINE_BREAKS.sub(r"\\N", text))
 
 
 def _style_line(name: str, style: dict, primary: str) -> str:
