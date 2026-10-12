@@ -3,13 +3,13 @@ import { expect, test } from '@playwright/test'
 import { openGroup } from './source-groups'
 import { mockSubtitleImport, SRT_FILE } from './subtitleImportMocks'
 
-// Source stage > Import subtitle file on seeded drama 2 (desktop). Preview and import are faked.
+// Source stage > Import subtitle file on seeded drama 1 (desktop). Preview and import are faked.
 
 async function open(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
     for (const k of Object.keys(localStorage)) if (k.startsWith('baihe.section.source.')) localStorage.removeItem(k)
   })
-  await page.goto('/#/drama/2/source')
+  await page.goto('/#/drama/1/source')
   await openGroup(page, 'Import subtitle file')
   return page.getByTestId('subtitle-import')
 }
@@ -65,7 +65,7 @@ test('a file that is not a subtitle file, or has blocking problems, cannot be im
 
 test('a failed preview still shows the encoding and mode controls', async ({ page }) => {
   await mockSubtitleImport(page)
-  await page.route('**/api/subtitle-import/dramas/2/preview', (r) =>
+  await page.route('**/api/subtitle-import/dramas/1/preview', (r) =>
     r.fulfill({ status: 422, json: { error: { code: 'validation_error', message: 'Could not read the file.' } } }))
   const panel = await open(page)
   await panel.getByLabel('Subtitle file').setInputFiles(SRT_FILE)
