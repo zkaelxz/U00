@@ -1,0 +1,15 @@
+/* The Series page (SeriesPage.tsx). */
+.series-page p { overflow-wrap: anywhere; }
+.series-titles { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.series-title-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-1) var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.series-title-text { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.series-title-meta { color: var(--muted); white-space: nowrap; }
+.series-copy-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-2) var(--space-3); min-width: 0; }
+.series-copy-row select { width: 100%; min-width: 0; box-sizing: border-box; }
+.series-copy-preview { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
+.series-term-list { margin: var(--space-1) 0 0; }
+.series-delete-prompt ul { margin: 0 0 var(--space-2); }
+@media (max-width: 640px) {
+  .series-copy-row { grid-template-columns: minmax(0, 1fr); }
+  .series-title-meta { white-space: normal; }
+}
