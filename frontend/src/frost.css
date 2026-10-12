@@ -175,6 +175,11 @@ fieldset.segmented {
   max-width: 100%;
   overflow: hidden;
 }
+/* On phones the tray adds no height: the Review toolbar collapses on scroll and hides these tabs, and its two scroll thresholds
+   (LinesPanel.tsx) only hold when that layout shift stays small. The ring is drawn inset instead of as a border and padding. */
+@media (max-width: 640px) {
+  .stage-tabs { border: 0; padding: 0; box-shadow: inset 0 0 0 1px var(--btn-edge); }
+}
 .stage-tabs a { border: 0; border-radius: var(--radius-pill); flex: 1 1 auto; min-width: 0; justify-content: center; text-align: center; white-space: nowrap; }
 .stage-tabs a[aria-current='page'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 .ui-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: 22px; background: var(--glass); }
