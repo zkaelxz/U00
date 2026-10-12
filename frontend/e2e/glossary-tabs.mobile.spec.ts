@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { glossaryTab, type GlossaryTabName } from './glossaryTabs'
 import { glossarySetup, heldScan, prop } from './glossaryScanMocks'
+import { mockLanguagePacks } from './languagePacksMocks'
 import { gotoTranslate } from './translateTabs'
 
 // Phone project (390x844): the tab row scrolls inside itself, every tab fits the width with
@@ -10,7 +11,7 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-const TABS: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Instructions', 'Re-translate']
+const TABS: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Re-translate']
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`every Glossary tab fits the phone (${scheme})`, async ({ page }) => {
@@ -45,4 +46,20 @@ test('a running scan survives a reload on the phone', async ({ page }) => {
   await expect(page.getByTestId('glossary-scan-banner')).toContainText('A glossary scan is running')
   await page.reload()
   await expect(page.getByTestId('glossary-scan-banner')).toContainText('A glossary scan is running')
+})
+
+test('the Packs tab shows both cards and fits the phone', async ({ page }) => {
+  await mockLanguagePacks(page)
+  await glossarySetup(page)
+  await page.route('**/api/glossary/dramas/1/from-lines', (r) => r.fulfill({ json: { job_id: '', status: 'idle', progress: 0, message: '', proposals: null, run_id: null } }))
+  await gotoTranslate(page, 'glossary')
+  await glossaryTab(page, 'Packs')
+  const region = page.getByRole('region', { name: 'Glossary' })
+  await expect(region.getByText('Language packs', { exact: true })).toBeVisible()
+  await expect(region.getByText('VTuber names', { exact: true })).toBeVisible()
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, 'Packs scrolls sideways').toBeLessThanOrEqual(client)
 })

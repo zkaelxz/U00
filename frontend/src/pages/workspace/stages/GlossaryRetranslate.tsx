@@ -224,3 +224,33 @@ export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunFor
     </section>
   )
 }
+
+// The one entry point for this action, mounted by the Glossary's Re-translate tab and by the Translate
+// tab's action row so both open the same list, estimate and confirmation. The list loads when it opens,
+// not when the page does: it reads every line.
+export function GlossaryRetranslateAction({ f, busy, onStarted, hint, inline }: {
+  f: RunForm
+  busy: boolean
+  onStarted: (jobId: string) => void
+  hint?: string
+  // Sits among sibling buttons in a flex row; the list then takes a full row of its own.
+  inline?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const button = (
+    <button type="button" className={`${buttonClass('secondary')} glossary-retranslate-open`} disabled={open} onClick={() => setOpen(true)}>
+      Re-translate lines affected by the glossary…
+    </button>
+  )
+  const list = open && <GlossaryRetranslate f={f} busy={busy} onStarted={onStarted} onClose={() => setOpen(false)} />
+  if (inline) return <>{button}{list && <div style={{ flexBasis: '100%' }}>{list}</div>}</>
+  return (
+    <>
+      <div className="actions">
+        {button}
+        {hint && <span className="muted">{hint}</span>}
+      </div>
+      {list}
+    </>
+  )
+}

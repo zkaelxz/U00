@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { GLOSSARY_TABS, emptyTabText, instructionsSummary, isGlossaryTab } from './glossaryTabs'
 
 describe('glossary tabs', () => {
-  it('has one level of five tabs in the agreed order', () => {
-    expect(GLOSSARY_TABS.map((t) => t.label)).toEqual(['Terms', 'Find terms', 'Names', 'Instructions', 'Re-translate'])
+  it('has one level of six tabs in the agreed order', () => {
+    expect(GLOSSARY_TABS.map((t) => t.label)).toEqual(['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Re-translate'])
   })
 
   it('knows its own ids', () => {

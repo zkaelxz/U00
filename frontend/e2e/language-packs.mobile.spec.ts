@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { inSeriesSeven, mockLanguagePacks } from './languagePacksMocks'
+import { glossaryTab } from './glossaryTabs'
 import { gotoTranslate } from './translateTabs'
 
 // Phone project (390x844): the Language packs section fits the width and keeps 44px touch targets.
@@ -12,6 +13,7 @@ test('fits the phone width with 44px targets', async ({ page }: { page: Page }) 
   await inSeriesSeven(page)
   await mockLanguagePacks(page)
   await gotoTranslate(page, 'glossary')
+  await glossaryTab(page, 'Packs')
   for (const title of ['Glossary', 'Language packs']) {
     const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
     if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { inSeriesSeven, mockLanguagePacks } from './languagePacksMocks'
+import { glossaryTab } from './glossaryTabs'
 import { gotoTranslate } from './translateTabs'
 
 // Glossary > Language packs: off by default, a toggle and style per pack, entries
@@ -13,6 +14,7 @@ test.afterEach(async ({ page }) => {
 
 async function openPacks(page: Page) {
   await gotoTranslate(page, 'glossary')
+  await glossaryTab(page, 'Packs')
   for (const title of ['Glossary', 'Language packs']) {
     const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
     if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

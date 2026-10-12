@@ -82,6 +82,7 @@ import { StyleField } from './StartFromPicker'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
+import { GlossaryRetranslateAction } from './GlossaryRetranslate'
 import { engineNotesHelp, engineOptionLabel } from '../../../api/translate'
 import { FailedBatchesNotice, GlossaryFlaggedNotice } from './FollowupNotices'
 import { GlossaryScanBanner } from './GlossaryScanBanner'
@@ -483,6 +484,7 @@ function RunPanel({
           </p>
         )}
         <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
+        <GlossaryRetranslateAction inline f={f} busy={busy} onStarted={onStarted} />
         {estimate && <EstimateView e={estimate} />}
       </div>
       {f.force && (

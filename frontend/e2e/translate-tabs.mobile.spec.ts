@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { expectNoSidewaysScroll } from './mediaTabs'
+import { openAllFolds } from './glossaryTabs'
 import { gotoTranslate, translatePanel, translateTab, type TranslateTabName } from './translateTabs'
 
 // Phone (390x844): the tab row and every sub-tab stay inside the screen.
@@ -22,11 +23,7 @@ for (const scheme of ['light', 'dark'] as const) {
     test(`${tab}: no sideways scroll, even with every fold open (${scheme})`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: scheme })
       await gotoTranslate(page, tab)
-      const folds = translatePanel(page, tab).locator('details.section')
-      for (let i = 0; i < (await folds.count()); i++) {
-        const fold = folds.nth(i)
-        if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
-      }
+      await openAllFolds(page, tab)
       await expectNoSidewaysScroll(page, `${tab} ${scheme}`)
     })
   }
