@@ -238,6 +238,11 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
     if background_jobs.is_running(f"transcribe_{drama_id}"):
         raise ConflictError("A transcription is running for this title. "
                             "Check the coverage when it finishes.")
+    # The screen starts this check after every transcription; a failed or empty run leaves a
+    # title with no lines to compare against. A different error class than the "already
+    # running" conflict, so the panel can show this one as text.
+    if not db.load_line_ids(drama_id):
+        raise UnsupportedOperationError("This title has no lines yet, so there is nothing to check.")
     job_id = speech_coverage_job_id(drama_id)
     if not background_jobs.start_job(
             job_id, _run_job, job_id, drama_id, audio_path, float(min_gap_seconds),

@@ -57,6 +57,8 @@ DYNAMIC_KEYS = {
         "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
     ("services/line_tools_service.py", "_shorten_pass_key(drama_id)"):
         "title-scoped: the auto-shorten pass for one drama",
+    ("services/glossary_name_report_service.py", "_marks_setting(principal)"):
+        "glossary.name_marks.<person>: one person's right/wrong/skip marks on the name check",
     ("services/maintenance_assistant_service.py", "_SETTINGS_PREFIX + key"):
         "assistant.<name>: names are checked against the schema below",
     ("services/assistant_github_service.py", "_SETTINGS_PREFIX + key"):

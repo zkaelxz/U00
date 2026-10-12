@@ -91,6 +91,8 @@ class DiarizationConfig(BaseModel):
     itself."""
     drama_id: int
     hf_token_configured: bool
+    # Plain text of what stops speaker detection (no token, no pyannote), or None when it can run.
+    speaker_notice: Optional[str] = None
     expected_speakers: Optional[int] = None
     # The speaker-count range the last run used, if any.
     min_speakers: Optional[int] = None
@@ -298,6 +300,9 @@ class LiveSessionStatus(BaseModel):
     session_id: str
     status: str   # queued | running | done | error | cancelled
     message: str
+    # Why the session ended itself (monthly cap reached, repeated translation
+    # failures); also the message once it has. None for an ordinary session.
+    stop_reason: Optional[str] = None
     engine: Optional[str] = None
     model: Optional[str] = None
     progress: float
