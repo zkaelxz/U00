@@ -318,6 +318,12 @@ What they skip or keep:
   flags unchanged, the count of titles moved is in the result as
   `titles_reassigned` and in the audit entry). New account ids still start
   above every id the backup's rows named (`library_restore_sql.settle_accounts`).
+- **A single-title restore** from an automatic copy matches the same way: the
+  title's owner, and a recreated series' owner, become the live account with
+  the copy's account's email (`library_restore_sql.owner_map_between`), or
+  NULL (the PC owner) when there is none or the copy has no `users` table;
+  never the copy's id alone. Private flags are unchanged; the result
+  (`owners_reassigned`, `copy_has_accounts`) and the audit entry give the count.
 - **The previous library** (`<library>.pre_restore_<time>`) is deleted once
   everything was carried across. It stays when something couldn't be: the
   media of titles added since a database-only backup, and any folder the zip
