@@ -828,7 +828,6 @@ _CAPTURE_ALLOWED = {
     # Version and hardware probes, seconds long.
     "diagnostics.py::check_ffmpeg": "probe: ffmpeg -version",
     "diagnostics.py::_warn_deno_old": "probe: deno --version",
-    "diagnostics_torch.py::external_gpu_load": "probe: nvidia-smi",
     "diagnostics_torch.py::nvidia_driver_info": "probe: nvidia-smi",
     "diagnostics_torch.py::lowest_compute_capability": "probe: nvidia-smi",
     "services/loaded_models_service.py::_gpu_from_nvidia_smi": "probe: nvidia-smi",

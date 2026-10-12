@@ -500,12 +500,12 @@ class TestGpuStatus:
                 is_available=lambda: True,
                 current_device=lambda: 0,
                 get_device_properties=lambda idx: props,
-                memory_allocated=lambda idx: 2 * 1024 ** 3))
+                memory_allocated=lambda idx: 2 * 1024 ** 3))  # this process only; the overview reads the driver
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
         status = diagnostics_torch.get_gpu_status()
         assert status["available"] is True
         assert status["name"] == "NVIDIA GeForce RTX 3080 Ti"
-        assert status["vram_used_gb"] == pytest.approx(2.0)
+        assert status["vram_used_gb"] is None
         assert status["vram_total_gb"] == pytest.approx(12.0)
         assert status["torch_cuda_version"] == "12.8"
 

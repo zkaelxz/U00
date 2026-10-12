@@ -17,6 +17,7 @@ import time
 
 import background_jobs
 import diagnostics
+from lib.proc import run_captured
 
 
 def get_gpu_status() -> dict:
@@ -53,16 +54,53 @@ def get_gpu_status() -> dict:
     try:
         device_index = torch.cuda.current_device()
         props = torch.cuda.get_device_properties(device_index)
-        return {
-            "available": True,
-            "name": props.name,
-            "vram_used_gb": torch.cuda.memory_allocated(device_index) / (1024 ** 3),
-            "vram_total_gb": props.total_memory / (1024 ** 3),
-            "torch_cuda_version": torch_cuda_version,
-        }
+        name, total_gb = props.name, props.total_memory / (1024 ** 3)
     except Exception:
         return {"available": False, "torch_cuda_version": torch_cuda_version,
                 "message": "GPU info unavailable."}
+    return {"available": True, "name": name, "vram_used_gb": None, "vram_total_gb": total_gb,
+            "torch_cuda_version": torch_cuda_version}
+
+
+# Diagnostics polls while a GPU job runs; a short cache (failures included) keeps
+# a wedged nvidia-smi from collecting one stuck child per poll.
+DRIVER_LOAD_CACHE_SECONDS = 2.0
+_driver_load_lock = threading.Lock()
+_driver_load_cache = {"at": None, "value": None}
+
+
+def forget_driver_load() -> None:
+    with _driver_load_lock:
+        _driver_load_cache.update(at=None, value=None)
+
+
+def _recent_driver_load() -> dict | None:
+    # Held across the probe so concurrent readers share one run.
+    with _driver_load_lock:
+        at = _driver_load_cache["at"]
+        if at is None or time.monotonic() - at > DRIVER_LOAD_CACHE_SECONDS:
+            _driver_load_cache.update(value=external_gpu_load())
+            _driver_load_cache["at"] = time.monotonic()
+        return _driver_load_cache["value"]
+
+
+def with_driver_vram_used(gpu: dict) -> dict:
+    """Fills vram_used_gb and vram_total_gb from nvidia-smi on every call,
+    outside the hour-long cache of get_gpu_status_isolated.
+    torch.cuda.memory_allocated() only sees the process that asks, and
+    transcription runs in a child, so it read 0 during real work; the driver
+    counts every program. Both numbers come from nvidia-smi's first GPU so
+    they describe one card; torch's current_device can be another one."""
+    if not gpu.get("available"):
+        return gpu
+    load = _recent_driver_load()
+    if load is None:
+        gpu["vram_used_gb"] = None
+        gpu["message"] = "GPU memory in use: not available (nvidia-smi could not be read)."
+    else:
+        gpu["vram_used_gb"] = load["memory_used_mb"] / 1024
+        gpu["vram_total_gb"] = load["memory_total_mb"] / 1024
+    return gpu
 
 
 # Importing torch or ctranslate2 in the server opens a CUDA context that keeps
@@ -177,10 +215,11 @@ def external_gpu_load() -> dict | None:
     if not shutil.which("nvidia-smi"):
         return None
     try:
-        result = subprocess.run(
+        result = run_captured(
             ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
+             "--format=csv,noheader,nounits"], timeout=5)
+        if result.timed_out or result.returncode != 0:
+            return None
         line = result.stdout.strip().splitlines()[0]
         util_percent, used_mb, total_mb = (float(x.strip()) for x in line.split(","))
         return {"utilization_percent": util_percent, "memory_used_mb": used_mb,

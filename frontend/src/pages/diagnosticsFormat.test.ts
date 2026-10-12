@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import {
   upsertJob, isFinished, orderJobs,
   describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
-  plainJobText, splitDependencies,
+  plainJobText, pollWhenSettled, shouldRefreshGpu, splitDependencies,
 } from './diagnosticsFormat'
 
 const job = (o: Partial<JobRecord>): JobRecord => ({
@@ -49,7 +49,18 @@ describe('diagnosticsFormat', () => {
   })
   it('describes the GPU', () => {
     expect(describeGpu({ ...gpu, available: false })).toBe('No GPU detected.')
-    expect(describeGpu({ ...gpu, available: true, name: 'X', vram_used_gb: 1, vram_total_gb: 8 })).toBe('X (1.0 / 8.0 GB in use)')
+    expect(describeGpu({ ...gpu, available: true, name: 'X', vram_used_gb: 1, vram_total_gb: 8 })).toBe('X (GPU memory in use (all programs): 1.0 / 8.0 GB)')
+    expect(describeGpu({ ...gpu, available: true, name: 'X', vram_used_gb: null, vram_total_gb: 8, message: 'GPU memory in use: not available (nvidia-smi could not be read).' }))
+      .toBe('X (GPU memory in use: not available (nvidia-smi could not be read).)')
+  })
+  it('refreshes the GPU reading only while visible with a GPU job active', () => {
+    const jobs = (status: string, gpu_touching: boolean) => [job({ job_id: 'a', status, gpu_touching })]
+    expect(shouldRefreshGpu(jobs('running', true), false)).toBe(true)
+    expect(shouldRefreshGpu(jobs('queued', true), false)).toBe(true)
+    expect(shouldRefreshGpu(jobs('running', true), true)).toBe(false)
+    expect(shouldRefreshGpu(jobs('running', false), false)).toBe(false)
+    expect(shouldRefreshGpu(jobs('done', true), false)).toBe(false)
+    expect(shouldRefreshGpu(null, false)).toBe(false)
   })
 })
 
@@ -117,5 +128,35 @@ describe('job wording', () => {
     expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #9)', drama_id: 9 }, titles)).toBe('Transcription')
     expect(jobTitledName({ job_id: 'j', description: 'URL download', drama_id: null }, titles)).toBe('URL download')
     expect(jobTitledName({ job_id: 'j', description: 'Translate Signal', drama_id: 1 }, titles)).toBe('Translate Signal')
+  })
+})
+
+describe('pollWhenSettled', () => {
+  it('starts the next wait only after the previous request settles, so requests never overlap', async () => {
+    vi.useFakeTimers()
+    let release: () => void = () => {}
+    const tick = vi.fn(() => new Promise<void>((resolve) => { release = resolve }))
+    const stop = pollWhenSettled(tick, 3000)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(tick).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(30000)      // still pending: no second request
+    expect(tick).toHaveBeenCalledTimes(1)
+    release()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(tick).toHaveBeenCalledTimes(2)
+    stop()
+    release()
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(tick).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+  it('keeps going after a failed request', async () => {
+    vi.useFakeTimers()
+    const tick = vi.fn(() => Promise.reject(new Error('down')))
+    const stop = pollWhenSettled(tick, 1000)
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(tick).toHaveBeenCalledTimes(3)
+    stop()
+    vi.useRealTimers()
   })
 })

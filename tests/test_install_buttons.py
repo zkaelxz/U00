@@ -8,10 +8,13 @@ real network call or actually installs anything.
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diagnostics
 import diagnostics_torch
+from lib.proc import CapturedRun
 
 
 class TestParseRequirementsFile:
@@ -42,15 +45,14 @@ class TestExternalGpuLoad:
     application (Jellyfin's hardware-accelerated transcoding on the same
     card, say) using the same physical GPU."""
 
+    @pytest.fixture(autouse=True)
+    def _fresh_driver_cache(self):
+        diagnostics_torch.forget_driver_load()
+
     def _fake_run(self, stdout):
-        def run(cmd, capture_output, text, timeout, check, errors, encoding):
-            assert encoding == "utf-8"
+        def run(cmd, timeout):
             assert cmd[0] == "nvidia-smi"
-            class _Result:
-                pass
-            r = _Result()
-            r.stdout = stdout
-            return r
+            return CapturedRun(0, stdout, "", False, False)
         return run
 
     def test_none_when_nvidia_smi_not_on_path(self, monkeypatch):
@@ -60,7 +62,7 @@ class TestExternalGpuLoad:
 
     def test_parses_a_real_nvidia_smi_response(self, monkeypatch):
         monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics_torch.subprocess, "run",
+        monkeypatch.setattr(diagnostics_torch, "run_captured",
                             self._fake_run("72, 9500, 12288\n"))
         load = diagnostics_torch.external_gpu_load()
         assert load == {"utilization_percent": 72.0, "memory_used_mb": 9500.0,
@@ -70,27 +72,84 @@ class TestExternalGpuLoad:
         monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
 
         def raises(*a, **kw):
-            raise diagnostics_torch.subprocess.SubprocessError("nvidia-smi timed out")
-        monkeypatch.setattr(diagnostics_torch.subprocess, "run", raises)
+            raise OSError("nvidia-smi vanished")
+        monkeypatch.setattr(diagnostics_torch, "run_captured", raises)
         assert diagnostics_torch.external_gpu_load() is None
         assert diagnostics_torch.external_gpu_is_busy() is False  # never blocks when it can't tell
 
     def test_busy_when_utilization_crosses_the_threshold(self, monkeypatch):
         monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics_torch.subprocess, "run",
+        monkeypatch.setattr(diagnostics_torch, "run_captured",
                             self._fake_run("55, 2000, 12288\n"))  # busy: high util, plenty free
         assert diagnostics_torch.external_gpu_is_busy() is True
 
     def test_busy_when_free_vram_is_low_even_at_low_utilization(self, monkeypatch):
         monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics_torch.subprocess, "run",
+        monkeypatch.setattr(diagnostics_torch, "run_captured",
                             self._fake_run("5, 11800, 12288\n"))  # idle compute, almost no VRAM left
         assert diagnostics_torch.external_gpu_is_busy() is True
 
     def test_not_busy_when_idle_and_plenty_free(self, monkeypatch):
         monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(diagnostics_torch.subprocess, "run",
+        monkeypatch.setattr(diagnostics_torch, "run_captured",
                             self._fake_run("3, 500, 12288\n"))
         assert diagnostics_torch.external_gpu_is_busy() is False
+
+    def test_none_on_a_nonzero_exit_or_timeout(self, monkeypatch):
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        for run in (CapturedRun(9, "", "driver mismatch", False, False), CapturedRun(None, "", "", True, False)):
+            monkeypatch.setattr(diagnostics_torch, "run_captured", lambda cmd, timeout, r=run: r)
+            assert diagnostics_torch.external_gpu_load() is None
+
+    def test_overview_reads_memory_in_use_from_the_driver_not_torch(self, monkeypatch):
+        cached = {"available": True, "name": "RTX", "vram_used_gb": 0.0, "vram_total_gb": 12.0}
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured", self._fake_run("90, 6144, 12288\n"))
+        assert diagnostics_torch.with_driver_vram_used(dict(cached))["vram_used_gb"] == 6.0
+
+    def test_overview_total_and_used_come_from_the_same_nvidia_smi_card(self, monkeypatch):
+        # torch's current_device can be a different card than nvidia-smi's first row.
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured", self._fake_run("90, 6144, 24576\n"))
+        out = diagnostics_torch.with_driver_vram_used({"available": True, "name": "RTX", "vram_total_gb": 8.0})
+        assert (out["vram_used_gb"], out["vram_total_gb"]) == (6.0, 24.0)
+
+    def test_overview_reads_share_one_nvidia_smi_run_within_the_cache_window(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured",
+                            lambda cmd, timeout: calls.append(1) or CapturedRun(0, "1, 2048, 8192\n", "", False, False))
+        clock = {"t": 1000.0}
+        monkeypatch.setattr(diagnostics_torch.time, "monotonic", lambda: clock["t"])
+        diagnostics_torch.forget_driver_load()
+        gpu = {"available": True, "name": "RTX", "vram_total_gb": 8.0}
+        diagnostics_torch.with_driver_vram_used(dict(gpu))
+        diagnostics_torch.with_driver_vram_used(dict(gpu))
+        assert len(calls) == 1
+        clock["t"] += diagnostics_torch.DRIVER_LOAD_CACHE_SECONDS + 0.1
+        diagnostics_torch.with_driver_vram_used(dict(gpu))
+        assert len(calls) == 2
+
+    def test_a_failed_reading_is_not_retried_within_the_window(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured",
+                            lambda cmd, timeout: calls.append(1) or CapturedRun(None, "", "", True, False))
+        monkeypatch.setattr(diagnostics_torch.time, "monotonic", lambda: 5000.0)
+        diagnostics_torch.forget_driver_load()
+        for _ in range(3):
+            out = diagnostics_torch.with_driver_vram_used({"available": True, "name": "RTX", "vram_total_gb": 8.0})
+        assert len(calls) == 1 and out["vram_used_gb"] is None
+
+    def test_overview_says_not_available_when_nvidia_smi_is_missing(self, monkeypatch):
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)
+        out = diagnostics_torch.with_driver_vram_used({"available": True, "name": "RTX", "vram_total_gb": 12.0})
+        assert out["vram_used_gb"] is None
+        assert "not available" in out["message"]
+        assert "/" not in out["message"] and "Traceback" not in out["message"]
+
+    def test_overview_leaves_an_unavailable_gpu_alone(self):
+        gpu = {"available": False, "message": "GPU info unavailable."}
+        assert diagnostics_torch.with_driver_vram_used(dict(gpu)) == gpu
 
 
