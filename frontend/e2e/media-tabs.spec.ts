@@ -117,7 +117,8 @@ test('every advanced control is reachable, and Developer Mode ones only with the
     'Split lines by sentences', 'Realign long segments', 'Alignment method', 'ASR backend', 'Voice detector', 'Use Groq',
     'Whisper fast mode', 'Name hint for Qwen3 ASR', 'Extra names to expect', 'Separate vocals first',
   ]
-  const developer = ['Beam size', 'VAD threshold', 'Hardsub interval', 'Separation backend', 'Hardsub OCR', 'Hallucination guard', 'Whisper repeat guard']
+  // Seeded title 1 is an audio drama: it has no picture, so the hardsub controls are not there (title 3, a video, has them).
+  const developer = ['Beam size', 'VAD threshold', 'Separation backend', 'Hallucination guard', 'Whisper repeat guard']
   await gotoMedia(page, 'tools')
   const advanced = await openAdvanced(page)
   for (const label of everyday) await expect(advanced.getByLabel(label, { exact: true }), label).toBeVisible()

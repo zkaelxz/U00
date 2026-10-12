@@ -43,11 +43,13 @@ import { useDeveloperMode } from '../../assistant/developerMode'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { useStage } from '../StageContext'
 import type { MediaTab } from '../mediaTabs'
+import { titleKind } from '../titleKind'
 import { AutoTune } from './AutoTune'
 import { MediaTabPanel } from './MediaTabPanel'
 import { TranscribeAdvanced } from './TranscribeAdvanced'
 import { formFromConfig, toUpdate, type ConfigForm } from './transcribeConfigForm'
 import { NovelFilePanel } from './NovelFilePanel'
+import { startAsNovel } from './novelFlow'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { SpeakerDetectionNotice } from './SpeakerDetectionNotice'
 import { SpeechCoverage } from './SpeechCoverage'
@@ -106,7 +108,7 @@ interface Props {
 export default function TranscribeStage({
   tab, goTab, transcriptMode, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, showRawNovel = true, onJobStarted, retryRef,
 }: Props) {
-  const { dramaId, drama } = useStage()
+  const { dramaId, drama, refetchDrama } = useStage()
   const developerMode = useDeveloperMode()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
@@ -319,6 +321,20 @@ export default function TranscribeStage({
       : haveTranscript && !transcriptText.trim()
         ? 'the transcript text'
         : ''
+  const [adopting, setAdopting] = useState(false)
+  // Text with no audio is a novel to translate, not a transcript to line up.
+  const asNovel = () => {
+    setAdopting(true)
+    startAsNovel(dramaId, transcriptText).then(
+      () => {
+        setError(null)
+        setTranscriptText('')
+        refetchDrama()
+        goTab('add')
+      },
+      setError,
+    ).finally(() => setAdopting(false))
+  }
   // A staged file that Replace is not ticked for is not part of this run: the stored media is transcribed.
   const uploadFile = file && !replaceUnconfirmed ? file : null
 
@@ -565,6 +581,14 @@ export default function TranscribeStage({
             <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
           </Field>
         )}
+        {haveTranscript && !hasMedia && !file && (
+          <p className="muted" role="note" data-testid="transcript-no-audio">
+            A transcript is lined up with the audio, and this title has none yet. If this is text to translate, not speech:{' '}
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={adopting || !transcriptText.trim()} onClick={asNovel}>
+              Translate this text as a novel
+            </button>
+          </p>
+        )}
         <div className="setting-list">
           <Field label="Detect speakers after transcribing">
             <Toggle checked={runDiarize} onChange={setRunDiarize} />
@@ -637,6 +661,7 @@ export default function TranscribeStage({
             config={config}
             setC={setC}
             language={language}
+            kind={titleKind(drama.media_type, drama.content_mode)}
             developerMode={developerMode}
             haveTranscript={haveTranscript}
             optionsSaved={optionsSaved}

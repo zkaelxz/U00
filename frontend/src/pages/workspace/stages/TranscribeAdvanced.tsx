@@ -7,6 +7,7 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { TranscribeConfig } from '../../../types/workspace'
+import type { TitleKind } from '../titleKind'
 import { rangeHint } from '../formatRange'
 import {
   advancedSummary,
@@ -45,6 +46,8 @@ interface Props {
   config: TranscribeConfig | null
   setC: <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => void
   language: string
+  // Controls the kind has no use for (mediaTypeSettings.ts) are not rendered.
+  kind: TitleKind
   developerMode: boolean
   haveTranscript: boolean
   // The title's options were saved before (see optionsSaved in TranscribeStage): decides which fold opens first.
@@ -292,7 +295,7 @@ export function TranscribeAdvanced(p: Props) {
       <p className="muted source-summary" data-testid="advanced-summary">
         {readableSummary(advancedSummary({ ...cf, prompt: p.override, source_language: language }, developerMode))}
       </p>
-      {advancedGroups(developerMode, p.optionsSaved).map((g) => {
+      {advancedGroups(developerMode, p.optionsSaved, p.kind).map((g) => {
         const placed = g.fields.map((f) => fields[f]())
         const grid = placed.filter((x) => x.zone === 'grid')
         const blocks = placed.filter((x) => x.zone === 'block')
