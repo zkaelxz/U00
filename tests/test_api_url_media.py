@@ -800,7 +800,10 @@ def test_up_to_three_run_at_once_and_the_fourth_waits_in_line(client, env):
     gate.open()
     for did in ids:
         assert _wait(f"urlmedia_{did}")["status"] == "done"
-    assert FakeYDL.calls == [_link(n) for n in range(5)]  # first come, first served
+    # Slots are taken first come, first served; the order the fake yt-dlp is
+    # reached in after that depends on thread scheduling, so only the split holds.
+    assert set(FakeYDL.calls[:3]) == {_link(n) for n in range(3)}
+    assert set(FakeYDL.calls[3:]) == {_link(3), _link(4)}
     assert svc._queued_total() == 0
 
 

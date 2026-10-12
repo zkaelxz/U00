@@ -696,8 +696,10 @@ class TestExitFlush:
         _finish()
         monkeypatch.setattr(db, "save_job_record", real)
         job_store.flush_at_exit()
-        assert db.get_job_record("st_exit_pending")["status"] == "done"
-        assert "st_exit_pending" not in job_store._pending
+        # The heartbeat's own retry can be mid-write on this row when the flush
+        # returns; the row is done once it lands, so wait for that, not a sleep.
+        assert _wait_for(lambda: db.get_job_record("st_exit_pending")["status"] == "done")
+        assert _wait_for(lambda: "st_exit_pending" not in job_store._pending)
         bg.clear_job("st_exit_pending")
 
 
