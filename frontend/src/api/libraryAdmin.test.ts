@@ -61,7 +61,7 @@ describe('library admin api', () => {
   })
 
   it('restore is multipart with confirm fields and the PC-only header', async () => {
-    const { mock, f } = reply(200, { restored: true, sessions_revoked: 0 })
+    const { mock, f } = reply(200, { restored: true, sessions_revoked: 0, media_kept: false })
     await restoreBackup(new Blob(['zip']), f)
     const [url, init] = mock.mock.calls[0]
     expect(url).toBe('/api/library/admin/restore')

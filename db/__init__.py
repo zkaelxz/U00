@@ -1942,7 +1942,7 @@ def _is_journalled_folder(final: str, entry: dict) -> bool:
 
 
 from db.library_folder import (  # noqa: E402,F401
-    PRE_RESTORE_MARKER, fsync_dir, recover_interrupted_restore)
+    PRE_RESTORE_MARKER, fsync_dir, library_startup_notes, recover_interrupted_restore)
 
 
 def _lock_file(path: str, create: bool):

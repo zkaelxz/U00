@@ -56,6 +56,7 @@ from services import (auth_service, drama_service, keep_original_service,
                       translate_run_service, translate_service)
 from services import library_translated_guard
 from services import workspace_job_service as wjs
+from services.library_restore_sql import _unsafe_member
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 from sources import store as src_store
@@ -915,20 +916,6 @@ def has_disk_room(folder: str, need: int) -> bool:
     return free >= need + RESTORE_DISK_MARGIN_BYTES
 
 
-def _unsafe_member(info: zipfile.ZipInfo) -> bool:
-    name = info.filename
-    norm = name.replace("\\", "/")
-    if not norm or "\x00" in norm or norm.startswith("/") or re.match(r"^[A-Za-z]:", norm):
-        return True
-    parts = (norm[:-1] if info.is_dir() else norm).split("/")
-    # "." / empty parts are dropped by zipfile (./backups -> backups), and a
-    # part ending in a dot or space names the same file as without it on
-    # Windows -- either could slip a member past the kept-name filter.
-    if any(p in ("", ".", "..") or p.endswith((".", " ")) for p in parts):
-        return True
-    return (info.external_attr >> 16) & 0o170000 == 0o120000  # symlink entry
-
-
 def _library_size() -> int:
     """Bytes under LIBRARY_DIR, not counting the entries a backup skips."""
     excluded = _backup_excluded_top_level()
@@ -1038,7 +1025,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     kept entries carried across). Nothing is touched unless every check
     passes. Afterwards every sign-in session is revoked and an audit entry
     is written (attributed to actor_id, the signed-in user, if given).
-    Returns {restored, sessions_revoked}."""
+    Returns {restored, sessions_revoked, media_kept}."""
     from services import auth_service
     require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
     if not background_jobs.acquire_exclusive("Library restore"):
@@ -1058,7 +1045,8 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                 raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
-            wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR, before_swap=_recheck)
+            media_kept = wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR,
+                                                    before_swap=_recheck)
         except ServiceError:
             raise
         except (ValueError, zipfile.BadZipFile, RuntimeError, zlib.error) as e:
@@ -1074,7 +1062,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                                  f"library restored from backup; sessions revoked: {revoked}")
     finally:
         background_jobs.release_exclusive()
-    return {"restored": True, "sessions_revoked": revoked}
+    return {"restored": True, "sessions_revoked": revoked, "media_kept": media_kept}
 
 
 # --------------------------------------------------------------------------

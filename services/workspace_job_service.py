@@ -635,6 +635,10 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
                               "auto_backup.state")
 
 
+# Media folders a restore keeps from the current library when the zip has
+# none: a database-only backup still names these files.
+_RESTORE_MEDIA_DIRS = ("dramas", "voice_bank", "benchmark_cases")
+
 # SQLite side files a restore never extracts: the validated library.db /
 # sources.db image must be exactly what goes live.
 _RESTORE_SKIPPED_SIDECARS = tuple(f"{base}{ext}" for base in ("library.db", "sources.db")
@@ -899,7 +903,7 @@ def _remove_entry(path: str):
         os.remove(path)
 
 
-def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None) -> None:
+def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None) -> bool:
     """Validate an uploaded backup zip and swap it in for
     library_dir, without ever destroying the existing library if the
     upload turns out to be invalid.
@@ -925,6 +929,9 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
 
     before_swap: optional callable run right before the rename; if it
     raises, nothing is changed and the exception propagates.
+
+    Returns True when the zip held no media and the current media folders
+    were kept.
     """
     import io
     import shutil
@@ -967,9 +974,11 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
                 raise ValueError("Backup zip is corrupted.")
             parent_dir = os.path.dirname(os.path.abspath(library_dir)) or "."
             staging_dir = tempfile.mkdtemp(prefix=".restore_staging_", dir=parent_dir)
+            zipped = set()
             for info in infos:
                 norm = info.filename.replace("\\", "/")
                 top = norm.lstrip("/").split("/", 1)[0]
+                zipped.add(top.casefold())
                 if top in kept or norm in _RESTORE_SKIPPED_SIDECARS:
                     continue
                 zf.extract(info, staging_dir)
@@ -1016,14 +1025,20 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             _put_back(old_dir, library_dir, failed_dir)
             staging_dir = failed_dir
             raise
+        # A backup without media must not delete the current media: it
+        # moves across like the kept entries.
+        media = tuple(n for n in _RESTORE_MEDIA_DIRS if n not in zipped)
+        media_kept = False
         if old_dir is not None:
             carried = True
-            for name in kept:
+            for name in kept + media:
                 src = os.path.join(old_dir, name)
                 if not os.path.lexists(src):
                     continue
                 try:
+                    has_files = name in media and bool(os.listdir(src))
                     os.rename(src, os.path.join(library_dir, name))
+                    media_kept = media_kept or has_files
                 except OSError:
                     carried = False
                     logging.getLogger(__name__).warning(
@@ -1031,6 +1046,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
                         "library was left in place beside the restored one.")
             if carried:
                 shutil.rmtree(old_dir, ignore_errors=True)
+        return media_kept
     finally:
         if staging_dir is not None:
             shutil.rmtree(staging_dir, ignore_errors=True)

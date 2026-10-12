@@ -2556,6 +2556,7 @@ class TestInterruptedRestoreRecovery:
 
     def test_a_present_library_is_left_alone(self, tmp_path):
         (tmp_path / "library").mkdir()
+        (tmp_path / "library" / "library.db").write_bytes(b"current")
         self._aside(tmp_path, "library.pre_restore_100")
         assert db.recover_interrupted_restore(str(tmp_path / "library")) is None
         assert (tmp_path / "library.pre_restore_100").is_dir()
@@ -2576,16 +2577,60 @@ class TestInterruptedRestoreRecovery:
         monkeypatch.setattr(isolated_db, "_db_ready", False)
         assert isolated_db.get_drama(did)["title_en"] == "Kept"
 
-    def test_the_server_refuses_to_start_with_a_plain_message(self, monkeypatch):
+    def test_the_server_refuses_to_start_with_a_plain_message(self, tmp_path, monkeypatch):
         import api.__main__ as entry
-        from lib.errors import UnfinishedRestoreError
-
-        def refuse():
-            raise UnfinishedRestoreError("Two unfinished restores.")
-        monkeypatch.setattr(db, "init_db", refuse)
+        self._aside(tmp_path, "library.pre_restore_100")
+        self._aside(tmp_path, "library.pre_restore_200")
+        monkeypatch.setattr(db, "LIBRARY_DIR", str(tmp_path / "library"))
         with pytest.raises(SystemExit) as err:
             entry._serve()
-        assert "Two unfinished restores." in str(err.value)
+        assert "library.pre_restore_100" in str(err.value)
+        # Nothing was written where the library belongs (no log folder):
+        # that would make the next start take it for a library.
+        assert not (tmp_path / "library").exists()
+
+    def test_a_folder_holding_only_logs_counts_as_missing(self, tmp_path):
+        (tmp_path / "library" / "logs").mkdir(parents=True)
+        (tmp_path / "library" / "logs" / "app.log").write_text("start failed")
+        (tmp_path / "library" / "dramas").mkdir()
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
+        assert (tmp_path / "library" / "library.db").read_bytes() == b"old"
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["library"]
+
+    def test_a_folder_with_content_is_never_replaced(self, tmp_path):
+        (tmp_path / "library" / "dramas" / "1").mkdir(parents=True)
+        (tmp_path / "library" / "dramas" / "1" / "audio.wav").write_bytes(b"a")
+        self._aside(tmp_path, "library.pre_restore_100")
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) is None
+        assert (tmp_path / "library" / "dramas" / "1" / "audio.wav").exists()
+
+    def test_recovery_then_a_second_start_does_nothing(self, tmp_path):
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        notes = db.library_startup_notes(str(tmp_path / "library"))
+        assert any("library.pre_restore_100" in n for n in notes)
+        assert db.library_startup_notes(str(tmp_path / "library")) == []
+        assert (tmp_path / "library" / "library.db").read_bytes() == b"old"
+
+    def test_a_folder_left_beside_a_present_library_is_named(self, tmp_path):
+        (tmp_path / "library").mkdir()
+        (tmp_path / "library" / "library.db").write_bytes(b"new")
+        (self._aside(tmp_path, "library.pre_restore_100") / "backups").mkdir()
+        [note] = db.library_startup_notes(str(tmp_path / "library"))
+        assert "library.pre_restore_100" in note and "backups" in note
+        assert str(tmp_path) not in note
+
+    def test_the_cli_checks_the_library_before_its_command_runs(self, tmp_path, monkeypatch, capsys):
+        import cli
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        monkeypatch.setattr(db, "LIBRARY_DIR", str(tmp_path / "library"))
+        seen = []
+        monkeypatch.setattr(cli, "cmd_list", lambda args: seen.append(
+            (tmp_path / "library" / "library.db").read_bytes()))
+        monkeypatch.setattr(sys, "argv", ["cli.py", "list"])
+        cli.main()
+        assert seen == [b"old"]
+        assert "library.pre_restore_100" in capsys.readouterr().out
 
     def test_fsync_dir_does_nothing_on_windows(self, tmp_path, monkeypatch):
         opened = []

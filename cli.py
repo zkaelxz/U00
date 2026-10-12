@@ -87,7 +87,8 @@ from services import (asr_options_service, dub_service, export_service, glossary
                       narration_service, review_extras_service, settings_service, transcribe_pipeline,
                       transcribe_service)
 from services.narration_service import TAG_ENGINES
-from lib.errors import DependencyUnavailableError, InvalidInputError, ServiceError
+from lib.errors import (DependencyUnavailableError, InvalidInputError, ServiceError,
+                        UnfinishedRestoreError)
 
 
 def _gemini_free_tier(engine_name: str) -> bool:
@@ -1204,6 +1205,12 @@ def main():
 
     real_model_check_cli.register(sub)
     args = p.parse_args()
+    # Before the command can write into the library folder (see api/__main__).
+    try:
+        for note in db.library_startup_notes(db.LIBRARY_DIR):
+            print(f"NOTE: {note}")
+    except UnfinishedRestoreError as e:
+        sys.exit(f"ERROR: {e.message}")
     args.func(args)
 
 

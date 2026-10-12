@@ -1517,3 +1517,38 @@ def test_a_restore_whose_rollback_fails_says_where_the_library_went(isolated_db,
     assert db.LIBRARY_DIR not in err.value.message
     [aside] = [n for n in _leftovers() if ".pre_restore_" in n]
     assert os.path.isfile(os.path.join(os.path.dirname(db.LIBRARY_DIR), aside, "library.db"))
+
+
+def _db_only_backup():
+    path = os.path.join(tempfile.mkdtemp(), "db_only.zip")
+    las.write_backup_zip(path, include_media=False)
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def test_a_database_only_backup_keeps_the_media(isolated_db, monkeypatch):
+    did = _new("With audio")
+    audio = _write(os.path.join("dramas", str(did), "audio.wav"), b"RIFF")
+    clip = _write(os.path.join("voice_bank", "clip.wav"), b"clip")
+    data = _db_only_backup()
+    assert not any(n.startswith("dramas/") for n in zipfile.ZipFile(io.BytesIO(data)).namelist())
+    events = []
+    _record_swap(monkeypatch, events)
+    r = _restore(data)
+    for path, body in ((audio, b"RIFF"), (clip, b"clip")):
+        assert os.path.isfile(path), path
+        with open(path, "rb") as f:
+            assert f.read() == body
+    assert r["media_kept"] is True
+    assert ("verify", True) in events   # the old folder still existed at the check
+    assert not _leftovers()
+
+
+def test_a_full_backup_still_replaces_the_media(isolated_db):
+    did = _new("Backed up")
+    kept = _write(os.path.join("dramas", str(did), "audio.wav"), b"old audio")
+    data = _backup_bytes()
+    later = _write(os.path.join("dramas", str(did), "added_later.wav"), b"later")
+    r = _restore(data)
+    assert r["media_kept"] is False
+    assert os.path.isfile(kept) and not os.path.exists(later)

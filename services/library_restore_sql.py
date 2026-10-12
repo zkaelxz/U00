@@ -1,5 +1,8 @@
-"""SQL helpers for the library restore (services/workspace_job_service)."""
+"""Helpers for the library restore: its SQL, and which zip members are
+unsafe to extract (services/workspace_job_service, library_admin_service)."""
 import os
+import re
+import zipfile
 
 
 def copy_rows(conn, src: str, table: str):
@@ -75,3 +78,17 @@ def _current_state_marker(library_dir: str):
         except sqlite3.Error:
             marker.append(None)
     return tuple(marker)
+
+
+def _unsafe_member(info: zipfile.ZipInfo) -> bool:
+    name = info.filename
+    norm = name.replace("\\", "/")
+    if not norm or "\x00" in norm or norm.startswith("/") or re.match(r"^[A-Za-z]:", norm):
+        return True
+    parts = (norm[:-1] if info.is_dir() else norm).split("/")
+    # "." / empty parts are dropped by zipfile (./backups -> backups), and a
+    # part ending in a dot or space names the same file as without it on
+    # Windows -- either could slip a member past the kept-name filter.
+    if any(p in ("", ".", "..") or p.endswith((".", " ")) for p in parts):
+        return True
+    return (info.external_attr >> 16) & 0o170000 == 0o120000  # symlink entry
