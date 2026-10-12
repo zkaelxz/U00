@@ -207,6 +207,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_judge_service.py`
 - `benchmark_lab_service.py`
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
+- `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
 - `benchmark_set_builder_service.py`
 - `blocked_retry_service.py`
 - `browser_install_service.py`

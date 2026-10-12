@@ -8,6 +8,7 @@ import { ApiError } from '../../api/client'
 import type {
   BenchmarkConfig, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
   BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
+  ScriptCounts,
 } from '../../api/benchmark'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
@@ -110,6 +111,15 @@ export function formatLatency(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds)) return '—'
   if (seconds < 1) return `${Math.round(seconds * 1000)} ms`
   return `${seconds.toFixed(1)} s`
+}
+
+/** "Traditional 3 / Simplified 0 / mixed 1 / neutral 2 lines · 41 Traditional, 0 Simplified chars"; '' when not a Chinese transcript. */
+export function scriptCountsLine(c: ScriptCounts | null | undefined): string {
+  if (!c) return ''
+  return (
+    `Lines: ${c.traditional_lines} Traditional / ${c.simplified_lines} Simplified / ${c.mixed_lines} mixed / ${c.neutral_lines} neutral · ` +
+    `Characters: ${c.traditional_chars} Traditional, ${c.simplified_chars} Simplified`
+  )
 }
 
 /** "2026-09-29T14:03:11.123" -> "2026-09-29 14:03" (stored in UTC; shown as stored). */

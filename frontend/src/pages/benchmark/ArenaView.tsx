@@ -9,7 +9,7 @@ import { buttonClass } from '../../components/uiClasses'
 import {
   arenaRunNames, deltaTone, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
   mixedMetricNote, mixedScorerNote, plainError,
-  runConfigLabel, runStatusLabel, runStatusTone, tierLabel, tierTone,
+  runConfigLabel, runStatusLabel, scriptCountsLine, runStatusTone, tierLabel, tierTone,
 } from './benchmarkForm'
 
 /** What to show: 2-4 runs side by side, or one run's own results. */
@@ -99,6 +99,11 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                     {r.passed_count}/{r.scored_count} passed · {formatLatency(r.avg_latency_seconds)} avg · {formatCost(r.total_cost_usd)}
                     {r.error_count ? ` · ${r.error_count} errors` : ''}
                   </span>
+                  {r.script_counts && (
+                    <span className="muted num" data-testid="arena-script-counts">
+                      {scriptCountsLine(r.script_counts)}
+                    </span>
+                  )}
                   {r.judge && (
                     <span className="muted num" data-testid="arena-judge">
                       {judgeRunLine(r.judge)}
@@ -170,6 +175,11 @@ function ResultCell({ res, name, showRun }: { res: BenchmarkResult | null; name:
             )}
             {res.duration_seconds != null && <span className="muted num">{formatLatency(res.duration_seconds)}</span>}
           </span>
+          {res.script_counts && (
+            <span className="muted num" data-testid="result-script-counts">
+              {scriptCountsLine(res.script_counts)}
+            </span>
+          )}
           {res.judge && <span className="muted num" data-testid="result-judge">Judge {formatJudgeScore(res.judge)}</span>}
         </>
       )}

@@ -58,6 +58,7 @@ from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate
 from services import settings_service, translate_service
 from services.benchmark_case_service import (redact, require_whisper_fits_cases, whisper_options, run_file_case as _run_case_file,
                                                    run_translation as _run_translation)
+from services.benchmark_script_service import add_counts, count_scripts, empty_counts
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  score_output)
 from services.service_errors import (
@@ -687,20 +688,44 @@ def list_runs(stage: str = None, limit: int = 50) -> dict:
     return {"runs": [_session_out(s) for s in db.list_benchmark_sessions(limit, stage)]}
 
 
-def _result_out(r: dict) -> dict:
-    return {"case_id": r.get("case_id"), "case_label": r.get("case_label") or "",
+def _script_counts(stage, language, text):
+    """Script counts for a Chinese transcript, else None. Display only: CER
+    still compares the two sides without regard to script."""
+    if stage != "transcription" or language != "zh":
+        return None
+    return count_scripts(text)
+
+
+def _result_out(r: dict, stage=None, language=None) -> dict:
+    return {"script_counts": _script_counts(stage, language, r.get("output_text") or ""),
+            "case_id": r.get("case_id"), "case_label": r.get("case_label") or "",
             "output_text": r.get("output_text") or "", "score": r.get("score"),
             "metric": r.get("metric"), "scorer": r.get("scorer"), "passed": None if r.get("passed") is None else bool(r["passed"]),
             "duration_seconds": r.get("duration_seconds"), "cost_usd": r.get("cost_usd") or 0.0,
             "error": redact(r.get("error"))}
 
 
+def _results_with_scripts(session: dict, rows: list) -> list:
+    languages = {c["id"]: c.get("source_language")
+                 for c in db.list_benchmark_cases(session["stage"])}
+    return [_result_out(r, session["stage"], languages.get(r.get("case_id"))) for r in rows]
+
+
+def _run_with_scripts(run: dict, results: list) -> dict:
+    """The arm's total, present only when some result is a Chinese transcript."""
+    total, any_counts = empty_counts(), False
+    for r in results:
+        if r and r["script_counts"]:
+            total, any_counts = add_counts(total, r["script_counts"]), True
+    return dict(run, script_counts=total if any_counts else None)
+
+
 def get_run(run_id: int) -> dict:
     s = db.get_benchmark_session(run_id)
     if not s:
         raise NotFoundError("Benchmark run not found.")
-    return {"run": _session_out(s),
-            "results": [_result_out(r) for r in db.list_benchmark_results(run_id)]}
+    results = _results_with_scripts(s, db.list_benchmark_results(run_id))
+    return {"run": _run_with_scripts(_session_out(s), results), "results": results}
 
 
 def arena(run_ids: list) -> dict:
@@ -731,15 +756,17 @@ def arena(run_ids: list) -> dict:
     rows = []
     for cid in case_order:
         c = cases.get(cid) or {}
-        cells = [(_result_out(res[cid]) if cid in res else None) for _s, res in runs]
+        language = c.get("source_language")
+        cells = [(_result_out(res[cid], runs[i][0]["stage"], language) if cid in res else None)
+                 for i, (_s, res) in enumerate(runs)]
         label = c.get("label") or next((x["case_label"] for x in cells if x), "")
         rows.append({"case_id": cid if isinstance(cid, int) else None, "label": label, "source_text": c.get("source_text"),
                      "reference_text": c.get("reference_text"), "tier": c.get("tier"),
                      "results": cells})
     base = runs[0][0].get("aggregate_score")
     summary = []
-    for s, _res in runs:
-        out = _session_out(s)
+    for i, (s, _res) in enumerate(runs):
+        out = _run_with_scripts(_session_out(s), [row["results"][i] for row in rows])
         agg = s.get("aggregate_score")
         out["delta_vs_first"] = (agg - base) if agg is not None and base is not None else None
         summary.append(out)

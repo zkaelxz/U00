@@ -8,7 +8,7 @@ import {
   arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   formatJudgeScore, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
-  toggleCompare, whisperChoiceGroups, type RunSelection,
+  scriptCountsLine, toggleCompare, whisperChoiceGroups, type RunSelection,
 } from './benchmarkForm'
 import { BENCH_INTRO, BENCH_PAGE_HELP, BENCH_SECTIONS } from './benchmarkHelp'
 
@@ -399,5 +399,23 @@ describe('whisper models in the Lab picker', () => {
     expect(first?.model).toBe('small')
     const rest = defaultConfig('transcription', options, [{ engine: 'whisper', model: 'small' }, { engine: 'whisper', model: 'large-v3' }])
     expect(rest).toBeNull()
+  })
+})
+
+describe('scriptCountsLine', () => {
+  const counts = {
+    traditional_lines: 3, simplified_lines: 0, mixed_lines: 1, neutral_lines: 2,
+    traditional_chars: 41, simplified_chars: 2, neutral_chars: 90,
+  }
+
+  it('shows Traditional vs Simplified lines and characters', () => {
+    expect(scriptCountsLine(counts)).toBe(
+      'Lines: 3 Traditional / 0 Simplified / 1 mixed / 2 neutral · Characters: 41 Traditional, 2 Simplified',
+    )
+  })
+
+  it('is empty when the run is not a Chinese transcript', () => {
+    expect(scriptCountsLine(null)).toBe('')
+    expect(scriptCountsLine(undefined)).toBe('')
   })
 })
