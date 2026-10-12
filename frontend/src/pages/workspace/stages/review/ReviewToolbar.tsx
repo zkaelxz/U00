@@ -2,6 +2,7 @@ import { useState, type ReactNode, type RefObject } from 'react'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import type { LineFilter } from '../../../../types/review'
+import { gapChipLabel } from './gapModel'
 import { chipLabel } from './reviewLogic'
 
 interface FilterCounts {
@@ -12,8 +13,17 @@ interface FilterCounts {
 
 interface Props {
   isPhone: boolean
+  // Scrolled phone: only the chip row stays (the player strip and the extra rows are hidden, not unmounted).
+  collapsed?: boolean
   filter: LineFilter
   counts: FilterCounts | null
+  // Stretches with no line (from the waveform's gap check); the chip jumps to the next one.
+  gapCount: number
+  onNextGap: () => void
+  // Lines flagged "Source text looks off"; the chip opens their list.
+  suspectCount: number
+  suspectOpen: boolean
+  onToggleSuspect: () => void
   onFilter: (f: LineFilter) => void
   search: string
   searchRef: RefObject<HTMLInputElement | null>
@@ -144,9 +154,20 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   // Phones: Search and More are buttons on the chip row; each opens its own
   // row inside the toolbar box.
   return (
-    <div className="review-toolbar">
+    <div className={p.collapsed ? 'review-toolbar is-collapsed' : 'review-toolbar'}>
       <div className="review-toolbar-row">
         {chips}
+        {p.gapCount > 0 && (
+          <button type="button" className="review-chip review-gaps-chip" title="Jump to the next stretch with no line" onClick={p.onNextGap}>
+            {gapChipLabel(p.gapCount)}
+          </button>
+        )}
+        {p.suspectCount > 0 && (
+          <button type="button" className="review-chip review-suspect-chip" aria-expanded={p.suspectOpen}
+                  title="Lines whose transcription looks wrong or split badly" onClick={p.onToggleSuspect}>
+            {p.isPhone ? `Source ${p.suspectCount}` : `Source looks off ${p.suspectCount}`}
+          </button>
+        )}
         {p.isPhone && !showSearch && (
           <button type="button" className="review-search-toggle" aria-label="Search lines" onClick={() => setSearchOpen(true)}>
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">

@@ -61,6 +61,9 @@ class FakeYDL:
                 "duration": s.get("duration", 60), "is_live": s.get("is_live", False)}
         if s.get("_type"):
             info["_type"] = s["_type"]
+        for key in ("live_status", "formats"):
+            if s.get(key):
+                info[key] = s[key]
         if s.get("before"):
             s["before"]()
         if self.opts["match_filter"](info, incomplete=False):
@@ -83,11 +86,19 @@ def env(isolated_db, monkeypatch):
     fake = types.ModuleType("yt_dlp")
     fake.__spec__ = importlib.machinery.ModuleSpec("yt_dlp", None)
     fake.YoutubeDL = FakeYDL
+    fake.utils = types.ModuleType("yt_dlp.utils")
+    fake.utils.download_range_func = lambda chapters, ranges, from_info=False: ("ranges", list(ranges))
     monkeypatch.setitem(sys.modules, "yt_dlp", fake)
+    monkeypatch.setitem(sys.modules, "yt_dlp.utils", fake.utils)
     monkeypatch.setattr(url_guard.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("93.184.216.34", port))])
     monkeypatch.setattr(svc.shutil, "disk_usage",
                         lambda path: types.SimpleNamespace(total=10**13, used=0, free=10**13))
+    # No stagger unless a test asks for one; module state must not leak between tests.
+    monkeypatch.setattr(svc, "START_SPACING_SECONDS", 0.0)
+    monkeypatch.setattr(svc, "_last_start", float("-inf"))
+    monkeypatch.setattr(svc, "_waiting", [])
+    monkeypatch.setattr(svc, "_running", set())
     ffmpeg = []
 
     def fake_run(job_id, cmd, cwd=None, timeout=None, **kw):
@@ -221,13 +232,18 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     assert len(o["progress_hooks"]) == 2
 
 
-@pytest.mark.parametrize("script", [{"is_live": True}, {"_type": "playlist"},
-                                    {"duration": 7 * 3600}])
-def test_filtered_out_links_fail_with_fixed_text(client, env, script):
+@pytest.mark.parametrize("script, shown", [
+    ({"is_live": True}, "still live"),
+    ({"live_status": "is_live"}, "still live"),
+    ({"live_status": "is_upcoming"}, "hasn't started yet"),
+    ({"_type": "playlist"}, "playlist or channel"),
+    ({"duration": 7 * 3600 + 42 * 60}, "This video is 7 h 42 m; the limit is 6 h."),
+])
+def test_filtered_out_links_say_which_rule_applied(client, env, script, shown):
     FakeYDL.script = script
     did = _drama()
     st = _run(client, did)
-    assert st["status"] == "error" and "live stream" in st["error"]
+    assert st["status"] == "error" and shown in st["error"], st["error"]
     assert SECRET not in st["error"] and "video.example" not in st["error"]
     assert env.writes == []
     _no_tmp(did)
@@ -244,8 +260,13 @@ def test_a_large_download_is_not_stopped_for_its_size(client, env, monkeypatch):
 
 
 def test_download_stops_before_filling_the_drive(client, env, monkeypatch):
-    monkeypatch.setattr(svc.shutil, "disk_usage",
-                        lambda path: types.SimpleNamespace(total=10**12, used=0, free=svc.MIN_FREE_BYTES - 1))
+    calls = []
+
+    def usage(path):
+        calls.append(path)  # the first look is the check before the start
+        free = 10**13 if len(calls) == 1 else svc.MIN_FREE_BYTES - 1
+        return types.SimpleNamespace(total=10**13, used=0, free=free)
+    monkeypatch.setattr(svc.shutil, "disk_usage", usage)
     FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 10}]}
     did = _drama()
     st = _run(client, did)
@@ -340,15 +361,14 @@ def test_ytdlp_missing_503(client, env, monkeypatch):
     assert _start(client, _drama()).status_code == 503
 
 
-def test_one_download_at_a_time_and_delete_refused(client, env):
+def test_a_second_press_for_the_same_title_and_delete_are_refused(client, env):
     from services import drama_service
     from services.service_errors import ConflictError
     gate = threading.Event()
     FakeYDL.script = {"before": lambda: gate.wait(5)}
-    a, b = _drama(), _drama()
+    a = _drama()
     assert _start(client, a).status_code == 200
     assert _start(client, a).status_code == 409
-    assert _start(client, b).status_code == 409
     with pytest.raises(ConflictError):
         drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
     gate.set()
@@ -730,3 +750,419 @@ def test_an_audio_only_download_sets_an_old_video_aside(client, env):
     assert sorted(_kept(did).values()) == [b"old video", b"old wav"]
     assert sorted(os.listdir(ddir)) == ["kept_media", "source.wav"]
     _no_tmp(did)
+
+
+# ---- queue: up to 3 at once, spaced starts, cancel, re-checks -------------------
+
+def _link(n):
+    return f"https://video.example/watch?v={n}"
+
+
+def _until(cond, timeout=5.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        if cond():
+            return
+        time.sleep(0.02)
+    raise AssertionError("condition not reached")
+
+
+def _message(did):
+    return (background_jobs.get_status(f"urlmedia_{did}") or {}).get("message")
+
+
+class Gate:
+    """Holds every FakeYDL download until opened and records when each began."""
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.starts = []
+        FakeYDL.script = {"before": self.hold}
+
+    def hold(self):
+        self.starts.append((time.monotonic(), FakeYDL.calls[-1]))
+        self.event.wait(10)
+
+    def open(self):
+        self.event.set()
+
+
+def test_up_to_three_run_at_once_and_the_fourth_waits_in_line(client, env):
+    gate = Gate()
+    ids = [_drama() for _ in range(5)]
+    for n, did in enumerate(ids):
+        assert _start(client, did, url=_link(n)).status_code == 200
+    _until(lambda: len(gate.starts) == 3)
+    _until(lambda: _message(ids[3]) == "Queued: 1st in line" and _message(ids[4]) == "Queued: 2nd in line")
+    time.sleep(0.2)
+    assert len(gate.starts) == 3 and svc._queued_total() == 5
+    assert _message(ids[1]) != "Queued: 1st in line"
+    gate.open()
+    for did in ids:
+        assert _wait(f"urlmedia_{did}")["status"] == "done"
+    # Slots are taken first come, first served; the order the fake yt-dlp is
+    # reached in after that depends on thread scheduling, so only the split holds.
+    assert set(FakeYDL.calls[:3]) == {_link(n) for n in range(3)}
+    assert set(FakeYDL.calls[3:]) == {_link(3), _link(4)}
+    assert svc._queued_total() == 0
+
+
+def test_starts_are_spaced_apart(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "START_SPACING_SECONDS", 0.5)
+    gate = Gate()
+    a, b = _drama(), _drama()
+    assert _start(client, a, url=_link(1)).status_code == 200
+    assert _start(client, b, url=_link(2)).status_code == 200
+    _until(lambda: len(gate.starts) == 1)
+    _until(lambda: _message(b) == "Queued: 1st in line")
+    _until(lambda: len(gate.starts) == 2)
+    assert gate.starts[1][0] - gate.starts[0][0] >= 0.45
+    gate.open()
+    assert _wait(f"urlmedia_{b}")["status"] == "done"
+
+
+def test_cancelling_a_queued_download_never_starts_it_and_moves_the_line_up(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
+    gate = Gate()
+    a, b, c = _drama(), _drama(), _drama()
+    for n, did in enumerate((a, b, c)):
+        assert _start(client, did, url=_link(n)).status_code == 200
+    _until(lambda: _message(c) == "Queued: 2nd in line")
+    r = client.post(f"/api/jobs/urlmedia_{b}/cancel")
+    assert r.status_code == 200, r.text
+    assert _wait(f"urlmedia_{b}")["status"] == "cancelled"
+    _until(lambda: _message(c) == "Queued: 1st in line")
+    gate.open()
+    assert _wait(f"urlmedia_{c}")["status"] == "done"
+    assert _link(1) not in FakeYDL.calls
+    assert _wait(f"urlmedia_{a}")["status"] == "done"
+
+
+def test_a_failed_download_does_not_block_the_line(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
+    real = FakeYDL.extract_info
+    seen = []
+
+    def flaky(self, url, download=True):
+        seen.append(url)
+        if len(seen) == 1:
+            raise RuntimeError("ERROR: HTTP Error 429: Too Many Requests")
+        return real(self, url, download)
+    monkeypatch.setattr(FakeYDL, "extract_info", flaky)
+    a, b = _drama(), _drama()
+    assert _start(client, a, url=_link(1)).status_code == 200
+    assert _start(client, b, url=_link(2)).status_code == 200
+    assert _wait(f"urlmedia_{a}")["status"] == "error"
+    assert _wait(f"urlmedia_{b}")["status"] == "done"
+
+
+def test_the_same_title_cannot_queue_twice_but_another_title_can(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
+    gate = Gate()
+    a, b = _drama(), _drama()
+    assert _start(client, a, url=_link(1)).status_code == 200
+    assert _start(client, b, url=_link(2)).status_code == 200
+    assert _start(client, b, url=_link(3)).status_code == 409
+    gate.open()
+    _wait(f"urlmedia_{a}")
+    _wait(f"urlmedia_{b}")
+
+
+def test_the_queue_has_a_size_limit(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
+    monkeypatch.setattr(svc, "MAX_QUEUED_DOWNLOADS", 2)
+    gate = Gate()
+    ids = [_drama() for _ in range(3)]
+    assert _start(client, ids[0], url=_link(0)).status_code == 200
+    assert _start(client, ids[1], url=_link(1)).status_code == 200
+    assert _start(client, ids[2], url=_link(2)).status_code == 409
+    gate.open()
+    for did in ids[:2]:
+        _wait(f"urlmedia_{did}")
+
+
+def test_a_queued_download_fails_with_the_busy_text_when_its_title_got_a_job(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
+    gate = Gate()
+    a, b = _drama(), _drama()
+    assert _start(client, a, url=_link(1)).status_code == 200
+    assert _start(client, b, url=_link(2)).status_code == 200
+    # b's own download counts as its job; this stands in for a job that begins after it queued.
+    other = threading.Event()
+    background_jobs.start_job(f"translate_{b}", lambda: other.wait(10))
+    try:
+        gate.open()
+        st = _wait(f"urlmedia_{b}")
+        assert st["status"] == "error" and st["error"].endswith(svc._BUSY)
+        assert _link(2) not in FakeYDL.calls
+    finally:
+        other.set()
+        _wait(f"translate_{b}")
+        background_jobs.clear_job(f"translate_{b}")
+
+
+def test_a_queued_download_rechecks_replace_confirmation_at_start(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
+    gate = Gate()
+    a, b = _drama(), _drama()
+    assert _start(client, a, url=_link(1)).status_code == 200
+    assert _start(client, b, url=_link(2)).status_code == 200
+    monkeypatch.setattr(media_upload_service, "has_media", lambda drama, did: did == b)
+    gate.open()
+    st = _wait(f"urlmedia_{b}")
+    assert st["status"] == "error" and st["error"].endswith(svc._NOW_BUSY)
+
+
+def test_the_free_disk_floor_counts_the_downloads_already_running(client, env, monkeypatch):
+    gate = Gate()
+    monkeypatch.setattr(svc.shutil, "disk_usage", lambda path: types.SimpleNamespace(
+        total=10**13, used=0, free=int(svc.MIN_FREE_BYTES * 1.5)))
+    a, b = _drama(), _drama()
+    assert _start(client, a, url=_link(1)).status_code == 200
+    _until(lambda: len(gate.starts) == 1)
+    assert _start(client, b, url=_link(2)).status_code == 200
+    st = _wait(f"urlmedia_{b}")
+    assert st["status"] == "error" and st["error"].endswith(svc._NO_ROOM)
+    assert FakeYDL.calls == [_link(1)]
+    gate.open()
+    assert _wait(f"urlmedia_{a}")["status"] == "done"
+
+
+@pytest.mark.parametrize("n, word", [(1, "1st"), (2, "2nd"), (3, "3rd"), (4, "4th"), (11, "11th"),
+                                     (12, "12th"), (21, "21st"), (22, "22nd")])
+def test_ordinals(n, word):
+    assert svc._ordinal(n) == word
+
+
+# ---- long videos and parts ------------------------------------------------------
+
+LONG = 7 * 3600 + 42 * 60
+FORMATS = [{"vcodec": "avc1", "tbr": 2000}, {"vcodec": "none", "abr": 128, "tbr": 128}]
+
+
+def test_a_refused_long_video_says_its_length_the_size_and_the_options(client, env):
+    FakeYDL.script = {"duration": LONG, "formats": FORMATS}
+    did = _drama()
+    st = _run(client, did, audio_only=False)
+    assert st["status"] == "error"
+    assert "7 h 42 m; the limit is 6 h" in st["error"] and "GB of free disk" in st["error"]
+    assert "only part of it, or all of it anyway" in st["error"]
+    assert st["result"] == {"kind": "url_media", "failed_reason": "too_long"}
+
+
+def test_download_anyway_raises_the_cap_for_that_download_only(client, env):
+    FakeYDL.script = {"duration": LONG, "formats": FORMATS}
+    did = _drama()
+    st = _run(client, did, allow_long=True)
+    assert st["status"] == "done", st
+    background_jobs.clear_job(f"urlmedia_{did}")
+    other = _drama()
+    assert _run(client, other)["status"] == "error"   # the next one is capped again
+
+
+def test_even_download_anyway_stops_at_twelve_hours(client, env):
+    FakeYDL.script = {"duration": 13 * 3600, "formats": FORMATS}
+    did = _drama()
+    st = _run(client, did, allow_long=True)
+    assert st["status"] == "error" and "13 h; the limit is 12 h" in st["error"]
+    assert "Download only part" in st["error"] and "anyway" not in st["error"]
+    assert st["result"]["failed_reason"] == "too_long_max"
+
+
+def test_download_anyway_checks_free_disk_against_the_estimate_first(client, env, monkeypatch):
+    FakeYDL.script = {"duration": LONG, "formats": FORMATS}
+    monkeypatch.setattr(svc.shutil, "disk_usage", lambda path: types.SimpleNamespace(
+        total=10**13, used=0, free=svc.MIN_FREE_BYTES * 3))
+    did = _drama()
+    st = _run(client, did, audio_only=False, allow_long=True)
+    assert st["status"] == "error" and st["error"].endswith(svc._NO_ROOM)
+    assert env.writes == []
+    _no_tmp(did)
+
+
+def test_a_part_downloads_only_that_section_with_a_fast_copy_by_default(client, env):
+    FakeYDL.script = {"duration": 3 * 3600}
+    did = _drama()
+    st = _run(client, did, audio_only=False, part_start="1:00:00", part_end="1:30:00")
+    assert st["status"] == "done", st
+    opts = FakeYDL.last_opts
+    assert opts["download_ranges"] == ("ranges", [(3600, 5400)])
+    assert opts["force_keyframes_at_cuts"] is False
+    assert opts["format"].startswith("bestvideo[vcodec^=avc1]")
+
+
+def test_exact_cuts_is_opt_in_and_allows_the_longer_wall_clock(client, env, monkeypatch):
+    seen = []
+    real = ytdlp_child.run_download
+    monkeypatch.setattr(ytdlp_child, "run_download",
+                        lambda tmp, spec, timeout, cancel: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
+    did = _drama()
+    st = _run(client, did, audio_only=False, part_start="0:10", part_end="0:40", exact_cuts=True)
+    assert st["status"] == "done", st
+    assert FakeYDL.last_opts["force_keyframes_at_cuts"] is True
+    assert "avc1" not in FakeYDL.last_opts.get("format", "")
+    assert seen == [svc.MAX_WALL_SECONDS_LONG]
+
+
+def test_a_part_of_a_long_video_is_measured_by_the_part(client, env):
+    FakeYDL.script = {"duration": 10 * 3600}
+    did = _drama()
+    assert _run(client, did, part_start="2:00:00", part_end="3:00:00")["status"] == "done"
+    background_jobs.clear_job(f"urlmedia_{did}")
+    other = _drama()
+    st = _run(client, other, part_start="0:00:00")   # to the end: 10 h
+    assert st["status"] == "error" and "This part is 10 h; the limit is 6 h" in st["error"]
+
+
+def test_a_part_starting_after_the_video_ends_says_how_long_the_video_is(client, env):
+    FakeYDL.script = {"duration": 3600}
+    did = _drama()
+    st = _run(client, did, part_start="2:00:00")
+    assert st["status"] == "error" and "which is 1 h long" in st["error"]
+
+
+@pytest.mark.parametrize("body", [
+    {"part_start": "abc"}, {"part_start": "1:75:00"}, {"part_start": "5", "part_end": "5"},
+    {"part_start": "10:00", "part_end": "5:00"}, {"part_start": "0:00", "part_end": "13:00:01"},
+    {"exact_cuts": True}, {"part_start": "x" * 13},
+])
+def test_bad_part_times_are_refused_before_anything_starts(client, env, body):
+    did = _drama()
+    r = _start(client, did, **body)
+    assert r.status_code == 422, r.text
+    assert background_jobs.get_status(f"urlmedia_{did}") is None
+
+
+def test_a_part_of_a_direct_file_link_is_refused(client, env):
+    did = _drama()
+    r = _start(client, did, url="https://cdn.example/a.mp3", part_start="1:00")
+    assert r.status_code == 422
+
+
+def test_parse_clock():
+    assert svc.parse_clock("1:02:30", "start") == 3750
+    assert svc.parse_clock("2:30", "start") == 150
+    assert svc.parse_clock("45", "start") == 45
+    assert svc.parse_clock("  ", "start") is None and svc.parse_clock(None, "end") is None
+
+
+# ---- DNS-blocked ----------------------------------------------------------------
+
+def test_a_blocked_video_server_says_so_and_never_shows_the_link(client, env, monkeypatch):
+    raw = ("ERROR: unable to download video data: <urllib3.connection.HTTPSConnection object>: "
+           "Failed to resolve 'rr3---sn-abc.googlevideo.com' ([Errno -3] Temporary failure in "
+           "name resolution) https://rr3---sn-abc.googlevideo.com/videoplayback?expire=1&ip=203.0.113.7"
+           f"&sig={SECRET}")
+
+    def boom(self, url, download=True):
+        raise RuntimeError(raw)
+    monkeypatch.setattr(FakeYDL, "extract_info", boom)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and st["error"].endswith(svc._DNS_BLOCKED)
+    assert "Pi-hole" in st["error"] and "googlevideo.com" in st["error"]
+    assert "203.0.113.7" not in st["error"] and SECRET not in st["error"] and "videoplayback" not in st["error"]
+
+
+def test_another_host_that_does_not_resolve_gets_the_general_sentence():
+    reason = svc._failure_reason(_caused_by("[Errno -2] Name or service not known: cdn.other.example"))
+    assert reason == svc._DNS_BLOCKED_OTHER and "other.example" not in reason
+
+
+# ---- review fixes: parts need no cookies, idle disk floor, narrow long clock ----------
+
+def test_a_part_is_refused_while_cookie_login_is_on(client, env, monkeypatch):
+    monkeypatch.setattr(svc.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": "firefox", "cookies_file": None})
+    did = _drama()
+    r = _start(client, did, part_start="1:00", part_end="2:00")
+    assert r.status_code == 422 and "cookie login" in r.text
+    assert background_jobs.get_status(f"urlmedia_{did}") is None
+    assert _run(client, did)["status"] == "done"   # the whole video still works with cookies
+
+
+def test_cookies_turned_on_while_a_part_waits_stop_it_at_start(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
+    gate = Gate()
+    a, b = _drama(), _drama()
+    assert _start(client, a, url=_link(1)).status_code == 200
+    assert _start(client, b, url=_link(2), part_start="1:00", part_end="2:00").status_code == 200
+    monkeypatch.setattr(svc.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": None, "cookies_file": "cookies.txt"})
+    gate.open()
+    st = _wait(f"urlmedia_{b}")
+    assert st["status"] == "error" and st["error"].endswith(svc._PART_NO_COOKIES)
+    assert _link(2) not in FakeYDL.calls
+
+
+def test_a_section_with_no_progress_events_still_stops_at_the_floor(client, env, monkeypatch):
+    FakeYDL.script = {"duration": 3 * 3600, "events": []}
+    calls = []
+
+    def usage(path):
+        calls.append(path)
+        return types.SimpleNamespace(total=10**13, used=0,
+                                     free=10**13 if len(calls) == 1 else svc.MIN_FREE_BYTES - 1)
+    monkeypatch.setattr(svc.shutil, "disk_usage", usage)
+    did = _drama()
+    st = _run(client, did, audio_only=False, part_start="0:10", part_end="0:40")
+    assert st["status"] == "error" and "drive is almost full" in st["error"]
+    assert env.writes == []
+    _no_tmp(did)
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_the_wall_clock_is_long_only_for_real_long_work():
+    clock = FakeClock()
+    normal = svc._WallClock(extended=False, may_extend=False, clock=clock)
+    assert normal.ceiling == svc.MAX_WALL_SECONDS and normal.allowed == svc.MAX_WALL_SECONDS
+    clock.now = svc.MAX_WALL_SECONDS + 1
+    assert normal.expired()
+    # "Download anyway" may extend, but only once the child reports a clip past the cap.
+    clock = FakeClock()
+    maybe = svc._WallClock(extended=False, may_extend=True, clock=clock)
+    assert maybe.ceiling == svc.MAX_WALL_SECONDS_LONG and maybe.allowed == svc.MAX_WALL_SECONDS
+    clock.now = svc.MAX_WALL_SECONDS + 1
+    assert maybe.expired()
+    maybe.extend()
+    assert not maybe.expired() and maybe.allowed == svc.MAX_WALL_SECONDS_LONG
+
+
+@pytest.mark.parametrize("body, ceiling", [
+    ({"part_start": "0", "exact_cuts": True}, "normal"),            # no end: length unknown
+    ({"part_start": "0:10", "part_end": "0:40"}, "normal"),         # fast copy
+    ({"part_start": "0:10", "part_end": "0:40", "exact_cuts": True}, "long"),
+    ({"allow_long": True}, "long"),                                  # may extend once a long clip is reported
+])
+def test_the_long_wall_clock_is_not_given_to_every_request(client, env, monkeypatch, body, ceiling):
+    seen = []
+    real = ytdlp_child.run_download
+    monkeypatch.setattr(ytdlp_child, "run_download",
+                        lambda tmp, spec, timeout, cancel: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
+    did = _drama()
+    FakeYDL.script = {"duration": 3600}
+    assert _run(client, did, audio_only=False, **body)["status"] == "done"
+    assert seen == [svc.MAX_WALL_SECONDS_LONG if ceiling == "long" else svc.MAX_WALL_SECONDS]
+
+
+def test_a_clip_past_the_normal_cap_extends_the_wall_clock(client, env, monkeypatch):
+    extended = []
+    real = svc._WallClock.extend
+    monkeypatch.setattr(svc._WallClock, "extend", lambda self: (extended.append(1), real(self))[1])
+    FakeYDL.script = {"duration": 7 * 3600, "formats": FORMATS}
+    did = _drama()
+    assert _run(client, did, allow_long=True)["status"] == "done"
+    assert extended == [1]
+    background_jobs.clear_job(f"urlmedia_{did}")
+    extended.clear()
+    FakeYDL.script = {"duration": 600}
+    other = _drama()
+    assert _run(client, other, allow_long=True)["status"] == "done"
+    assert extended == []   # asked for "anyway" on a short video: still the normal clock

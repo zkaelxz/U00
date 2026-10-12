@@ -4,6 +4,8 @@ import { ApiError, withSignal } from '../../../../api/client'
 import { explainLine, improveLine } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
+import { LineAiPicker } from './LineAiPicker'
+import { toApiPick, useLineAiPick } from './lineAiPick'
 import type { LineExplanation, LineImprovement, ReviewLine } from '../../../../types/review'
 import { AI_STALE_MESSAGE, AI_UNAVAILABLE_MESSAGE, suggestionIsStale } from './reviewLogic'
 
@@ -28,6 +30,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
   const [explanation, setExplanation] = useState<LineExplanation | null>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const picker = useLineAiPick(dramaId, true)
   const busyRef = useRef(false)
   // Aborts the in-flight request when the panel closes; a late result or
   // error is then ignored rather than set on an unmounted panel.
@@ -71,13 +74,14 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
       setBusy(false)
     }
     if (m === 'improve') {
-      improveLine(dramaId, line.id, issue, aborting).then(live(setImprovement), live(fail)).finally(done)
-    } else explainLine(dramaId, line.id, aborting).then(live(setExplanation), live(fail)).finally(done)
+      improveLine(dramaId, line.id, issue, toApiPick(picker.pick), aborting).then(live(setImprovement), live(fail)).finally(done)
+    } else explainLine(dramaId, line.id, toApiPick(picker.pick), aborting).then(live(setExplanation), live(fail)).finally(done)
   }
 
-  // Ask once on open for an explanation (the panel is keyed by line and mode).
+  // Ask once on open for an explanation (the panel is keyed by line and mode),
+  // after the engine list has answered so the remembered pick is the one used.
   useEffect(() => {
-    if (mode === 'explain' && !asked.current) {
+    if (mode === 'explain' && picker.ready && !asked.current) {
       asked.current = true
       run('explain')
     }
@@ -93,6 +97,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
     <div className="review-ai-panel" data-testid="line-ai-panel">
       {mode === 'improve' && (
         <>
+          <LineAiPicker picker={picker} allPaid disabled={busy} />
           <div className="review-ai-ask">
             <label>
               What to fix (optional)
@@ -104,7 +109,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
                 onChange={(e) => setIssue(e.target.value)}
               />
             </label>
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} onClick={() => run('improve')}>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || !picker.ready} onClick={() => run('improve')}>
               {busy ? 'Working…' : improvement ? 'Ask again' : 'Suggest'}
             </button>
             <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={onClose}>
@@ -142,6 +147,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
       )}
       {mode === 'explain' && (
         <>
+          <LineAiPicker picker={picker} allPaid disabled={busy} />
           {busy && <p className="muted">Working…</p>}
           {explanation && (
             <p className="review-ai-text" data-testid="line-ai-explanation">{explanation.explanation}</p>
@@ -150,6 +156,11 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
             {!busy && error !== null && (
               <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-ai-retry" onClick={() => run('explain')}>
                 Try again
+              </button>
+            )}
+            {!busy && explanation && (
+              <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-ai-ask-again" onClick={() => run('explain')}>
+                Ask again
               </button>
             )}
             <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={onClose}>

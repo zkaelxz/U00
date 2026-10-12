@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ApiError, withSignal } from '../../../../api/client'
 import { lineAlternatives, lineGrammar } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { LineAlternatives, LineGrammar, ReviewLine } from '../../../../types/review'
+import { LineAiPicker } from './LineAiPicker'
+import { toApiPick, useLineAiPick } from './lineAiPick'
 import { AI_STALE_MESSAGE, AI_UNAVAILABLE_MESSAGE, suggestionIsStale, type ToolMode } from './reviewLogic'
 
 // Review parity R17-R18: the per-line study tools. "Alternatives" and
@@ -34,8 +36,17 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   const [unavailable, setUnavailable] = useState(false)
   const [using, setUsing] = useState(false)
   const [busy, setBusy] = useState(true)
-
+  // Alternatives and Grammar need engines.paid only for a paid engine.
+  const picker = useLineAiPick(dramaId, false)
+  const pickRef = useRef(picker.pick)
+  // Declared before the request effect, so it holds the latest pick when that runs.
   useEffect(() => {
+    pickRef.current = picker.pick
+  })
+
+  // Asks once the engine list has answered; a later pick takes effect on "Ask again".
+  useEffect(() => {
+    if (!picker.ready) return
     const ctl = new AbortController()
     const f = withSignal(ctl.signal)
     const fail = (e: unknown) => {
@@ -46,15 +57,15 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
     }
     const req: Promise<Result> =
       mode === 'alternatives'
-        ? lineAlternatives(dramaId, line.id, f).then((data) => ({ kind: 'alternatives' as const, data }))
-        : lineGrammar(dramaId, line.id, f).then((data) => ({ kind: 'grammar' as const, data }))
+        ? lineAlternatives(dramaId, line.id, toApiPick(pickRef.current), f).then((data) => ({ kind: 'alternatives' as const, data }))
+        : lineGrammar(dramaId, line.id, toApiPick(pickRef.current), f).then((data) => ({ kind: 'grammar' as const, data }))
     req.then((r) => {
       if (ctl.signal.aborted) return
       setBusy(false)
       setResult(r)
     }, fail)
     return () => ctl.abort()
-  }, [dramaId, line.id, mode, attempt])
+  }, [dramaId, line.id, mode, attempt, picker.ready])
 
   const retry = () => {
     setBusy(true)
@@ -72,6 +83,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
 
   return (
     <div className="review-ai-panel" data-testid="line-tools-panel" aria-label={title} role="group">
+      <LineAiPicker picker={picker} allPaid={false} disabled={busy || using} />
       {busy && <p className="muted">Working…</p>}
       {result?.kind === 'alternatives' && (
         <AlternativeList line={line} data={result.data} busy={using} onUse={use} />
@@ -87,6 +99,11 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
         {(error !== null || unavailable) && !busy && (
           <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-tools-retry" onClick={retry}>
             Try again
+          </button>
+        )}
+        {result && !busy && (
+          <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-tools-ask-again" onClick={retry}>
+            Ask again
           </button>
         )}
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>

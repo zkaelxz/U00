@@ -29,7 +29,6 @@ import SavedMangaReader from './pages/SavedMangaReader'
 import SettingsPage from './pages/Settings'
 import SourcesPage from './pages/Sources'
 import MakeSubtitlesPage from './pages/MakeSubtitlesPage'
-import SourcesManagePage from './pages/SourcesManage'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
@@ -210,8 +209,9 @@ export default function App() {
       {route.name === 'admin' && <AdminPage />}
       {route.name === 'translate' && <TranslatePage />}
       {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
-      {route.name === 'sources' && <SourcesPage />}
-      {route.name === 'sources-manage' && <SourcesManagePage tab={route.tab} />}
+      {(route.name === 'sources' || route.name === 'sources-manage') && (
+        <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} area={route.name === 'sources-manage' ? route.tab : undefined} />
+      )}
       {route.name === 'discover' && <DiscoverPage />}
       {route.name === 'live' && <LivePage />}
       {route.name === 'diagnostics' && <DiagnosticsPage />}

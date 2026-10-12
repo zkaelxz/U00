@@ -130,6 +130,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `stereo_cues.py` (stereo-track placement cues from the script, numpy only; `docs/specs/stereo-track.md`)
 - `stereo_render.py` (stereo-track renderers: pan, delay and level per line, numpy only; `docs/specs/stereo-track.md`)
 - `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
+- `source_suspect.py` (pure: the Review "Source text looks off" rules, the `source_suspect` flag)
 - `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
 - `video_download.py`
 - `video_export.py`
@@ -343,6 +344,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `spend_history_service.py`
 - `stronger_engine_service.py`
 - `subtitle_import_service.py`
+- `source_suspect_service.py` (Review "Check source text": flag/flag_note only, list with the merge target)
 - `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
 - `timing_settings_service.py` (the Settings > Timing and splitting values as runs use them; Developer Mode rows read as defaults while it is off)
 - `resplit_config.py` (what a Review re-split cuts: the sensitivity presets, duration cap and fresh-transcription limits; moved out of restructure_service)
@@ -426,6 +428,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `spend_history.py` (GET /api/settings/spend-history: paid-API spend by month and what caused it)
 - `subtitle_import.py` (Subtitle-file import: what a file contains, what importing it would do, and what it did)
 - `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
+- `source_suspect.py` (the Review "Check source text" shapes)
 - `timing_check.py` (the Review "Check timing" shapes)
 - `transcribe.py` (Transcription shapes: transcribe runs and config, diarization, autotune, re-transcribe and live sessions)
 - `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets, bulk jobs, retrying failed lines, the glossary redo and the episode summary)
@@ -454,6 +457,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `diagnostics_routes.py`
 - `pending_install_routes.py`
 - `diarization_routes.py`
+- `source_suspect_routes.py`
 - `timing_check_routes.py`
 - `discover_lookup_routes.py`
 - `discover_routes.py`

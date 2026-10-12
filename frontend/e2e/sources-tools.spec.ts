@@ -99,8 +99,9 @@ test('manage sources, Activity: imports from links', async ({ page }) => {
   const m = await mockImports(page, s)
   await mockTools(page, s, m)
   await openManage(page, 'activity')
-  // The only card of the tab starts open.
+  // Only the first card of the Manage sources tab starts open, so this one is opened by hand.
   const list = page.getByTestId('recent-extractions')
+  await page.locator('summary', { hasText: 'Imported from links' }).click()
   await expect(list.getByText('https://novels.example/book/5')).toBeVisible()
   await expect(list.getByText('Worked: Static HTTP + Deterministic extraction')).toBeVisible()
   await expect(list.getByText('novel · AI calls: 0 · confidence high')).toBeVisible()

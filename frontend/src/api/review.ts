@@ -130,15 +130,26 @@ export const getLineProvenance = (id: number, lineId: number, f?: Fetch) =>
 export const getLineOriginalText = (id: number, lineId: number, f?: Fetch) =>
   getJson<LineOriginalText>(`${review(id)}/lines/${lineId}/original-text`, f)
 
-// Per-line AI helpers. Neither call writes; the engine and model
-// are left to the server's default (Gemini free tier: the saved setting), and no key ever passes through the browser.
+// Per-line AI helpers. None of them writes. The engine and model are the
+// caller's pick, or the server's default (the title's engine; Gemini free tier:
+// the saved setting) when left out; no key ever passes through the browser.
 const lineAi = (id: number, lineId: number) => `/api/line-ai/dramas/${id}/lines/${lineId}`
 
-export const improveLine = (id: number, lineId: number, issue: string, f?: Fetch) =>
-  postJson<LineImprovement>(`${lineAi(id, lineId)}/improve`, { issue: issue.trim() }, f)
+export interface LineAiPick {
+  engine?: string
+  model?: string
+}
 
-export const explainLine = (id: number, lineId: number, f?: Fetch) =>
-  postJson<LineExplanation>(`${lineAi(id, lineId)}/explain`, {}, f)
+const pickBody = (pick?: LineAiPick) => ({
+  ...(pick?.engine ? { engine: pick.engine } : {}),
+  ...(pick?.engine && pick.model ? { model: pick.model } : {}),
+})
+
+export const improveLine = (id: number, lineId: number, issue: string, pick?: LineAiPick, f?: Fetch) =>
+  postJson<LineImprovement>(`${lineAi(id, lineId)}/improve`, { issue: issue.trim(), ...pickBody(pick) }, f)
+
+export const explainLine = (id: number, lineId: number, pick?: LineAiPick, f?: Fetch) =>
+  postJson<LineExplanation>(`${lineAi(id, lineId)}/explain`, pickBody(pick), f)
 
 // Review parity R39: make a saved version the current English. It overwrites
 // the translation of every line, so the caller confirms first.
@@ -151,11 +162,11 @@ export const retryBlockedLine = (id: number, lineId: number, engine: string, f?:
   postJson<BlockedRetryResult>(`${lines(id)}/lines/${lineId}/retry-blocked`, { engine }, f)
 
 // Review parity R17/R18: read-only, like improve/explain.
-export const lineAlternatives = (id: number, lineId: number, f?: Fetch) =>
-  postJson<LineAlternatives>(`${lineAi(id, lineId)}/alternatives`, {}, f)
+export const lineAlternatives = (id: number, lineId: number, pick?: LineAiPick, f?: Fetch) =>
+  postJson<LineAlternatives>(`${lineAi(id, lineId)}/alternatives`, pickBody(pick), f)
 
-export const lineGrammar = (id: number, lineId: number, f?: Fetch) =>
-  postJson<LineGrammar>(`${lineAi(id, lineId)}/grammar`, {}, f)
+export const lineGrammar = (id: number, lineId: number, pick?: LineAiPick, f?: Fetch) =>
+  postJson<LineGrammar>(`${lineAi(id, lineId)}/grammar`, pickBody(pick), f)
 
 // Review parity R28: rewrites only "en" of the too-long lines, after a
 // line-history snapshot; a line edited meanwhile is skipped as stale. The

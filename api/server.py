@@ -58,6 +58,7 @@ from api.routers import (
     diagnostics_routes,
     real_model_check_routes,
     diarization_routes,
+    source_suspect_routes,
     timing_check_routes,
     discover_lookup_routes,
     discover_routes,
@@ -274,6 +275,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(translate_routes.router)
     app.include_router(export_routes.router)
     app.include_router(diarization_routes.router)
+    app.include_router(source_suspect_routes.router)
     app.include_router(timing_check_routes.router)
     app.include_router(source_routes.router)
     app.include_router(transcribe_routes.router)

@@ -17,7 +17,6 @@ test.afterEach(async ({ page }) => {
 async function open(page: import('@playwright/test').Page) {
   await page.goto('/#/drama/3/review')
   await openFoldFor(page, 'Compare transcription')
-  await page.locator('summary').filter({ hasText: /^Compare transcription/ }).click()
   const box = page.getByTestId('compare-transcription')
   await expect(box).toBeVisible()
   return box

@@ -105,10 +105,17 @@ const line = { id: 7, en: 'Hello', zh: '你好' } as unknown as Parameters<typeo
 afterAll(() => vi.unstubAllGlobals())
 
 describe('LineAi under StrictMode', () => {
-  it('re-asks "Why this?" after the dev remount and clears Working…', async () => {
+  it('asks "Why this?" once after the dev remount and clears Working…', async () => {
     const calls: AbortSignal[] = []
     const answers: ((r: Response) => void)[] = []
-    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      // The engine list and the session answer at once; only the line-ai request is held open.
+      if (!url.includes('/line-ai/')) {
+        return Promise.resolve(new Response(JSON.stringify({ engines: [], translation_engine: 'claude' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
       calls.push(init.signal!)
       return new Promise<Response>((resolve, reject) => {
         answers.push(resolve)
@@ -121,14 +128,14 @@ describe('LineAi under StrictMode', () => {
     const props = { dramaId: 3, line, mode: 'explain' as const, onClose: () => {}, onUse: async () => true }
     await act(async () => root.render(createElement(StrictMode, null, createElement(LineAi, props))))
 
-    // The first request was aborted by the simulated unmount; the remount asked again.
-    expect(calls).toHaveLength(2)
-    expect(calls[0].aborted).toBe(true)
-    expect(calls[1].aborted).toBe(false)
+    // The panel asks once the engine list has answered, so the dev unmount/remount
+    // (which aborts the first list request) leaves exactly one live request.
+    expect(calls).toHaveLength(1)
+    expect(calls[0].aborted).toBe(false)
     expect(container.textContent).toContain('Working…')
 
     await act(async () => {
-      answers[1](new Response(JSON.stringify({ line_id: 7, explanation: 'Because.' }), {
+      answers[0](new Response(JSON.stringify({ line_id: 7, explanation: 'Because.' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }))
@@ -138,6 +145,6 @@ describe('LineAi under StrictMode', () => {
     expect(shown?.textContent).toBe('Because.')
 
     await act(async () => root.unmount())
-    expect(calls[1].aborted).toBe(true)
+    expect(calls[0].aborted).toBe(true)
   })
 })

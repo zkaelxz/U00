@@ -82,6 +82,11 @@ describe('job wording', () => {
     expect(jobStatusLabel(job({ status: 'running' }))).toBe('Running')
   })
 
+  it('reads a job closed by a restart as Interrupted, not Cancelled', () => {
+    expect(jobStatusLabel(job({ status: 'cancelled', outcome: 'interrupted' }))).toBe('Interrupted')
+    expect(jobStatusLabel(job({ status: 'cancelled', outcome: 'cancelled' }))).toBe('Cancelled')
+  })
+
   it('points a pip instruction at Diagnostics > Packages and installs', () => {
     expect(plainJobText('Run `pip install ebooklib` to export EPUB.')).toBe(
       'Open Diagnostics > Packages and installs (ebooklib) to export EPUB.')
