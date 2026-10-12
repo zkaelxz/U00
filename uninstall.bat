@@ -1,5 +1,7 @@
 @echo off
-setlocal enabledelayedexpansion
+REM Delayed expansion stays off until the folder is entered and its path saved:
+REM with it on, a ! in the path would be eaten from %~dp0.
+setlocal DisableDelayedExpansion
 REM uninstall.bat -- Step 10. This app has very little system footprint
 REM to begin with: no registry entries, nothing in Program Files, no
 REM PATH changes of its own -- it's just this folder plus a desktop
@@ -8,7 +10,13 @@ REM type DELETE, and (default: no) asks before checking
 REM your PATH for ffmpeg/Tesseract entries you may have added by hand
 REM during setup.
 
-cd /d "%~dp0"
+cd /d "%~dp0" || (
+    echo Could not enter the Baihe folder, so nothing was removed.
+    pause
+    exit /b 1
+)
+set "APP_DIR=%~dp0"
+setlocal EnableDelayedExpansion
 
 echo ============================================
 echo   Baihe Subtitler -- Uninstall
@@ -19,8 +27,8 @@ echo   - The desktop shortcut and Start Menu entry, if either exists
 echo   - The venv\ virtual environment in this folder
 echo   - Downloaded model weights this app manages under this folder
 echo     (model_cache\, if portable mode was ever used)
-echo   - vtuber_names.json (the downloaded VTuber name list) and any
-echo     unfinished *.part downloads in this folder
+echo   - vtuber_names.json (the downloaded VTuber name list) and its
+echo     unfinished download, vtuber_names.json.part
 echo.
 echo If you later type DELETE to delete your library, the restore lock and
 echo the library.pre_restore_* and .restore_staging_* folders beside it go too.
@@ -80,11 +88,16 @@ if exist "vtuber_names.json" (
         echo Removed vtuber_names.json ^(the downloaded VTuber name list^).
     )
 )
-set "PART_COUNT=0"
-REM The extension is compared again because *.part can also match longer
-REM extensions through old 8.3 short names.
-for %%F in (*.part) do if /i "%%~xF"==".part" call :removefile "%%F" && set /a PART_COUNT+=1
-if !PART_COUNT! gtr 0 echo Removed !PART_COUNT! unfinished download file^(s^) ^(*.part^).
+REM Only the one name Baihe writes here (services/vdb_names_service.py); other
+REM .part files belong to downloads in subfolders, or to other programs.
+if exist "vtuber_names.json.part" (
+    call :removefile "vtuber_names.json.part"
+    if errorlevel 1 (
+        echo Could not remove vtuber_names.json.part -- it may be in use.
+    ) else (
+        echo Removed vtuber_names.json.part ^(an unfinished download^).
+    )
+)
 
 echo.
 echo App files removed. Your library is untouched so far.
@@ -97,7 +110,7 @@ echo use ffmpeg or Tesseract for anything else on this machine, since
 echo removing a shared entry would break that too.
 set /p CHECK_PATH="Check your PATH for ffmpeg/Tesseract entries to remove? [y/N] "
 if /i "%CHECK_PATH%"=="y" (
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall_path_cleanup.ps1"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "!APP_DIR!uninstall_path_cleanup.ps1"
 )
 
 echo.
@@ -110,10 +123,23 @@ if defined BAIHE_DATA_DIR (
 REM The comparison below is exact and case-sensitive on purpose: "y", "yes"
 REM and Enter must all keep the library.
 if exist "library\" (
-    set "LIB_PATH=%~dp0library"
-    call :foldersize "!LIB_PATH!" LIB_SIZE
+    set "LIB_PATH=!APP_DIR!library"
+    call :foldersize LIB_PATH LIB_SIZE
     echo Your library folder: !LIB_PATH!
     echo Size: !LIB_SIZE!
+    set "SZ_LIST=!LIB_PATH!"
+    set "HAVE_NEIGHBOURS="
+    for /d %%D in ("library.pre_restore_*" ".restore_staging_*") do (
+        if not defined HAVE_NEIGHBOURS echo Typing DELETE also deletes these copies a restore left beside it:
+        set "HAVE_NEIGHBOURS=1"
+        echo   - %%D
+        set "SZ_LIST=!SZ_LIST!|%%~fD"
+    )
+    if exist "library.restore-lock" echo Typing DELETE also deletes the restore lock file, library.restore-lock.
+    if defined HAVE_NEIGHBOURS (
+        call :foldersize SZ_LIST TOTAL_SIZE
+        echo Size of the library plus these copies: !TOTAL_SIZE!
+    )
     echo It holds all your projects, translations, audio/video and library.db,
     echo and your backups too -- backups are stored inside it by default.
     echo Deleting it cannot be undone.
@@ -145,13 +171,13 @@ echo by hand if you no longer need them.
 set "HF_DIR=%HF_HOME%"
 if not defined HF_DIR set "HF_DIR=%USERPROFILE%\.cache\huggingface"
 REM What this script itself could not or would not remove, by name and size only; file contents are never read.
-call :leftover "Your library (projects, translations, backups)" "%~dp0library"
-call :leftover "venv folder (not fully removed)" "%~dp0venv"
-call :leftover "model_cache folder (not fully removed)" "%~dp0model_cache"
+call :leftover "Your library (projects, translations, backups)" "!APP_DIR!library"
+call :leftover "venv folder (not fully removed)" "!APP_DIR!venv"
+call :leftover "model_cache folder (not fully removed)" "!APP_DIR!model_cache"
 if exist "vtuber_names.json" echo   - vtuber_names.json ^(could not be removed^)
 if exist "!DESKTOP_LNK!" echo   - Desktop shortcut: !DESKTOP_LNK!
 if exist "!STARTMENU_LNK!" echo   - Start Menu entry: !STARTMENU_LNK!
-for /d %%D in ("library.pre_restore_*" "library.pre_reset_*" ".restore_staging_*") do call :leftover "Library copy kept beside it" "%%~fD"
+for /d %%D in ("library.pre_restore_*" "library.pre_reset_*" ".restore_staging_*") do call :leftover "Library copy kept beside it (may hold your real library if library\ is missing)" "%%~fD"
 if exist "library.restore-lock" echo   - library.restore-lock ^(restore lock file^)
 if exist ".env" echo   - .env ^(your settings and API keys; stays in this folder, contents are never shown^)
 if defined BAIHE_DATA_DIR if exist "!BAIHE_DATA_DIR!\" echo   - Your BAIHE_DATA_DIR folder: !BAIHE_DATA_DIR! ^(library, settings, vtuber_names.json and anything else Baihe saved there; not touched^)
@@ -181,20 +207,28 @@ pause
 exit /b 0
 
 :foldersize
-REM %1 = folder, %2 = variable to set. The path goes through the environment
-REM so quotes, spaces and non-ASCII characters never reach PowerShell's parser.
-set "BAIHE_SZ_PATH=%~1"
+REM %1 = NAME of a variable holding a folder (several joined with |), %2 = variable to set.
+REM Names, not values: a value with a ! or quote would be mangled as an argument.
+REM The paths go through the environment so quotes, spaces and non-ASCII characters
+REM never reach PowerShell's parser.
+set "BAIHE_SZ_PATH=!%~1!"
 set "%~2=unknown"
-for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "$s = Get-ChildItem -LiteralPath $env:BAIHE_SZ_PATH -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum; $b = [double]$s.Sum; if ($b -ge 1GB) { '{0:N1} GB' -f ($b / 1GB) } else { '{0:N0} MB' -f ($b / 1MB) }"`) do set "%~2=%%S"
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "$s = ($env:BAIHE_SZ_PATH -split '\|' | ForEach-Object { Get-ChildItem -LiteralPath $_ -Recurse -Force -File -ErrorAction SilentlyContinue }) | Measure-Object Length -Sum; $b = [double]$s.Sum; if ($b -ge 1GB) { '{0:N1} GB' -f ($b / 1GB) } else { '{0:N0} MB' -f ($b / 1MB) }"`) do set "%~2=%%S"
 exit /b 0
 
 :leftover
 REM %1 = label, %2 = path. Lists it with its size when it exists; never deletes.
-if not exist "%~2" exit /b 0
+REM Delayed expansion is off while the arguments are copied, so a ! in a path survives.
+setlocal DisableDelayedExpansion
+set "LEFT_LABEL=%~1"
 set "LEFT_PATH=%~2"
-call :foldersize "!LEFT_PATH!" LEFT_SIZE
-REM Delayed expansion: an unquoted %~2 would let a & in the path split the line.
-echo   - %~1: !LEFT_PATH! ^(!LEFT_SIZE!^)
+setlocal EnableDelayedExpansion
+if exist "!LEFT_PATH!" (
+    call :foldersize LEFT_PATH LEFT_SIZE
+    echo   - !LEFT_LABEL!: !LEFT_PATH! ^(!LEFT_SIZE!^)
+)
+endlocal
+endlocal
 exit /b 0
 
 :wingetprog

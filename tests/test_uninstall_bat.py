@@ -23,12 +23,14 @@ def test_library_is_deleted_only_on_the_exact_word_delete():
 
 def test_no_other_code_path_deletes_the_library():
     bat = _bat()
-    deletes = [m.start() for m in re.finditer(r'(rmdir|del |removedir)[^\n]*"library"', bat)]
+    # Quoted or not, relative or prefixed (%~dp0library, !APP_DIR!library, "library\"), by any removal verb.
+    deletes = [m.start() for m in re.finditer(
+        r'(rmdir|\bdel\b|\brd\b|call :remove(dir|file))[^\n]*[\\"!%]library\b(?![._])', bat, re.I)]
     assert len(deletes) == 1
     guard = bat.index('if "!DELETE_LIBRARY!"=="DELETE" (')
     keep = bat.index("Keeping library", guard)
     assert guard < deletes[0] < keep
-    assert bat[deletes[0]:].startswith("removedir")
+    assert bat[deletes[0]:].startswith("call :removedir")
 
 
 def test_library_neighbours_go_only_in_the_delete_branch_and_only_after_the_library_is_gone():
@@ -55,7 +57,7 @@ def test_deletes_only_name_items_in_the_app_folder():
     # environment-chosen location (BAIHE_DATA_DIR, the caches, PATH).
     assert bat.index('cd /d "%~dp0"') < bat.index("call :removefile")
     for line in bat.splitlines():
-        if re.search(r"\b(rmdir|del)\b", line) and not line.lstrip().startswith(("REM", "echo")):
+        if re.search(r"\b(rmdir|del)\b|call :remove", line) and not line.lstrip().startswith(("REM", "echo")):
             assert not re.search(r"BAIHE_DATA_DIR|HF_|TORCH|OLLAMA|%PATH%|LOCALAPPDATA", line), line
 
 
@@ -81,7 +83,9 @@ def test_vtuber_list_and_part_files_always_go():
     delete_prompt = bat.index("set /p DELETE_LIBRARY")
     removal = bat[confirm:delete_prompt]
     assert 'call :removefile "vtuber_names.json"' in removal
-    assert 'for %%F in (*.part) do if /i "%%~xF"==".part" call :removefile "%%F"' in removal
+    assert 'call :removefile "vtuber_names.json.part"' in removal
+    # Never a wildcard: other .part files are not Baihe's to delete here.
+    assert "*.part" not in "\n".join(l for l in bat.splitlines() if not l.startswith(("REM", "echo")))
     assert "vtuber_names.json" in bat.split("echo It will NOT touch")[0]
 
 
@@ -109,8 +113,8 @@ def test_custom_data_dir_is_reported_and_never_deleted():
     block = bat[bat.index("if defined BAIHE_DATA_DIR ("):]
     block = block[:block.index("\n)\n")]
     assert "!BAIHE_DATA_DIR!" in block and "is kept" in block
-    assert not re.search(r"rmdir|\bdel\b", block)
-    assert not re.search(r'rmdir[^\n]*BAIHE_DATA_DIR', bat)
+    assert not re.search(r"rmdir|\bdel\b|call :remove", block)
+    assert not re.search(r'(rmdir|\bdel\b|removedir|removefile)[^\n]*BAIHE_DATA_DIR', bat)
 
 
 def test_leftovers_are_listed_and_never_deleted():
@@ -120,7 +124,7 @@ def test_leftovers_are_listed_and_never_deleted():
                    "%LOCALAPPDATA%\\pip\\Cache", "OLLAMA_MODELS", ".ollama\\models",
                    '"Python" python', '"Git" git', '"ffmpeg" ffmpeg', '"Node.js" node'):
         assert needle in listing, needle
-    assert not re.search(r"rmdir|\bdel\b|rd /s", listing)
+    assert not re.search(r"rmdir|\bdel\b|rd /s|call :remove|removedir|removefile", listing)
     # Helpers only measure and print.
     helpers = bat[bat.index("\n:foldersize\n"):bat.index("\n:removefile\n")]
     assert not re.search(r"rmdir|\bdel\b|rd /s|Remove-Item", helpers)
@@ -132,3 +136,23 @@ def test_no_path_is_echoed_through_an_unquoted_argument_expansion():
         # %~1 is always a fixed label; every path argument is %~2 or %~dp0.
         if line.lstrip().lower().startswith("echo ") and ("%~2" in line or "%~dp0" in line):
             raise AssertionError(line)
+
+
+def test_the_folder_is_entered_or_nothing_runs_and_a_bang_in_the_path_survives():
+    bat = _bat()
+    head = bat[:bat.index("setlocal EnableDelayedExpansion")]
+    # Delayed expansion is off while %~dp0 is read, or a ! in the path would be eaten.
+    assert "setlocal DisableDelayedExpansion" in head
+    assert 'cd /d "%~dp0" || (' in head and "exit /b 1" in head
+    assert 'set "APP_DIR=%~dp0"' in head
+    after = bat[bat.index("setlocal EnableDelayedExpansion"):]
+    assert "%~dp0" not in "\n".join(l for l in after.splitlines() if not l.startswith("REM"))
+
+
+def test_delete_prompt_names_the_restore_copies_and_their_size():
+    bat = _bat()
+    prompt = bat[bat.index('set "SZ_LIST=!LIB_PATH!"'):bat.index("set /p DELETE_LIBRARY")]
+    for needle in ("library.pre_restore_*", ".restore_staging_*", "library.restore-lock", "Typing DELETE also deletes",
+                   "Size of the library plus these copies: !TOTAL_SIZE!"):
+        assert needle in prompt, needle
+    assert not re.search(r"rmdir|\bdel\b|call :remove", prompt)

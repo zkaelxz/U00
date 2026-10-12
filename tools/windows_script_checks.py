@@ -175,14 +175,16 @@ def seed_install(stage, home, with_library=True):
 NEIGHBOUR_DIRS = ("library.pre_restore_1700000000", ".restore_staging_abc123")
 RESET_COPY = "library.pre_reset_1700000000"
 LOCK_FILE = "library.restore-lock"
-PART_FILES = ("vtuber_names.json.part", "BaiheStudio-Setup-1.0.exe.part")
+# Baihe writes only vtuber_names.json.part in the app folder; any other .part there is not its to delete.
+OWN_PART = "vtuber_names.json.part"
+FOREIGN_PART = "other-program.part"
 
 
 def seed_leftovers(base):
     """Everything uninstall.bat is asked to clean up or report, in `base` (the app folder, or the data folder)."""
     touch(os.path.join(base, "vtuber_names.json"), "[]")
-    for name in PART_FILES:
-        touch(os.path.join(base, name))
+    touch(os.path.join(base, OWN_PART))
+    touch(os.path.join(base, FOREIGN_PART))
     touch(os.path.join(base, LOCK_FILE))
     for name in (*NEIGHBOUR_DIRS, RESET_COPY):
         touch(os.path.join(base, name, "library.db"))
@@ -217,10 +219,10 @@ def check_app_removed(stage, home):
 
 def check_vtuber_and_part_removed(stage, out):
     check(not os.path.exists(os.path.join(stage, "vtuber_names.json")), "vtuber_names.json is removed")
-    for name in PART_FILES:
-        check(not os.path.exists(os.path.join(stage, name)), f"{name} is removed")
-    check("Removed vtuber_names.json" in out, "says vtuber_names.json was removed")
-    check("unfinished download file(s)" in out, "says the .part files were removed")
+    check(not os.path.exists(os.path.join(stage, OWN_PART)), f"{OWN_PART} is removed")
+    check(os.path.exists(os.path.join(stage, FOREIGN_PART)), f"{FOREIGN_PART} (not Baihe's) is not removed")
+    check("Removed vtuber_names.json " in out, "says vtuber_names.json was removed")
+    check("Removed vtuber_names.json.part" in out, "says the unfinished download was removed")
 
 
 def check_leftovers(out, dirs, home):
@@ -257,6 +259,11 @@ def uninstall_case(name, library_answer, expect_deleted, data_dir_set):
         check_vtuber_and_part_removed(stage, res.out)
         library = os.path.join(stage, "library")
         neighbours = [*NEIGHBOUR_DIRS, LOCK_FILE]
+        prompt = res.out.split("Type DELETE")[0]
+        for needle in ("Typing DELETE also deletes these copies a restore left beside it:", "library.pre_restore_1700000000",
+                       ".restore_staging_abc123", "Typing DELETE also deletes the restore lock file",
+                       "Size of the library plus these copies:"):
+            check(needle in prompt, f"the DELETE prompt says: {needle}")
         if expect_deleted:
             check(not os.path.exists(library), "library\\ is deleted")
             check("Deleted library\\." in res.out, "says the library was deleted")
@@ -281,7 +288,7 @@ def uninstall_case(name, library_answer, expect_deleted, data_dir_set):
                   "explains that BAIHE_DATA_DIR's library is not touched")
             check(os.path.exists(os.path.join(data_dir, "library", "library.db")),
                   "the BAIHE_DATA_DIR library is untouched")
-            for item in ("vtuber_names.json", LOCK_FILE, *PART_FILES, *NEIGHBOUR_DIRS, RESET_COPY):
+            for item in ("vtuber_names.json", LOCK_FILE, OWN_PART, FOREIGN_PART, *NEIGHBOUR_DIRS, RESET_COPY):
                 check(os.path.exists(os.path.join(data_dir, item)), f"{item} in BAIHE_DATA_DIR is untouched")
             check(f"Your BAIHE_DATA_DIR folder: {data_dir}" in res.out.split("Left on this PC")[-1],
                   "the BAIHE_DATA_DIR folder is named in the Left on this PC list")
@@ -332,6 +339,38 @@ def uninstall_junctions_not_followed():
     endgroup()
 
 
+def uninstall_restore_copies_without_a_library():
+    group("uninstall.bat: restore copies and no library are never deleted")
+    with temp_dir() as parent:
+        stage, home = stage_app(parent), os.path.join(parent, "home")
+        seed_install(stage, home, with_library=False)
+        seed_leftovers(stage)
+        res = run_bat(stage, "uninstall.bat", answers="y\nn\nDELETE\n", env=home_env(home))
+        check(not res.timed_out and res.code == 0, f"finished with exit code 0, got {res.code}")
+        for item in (*NEIGHBOUR_DIRS, LOCK_FILE, RESET_COPY):
+            check(os.path.exists(os.path.join(stage, item)), f"{item} is kept: it may hold the real library")
+            check(item in res.out.split("Left on this PC")[-1], f"{item} is named in the Left on this PC list")
+        check("may hold your real library" in res.out, "says a copy may hold the real library")
+    endgroup()
+
+
+def uninstall_path_with_a_bang():
+    group("uninstall.bat: a ! in the folder path")
+    with temp_dir() as parent:
+        stage = os.path.join(parent, "Baihe !Studio")
+        copy_app(stage)
+        home = os.path.join(parent, "home")
+        seed_install(stage, home)
+        seed_leftovers(stage)
+        res = run_bat(stage, "uninstall.bat", answers="y\nn\nDELETE\n", env=home_env(home))
+        check(not res.timed_out and res.code == 0, f"finished with exit code 0, got {res.code}")
+        check(not os.path.exists(os.path.join(stage, "library")), "library\\ is deleted")
+        check(not os.path.exists(os.path.join(stage, "venv")), "venv\\ is removed")
+        check(not os.path.exists(os.path.join(stage, NEIGHBOUR_DIRS[0])), "the pre_restore copy is deleted")
+        check("Baihe !Studio" in res.out, "prints the folder name with its !")
+    endgroup()
+
+
 def uninstall_cancelled():
     group("uninstall.bat: answering n at the first prompt removes nothing")
     with temp_dir() as parent:
@@ -344,7 +383,7 @@ def uninstall_cancelled():
         for rel in ("venv", "model_cache", "library"):
             check(os.path.exists(os.path.join(stage, rel)), f"{rel}\\ is untouched")
         check(os.path.exists(os.path.join(home, "Desktop", "Baihe Subtitler.lnk")), "desktop shortcut is untouched")
-        for item in ("vtuber_names.json", *PART_FILES):
+        for item in ("vtuber_names.json", OWN_PART, FOREIGN_PART):
             check(os.path.exists(os.path.join(stage, item)), f"{item} is untouched")
     endgroup()
 
@@ -359,6 +398,8 @@ def check_uninstall():
             uninstall_case(f"answering {label} keeps the library{suffix}", answer, False, data_dir_set)
     uninstall_without_local_library()
     uninstall_junctions_not_followed()
+    uninstall_restore_copies_without_a_library()
+    uninstall_path_with_a_bang()
 
 
 # ----------------------------------------------- start.bat: install, upgrade

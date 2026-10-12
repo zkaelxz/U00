@@ -227,20 +227,23 @@ class TestUninstall:
         assert "FILE_ATTRIBUTE_DIRECTORY" in _func(iss, "DeleteTempMatches")
         assert ".deno" in step
 
-    def test_vtuber_list_and_part_files_go_on_every_uninstall(self, iss):
+    def test_vtuber_list_goes_on_every_uninstall_by_name_only(self, iss):
         step = _func(iss, "CurUninstallStepChanged")
         # Outside the DeleteLibrary / DeleteSettings / DeleteModels guards, by name, in the data folder only.
         assert "DeleteFile(UninstDataDir + '\\vtuber_names.json')" in step
         assert "DeleteFile(UninstDataDir + '\\vtuber_names.json.part')" in step
-        assert "DeletePartFiles(UninstDataDir)" in step
         assert step.index("vtuber_names.json') then") < step.index("RemoveDir(UninstDataDir);")
-        part = _func(iss, "DeletePartFiles")
-        assert "CompareText(ExtractFileExt(Rec.Name), '.part') = 0" in part
-        assert "FILE_ATTRIBUTE_DIRECTORY" in part
+        # The data folder may be one the user picked and shares: no wildcard delete of *.part (or anything else).
+        assert "DeletePartFiles" not in iss
+        assert not re.search(r"\*\.part", "\n".join(l for l in iss.splitlines() if not l.lstrip().startswith("//")))
 
     def test_library_neighbours_go_with_the_library_and_never_follow_links(self, iss):
         step = _func(iss, "CurUninstallStepChanged")
-        assert re.search(r"if DeleteLibrary then\s+begin\s+DeleteLibraryNeighbours\(Removed, Left\);\s+end;", step)
+        # Only when a library existed before the delete (a pre_restore folder may hold the real library
+        # when there is none) and the delete step ran.
+        assert "LibraryExisted := DirExists(UninstDataDir + '\\library');" in step
+        assert step.index("LibraryExisted :=") < step.index("DeleteTree(UninstDataDir + '\\library'")
+        assert re.search(r"if DeleteLibrary and LibraryExisted then\s+begin\s+DeleteLibraryNeighbours\(Removed, Left\);\s+end;", step)
         assert step.count("DeleteLibraryNeighbours(") == 1
         neighbours = _func(iss, "DeleteLibraryNeighbours")
         # Same names a restore makes (db/library_folder.py, library_restore_service.py).
@@ -255,6 +258,19 @@ class TestUninstall:
         assert "$400" in folders
         assert folders.index("$400") < folders.index("DelTree(")
         assert "RemoveDir(Path)" in folders
+
+    def test_the_typed_delete_prompt_names_the_restore_copies_and_their_size(self, iss):
+        confirm = _func(iss, "ConfirmLibraryDelete")
+        for needle in ("library.pre_restore_*", ".restore_staging_*", "library.restore-lock",
+                       "MatchingFoldersBytes(", "SizeText(Total)", "HasRestoreCopies()"):
+            assert needle in confirm, needle
+        # Named only when the library exists.
+        assert confirm.index("DirExists(UninstDataDir + '\\library') and HasRestoreCopies()") < confirm.index("InputQuery(")
+        assert "CompareStr(Typed, 'DELETE') = 0" in confirm
+
+    def test_restore_copies_without_a_library_are_kept_and_flagged(self, iss):
+        kept = _func(iss, "NoteKeptData")
+        assert "may hold your real library, so none was deleted" in kept
 
     def test_the_summary_says_what_is_left_on_this_pc(self, iss):
         step = _func(iss, "CurUninstallStepChanged")

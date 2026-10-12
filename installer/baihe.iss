@@ -761,18 +761,71 @@ begin
     Result := Format('%d MB', [Bytes div 1048576]);
 end;
 
+function AnyFolderMatches(const Dir, Pattern: String): Boolean;
+var
+  Rec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(AddBackslash(Dir) + Pattern, Rec) then
+  try
+    repeat
+      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+        Result := True;
+    until Result or not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
+end;
+
+// Size of the folders directly in Dir whose names match Pattern; a junction
+// or symlink counts as zero because it is never followed.
+function MatchingFoldersBytes(const Dir, Pattern: String): Int64;
+var
+  Rec: TFindRec;
+begin
+  Result := 0;
+  if FindFirst(AddBackslash(Dir) + Pattern, Rec) then
+  try
+    repeat
+      if ((Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and ((Rec.Attributes and $400) = 0) then
+        Result := Result + FolderBytes(AddBackslash(Dir) + Rec.Name);
+    until not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
+end;
+
+function HasRestoreCopies(): Boolean;
+begin
+  Result := AnyFolderMatches(UninstDataDir, 'library.pre_restore_*') or
+    AnyFolderMatches(UninstDataDir, '.restore_staging_*') or
+    FileExists(UninstDataDir + '\library.restore-lock');
+end;
+
 // Deleting the library takes its backups with it (they are inside it by
 // default), so a ticked box alone is not enough: the exact word, in capitals,
 // must be typed. Anything else, including Cancel, keeps it.
 function ConfirmLibraryDelete(): Boolean;
 var
-  Typed: String;
+  Typed, Copies: String;
+  Total: Int64;
 begin
   Typed := '';
+  Copies := '';
+  Total := FolderBytes(UninstDataDir + '\library');
+  // Only named when the library exists: the copies are deleted with it, and
+  // without it they may be the only good copy (see DeleteLibraryNeighbours).
+  if DirExists(UninstDataDir + '\library') and HasRestoreCopies() then
+  begin
+    Total := Total + MatchingFoldersBytes(UninstDataDir, 'library.pre_restore_*') +
+      MatchingFoldersBytes(UninstDataDir, '.restore_staging_*');
+    Copies := #13#10#13#10 + 'It also deletes the copies a library restore left beside it ' +
+      '(library.pre_restore_*, .restore_staging_*, library.restore-lock). Together: ' + SizeText(Total) + '.';
+  end;
   Result := InputQuery('Delete your library?',
     'Your library (' + UninstDataDir + '\library) is ' + SizeText(FolderBytes(UninstDataDir + '\library')) +
     '. It holds your projects, translations, audio and video, and your backups too - ' +
-    'backups are inside it by default. This can''t be undone.' + #13#10#13#10 +
+    'backups are inside it by default. This can''t be undone.' + Copies + #13#10#13#10 +
     'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed) and
     (CompareStr(Typed, 'DELETE') = 0);
 end;
@@ -906,27 +959,6 @@ begin
     AddLine(Left, Name + ' (' + Path + ', ' + SizeText(FolderBytes(Path)) + ') - shared with other programs, never deleted here');
 end;
 
-// Deletes the half-written downloads (*.part) directly in Dir. The extension
-// is compared again because *.part can also match longer extensions through
-// 8.3 short names. Returns how many.
-function DeletePartFiles(const Dir: String): Integer;
-var
-  Rec: TFindRec;
-begin
-  Result := 0;
-  if FindFirst(AddBackslash(Dir) + '*.part', Rec) then
-  try
-    repeat
-      if ((Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0) and
-         (CompareText(ExtractFileExt(Rec.Name), '.part') = 0) then
-        if DeleteFile(AddBackslash(Dir) + Rec.Name) then
-          Result := Result + 1;
-    until not FindNext(Rec);
-  finally
-    FindClose(Rec);
-  end;
-end;
-
 // Deletes the folders directly in Dir whose names match Pattern. A junction
 // or symlink is removed as a link only: recursing into it could leave Dir and
 // delete what it points to. Returns how many.
@@ -951,22 +983,6 @@ begin
           Result := Result + 1;
       end;
     until not FindNext(Rec);
-  finally
-    FindClose(Rec);
-  end;
-end;
-
-function AnyFolderMatches(const Dir, Pattern: String): Boolean;
-var
-  Rec: TFindRec;
-begin
-  Result := False;
-  if FindFirst(AddBackslash(Dir) + Pattern, Rec) then
-  try
-    repeat
-      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
-        Result := True;
-    until Result or not FindNext(Rec);
   finally
     FindClose(Rec);
   end;
@@ -1013,10 +1029,13 @@ begin
       SizeText(FolderBytes(UninstDataDir + '\model_cache')) + ')');
   if FileExists(UninstDataDir + '\vtuber_names.json') then
     AddLine(Left, 'vtuber_names.json - couldn''t be deleted; remove it by hand');
-  if AnyFolderMatches(UninstDataDir, 'library.pre_restore_*') or
-     AnyFolderMatches(UninstDataDir, '.restore_staging_*') or
-     FileExists(UninstDataDir + '\library.restore-lock') then
-    AddLine(Left, 'library copies a restore left beside it (library.pre_restore_*, .restore_staging_*, library.restore-lock); they go when you delete the library');
+  if HasRestoreCopies() then
+  begin
+    if DirExists(UninstDataDir + '\library') then
+      AddLine(Left, 'library copies a restore left beside it (library.pre_restore_*, .restore_staging_*, library.restore-lock); they go when you delete the library')
+    else
+      AddLine(Left, 'library copies a restore left beside it (library.pre_restore_*, .restore_staging_*, library.restore-lock) and no library folder: one of them may hold your real library, so none was deleted');
+  end;
   if AnyFolderMatches(UninstDataDir, 'library.pre_reset_*') then
     AddLine(Left, 'a copy of the library kept before a reset (library.pre_reset_*); delete it by hand if you no longer need it');
 end;
@@ -1025,6 +1044,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Removed, Left, Summary: String;
   Temps: Integer;
+  LibraryExisted: Boolean;
 begin
   if CurUninstallStep <> usPostUninstall then
     Exit;
@@ -1053,13 +1073,16 @@ begin
     begin
       // Only these named items, never the folder's other contents: the
       // folder may be one the user picked and shares with other files.
+      LibraryExisted := DirExists(UninstDataDir + '\library');
       if DeleteLibrary then
       begin
         DeleteTree(UninstDataDir + '\library', 'your library (projects, backups, logs, caches, browser profiles)', Removed, Left);
         // Items cleared from the library wait here until deleted from Trash.
         DeleteTree(UninstDataDir + '\baihe_trash', 'items you moved to Trash', Removed, Left);
       end;
-      if DeleteLibrary then
+      // Only when a library existed and is now gone: with none, a
+      // library.pre_restore_* folder may hold the real library.
+      if DeleteLibrary and LibraryExisted then
       begin
         DeleteLibraryNeighbours(Removed, Left);
       end;
@@ -1070,13 +1093,13 @@ begin
           AddLine(Left, 'your settings and API keys (.env) - couldn''t be deleted; remove it by hand');
       if DeleteModels then
         DeleteTree(UninstDataDir + '\model_cache', 'downloaded AI models', Removed, Left);
-      // Baihe's downloaded VTuber name list and half-written downloads, named
-      // files only, on every uninstall.
+      // Baihe's downloaded VTuber name list and its half-written download:
+      // these two names only, never a *.part pattern, on every uninstall. The
+      // folder may be one the user picked and shares with other files.
       if FileExists(UninstDataDir + '\vtuber_names.json') then
         if not DeleteFile(UninstDataDir + '\vtuber_names.json') then
           AddLine(Left, 'vtuber_names.json - couldn''t be deleted; remove it by hand');
       DeleteFile(UninstDataDir + '\vtuber_names.json.part');
-      DeletePartFiles(UninstDataDir);
       // The launcher's own files (not user data), by name, then its folder
       // only if that leaves it empty.
       DeleteFile(UninstDataDir + '\launcher\server.pid');
