@@ -16,7 +16,11 @@ async function openSection(page: Page, tab: 'data' | 'storage' = 'data') {
     await expect(panel.getByTestId('storage-summary')).toBeVisible()
     for (const name of ['Unused voice clips', 'Temp files']) {
       const card = panel.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${name}$`) }) })
-      if ((await card.count()) && (await card.getAttribute('open')) === null) await card.locator('summary').click()
+      // The clips card is rendered only once its list has loaded, after the summary line is already
+      // there; checking before that skipped it, and it then appeared closed with its buttons hidden.
+      await expect(card).toHaveCount(1)
+      if ((await card.getAttribute('open')) === null) await card.locator(':scope > summary').click()
+      await expect(card).toHaveAttribute('open', '')
     }
   }
   return panel

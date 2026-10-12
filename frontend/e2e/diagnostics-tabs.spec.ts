@@ -74,6 +74,8 @@ test('short tabs start open and each card collapses and is remembered; Packages 
   await fold(page, /^Models/).locator('> summary').click()
   await expect(fold(page, /^Models/)).toHaveJSProperty('open', false)
   await expect(fold(page, /^Models/).locator('> summary')).toContainText('GB')
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => localStorage.getItem('baihe.section.diagnostics.models') === '0')
   await page.reload()
   await expect(fold(page, /^Models/)).toHaveJSProperty('open', false)
 

@@ -747,7 +747,6 @@ OVERSIZED_MODULE_BYTES = {
     "scanlate.py": 89904,
     "background_jobs.py": 89431,
     "bulk_translate.py": 86382,
-    "installer/service.py": 83445,
     "core.py": 84133,
     "services/auto_backup_service.py": 83022,
     "services/disk_usage_service.py": 73715,
