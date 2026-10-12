@@ -35,6 +35,7 @@ from engine_backends.pricing import (  # noqa: F401
     estimate_cost_for_engine,
     estimate_reflect_mode_cost,
     estimate_translation_cost,
+    estimate_translation_tokens,
     is_openai_extra_model,
     openai_listed_extra_models,
     resolve_cost_cap,
@@ -222,6 +223,7 @@ from engine_backends.standalone import (  # noqa: F401
     chunk_standalone_text,
     standalone_direction_support,
     standalone_translate,
+    standalone_translate_partial,
 )
 from engine_backends.translate_pipeline import (  # noqa: F401
     TRANSLATE_PROMPT_VERSION,

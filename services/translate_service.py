@@ -9,6 +9,8 @@ caller.
 clear_history() is the one piece deliberately
 added separately from the read-only half and translate().
 """
+import threading
+import types
 from typing import Optional
 
 import bulk_translate
@@ -127,36 +129,107 @@ def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optiona
     return settings_service.resolve_key(engine_name, env_path)
 
 
-class _UsageMeter:
-    """Wraps an engine for translate_engines.standalone_translate, which calls
-    translate_batch once per chunk group while the engine resets last_usage on
-    every call: the totals have to be summed between calls to price the whole
-    request."""
+CAP_STOP_MESSAGE = ("Stopped at chunk {first} of {total}: the next chunk would pass your "
+                    "monthly cap. {finished}")
+REQUEST_CHUNKS = 8   # chunks per request (standalone_translate's batch_size)
 
-    def __init__(self, engine, engine_name: str):
+
+class _UsageMeter:
+    """Wraps an engine for translate_engines.standalone_translate_partial, which
+    is also its budget: refuse() is asked before each request and may stop the
+    run before the one that would pass the monthly cap, and every request that
+    is sent is logged on its own (success, failure, or abandoned at its
+    deadline), so the month's spend that the next refuse() re-reads is current."""
+
+    def __init__(self, engine, engine_name: str, operation: str = "translate_text"):
         self._engine = engine
         self._engine_name = engine_name
-        self.input_tokens = 0
-        self.output_tokens = 0
+        self._operation = operation
+        self._lock = threading.Lock()
+        self._request = None
+
+    @property
+    def unwrapped_engine(self):
+        return self._engine
 
     def __getattr__(self, name):
         return getattr(self._engine, name)
 
+    def _capped(self) -> bool:
+        return translate_run_service.engine_cap_applies(
+            self._engine_name, bool(getattr(self._engine, "free_tier", False)))
+
+    def refuse(self, batch: list, first_chunk: int, total_chunks: int) -> Optional[str]:
+        """A plain stop message when sending `batch` could take this month's
+        spend past the cap, else None. Also readies the next request's record."""
+        monthly = translate_run_service.month_cap_usd() if self._capped() else 0
+        if monthly:
+            # This run's earlier requests are already in the usage log, so the
+            # logged month total already counts them.
+            projected = db.get_month_spend() + translate_engines.estimate_translation_cost(
+                self._engine, batch)
+            if projected > monthly:
+                finished = (f"The {first_chunk} finished chunks are returned." if first_chunk
+                            else "Nothing was translated.")
+                return CAP_STOP_MESSAGE.format(first=first_chunk + 1, total=total_chunks,
+                                               finished=finished)
+        with self._lock:
+            self._request = {"abandoned": False}
+        return None
+
     def translate_batch(self, texts, context=None):
+        with self._lock:
+            request = self._request
+            if request is None:
+                request = self._request = {"abandoned": False}
+        if isinstance(getattr(self._engine, "last_usage", None), dict):
+            # Set only on success: a failed request must not log the last one's tokens.
+            self._engine.last_usage = {"input_tokens": 0, "output_tokens": 0}
         try:
             return self._engine.translate_batch(texts, context)
         finally:
-            usage = getattr(self._engine, "last_usage", None) or {}
-            self.input_tokens += usage.get("input_tokens", 0) or 0
-            self.output_tokens += usage.get("output_tokens", 0) or 0
+            with self._lock:
+                already_logged = request["abandoned"]
+                request["logged"] = True
+            if not already_logged:
+                usage = getattr(self._engine, "last_usage", None) or {}
+                self._log(usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0,
+                          usage.get("cache_read_tokens", 0) or 0,
+                          usage.get("cache_write_tokens", 0) or 0)
 
-    def log(self, operation: str) -> None:
-        if not (self.input_tokens or self.output_tokens):
-            return
+    def abandoned(self, batch: list) -> None:
+        """A request passed its deadline and was left running: log it at its
+        estimate unless it finished and logged itself in the meantime."""
+        with self._lock:
+            request = self._request
+            if request is not None and request.get("logged"):
+                return
+            if request is not None:
+                request["abandoned"] = True
+        self._log(*translate_engines.estimate_translation_tokens(batch))
+
+    def _log(self, input_tokens: int, output_tokens: int, cache_read: int = 0,
+             cache_write: int = 0) -> None:
         db.log_usage(None, self._engine_name, getattr(self._engine, "model", self._engine_name),
-                     operation, self.input_tokens, self.output_tokens,
+                     self._operation, input_tokens, output_tokens,
                      translate_engines.estimate_cost_for_engine(
-                         self._engine, self.input_tokens, self.output_tokens))
+                         self._engine, input_tokens, output_tokens, cache_read, cache_write),
+                     cache_read_tokens=cache_read)
+
+
+def _checked_request(text, engine_name, source_language, target_language, model, free_tier):
+    """Validation shared by translate() and estimate(); returns use_free_tier."""
+    if engine_name not in translate_engines.ENGINES:
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+
+    ok, message = translate_engines.standalone_direction_support(
+        engine_name, source_language, target_language)
+    if not ok:
+        raise UnsupportedOperationError(message)
+    # A free-form model string would otherwise reach the engine, priced at $0 or a guess.
+    translate_run_service._require_offered_model(engine_name, model)
+    return (engine_name == "gemini"
+            and settings_service.resolve_gemini_free_tier(free_tier))
 
 
 def translate(text: str, engine_name: str, source_language: str, target_language: str,
@@ -170,21 +243,19 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     standalone_direction_support), and DependencyUnavailableError if the
     engine needs a key/endpoint that isn't configured yet. free_tier None
     means the saved Gemini free-tier setting. Ollama always uses the
-    configured Ollama URL; a caller-supplied URL is never fetched (SSRF)."""
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    configured Ollama URL; a caller-supplied URL is never fetched (SSRF).
 
-    ok, message = translate_engines.standalone_direction_support(
-        engine_name, source_language, target_language)
-    if not ok:
-        raise UnsupportedOperationError(message)
+    There is no length limit; instead each request is priced first and the run
+    stops before the one that would pass the monthly cap. A stopped run
+    returns the finished text plus a "message" saying where and why (the key
+    is absent from a run that finished)."""
+    use_free_tier = _checked_request(
+        text, engine_name, source_language, target_language, model, free_tier)
 
     api_key = resolve_api_key(engine_name, env_path)
     if api_key is None:
         raise MissingKeyError(engine_name)
 
-    use_free_tier = (engine_name == "gemini"
-                     and settings_service.resolve_gemini_free_tier(free_tier))
     translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier)
     engine = translate_engines.get_engine(
         engine_name, api_key, model, free_tier=use_free_tier,
@@ -193,20 +264,42 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     metered = _UsageMeter(engine, engine_name)
 
     try:
-        translated_text = translate_engines.standalone_translate(
-            text, metered, source_language, target_language)
+        translated_text, stopped = translate_engines.standalone_translate_partial(
+            text, metered, source_language, target_language, REQUEST_CHUNKS, budget=metered)
     except translate_engines.UnsupportedDirectionError as exc:
         raise UnsupportedOperationError(str(exc)) from exc
     except translate_engines.OllamaUnavailableError as exc:
         raise DependencyUnavailableError(
             translate_engines.redact_secrets(exc.message), details={"reason": exc.reason}) from None
-    finally:
-        # Logged even when a later chunk failed: the earlier chunks were billed.
-        metered.log("translate_text")
 
-    db.save_translate_history(source_language, target_language, engine_name, text, translated_text,
-                              user_id=None if principal is None else principal.get("user_id"))
-    return {"translated_text": translated_text}
+    if translated_text:
+        db.save_translate_history(source_language, target_language, engine_name, text,
+                                  translated_text,
+                                  user_id=None if principal is None else principal.get("user_id"))
+    return {"translated_text": translated_text, **({"message": stopped} if stopped else {})}
+
+
+def estimate(text: str, engine_name: str, source_language: str, target_language: str,
+             model: Optional[str] = None, free_tier: Optional[bool] = None) -> dict:
+    """What translate() would cost, for the Translate page to show before the
+    owner presses the button. Read-only: no key is needed and nothing is sent
+    or logged. cap_left_usd is None when the engine isn't capped or no monthly
+    cap is set."""
+    use_free_tier = _checked_request(
+        text, engine_name, source_language, target_language, model, free_tier)
+    priced = types.SimpleNamespace(
+        model=model or translate_engines.effective_default_model(engine_name) or "",
+        free_tier=use_free_tier)
+    chunks = translate_engines.chunk_standalone_text(text)
+    requests = [chunks[i:i + REQUEST_CHUNKS] for i in range(0, len(chunks), REQUEST_CHUNKS)]
+    estimated = sum(translate_engines.estimate_translation_cost(priced, r) for r in requests)
+    cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
+    monthly = translate_run_service.month_cap_usd() if cap_applies else 0
+    cap_left = max(0.0, monthly - db.get_month_spend()) if monthly else None
+    return {"engine": engine_name, "model": priced.model or None, "chunks": len(chunks),
+            "requests": len(requests), "estimated_usd": estimated, "cap_applies": cap_applies,
+            "monthly_cap_usd": float(monthly) if monthly else None, "cap_left_usd": cap_left,
+            "fits_cap": cap_left is None or estimated <= cap_left}
 
 
 def clear_history(confirm: bool = False) -> dict:

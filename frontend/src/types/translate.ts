@@ -35,4 +35,18 @@ export interface TranslateRequest {
   model?: string | null
 }
 
+export interface TranslateResult {
+  translated_text: string
+  // Present only when the run stopped early because the next chunk would pass the monthly cap.
+  message?: string | null
+}
+
+export interface TranslateEstimate {
+  estimated_usd: number
+  cap_applies: boolean
+  monthly_cap_usd: number | null
+  cap_left_usd: number | null
+  fits_cap: boolean
+}
+
 export type TranslateDirection = 'to_english' | 'from_english'
