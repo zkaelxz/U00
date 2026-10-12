@@ -133,9 +133,14 @@ test('"Keep original files" in Media saves through the metadata update and expla
   const block = page.getByTestId('keep-original')
   const toggle = block.getByRole('switch', { name: 'Keep original files' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  // The click is the behaviour under test, so it goes first; the help text is checked after.
+  // CI saw the click land without reaching the switch (no request sent, no pending state) on a page whose
+  // event stream was being refused, so retry the click until the save starts, and never click once it has.
+  await expect(async () => {
+    if (sent.length === 0) await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 1500 })
+  }).toPass({ timeout: 15_000 })
   await block.getByRole('button', { name: 'Help: Keep original files' }).hover()
   await expect(page.getByText(/never removes this title's source media.*disk space/)).toBeVisible()
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', 'true')
   expect(sent).toEqual([{ keep_original: true }])
 })
