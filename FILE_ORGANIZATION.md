@@ -519,11 +519,12 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `openai_compat.py` (DeepSeek and OpenAI engines)
 - `pricing.py` (Model lists, per-million-token prices and cost estimation)
 - `prompts.py` (Prompt builders shared by the LLM engines)
+- `reflect_pass.py` (Reflect mode: three passes over one batch)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)
-- `translate_pipeline.py` (Reflect mode and the per-run translate loop)
+- `translate_pipeline.py` (The per-run translate loop)
 - `translation_guard.py` (Post-checks on a translated batch for the ways an id-keyed reply can be complete and still wrong)
 
 ## jobs/

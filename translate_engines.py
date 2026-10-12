@@ -228,6 +228,6 @@ from engine_backends.translate_pipeline import (  # noqa: F401
     _translate_lines_with_engine,
     build_translation_context,
     plan_batches,
-    reflect_translate_batch,
     translate_lines_with_engine,
 )
+from engine_backends.reflect_pass import reflect_translate_batch  # noqa: F401
