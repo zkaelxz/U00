@@ -14,12 +14,12 @@ checked in the service (403). A follow the caller can't see is a 404.
 
 from fastapi import APIRouter, Path, Request
 
-from api.auth import (is_local_request, require_cloud_model_allowed, require_engines_allowed,
+from api.auth import (is_at_pc, is_local_request, require_cloud_model_allowed, require_engines_allowed,
                       require_permission)
 from api.schemas import (ErrorResponse, LiveFollow, LiveFollowAdd, LiveFollowCheckAll,
                          LiveFollowCheckQueued, LiveFollowList, LiveFollowRemoved,
                          LiveFollowUpdate, LiveSessionStarted)
-from services import live_follow_service, live_service
+from services import live_follow_service, live_service, model_readiness_service
 
 router = APIRouter(prefix="/api/live/follows", tags=["live"])
 
@@ -93,5 +93,7 @@ def start_live(request: Request, follow_id: int = _ID):
     engine, model = live_follow_service.follow_engine(follow_id, principal=principal)
     require_engines_allowed(request, engine or live_service.LIVE_DEFAULT_ENGINE, model=model)
     require_cloud_model_allowed(request, (engine, model))
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_live_follow, follow_id, principal)
     return live_follow_service.start_from_follow(
         follow_id, principal=principal, use_saved_cookies=is_local_request(request))

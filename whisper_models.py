@@ -229,14 +229,8 @@ def is_network_error(exc: Exception) -> bool:
 
 
 def _hub_dir() -> str:
-    # huggingface_hub's own order: HF_HUB_CACHE overrides HF_HOME/hub. Looking
-    # elsewhere would call a downloaded model missing, or an unpinned one present.
-    explicit = os.environ.get("HF_HUB_CACHE")
-    if explicit:
-        return explicit
-    hub = os.environ.get("HF_HOME") or os.path.join(
-        os.path.expanduser("~"), ".cache", "huggingface")
-    return os.path.join(hub, "hub")
+    from lib.model_offline import hf_hub_dir
+    return hf_hub_dir()
 
 
 def _pinned_snapshot(model_size: str):
@@ -257,26 +251,38 @@ def is_whisper_model_cached(model_size: str) -> bool:
         return _anime_whisper_ready(anime_whisper_folder())
     if model_size in PINNED_CT2_REPOS:
         return _pinned_snapshot(model_size) is not None
-    hub_dir = _hub_dir()
-    if not os.path.isdir(hub_dir):
+    repo_id = faster_whisper_repo(model_size)
+    if repo_id is None:
         return False
-    # Exact repo name: a substring match reads large-v3 as cached when only
-    # large-v3-turbo is. Any org, since turbo is not published by Systran.
-    repo_name = f"faster-whisper-{model_size}".lower()
+    # The exact repo faster-whisper loads: another org's copy of the same size
+    # would read as cached while the loader fetched its own.
+    snapshots = os.path.join(_hub_dir(), "models--" + repo_id.replace("/", "--"), "snapshots")
     try:
-        for repo in os.listdir(hub_dir):
-            parts = repo.lower().split("--")
-            if len(parts) != 3 or parts[0] != "models" or parts[2] != repo_name:
-                continue
-            # An interrupted download leaves the folder without the weights.
-            snapshots = os.path.join(hub_dir, repo, "snapshots")
-            if os.path.isdir(snapshots) and any(
-                    os.path.isfile(os.path.join(snapshots, rev, "model.bin"))
-                    for rev in os.listdir(snapshots)):
-                return True
+        # An interrupted download leaves the folder without the weights.
+        return any(os.path.isfile(os.path.join(snapshots, rev, "model.bin"))
+                   for rev in os.listdir(snapshots))
     except OSError:
-        pass
-    return False
+        return False
+
+
+# faster-whisper's own size -> repo table (faster_whisper.utils._MODELS), for
+# when the package is not importable; the package's table wins when it is.
+_FASTER_WHISPER_REPOS = {
+    **{size: f"Systran/faster-whisper-{size}" for size in (
+        "tiny.en", "tiny", "base.en", "base", "small.en", "small", "medium.en", "medium",
+        "large-v1", "large-v2", "large-v3")},
+    "large": "Systran/faster-whisper-large-v3",
+    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+}
+
+
+def faster_whisper_repo(model_size: str):
+    try:
+        from faster_whisper.utils import _MODELS
+    except ImportError:
+        _MODELS = _FASTER_WHISPER_REPOS
+    return _MODELS.get(model_size)
 
 
 _whisper_device_info = {}   # cache_key -> {"device", "compute_type", "gpu_error"}
@@ -586,9 +592,16 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     # Settings must apply at once, and child processes must not inherit it.
     _tok = hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
     model_path = target
+    from lib import model_offline
+    # A run started away from the PC loads only what is on disk, at the
+    # revision already there (lib/model_offline.py).
+    offline = model_offline.active() and not local_model_path
+    if offline and not is_whisper_model_cached(model_size):
+        raise ModelDownloadError(model_offline.NOT_DOWNLOADED_MESSAGE)
+    build_kwargs = {"local_files_only": True} if offline else {}
 
     def _build(device, compute_type):
-        return WhisperModel(model_path, device=device, compute_type=compute_type)
+        return WhisperModel(model_path, device=device, compute_type=compute_type, **build_kwargs)
 
     device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
     try:
@@ -596,7 +609,7 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
             model_path = _fetch_anime_whisper(_tok)
         elif model_size in PINNED_CT2_REPOS and not local_model_path:
             model_path = _fetch_pinned_model(model_size, _tok)
-        elif _tok and not local_model_path:
+        elif _tok and not local_model_path and not offline:
             model_path = _download_model(model_size, _tok)
         if use_gpu:
             try:

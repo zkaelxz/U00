@@ -216,7 +216,28 @@ def _paddle_home(monkeypatch, tmp_path, folders):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     models = tmp_path / ".paddlex" / "official_models"
     for name in folders:
-        (models / name).mkdir(parents=True)
+        _paddle_model(models / name)
+
+
+def _paddle_model(folder, weights=True):
+    folder.mkdir(parents=True)
+    (folder / "inference.json").write_text("{}")
+    if weights:
+        (folder / "inference.pdiparams").write_bytes(b"x")
+
+
+def test_paddle_folders_without_weights_are_missing(monkeypatch, tmp_path):
+    """A cut-off download leaves the folder and the graph but not the weights."""
+    import ocr
+    _paddle_home(monkeypatch, tmp_path, [])
+    models = tmp_path / ".paddlex" / "official_models"
+    names = list(ocr._PADDLE_CH_MODELS.values())
+    for n in names[:-1]:
+        _paddle_model(models / n)
+    _paddle_model(models / names[-1], weights=False)
+    assert svc._paddle_models_state() == "missing"
+    (models / names[-1] / "inference.pdiparams").write_bytes(b"x")
+    assert svc._paddle_models_state() == "present"
 
 
 def test_paddle_owners_real_folders_are_present(monkeypatch, tmp_path):
@@ -256,7 +277,7 @@ def test_paddle_cache_override_is_honoured(monkeypatch, tmp_path):
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "empty-home"))
     import ocr
     for n in ocr._PADDLE_CH_MODELS.values():
-        (tmp_path / "elsewhere" / "official_models" / n).mkdir(parents=True)
+        _paddle_model(tmp_path / "elsewhere" / "official_models" / n)
     monkeypatch.setenv("PADDLE_PDX_CACHE_HOME", str(tmp_path / "elsewhere"))
     assert svc._paddle_models_state() == "present"
 

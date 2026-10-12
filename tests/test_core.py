@@ -1360,8 +1360,10 @@ class TestWhisperModelCache:
         assert whisper_models.is_whisper_model_cached("large-v3-turbo")
         assert not whisper_models.is_whisper_model_cached("large-v3")
 
-    def test_exact_name_under_any_org_is_cached(self, monkeypatch, tmp_path):
+    def test_only_the_repo_the_loader_uses_is_cached(self, monkeypatch, tmp_path):
         hub = self._hub(monkeypatch, tmp_path)
+        self._repo(hub, "models--someone--faster-whisper-large-v3")
+        assert not whisper_models.is_whisper_model_cached("large-v3")
         self._repo(hub, "models--Systran--faster-whisper-large-v3")
         assert whisper_models.is_whisper_model_cached("large-v3")
 

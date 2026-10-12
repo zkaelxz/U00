@@ -574,7 +574,9 @@ def test_live_saved_cookies_only_when_asked(isolated_db, env_file, monkeypatch):
 
 
 def test_live_route_uses_cookies_only_at_the_pc(isolated_db, env_file, monkeypatch):
-    from services import live_service
+    from services import live_service, model_readiness_service
+    # On disk, so the remote run is refused only by the rule under test.
+    monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a: True)
     calls = []
     monkeypatch.setattr(live_service, "start_session",
                         lambda *a, **k: calls.append(k) or {"session_id": "live_" + "0" * 32})
