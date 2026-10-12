@@ -219,6 +219,7 @@ CREATE TABLE IF NOT EXISTS followed_channels (
     channel_url TEXT NOT NULL,
     channel_name TEXT NOT NULL DEFAULT '',
     mode TEXT NOT NULL DEFAULT 'notify',
+    auto_check INTEGER NOT NULL DEFAULT 0,
     options TEXT NOT NULL DEFAULT '{}',
     poll_minutes INTEGER NOT NULL DEFAULT 60,
     last_checked_at REAL,
@@ -226,6 +227,7 @@ CREATE TABLE IF NOT EXISTS followed_channels (
     last_status TEXT NOT NULL DEFAULT '',
     starts_at REAL,
     last_stream_id TEXT NOT NULL DEFAULT '',
+    stream_title TEXT NOT NULL DEFAULT '',
     notified_state TEXT NOT NULL DEFAULT '',
     started_stream_id TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL

@@ -2,24 +2,30 @@
 services/live_follow_poller.py -- checks followed channels
 (services/live_follow_service.py) for live and scheduled streams.
 
-One daemon thread, started with the API's other schedulers (api/server.py)
-and stopped by the clean stop (services/shutdown_service.py). Each channel
-is checked about every DEFAULT_POLL_MINUTES (jittered, never sooner than
-MIN_POLL_MINUTES apart, except the one extra check below). A check is yt-dlp
-metadata only, in the killable child (services/ytdlp_child.run_live_probe)
-behind the guarded egress proxy, with a hard time limit and an output cap.
-One check runs at a time, server-wide; none starts during the clean stop or
-while a library restore holds the library (a check counts as maintenance,
-so a restore waits for it instead of swapping sources.db under it).
+A check is yt-dlp metadata only, in the killable child
+(services/ytdlp_child.run_live_probe) behind the guarded egress proxy, with
+a hard time limit and an output cap. One check runs at a time, server-wide;
+none starts during the clean stop or while a library restore holds the
+library (a check counts as maintenance, so a restore waits for it instead
+of swapping sources.db under it).
 
-A failed check (network, sign-in check, private, members-only) is stored as
-fixed plain words and doubles the channel's interval up to
-MAX_BACKOFF_MINUTES; any answer resets it. A stream scheduled to start
-within the hour gets one extra check a minute after its start time, so the
-first minutes are not missed by an hourly cadence.
+Checks are manual by default (owner decision): "Check now" and "Check all"
+queue channels for a worker thread that exists only while the queue has
+something in it and checks them one after another, MANUAL_GAP_SECONDS apart.
+A manual check shows its result in the row and notifies no one (the person
+is looking at it).
 
-Each stream is notified once: its id is written to the row before the
-notification goes out, so a restart never notifies the same stream again.
+"Check automatically every hour" is a per-channel toggle, off by default.
+The scheduler thread runs only while at least one channel has it on (it is
+started by api/server.py at startup and when a toggle is turned on, and ends
+its loop when none is left). Such a channel is checked about every
+DEFAULT_POLL_MINUTES (jittered, never sooner than MIN_POLL_MINUTES apart,
+except the one extra check before a scheduled start within the hour). A
+failed automatic check doubles the interval up to MAX_BACKOFF_MINUTES; any
+answer resets it. An automatic check notifies once per stream: the stream id
+is written to the row before the notification goes out, so a restart never
+notifies the same stream again. Only an automatic check may start Live on
+its own (the PC owner's opt-in).
 """
 
 import random
@@ -40,6 +46,11 @@ TICK_SECONDS = 60
 JITTER = 0.1
 UPCOMING_WINDOW_SECONDS = 3600
 EXTRA_CHECK_DELAY_SECONDS = 60
+# Between two queued manual checks ("Check all"), so a batch is not a burst.
+MANUAL_GAP_SECONDS = 3.0
+# How long the manual worker waits before retrying a check another one, or
+# a restore, kept from running.
+BUSY_RETRY_SECONDS = 2.0
 # Spreads overdue channels after a restart, so they are not all checked at once.
 STARTUP_SPREAD_SECONDS = 600
 
@@ -69,16 +80,19 @@ TIMED_OUT = "The check took too long."
 NO_YTDLP = "yt-dlp is not installed."
 FAILED = "The check failed."
 _STREAM_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_TITLE_MAX = 150
 
 _poll_lock = threading.Lock()
 _state_lock = threading.Lock()
-_due = {}           # follow id -> time of its next regular check
+_due = {}           # follow id -> time of its next automatic check
 _extra = {}         # follow id -> time of the one extra check before a scheduled start
 _extra_used = {}    # follow id -> the stream id that extra check was for
-_requested = []     # follow ids asked for (Check now, a new follow), oldest first
+_requested = []     # follow ids queued for a manual check, oldest first
+_current = []       # the follow id being checked right now, if any
 _wake = threading.Event()
 _stop = threading.Event()
-_thread = None
+_thread = None      # the automatic-check scheduler, while a channel has the toggle on
+_worker = None      # the manual-check worker, while its queue has something in it
 
 
 def _log(fmt, *args):
@@ -90,11 +104,63 @@ def _log(fmt, *args):
         pass
 
 
-def request_check(follow_id) -> None:
+def _spawn(target, name) -> threading.Thread:
+    thread = threading.Thread(target=target, daemon=True, name=name)
+    thread.start()
+    return thread
+
+
+def _halted(stop=None) -> bool:
+    return background_jobs.is_stopping() or _stop.is_set() or (stop is not None and stop.is_set())
+
+
+# --- manual checks -----------------------------------------------------------
+
+def request_check(follow_id) -> bool:
+    """Queues one manual check; a channel already queued or being checked is
+    not queued twice. False during the clean stop."""
+    global _worker
+    if _halted():
+        return False
     with _state_lock:
         if follow_id not in _requested:
             _requested.append(follow_id)
-    _wake.set()
+        if _worker is None or not _worker.is_alive():
+            _worker = _spawn(_work_queue, "live-follow-checks")
+    return True
+
+
+def is_checking(follow_id) -> bool:
+    with _state_lock:
+        return follow_id in _requested or follow_id in _current
+
+
+def _work_queue() -> None:
+    global _worker
+    first = True
+    while not _halted():
+        with _state_lock:
+            if not _requested:
+                _worker = None
+                return
+            follow_id = _requested[0]
+        if not first and _stop.wait(MANUAL_GAP_SECONDS):
+            break
+        first = False
+        try:
+            outcome = check_one(follow_id, manual=True)
+        except Exception as exc:
+            _log("manual followed-channel check failed: %s", type(exc).__name__)
+            outcome = "checked"
+        if outcome in ("busy", "held"):
+            _stop.wait(BUSY_RETRY_SECONDS)
+            continue
+        with _state_lock:
+            if follow_id in _requested:
+                _requested.remove(follow_id)
+    with _state_lock:
+        _requested.clear()
+        _worker = None
 
 
 def forget(follow_id) -> None:
@@ -111,9 +177,12 @@ def reset_for_tests() -> None:
         _extra.clear()
         _extra_used.clear()
         _requested.clear()
+        _current.clear()
     _stop.clear()
     _wake.clear()
 
+
+# --- automatic checks --------------------------------------------------------
 
 def _interval_seconds(minutes) -> float:
     base = max(follows.MIN_POLL_MINUTES, int(minutes or follows.DEFAULT_POLL_MINUTES)) * 60
@@ -133,21 +202,15 @@ def _due_at(row, now) -> float:
 
 
 def due_follows(now=None) -> list:
-    """Rows to check now: asked-for ones first, then those whose regular or
-    extra check is due."""
+    """Channels with the automatic check on whose regular or extra check is due."""
     now = time.time() if now is None else now
-    rows = {r["id"]: r for r in follow_store.list_all()}
+    rows = {r["id"]: r for r in follow_store.list_all() if r.get("auto_check")}
     with _state_lock:
-        asked = [i for i in _requested if i in rows]
         extra = [i for i, t in _extra.items() if t <= now and i in rows]
     regular = sorted((i for i, r in rows.items() if _due_at(r, now) <= now),
                      key=lambda i: _due[i])
-    order = list(dict.fromkeys(asked + extra + regular))
+    order = list(dict.fromkeys(extra + regular))
     return [rows[i] for i in order]
-
-
-def _halted(stop=None) -> bool:
-    return background_jobs.is_stopping() or _stop.is_set() or (stop is not None and stop.is_set())
 
 
 def run_due_once(now=None, stop=None) -> int:
@@ -161,7 +224,7 @@ def run_due_once(now=None, stop=None) -> int:
     return ran
 
 
-def check_one(follow_id, now=None) -> str:
+def check_one(follow_id, now=None, manual=False) -> str:
     """"checked", or why not: "stopping", "busy" (another check is running),
     "held" (a restore holds the library), "gone"."""
     if _halted():
@@ -176,6 +239,8 @@ def check_one(follow_id, now=None) -> str:
             if row is None:
                 forget(follow_id)
                 return "gone"
+            with _state_lock:
+                _current[:] = [follow_id]
             try:
                 result = probe(row)
             except Exception as exc:
@@ -184,14 +249,13 @@ def check_one(follow_id, now=None) -> str:
                 result = {"error": ""}
             if result.get("cancelled"):
                 return "stopping"
-            _apply(row, result, time.time() if now is None else now)
+            _apply(row, result, time.time() if now is None else now, manual=manual)
         finally:
+            with _state_lock:
+                _current.clear()
             background_jobs.exit_maintenance()
     finally:
         _poll_lock.release()
-    with _state_lock:
-        if follow_id in _requested:
-            _requested.remove(follow_id)
     return "checked"
 
 
@@ -241,15 +305,16 @@ def _number(value):
 def classify(result) -> dict:
     """{state, status, stream_id, channel, starts_at}. state is live,
     upcoming, not_live or error; status is fixed plain words."""
-    out = {"state": "error", "status": FAILED, "stream_id": "", "channel": "",
+    out = {"state": "error", "status": FAILED, "stream_id": "", "channel": "", "title": "",
            "starts_at": None}
     live = result.get("live") if isinstance(result, dict) else None
     if isinstance(live, dict):
         status = live.get("status")
         stream_id = live.get("id") if isinstance(live.get("id"), str) else ""
         channel = live.get("channel") if isinstance(live.get("channel"), str) else ""
+        title = live.get("title") if isinstance(live.get("title"), str) else ""
         out.update(stream_id=stream_id if _STREAM_ID.fullmatch(stream_id) else "",
-                   channel=channel)
+                   channel=channel, title=title)
         if status == "is_live":
             out.update(state="live", status=LIVE)
         elif status == "is_upcoming":
@@ -274,12 +339,19 @@ def _tidy(text, limit) -> str:
     return text[:limit]
 
 
-def _apply(row, result, now) -> None:
+def _apply(row, result, now, manual=False) -> None:
+    """Stores the answer. A manual check only shows it: it leaves the
+    automatic schedule alone, notifies no one and starts nothing, but it
+    does mark the stream as seen, so a later automatic check does not
+    announce what the person already looked at."""
     c = classify(result)
     fields = {"last_checked_at": now, "last_state": c["state"], "last_status": c["status"],
               "starts_at": c["starts_at"],
-              "poll_minutes": follows.DEFAULT_POLL_MINUTES if c["state"] != "error"
-              else min(int(row["poll_minutes"]) * 2, follows.MAX_BACKOFF_MINUTES)}
+              "stream_title": _tidy(c["title"], _TITLE_MAX) if c["state"] in ("live", "upcoming")
+              else ""}
+    if not manual:
+        fields["poll_minutes"] = follows.DEFAULT_POLL_MINUTES if c["state"] != "error" \
+            else min(int(row["poll_minutes"]) * 2, follows.MAX_BACKOFF_MINUTES)
     name = _tidy(c["channel"], follows.MAX_NAME_LEN)
     if name:
         fields["channel_name"] = name
@@ -292,6 +364,8 @@ def _apply(row, result, now) -> None:
     if notify:
         fields.update(last_stream_id=stream_id, notified_state=notify)
     follow_store.update(row["id"], **fields)
+    if manual:
+        return
     row = dict(row, **fields)
     _schedule(row, c, now)
     note = None
@@ -343,7 +417,7 @@ def _auto_start(row, stream_id):
     from services import live_service
     from services.service_errors import (ConflictError, DependencyUnavailableError,
                                          InvalidInputError, MissingKeyError, ServiceError)
-    if row.get("mode") != "auto" or not row.get("pc_owner") \
+    if row.get("mode") != "auto" or not row.get("pc_owner") or not row.get("auto_check") \
             or row.get("started_stream_id") == stream_id:
         return None
     try:
@@ -395,18 +469,27 @@ def _notify(row, kind, c, note, now) -> None:
                                                 push_text=push_text)
 
 
-# --- the thread ----------------------------------------------------------------
+# --- the threads --------------------------------------------------------------
 
-def start(tick: float = TICK_SECONDS) -> bool:
-    """Starts the poller thread once; False if one is already running."""
+def start_if_needed(tick: float = TICK_SECONDS) -> bool:
+    """Starts the automatic-check scheduler when some channel has the toggle
+    on and it is not running; True if this call started it."""
     global _thread
+    if _halted():
+        return False
     with _state_lock:
         if _thread is not None and _thread.is_alive():
             return False
-        _stop.clear()
+        if not follow_store.any_auto_check():
+            return False
 
         def loop():
-            while not _stop.is_set():
+            global _thread
+            while not _halted():
+                with _state_lock:
+                    if not follow_store.any_auto_check():
+                        _thread = None
+                        return
                 try:
                     run_due_once()
                 except Exception as exc:
@@ -414,18 +497,18 @@ def start(tick: float = TICK_SECONDS) -> bool:
                 _wake.wait(tick)
                 _wake.clear()
 
-        _thread = threading.Thread(target=loop, daemon=True, name="live-follow-poller")
-        _thread.start()
+        _thread = _spawn(loop, "live-follow-poller")
         return True
 
 
 def stop(timeout: float = 5.0) -> None:
     """For good in this process: no new check, and a running one's child is
     killed (its cancel is the same stop flag)."""
-    global _thread
+    global _thread, _worker
     _stop.set()
     _wake.set()
     with _state_lock:
-        thread, _thread = _thread, None
-    if thread is not None and thread is not threading.current_thread():
-        thread.join(timeout)
+        threads, _thread, _worker = (_thread, _worker), None, None
+    for thread in threads:
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout)

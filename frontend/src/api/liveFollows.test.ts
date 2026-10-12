@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   MAX_CHANNEL_INPUT,
   addFollow,
+  autoStartBlocker,
+  checkAllFollows,
   checkChannelInput,
   checkedText,
   describeFollowError,
@@ -38,8 +40,12 @@ describe('status text', () => {
   it('says plainly what the last check found', () => {
     expect(followStatusText({ state: '', last_status: '', starts_at: null, last_checked_at: null })).toBe('Not checked yet')
     expect(followStatusText({ state: 'live', last_status: 'Live now', starts_at: null, last_checked_at: 1 })).toBe('Live now')
+    expect(followStatusText({ state: 'live', last_status: 'Live now', starts_at: null, last_checked_at: 1, stream_title: 'Chat' })).toBe('Live now: Chat')
     expect(followStatusText({ state: 'upcoming', last_status: 'Scheduled', starts_at: 1_800_000_000, last_checked_at: 1 }))
-      .toMatch(/^Scheduled, starts at \d/)
+      .toMatch(/^Starts at \d/)
+    expect(followStatusText({ state: 'upcoming', last_status: 'Scheduled', starts_at: null, last_checked_at: 1 })).toBe('Scheduled')
+    expect(followStatusText({ state: 'error', last_status: 'YouTube asked for a sign-in check.', starts_at: null, last_checked_at: 1 }))
+      .toBe('YouTube asked for a sign-in check.')
     expect(checkedText(null)).toBe('Not checked yet')
     expect(checkedText(1000, 1030)).toBe('Checked just now')
     expect(checkedText(1000, 1000 + 600)).toBe('Checked 10 min ago')
@@ -62,8 +68,14 @@ describe('requests', () => {
     expect((f.mock.calls[1] as unknown[])[0]).toBe('/api/live/follows/3/remove')
     await startFromFollow(3, f as unknown as typeof fetch)
     expect((f.mock.calls[2] as unknown[])[0]).toBe('/api/live/follows/3/start')
+    await checkAllFollows(f as unknown as typeof fetch)
+    expect((f.mock.calls[3] as unknown[])[0]).toBe('/api/live/follows/check-all')
     await expect(removeFollow(0, f as unknown as typeof fetch)).rejects.toMatchObject({ status: 404 })
-    expect(f).toHaveBeenCalledTimes(3)
+    expect(f).toHaveBeenCalledTimes(4)
+  })
+  it('explains why the automatic start is not offered without the hourly check', () => {
+    expect(autoStartBlocker({ auto_check: false })).toMatch(/Check every hour/)
+    expect(autoStartBlocker({ auto_check: true })).toBeNull()
   })
   it('keeps whole minutes and only the follow options', () => {
     const o = followOptions({

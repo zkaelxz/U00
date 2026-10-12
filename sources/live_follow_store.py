@@ -12,7 +12,7 @@ from sources import store
 # Columns the service may change after a row is created; anything else
 # (id, owner, created_at, the canonical URL) is fixed for the row's life.
 _UPDATABLE = frozenset({
-    "channel_name", "mode", "options", "pc_owner", "poll_minutes", "last_checked_at",
+    "channel_name", "mode", "auto_check", "options", "stream_title", "pc_owner", "poll_minutes", "last_checked_at",
     "last_state", "last_status", "starts_at", "last_stream_id", "notified_state",
     "started_stream_id",
 })
@@ -23,13 +23,14 @@ def _row(r) -> dict:
 
 
 def add(owner_user_id, pc_owner: bool, channel_url: str, channel_name: str, mode: str,
-        options: str, poll_minutes: int) -> int:
+        options: str, poll_minutes: int, auto_check: bool = False) -> int:
     with store.connect() as conn:
         cur = conn.execute(
             "INSERT INTO followed_channels (owner_user_id, pc_owner, channel_url, channel_name, "
-            "mode, options, poll_minutes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (owner_user_id, int(bool(pc_owner)), channel_url, channel_name, mode, options,
-             int(poll_minutes), time.time()))
+            "mode, auto_check, options, poll_minutes, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (owner_user_id, int(bool(pc_owner)), channel_url, channel_name, mode,
+             int(bool(auto_check)), options, int(poll_minutes), time.time()))
         return int(cur.lastrowid)
 
 
@@ -42,6 +43,12 @@ def get(follow_id: int):
 def list_all() -> list:
     with store.connect() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM followed_channels ORDER BY id")]
+
+
+def any_auto_check() -> bool:
+    with store.connect() as conn:
+        return conn.execute(
+            "SELECT 1 FROM followed_channels WHERE auto_check = 1 LIMIT 1").fetchone() is not None
 
 
 def count(owner_user_id=None, any_owner: bool = False) -> int:

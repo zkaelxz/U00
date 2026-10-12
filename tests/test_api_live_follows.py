@@ -20,10 +20,18 @@ from sources import live_follow_store
 PUBLIC = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("142.250.72.14", 443))]
 
 
+class _Thread:
+    def is_alive(self):
+        return True
+
+
 @pytest.fixture
 def env(isolated_db, monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: PUBLIC)
     live_follow_poller.reset_for_tests()
+    monkeypatch.setattr(live_follow_poller, "_spawn", lambda target, name: _Thread())
+    monkeypatch.setattr(live_follow_poller, "_thread", None)
+    monkeypatch.setattr(live_follow_poller, "_worker", None)
     starts = []
     monkeypatch.setattr(live_service, "start_session",
                         lambda url, **kw: starts.append(dict(kw, url=url)) or {"session_id": "live_" + "a" * 32})
@@ -78,6 +86,13 @@ def test_permissions_and_ownership_with_auth_on(env):
     no_read = _headers(email="nr@example.com", revoke=("library.read",))
     assert c.get("/api/live/follows", headers=no_read).status_code == 403
     assert c.post(f"/api/live/follows/{fid}/check", headers=alice).json() == {"id": fid, "queued": True}
+    # Check all: only the caller's own channels.
+    bob_fid = c.post("/api/live/follows", json={"channel": "@bob_ch"}, headers=bob).json()["id"]
+    live_follow_poller.reset_for_tests()
+    assert c.post("/api/live/follows/check-all", headers=alice).json() == {"queued": 1, "skipped": 0}
+    assert live_follow_poller._requested == [fid]
+    assert c.post("/api/live/follows/check-all", headers=household).status_code == 403
+    assert bob_fid not in live_follow_poller._requested
     assert c.post(f"/api/live/follows/{fid}/remove", headers=alice).json()["removed"] is True
 
 
@@ -104,8 +119,10 @@ def test_start_live_needs_the_live_start_permissions(env):
 def test_auth_off_owner_flow_and_no_url_in_responses(env):
     c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
                    headers={"X-Baihe-Local": "1"})
+    assert c.post("/api/live/follows", json={
+        "channel": "https://www.youtube.com/@owner_ch", "mode": "auto"}).status_code == 422
     r = c.post("/api/live/follows", json={
-        "channel": "https://www.youtube.com/@owner_ch", "mode": "auto",
+        "channel": "https://www.youtube.com/@owner_ch", "mode": "auto", "auto_check": True,
         "options": {"engine": "fake", "max_minutes": 5}})
     assert r.status_code == 200, r.text
     fid = r.json()["id"]
@@ -123,6 +140,9 @@ def test_auth_off_owner_flow_and_no_url_in_responses(env):
     r = c.post(f"/api/live/follows/{fid}/start")
     assert r.status_code == 200 and env[0]["use_saved_cookies"] is True
     assert c.post(f"/api/live/follows/{fid}/check").status_code == 200
+    # Still queued: a second press changes nothing.
+    assert c.post(f"/api/live/follows/{fid}/check").json() == {"id": fid, "queued": True}
+    live_follow_poller.reset_for_tests()
     live_follow_store.update(fid, last_checked_at=__import__("time").time())
     assert c.post(f"/api/live/follows/{fid}/check").status_code == 429
 

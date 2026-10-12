@@ -56,8 +56,11 @@ def env(isolated_db, monkeypatch):
     poller.reset_for_tests()
 
 
-def _follow(principal=ALICE, handle="@name", **kw):
+def _follow(principal=ALICE, handle="@name", auto_check=True, mode="notify", **kw):
+    """The toggle and mode are set in the row, so adding one starts no thread
+    here; the scheduler tests start it themselves."""
     fid = svc.add_follow(handle, principal=principal, **kw)["id"]
+    live_follow_store.update(fid, auto_check=int(auto_check), mode=mode)
     poller.reset_for_tests()
     return fid
 
@@ -201,14 +204,14 @@ def test_a_new_follow_is_due_at_once_and_overdue_ones_spread_after_a_restart(env
     assert NOW <= poller._due[fid] <= NOW + poller.STARTUP_SPREAD_SECONDS
 
 
-def test_run_due_once_checks_requested_channels_first(env):
-    a, b = _follow(handle="@aaa"), _follow(handle="@bbb")
+def test_only_channels_with_the_hourly_check_are_checked_automatically(env):
+    a = _follow(handle="@aaa")
+    b = _follow(handle="@bbb", auto_check=False)
     order = []
     env["answers"][a] = lambda: order.append(a) or NOT_LIVE
     env["answers"][b] = lambda: order.append(b) or NOT_LIVE
-    poller.request_check(b)
-    assert poller.run_due_once(now=NOW) == 2
-    assert order == [b, a] and poller._requested == []
+    assert poller.run_due_once(now=NOW) == 1
+    assert order == [a]
     assert poller.run_due_once(now=NOW + 60) == 0
 
 
@@ -291,7 +294,7 @@ def starts(monkeypatch):
 
 
 def _auto(env):
-    fid = _follow(OWNER, "@owner_ch", mode="auto",
+    fid = _follow(OWNER, "@owner_ch", mode="auto", auto_check=True,
                   options={"engine": "fake", "max_minutes": 7, "whisper_size": "tiny"})
     env["answers"][fid] = live()
     return fid
@@ -394,8 +397,8 @@ def test_auto_start_uses_the_monthly_cap_helper(env, starts, monkeypatch):
 
 def test_scheduler_thread_checks_and_stops_cleanly(env):
     fid = _follow()
-    assert poller.start(tick=0.05) is True
-    assert poller.start(tick=0.05) is False
+    assert poller.start_if_needed(tick=0.05) is True
+    assert poller.start_if_needed(tick=0.05) is False
     end = time.time() + 5
     while time.time() < end and live_follow_store.get(fid)["last_checked_at"] is None:
         time.sleep(0.02)
@@ -408,7 +411,7 @@ def test_scheduler_thread_checks_and_stops_cleanly(env):
 def test_scheduler_survives_a_failing_check(env, monkeypatch):
     fid = _follow()
     env["answers"][fid] = RuntimeError("boom")
-    assert poller.start(tick=0.05)
+    assert poller.start_if_needed(tick=0.05)
     time.sleep(0.2)
     thread = poller._thread
     assert thread.is_alive()
@@ -446,3 +449,109 @@ def test_an_upcoming_error_without_details_is_not_a_failure(env):
     row = _check(fid)
     assert (row["last_state"], row["poll_minutes"]) == ("upcoming", svc.DEFAULT_POLL_MINUTES)
     assert env["sent"] == []
+
+
+# --- manual checks and the toggle ------------------------------------------------
+
+def _wait(cond, timeout=10.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(0.02)
+    return cond()
+
+
+def test_no_scheduler_without_an_hourly_toggle(env):
+    _follow(auto_check=False)
+    assert poller.start_if_needed(tick=0.05) is False
+    assert poller._thread is None
+    assert all(t.name != "live-follow-poller" for t in threading.enumerate())
+
+
+def test_the_scheduler_ends_when_the_last_toggle_goes_off(env):
+    fid = _follow()
+    assert poller.start_if_needed(tick=0.05) is True
+    thread = poller._thread
+    svc.update_follow(fid, auto_check=False, principal=ALICE)
+    poller._wake.set()
+    assert _wait(lambda: not thread.is_alive())
+    assert poller._thread is None
+
+
+def test_a_manual_check_shows_the_result_and_notifies_no_one(env, starts):
+    fid = _follow(OWNER, "@owner_ch", mode="auto", options={"engine": "fake"})
+    env["answers"][fid] = live()
+    assert poller.check_one(fid, now=NOW, manual=True) == "checked"
+    row = live_follow_store.get(fid)
+    assert (row["last_state"], row["stream_title"]) == ("live", "t")
+    assert env["sent"] == [] and starts == []
+    assert row["poll_minutes"] == svc.DEFAULT_POLL_MINUTES and fid not in poller._due
+    # The stream counts as seen: the automatic check does not announce it again
+    # (it may still start Live, which is a separate opt-in).
+    _check(fid, NOW + 3600)
+    assert env["sent"] == [] and len(starts) == 1
+
+
+def test_a_manual_error_leaves_the_automatic_schedule_alone(env):
+    fid = _follow()
+    env["answers"][fid] = SIGN_IN
+    poller.check_one(fid, now=NOW, manual=True)
+    row = live_follow_store.get(fid)
+    assert row["last_state"] == "error" and row["poll_minutes"] == svc.DEFAULT_POLL_MINUTES
+
+
+def test_queued_manual_checks_run_one_at_a_time_then_the_worker_exits(env, monkeypatch):
+    monkeypatch.setattr(poller, "MANUAL_GAP_SECONDS", 0.05)
+    ids = [_follow(handle=f"@ch{i:03}", auto_check=False) for i in range(3)]
+    running, peak, order = [0], [0], []
+
+    def answer(fid):
+        def run():
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+            order.append(fid)
+            time.sleep(0.05)
+            running[0] -= 1
+            return NOT_LIVE
+        return run
+    for fid in ids:
+        env["answers"][fid] = answer(fid)
+    for fid in ids + [ids[0]]:
+        assert poller.request_check(fid)
+    worker = poller._worker
+    assert _wait(lambda: not worker.is_alive())
+    assert order == ids and peak[0] == 1
+    assert poller._requested == [] and poller._worker is None
+    assert env["sent"] == []
+
+
+def test_a_manual_check_waits_for_a_running_one(env, monkeypatch):
+    monkeypatch.setattr(poller, "BUSY_RETRY_SECONDS", 0.05)
+    a, b = _follow(handle="@aaa"), _follow(handle="@bbb", auto_check=False)
+    inside, release = threading.Event(), threading.Event()
+
+    def slow():
+        inside.set()
+        release.wait(5)
+        return NOT_LIVE
+    env["answers"][a] = slow
+    t = threading.Thread(target=poller.check_one, args=(a,), kwargs={"now": NOW})
+    t.start()
+    try:
+        assert inside.wait(5)
+        poller.request_check(b)
+        time.sleep(0.2)
+        assert live_follow_store.get(b)["last_checked_at"] is None
+        assert poller.is_checking(b)
+    finally:
+        release.set()
+        t.join(5)
+    assert _wait(lambda: live_follow_store.get(b)["last_checked_at"] is not None)
+
+
+def test_no_manual_check_during_the_clean_stop(env, monkeypatch):
+    fid = _follow(auto_check=False)
+    monkeypatch.setattr(background_jobs, "is_stopping", lambda: True)
+    assert poller.request_check(fid) is False
+    assert poller._worker is None

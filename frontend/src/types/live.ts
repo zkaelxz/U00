@@ -97,6 +97,8 @@ export interface LiveFollow {
   channel: string
   channel_name: string
   mode: LiveFollowMode
+  /** Checked automatically every hour; off (the default) means manual checks only. */
+  auto_check: boolean
   options: LiveFollowOptions
   poll_minutes: number
   /** Unix seconds. */
@@ -107,6 +109,10 @@ export interface LiveFollow {
   /** Unix seconds (UTC) of a scheduled stream's start. */
   starts_at: number | null
   live_now: boolean
+  /** The live or scheduled stream's title, as the site gives it. */
+  stream_title: string
+  /** A check of this channel is queued or running. */
+  checking: boolean
   mine: boolean
   created_at: number
 }
@@ -122,10 +128,12 @@ export interface LiveFollowList {
 export interface LiveFollowAdd {
   channel: string
   mode?: LiveFollowMode
+  auto_check?: boolean
   options?: LiveFollowOptions
 }
 
 export interface LiveFollowUpdate {
   mode?: LiveFollowMode
+  auto_check?: boolean
   options?: LiveFollowOptions
 }

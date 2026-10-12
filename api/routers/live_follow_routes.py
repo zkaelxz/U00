@@ -3,7 +3,8 @@ api/routers/live_follow_routes.py -- the Live page's followed channels.
 Thin: see services/live_follow_service.py (and live_follow_poller.py for
 the checks).
 
-The checks fetch YouTube from this PC, so adding, changing, checking and
+Checks are manual (Check now, Check all) unless a channel's hourly check
+is on. They fetch YouTube from this PC, so adding, changing, checking and
 removing a follow need `media.import_url`, like a Live start; listing is
 `library.read`. "Start Live" from a follow is a Live start and gated the
 same way (`media.import_url`, plus `engines.paid` for a paid engine or an
@@ -15,8 +16,9 @@ from fastapi import APIRouter, Path, Request
 
 from api.auth import (is_local_request, require_cloud_model_allowed, require_engines_allowed,
                       require_permission)
-from api.schemas import (ErrorResponse, LiveFollow, LiveFollowAdd, LiveFollowCheckQueued,
-                         LiveFollowList, LiveFollowRemoved, LiveFollowUpdate, LiveSessionStarted)
+from api.schemas import (ErrorResponse, LiveFollow, LiveFollowAdd, LiveFollowCheckAll,
+                         LiveFollowCheckQueued, LiveFollowList, LiveFollowRemoved,
+                         LiveFollowUpdate, LiveSessionStarted)
 from services import live_follow_service, live_service
 
 router = APIRouter(prefix="/api/live/follows", tags=["live"])
@@ -44,9 +46,18 @@ def list_follows(request: Request):
 def add_follow(body: LiveFollowAdd, request: Request):
     _check_engine(request, body.options)
     return live_follow_service.add_follow(
-        body.channel, mode=body.mode,
+        body.channel, mode=body.mode, auto_check=body.auto_check,
         options=body.options.model_dump() if body.options else None,
         principal=request.state.principal)
+
+
+# Declared before "/{follow_id}" so the literal path is matched first.
+@router.post("/check-all", dependencies=[require_permission("media.import_url")],
+             response_model=LiveFollowCheckAll,
+             summary="Queue a check of every channel the caller may change, one after another",
+             responses=_ERRS)
+def check_all(request: Request):
+    return live_follow_service.check_all(principal=request.state.principal)
 
 
 @router.post("/{follow_id}", dependencies=[require_permission("media.import_url")],
@@ -55,7 +66,7 @@ def add_follow(body: LiveFollowAdd, request: Request):
 def update_follow(body: LiveFollowUpdate, request: Request, follow_id: int = _ID):
     _check_engine(request, body.options)
     return live_follow_service.update_follow(
-        follow_id, mode=body.mode,
+        follow_id, mode=body.mode, auto_check=body.auto_check,
         options=body.options.model_dump() if body.options else None,
         principal=request.state.principal)
 

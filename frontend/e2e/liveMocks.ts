@@ -33,6 +33,7 @@ export interface FollowRow {
   channel: string
   channel_name: string
   mode: 'notify' | 'auto'
+  auto_check: boolean
   options: Record<string, unknown>
   poll_minutes: number
   last_checked_at: number | null
@@ -40,6 +41,8 @@ export interface FollowRow {
   last_status: string
   starts_at: number | null
   live_now: boolean
+  stream_title: string
+  checking: boolean
   mine: boolean
   created_at: number
 }
@@ -48,9 +51,9 @@ const FOLLOW_OPTIONS = { source_language: 'zh', whisper_size: 'small', engine: n
 
 /** A followed channel as GET /api/live/follows lists it. */
 export const followRow = (id: number, over: Partial<FollowRow> = {}): FollowRow => ({
-  id, channel: `@channel${id}`, channel_name: `Channel ${id}`, mode: 'notify', options: { ...FOLLOW_OPTIONS },
+  id, channel: `@channel${id}`, channel_name: `Channel ${id}`, mode: 'notify', auto_check: false, options: { ...FOLLOW_OPTIONS },
   poll_minutes: 60, last_checked_at: null, state: '', last_status: '', starts_at: null, live_now: false,
-  mine: true, created_at: 1_800_000_000, ...over,
+  stream_title: '', checking: false, mine: true, created_at: 1_800_000_000, ...over,
 })
 
 interface LiveMocks {
@@ -124,7 +127,12 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     const r = route.request()
     const f = m.follows
     if (r.method() === 'GET') {
-      return json(route, { items: f.items, can_auto_start: f.can_auto_start, max_per_member: 5, max_total: 20 })
+      const body = { items: f.items.map((x) => ({ ...x })), can_auto_start: f.can_auto_start, max_per_member: 5, max_total: 20 }
+      // A queued check is reported once as "checking", then its result.
+      for (const x of f.items) {
+        if (x.checking) Object.assign(x, { checking: false, last_checked_at: Date.now() / 1000, state: 'not_live', last_status: 'Not live' })
+      }
+      return json(route, body)
     }
     const body = r.postDataJSON() as { channel: string; mode?: 'notify' | 'auto'; options?: Record<string, unknown> }
     f.posts.push({ path: '/api/live/follows', body })
@@ -136,9 +144,14 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   await page.route('**/api/live/follows/**', (route) => {
     const r = route.request()
     const path = new URL(r.url()).pathname
-    const [, id, action] = path.match(/^\/api\/live\/follows\/(\d+)(?:\/(\w+))?$/) ?? []
     const f = m.follows
     f.posts.push({ path, body: r.postData() ? r.postDataJSON() : null })
+    if (path === '/api/live/follows/check-all') {
+      const mine = f.items.filter((x) => x.mine || f.can_auto_start)
+      mine.forEach((x) => { x.checking = true })
+      return json(route, { queued: mine.length, skipped: 0 })
+    }
+    const [, id, action] = path.match(/^\/api\/live\/follows\/(\d+)(?:\/(\w+))?$/) ?? []
     const row = f.items.find((x) => x.id === Number(id))
     if (!row) return json(route, { error: { code: 'not_found', message: 'No such followed channel.' } }, 404)
     if (action === 'remove') {
@@ -146,9 +159,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
       return json(route, { id: row.id, removed: true })
     }
     if (action === 'check') {
-      row.last_checked_at = Date.now() / 1000
-      row.state = 'not_live'
-      row.last_status = 'Not live'
+      row.checking = true
       return json(route, { id: row.id, queued: true })
     }
     if (action === 'start') {

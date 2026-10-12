@@ -32,6 +32,7 @@ __all__ = [
     "LiveFollowList",
     "LiveFollowRemoved",
     "LiveFollowCheckQueued",
+    "LiveFollowCheckAll",
     "AutotuneCandidateMs",
     "AutotuneRunRequest",
     "AutotuneRunResult",
@@ -343,11 +344,13 @@ class LiveFollowOptions(BaseModel):
 
 
 class LiveFollowAdd(BaseModel):
-    """A YouTube channel link or a bare @handle. mode "auto" (start Live
-    automatically) is the PC owner's only."""
+    """A YouTube channel link or a bare @handle. Checks are manual unless
+    auto_check (check automatically every hour) is on. mode "auto" (start
+    Live automatically) is the PC owner's only and needs auto_check."""
     model_config = ConfigDict(extra="forbid")
     channel: str = Field(min_length=1, max_length=300)
     mode: Literal["notify", "auto"] = "notify"
+    auto_check: StrictBool = False
     options: Optional[LiveFollowOptions] = None
 
 
@@ -355,6 +358,7 @@ class LiveFollowUpdate(BaseModel):
     """Omitted fields stay as they are."""
     model_config = ConfigDict(extra="forbid")
     mode: Optional[Literal["notify", "auto"]] = None
+    auto_check: Optional[StrictBool] = None
     options: Optional[LiveFollowOptions] = None
 
 
@@ -364,6 +368,7 @@ class LiveFollow(BaseModel):
     channel: str
     channel_name: str
     mode: Literal["notify", "auto"]
+    auto_check: bool   # checked automatically every hour (off: manual checks only)
     options: LiveFollowOptions
     poll_minutes: int
     last_checked_at: Optional[float] = None
@@ -371,6 +376,8 @@ class LiveFollow(BaseModel):
     last_status: str   # fixed plain words
     starts_at: Optional[float] = None   # Unix seconds (UTC) of a scheduled stream
     live_now: bool
+    stream_title: str   # the live or scheduled stream's title, as the site gives it
+    checking: bool      # a check of this channel is queued or running
     mine: bool
     created_at: float
 
@@ -390,6 +397,11 @@ class LiveFollowRemoved(BaseModel):
 class LiveFollowCheckQueued(BaseModel):
     id: int
     queued: bool
+
+
+class LiveFollowCheckAll(BaseModel):
+    queued: int
+    skipped: int   # checked in the last minute, or already queued
 
 
 # ---------------------------------------------------------------------------

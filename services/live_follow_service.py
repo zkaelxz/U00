@@ -10,10 +10,14 @@ Who sees what: a follow is owned like a job that is not tied to a title
 admins, see it; changing it needs the admin override (an admin away from
 the PC changes only their own). Another user's follow is a 404.
 
+Checks are manual unless the channel's "check automatically every hour"
+toggle (`auto_check`, off by default) is on; see live_follow_poller.py.
+
 "PC owner" here is the rule queue_service uses for the queue's controls:
 auth off, the local owner, or an admin with the admin override (at the PC).
 Only they may turn on "Start Live automatically", and only on their own
-follows: it spends the owner's GPU and paid key. Not local_only(): with
+follows: it spends the owner's GPU and paid key. It needs the automatic
+check on, since only an automatic check can notice the stream. Not local_only(): with
 auth on, the owner's rows carry their user id, which local_only()'s
 anonymous principal would lose.
 
@@ -212,10 +216,13 @@ def view(row, principal=None) -> dict:
     return {"id": row["id"], "channel": _label(row["channel_url"]),
             "channel_name": row.get("channel_name") or "",
             "mode": row["mode"] if row["mode"] in MODES else "notify",
+            "auto_check": bool(row.get("auto_check")),
             "options": _options(row), "poll_minutes": int(row["poll_minutes"]),
             "last_checked_at": row.get("last_checked_at"),
             "state": row.get("last_state") or "", "last_status": row.get("last_status") or "",
             "starts_at": row.get("starts_at"), "live_now": row.get("last_state") == "live",
+            "stream_title": row.get("stream_title") or "",
+            "checking": _poller().is_checking(row["id"]),
             "mine": ownership_service.user_id(principal) == row.get("owner_user_id"),
             "created_at": row["created_at"]}
 
@@ -228,13 +235,21 @@ def list_follows(principal=None) -> dict:
 
 # --- changes -----------------------------------------------------------------
 
-def _check_mode(mode, principal, owner_user_id) -> str:
+def _poller():
+    from services import live_follow_poller
+    return live_follow_poller
+
+
+def _check_mode(mode, principal, owner_user_id, auto_check) -> str:
     if mode not in MODES:
         raise InvalidInputError("mode must be notify or auto.")
     if mode == "auto" and not (is_pc_owner(principal)
                                and ownership_service.user_id(principal) == owner_user_id):
         raise ForbiddenError("Only the PC owner can let their own channels start Live "
                              "automatically. Choose Notify me instead.")
+    if mode == "auto" and not auto_check:
+        raise InvalidInputError("Start Live automatically needs the hourly check on: only an "
+                                "automatic check can notice the stream.")
     return mode
 
 
@@ -245,10 +260,11 @@ def _dump(options: dict) -> str:
     return text
 
 
-def add_follow(channel, mode="notify", options=None, principal=None) -> dict:
+def add_follow(channel, mode="notify", options=None, auto_check=False, principal=None) -> dict:
     url, label = normalize_channel(channel)
     owner = ownership_service.user_id(principal)
-    mode = _check_mode(mode, principal, owner)
+    auto_check = bool(auto_check)
+    mode = _check_mode(mode, principal, owner, auto_check)
     opts = _dump(clean_options(options, principal))
     _require_public(url)
     with _add_lock:
@@ -261,44 +277,78 @@ def add_follow(channel, mode="notify", options=None, principal=None) -> dict:
             raise ConflictError(f"This PC already follows {MAX_TOTAL} channels, the most it "
                                 "checks. Remove one first.")
         follow_id = follow_store.add(owner, is_pc_owner(principal), url, label[:MAX_NAME_LEN],
-                                     mode, opts, DEFAULT_POLL_MINUTES)
-    from services import live_follow_poller
-    live_follow_poller.request_check(follow_id)
+                                     mode, opts, DEFAULT_POLL_MINUTES, auto_check=auto_check)
+    if auto_check:
+        _poller().start_if_needed()
     return view(follow_store.get(follow_id), principal)
 
 
-def update_follow(follow_id, mode=None, options=None, principal=None) -> dict:
+def update_follow(follow_id, mode=None, options=None, auto_check=None, principal=None) -> dict:
+    """Turning the automatic check off also turns an automatic start back
+    into Notify me, which can't work without it."""
     row = _require(principal, follow_id, writing=True)
     fields = {}
+    checking = bool(row.get("auto_check")) if auto_check is None else bool(auto_check)
+    if auto_check is not None:
+        fields["auto_check"] = int(checking)
+        if not checking and mode is None and row.get("mode") == "auto":
+            fields["mode"] = "notify"
     if mode is not None:
-        fields["mode"] = _check_mode(mode, principal, row.get("owner_user_id"))
+        fields["mode"] = _check_mode(mode, principal, row.get("owner_user_id"), checking)
         if mode == "auto":
             fields["pc_owner"] = 1
     if options is not None:
         fields["options"] = _dump(clean_options(options, principal))
     follow_store.update(row["id"], **fields)
+    if checking:
+        _poller().start_if_needed()
+    else:
+        _poller().forget(row["id"])
     return view(follow_store.get(row["id"]), principal)
 
 
 def remove_follow(follow_id, principal=None) -> dict:
     row = _require(principal, follow_id, writing=True)
     follow_store.delete(row["id"])
-    from services import live_follow_poller
-    live_follow_poller.forget(row["id"])
+    _poller().forget(row["id"])
     return {"id": row["id"], "removed": True}
 
 
+def _cooling(row, now) -> bool:
+    last = row.get("last_checked_at")
+    return bool(last) and now - last < MANUAL_CHECK_GAP_SECONDS
+
+
 def check_now(follow_id, principal=None, now=None) -> dict:
-    """Queues one check of this channel on the poller (one check runs at a
-    time, server-wide). Refused right after a check."""
+    """Queues one manual check of this channel (one check runs at a time,
+    server-wide). A channel already queued or being checked is left as it
+    is; one checked less than a minute ago is refused."""
     row = _require(principal, follow_id, writing=True)
     now = time.time() if now is None else now
-    last = row.get("last_checked_at")
-    if last and now - last < MANUAL_CHECK_GAP_SECONDS:
+    if _poller().is_checking(row["id"]):
+        return {"id": row["id"], "queued": True}
+    if _cooling(row, now):
         raise RateLimitedError("This channel was checked less than a minute ago.")
-    from services import live_follow_poller
-    live_follow_poller.request_check(row["id"])
+    if not _poller().request_check(row["id"]):
+        raise ConflictError("Baihe is stopping, so no check can start.")
     return {"id": row["id"], "queued": True}
+
+
+def check_all(principal=None, now=None) -> dict:
+    """Queues a manual check of every channel the caller may change (a
+    member: their own; the PC owner: all), checked one after another.
+    Channels checked in the last minute or already queued are skipped."""
+    now = time.time() if now is None else now
+    queued = skipped = 0
+    for row in follow_store.list_all():
+        if not _can_see(principal, row, writing=True):
+            continue
+        if _poller().is_checking(row["id"]) or _cooling(row, now) \
+                or not _poller().request_check(row["id"]):
+            skipped += 1
+        else:
+            queued += 1
+    return {"queued": queued, "skipped": skipped}
 
 
 # --- starting Live -----------------------------------------------------------

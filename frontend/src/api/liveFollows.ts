@@ -38,6 +38,8 @@ export const removeFollow = async (id: number, f?: Fetch) =>
   postJson<{ id: number; removed: boolean }>(`${followPath(id)}/remove`, undefined, f)
 export const checkFollow = async (id: number, f?: Fetch) =>
   postJson<{ id: number; queued: boolean }>(`${followPath(id)}/check`, undefined, f)
+export const checkAllFollows = (f?: Fetch) =>
+  postJson<{ queued: number; skipped: number }>(`${BASE}/check-all`, undefined, f)
 export const startFromFollow = async (id: number, f?: Fetch) =>
   postJson<LiveSessionStarted>(`${followPath(id)}/start`, undefined, f)
 
@@ -75,14 +77,20 @@ export function checkChannelInput(text: string): string | null {
   return null
 }
 
-/** "Live now", "Scheduled, starts at 14:05", "Not live", the error words, or "Not checked yet". */
-export function followStatusText(f: Pick<LiveFollow, 'state' | 'last_status' | 'starts_at' | 'last_checked_at'>): string {
+/** "Live now: <title>", "Starts at 14:05", "Not live", the error words, or "Not checked yet". */
+export function followStatusText(f: Pick<LiveFollow, 'state' | 'last_status' | 'starts_at' | 'last_checked_at'> & { stream_title?: string }): string {
   if (f.last_checked_at === null && !f.state) return 'Not checked yet'
+  if (f.state === 'live' && f.stream_title) return `Live now: ${f.stream_title}`
   if (f.state === 'upcoming' && typeof f.starts_at === 'number' && Number.isFinite(f.starts_at)) {
     const at = new Date(f.starts_at * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-    return `Scheduled, starts at ${at}`
+    return f.stream_title ? `Starts at ${at}: ${f.stream_title}` : `Starts at ${at}`
   }
   return f.last_status || 'Not checked yet'
+}
+
+/** Why "Start Live automatically" can't be picked for this channel, or null. */
+export function autoStartBlocker(f: Pick<LiveFollow, 'auto_check'>): string | null {
+  return f.auto_check ? null : 'Turn on Check every hour first: only an automatic check can notice the stream and start Live.'
 }
 
 /** "Checked 5 min ago" / "Not checked yet". */

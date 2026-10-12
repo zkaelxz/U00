@@ -182,7 +182,10 @@ async def _lifespan(app: FastAPI):
     start_remote_health_monitor(app.state.settings)
     from services import live_follow_poller, queue_service
     queue_service.start_runner()
-    live_follow_poller.start()
+    try:
+        live_follow_poller.start_if_needed()
+    except Exception:
+        logging.getLogger(__name__).warning("Followed-channel checks did not start", exc_info=True)
     try:
         yield
     finally:

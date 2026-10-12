@@ -261,7 +261,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `line_provenance_service.py`
 - `line_tools_service.py`
 - `lines_service.py`
-- `live_follow_poller.py` (the followed-channel live checks: one yt-dlp metadata read at a time, backoff, the extra check before a scheduled start, notify once per stream, the PC owner's automatic start)
+- `live_follow_poller.py` (the followed-channel live checks: the manual-check queue, the optional hourly scheduler, one yt-dlp metadata read at a time, backoff, the extra check before a scheduled start, notify once per stream, the PC owner's automatic start)
 - `live_follow_service.py` (followed YouTube channels on the Live page: channel input, ownership, limits, saved Live options, Start Live from a follow)
 - `live_service.py`
 - `lncrawl_service.py`

@@ -20,11 +20,22 @@ BOB = {"user_id": 12, "is_admin": False, "is_local_owner": False}
 CHANNEL_ID = "UC" + "a" * 22
 
 
+class _Thread:
+    def is_alive(self):
+        return True
+
+
 @pytest.fixture
 def follows(isolated_db, monkeypatch):
+    """No thread really starts here: the poller's own tests run them."""
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: PUBLIC)
     live_follow_poller.reset_for_tests()
-    yield
+    spawned = []
+    monkeypatch.setattr(live_follow_poller, "_spawn",
+                        lambda target, name: spawned.append(name) or _Thread())
+    monkeypatch.setattr(live_follow_poller, "_thread", None)
+    monkeypatch.setattr(live_follow_poller, "_worker", None)
+    yield spawned
     live_follow_poller.reset_for_tests()
 
 
@@ -79,11 +90,13 @@ def test_unresolvable_host_is_a_503(follows, monkeypatch):
         svc.add_follow("@name", principal=ALICE)
 
 
-def test_view_carries_no_url_and_queues_a_first_check(follows):
+def test_view_carries_no_url_and_nothing_is_checked_by_default(follows):
     v = svc.add_follow("https://www.youtube.com/@name/featured", principal=ALICE)
     assert v["channel"] == "@name" and v["mode"] == "notify" and v["mine"] is True
+    assert v["auto_check"] is False and v["checking"] is False
     assert "http" not in json.dumps(v) and "youtube.com" not in json.dumps(v)
-    assert live_follow_poller._requested == [v["id"]]
+    # Manual by default: no check queued, no thread started.
+    assert live_follow_poller._requested == [] and follows == []
     row = live_follow_store.get(v["id"])
     assert row["channel_url"] == "https://www.youtube.com/@name/live"
     assert row["owner_user_id"] == 11 and row["pc_owner"] == 0
@@ -152,10 +165,11 @@ def test_auto_start_is_the_pc_owners_only_and_only_on_their_own(follows):
     with pytest.raises(ForbiddenError):
         svc.update_follow(a["id"], mode="auto", principal=OWNER)
     assert live_follow_store.get(a["id"])["mode"] == "notify"
-    mine = svc.add_follow("@owner_ch", mode="auto", principal=OWNER)
+    mine = svc.add_follow("@owner_ch", mode="auto", auto_check=True, principal=OWNER)
     assert mine["mode"] == "auto" and live_follow_store.get(mine["id"])["pc_owner"] == 1
     at_pc = svc.add_follow("@admin_ch", principal=PC_ADMIN)
-    assert svc.update_follow(at_pc["id"], mode="auto", principal=PC_ADMIN)["mode"] == "auto"
+    assert svc.update_follow(at_pc["id"], mode="auto", auto_check=True,
+                             principal=PC_ADMIN)["mode"] == "auto"
     assert svc.list_follows(OWNER)["can_auto_start"] is True
     assert svc.list_follows(ALICE)["can_auto_start"] is False
     assert svc.list_follows(REMOTE_ADMIN)["can_auto_start"] is False
@@ -185,15 +199,54 @@ def test_a_glossary_title_the_member_cannot_see_is_404(follows, isolated_db):
     assert svc.list_follows(BOB)["items"][0]["options"]["glossary_drama_id"] is None
 
 
-def test_check_now_queues_and_refuses_right_after_a_check(follows):
+def test_auto_start_needs_the_hourly_check(follows):
+    with pytest.raises(InvalidInputError):
+        svc.add_follow("@owner_ch", mode="auto", principal=OWNER)
+    v = svc.add_follow("@owner_ch", principal=OWNER)
+    with pytest.raises(InvalidInputError):
+        svc.update_follow(v["id"], mode="auto", principal=OWNER)
+    assert svc.update_follow(v["id"], mode="auto", auto_check=True, principal=OWNER)["mode"] == "auto"
+    # Turning the hourly check off turns the automatic start back into Notify me.
+    off = svc.update_follow(v["id"], auto_check=False, principal=OWNER)
+    assert (off["auto_check"], off["mode"]) == (False, "notify")
+    with pytest.raises(InvalidInputError):
+        svc.update_follow(v["id"], mode="auto", auto_check=False, principal=OWNER)
+
+
+def test_the_hourly_toggle_starts_the_scheduler(follows):
     v = svc.add_follow("@name", principal=ALICE)
-    live_follow_poller.reset_for_tests()
+    assert follows == []
+    assert svc.update_follow(v["id"], auto_check=True, principal=ALICE)["auto_check"] is True
+    assert follows == ["live-follow-poller"]
+    svc.add_follow("@other", auto_check=True, principal=BOB)
+    assert follows.count("live-follow-poller") >= 1
+
+
+def test_check_now_queues_once_and_refuses_right_after_a_check(follows):
+    v = svc.add_follow("@name", principal=ALICE)
     assert svc.check_now(v["id"], principal=ALICE) == {"id": v["id"], "queued": True}
+    assert live_follow_poller._requested == [v["id"]] and follows == ["live-follow-checks"]
+    # A second click while it is queued changes nothing.
+    assert svc.check_now(v["id"], principal=ALICE)["queued"] is True
     assert live_follow_poller._requested == [v["id"]]
+    assert svc.list_follows(ALICE)["items"][0]["checking"] is True
+    live_follow_poller.reset_for_tests()
     live_follow_store.update(v["id"], last_checked_at=1000.0)
     with pytest.raises(RateLimitedError):
         svc.check_now(v["id"], principal=ALICE, now=1030.0)
     assert svc.check_now(v["id"], principal=ALICE, now=1061.0)["queued"] is True
+
+
+def test_check_all_queues_only_what_the_caller_may_change(follows):
+    a1 = svc.add_follow("@alice1", principal=ALICE)["id"]
+    a2 = svc.add_follow("@alice2", principal=ALICE)["id"]
+    b = svc.add_follow("@bob_ch", principal=BOB)["id"]
+    live_follow_store.update(a2, last_checked_at=1000.0)
+    assert svc.check_all(ALICE, now=1030.0) == {"queued": 1, "skipped": 1}
+    assert live_follow_poller._requested == [a1]
+    assert svc.check_all(REMOTE_ADMIN, now=1030.0) == {"queued": 0, "skipped": 0}
+    assert svc.check_all(OWNER, now=1030.0) == {"queued": 1, "skipped": 2}
+    assert live_follow_poller._requested == [a1, b]
 
 
 def test_remove_forgets_the_poller_state(follows):
