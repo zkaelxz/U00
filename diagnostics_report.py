@@ -169,6 +169,12 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
     try:
         engine = translate_engines.get_engine(engine_name, api_key, model, base_url=base_url)
     except Exception as e:
+        details = getattr(e, "details", None)
+        if isinstance(details, dict) and details.get("reason") == "missing_package":
+            # The exception's own message is the generic "See Diagnostics", which
+            # is no help on the Diagnostics page itself.
+            return {"engine": engine_name, "ok": False,
+                    "error": f"The Python package {details['package']} is not installed."}
         return {"engine": engine_name, "ok": False,
                 "error": translate_engines.redact_secrets(str(e))}
     try:

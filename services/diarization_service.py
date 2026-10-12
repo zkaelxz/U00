@@ -20,7 +20,7 @@ import diagnostics
 import diarize
 from services import (drama_service, ownership_service, run_settings_service, settings_service,
                       transcribe_pipeline)
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from services.service_errors import (ConflictError, InvalidInputError, MissingKeyError,
                                       NotFoundError,
                                       UnsupportedOperationError)
 
@@ -296,8 +296,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
 
     hf_token = settings_service.resolve_key("hf_token")
     if not hf_token:
-        raise DependencyUnavailableError(
-            "No Hugging Face token is configured. Set one in Settings first.")
+        raise MissingKeyError("Hugging Face", kind="token")
 
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path is None:

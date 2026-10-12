@@ -82,14 +82,26 @@ class DependencyUnavailableError(ServiceError):
     code = "dependency_unavailable"
 
 
-class MissingKeyError(DependencyUnavailableError):
-    """An engine needs an API key that isn't set. Same 503 as any missing
-    dependency, but `details` lets a UI say "add the key" instead of
-    "install something"."""
+class MissingPackageError(DependencyUnavailableError):
+    """A Python package an engine or tool needs isn't installed. The message
+    is fixed text and the package name rides in `details`, so a UI can name
+    the cause (not "add a key") without any path or traceback reaching it."""
 
-    def __init__(self, engine: str):
-        super().__init__(f"No {engine} key is configured. Set one in Settings first.",
-                         details={"reason": "no_key", "engine": engine})
+    MESSAGE = ("A tool or package this needs is not installed or not reachable. "
+               "See Diagnostics.")
+
+    def __init__(self, package: str):
+        super().__init__(self.MESSAGE, details={"reason": "missing_package", "package": package})
+
+
+class MissingKeyError(DependencyUnavailableError):
+    """An engine needs an API key (or a service a token) that isn't set. Same
+    503 as any missing dependency, but `details` lets a UI say "add the key"
+    instead of "install something"."""
+
+    def __init__(self, engine: str, kind: str = "key"):
+        super().__init__(f"No {engine} {kind} is configured. Add it in Settings.",
+                         details={"reason": f"no_{kind}", "engine": engine})
 
 
 class ConflictError(ServiceError):

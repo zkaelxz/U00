@@ -8,6 +8,7 @@ from lib.errors import (  # noqa: F401
     ForbiddenError,
     InvalidInputError,
     MissingKeyError,
+    MissingPackageError,
     NotFoundError,
     RateLimitedError,
     ServiceError,

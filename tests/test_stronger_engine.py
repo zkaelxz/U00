@@ -126,6 +126,17 @@ class TestTryLine:
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "sk-test-123")
         return fake
 
+    def test_a_missing_package_is_reported_as_such_not_as_an_unrelated_failure(
+            self, drama, monkeypatch):
+        import sys
+        from lib.errors import MissingPackageError
+        monkeypatch.setitem(sys.modules, "anthropic", None)
+        monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "sk-test-123")
+        did, ids, _ = drama
+        with pytest.raises(MissingPackageError) as exc:
+            svc.try_line(did, ids[1], "claude")
+        assert exc.value.details == {"reason": "missing_package", "package": "anthropic"}
+
     def test_returns_a_suggestion_and_writes_nothing(self, drama, engine):
         did, ids, _ = drama
         before = [(ln.id, ln.en, ln.flag) for ln in db.load_line_objects(did)]
