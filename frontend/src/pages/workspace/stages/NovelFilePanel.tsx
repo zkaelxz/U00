@@ -138,6 +138,7 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
   }
 
   return (
+    <div role="region" aria-label={copy.title}>
     <Section storageKey={`novelfile.${kind}`} title={copy.title} summary={novelFileSummary(status)}>
         <p className="muted" data-testid={`novel-file-status-${kind}`}>{novelFileStatusLine(status)}</p>
         {pc === 'remote' ? (
@@ -196,5 +197,6 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
         {notice && <p role="status">{notice}</p>}
         <ErrorBanner error={error} describe={{ pcOnly: true }} onDismiss={() => setError(null)} />
     </Section>
+    </div>
   )
 }
