@@ -163,8 +163,10 @@ export function runProblemFromError(err: unknown): RunFieldProblem | null {
   return null
 }
 
-export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
-export const DEFAULT_WHISPER_SIZE = 'large-v3-turbo'
+// Mirrors whisper_models.DEFAULT_WHISPER_SIZE; the size list itself comes from the server (selectable_whisper_sizes).
+export const DEFAULT_WHISPER_SIZE = 'large-v3'
+// Used only when an older server sends no list.
+const FALLBACK_SELECTABLE_SIZES = ['large-v3', 'large-v3-turbo']
 
 /** {model: {language: reason}} from the server (whisper_models.WHISPER_LANGUAGE_RULES): the only place the rules live. */
 export type WhisperExclusions = Record<string, Record<string, string>>
@@ -173,6 +175,8 @@ export interface WhisperChoice {
   size: string
   /** Why the model is not selectable for the language, or null when it is. */
   reason: string | null
+  /** The saved size is one the picker no longer offers: listed so the select can show it, and flagged for a one-click switch. */
+  hidden?: boolean
 }
 
 export function whisperExclusionReason(exclusions: WhisperExclusions | undefined, size: string, language: string): string | null {
@@ -180,11 +184,17 @@ export function whisperExclusionReason(exclusions: WhisperExclusions | undefined
 }
 
 /** Every model the picker lists for a language, each with the reason it is disabled (if it is).
- *  A model only the server table names is listed too; an unknown saved one is kept so it stays visible. */
-export function whisperSizeChoices(language: string, current: string, exclusions?: WhisperExclusions): WhisperChoice[] {
-  const sizes = [...WHISPER_SIZES, ...Object.keys(exclusions ?? {}).filter((s) => !WHISPER_SIZES.includes(s))]
-  if (!sizes.includes(current)) sizes.unshift(current)
-  return sizes.map((size) => ({ size, reason: whisperExclusionReason(exclusions, size, language) }))
+ *  `selectable` is the server's list (selectable_whisper_sizes). A saved size outside it is kept, first and
+ *  flagged hidden, so it stays visible and is never silently switched. */
+export function whisperSizeChoices(language: string, current: string, exclusions?: WhisperExclusions, selectable?: string[]): WhisperChoice[] {
+  const sizes = selectable?.length ? [...selectable] : [...FALLBACK_SELECTABLE_SIZES]
+  const hidden = !sizes.includes(current)
+  if (hidden) sizes.unshift(current)
+  return sizes.map((size) => ({
+    size,
+    reason: whisperExclusionReason(exclusions, size, language),
+    ...(hidden && size === current ? { hidden: true } : {}),
+  }))
 }
 
 // What our benchmarks showed for turbo vs large-v3 (docs/asr-experiments.md):

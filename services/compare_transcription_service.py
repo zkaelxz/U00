@@ -91,14 +91,19 @@ def _backend_problem(choice: str, language: str):
 
 def get_options(drama_id: int) -> dict:
     """What the Compare panel offers: the title's saved model/backend/alignment
-    as defaults, every Whisper size, each backend with whether it can run
+    as defaults, the Whisper sizes the picker offers, each backend with whether it can run
     (reason when not), and the line cap. Alignment is shown, not choosable:
     it decides timing, never the heard text, so it can't change a candidate."""
     drama = _drama_or_404(drama_id)
     language = drama.get("source_language") or "zh"
     has_audio = (drama.get("content_mode") or "audio_drama") in ("audio_drama", "streamer_vod") \
         and transcribe_service._drama_audio_path(drama_id, drama) is not None
-    sizes = sorted(transcribe_service._allowed_whisper_sizes())
+    saved_size = transcribe_service.stored_whisper_size(drama)
+    selectable = transcribe_service.selectable_whisper_sizes("compare")
+    sizes = selectable
+    # A saved size the picker hides stays listed, so the select can show what the title uses.
+    if saved_size not in sizes:
+        sizes = [saved_size, *sizes]
     backends = []
     for choice in BACKEND_CHOICES:
         problem = _backend_problem(choice, language)
@@ -114,10 +119,11 @@ def get_options(drama_id: int) -> dict:
         "has_audio": has_audio,
         "no_audio_reason": None if has_audio else "This title has no stored audio to re-transcribe.",
         "max_lines": MAX_LINES,
-        "saved_whisper_size": transcribe_service.stored_whisper_size(drama),
+        "saved_whisper_size": saved_size,
         "saved_asr_backend": asr_options_service.stored_asr_backend(drama),
         "saved_alignment_method": drama.get("alignment_method") or "whisper_diff",
         "whisper_sizes": sizes,
+        "selectable_whisper_sizes": selectable,
         "source_language": language,
         "whisper_exclusions": whisper_models.whisper_language_exclusions(),
         "backends": backends,
