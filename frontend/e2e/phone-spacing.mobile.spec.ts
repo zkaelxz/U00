@@ -106,8 +106,8 @@ for (const size of sizes) {
       await page.evaluate(() => window.scrollTo(0, 0))
       // Open the folds so their dense buttons are measured too.
       await openFolds(page)
-      // The glossary's instruction editors arrive after networkidle; measure with them present, not sometimes without.
-      if (url.endsWith('/translate')) await expect(page.getByLabel('Series instructions')).toBeVisible()
+      // The glossary's instructions arrive after networkidle; measure with them present, not sometimes without.
+      if (url.endsWith('/translate')) await expect(page.getByTestId('instructions-state')).toBeAttached()
       const res = await page.evaluate(() => {
         const sm = [...document.querySelectorAll<HTMLElement>('.btn-sm')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().height > 0)
         const all = [...document.querySelectorAll<HTMLElement>('button, a[href], input:not([type=hidden]), select, textarea, summary, label.btn')]

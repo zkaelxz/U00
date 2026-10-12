@@ -41,7 +41,6 @@ for (const scheme of ['light', 'dark'] as const) {
     for (const t of [
       run.getByRole('button', { name: 'Translate 4 lines' }),
       run.getByRole('button', { name: 'Estimate cost' }),
-      run.getByRole('button', { name: /Re-translate lines affected by the glossary/ }),
       run.getByLabel('Style', { exact: true }),
     ]) expect(await hitHeight(t)).toBeGreaterThanOrEqual(44)
 

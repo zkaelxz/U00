@@ -13,8 +13,6 @@ import { copyText } from '../../../components/clipboard'
 import { describeError, isForbidden, LINES_READ_FORBIDDEN } from '../../../components/errorMessages'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
-import { Tabs } from '../../../components/Tabs'
-import { tabButtonId, tabPanelId } from '../../../components/tabIds'
 import { buttonClass } from '../../../components/uiClasses'
 import { lineNumber } from '../../../lineNumber'
 import type { NameMark, NameReport, NameReportGroup } from '../../../types/translateStage'
@@ -293,14 +291,21 @@ export function NameReportPanel({ onClose }: { onClose: () => void }) {
             <p>Checked {report.titles_scanned} of {report.titles_total} titles. Names found in only one title under one spelling are left to the per-title check ({report.singletons_omitted} such).</p>
             {scanNotes(report).map((n) => <p key={n} className="muted">{n}</p>)}
           </Section>
-          <Tabs
-            label="Name groups"
-            idPrefix="name-report"
-            tabs={NAME_TABS.map((t) => ({ ...t, count: tabCount(report, t.id) }))}
-            active={tab}
-            onSelect={setTab}
-          />
-          <div id={tabPanelId('name-report', tab)} role="tabpanel" aria-labelledby={tabButtonId('name-report', tab)}>
+          {/* A filter, not tabs: the Glossary panel already has the page's one tab level. */}
+          <div className="actions" role="group" aria-label="Name groups">
+            {NAME_TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={buttonClass(t.id === tab ? 'secondary' : 'ghost', 'sm')}
+                aria-pressed={t.id === tab}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label} <span className="badge section-count">{tabCount(report, t.id)}</span>
+              </button>
+            ))}
+          </div>
+          <div>
             {visible.length === 0 ? (
               <p role="status" className="muted">{EMPTY_TEXT[tab]}</p>
             ) : (

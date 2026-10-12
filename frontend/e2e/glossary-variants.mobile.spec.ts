@@ -34,7 +34,7 @@ test('similar spellings and possible names fit a phone', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByLabel('Project instructions')).toBeVisible()
+  await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   await glossary.getByRole('button', { name: 'Find similar spellings of ヤソ' }).click()
   const panel = glossary.getByRole('region', { name: 'Similar spellings of ヤソ' })
   await panel.getByRole('button', { name: 'Add ヤソック as alias' }).click()

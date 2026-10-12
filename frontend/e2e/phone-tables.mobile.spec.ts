@@ -38,11 +38,12 @@ async function expectTappable(loc: Locator, min = 44) {
 async function noSideways(region: Locator) {
   const m = await region.evaluate((el) => ({
     innerScroll: Array.from(el.querySelectorAll('.table-scroll, table')).some((t) => t.scrollWidth > t.clientWidth),
-    poking: Array.from(el.querySelectorAll('input, select, button, textarea')).filter((c) => c.getBoundingClientRect().right > el.getBoundingClientRect().right + 1).map((c) => c.getAttribute('aria-label') ?? c.textContent),
+    poking: Array.from(el.querySelectorAll('input, select, button, textarea')).filter((c) => !c.closest('.ui-tabs') && c.getBoundingClientRect().right > el.getBoundingClientRect().right + 1).map((c) => c.getAttribute('aria-label') ?? c.textContent),
     docScroll: document.documentElement.scrollWidth, inner: window.innerWidth,
   }))
   expect(m.innerScroll, 'inner scroller overflows').toBe(false)
   // Nothing pokes out of the region's right edge (a wider grid column would, without an inner scroller to show it).
+  // A tab row is that scroller: it scrolls inside itself by design.
   expect(m.poking, 'fields past the region edge').toEqual([])
   expect(m.docScroll).toBeLessThanOrEqual(m.inner)
 }

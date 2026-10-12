@@ -131,3 +131,5 @@
   .stage-translate .glossary-table td.card-title::before, .stage-translate .glossary-table td.card-wide::before { display: none; }
   .stage-translate .bulk-list .badge { white-space: normal; }
 }
+.glossary-panel[hidden] { display: none; }
+.glossary-scan-banner { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); }

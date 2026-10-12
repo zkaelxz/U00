@@ -50,6 +50,8 @@ interface Props {
   onCancel: () => void
   // Attach to the scan the server already holds instead of starting one.
   resume?: boolean
+  // The source whose scan to attach to; without it the novel when one is attached, else the lines.
+  resumeSource?: GlossarySource
 }
 
 // Parity X28, "Review glossary before translating": the Translate button
@@ -57,16 +59,16 @@ interface Props {
 // else from the source lines), shows the proposals, and then either adds
 // the checked terms and starts the run, or cancels. Mounted once per press
 // (keyed by the caller), so each press extracts afresh.
-export function GlossaryReview({ onStart, onCancel, engine, resume }: Props) {
+export function GlossaryReview({ onStart, onCancel, engine, resume, resumeSource }: Props) {
   const { dramaId, drama } = useStage()
   const hasNovel = useHasNovel(dramaId, drama)
   return (
     <section className="panel glossary-review" aria-label="Review glossary">
       <h4>Review glossary before translating</h4>
-      {hasNovel === null ? (
+      {!resumeSource && hasNovel === null ? (
         <p className="muted" role="status">Checking for a novel…</p>
       ) : (
-        <ReviewBody source={reviewSource(hasNovel)} engine={engine} onStart={onStart} onCancel={onCancel} resume={resume} />
+        <ReviewBody source={resumeSource ?? reviewSource(hasNovel === true)} engine={engine} onStart={onStart} onCancel={onCancel} resume={resume} />
       )}
     </section>
   )
