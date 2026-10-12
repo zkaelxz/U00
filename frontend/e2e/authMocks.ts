@@ -65,6 +65,7 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/recent': { items: [{ id: 1, title_en: DRAMA.title_en, title_zh: DRAMA.title_zh, status: 'translated', updated_at: DRAMA.updated_at, media_type: null }] },
   '/api/library/costs': EMPTY,
   '/api/library/series': EMPTY,
+  '/api/series': EMPTY,
   '/api/library/history': EMPTY,
   '/api/library/continue': EMPTY,
   '/api/library/filter-options': { studios: [], authors: [], voice_actors: [], custom_tags: [] },
