@@ -167,7 +167,8 @@ def post_burned_video(drama_id: int = Path(ge=1), req: Optional[AssExportRequest
 def post_softsub_video(drama_id: int = Path(ge=1), req: Optional[SoftsubVideoRequest] = None):
     req = req or SoftsubVideoRequest()
     return media_export_service.start_softsub_video_export(
-        drama_id, field=req.field, include_notes=req.include_notes)
+        drama_id, field=req.field, include_notes=req.include_notes,
+        subtitle_format=req.subtitle_format)
 
 
 @router.post("/dramas/{drama_id}/dubbed-video", dependencies=[require_permission("jobs.start")], response_model=MediaExportStarted,

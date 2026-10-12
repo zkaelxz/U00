@@ -101,6 +101,7 @@ export type MediaKind = 'audio' | 'video' | 'softsub_video' | 'dubbed_video'
 export interface SoftsubVideoRequest {
   field: 'en' | 'zh' | 'bilingual'
   include_notes?: boolean
+  subtitle_format?: 'srt' | 'ass'
 }
 
 // Parity E19: keep_original mixes the original audio in quietly underneath.

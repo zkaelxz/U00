@@ -181,13 +181,22 @@ def softsub_output_extension(video_path: str) -> str:
 
 
 def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
-                           language: str = "eng") -> list:
+                           language: str = "eng", sub_format: str = "srt") -> list:
     """The ffmpeg argument list mux_soft_subtitles runs (also used by the
-    API's softsub export job, which runs it cancellably with a timeout)."""
+    API's softsub export job, which runs it cancellably with a timeout).
+    sub_format "ass" keeps the ASS styling and needs a .mkv output: MP4's
+    mov_text cannot hold it, and ffmpeg would silently drop the styling."""
     ext = os.path.splitext(out_path)[1].lower()
-    sub_codec = "mov_text" if ext == ".mp4" else "srt"
+    if sub_format == "ass":
+        if ext != ".mkv":
+            raise ValueError("ASS soft subtitles need a .mkv output.")
+        sub_codec = "ass"
+    elif sub_format == "srt":
+        sub_codec = "mov_text" if ext == ".mp4" else "srt"
+    else:
+        raise ValueError(f"Unknown subtitle format: {sub_format}")
     return [
-        "ffmpeg", "-y", *local_input(), "-i", video_path, *local_input("srt"), "-i", srt_path,
+        "ffmpeg", "-y", *local_input(), "-i", video_path, *local_input(sub_format), "-i", srt_path,
         "-map", "0:v", "-map", "0:a", "-map", "1:s",
         "-c:v", "copy", "-c:a", "copy", "-c:s", sub_codec,
         "-metadata:s:s:0", f"language={language}",

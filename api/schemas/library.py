@@ -541,6 +541,7 @@ class SoftsubVideoRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     field: str = Field(default="en", pattern="^(en|zh|bilingual)$")
     include_notes: StrictBool = False
+    subtitle_format: str = Field(default="srt", pattern="^(srt|ass)$")
 
 
 class DubbedVideoRequest(BaseModel):

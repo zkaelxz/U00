@@ -227,6 +227,7 @@ export function BurnedVideoBlock({ request, reason, startError, onStartError, ch
 export function SoftsubVideoBlock({ reason, startError, onStartError }: BlockShare) {
   const { dramaId } = useStage()
   const [field, setField] = useState<SoftsubVideoRequest['field']>('en')
+  const [format, setFormat] = useState<NonNullable<SoftsubVideoRequest['subtitle_format']>>('srt')
   return (
     <MediaJobSection
       id="softsub_video"
@@ -235,7 +236,7 @@ export function SoftsubVideoBlock({ reason, startError, onStartError }: BlockSha
       testId="softsub"
       hint="Subtitles the viewer can turn on and off"
       note="Adds the subtitles as a track the viewer can turn on and off; the picture and sound are copied unchanged. MP4 and MKV keep their format, anything else becomes MKV."
-      start={() => startSoftsubVideo(dramaId, { field })}
+      start={() => startSoftsubVideo(dramaId, { field, subtitle_format: format })}
       blockedReason={reason}
       startError={startError}
       onStartError={onStartError}
@@ -245,6 +246,19 @@ export function SoftsubVideoBlock({ reason, startError, onStartError }: BlockSha
           <option value="en">English</option>
           <option value="bilingual">Bilingual</option>
           <option value="zh">Source language</option>
+        </select>
+      </Field>
+      <Field
+        label="Subtitle format"
+        help={
+          format === 'ass'
+            ? 'ASS keeps overlapping lines and speaker colours. It plays in VLC and mpv; some TVs and phone players ignore the styling. The video is saved as MKV, because MP4 cannot hold ASS styling.'
+            : 'ASS keeps overlapping lines and speaker colours. It plays in VLC and mpv; some TVs and phone players ignore the styling.'
+        }
+      >
+        <select value={format} onChange={(e) => setFormat(e.target.value as typeof format)}>
+          <option value="srt">SRT (works everywhere)</option>
+          <option value="ass">ASS (saved as MKV)</option>
         </select>
       </Field>
     </MediaJobSection>
