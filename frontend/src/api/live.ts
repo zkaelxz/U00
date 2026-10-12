@@ -200,7 +200,10 @@ export function pickSession(list: LiveSessionSummary[]): string | null {
 }
 
 /** One status line for the session. */
-export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'> & { model?: string | null }, lines: number): string {
+export function statusLine(
+  s: Pick<LiveSessionStatus, 'status' | 'message' | 'stop_reason'> & { model?: string | null },
+  lines: number,
+): string {
   const n = `${lines} line${lines === 1 ? '' : 's'}${s.model ? ` · ${s.model}` : ''}`
   switch (s.status) {
     case 'queued':
@@ -210,7 +213,7 @@ export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'> & { 
     case 'done':
       return `Finished · ${n}`
     case 'cancelled':
-      return `Stopped · ${n}`
+      return s.stop_reason ? `${s.stop_reason} · ${n}` : `Stopped · ${n}`
     default:
       return `Stopped with an error: ${s.message || 'the live session failed.'}`
   }

@@ -78,13 +78,13 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
     { id: 1, term_original: '师姐', term_translation: 'Senior Sister', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] },
   ] }))
   await page.goto('/#/drama/1/translate')
-  await expectTall(page.getByRole('button', { name: 'Apply', exact: true }))
-  await expectTall(page.getByLabel('Start from…', { exact: true }))
+  await expectTall(page.getByLabel('Style', { exact: true }))
   await page.getByText('What this style asks the translator for').click()
   await expect(page.getByTestId('style-guidance')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await shot(page, 'translate-preset-phone')
 
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossary.getByText('Import or export').click()
   await expectTall(glossary.getByRole('button', { name: 'Import', exact: true }))

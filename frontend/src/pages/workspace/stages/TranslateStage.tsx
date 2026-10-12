@@ -58,13 +58,16 @@ import {
   validatePresetName,
   validateRun,
   defaultBatchSize,
+  batchOverride,
+  batchSizeRange,
+  contextRange,
   withPresetEngine,
   withSavedEngine,
   TRANSLATE_DRAFT_STAGE,
   type RunForm,
 } from '../translateForm'
 import { useStageDraft } from '../../../hooks/useStageDraft'
-import { StartFromPicker } from './StartFromPicker'
+import { StyleField } from './StartFromPicker'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
@@ -78,6 +81,9 @@ import { SourceChangedWarning } from './SourceChangedWarning'
 import { translateBlocker } from './stageBlockers'
 import './translate.css'
 import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
+
+// Where to look when the chosen engine runs on this PC and does not answer.
+const LOCAL_ENGINE_HINT = 'Ollama is not answering on this PC. See Diagnostics > Models for what is installed.'
 
 const REVIEW_GLOSSARY_NOTE = 'Translate will first scan the transcript for glossary terms and show them for your approval, then translate.'
 const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_GLOSSARY_NOTE} The scan uses the engine saved for this title.`
@@ -103,8 +109,9 @@ function EstimateView({ e }: { e: TranslateRunEstimate }) {
 }
 
 // One line naming only the Advanced values that differ from their defaults.
-function advancedSummary(f: RunForm, base: RunForm): string {
+function advancedSummary(f: RunForm, base: RunForm, reviewFirst: boolean): string {
   const parts: string[] = []
+  if (reviewFirst) parts.push('review glossary first')
   if (f.style_note.trim()) parts.push('style note')
   if (f.batch_size !== base.batch_size) parts.push(`batch ${f.batch_size}`)
   if (f.context_window !== base.context_window || f.context_window_ahead !== base.context_window_ahead) {
@@ -240,9 +247,6 @@ function RunPanel({
   // What the owner last chose for this title, restored after a reload.
   const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
   const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))
-  // Bumped by Reset to defaults so the tier picker starts over too.
-  const [resets, setResets] = useState(0)
-  const [tierChoice, setTierChoice] = useState<string | null>(restored.tier)
   // Parity X28: review proposed glossary terms before the run starts.
   // reviewing counts presses (0 = closed) so each press extracts afresh.
   const [reviewFirst, setReviewFirst] = useState(restored.reviewFirst && !!drama.series_id)
@@ -267,18 +271,19 @@ function RunPanel({
   const [error, setError] = useState<unknown>(null)
   const [estimate, setEstimate] = useState<TranslateRunEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
+  // Set while the start request is in flight, so a double click can't send two runs.
+  const [starting, setStarting] = useState(false)
+  const [retranslating, setRetranslating] = useState(false)
   const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
   useEffect(() => {
-    saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst, tier: tierChoice ?? '' }))
-  }, [saveDraft, f, config.translation_engine, reviewFirst, tierChoice])
+    saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst }, defaultBatchSize(config, f)))
+  }, [saveDraft, f, config, reviewFirst])
   // Back to the title's saved engine and the Settings defaults; the draft for this title is dropped.
   const resetToDefaults = () => {
     clearDraft()
     setF(base)
-    setTierChoice(null)
     setReviewFirst(false)
     setProblem(null)
-    setResets((n) => n + 1)
   }
   // The two prompt toggles are saved for the title as soon as they change, so
   // every later run (retries, glossary re-translation, AI line actions, the
@@ -321,6 +326,8 @@ function RunPanel({
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const scanFirst = reviewFirst && canReview
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
+  const engineBatch = defaultBatchSize(config, f)
+  const batchOverridden = batchOverride(config, f)
   const guidance = styleGuidance(config, f.style_preset)
   const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
   // "Re-translate existing…" unmounts itself; hand focus to the confirm box that replaces it.
@@ -357,10 +364,12 @@ function RunPanel({
       setReviewing((n) => n + 1)
       return
     }
+    if (starting) return
+    setStarting(true)
     startTranslateRun(dramaId, buildRunBody(f)).then((r) => {
       setError(null)
       onStarted(r.job_id)
-    }, setError)
+    }, setError).finally(() => setStarting(false))
   }
   useEffect(() => {
     retryRef.current = () => start()
@@ -378,32 +387,29 @@ function RunPanel({
             ))}
           </select>
         </Field>
+        {ollamaWarning(effEngine, config.ollama_reachable) && (
+          <p className="muted translate-basics-wide" data-testid="local-engine-hint">{LOCAL_ENGINE_HINT}</p>
+        )}
         <ModelSelect engine={engine} value={f.model} onChange={(m) => set('model', m)} />
-        <Field label="Style" help="Style preset: what the translator is asked to sound like.">
-          <select value={f.style_preset} onChange={(e) => set('style_preset', e.target.value)}>
-            {config.style_presets.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-          </select>
-        </Field>
+        <StyleField
+          config={config}
+          style={f.style_preset}
+          onStyleChange={(key) => set('style_preset', key)}
+          onTierApplied={(t) => {
+            setF((s) => applyTierToForm(s, t, config))
+            onTierApplied(t)
+          }}
+          onPresetApplied={(p) => {
+            setF((s) => applyPresetToForm(s, p, config))
+            onPresetApplied(p)
+          }}
+        />
         <Field label="English variant" help="Spelling for the translation: US, UK or Australian English.">
           <select value={f.locale} onChange={(e) => set('locale', e.target.value)}>
             {config.locales.map((l) => <option key={l} value={l}>{humanize('locale', l)}</option>)}
           </select>
         </Field>
       </div>
-      <StartFromPicker
-        key={resets}
-        config={config}
-        initialTier={resets ? null : restored.tier}
-        onTierChange={setTierChoice}
-        onTierApplied={(t) => {
-          setF((s) => applyTierToForm(s, t, config))
-          onTierApplied(t)
-        }}
-        onPresetApplied={(p) => {
-          setF((s) => applyPresetToForm(s, p, config))
-          onPresetApplied(p)
-        }}
-      />
       {guidance && (
         <details className="style-guidance">
           <summary>What this style asks the translator for</summary>
@@ -418,7 +424,7 @@ function RunPanel({
         <button
           type="button"
           className="primary"
-          disabled={busy || reviewing > 0 || blocker !== null}
+          disabled={busy || starting || reviewing > 0 || blocker !== null}
           aria-describedby={blocker ? 'translate-blocker' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
         >
@@ -452,7 +458,17 @@ function RunPanel({
             {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
           </p>
         )}
-        <button type="button" className={buttonClass('ghost')} onClick={runEstimate}>Estimate cost</button>
+        <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
+        {canReview && (
+          <button
+            type="button"
+            className={`${buttonClass('secondary')} glossary-retranslate-open`}
+            disabled={retranslating}
+            onClick={() => setRetranslating(true)}
+          >
+            Re-translate lines affected by the glossary…
+          </button>
+        )}
         {estimate && <EstimateView e={estimate} />}
       </div>
       {f.force && (
@@ -470,17 +486,8 @@ function RunPanel({
           I understand this replaces existing English (a snapshot is saved first)
         </label>
       )}
-      {canReview && <GlossaryRetranslate f={f} busy={busy} onStarted={onStarted} />}
-      {canReview && (
-        <div className="setting-list">
-          <Field
-            label="Review glossary before translating"
-            help={`${REVIEW_GLOSSARY_HELP} A glossary mistake repeats on every line.`}
-          >
-            <Toggle checked={reviewFirst} disabled={reviewing > 0} onChange={setReviewFirst} />
-          </Field>
-          {reviewFirst && <p className="muted" data-testid="review-glossary-note">{REVIEW_GLOSSARY_NOTE}</p>}
-        </div>
+      {canReview && retranslating && (
+        <GlossaryRetranslate f={f} busy={busy} onStarted={onStarted} onClose={() => setRetranslating(false)} />
       )}
       {reviewing > 0 && (
         <GlossaryReview
@@ -509,20 +516,28 @@ function RunPanel({
         <p className="error" role="alert">A translate job is already running for this title.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base)}>
+      <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base, reviewFirst)}>
         <div className="advanced-grid">
           <div className="advanced-wide">
             <Field label="Style note" help="Optional extra instruction for this run only.">
               <textarea rows={2} value={f.style_note} onChange={(e) => set('style_note', e.target.value)} />
             </Field>
           </div>
-          <Field label="Batch size" unit="lines" help={`Lines sent per request, 1 to 60. Leave blank for the default for this engine (${defaultBatchSize(config, f)}).`}>
-            <input type="number" value={f.batch_size} placeholder={String(defaultBatchSize(config, f))} onChange={(e) => set('batch_size', e.target.value)} />
-          </Field>
-          <Field label="Context before" unit="lines" help="Earlier lines sent as context, 0 to 100.">
+          <div>
+            <Field label="Batch size" unit="lines" help={`Lines sent per request, ${batchSizeRange()}. Leave blank for the default for this engine (${engineBatch}).`}>
+              <input type="number" value={f.batch_size} placeholder={String(engineBatch)} onChange={(e) => set('batch_size', e.target.value)} />
+            </Field>
+            {batchOverridden && (
+              <p className="muted batch-size-note" data-testid="batch-size-note">
+                Using {batchOverridden.value} (set by you). Default for this engine is {batchOverridden.engineDefault}.{' '}
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => set('batch_size', '')}>Use default</button>
+              </p>
+            )}
+          </div>
+          <Field label="Context before" unit="lines" help={`Earlier lines sent as context, ${contextRange()}.`}>
             <input type="number" value={f.context_window} onChange={(e) => set('context_window', e.target.value)} />
           </Field>
-          <Field label="Context ahead" unit="lines" help="Following lines sent as context, 0 to 100.">
+          <Field label="Context ahead" unit="lines" help={`Following lines sent as context, ${contextRange()}.`}>
             <input type="number" value={f.context_window_ahead} onChange={(e) => set('context_window_ahead', e.target.value)} />
           </Field>
           <Field
@@ -579,6 +594,17 @@ function RunPanel({
             )}
           </div>
           <div className="advanced-wide setting-list">
+            {canReview && (
+              <>
+                <Field
+                  label="Review glossary before translating"
+                  help={`${REVIEW_GLOSSARY_HELP} A glossary mistake repeats on every line.`}
+                >
+                  <Toggle checked={reviewFirst} disabled={reviewing > 0} onChange={setReviewFirst} />
+                </Field>
+                {reviewFirst && <p className="muted" data-testid="review-glossary-note">{REVIEW_GLOSSARY_NOTE}</p>}
+              </>
+            )}
             {reflectAvailable(effEngine) && (
               <Field
                 label="Reflect"
