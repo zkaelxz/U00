@@ -1,22 +1,21 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockDomains, type DomainsState } from './sourceDomainsMocks'
-import { mockSources } from './sourcesMocks'
+import { mockSources, openManage } from './sourcesMocks'
 
-// Settings > Sources > Source addresses: edit, reset, and confirm or dismiss
+// Manage sources > Network > Site web addresses: edit, reset, and confirm or dismiss
 // a possible new address. Everything is mocked; an older server (404) hides it.
 
 async function open(page: Page, over: Partial<DomainsState> = {}) {
   const s = await mockSources(page)
   const d = await mockDomains(page, over)
-  await page.goto('/#/sources')
-  await page.getByText('Source settings', { exact: true }).first().click()
+  await openManage(page, 'network')
   return { s, d }
 }
 
 test('edit order and add a host; save sends only the list', async ({ page }) => {
   const { s, d } = await open(page)
-  await page.getByText('Source addresses').first().click()
+  await page.getByText('Site web addresses').first().click()
   const beta = page.getByRole('group', { name: 'Beta Novels addresses' })
   await beta.getByRole('textbox', { name: 'Add a host for Beta Novels' }).fill('https://bad.example/x')
   await beta.getByRole('button', { name: 'Add', exact: true }).click()
@@ -33,7 +32,7 @@ test('edit order and add a host; save sends only the list', async ({ page }) => 
 
 test('a server 422 is shown as plain text', async ({ page }) => {
   await open(page, { saveError: 'Host is not allowed.' })
-  await page.getByText('Source addresses').first().click()
+  await page.getByText('Site web addresses').first().click()
   const beta = page.getByRole('group', { name: 'Beta Novels addresses' })
   await beta.getByRole('textbox').fill('ok.example')
   await beta.getByRole('button', { name: 'Add', exact: true }).click()
@@ -43,7 +42,7 @@ test('a server 422 is shown as plain text', async ({ page }) => {
 
 test('confirm a possible new address, then reset after a confirm step', async ({ page }) => {
   const { d } = await open(page)
-  await page.getByText('Source addresses').first().click()
+  await page.getByText('Site web addresses').first().click()
   const alpha = page.getByRole('group', { name: 'Alpha Comics addresses' })
   const prop = alpha.getByRole('group', { name: 'Possible new address for Alpha Comics' })
   await expect(prop.getByText('go to that host')).toBeVisible()
@@ -63,7 +62,7 @@ test('confirm a possible new address, then reset after a confirm step', async ({
 
 test('dismiss removes the proposal', async ({ page }) => {
   const { d } = await open(page)
-  await page.getByText('Source addresses').first().click()
+  await page.getByText('Site web addresses').first().click()
   const alpha = page.getByRole('group', { name: 'Alpha Comics addresses' })
   await alpha.getByRole('button', { name: 'Dismiss alpha-new.example' }).click()
   await expect(alpha.getByText('Possible new address')).toBeHidden()
@@ -72,6 +71,6 @@ test('dismiss removes the proposal', async ({ page }) => {
 
 test('an older server without the routes hides the card', async ({ page }) => {
   await open(page, { available: false })
-  await expect(page.getByText('Pacing & cache')).toBeVisible()
-  await expect(page.getByText('Source addresses')).toHaveCount(0)
+  await expect(page.getByText('Proxy', { exact: true })).toBeVisible()
+  await expect(page.getByText('Site web addresses')).toHaveCount(0)
 })
