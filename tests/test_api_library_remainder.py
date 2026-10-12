@@ -92,3 +92,11 @@ def test_voice_bank_hides_paths_and_renames(client, tmp_path):
     r = client.post(f"/api/library/voice-bank/{eid}/rename", json={"name": "New"})
     assert r.status_code == 200 and r.json()["name"] == "New"
     assert client.post("/api/library/voice-bank/9999/rename", json={"name": "N"}).status_code == 404
+
+
+def test_include_single_lists_one_title_series_too(client):
+    s1 = db.get_or_create_series("One")
+    _drama("x", s1)
+    assert client.get("/api/library/series").json()["items"] == []
+    items = client.get("/api/library/series", params={"include_single": "true"}).json()["items"]
+    assert [i["name"] for i in items] == ["One"] and len(items[0]["dramas"]) == 1

@@ -21,9 +21,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, api } from '../api/client'
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
-  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, hasPending, isActive, lagLine,
+  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, glossaryChoices, glossaryIds, glossaryValue, hasPending, isActive, lagLine,
   listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
+import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
 import { PageShell } from '../components/PageShell'
@@ -77,8 +78,9 @@ export default function LivePage() {
   const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
-  // Titles the server lets this user see; null until read. A failed read leaves the picker empty.
-  const [titles, setTitles] = useState<{ id: number; name: string }[] | null>(null)
+  // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
+  const [titles, setTitles] = useState<{ id: number; name: string; series_id: number | null }[] | null>(null)
+  const [seriesList, setSeriesList] = useState<{ id: number; name: string }[] | null>(null)
   const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
   const [enginesFailed, setEnginesFailed] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
@@ -101,8 +103,12 @@ export default function LivePage() {
       setEnginesFailed(true)
     })
     api.listDramas().then(
-      (r) => setTitles(r.items.map((d) => ({ id: d.id, name: d.title_en || d.title_zh || `#${d.id}` }))),
+      (r) => setTitles(r.items.map((d) => ({ id: d.id, name: d.title_en || d.title_zh || `#${d.id}`, series_id: d.series_id ?? null }))),
       () => setTitles([]),
+    )
+    getAllSeries().then(
+      (r) => setSeriesList(r.items.map((s) => ({ id: s.id, name: s.name }))),
+      () => setSeriesList([]),
     )
     listLive().then(
       (list) => {
@@ -123,8 +129,11 @@ export default function LivePage() {
     return () => window.removeEventListener(LIVE_STARTED_EVENT, onStarted)
   }, [])
 
-  // A remembered title that was deleted or hidden is not sent.
-  const glossaryTitle = titles?.some((t) => t.id === form.glossary_drama_id) ? form.glossary_drama_id : null
+  // A remembered title or series that was deleted or hidden is not sent.
+  const glossaryOptions = glossaryChoices(seriesList ?? [], titles ?? [])
+  const glossaryPick = glossaryValue(form, glossaryOptions)
+  const glossaryGroups = [...new Set(glossaryOptions.map((o) => o.group))]
+  const glossary = glossaryIds(glossaryPick)
 
   const usable = engines ? usableEngines(engines) : []
   const engine = pickEngine(usable, form.engine)
@@ -138,19 +147,21 @@ export default function LivePage() {
 
   // Ollama is the default and runs on this PC: say plainly when it is not
   // there, instead of failing at Start. Nothing switches engine for the user.
-  const [ollamaNote, setOllamaNote] = useState<string | null>(null)
+  // The answer is kept with the check it belongs to, so an old one is never shown for a new model.
+  const [ollamaAnswer, setOllamaAnswer] = useState<{ key: string; note: string | null } | null>(null)
   const [recheck, setRecheck] = useState(0)
   const checkModel = engine === 'ollama' ? model : null
+  const checkKey = `${checkModel}#${recheck}`
+  const ollamaNote = checkModel !== null && ollamaAnswer?.key === checkKey ? ollamaAnswer.note : null
   useEffect(() => {
-    setOllamaNote(null)
     if (checkModel === null) return
     let alive = true
     checkOllama(checkModel).then(
-      (r) => { if (alive) setOllamaNote(r.ok ? null : (r.message ?? 'Ollama is not ready.')) },
+      (r) => { if (alive) setOllamaAnswer({ key: checkKey, note: r.ok ? null : (r.message ?? 'Ollama is not ready.') }) },
       () => {},
     )
     return () => { alive = false }
-  }, [checkModel, recheck])
+  }, [checkModel, checkKey])
 
   // Poll the shown session: at once, then every POLL_MS while it is active.
   const sessionId = session?.id
@@ -240,7 +251,7 @@ export default function LivePage() {
     setBusy(true)
     setError(null)
     try {
-      const { session_id } = await startLive(buildStartBody({ ...form, engine, model, glossary_drama_id: glossaryTitle }))
+      const { session_id } = await startLive(buildStartBody({ ...form, engine, model, ...glossary }))
       setStopping(false)
       setSession({ id: session_id, status: null, cues: [], next: 0 })
     } catch (err) {
@@ -277,9 +288,8 @@ export default function LivePage() {
   const estimate = autoDelay(session?.status?.segment_seconds || form.segment_seconds,
     session?.status?.processing_seconds ?? 0, (session?.status?.chunks_measured ?? 0) > 0)
   const [autoValue, setAutoValue] = useState<number | null>(null)
-  useEffect(() => {
-    setAutoValue((cur) => steadyDelay(cur, estimate))
-  }, [estimate])
+  const steadyValue = steadyDelay(autoValue, estimate)
+  if (steadyValue !== autoValue) setAutoValue(steadyValue)
   const delay = delayAuto ? (autoValue ?? estimate) : videoDelay
 
   return (
@@ -327,15 +337,20 @@ export default function LivePage() {
                 ? 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.'
                 : 'Engine default uses the model the engine runs on its own.'} />
           </div>
-          <Field label="Use glossary and packs from title"
-            help="Optional. The names and terms of this title that occur in the stream are sent with each translation request. Nothing is written to the title.">
-            <select value={glossaryTitle ?? ''} disabled={active} data-testid="live-glossary-title"
-              onChange={(e) => setOpt('glossary_drama_id', e.target.value ? Number(e.target.value) : null)}>
+          {engines && !usable.length && (
+            <p className="muted" data-testid="live-echo-note">Echo (testing) is available in Developer Mode</p>
+          )}
+          <Field label="Use glossary and packs from"
+            help="Optional. The glossary always comes from a series. Pick a series for its glossary and the language packs of its newest title that has a pack choice; pick a title for its series' glossary and that title's own packs. The names and terms that occur in the stream are sent with each translation request. Nothing is written to the library.">
+            <select value={glossaryPick} disabled={active} data-testid="live-glossary-title"
+              onChange={(e) => setPrefs({ ...prefs, ...glossaryIds(e.target.value) })}>
               <option value="">None</option>
-              {(titles ?? []).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
+              {glossaryGroups.map((g) => (
+                <optgroup key={g} label={g}>
+                  {glossaryOptions.filter((o) => o.group === g).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </Field>
@@ -414,7 +429,7 @@ export default function LivePage() {
             {error}
           </p>
         )}
-        <FollowedChannels liveOptions={followOptions(buildStartBody({ ...form, engine, model, glossary_drama_id: glossaryTitle }))} />
+        <FollowedChannels liveOptions={followOptions(buildStartBody({ ...form, engine, model, ...glossary }))} />
 
         {session && (
           <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>

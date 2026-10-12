@@ -321,3 +321,17 @@ def test_adds_per_hour_are_limited_for_a_member(follows):
     with pytest.raises(RateLimitedError):
         svc.add_follow("@churn999", principal=ALICE)
     assert svc.add_follow("@other", principal=BOB)["channel"] == "@other"
+
+
+def test_a_followed_channel_keeps_a_series_or_an_old_title_id(follows, isolated_db):
+    import db
+    did = db.create_drama(title_zh="T")
+    sid = db.get_or_create_series("S", owner_user_id=12, is_private=True)
+    old = svc.add_follow("@name", principal=BOB, options={"glossary_drama_id": did})
+    assert old["options"]["glossary_drama_id"] == did and old["options"]["series_id"] is None
+    v = svc.update_follow(old["id"], options={"series_id": sid}, principal=BOB)
+    assert v["options"]["series_id"] == sid
+    with pytest.raises(NotFoundError):
+        svc.update_follow(old["id"], options={"series_id": sid}, principal=ALICE)
+    with pytest.raises(InvalidInputError):
+        svc.update_follow(old["id"], options={"series_id": sid, "glossary_drama_id": did}, principal=BOB)

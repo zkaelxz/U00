@@ -101,9 +101,10 @@ def get_costs(request: Request):
 
 
 @router.get("/series", dependencies=[require_permission("library.read")], response_model=LibrarySeriesResponse,
-            summary="Series that contain two or more dramas")
-def get_series(request: Request):
-    return {"items": library_service.list_series_with_dramas(principal=request.state.principal)}
+            summary="Series that contain two or more dramas (include_single: one-title series too)")
+def get_series(request: Request, include_single: bool = Query(False)):
+    return {"items": library_service.list_series_with_dramas(
+        principal=request.state.principal, include_single=include_single)}
 
 
 @router.get("/search", dependencies=[require_permission("library.read", "lines.read")], response_model=LibrarySearchResponse, responses=_ERR,

@@ -84,6 +84,11 @@ def _stored_choice(drama_id: int, language: str):
     return (default if isinstance(default, dict) else {"packs": {}}), True
 
 
+def has_title_choice(drama_id: int) -> bool:
+    """Whether the title has its own pack choice (a language default does not count)."""
+    return isinstance(db.get_app_setting(_TITLE_KEY.format(drama_id)), dict)
+
+
 def forget_title(drama_id: int) -> None:
     """Drops the title's own choice so a deleted title leaves no row behind.
     db has no app-setting delete; a missing key is not an error. Best effort:

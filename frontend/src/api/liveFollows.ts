@@ -53,6 +53,7 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
     max_minutes: Math.round(b.max_minutes),
     use_gpu: b.use_gpu,
     glossary_drama_id: b.glossary_drama_id ?? null,
+    series_id: b.series_id ?? null,
   }
 }
 

@@ -148,15 +148,17 @@ def list_cost_by_drama(principal=None) -> list:
         if d["call_count"] > 0]
 
 
-def list_series_with_dramas(principal=None) -> list:
-    """Series holding two or more dramas (what the Series expander shows).
-    Only series `principal` may see; every drama in a visible series is
-    visible to it (ownership_service's rule)."""
+def list_series_with_dramas(principal=None, include_single: bool = False) -> list:
+    """Series holding two or more dramas (what the Series expander shows), or
+    with `include_single` every series with a title (what a series picker
+    needs: a one-title series still has a glossary). Only series `principal`
+    may see; every drama in a visible series is visible to it
+    (ownership_service's rule)."""
     out = []
     uid = None if principal is None else principal.get("user_id")
     for s in db.list_series(visible_to=ownership_service.visible_to_filter(principal)):
         dramas = db.list_dramas_by_series(s["id"])
-        if len(dramas) < 2:
+        if len(dramas) < (1 if include_single else 2):
             continue
         out.append({
             "id": s["id"], "name": s["name"],

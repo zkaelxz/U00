@@ -75,7 +75,8 @@ _adds = {}          # owner user id -> times of their recent adds (memory only)
 INVALID_STATUS = "This channel's address is not valid any more. Remove it and follow it again."
 _OPTION_DEFAULTS = {"source_language": "zh", "whisper_size": "small", "engine": None,
                     "model": None, "max_minutes": live_service.DEFAULT_MAX_MINUTES,
-                    "use_gpu": False, "glossary_drama_id": None}
+                    "use_gpu": False, "glossary_drama_id": None,
+                    "series_id": None}
 
 
 def is_pc_owner(principal) -> bool:
@@ -233,6 +234,13 @@ def clean_options(options, principal=None) -> dict:
         if isinstance(title, bool) or not isinstance(title, int):
             raise InvalidInputError("glossary_drama_id must be a title id.")
         ownership_service.require_visible(principal, "drama", title)
+    series = out["series_id"]
+    if series is not None:
+        if title is not None:
+            raise InvalidInputError("Pick a title or a series for the glossary, not both.")
+        if isinstance(series, bool) or not isinstance(series, int):
+            raise InvalidInputError("series_id must be a series id.")
+        ownership_service.require_visible(principal, "series", series)
     return out
 
 
@@ -244,8 +252,8 @@ def _options(row, strict=False) -> dict:
         stored = json.loads(row.get("options") or "{}")
         try:
             return clean_options(stored, None)
-        except NotFoundError:       # the glossary title was deleted since
-            return clean_options(dict(stored, glossary_drama_id=None), None)
+        except NotFoundError:       # the glossary title or series was deleted since
+            return clean_options(dict(stored, glossary_drama_id=None, series_id=None), None)
     except Exception:
         if strict:
             raise InvalidInputError("A saved Live option for this channel is no longer valid. "
@@ -444,4 +452,4 @@ def start_from_follow(follow_id, principal=None, use_saved_cookies=False) -> dic
         whisper_size=opts["whisper_size"], engine=opts["engine"], model=opts["model"],
         max_minutes=opts["max_minutes"], use_gpu=opts["use_gpu"],
         use_saved_cookies=use_saved_cookies, glossary_drama_id=opts["glossary_drama_id"],
-        principal=principal)
+        series_id=opts["series_id"], principal=principal)

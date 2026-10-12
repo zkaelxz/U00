@@ -27,6 +27,9 @@ export const getStats = (f?: Fetch) => getJson<LibraryDashboard>('/api/library/s
 export const getRecent = (f?: Fetch) => getJson<LibraryRecentResponse>('/api/library/recent', f)
 export const getCosts = (f?: Fetch) => getJson<LibraryCostResponse>('/api/library/costs', f)
 export const getSeries = (f?: Fetch) => getJson<LibrarySeriesResponse>('/api/library/series', f)
+// Every series with a title, one-title ones too (getSeries lists only those with two or more).
+export const getAllSeries = (f?: Fetch) =>
+  getJson<LibrarySeriesResponse>('/api/library/series?include_single=true', f)
 export const getHistory = (f?: Fetch) => getJson<LibraryHistoryResponse>('/api/library/history', f)
 export const getContinueReading = (f?: Fetch) =>
   getJson<LibraryContinueResponse>('/api/library/continue', f)
