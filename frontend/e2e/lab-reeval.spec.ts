@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openBenchSections } from './benchSections'
+import { openBenchTab } from './benchSections'
 
 import { mockReeval, mockRemote, overview } from './reevalMocks'
 
@@ -31,7 +31,7 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
     if (r.url().includes('/api/models/reeval') && r.method() !== 'GET') posts.push(new URL(r.url()).pathname)
   })
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Model re-evaluation')
   const c = card(page)
   await expect(c.getByTestId('reeval-production')).toContainText('Claude · claude-sonnet-5')
   await expect(c.getByTestId('reeval-production')).toContainText('From Settings')
@@ -87,7 +87,7 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
 test('estimate, then Run now (confirm: true), progress, and the report against production', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview())
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Model re-evaluation')
   const c = card(page)
   await expect(c.getByTestId('reeval-production')).toContainText('Ollama · gemma4:12b')
   await expect(c.getByTestId('reeval-production')).toContainText('Promoted 2026-08-14')
@@ -130,7 +130,7 @@ test('estimate, then Run now (confirm: true), progress, and the report against p
 test('promote needs the second press, sends the reason, and says what changes', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true }))
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Model re-evaluation')
   const c = card(page)
   const row = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'Fake' })
   await expect(row).toContainText("Settings' default engine changes from Ollama to Fake.")
@@ -163,7 +163,7 @@ test('promote needs the second press, sends the reason, and says what changes', 
 test('a failed reload after Promote shows the error above the content it could not refresh', async ({ page }) => {
   const { unmocked } = await mockReeval(page, overview({ withReport: true }))
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Model re-evaluation')
   const c = card(page)
   await expect(c.getByTestId('reeval-production')).toBeVisible()
   // Registered after the stand-in, so it answers the reload that Promote triggers.
@@ -181,7 +181,7 @@ test('a failed reload after Promote shows the error above the content it could n
 test('reject asks a reason, reopen puts it back, re-adding a rejected model shows its decision', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true }))
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Model re-evaluation')
   const c = card(page)
   const list = c.getByRole('list', { name: 'Candidate models' })
   const gemini = list.locator(':scope > li', { hasText: 'Gemini' })
@@ -214,7 +214,7 @@ test('reject asks a reason, reopen puts it back, re-adding a rejected model show
 test('schedule: off by default, saves every field with the limit, shows the next due date and a refused attempt', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true, error: "Skipped: estimated $0.0400, above the $0.02 limit set for scheduled runs." }))
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Model re-evaluation')
   const c = card(page)
   await expect(c.getByTestId('reeval-report-error')).toHaveText(
     'Last scheduled attempt 2026-09-30 03:00 (UTC): Skipped: estimated $0.0400, above the $0.02 limit set for scheduled runs.',
@@ -258,7 +258,7 @@ test('off the PC: reads only, no add / reject / promote / save, Run now says why
   // After mockReeval: its catch-all passes GETs through, and the newest route wins.
   await mockRemote(page)
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Model re-evaluation')
   const c = card(page)
   await expect(c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li')).toHaveCount(2)
   await expect(c).toContainText('Adding, rejecting and promoting candidates is PC only.')
