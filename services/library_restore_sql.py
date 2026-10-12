@@ -237,6 +237,8 @@ def settle_accounts(conn, live_path: str) -> None:
 # accounts are kept (audit_log is the live library's own then).
 _RESTORED_ACCOUNT_ID_COLUMNS = tuple(c for c in _ACCOUNT_ID_COLUMNS if c[0] != "audit_log")
 _SOURCES_ACCOUNT_ID_COLUMNS = (("tracked_series", "linked_by_user_id"),
+                               ("tracked_series", "save_cbz_by_user_id"),
+                               ("saved_series_owners", "owner_user_id"),
                                ("source_extension_only", "marked_by_user_id"))
 
 

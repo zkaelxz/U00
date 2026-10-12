@@ -836,7 +836,11 @@ def test_tracked_series_links_and_extension_marks_follow_the_email_match(isolate
     did = db.create_drama(title_zh="mei's", owner_user_id=mei, is_private=1)
     src_store.track_series("site", "s1", "Mei's series", drama_id=did, linked_by_user_id=mei)
     src_store.track_series("site", "s2", "Gone's series", linked_by_user_id=gone)
+    src_store.set_tracked_save("site", "s1", True, by_user_id=mei)
     extension_marker.mark("site", user_id=mei)
+    from services import sources_save_service as saves
+    saves.record_saved_by("Site", "Mei's", mei)
+    saves.record_saved_by("Site", "Gone's", gone)
     data = _backup_bytes()
     _fresh_pc()
     live_mei = auth_service.add_user("mei@example.com")["id"]
@@ -846,6 +850,10 @@ def test_tracked_series_links_and_extension_marks_follow_the_email_match(isolate
     links = {r["series_id"]: r["linked_by_user_id"] for r in src_store.list_tracked_series()}
     assert links == {"s1": live_mei, "s2": None}
     assert extension_marker.get("site")["marked_by_user_id"] == live_mei
+    saved_for = {r["series_id"]: r["save_cbz_by_user_id"] for r in src_store.list_tracked_series()}
+    assert saved_for == {"s1": live_mei, "s2": None}
+    assert saves.series_saved_by(live_mei) == {("Site", "Mei's")}
+    assert saves.series_saved_by(stranger) == set()
 
 
 def _with_backup_users(data, rows, drop=False, id_type="PRIMARY KEY"):

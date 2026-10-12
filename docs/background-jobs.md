@@ -169,13 +169,24 @@ Applies to jobs started with `gpu_touching=True`, and only while the GPU limit s
 is on (`get_gpu_limit_enabled`, `app_settings.gpu_limit_enabled`, default on). It is a
 soft guard against two jobs fighting for VRAM, not a model manager.
 
+Per-user caps (`jobs/user_caps.py`) apply to every job, GPU or not: a signed-in user
+may have `MAX_RUNNING_JOBS_PER_USER` (2) running and `MAX_QUEUED_JOBS_PER_USER` (5)
+queued jobs they started (`owner_user_id`), whatever the job ids; past either,
+`start_job`/`start_process_job` raise `RateLimitedError` (429). The count and the new
+entry happen under `_lock`. A GPU job whose starter is at the running cap is queued
+rather than refused; promotion skips it (it keeps its place) and other users' jobs go
+ahead of it until one of the starter's jobs ends, and every job's end runs a promotion.
+Starter None (the PC owner, auth off, the CLI, jobs started by jobs, older records) is
+never capped.
+
 A GPU job is queued instead of started when an earlier GPU job is already waiting
 (`_gpu_queue_waiting_locked`: first come, first served) or no slot is free
 (`_gpu_slot_available_locked`). Three layers:
 
 1. **In-process FIFO queue.** `_gpu_queue` holds the waiting entries (target, args,
    `on_done`/`on_finish`, kind). When any GPU job ends (`_release_gpu_slot` then
-   `_promote_next_queued_gpu_job`), the head is started if a slot is free. Entries whose
+   `_promote_next_queued_gpu_job`), the first entry whose starter is under the running
+   cap is started if a slot is free. Entries whose
    job was cleared or cancelled are dropped (their `on_finish` still runs). The queue
    is per process on purpose: each process manages only the jobs it started.
 2. **Cross-process slots.** `jobs/gpu_slots.py` is the only code that reads or writes

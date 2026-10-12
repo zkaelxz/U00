@@ -34,7 +34,7 @@ Status: sign-in, ownership, the D5 listeners and sharing are merged (see `STATUS
 2. Google OIDC login and callback.
 3. Per-device extension tokens (built), then move the extension bridge into the API (not done yet).
 4. URL-import guards: http/https only, block private, loopback and link-local addresses (including after redirects), and caps on size, count and concurrency.
-5. Per-user job limits, and per-user bandwidth caps for media.
+5. Per-user job limits, and per-user bandwidth caps for media. Built: each signed-in user may have 2 running and 5 queued jobs (`jobs/user_caps.py`, 429 beyond) and 3 open audio/video streams (`api/routers/media_routes.py`, 429 beyond). Not built: a bandwidth (bytes per second) cap.
 6. Verify Range and seek behaviour with a multi-GB file (the API uses `FileResponse`), and job progress through Caddy.
 7. Set an upload size limit if uploads are ever allowed remotely (there is none today). Uploads, deletes and settings are PC-only unless the user decides otherwise.
 8. PWA manifest and a minimal service worker (cache the app shell only), and check session cookies in installed PWAs on real devices.

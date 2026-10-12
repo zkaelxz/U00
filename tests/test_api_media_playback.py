@@ -213,3 +213,97 @@ def test_media_stream_permission_on_all_four_routes(isolated_db, did):
         assert c.head(_url(did, kind), headers=no).status_code == 403
         assert c.get(_url(did, kind), headers=yes).status_code == 200
         assert c.head(_url(did, kind), headers=yes).status_code == 200
+
+
+def _stream_once(path, user_id):
+    """Runs one capped response with a send that waits until `go` is set,
+    and a receive that reports a hang-up when `hang_up` is set."""
+    import anyio
+
+    from api.routers import media_routes
+
+    class Stream:
+        def __init__(self):
+            self.go, self.hang_up, self.sent = anyio.Event(), anyio.Event(), []
+
+        async def receive(self):
+            await self.hang_up.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(self, message):
+            self.sent.append(message)
+            if message["type"] == "http.response.body":
+                await self.go.wait()
+
+        async def run(self):
+            scope = {"type": "http", "method": "GET", "headers": []}
+            response = media_routes._CappedFileResponse(path, media_type="audio/mpeg",
+                                                        user_id=user_id)
+            await response(scope, self.receive, self.send)
+
+        def status(self):
+            return self.sent[0]["status"] if self.sent else None
+    return Stream()
+
+
+def test_a_user_past_the_open_stream_cap_gets_429_and_a_hang_up_frees_a_slot(did):
+    import anyio
+
+    import db
+    from api.routers import media_routes
+    path = os.path.join(db.drama_dir(did), "source.mp3")
+    cap = media_routes.MAX_STREAMS_PER_USER
+
+    async def main():
+        with anyio.fail_after(10):
+            await streams()
+
+    async def streams():
+        open_ones = [_stream_once(path, 7) for _ in range(cap)]
+        async with anyio.create_task_group() as tg:
+            for s in open_ones:
+                tg.start_soon(s.run)
+            with anyio.fail_after(5):
+                while not all(len(s.sent) == 2 for s in open_ones):
+                    await anyio.sleep(0.01)
+            assert [s.status() for s in open_ones] == [200] * cap
+
+            refused = _stream_once(path, 7)
+            refused.go.set()
+            await refused.run()
+            assert refused.status() == 429
+            body = b"".join(m.get("body", b"") for m in refused.sent)
+            assert b"rate_limited" in body and f"{cap} media streams".encode() in body
+
+            other, owner = _stream_once(path, 8), _stream_once(path, None)
+            for s in (other, owner):
+                s.go.set()
+                await s.run()
+                assert s.status() == 200
+
+            open_ones[0].hang_up.set()
+            with anyio.fail_after(5):
+                while media_routes._open_streams.get(7) != cap - 1:
+                    await anyio.sleep(0.01)
+            again = _stream_once(path, 7)
+            again.go.set()
+            await again.run()
+            assert again.status() == 200
+
+            for s in open_ones[1:]:
+                s.go.set()
+        assert media_routes._open_streams == {}
+
+    anyio.run(main)
+
+
+def test_a_stream_counts_against_the_signed_in_user_and_never_the_pc_owner(did):
+    from types import SimpleNamespace
+
+    from api.routers import media_routes
+
+    def request(principal):
+        return SimpleNamespace(state=SimpleNamespace(principal=principal))
+    assert media_routes._play(request({"user_id": 7}), did, "video").user_id == 7
+    assert media_routes._play(request({"user_id": None, "is_local_owner": True}),
+                              did, "audio").user_id is None
