@@ -3,6 +3,7 @@
 import inspect
 import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard
+from . import glossary_check
 from .fallback import FallbackEngine
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
@@ -98,6 +99,12 @@ def plan_batches(lines, max_size: int, min_gap: float = SCENE_BREAK_GAP_SECONDS,
 
 
 PRONOUN_CHECK_FLAG = "pronoun_check"
+
+
+def _ids(lines) -> list:
+    """Permanent line ids for a failure record: indexes are renumbered by a merge
+    or split, ids are not."""
+    return [ln.id for ln in lines if getattr(ln, "id", None) is not None]
 
 
 def _record_engine_usage(engine, record_usage):
@@ -339,6 +346,9 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     hard_failures = []
     spent = 0.0
     allowed_runs = allowed_source_runs(glossary_terms, style_guidelines)
+    # A local model works through a long system prompt unevenly, so for it the
+    # names go beside the lines of each batch as well.
+    glossary_first = getattr(engine, "name", "") == "ollama"
 
     def record_usage(inp, out, cache_read=0, cache_write=0):
         nonlocal spent
@@ -411,6 +421,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
             chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
             chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
+            if glossary_terms and glossary_first:
+                chunk_context = glossary_check.tag_batch(chunk_context, chunk, glossary_terms)
             return chunk_context
 
         def _call_engine(chunk, chunk_context):
@@ -496,7 +508,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                     for ln in chunk:
                         ln.flag = "content_blocked"
                         ln.flag_note = f"{blocked.engine}: {blocked.reason}"
-                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
+                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk], "line_ids": _ids(chunk),
                                    "error": f"blocked by {blocked.engine}'s content filter: "
                                             f"{blocked.reason}"})
                 return
@@ -506,7 +518,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             except Exception as e:
                 redacted = redact_secrets(str(e))
                 hard_failures.append(e)
-                errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
+                errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk], "line_ids": _ids(chunk),
                                "error": redacted})
                 # After a timeout the abandoned request may still be running, so
                 # the next batch would be refused or double-billed.
@@ -521,7 +533,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 if notes:
                     notes_cb(notes)
             if len(translations) != len(chunk):
-                errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
+                errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk], "line_ids": _ids(chunk),
                                "error": f"engine returned {len(translations)} translation(s) for "
                                         f"{len(chunk)} line(s) -- left untranslated rather than "
                                         f"risk assigning a translation to the wrong line"})
@@ -541,7 +553,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                         empty.append(ln)
                 flag_unusable_replies(empty, getattr(engine, "last_rejected", None))
                 if empty:
-                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in empty],
+                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in empty], "line_ids": _ids(empty),
                                    "error": f"{len(empty)} of {len(chunk)} lines got no "
                                             f"translation (reply may have been cut off; "
                                             f"try a smaller batch size)"})
@@ -553,12 +565,39 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                     # old English (maybe the user's edit), which must not be re-asked or flagged.
                     _guard_merged_or_shifted(fresh)
 
-        def _guard_merged_or_shifted(chunk):
-            def stop():
-                return bool(stop_run or (cancel_check_cb and cancel_check_cb())
-                            or (cost_cap_usd is not None and spent >= cost_cap_usd)
-                            or (isinstance(engine, FallbackEngine) and engine.cap_exhausted()))
+        def stop():
+            return bool(stop_run or (cancel_check_cb and cancel_check_cb())
+                        or (stop_before_batch and stop_before_batch())
+                        or (cost_cap_usd is not None and spent >= cost_cap_usd)
+                        or (isinstance(engine, FallbackEngine) and engine.cap_exhausted()))
 
+        def _check_glossary(chunk):
+            def ask(lines_to_redo, pairs):
+                redo_context = dict(_context_for(lines_to_redo), glossary_required=pairs,
+                                    glossary_correction=True)
+                sources = pronoun_neutral_texts(context, [ln.zh for ln in lines_to_redo])
+                try:
+                    out = call_with_backoff(
+                        lambda: call_batch_bounded(
+                            engine, lambda: engine.translate_batch(sources, redo_context),
+                            on_late_result=lambda: _record_engine_usage(engine, record_usage)))
+                    _record_engine_usage(engine, record_usage)
+                    return out
+                except TranslationCancelled:
+                    return None
+                except Exception as e:
+                    redacted = redact_secrets(str(e))
+                    if stops_translate_run(e):
+                        # These lines hold this run's English; only the reason is recorded.
+                        stop_run.append(True)
+                        errors.append({"batch_index": bi, "lines": [], "error": redacted})
+                    import applog
+                    applog.get_logger().warning(f"glossary re-ask skipped for batch {bi}: {redacted}")
+                    return None
+
+            glossary_check.enforce(chunk, glossary_terms, ask, stop, allowed_runs)
+
+        def _guard_merged_or_shifted(chunk):
             def redo(lines_to_redo):
                 try:
                     return _call_engine(lines_to_redo, _context_for(lines_to_redo))
@@ -570,7 +609,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                         # The run ends here, so the reason must reach the job's errors.
                         stop_run.append(True)
                         errors.append({"batch_index": bi, "lines": [ln.idx for ln in lines_to_redo],
-                                       "error": redacted})
+                                       "line_ids": _ids(lines_to_redo), "error": redacted})
                     import applog
                     applog.get_logger().warning(f"merge/shift re-ask skipped for batch {bi}: {redacted}")
                     return None
@@ -585,12 +624,14 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         translated_before = len(translated)
         try:
             _process_chunk(batch, allow_bisect=True)
+            if glossary_terms and len(translated) > translated_before:
+                _check_glossary(translated[translated_before:])
         finally:
             _backoff_wait_var.reset(wait_token)
         if streak.record(failed=bool(hard_failures), succeeded=len(translated) > translated_before) \
                 and not stop_run:
             stop_run.append(True)
-            errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
+            errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch], "line_ids": _ids(batch),
                            "error": streak.stop_message(scrub_error_text(str(hard_failures[-1])))})
         if save_cb:
             save_cb(lines)

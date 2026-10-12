@@ -42,6 +42,34 @@ export interface TranslateRunConfig {
   // saved engine is Ollama; null (or missing on older servers) = not checked.
   // A boolean only: the server never sends the URL.
   ollama_reachable?: boolean | null
+  // 1-based numbers of the last run's failed lines: still empty, and holding
+  // the earlier engine's English. Missing on an older server.
+  failed_untranslated_numbers?: number[]
+  failed_kept_earlier_numbers?: number[]
+  // False for a record from before line ids were kept: the notice shows, Retry does not.
+  failed_retryable?: boolean
+  // Lines flagged for a missing glossary name, and the Settings engine the
+  // one-click redo would use (null until one is picked).
+  glossary_flagged_count?: number
+  glossary_redo_engine?: string | null
+}
+
+/** The Translate form's options for retrying the failed lines; the server picks the lines. */
+export type RetryFailedBody = Omit<TranslateRunStartBody, 'line_ids' | 'force_retranslate' | 'bulk' | 'reflect'>
+
+export interface RetryFailedStarted extends TranslateRunStarted {
+  line_ids: number[]
+}
+
+export interface EpisodeSummaryOptions {
+  engine: string
+  engines: string[]
+}
+
+export interface EpisodeSummaryGenerated {
+  drama_id: number
+  summary: string
+  engine: string
 }
 
 export interface TranslateBatchError {

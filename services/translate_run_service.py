@@ -30,6 +30,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 from types import SimpleNamespace
 from typing import Optional
 
@@ -87,6 +88,11 @@ def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False) -> N
 # Claude replies are capped at 4000 output tokens; past this the JSON reply risks
 # being cut off and the batch coming back empty.
 MAX_BATCH_SIZE = 60
+
+
+# Serialises writes to dramas.last_translate_errors: the dismiss route and a
+# retry run's prune both read-modify-write it.
+ERRORS_LOCK = threading.Lock()
 
 
 def _parse_errors(raw) -> Optional[list]:
@@ -528,7 +534,11 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
         return {**resp, "fallback_engines": []}
 
+    # Imported here: it needs this module for the drama lookup and Ollama probe.
+    from services import episode_summary_service
     summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
+    summary_skip_reason = ("" if summary_engine is not None
+                           else episode_summary_service.no_engine_reason(allow_paid_summary))
 
     started = background_jobs.start_job(
         job_id, workspace_job_service.run_translate_job,
@@ -539,7 +549,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         cost_cap_usd=cost_cap,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
-        summary_monthly_cap_usd=month_cap_usd() or None,
+        summary_monthly_cap_usd=month_cap_usd() or None, summary_skip_reason=summary_skip_reason,
         target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
         gpu_touching=translate_engines.chain_touches_local_gpu(chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",
@@ -772,10 +782,11 @@ def dismiss_translate_errors(drama_id: int) -> dict:
     (db.update_drama(last_translate_errors=None)); lines are untouched, so a
     later "Translate all lines" still retries the missing ones. NotFoundError
     for an unknown drama; `dismissed` is False when there was nothing to clear."""
-    drama = require_drama(drama_id)
-    had = bool(drama.get("last_translate_errors"))
-    if had:
-        db.update_drama(drama_id, last_translate_errors=None)
+    require_drama(drama_id)
+    with ERRORS_LOCK:
+        had = bool((db.get_drama(drama_id) or {}).get("last_translate_errors"))
+        if had:
+            db.update_drama(drama_id, last_translate_errors=None)
     return {"drama_id": drama_id, "dismissed": had}
 
 

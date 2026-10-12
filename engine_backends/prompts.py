@@ -456,4 +456,5 @@ def build_batch_user_message(context: dict, numbered: str) -> str:
     # Idempotent for lines the live loop already neutralised; it is what covers a
     # bulk request, which numbers the raw source before it gets here.
     numbered = pronoun_neutral_texts(context, [numbered])[0]
-    return note + (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered
+    from .glossary_check import required_note
+    return required_note(context) + note + (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered

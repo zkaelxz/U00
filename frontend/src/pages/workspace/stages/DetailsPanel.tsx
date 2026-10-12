@@ -30,6 +30,7 @@ import {
 import type { MediaTab } from '../mediaTabs'
 import { useStage } from '../StageContext'
 import { CreditsCover } from './CreditsCoverPanel'
+import { EpisodeSummaryGenerate } from './EpisodeSummaryGenerate'
 import { MediaTabPanel } from './MediaTabPanel'
 import { ContentModeField } from './SourceModes'
 import { SERIES_HELP } from '../../../helpText'
@@ -248,6 +249,10 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
                 >
                   <textarea rows={3} value={form.episode_summary} onChange={set('episode_summary')} />
                 </Field>
+                <EpisodeSummaryGenerate
+                  dramaId={dramaId}
+                  onGenerated={(text) => set('episode_summary')({ target: { value: text } })}
+                />
               </Section>
             </form>
           </Section>
