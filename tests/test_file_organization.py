@@ -10,7 +10,8 @@ from collections import Counter
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOC = os.path.join(PROJECT_ROOT, "FILE_ORGANIZATION.md")
-WATCHED_DIRS = ("", "lib", "services", "api/routers")
+WATCHED_DIRS = ("", "lib", "services", "api", "api/schemas", "api/routers", "db", "jobs", "engine_backends",
+                "sources", "sources/adapters", "scripts", "scripts/migration", "tools", "installer")
 
 
 def _doc_text():
@@ -19,7 +20,7 @@ def _doc_text():
 
 
 def _watched_modules():
-    """Repo-relative paths of non-test .py files in the root, lib/, services/ and api/routers/."""
+    """Repo-relative paths of non-test .py files in the directories the doc covers."""
     found = []
     for rel_dir in WATCHED_DIRS:
         folder = os.path.join(PROJECT_ROOT, rel_dir) if rel_dir else PROJECT_ROOT
@@ -35,16 +36,24 @@ SECTIONS = {  # heading -> folder its entries live in
     "## Top-level modules": "",
     "## lib/": "lib",
     "## services/": "services",
+    "## api/": "api",
+    "### api/schemas/": "api/schemas",
     "### api/routers/": "api/routers",
+    "## engine_backends/": "engine_backends",
+    "## jobs/": "jobs",
+    "## sources/": "sources",
+    "### sources/adapters/": "sources/adapters",
+    "## scripts/": "scripts",
+    "### scripts/migration/": "scripts/migration",
+    "## tools/": "tools",
+    "## installer/": "installer",
 }
 
 
 def _section_entries():
     """(folder, name) for each backticked .py name in the module-list sections.
 
-    Bold group labels such as **Translation & quality (...)**: only describe a
-    group, so they are dropped. Other sections (sources/, schemas, tools) hold
-    files outside the hook's scope.
+    Bold group labels and prose lines are not entries.
     """
     entries = []
     current = None
@@ -54,9 +63,10 @@ def _section_entries():
             continue
         if current is None:
             continue
-        line = re.sub(r"\*\*[^*]*\*\*", "", line)
-        entries += [(current, n) for n in re.findall(r"`([A-Za-z0-9_]+\.py)`", line)
-                    if not n.startswith("api/")]
+        # Only the first name of a bullet is the entry; later ones in its description are mentions.
+        bullet = re.match(r"- `([A-Za-z0-9_]+\.py)`", line)
+        if bullet:
+            entries.append((current, bullet.group(1)))
     return entries
 
 
@@ -64,16 +74,24 @@ SECTIONS = {  # heading -> folder its entries live in
     "## Top-level modules": "",
     "## lib/": "lib",
     "## services/": "services",
+    "## api/": "api",
+    "### api/schemas/": "api/schemas",
     "### api/routers/": "api/routers",
+    "## engine_backends/": "engine_backends",
+    "## jobs/": "jobs",
+    "## sources/": "sources",
+    "### sources/adapters/": "sources/adapters",
+    "## scripts/": "scripts",
+    "### scripts/migration/": "scripts/migration",
+    "## tools/": "tools",
+    "## installer/": "installer",
 }
 
 
 def _section_entries():
     """(folder, name) for each backticked .py name in the module-list sections.
 
-    Bold group labels such as **Translation & quality (...)**: only describe a
-    group, so they are dropped. Other sections (sources/, schemas, tools) hold
-    files outside the hook's scope.
+    Bold group labels and prose lines are not entries.
     """
     entries = []
     current = None
@@ -83,15 +101,17 @@ def _section_entries():
             continue
         if current is None:
             continue
-        line = re.sub(r"\*\*[^*]*\*\*", "", line)
-        entries += [(current, n) for n in re.findall(r"`([A-Za-z0-9_]+\.py)`", line)
-                    if not n.startswith("api/")]
+        # Only the first name of a bullet is the entry; later ones in its description are mentions.
+        bullet = re.match(r"- `([A-Za-z0-9_]+\.py)`", line)
+        if bullet:
+            entries.append((current, bullet.group(1)))
     return entries
 
 
 def test_every_module_is_listed():
-    text = _doc_text()
-    unlisted = [p for p in _watched_modules() if os.path.basename(p) not in text]
+    listed = {f"{d + '/' if d else ''}{n}" for d, n in _section_entries()}
+    listed |= {p for p in _watched_modules() if p.startswith("db/") and f"`{p}`" in _doc_text()}
+    unlisted = [p for p in _watched_modules() if p not in listed]
     assert unlisted == [], (
         f"not listed in FILE_ORGANIZATION.md: {unlisted}. Add each to the right group "
         "in the same change."

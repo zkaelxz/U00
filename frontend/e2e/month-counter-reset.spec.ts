@@ -26,7 +26,7 @@ test('spending: reset this month\'s counter with a confirm, then undo', async ({
     return route.fulfill({ json: { before, after: status() } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Costs')
   const box = page.getByTestId('month-counter')
   await expect(box).toContainText('Keeps your history, starts counting from now. The cap stays at $20.00.')
   await expect(page.getByTestId('month-spend')).toHaveText('This month: $12.50')

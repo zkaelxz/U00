@@ -3,7 +3,7 @@ import type { Page, Request } from '@playwright/test'
 import { type MeBody } from './authMocks'
 import { mockDevices } from './deviceSessionsMocks'
 
-// Settings > Browser extension devices. Builds on the signed-in devices mock
+// Settings > Extension tokens per computer. Builds on the signed-in devices mock
 // (me, Settings reads, a catch-all that aborts and records any other write)
 // and adds a small stateful /api/auth/device-tokens and
 // /api/extension/devices. No real token is ever created.

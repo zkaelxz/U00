@@ -1,5 +1,5 @@
 /*
- * Settings > Loaded now: what Ollama, this app and the GPU hold in memory.
+ * Diagnostics > Models > Models in memory: what Ollama, this app and the GPU hold in memory.
  * Read-only and on demand (Refresh; no polling). "Free app models" drops the
  * app's own cached models behind a confirm, PC only, and is disabled while a
  * GPU job runs. Ollama's own unload is not here.
@@ -14,7 +14,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { FREE_BUSY_NOTE, OLLAMA_EMPTY, gpuLine, llamaLine, loadedRows, memoryLine, refreshedLine, unreadableReserveNote } from './loadedModelsModel'
 
-const TITLE = 'Loaded now'
+const TITLE = 'Models in memory'
 
 export function LoadedModelsCard() {
   const pc = usePcOnly()

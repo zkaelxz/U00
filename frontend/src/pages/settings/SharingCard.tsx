@@ -94,7 +94,12 @@ export function SharingCard() {
   }
 
   return (
-    <Card title={TITLE} aria-label={TITLE} className="sharing-card">
+    <Card
+      title={TITLE}
+      aria-label={TITLE}
+      className="sharing-card"
+      meta={shareDefault === null ? undefined : shareDefault ? 'New items shared with the household' : 'New items private'}
+    >
       {shareDefault === null ? (
         !error && <p className="muted">Loading…</p>
       ) : (
