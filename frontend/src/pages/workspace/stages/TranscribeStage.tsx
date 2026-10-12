@@ -14,6 +14,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { usePersistedState } from '../../../hooks/usePersistedState'
 import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
 import type {
   DiarizationConfig,
@@ -23,6 +24,7 @@ import type {
   TranscribeRunRequest,
 } from '../../../types/workspace'
 import {
+  advancedSummary,
   parseExpectedSpeakers,
   parseSpeakerHints,
   runOptionProblem,
@@ -103,6 +105,9 @@ export default function TranscribeStage({
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
+  // The server does not say whether a title's options were ever saved, so remember a save here; options
+  // that already differ from the defaults count as saved too. It only picks which fold opens first.
+  const [savedBefore, setSavedBefore] = usePersistedState(`source.optionsSaved.${dramaId}`, false)
   // The form as last left for this drama, so a stage-tab switch or a reload keeps it.
   const { draft: restored, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSCRIBE_DRAFT_STAGE, TRANSCRIBE_DRAFT_SHAPE)
   const defaultLanguage = drama.source_language ?? 'zh'
@@ -284,6 +289,7 @@ export default function TranscribeStage({
   // The picker on Add media saves its own change; until it changes, the saved config says.
   const mode = transcriptMode ?? config?.transcript_mode
   const haveTranscript = mode === 'have_transcript'
+  const optionsSaved = savedBefore || (!!config && advancedSummary({ ...formFromConfig(config), prompt: '', source_language: language }, true) !== 'defaults')
   const hasMedia = !!media && (media.has_audio || media.has_source_video)
 
   // ffprobe on the stored file (read-only); without it the captions say less.
@@ -326,6 +332,7 @@ export default function TranscribeStage({
       (c) => {
         setError(null)
         setSaved(true)
+        setSavedBefore(true)
         setConfig(c)
       },
       fail,
@@ -390,6 +397,7 @@ export default function TranscribeStage({
       ? updateTranscribeConfig(dramaId, update).then((c) => {
           setConfig(c)
           setSaved(true)
+          setSavedBefore(true)
         })
       : Promise.resolve()
     saveFirst.then(start).then((r) => {
@@ -597,6 +605,7 @@ export default function TranscribeStage({
             language={language}
             developerMode={developerMode}
             haveTranscript={haveTranscript}
+            optionsSaved={optionsSaved}
             fieldError={fieldError}
             speakers={{
               expected: speakers,

@@ -7,17 +7,21 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { TranscribeConfig } from '../../../types/workspace'
+import { rangeHint } from '../formatRange'
 import {
   advancedSummary,
-  MIN_PAUSE_SEC_MAX,
-  MIN_PAUSE_SEC_MIN,
-  MIN_SILENCE_MS_MAX,
-  MIN_SILENCE_MS_MIN,
+  BEAM_SIZE_DEFAULT,
+  DEFAULT_HALLUCINATION_SILENCE_SEC,
+  HARDSUB_INTERVAL_DEFAULT,
+  MIN_PAUSE_SEC_DEFAULT,
+  MIN_SILENCE_MS_DEFAULT,
+  RANGES,
+  VAD_THRESHOLD_DEFAULT,
   type RunField,
 } from '../sourceForm'
 import { advancedGroups, type AdvancedFieldId } from './advancedGroups'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
-import { optionLabel, readableSummary, speakersSummary, type ConfigForm } from './transcribeConfigForm'
+import { optionLabel, promptSummary, readableSummary, speakersSummary, switchesSummary, type ConfigForm } from './transcribeConfigForm'
 import { diarizeEstimate } from './transcribeEstimate'
 import { asrBackendHelp, GROQ_HELP } from './transcribeBackendField'
 import { VoiceDetectorField } from './VoiceDetectorField'
@@ -41,6 +45,8 @@ interface Props {
   language: string
   developerMode: boolean
   haveTranscript: boolean
+  // The title's options were saved before (see optionsSaved in TranscribeStage): decides which fold opens first.
+  optionsSaved: boolean
   fieldError: (f: RunField) => string | null
   speakers: SpeakerInputs
   extraNames: string
@@ -118,10 +124,10 @@ export function TranscribeAdvanced(p: Props) {
 
   const asrOptions = asrBackendOptionsFor(language)
   const fields: Record<AdvancedFieldId, () => Placed> = {
-    expected_speakers: () => speaker('Expected speakers', 'expected', '0-20. Blank lets the app decide.'),
+    expected_speakers: () => speaker('Expected speakers', 'expected', `${rangeHint(0, 20)} Blank lets the app decide.`),
     min_speakers: () =>
-      speaker('Min speakers', 'min', '1-20. When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.', true),
-    max_speakers: () => speaker('Max speakers', 'max', '1-20. Leave Expected speakers blank when using a range.', true),
+      speaker('Min speakers', 'min', `${rangeHint(1, 20)} When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.`, true),
+    max_speakers: () => speaker('Max speakers', 'max', `${rangeHint(1, 20)} Leave Expected speakers blank when using a range.`, true),
     detect_speakers_only: () => ({
       zone: 'block',
       node: (
@@ -175,9 +181,9 @@ export function TranscribeAdvanced(p: Props) {
     sensitivity_preset: () =>
       select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'], 'Catches quieter or faster speech, but may add false text on music or breathing.'),
     min_silence_ms: () =>
-      num('Min silence', 'min_silence_ms', 50, `${MIN_SILENCE_MS_MIN}-${MIN_SILENCE_MS_MAX}. Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms'),
+      num('Min silence', 'min_silence_ms', 50, `${rangeHint(RANGES.min_silence_ms.min, RANGES.min_silence_ms.max, { unit: 'ms', default: MIN_SILENCE_MS_DEFAULT })} Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms'),
     min_pause_sec: () =>
-      num('Pause that can split a long line', 'min_pause_sec', 0.05, `${MIN_PAUSE_SEC_MIN}-${MIN_PAUSE_SEC_MAX}. Longer lines are only cut where the speaker pauses at least this long. Higher gives fewer, longer lines. Lower cuts more.`, 's'),
+      num('Pause that can split a long line', 'min_pause_sec', 0.05, `${rangeHint(RANGES.min_pause_sec.min, RANGES.min_pause_sec.max, { unit: 's', default: MIN_PAUSE_SEC_DEFAULT })} Longer lines are only cut where the speaker pauses at least this long. Higher gives fewer, longer lines. Lower cuts more.`, 's'),
     split_by_sentences: () =>
       toggle(
         'Split lines by sentences',
@@ -188,8 +194,8 @@ export function TranscribeAdvanced(p: Props) {
             : ''),
       ),
     realign_long_segments: () => toggle('Realign long segments', 'realign_long_segments'),
-    vad_threshold: () => num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.'),
-    hardsub_interval_sec: () => num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's'),
+    vad_threshold: () => num('VAD threshold', 'vad_threshold', 0.05, `${rangeHint(RANGES.vad_threshold.min, RANGES.vad_threshold.max, { default: VAD_THRESHOLD_DEFAULT })} Higher ignores more quiet sound.`),
+    hardsub_interval_sec: () => num('Hardsub interval', 'hardsub_interval_sec', 0.1, `${rangeHint(RANGES.hardsub_interval_sec.min, RANGES.hardsub_interval_sec.max, { unit: 's', default: HARDSUB_INTERVAL_DEFAULT })} How often video frames are read for on-screen text.`, 's'),
     alignment_method: () =>
       select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
         haveTranscript
@@ -207,7 +213,7 @@ export function TranscribeAdvanced(p: Props) {
         'vocabulary_hint',
         "Gives Qwen3 ASR this title's character names and glossary terms as a spelling hint. Can pull a line toward a name that wasn't said, so check the lines after turning it on.",
       ),
-    extra_names: () => ({
+    prompt: () => ({
       zone: 'block',
       node: (
         <>
@@ -216,24 +222,24 @@ export function TranscribeAdvanced(p: Props) {
               ? `Automatic prompt, from glossary and novel: ${config.auto_initial_prompt}`
               : 'Automatic prompt: no glossary names or raw novel yet. Extra names below still help.'}
           </p>
-          <Field label="Extra names to expect" help="Added to the automatic prompt. Separate names with 、 or commas.">
-            <input value={p.extraNames} placeholder="沈清疑、云隐宗" onChange={(e) => p.setExtraNames(e.target.value)} />
-          </Field>
+          <details className="prompt-fold">
+            <summary>
+              More: replace the automatic prompt
+              {promptSummary(p.extraNames, p.override) && (
+                <span className="section-summary" data-testid="prompt-summary">{promptSummary(p.extraNames, p.override)}</span>
+              )}
+            </summary>
+            <Field label="Extra names to expect" help="Added to the automatic prompt. Separate names with 、 or commas.">
+              <input value={p.extraNames} placeholder="沈清疑、云隐宗" onChange={(e) => p.setExtraNames(e.target.value)} />
+            </Field>
+            <Field label="Replacement prompt" help="Used instead of the automatic prompt and extra names. Leave empty to keep the automatic one.">
+              <input value={p.override} onChange={(e) => p.setOverride(e.target.value)} />
+            </Field>
+          </details>
         </>
       ),
     }),
-    replacement_prompt: () => ({
-      zone: 'block',
-      node: (
-        <details>
-          <summary>More: replace the automatic prompt</summary>
-          <Field label="Replacement prompt" help="Used instead of the automatic prompt and extra names. Leave empty to keep the automatic one.">
-            <input value={p.override} onChange={(e) => p.setOverride(e.target.value)} />
-          </Field>
-        </details>
-      ),
-    }),
-    beam_size: () => num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.'),
+    beam_size: () => num('Beam size', 'beam_size', 1, `${rangeHint(RANGES.beam_size.min, RANGES.beam_size.max, { default: BEAM_SIZE_DEFAULT })} Higher is slower and a little more accurate.`),
     separation_backend: () => select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.'),
     hardsub_ocr_backend: () =>
       select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.'),
@@ -244,7 +250,7 @@ export function TranscribeAdvanced(p: Props) {
         'Removes background music before transcribing. Skip it unless the background is music alone: it hurt with noise and did nothing on clean audio. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length).',
       ),
     hallucination_silence_sec: () =>
-      num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. Off (0) by default; 0 or 0.5-10. Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages and Fast mode.', 's'),
+      num('Hallucination guard', 'hallucination_silence_sec', 0.5, `Experimental. Off (0) by default: 0 or ${rangeHint(0.5, 10, { unit: 's' })} Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages and Fast mode.`, 's'),
     whisper_repeat_guard: () =>
       toggle(
         'Whisper repeat guard',
@@ -256,8 +262,9 @@ export function TranscribeAdvanced(p: Props) {
   const summaries: Record<string, string> = {
     speakers: speakersSummary(p.speakers.expected, p.speakers.min, p.speakers.max),
     timing: `${optionLabel(cf.sensitivity_preset)} · ${cf.min_silence_ms} ms · ${cf.min_pause_sec} s`,
-    models: `${optionLabel(cf.asr_backend_choice)}${cf.use_groq ? ' · Groq' : ''}`,
-    guards: cf.separate_vocals_first ? 'separate vocals' : 'defaults',
+    models: optionLabel(cf.asr_backend_choice),
+    guards: Number(cf.hallucination_silence_sec) === DEFAULT_HALLUCINATION_SILENCE_SEC ? 'off' : `hallucination guard ${cf.hallucination_silence_sec} s`,
+    switches: switchesSummary(cf, developerMode),
   }
 
   return (
@@ -266,7 +273,7 @@ export function TranscribeAdvanced(p: Props) {
       <p className="muted source-summary" data-testid="advanced-summary">
         {readableSummary(advancedSummary({ ...cf, prompt: p.override, source_language: language }, developerMode))}
       </p>
-      {advancedGroups(developerMode).map((g) => {
+      {advancedGroups(developerMode, p.optionsSaved).map((g) => {
         const placed = g.fields.map((f) => fields[f]())
         const grid = placed.filter((x) => x.zone === 'grid')
         const blocks = placed.filter((x) => x.zone === 'block')
@@ -275,7 +282,7 @@ export function TranscribeAdvanced(p: Props) {
           <Section key={g.id} storageKey={g.storageKey} defaultOpen={g.defaultOpen} title={g.label} summary={summaries[g.id]}>
             {grid.length > 0 && <div className="source-grid">{grid.map((x, i) => <Fragment key={i}>{x.node}</Fragment>)}</div>}
             {blocks.map((x, i) => <Fragment key={i}>{x.node}</Fragment>)}
-            {list.length > 0 && <div className="setting-list">{list.map((x, i) => <Fragment key={i}>{x.node}</Fragment>)}</div>}
+            {list.length > 0 && <div className={g.id === 'switches' ? 'setting-list source-switches' : 'setting-list'}>{list.map((x, i) => <Fragment key={i}>{x.node}</Fragment>)}</div>}
           </Section>
         )
       })}

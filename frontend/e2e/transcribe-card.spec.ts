@@ -59,9 +59,7 @@ test('the form survives a reload, and Reset to defaults clears it', async ({ pag
   const savedBeam = await beam.inputValue()
   await beam.fill('7')
   await tools.getByLabel('Extra names to expect', { exact: true }).fill('沈清疑')
-  // The override sits in a plain <details> that is not remembered: open it each time.
-  const openOverride = () => tools.locator('summary', { hasText: 'More: replace the automatic prompt' }).click()
-  await openOverride()
+  // The prompt fold holds Extra names and the replacement prompt; openAdvanced opens it.
   await tools.getByLabel('Replacement prompt', { exact: true }).fill('full prompt')
   await openTranscribeOptions(page)
   await run.getByLabel('Source language').selectOption('ja')
@@ -77,7 +75,6 @@ test('the form survives a reload, and Reset to defaults clears it', async ({ pag
   const again = await openAdvanced(page)
   await expect(again.getByLabel('Beam size', { exact: true })).toHaveValue('7')
   await expect(again.getByLabel('Extra names to expect', { exact: true })).toHaveValue('沈清疑')
-  await again.locator('summary', { hasText: 'More: replace the automatic prompt' }).click()
   await expect(again.getByLabel('Replacement prompt', { exact: true })).toHaveValue('full prompt')
 
   await again.getByRole('button', { name: 'Reset to defaults' }).click()
@@ -113,7 +110,7 @@ test('an unnamed 422 shows the server sentence in the banner', async ({ page }) 
   await expect(page.locator('.error-banner')).toContainText('Unknown source_language.')
 })
 
-test('the language and Whisper model are on Transcribe; the options are on Tools in four folds', async ({ page }) => {
+test('the language and Whisper model are on Transcribe; the options are on Tools in folds', async ({ page }) => {
   await page.goto('/#/drama/1/source?tab=transcribe')
   const card = transcribeCard(page)
   await expect(page.getByTestId('settings-summary')).toBeVisible()
@@ -125,18 +122,18 @@ test('the language and Whisper model are on Transcribe; the options are on Tools
   await shot(page, 'transcribe-folded-desktop')
   await mediaTab(page, 'tools').click()
   const tools = mediaPanel(page, 'tools')
-  // The first fold (Speakers) opens by itself; Timing is closed until opened.
+  // Options never saved: the Switches fold opens by itself and the others stay closed until opened.
+  await expect(tools.getByRole('switch', { name: 'Use Groq' })).toBeVisible()
+  await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeHidden()
+  await tools.locator('.section-title', { hasText: /^Speakers$/ }).click()
   await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeVisible()
-  await expect(tools.getByLabel('Sensitivity', { exact: true })).toBeHidden()
-  await tools.locator('.section-title', { hasText: /^Timing$/ }).click()
-  await expect(tools.getByLabel('Sensitivity', { exact: true })).toBeVisible()
   // Remembered: still open after a reload. Section saves the state in its toggle
   // handler, which runs after the open attribute changes, so wait for the save.
   await expect
-    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.advanced.timing')))
+    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.advanced.speakers')))
     .toBe('1')
   await page.reload()
-  await expect(tools.getByLabel('Sensitivity', { exact: true })).toBeVisible()
+  await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   // Developer Mode is off here, so the gated knobs are not in the DOM even with the fold open.
   await expect(tools.getByLabel('Beam size', { exact: true })).toHaveCount(0)
 })

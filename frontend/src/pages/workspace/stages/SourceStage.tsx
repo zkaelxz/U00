@@ -83,7 +83,7 @@ export default function SourceStage() {
   }, [saveDraft, from])
   const fromUrl = from === 'url'
 
-  // The sub-tab: a link's ?tab= first, Library's "Create and auto-fill" (which needs Fill in details), then the
+  // The sub-tab: a link's ?tab= first, Library's "Create and auto-fill" (Fill in details is on Credits), then the
   // one this title was last left on.
   const kindOfTitle = titleKind(drama.media_type, drama.content_mode)
   const linkedTab = () => {
@@ -91,7 +91,7 @@ export default function SourceStage() {
     return r.name === 'drama' && r.id === dramaId ? r.tab : undefined
   }
   const [wantedTab, setWantedTab] = useState<MediaTab | null>(
-    () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'details' : readMediaTab(browserStorage(), dramaId)),
+    () => linkedTab() ?? (wantsAutofill(window.location.hash) ? 'credits' : readMediaTab(browserStorage(), dramaId)),
   )
   // A link followed while this stage is open (a blocker's "set it in Details") moves the tab too.
   useEffect(() => {
@@ -117,17 +117,9 @@ export default function SourceStage() {
   }
   // Where the lines come from, once the picker on Add media has changed it.
   const [transcriptMode, setTranscriptMode] = useState<string | null>(null)
-  // Buttons next to a "Still needed" line reveal the section that resolves it.
-  const [revealDetails, setRevealDetails] = useState(0)
-  const addCredits = () => {
-    selectTab('details')
-    setRevealDetails((n) => n + 1)
-    setTimeout(() => {
-      const el = document.querySelector<HTMLElement>('[aria-label="Edit details"] input[name="author"]')
-      el?.scrollIntoView({ block: 'center' })
-      el?.focus()
-    }, 50)
-  }
+  // Which sub-tabs hold unsaved edits (Details and Credits share one draft), for the dot on their tabs.
+  const [unsaved, setUnsaved] = useState({ details: false, credits: false })
+  // The button next to a "Still needed" line reveals the section that resolves it.
   const needMedia = () => {
     selectTab('add')
     setTimeout(() => {
@@ -340,6 +332,7 @@ export default function SourceStage() {
     <Section
       key="subtitles"
       storageKey="source.group.subtitles"
+      defaultOpen={kind === 'audio'}
       title="Import subtitle file"
       summary={pc === 'remote' ? PC_ONLY_SUMMARY : 'SRT, VTT, ASS or LRC'}
     >
@@ -352,15 +345,16 @@ export default function SourceStage() {
         <>
           {hasTranscribe && <TranscriptModePicker onChanged={setTranscriptMode} />}
           {mediaSlot}
+          {subtitles}
           {novel}
         </>
       ) : (
         <>
           {novel}
           {mediaSlot}
+          {subtitles}
         </>
       )}
-      {subtitles}
       <KeepOriginal />
     </>
   )
@@ -370,7 +364,13 @@ export default function SourceStage() {
 
   return (
     <div className="stage-source">
-      <Tabs label="Media sections" idPrefix={MEDIA_TAB_PREFIX} tabs={mediaTabsFor(kindOfTitle)} active={tab} onSelect={selectTab} />
+      <Tabs
+        label="Media sections"
+        idPrefix={MEDIA_TAB_PREFIX}
+        tabs={mediaTabsFor(kindOfTitle).map((t) => ({ ...t, unsaved: t.id === 'details' ? unsaved.details : t.id === 'credits' ? unsaved.credits : false }))}
+        active={tab}
+        onSelect={selectTab}
+      />
       <MediaTabPanel id="add" active={tab}>{addMedia}</MediaTabPanel>
       {hasTranscribe && (
         <TranscribeStage tab={tab} goTab={selectTab} transcriptMode={transcriptMode} media={media} file={file} confirmReplace={confirmReplace}
@@ -391,10 +391,7 @@ export default function SourceStage() {
           }}
         />
       )}
-      <MediaTabPanel id="details" active={tab}>
-        <DetailsPanel openSignal={revealDetails} onAddCredits={addCredits} />
-        <FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />
-      </MediaTabPanel>
+      <DetailsPanel tab={tab} goTab={selectTab} onUnsaved={setUnsaved} fillIn={<FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />} />
       {showJob && (
         <JobPanel
           jobId={jobId}

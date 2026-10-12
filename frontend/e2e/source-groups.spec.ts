@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mediaPanel, mediaTab } from './mediaTabs'
-import { openDetailsTab, openGroup } from './source-groups'
+import { openCreditsTab, openDetailsTab, openGroup } from './source-groups'
 
 // The Media stage's Add media tab leads with the workflow for the drama's media type, and
 // the details form shows only the fields that type uses. The drama read is
@@ -26,13 +26,14 @@ const titles = (page: Page) => page.locator('.stage-source .section-title').filt
 const isOpen = async (page: Page, title: string) =>
   (await page.locator('details.section', { has: page.locator('summary > .section-title', { hasText: new RegExp(`^${title}$`) }) }).first().getAttribute('open')) !== null
 
-test('an audio drama adds media first, then the optional novel row, closed', async ({ page }) => {
+test('an audio drama adds media first, then the subtitle import (open) and the optional novel row (closed)', async ({ page }) => {
   await stubType(page, 'audio_drama', { content_mode: 'audio_drama' })
   await stubNovel(page, false)
   await page.goto('/#/drama/2/source')
   await expect(mediaPanel(page, 'add').getByRole('radiogroup', { name: 'Get audio or video' })).toBeVisible()
   await expect(mediaTab(page, 'transcribe')).toBeVisible()
-  expect(await titles(page)).toEqual(['Attach novel text (optional)', 'Import subtitle file'])
+  expect(await titles(page)).toEqual(['Import subtitle file', 'Attach novel text (optional)'])
+  expect(await isOpen(page, 'Import subtitle file')).toBe(true)
   expect(await isOpen(page, 'Attach novel text \\(optional\\)')).toBe(false)
 })
 
@@ -67,11 +68,12 @@ test('a streamer VOD that already has novel text still shows Novel text', async 
   await expect(novel.getByTestId('novel-status')).toHaveText('Attached: 1,200 characters, 3 chapters.')
 })
 
-test('a video drama adds media first, then the optional novel row, closed', async ({ page }) => {
+test('a video drama adds media first, then the subtitle import (open) and the optional novel row (closed)', async ({ page }) => {
   await stubType(page, 'video_drama')
   await page.goto('/#/drama/2/source')
   await expect(mediaPanel(page, 'add').getByRole('radiogroup', { name: 'Get audio or video' })).toBeVisible()
-  expect((await titles(page)).slice(0, 1)).toEqual(['Attach novel text (optional)'])
+  expect(await titles(page)).toEqual(['Import subtitle file', 'Attach novel text (optional)'])
+  expect(await isOpen(page, 'Import subtitle file')).toBe(true)
   expect(await isOpen(page, 'Attach novel text \\(optional\\)')).toBe(false)
 })
 
@@ -95,16 +97,16 @@ test('a comic leads with image OCR open', async ({ page }) => {
   await expect(page.getByLabel('Page images', { exact: true })).toBeVisible()
 })
 
-test('Details hide the fields another content type owns, and Add credits reveals the form', async ({ page }) => {
+test('Details and Credits hide the fields another content type owns, and Add credits reveals the form', async ({ page }) => {
   await stubType(page, 'novel', { author: '', studio: '', director: '', voice_actors: '' })
   await page.goto('/#/drama/2/source')
   await openDetailsTab(page)
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
   await expect(page.getByLabel('Chapter count', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Director', { exact: true })).toHaveCount(0)
-  await expect(page.getByLabel('Voice actors', { exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Content mode')).toHaveCount(0)
   await expect(page.getByLabel('Source URL', { exact: true })).toHaveCount(1)
+  await openCreditsTab(page, true)
+  await expect(page.getByLabel('Director', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Voice actors', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Romanize credits' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Add credits' }).click()
   await expect(page.getByLabel('Author', { exact: true })).toBeFocused()

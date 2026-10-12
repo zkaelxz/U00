@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { openDetailsTab, openFillIn, openGroup } from './source-groups'
+import { openCreditsTab, openDetailsTab, openFillIn, openGroup } from './source-groups'
 
 // Workspace preamble/Source parity (inventory P04, P13, P14, S12, S13).
 // The drama reads, the platforms list and the cover upload hit the real
@@ -19,8 +19,7 @@ test('romanize credits sends one request and keeps the original credits in their
     return r.fulfill({ json: { drama_id: 1, romanized: { author: 'Mo Xiang Tong Xiu' }, updated: true } })
   })
   await page.goto('/#/drama/1/source')
-  await openDetailsTab(page)
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
+  await openCreditsTab(page, true)
   await expect(page.getByLabel('Author', { exact: true })).toHaveValue('墨香铜臭')
   await page.getByRole('button', { name: 'Romanize credits' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Credits romanized' })).toBeVisible()
@@ -29,8 +28,7 @@ test('romanize credits sends one request and keeps the original credits in their
 
 test('cover upload checks the type, then saves and shows the cover', async ({ page }) => {
   await page.goto('/#/drama/3/source')
-  await openDetailsTab(page)
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
+  await openCreditsTab(page, true)
   await expect(page.getByText('No cover.')).toBeVisible()
   const input = page.getByLabel('Cover image', { exact: true })
   await input.setInputFiles({ name: 'x.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') })
@@ -107,7 +105,6 @@ test('Edit details can take a title out of its series (series_id 0)', async ({ p
   })
   await page.goto('/#/drama/2/source')
   await openDetailsTab(page)
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
   const series = page.getByLabel('Series', { exact: true })
   await expect(series).toHaveValue('7')
   await series.selectOption('')

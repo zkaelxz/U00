@@ -53,17 +53,23 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
   return null
 }
 
-// Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py.
+// Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py; the default is services/transcribe_service.py _DEFAULT_TUNING.
 export const MIN_SILENCE_MS_MIN = 100
 export const MIN_SILENCE_MS_MAX = 3000
+export const MIN_SILENCE_MS_DEFAULT = 300
 
 // Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in segment_splitting.py.
 export const MIN_PAUSE_SEC_DEFAULT = 0.35
 export const MIN_PAUSE_SEC_MIN = 0.1
 export const MIN_PAUSE_SEC_MAX = 2.0
 
+// Defaults of the other tuning knobs (same _DEFAULT_TUNING), shown in their hints and the summary.
+export const BEAM_SIZE_DEFAULT = 5
+export const VAD_THRESHOLD_DEFAULT = 0.5
+export const HARDSUB_INTERVAL_DEFAULT = 1
+
 // Labels match the Transcribe stage's fields.
-const RANGES = {
+export const RANGES = {
   beam_size: { label: 'Beam size', min: 1, max: 10, integer: true },
   min_silence_ms: { label: 'Min silence (ms)', min: MIN_SILENCE_MS_MIN, max: MIN_SILENCE_MS_MAX, integer: true },
   min_pause_sec: { label: 'Pause that can split a long line (s)', min: MIN_PAUSE_SEC_MIN, max: MIN_PAUSE_SEC_MAX, integer: false },
@@ -71,7 +77,7 @@ const RANGES = {
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
 
-const DEFAULT_HALLUCINATION_SILENCE_SEC = 0
+export const DEFAULT_HALLUCINATION_SILENCE_SEC = 0
 
 // Returns the first out-of-range knob as a sentence, or null when valid.
 export function validateConfig(update: TranscribeConfigUpdate): string | null {
@@ -262,12 +268,12 @@ const hardsubChanged = (v: AdvancedValues) => (v.hardsub_ocr_backend ?? defaultH
 // The knobs only Developer Mode shows. Their values still ride along in every save and run.
 export function developerOptionsChanged(v: AdvancedValues): number {
   return [
-    Number(v.beam_size) !== 5,
-    Number(v.vad_threshold) !== 0.5,
+    Number(v.beam_size) !== BEAM_SIZE_DEFAULT,
+    Number(v.vad_threshold) !== VAD_THRESHOLD_DEFAULT,
     Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC,
     v.separation_backend !== 'auto',
     hardsubChanged(v),
-    Number(v.hardsub_interval_sec) !== 1,
+    Number(v.hardsub_interval_sec) !== HARDSUB_INTERVAL_DEFAULT,
     v.whisper_repeat_guard,
   ].filter(Boolean).length
 }
@@ -275,15 +281,15 @@ export function developerOptionsChanged(v: AdvancedValues): number {
 // With developerMode off the hidden knobs are not listed one by one: they collapse into a count.
 export function advancedSummary(v: AdvancedValues, developerMode = true): string {
   const parts: string[] = []
-  if (developerMode && Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
-  if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
+  if (developerMode && Number(v.beam_size) !== BEAM_SIZE_DEFAULT) parts.push(`beam ${v.beam_size}`)
+  if (Number(v.min_silence_ms) !== MIN_SILENCE_MS_DEFAULT) parts.push(`min silence ${v.min_silence_ms} ms`)
   if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
-  if (developerMode && Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (developerMode && Number(v.vad_threshold) !== VAD_THRESHOLD_DEFAULT) parts.push(`VAD ${v.vad_threshold}`)
   if (v.sensitivity_preset === 'sensitive') parts.push('more sensitive')
   if (developerMode && Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
     parts.push(`hallucination guard ${v.hallucination_silence_sec} s`)
   }
-  if (developerMode && Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
+  if (developerMode && Number(v.hardsub_interval_sec) !== HARDSUB_INTERVAL_DEFAULT) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
   if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
   if (v.asr_backend_choice !== 'whisper') parts.push(v.asr_backend_choice)
   if (developerMode && v.separation_backend !== 'auto') parts.push(`separation ${v.separation_backend}`)

@@ -5,15 +5,15 @@
  */
 export type AdvancedFieldId =
   | 'expected_speakers' | 'min_speakers' | 'max_speakers' | 'detect_speakers_only'
-  | 'sensitivity_preset' | 'min_silence_ms' | 'min_pause_sec' | 'split_by_sentences' | 'realign_long_segments'
-  | 'vad_threshold' | 'hardsub_interval_sec'
-  | 'alignment_method' | 'asr_backend_choice' | 'voice_detector' | 'use_groq' | 'whisper_fast_mode'
-  | 'vocabulary_hint' | 'extra_names' | 'replacement_prompt'
+  | 'sensitivity_preset' | 'min_silence_ms' | 'min_pause_sec' | 'vad_threshold' | 'hardsub_interval_sec'
+  | 'alignment_method' | 'asr_backend_choice' | 'voice_detector' | 'prompt'
   | 'beam_size' | 'separation_backend' | 'hardsub_ocr_backend'
-  | 'separate_vocals_first' | 'hallucination_silence_sec' | 'whisper_repeat_guard'
+  | 'hallucination_silence_sec'
+  | 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'split_by_sentences'
+  | 'vocabulary_hint' | 'whisper_repeat_guard' | 'use_groq'
 
 export interface AdvancedGroup {
-  id: 'speakers' | 'timing' | 'models' | 'guards'
+  id: 'speakers' | 'timing' | 'models' | 'guards' | 'switches'
   label: string
   storageKey: string
   defaultOpen: boolean
@@ -22,20 +22,19 @@ export interface AdvancedGroup {
 
 const GROUPS: Omit<AdvancedGroup, 'storageKey' | 'defaultOpen'>[] = [
   { id: 'speakers', label: 'Speakers', fields: ['expected_speakers', 'min_speakers', 'max_speakers', 'detect_speakers_only'] },
-  {
-    id: 'timing',
-    label: 'Timing',
-    fields: ['sensitivity_preset', 'min_silence_ms', 'min_pause_sec', 'split_by_sentences', 'realign_long_segments', 'vad_threshold', 'hardsub_interval_sec'],
-  },
+  { id: 'timing', label: 'Timing', fields: ['sensitivity_preset', 'min_silence_ms', 'min_pause_sec', 'vad_threshold', 'hardsub_interval_sec'] },
   {
     id: 'models',
     label: 'Models and backends',
-    fields: [
-      'alignment_method', 'asr_backend_choice', 'voice_detector', 'use_groq', 'whisper_fast_mode', 'vocabulary_hint',
-      'extra_names', 'replacement_prompt', 'beam_size', 'separation_backend', 'hardsub_ocr_backend',
-    ],
+    fields: ['alignment_method', 'asr_backend_choice', 'voice_detector', 'prompt', 'beam_size', 'separation_backend', 'hardsub_ocr_backend'],
   },
-  { id: 'guards', label: 'Guards', fields: ['separate_vocals_first', 'hallucination_silence_sec', 'whisper_repeat_guard'] },
+  { id: 'guards', label: 'Guards', fields: ['hallucination_silence_sec'] },
+  // Every on/off option in one card, so the list can fold away once it is set.
+  {
+    id: 'switches',
+    label: 'Switches',
+    fields: ['separate_vocals_first', 'realign_long_segments', 'whisper_fast_mode', 'split_by_sentences', 'vocabulary_hint', 'whisper_repeat_guard', 'use_groq'],
+  },
 ]
 
 export const DEVELOPER_ONLY_FIELDS: readonly AdvancedFieldId[] = [
@@ -45,13 +44,17 @@ export const DEVELOPER_ONLY_FIELDS: readonly AdvancedFieldId[] = [
 
 export const ADVANCED_FIELD_IDS: readonly AdvancedFieldId[] = GROUPS.flatMap((g) => g.fields)
 
-/** The groups to show, without Developer Mode controls unless it is on, and without any group left empty. */
-export function advancedGroups(developerMode: boolean): AdvancedGroup[] {
-  return GROUPS.map((g, i) => ({
+/**
+ * The groups to show, without Developer Mode controls unless it is on, and without any group left empty.
+ * Exactly one fold opens by itself the first time: Switches while the title's options have never been
+ * saved (that is what a first visit sets), Speakers once they have. What the viewer opens or closes after
+ * that is remembered by the fold and wins over these.
+ */
+export function advancedGroups(developerMode: boolean, optionsSaved = false): AdvancedGroup[] {
+  return GROUPS.map((g) => ({
     ...g,
     storageKey: `source.advanced.${g.id}`,
-    // Only the first fold opens by itself; the viewer's choice is remembered after that.
-    defaultOpen: i === 0,
+    defaultOpen: g.id === (optionsSaved ? 'speakers' : 'switches'),
     fields: developerMode ? g.fields : g.fields.filter((f) => !DEVELOPER_ONLY_FIELDS.includes(f)),
   })).filter((g) => g.fields.length > 0)
 }

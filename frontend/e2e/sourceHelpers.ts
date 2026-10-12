@@ -13,12 +13,17 @@ export async function openTranscribeOptions(page: Page) {
 /** The Transcribe tab's body. */
 export const transcribeCard = (page: Page) => mediaPanel(page, 'transcribe')
 
-/** Opens the Tools tab with the four Advanced options folds open, and returns that section. */
-export async function openAdvanced(page: Page) {
+/**
+ * Opens the Tools tab with the Advanced options folds open, and returns that section. The prompt fold
+ * (Extra names, Replacement prompt) is opened too unless `prompt` is false.
+ */
+export async function openAdvanced(page: Page, prompt = true) {
   await mediaTab(page, 'tools').click()
   const advanced = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })
   await expect(advanced).toBeVisible()
   await openAllFolds(advanced)
+  const more = advanced.locator('details.prompt-fold')
+  if (prompt && (await more.count()) && (await more.getAttribute('open')) === null) await more.locator(':scope > summary').click()
   return advanced
 }
 

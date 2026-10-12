@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { enableDeveloperMode } from './sourceHelpers'
+import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 import { expectRowInputsAligned } from './voiceDetectorLayout'
 import { expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds } from './mediaTabs'
 
@@ -9,18 +9,18 @@ import { expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds }
 const tabNames = (page: import('@playwright/test').Page) =>
   page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab').allTextContents()
 
-test('an audio or video title has Add media, Transcribe, Tools and Details', async ({ page }) => {
+test('an audio or video title has Add media, Transcribe, Tools, Details and Credits', async ({ page }) => {
   for (const id of [1, 3]) {
     await page.goto(`/#/drama/${id}/source`)
     await expect(page.getByRole('tablist', { name: 'Media sections' })).toBeVisible()
-    expect(await tabNames(page)).toEqual(['Add media', 'Transcribe', 'Tools', 'Details'])
+    expect(await tabNames(page)).toEqual(['Add media', 'Transcribe', 'Tools', 'Details', 'Credits'])
   }
 })
 
 test('a novel title hides Transcribe and Tools', async ({ page }) => {
   await page.goto('/#/drama/2/source')
   await expect(page.getByRole('tablist', { name: 'Media sections' })).toBeVisible()
-  expect(await tabNames(page)).toEqual(['Add media', 'Details'])
+  expect(await tabNames(page)).toEqual(['Add media', 'Details', 'Credits'])
   await expect(page.getByRole('region', { name: 'Advanced options' })).toHaveCount(0)
 })
 
@@ -94,19 +94,20 @@ test('a finished run has no All jobs link', async ({ page }) => {
   await expect(card.getByRole('link', { name: 'All jobs' })).toHaveCount(0)
 })
 
-test('the advanced options are four folds; only the first opens by itself, and the choice is remembered', async ({ page }) => {
+test('the advanced options are folds; Switches opens first on a new title, and the choice is remembered', async ({ page }) => {
   await gotoMedia(page, 'tools')
   const advanced = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })
   const folds = advanced.locator(':scope > details.section')
-  await expect(folds.locator(':scope > summary > .section-title')).toHaveText(['Speakers', 'Timing', 'Models and backends', 'Guards'])
-  await expect(folds.nth(0)).toHaveAttribute('open', '')
-  for (const i of [1, 2, 3]) await expect(folds.nth(i)).not.toHaveAttribute('open', '')
+  await expect(folds.locator(':scope > summary > .section-title')).toHaveText(['Speakers', 'Timing', 'Models and backends', 'Switches'])
+  // Never saved: Switches is the one open card.
+  await expect(folds.nth(3)).toHaveAttribute('open', '')
+  for (const i of [0, 1, 2]) await expect(folds.nth(i)).not.toHaveAttribute('open', '')
   await folds.nth(2).locator(':scope > summary').click()
-  await folds.nth(0).locator(':scope > summary').click()
+  await folds.nth(3).locator(':scope > summary').click()
   await page.reload()
   await expect(mediaTab(page, 'tools')).toHaveAttribute('aria-selected', 'true')
   const again = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' }).locator(':scope > details.section')
-  await expect(again.nth(0)).not.toHaveAttribute('open', '')
+  await expect(again.nth(3)).not.toHaveAttribute('open', '')
   await expect(again.nth(2)).toHaveAttribute('open', '')
 })
 
@@ -118,8 +119,7 @@ test('every advanced control is reachable, and Developer Mode ones only with the
   ]
   const developer = ['Beam size', 'VAD threshold', 'Hardsub interval', 'Separation backend', 'Hardsub OCR', 'Hallucination guard', 'Whisper repeat guard']
   await gotoMedia(page, 'tools')
-  const advanced = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })
-  await openAllFolds(advanced)
+  const advanced = await openAdvanced(page)
   for (const label of everyday) await expect(advanced.getByLabel(label, { exact: true }), label).toBeVisible()
   await expect(advanced.getByRole('button', { name: 'Detect speakers only' })).toBeVisible()
   await expect(advanced.getByRole('button', { name: 'Save options' })).toBeVisible()
@@ -128,8 +128,7 @@ test('every advanced control is reachable, and Developer Mode ones only with the
 
   await enableDeveloperMode(page)
   await page.reload()
-  const dev = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })
-  await openAllFolds(dev)
+  const dev = await openAdvanced(page)
   for (const label of developer) await expect(dev.getByLabel(label, { exact: true }), label).toBeVisible()
 })
 
@@ -153,7 +152,7 @@ test('inputs in one row of the advanced options share the same top', async ({ pa
 
 test('each sub-tab fits about one desktop screen and does not scroll sideways', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
-  for (const tab of ['add', 'transcribe', 'tools', 'details'] as const) {
+  for (const tab of ['add', 'transcribe', 'tools', 'details', 'credits'] as const) {
     await gotoMedia(page, tab)
     await expect(mediaPanel(page, tab)).toBeVisible()
     await expectNoSidewaysScroll(page, tab)
@@ -166,7 +165,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`no sub-tab scrolls sideways at 1280x800 (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await page.setViewportSize({ width: 1280, height: 800 })
-    for (const tab of ['add', 'transcribe', 'tools', 'details'] as const) {
+    for (const tab of ['add', 'transcribe', 'tools', 'details', 'credits'] as const) {
       await gotoMedia(page, tab)
       await openAllFolds(mediaPanel(page, tab))
       await expectNoSidewaysScroll(page, `${tab} ${scheme}`)

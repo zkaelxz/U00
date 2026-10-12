@@ -88,3 +88,29 @@ export function speakersSummary(expected: string, min: string, max: string): str
   if (min.trim() || max.trim()) return `${min.trim() || '?'}-${max.trim() || '?'}`
   return 'auto'
 }
+
+// The on/off options, by the label the Switches card shows them under.
+export const SWITCH_LABELS = {
+  separate_vocals_first: 'Separate vocals first',
+  realign_long_segments: 'Realign long segments',
+  whisper_fast_mode: 'Whisper fast mode',
+  split_by_sentences: 'Split lines by sentences',
+  vocabulary_hint: 'Name hint for Qwen3 ASR',
+  whisper_repeat_guard: 'Whisper repeat guard',
+  use_groq: 'Use Groq',
+} as const
+export type SwitchKey = keyof typeof SWITCH_LABELS
+
+/** What is on, for the folded Switches card: "All off", "1 on: Use Groq", "3 on: A, B, C". Hidden switches are not listed. */
+export function switchesSummary(cf: Pick<ConfigForm, SwitchKey>, developerMode: boolean): string {
+  const on = (Object.keys(SWITCH_LABELS) as SwitchKey[])
+    .filter((k) => cf[k] && (developerMode || k !== 'whisper_repeat_guard'))
+    .map((k) => SWITCH_LABELS[k])
+  return on.length ? `${on.length} on: ${on.join(', ')}` : 'All off'
+}
+
+/** The folded prompt card's summary: "Extra names: 2 · custom prompt set", or '' when neither has content. */
+export function promptSummary(extraNames: string, override: string): string {
+  const names = extraNames.split(/[、,，;；\n]/).filter((n) => n.trim()).length
+  return [names ? `Extra names: ${names}` : '', override.trim() ? 'custom prompt set' : ''].filter(Boolean).join(' · ')
+}

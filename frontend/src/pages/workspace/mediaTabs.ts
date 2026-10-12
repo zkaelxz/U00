@@ -3,13 +3,14 @@ import type { StorageLike } from '../../components/sectionStorage'
 import type { TitleKind } from './titleKind'
 
 /** The sub-tabs of the Media (Source) stage. */
-export type MediaTab = 'add' | 'transcribe' | 'tools' | 'details'
+export type MediaTab = 'add' | 'transcribe' | 'tools' | 'details' | 'credits'
 
 const TABS: { id: MediaTab; label: string }[] = [
   { id: 'add', label: 'Add media' },
   { id: 'transcribe', label: 'Transcribe' },
   { id: 'tools', label: 'Tools' },
   { id: 'details', label: 'Details' },
+  { id: 'credits', label: 'Credits' },
 ]
 
 export const isMediaTab = (v: unknown): v is MediaTab => TABS.some((t) => t.id === v)
@@ -18,7 +19,7 @@ export const isMediaTab = (v: unknown): v is MediaTab => TABS.some((t) => t.id =
 const NO_TRANSCRIBE: readonly TitleKind[] = ['novel', 'comic']
 
 export function mediaTabsFor(kind: TitleKind): { id: MediaTab; label: string }[] {
-  return NO_TRANSCRIBE.includes(kind) ? TABS.filter((t) => t.id === 'add' || t.id === 'details') : TABS
+  return NO_TRANSCRIBE.includes(kind) ? TABS.filter((t) => t.id !== 'transcribe' && t.id !== 'tools') : TABS
 }
 
 /** The tab to show: the wanted one when this kind has it, else Add media. */

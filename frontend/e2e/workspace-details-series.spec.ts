@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openDetailsTab, openGroup } from './source-groups'
+import { openCreditsTab, openDetailsTab } from './source-groups'
 
 // Parity P10 (the rest of Edit details), P11 ("+ New series…") and X09 (the
 // series picker in the glossary box). The drama read is the real seeded
@@ -45,11 +45,14 @@ test('Edit details shows and saves genre, status, counts, source URL and episode
   })
   await page.goto('/#/drama/2/source')
   await openDetailsTab(page)
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
-  await expect(page.getByLabel('Genre', { exact: true })).toHaveValue('xianxia')
+  await page.locator('.section-title', { hasText: 'More details' }).click()
   await expect(page.getByLabel('Chapter count', { exact: true })).toHaveValue('120')
   await expect(page.getByLabel('Source URL', { exact: true })).toHaveValue('https://example.com/d/2')
+  // Genre is on Credits; one draft covers both tabs, so the single Save below sends it too.
+  await openCreditsTab(page)
+  await expect(page.getByLabel('Genre', { exact: true })).toHaveValue('xianxia')
   await page.getByLabel('Genre', { exact: true }).fill('romance')
+  await openDetailsTab(page)
   await page.getByLabel('Publication status', { exact: true }).selectOption('completed')
   await page.getByLabel('Chapter count', { exact: true }).fill('')
   await page.getByLabel('Episode number', { exact: true }).fill('3')
@@ -77,7 +80,6 @@ test('Edit details "+ New series…" sends the name and then shows the new serie
   const bodies = await stubDrama(page, { series_id: null })
   await page.goto('/#/drama/2/source')
   await openDetailsTab(page)
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
   const series = page.getByLabel('Series', { exact: true })
   await series.selectOption('new')
   await page.getByRole('button', { name: 'Save details' }).click()

@@ -81,3 +81,15 @@
   .source-panel > .actions + .source-needed { margin-top: calc(-1 * var(--space-2)); }
   .source-file { gap: var(--space-2) var(--space-3); }
 }
+
+/* The prompt fold's summary says what is set inside it; open, the fields themselves show it. */
+.prompt-fold > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); cursor: pointer; }
+.prompt-fold[open] > summary .section-summary { display: none; }
+
+/* Seven switches in one column are a screen tall; two columns on a wide screen keep the Tools tab near one. */
+@media (min-width: 900px) {
+  .source-switches { display: grid; grid-template-columns: 1fr 1fr; }
+  .source-switches > .field-item + .field-item { border-top: 0; }
+  .source-switches > .field-item:nth-child(n + 3) { border-top: 1px solid var(--border); }
+  .source-switches > .field-item:nth-child(even) { border-left: 1px solid var(--border); }
+}

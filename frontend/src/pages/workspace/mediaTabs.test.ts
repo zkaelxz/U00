@@ -26,16 +26,16 @@ function memoryStorage(initial: Record<string, string> = {}) {
 }
 
 describe('mediaTabsFor', () => {
-  it.each<TitleKind>(['video', 'audio', 'subtitle'])('%s titles get all four sub-tabs', (kind) => {
-    expect(ids(kind)).toEqual(['add', 'transcribe', 'tools', 'details'])
+  it.each<TitleKind>(['video', 'audio', 'subtitle'])('%s titles get all five sub-tabs', (kind) => {
+    expect(ids(kind)).toEqual(['add', 'transcribe', 'tools', 'details', 'credits'])
   })
 
   it.each<TitleKind>(['novel', 'comic'])('%s titles hide Transcribe and Tools', (kind) => {
-    expect(ids(kind)).toEqual(['add', 'details'])
+    expect(ids(kind)).toEqual(['add', 'details', 'credits'])
   })
 
   it('labels the tabs as the owner named them', () => {
-    expect(mediaTabsFor('video').map((t) => t.label)).toEqual(['Add media', 'Transcribe', 'Tools', 'Details'])
+    expect(mediaTabsFor('video').map((t) => t.label)).toEqual(['Add media', 'Transcribe', 'Tools', 'Details', 'Credits'])
   })
 })
 
@@ -52,8 +52,9 @@ describe('resolveMediaTab', () => {
     expect(resolveMediaTab(undefined, 'audio')).toBe('add')
   })
 
-  it('keeps Details for a novel', () => {
+  it('keeps Details and Credits for a novel', () => {
     expect(resolveMediaTab('details', 'novel')).toBe('details')
+    expect(resolveMediaTab('credits', 'novel')).toBe('credits')
   })
 })
 
@@ -93,8 +94,8 @@ describe('remembered tab', () => {
 })
 
 describe('isMediaTab', () => {
-  it('accepts exactly the four ids', () => {
-    for (const id of ['add', 'transcribe', 'tools', 'details']) expect(isMediaTab(id)).toBe(true)
+  it('accepts exactly the five ids', () => {
+    for (const id of ['add', 'transcribe', 'tools', 'details', 'credits']) expect(isMediaTab(id)).toBe(true)
     for (const id of ['source', '', null, 3]) expect(isMediaTab(id)).toBe(false)
   })
 })

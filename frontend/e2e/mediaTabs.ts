@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
-export type MediaTabName = 'add' | 'transcribe' | 'tools' | 'details'
-export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Transcribe', tools: 'Tools', details: 'Details' }
+export type MediaTabName = 'add' | 'transcribe' | 'tools' | 'details' | 'credits'
+export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Transcribe', tools: 'Tools', details: 'Details', credits: 'Credits' }
 
 /** Opens a title's Media stage on one sub-tab through the deep link. */
 export async function gotoMedia(page: Page, tab: MediaTabName, id = 1) {
@@ -9,11 +9,13 @@ export async function gotoMedia(page: Page, tab: MediaTabName, id = 1) {
   await expect(mediaTab(page, tab)).toHaveAttribute('aria-selected', 'true')
 }
 
+// A tab with unsaved edits carries "(unsaved changes)" in its name.
 export const mediaTab = (page: Page, tab: MediaTabName) =>
-  page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab', { name: TAB_LABEL[tab], exact: true })
+  page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab', { name: new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`) })
 
 /** The visible body of one sub-tab. */
-export const mediaPanel = (page: Page, tab: MediaTabName) => page.getByRole('tabpanel', { name: TAB_LABEL[tab], exact: true })
+export const mediaPanel = (page: Page, tab: MediaTabName) =>
+  page.getByRole('tabpanel', { name: new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`) })
 
 /** Opens every fold in a sub-tab: their state is remembered, so a plain click could as well close one. */
 export async function openAllFolds(scope: Locator) {
@@ -36,4 +38,12 @@ export async function expectNoSidewaysScroll(page: Page, what: string) {
     client: document.documentElement.clientWidth,
   }))
   expect(scroll, `${what}: page scrolls sideways`).toBeLessThanOrEqual(client)
+}
+
+/** The titles of a sub-tab's top-level cards (folds not inside another fold) and whether each is open. */
+export async function topCards(panel: Locator): Promise<{ title: string; open: boolean }[]> {
+  return panel.locator('details.section').evaluateAll((all) =>
+    all
+      .filter((d) => !d.parentElement?.closest('details.section'))
+      .map((d) => ({ title: d.querySelector(':scope > summary > .section-title')?.textContent ?? '', open: (d as HTMLDetailsElement).open })))
 }
