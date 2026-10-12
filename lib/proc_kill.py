@@ -134,22 +134,32 @@ def stop_if_same(pid: int, identity: dict, wait: float = _STOP_WAIT_SECONDS) -> 
     whatever it is writing must be left alone.
 
     The check and the kill use one handle (a Windows process handle, a Linux
-    pidfd), so the pid can't be handed to another process between them."""
+    pidfd), so the pid can't be handed to another process between them.
+    Never raises: a corrupt note or an unexpected OS error answers "kept"."""
     try:
         pid = int(pid)
-    except (TypeError, ValueError):
-        return "kept"
-    if pid <= 0 or pid == os.getpid() or not isinstance(identity, dict):
-        return "kept"
-    if os.name == "nt":
-        return _win_stop_if_same(pid, identity, wait)
-    if os.path.isdir("/proc/self"):
-        return _linux_stop_if_same(pid, identity, wait)
+        if not 0 < pid <= _MAX_PID or pid == os.getpid() or not isinstance(identity, dict):
+            return "kept"
+        if os.name == "nt":
+            return _win_stop_if_same(pid, identity, wait)
+        if os.path.isdir("/proc/self"):
+            return _linux_stop_if_same(pid, identity, wait)
+    except Exception as exc:
+        _log.warning("could not check leftover process: %s", type(exc).__name__)
     return "kept"
 
 
-def _linux_stop_if_same(pid, identity, wait):
+_MAX_PID = 2**31 - 1
+
+
+def _pidfd_exited(pidfd, wait_ms: int = 0) -> bool:
     import select
+    poller = select.poll()
+    poller.register(pidfd, select.POLLIN)     # readable once the process has exited
+    return bool(poller.poll(wait_ms))
+
+
+def _linux_stop_if_same(pid, identity, wait):
     import signal
     pidfd = None
     try:
@@ -170,15 +180,19 @@ def _linux_stop_if_same(pid, identity, wait):
         if pidfd is None:
             return "kept"
         try:
+            # A noted process leads its own session (run_cancellable's
+            # start_new_session) and a session leader can't leave its group,
+            # so while it is alive group `pid` is exactly its tree: a wrapper's
+            # grandchild goes too instead of writing into a removed folder.
+            if os.getpgid(pid) == pid and not _pidfd_exited(pidfd):
+                os.killpg(pid, signal.SIGKILL)
             signal.pidfd_send_signal(pidfd, signal.SIGKILL)
         except ProcessLookupError:
-            return "gone"
+            pass    # already ended by the group kill
         except OSError as exc:
             _log.warning("could not stop leftover process %s: %s", pid, type(exc).__name__)
             return "kept"
-        poller = select.poll()
-        poller.register(pidfd, select.POLLIN)     # readable once the process has exited
-        return "stopped" if poller.poll(int(wait * 1000)) else "kept"
+        return "stopped" if _pidfd_exited(pidfd, int(wait * 1000)) else "kept"
     finally:
         if pidfd is not None:
             os.close(pidfd)

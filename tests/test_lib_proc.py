@@ -236,3 +236,96 @@ def test_stop_if_same_never_targets_this_process_or_a_bad_note():
     assert proc_kill.stop_if_same(0, {}) == "kept"
     assert proc_kill.stop_if_same(123, "not a dict") == "kept"
 
+
+
+def _sleep_child(seconds=60, **kw):
+    import subprocess
+    return subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({seconds})"], **kw)
+
+
+@pytest.fixture
+def child():
+    proc = _sleep_child(start_new_session=True)
+    yield proc
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait()
+
+
+@linux_pidfd
+def test_stop_if_same_treats_a_different_command_with_the_same_start_as_gone(child):
+    from lib import proc_kill
+    ident = dict(proc_kill.process_identity(child.pid), cmd="0" * 64)
+    assert proc_kill.stop_if_same(child.pid, ident) == "gone"
+    assert child.poll() is None
+
+
+@linux_pidfd
+def test_stop_if_same_keeps_a_matching_child_without_pidfd(child, monkeypatch):
+    from lib import proc_kill
+    ident = proc_kill.process_identity(child.pid)
+
+    def no_pidfd(pid):
+        raise OSError(38, "Function not implemented")
+    monkeypatch.setattr(os, "pidfd_open", no_pidfd)
+    assert proc_kill.stop_if_same(child.pid, ident) == "kept"
+    assert child.poll() is None
+
+
+@linux_pidfd
+def test_stop_if_same_keeps_a_child_it_may_not_signal(child, monkeypatch):
+    from lib import proc_kill
+    ident = proc_kill.process_identity(child.pid)
+
+    def denied(*a):
+        raise PermissionError(1, "Operation not permitted")
+    monkeypatch.setattr(os, "killpg", denied)
+    monkeypatch.setattr(signal, "pidfd_send_signal", denied)
+    assert proc_kill.stop_if_same(child.pid, ident) == "kept"
+    assert child.poll() is None
+
+
+@linux_pidfd
+def test_stop_if_same_keeps_a_child_that_does_not_exit_in_time(child, monkeypatch):
+    from lib import proc_kill
+    ident = proc_kill.process_identity(child.pid)
+    monkeypatch.setattr(os, "killpg", lambda *a: None)
+    monkeypatch.setattr(signal, "pidfd_send_signal", lambda *a: None)
+    assert proc_kill.stop_if_same(child.pid, ident, wait=0.2) == "kept"
+
+
+@pytest.mark.parametrize("pid", [2**40, float("inf"), -1])
+def test_stop_if_same_answers_kept_for_an_impossible_pid(pid):
+    from lib import proc_kill
+    assert proc_kill.stop_if_same(pid, {"start": "1", "cmd": "x"}) == "kept"
+
+
+def test_stop_if_same_answers_kept_on_an_unexpected_error(monkeypatch):
+    from lib import proc_kill
+    monkeypatch.setattr(proc_kill, "_linux_stop_if_same", lambda *a: 1 / 0)
+    monkeypatch.setattr(proc_kill, "_win_stop_if_same", lambda *a: 1 / 0)
+    assert proc_kill.stop_if_same(12345, {"start": "1", "cmd": "x"}) == "kept"
+
+
+@linux_pidfd
+def test_stop_if_same_also_ends_a_wrappers_grandchild(tmp_path):
+    import subprocess
+    from lib import proc_kill
+    marker = tmp_path / "grandchild.pid"
+    script = ("import subprocess, sys, time\n"
+              "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+              f"open({str(marker)!r}, 'w').write(str(g.pid))\n"
+              "time.sleep(60)\n")
+    leader = subprocess.Popen([sys.executable, "-c", script], start_new_session=True)
+    try:
+        end = time.monotonic() + 10
+        while not (marker.exists() and marker.read_text()) and time.monotonic() < end:
+            time.sleep(0.05)
+        grandchild = int(marker.read_text())
+        ident = proc_kill.process_identity(leader.pid)
+        assert proc_kill.stop_if_same(leader.pid, ident) == "stopped"
+        assert _wait_dead(grandchild)
+    finally:
+        if leader.poll() is None:
+            leader.kill()
+        leader.wait()

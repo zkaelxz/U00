@@ -319,9 +319,12 @@ def _held_by_other_process(path: str, now: float) -> bool:
 def _read_small_regular_file(path: str, limit: int = 4096) -> str | None:
     """The text of `path` if it is a plain file (never a link) of at most
     `limit` bytes, else None."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    # O_NONBLOCK: opening a FIFO planted under the marker's name would
+    # otherwise wait for a writer forever and hang startup.
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+             | getattr(os, "O_NONBLOCK", 0))
     try:
-        if _is_link(path):
+        if _is_link(path) or not stat.S_ISREG(os.lstat(path).st_mode):
             return None
         fd = os.open(path, flags)
     except OSError:
@@ -341,6 +344,8 @@ def _read_small_regular_file(path: str, limit: int = 4096) -> str | None:
 # folder, naming the process by pid, start time and command, so a later start
 # can stop it if this server dies first without trusting the pid alone.
 CHILD_MARKER_PREFIX = ".baihe-child-"
+# Pids are 32-bit everywhere Baihe runs; anything larger is a corrupt note.
+_MAX_PID = 2**31 - 1
 
 
 def record_job_child(job_id, pid: int) -> int:
@@ -360,14 +365,20 @@ def record_job_child(job_id, pid: int) -> int:
                    and os.path.basename(p).rsplit(_OWNER_SEP, 1)[0] == owner]
     note = json.dumps({"pid": int(pid), "identity": identity})
     written = 0
+    flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_BINARY", 0))
     for folder in folders:
         try:
-            with open(os.path.join(folder, f"{CHILD_MARKER_PREFIX}{int(pid)}"), "w",
-                      encoding="utf-8") as fh:
-                fh.write(note)
+            fd = os.open(os.path.join(folder, f"{CHILD_MARKER_PREFIX}{int(pid)}"), flags, 0o600)
+        except OSError:
+            continue
+        try:
+            os.write(fd, note.encode("utf-8"))
             written += 1
         except OSError:
             pass
+        finally:
+            os.close(fd)
     return written
 
 
@@ -377,7 +388,7 @@ def _hold_owner_pid(path: str) -> int | None:
         pid = int(text.strip())
     except (AttributeError, ValueError):
         return None
-    return pid if pid > 0 else None
+    return pid if 0 < pid <= _MAX_PID else None
 
 
 def _child_notes(path: str) -> list | None:
@@ -393,9 +404,9 @@ def _child_notes(path: str) -> list | None:
         try:
             data = json.loads(_read_small_regular_file(os.path.join(path, name)) or "")
             pid, identity = int(data["pid"]), data["identity"]
-        except (ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError, OverflowError):
             return None
-        if not isinstance(identity, dict):
+        if not isinstance(identity, dict) or not 0 < pid <= _MAX_PID:
             return None
         notes.append((pid, identity))
     return notes

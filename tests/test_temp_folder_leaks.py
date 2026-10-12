@@ -582,3 +582,69 @@ def test_run_cancellable_notes_its_child_in_the_jobs_work_folder(isolated_db):
             seen["note"] = json.load(fh)
     assert len(seen["notes"]) == 1
     assert set(seen["note"]["identity"]) == {"start", "cmd"}
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no FIFOs on this platform")
+@pytest.mark.parametrize("which", ["hold", "note"])
+def test_a_fifo_in_place_of_a_marker_does_not_hang_the_sweep(isolated_db, which):
+    import threading
+    path = _orphan_folder("burned_video_1", _dead_pid())
+    if which == "hold":
+        os.remove(os.path.join(path, storage.HOLD_MARKER))
+        os.mkfifo(os.path.join(path, storage.HOLD_MARKER))
+    else:
+        os.mkfifo(os.path.join(path, f"{storage.CHILD_MARKER_PREFIX}123"))
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(storage.stop_orphaned_job_children()),
+                              daemon=True)
+    worker.start()
+    worker.join(10)
+    assert not worker.is_alive(), "the sweep blocked on a FIFO"
+    assert result == {"stopped": 0, "removed": 0}
+    assert os.path.isdir(path)
+
+
+@pytest.mark.parametrize("note", ['{"pid": Infinity, "identity": {}}',
+                                  '{"pid": 1099511627776, "identity": {}}',
+                                  '{"pid": -5, "identity": {}}'])
+def test_an_out_of_range_note_keeps_its_folder_and_the_sweep_goes_on(isolated_db, note):
+    bad = _orphan_folder("burned_video_1", _dead_pid())
+    with open(os.path.join(bad, f"{storage.CHILD_MARKER_PREFIX}1"), "w") as fh:
+        fh.write(note)
+    other = _orphan_folder("burned_video_2", _dead_pid())
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 1}
+    assert os.path.isdir(bad) and not os.path.exists(other)
+
+
+def test_an_out_of_range_hold_marker_is_ignored(isolated_db):
+    path = _orphan_folder("burned_video_1", 2**40)
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert os.path.isdir(path)
+
+
+def test_a_live_jobs_folder_is_untouched(isolated_db, monkeypatch):
+    path = _orphan_folder("burned_video_1", _dead_pid())
+    monkeypatch.setattr(background_jobs, "active_job_ids", lambda: ["burned_video_1"])
+    assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+    assert os.path.isdir(path)
+
+
+def test_a_folder_this_process_holds_is_untouched(isolated_db):
+    path = storage.new_workdir("burned_video_1")
+    with storage.holding(path):
+        with open(os.path.join(path, storage.HOLD_MARKER), "w") as fh:
+            fh.write(str(_dead_pid()))
+        assert storage.stop_orphaned_job_children() == {"stopped": 0, "removed": 0}
+        assert os.path.isdir(path)
+
+
+def test_a_note_is_never_written_through_an_existing_file(isolated_db, tmp_path):
+    target = tmp_path / "elsewhere"
+    target.write_text("keep")
+    with storage.job_workdir("burned_video_1") as path:
+        try:
+            os.symlink(target, os.path.join(path, f"{storage.CHILD_MARKER_PREFIX}{os.getpid()}"))
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+        storage.record_job_child("burned_video_1", os.getpid())
+    assert target.read_text() == "keep"
