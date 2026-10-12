@@ -4,7 +4,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { buttonClass } from '../../../components/uiClasses'
 import { useStage } from '../StageContext'
 import { NarrationPanel } from './NarrationPanel'
-import { startAsNovel } from './novelFlow'
+import { startAsNovel } from './novelSetup'
 
 interface Props {
   busy: boolean
