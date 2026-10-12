@@ -178,12 +178,16 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     # creates nothing and a retry can't leave a duplicate.
     if new_series_name is not None:
         try:
-            ownership_service.assign_drama_series(
-                principal, new_id,
-                ownership_service.get_or_create_series_for(principal, new_series_name))
+            series_id = ownership_service.get_or_create_series_for(principal, new_series_name)
+            ownership_service.assign_drama_series(principal, new_id, series_id)
         except Exception:
             db.delete_drama(new_id)
             raise
+    if series_id is not None:
+        from services import series_defaults_service   # circular import via series_service
+        series_defaults_service.inherit_new(
+            new_id, series_id,
+            skip=("translation_engine",) if preset and preset.get("translation_engine") else ())
 
     detail = library_service.get_library_drama(new_id)
     detail["preset_defaults"] = None if preset is None else {
@@ -269,7 +273,11 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     if series_id == 0:
         ownership_service.unassign_drama_series(principal, drama_id)
     elif series_id is not None:
+        moved = db.get_drama(drama_id).get("series_id") != series_id
         ownership_service.assign_drama_series(principal, drama_id, series_id)
+        if moved:
+            from services import series_defaults_service   # circular import via series_service
+            series_defaults_service.inherit_moved(drama_id, series_id)
     if "source_url" in fields:
         fields["source_url"], fields["source_url_full"] = \
             source_link_service.split_source_url(fields["source_url"])

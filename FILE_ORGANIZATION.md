@@ -322,6 +322,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `scanlate_render_service.py`
 - `scanlate_run_service.py`
 - `series_people_service.py`
+- `series_defaults_service.py` (a series' default title settings: stored, inherited by new and moved titles, applied to every title after a preview)
 - `series_service.py` (the Series page: titles and counts, rename, delete keeping titles, copy glossary terms between series)
 - `service_errors.py` (re-exports `lib/errors.py` for the existing call sites)
 - `settings_schema_service.py` (the declared settings as the metadata the Settings page builds forms from)

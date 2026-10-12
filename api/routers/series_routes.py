@@ -9,6 +9,10 @@ services/series_service.py.
     POST /api/series/{series_id}/delete                 PC only       owner or admin
     GET  /api/series/{series_id}/copy-terms-preview     library.read  editable series
     POST /api/series/{series_id}/copy-terms             lines.edit    editable series
+    GET  /api/series/{series_id}/defaults               library.read  default title settings
+    POST /api/series/{series_id}/defaults               lines.edit    editable series
+    GET  /api/series/{series_id}/defaults/apply-preview library.read  editable series
+    POST /api/series/{series_id}/defaults/apply         lines.edit    editable series
 
 `require_permission`'s path guard answers 404 for a `{series_id}` the
 caller can't see (and, for a POST, 403 for one they may not change); the
@@ -20,9 +24,11 @@ from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import local_only, require_permission
 from api.schemas import (ErrorResponse, SeriesCopyTermsPreview, SeriesCopyTermsRequest,
-                         SeriesCopyTermsResult, SeriesDeletePreview, SeriesDeleteRequest,
-                         SeriesDeleteResult, SeriesListResponse, SeriesPage,
-                         SeriesRenameRequest, SeriesRenameResult)
+                         SeriesCopyTermsResult, SeriesDefaults, SeriesDefaultsApplyRequest,
+                         SeriesDefaultsApplyResult, SeriesDefaultsPreview, SeriesDefaultsUpdate,
+                         SeriesDeletePreview, SeriesDeleteRequest, SeriesDeleteResult,
+                         SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult)
+from services import series_defaults_service as defaults_svc
 from services import series_service as svc
 
 router = APIRouter(prefix="/api/series", tags=["series"])
@@ -86,3 +92,32 @@ def copy_terms_preview(request: Request, series_id: int = _id(),
              summary="Copy another series' glossary terms in; terms already there are skipped")
 def copy_terms(body: SeriesCopyTermsRequest, request: Request, series_id: int = _id()):
     return svc.copy_terms(request.state.principal, series_id, body.source_series_id)
+
+
+@router.get("/{series_id}/defaults", dependencies=[require_permission("library.read")],
+            response_model=SeriesDefaults, responses=_ERRS,
+            summary="A series' default title settings and the settings that can be set")
+def get_defaults(request: Request, series_id: int = _id()):
+    return defaults_svc.get_defaults(request.state.principal, series_id)
+
+
+@router.post("/{series_id}/defaults", dependencies=[require_permission("lines.edit")],
+             response_model=SeriesDefaults, responses=_ERRS,
+             summary="Replace a series' default title settings ({} clears them)")
+def set_defaults(body: SeriesDefaultsUpdate, request: Request, series_id: int = _id()):
+    return defaults_svc.set_defaults(request.state.principal, series_id, body.settings)
+
+
+@router.get("/{series_id}/defaults/apply-preview", dependencies=[require_permission("library.read")],
+            response_model=SeriesDefaultsPreview, responses=_ERRS,
+            summary="Which titles and settings applying the defaults would change")
+def apply_defaults_preview(request: Request, series_id: int = _id(),
+                           mode: str = Query("fill", pattern="^(fill|overwrite)$")):
+    return defaults_svc.apply_preview(request.state.principal, series_id, mode)
+
+
+@router.post("/{series_id}/defaults/apply", dependencies=[require_permission("lines.edit")],
+             response_model=SeriesDefaultsApplyResult, responses=_ERRS,
+             summary="Apply the defaults to every title in the series (409 while a job runs)")
+def apply_defaults(body: SeriesDefaultsApplyRequest, request: Request, series_id: int = _id()):
+    return defaults_svc.apply_defaults(request.state.principal, series_id, body.mode)

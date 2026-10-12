@@ -152,12 +152,17 @@ def list_series_with_dramas(principal=None, include_single: bool = False) -> lis
     """Series holding two or more dramas (what the Series expander shows), or
     with `include_single` every series with a title (what a series picker
     needs: a one-title series still has a glossary). Only series `principal`
-    may see; every drama in a visible series is visible to it
-    (ownership_service's rule)."""
+    may see, and in them only the dramas it may see."""
     out = []
     uid = None if principal is None else principal.get("user_id")
-    for s in db.list_series(visible_to=ownership_service.visible_to_filter(principal)):
+    visible_to = ownership_service.visible_to_filter(principal)
+    for s in db.list_series(visible_to=visible_to):
         dramas = db.list_dramas_by_series(s["id"])
+        if visible_to is not None:
+            # A private title left in a shared series from before titles
+            # lost their own flag on joining one stays hidden from others.
+            seen = db.series_content_counts(s["id"], visible_to=visible_to)["title_lines"]
+            dramas = [d for d in dramas if d["id"] in seen]
         if len(dramas) < (1 if include_single else 2):
             continue
         out.append({

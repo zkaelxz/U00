@@ -1317,8 +1317,9 @@ def _migrate_drama_columns(conn):
 
 def _migrate_series_and_character_columns(conn):
     series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
-    if "instructions" not in series_cols:
-        _safe_alter(conn, "ALTER TABLE series ADD COLUMN instructions TEXT")
+    for col in ("instructions", "default_settings"):   # the latter: series_defaults_service
+        if col not in series_cols:
+            _safe_alter(conn, f"ALTER TABLE series ADD COLUMN {col} TEXT")
     char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
     if "ref_audio_filename" not in char_cols:
         _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
@@ -2949,14 +2950,6 @@ def list_series(visible_to: int = None):
     return [dict(r) for r in rows]
 
 
-def update_series_instructions(series_id: int, instructions: str):
-    """The series-level project instructions every drama in the
-    series inherits (see _DRAMA_SELECT's series_instructions)."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE series SET instructions = ? WHERE id = ?", (instructions, series_id))
-        conn.commit()
-
-
 def upsert_glossary_term(series_id: int, term_original: str, term_translation: str, notes: str = "",
                           category: str = None, policy: str = None, enforce_exact: bool = False,
                           aliases: str = None, banned_translations: str = None):
@@ -4339,6 +4332,7 @@ from db.auth import (  # noqa: F401
     set_item_private,
     series_has_unowned_drama,
     rename_series, series_content_counts, delete_series, copy_series_terms,
+    update_series_instructions, set_series_defaults, apply_series_settings,
     list_item_sharing,
     auth_get_user,
     auth_get_user_by_email,

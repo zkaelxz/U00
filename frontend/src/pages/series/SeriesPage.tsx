@@ -25,6 +25,7 @@ import {
   MAX_SERIES_NAME, SERIES_TABS, copyPreviewText, copyResultText, copySources, deleteBlocked, deleteLines, renameProblem,
   type SeriesTab,
 } from './seriesModel'
+import { DefaultsTab } from './DefaultsTab'
 import './seriesPage.css'
 
 const glossaryHref = (dramaId: number) => routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })
@@ -333,6 +334,7 @@ export default function SeriesPage({ id, tab: initialTab }: { id: number; tab?: 
       {shown && (
         <>
           {panel('titles', <TitlesTab data={shown} />)}
+          {panel('defaults', <DefaultsTab data={shown} />)}
           {panel('glossary', <GlossaryTab data={shown} onCopied={reload} />)}
           {panel('settings', (
             <>

@@ -138,7 +138,7 @@ def rename_series(principal, series_id, name) -> dict:
     return {"id": series_id, "name": name}
 
 
-def _job_running(series_id) -> bool:
+def job_running_for_series(series_id) -> bool:
     return any(drama_service.job_running_for_drama(d["id"])
                for d in db.list_dramas_by_series(series_id))
 
@@ -157,7 +157,7 @@ def delete_preview(principal, series_id) -> dict:
     out = {"series_id": series_id, "name": row["name"],
            "has_instructions": counts["has_instructions"],
            "needs_typed_confirm": _holds_anything(counts),
-           "job_running": _job_running(series_id)}
+           "job_running": job_running_for_series(series_id)}
     out.update({public: counts[key] for key, public in _COUNT_KEYS})
     return out
 
@@ -176,7 +176,7 @@ def delete_series(principal, series_id, confirm=False, confirm_text="") -> dict:
     if _holds_anything(counts) and confirm_text != _DELETE_WORD:
         raise InvalidInputError("This series holds titles or glossary data: deleting it needs "
                                 "confirm_text set to the word DELETE, in capitals.")
-    if _job_running(series_id):
+    if job_running_for_series(series_id):
         raise ConflictError(_JOB_RUNNING)
     result = db.delete_series(series_id, expected=counts)
     if result is None:
