@@ -57,7 +57,7 @@ def get_diagnostics_overview() -> dict:
     import core
     # "whisper" is what faster-whisper's own runtime (ctranslate2) sees -- can
     # differ from torch (missing cuBLAS/cuDNN makes Whisper silently use CPU).
-    gpu = diagnostics_torch.get_gpu_status_isolated()
+    gpu = diagnostics_torch.with_driver_vram_used(diagnostics_torch.get_gpu_status_isolated())
     return {
         "dependencies": diagnostics.check_all_dependencies(),
         "file_completeness": diagnostics.check_file_completeness(PROJECT_ROOT),

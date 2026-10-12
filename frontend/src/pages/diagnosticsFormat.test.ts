@@ -4,7 +4,7 @@ import type { JobRecord } from '../types/jobs'
 import {
   upsertJob, isFinished, orderJobs,
   describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
-  plainJobText, splitDependencies,
+  plainJobText, shouldRefreshGpu, splitDependencies,
 } from './diagnosticsFormat'
 
 const job = (o: Partial<JobRecord>): JobRecord => ({
@@ -49,7 +49,18 @@ describe('diagnosticsFormat', () => {
   })
   it('describes the GPU', () => {
     expect(describeGpu({ ...gpu, available: false })).toBe('No GPU detected.')
-    expect(describeGpu({ ...gpu, available: true, name: 'X', vram_used_gb: 1, vram_total_gb: 8 })).toBe('X (1.0 / 8.0 GB in use)')
+    expect(describeGpu({ ...gpu, available: true, name: 'X', vram_used_gb: 1, vram_total_gb: 8 })).toBe('X (GPU memory in use (all programs): 1.0 / 8.0 GB)')
+    expect(describeGpu({ ...gpu, available: true, name: 'X', vram_used_gb: null, vram_total_gb: 8, message: 'GPU memory in use: not available (nvidia-smi could not be read).' }))
+      .toBe('X (GPU memory in use: not available (nvidia-smi could not be read).)')
+  })
+  it('refreshes the GPU reading only while visible with a GPU job active', () => {
+    const jobs = (status: string, gpu_touching: boolean) => [job({ job_id: 'a', status, gpu_touching })]
+    expect(shouldRefreshGpu(jobs('running', true), false)).toBe(true)
+    expect(shouldRefreshGpu(jobs('queued', true), false)).toBe(true)
+    expect(shouldRefreshGpu(jobs('running', true), true)).toBe(false)
+    expect(shouldRefreshGpu(jobs('running', false), false)).toBe(false)
+    expect(shouldRefreshGpu(jobs('done', true), false)).toBe(false)
+    expect(shouldRefreshGpu(null, false)).toBe(false)
   })
 })
 
