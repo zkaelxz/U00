@@ -35,6 +35,7 @@ import uuid
 
 import background_jobs
 import db
+from jobs import job_store
 from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
                       source_link_service, vdb_names_service)
@@ -303,11 +304,6 @@ def set_source_url_once(drama_id, url) -> bool:
         return False
 
 
-# A job_records row still saying running/queued but not heartbeated this
-# long is treated as left behind by a crashed process (records have no
-# resume, see db.save_job_record), so it must not block a delete forever.
-# Live owners heartbeat every background_jobs.HEARTBEAT_INTERVAL.
-STALE_JOB_RECORD_SECONDS = background_jobs.STALE_JOB_SECONDS
 _DELETE_CONFIRM_TEXT = "DELETE"
 LEFTOVER_FILES_MESSAGE = ("The title was deleted from the library, but some of its files "
                            "could not be removed (a file may be in use). Close anything "
@@ -322,14 +318,9 @@ def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     if (background_jobs.any_job_running_for_drama(drama_id, exclude_job_id=exclude_job_id)
             if exclude_job_id else background_jobs.any_job_running_for_drama(drama_id)):
         return True
-    job_ids = {f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES} - {
-        exclude_job_id}
-    cutoff = time.time() - STALE_JOB_RECORD_SECONDS
-    for rec in db.list_job_records():
-        if (rec.get("job_id") in job_ids and rec.get("status") in ("running", "queued")
-                and (rec.get("updated_at") or 0) >= cutoff):
-            return True
-    return False
+    return job_store.fresh_active(
+        job_ids={f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES},
+        exclude=exclude_job_id)
 
 
 def hard_delete_drama(drama_id) -> bool:

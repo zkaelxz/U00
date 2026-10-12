@@ -22,12 +22,18 @@ import { createLinesController, type Pending, type Target } from './linesControl
 import { PhoneEditBar } from './PhoneEditBar'
 import { Player, type PlayerHandle } from './Player'
 import { ReviewWaveform } from './ReviewWaveform'
+import { gapLabel } from './retranscribeLinesLogic'
+import { nextGap } from './gapModel'
+import { useWaveformGaps } from './useWaveformGaps'
+import type { TranscribeGap } from '../../../../types/workspace'
 import { draftFromLine } from './reviewDraft'
 import { initialActiveId, PAGE_SIZE, pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
 import { UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
+import { SourceSuspectPanel } from './SourceSuspect'
+import { useSourceSuspects } from './useSourceSuspects'
 import { ShortcutSheet } from './ShortcutSheet'
 import { useStrongerOffers } from './useStrongerOffers'
 import { DRAFT_NOT_SAVED, buildStructureEdits, type UndoOffer } from './structureEdits'
@@ -65,6 +71,8 @@ const WIDE = '(min-width: 641px)'
 // How long a line opened from a search result stays highlighted.
 const JUMP_HIGHLIGHT_MS = 4000
 const SEARCH_DEBOUNCE_MS = 300
+const COLLAPSE_PX = 160
+const COLLAPSE_BACK_PX = 60
 const STATUS_MS = 8000
 
 function browserStorage() {
@@ -90,6 +98,19 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
+  // Phones: once the page is scrolled the sticky toolbar shrinks to its chip row so more lines show.
+  // Two thresholds, because shrinking it moves the scroll position a little.
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    if (!isPhone) return
+    const onScroll = () => setScrolled((was) => (was ? window.scrollY > COLLAPSE_BACK_PX : window.scrollY > COLLAPSE_PX))
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [isPhone])
+  const collapsed = isPhone && scrolled
+  const suspects = useSourceSuspects(dramaId, reloads)
+  const [suspectOpen, setSuspectOpen] = useState(false)
   const selection = useLineSelectionContext()
   const route = useRoute()
   // A warning elsewhere links here with ?focus=flagged to show those lines first.
@@ -371,11 +392,27 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const showPager = !searching && !!data && pages > 1
   const editingActive = edit !== null && edit.lineId === activeId
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
-  const pagerInPlayer = isPhone && mediaKind !== null && showPager
+  const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
 
   // Wider screens keep it in the sticky toolbar so it stays in view while the
   // list scrolls; phones put it under the player dock, where it scrolls away.
+  const gaps = useWaveformGaps({
+    dramaId,
+    enabled: canRetranscribeLine && mediaKind !== null && !emptyDrama,
+    refresh: reloads,
+    onChanged,
+    onTranscribe: (ids) => onRetranscribeLines?.(ids),
+  })
+  const [gapFocus, setGapFocus] = useState<{ gap: TranscribeGap; seq: number } | null>(null)
+  const jumpToNextGap = () => {
+    const g = nextGap(gaps.gaps, player.current?.getTime() ?? 0)
+    if (!g) return
+    setWaveOpen(true)
+    player.current?.seek(g.start)
+    setGapFocus((f) => ({ gap: g, seq: (f?.seq ?? 0) + 1 }))
+    setStatus(`Gap: ${gapLabel(g)}`)
+  }
   const waveform =
     mediaKind && !emptyDrama ? (
       <ReviewWaveform
@@ -387,11 +424,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         onToggle={() => setWaveOpen(!waveOpen)}
         onRetime={ctl.retime}
         editingActive={!!active && edit !== null && edit.lineId === active.id}
-        reloads={reloads}
+        gaps={gaps}
+        focusGap={gapFocus}
         jobRunning={jobRunning}
         canTranscribe={canRetranscribeLine}
-        onChanged={onChanged}
-        onTranscribeLines={(ids) => onRetranscribeLines?.(ids)}
       />
     ) : null
 
@@ -401,8 +437,14 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {!emptyDrama && (
         <ReviewToolbar
           isPhone={isPhone}
+          collapsed={collapsed}
           filter={filter}
           counts={counts}
+          gapCount={gaps.gaps.length}
+          onNextGap={jumpToNextGap}
+          suspectCount={suspects.length}
+          suspectOpen={suspectOpen}
+          onToggleSuspect={() => setSuspectOpen((o) => !o)}
           onFilter={(f) => void changeFilter(f)}
           search={input}
           searchRef={searchRef}
@@ -443,6 +485,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           <p className="sr-only" data-testid="line-counts">
             {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
           </p>
+        )}
+        {suspectOpen && suspects.length > 0 && (
+          <SourceSuspectPanel dramaId={dramaId} items={suspects} onGoTo={(n) => void goToNumber(n)} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
         )}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
         {!searching && !!data?.flagged_count && (

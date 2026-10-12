@@ -5,3 +5,8 @@
 .url-download-checks { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
 .url-download-checks label { display: inline-flex; align-items: center; gap: var(--space-2); }
 .url-download .setting-list { margin: 0; }
+.url-download-part { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
+.url-download-part-times { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.url-download-part-times label { display: inline-flex; align-items: center; gap: var(--space-2); }
+.url-download-part-times input { width: 7rem; }
+.url-download-long { display: grid; gap: var(--space-2); }

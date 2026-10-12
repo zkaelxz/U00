@@ -111,6 +111,11 @@ export interface RestoreDramaDone {
   // from the snapshot; dropped_private: the series is now someone else's
   // private series, so the drama came back with no series.
   series: 'none' | 'linked' | 'recreated' | 'dropped_private'
+  // How many of the title and a recreated series went to the account with the
+  // same email, or to the PC owner where there was none.
+  owners_reassigned?: number
+  // false: the copy holds no accounts, so every owner became the PC owner.
+  copy_has_accounts?: boolean
   counts: Record<string, number>
   skipped_tables: string[]
 }

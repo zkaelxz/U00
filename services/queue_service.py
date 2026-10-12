@@ -679,7 +679,7 @@ def _job_outcome(job_id: str):
     outcome = job.get("outcome")
     if outcome == "failed":
         return True, FAILED, job.get("outcome_message") or job.get("error") or "The job failed."
-    if outcome == "cancelled":
+    if outcome in ("cancelled", "interrupted"):
         return True, CANCELLED, job.get("outcome_message") or "The job was cancelled."
     note = job.get("outcome_message") if outcome in ("partial", "kept_existing") else ""
     return True, DONE, note or ""

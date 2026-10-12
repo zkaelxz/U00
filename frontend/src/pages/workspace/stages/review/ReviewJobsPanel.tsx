@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
 import { startReviewJob } from '../../../../api/review'
 import { getTranslateConfig } from '../../../../api/translateStage'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
+import { HelpTip } from '../../../../components/HelpTip'
 import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -90,15 +91,23 @@ interface Props {
   onGoTo: GoToLine
   // Flagged lines in the drama (from the editor); null until known.
   flaggedCount: number | null
-  // More AI-review tools, shown at the end of the fold.
-  children?: ReactNode
+  // The panel's parts, for the stage to place in tabs: the job status (always
+  // shown, so a running job is visible on every tab), the checks and the fix.
+  render: (parts: JobParts) => ReactNode
+}
+
+export interface JobParts {
+  status: ReactNode
+  check: ReactNode
+  fix: ReactNode
 }
 
 // After every job reaches a terminal state (done, error or cancelled) the
 // stage's lines, records and stored results are refetched, so translated
 // text, flags and findings never stay stale until a hard refresh.
-export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount, children }: Props) {
+export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount, render }: Props) {
   const { onJobDone, drama } = useStage()
+  const bulkHelpId = useId()
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob(reviewJobIds(dramaId), adoptJob)
   const [error, setError] = useState<unknown>(null)
@@ -209,10 +218,10 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
     'Stops the fix at this many dollars; blank means no per-job cap.' +
     (config ? ` ${spendText(config.month_spend, config.monthly_cap_usd)}` : '')
 
-  // The job status and start errors sit above the folded section, so a
-  // running or reattached job is always visible.
-  return (
-    <div aria-label="AI checks" role="group" className="review-ai">
+  // The job status and start errors sit above the tabs, so a running or
+  // reattached job is always visible.
+  const status = (
+    <>
       <JobPanel
         jobId={jobId}
         job={job}
@@ -223,102 +232,108 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
       {bulkRuns.map((r) => (
         <BulkRun key={r.kind} run={r} onDone={bulkDone} onSubmitted={reloadBatches} />
       ))}
-      <Section storageKey="review.aiFold" title="AI review" defaultOpen summary="Checks · flag lines · coverage and pacing">
-        {/* One row per check: its Start button, then its Bulk switch. */}
-        <div role="list" aria-label="AI checks to run" className="stack">
-          {KINDS.map(({ kind, label, what }) => (
-            <div key={kind} role="listitem" className="review-job-row" data-testid={`review-job-${kind}`}>
-              <button
-                type="button"
-                className={buttonClass('secondary')}
-                disabled={busy}
-                onClick={() => void start(kind, reviewStartBody(kind, checks, bulkOn, defaultEngine, bulkEngines), what)}
-              >
-                {label}
-              </button>
-              <div className="setting-list review-toggles">
-                <Field label="Bulk" help={BULK_HELP}>
-                  <Toggle
-                    aria-label={`Bulk: ${label}`}
-                    checked={bulkOk && !!bulkOn[kind]}
-                    disabled={!bulkOk}
-                    onChange={(on) => setBulkOn((c) => ({ ...c, [kind]: on }))}
-                  />
-                </Field>
-              </div>
-            </div>
-          ))}
-        </div>
-        {bulkReason && <p className="muted">{bulkReason}{engineNow === 'gemini' && <> <a href="#/settings">Open Settings</a></>}</p>}
-        {anyBulk && (
-          <p className="muted" data-testid="bulk-warning">
-            Bulk is half price but slow: results can take up to 24 hours. Until they arrive, structural edits (add, delete, merge, split,
-            re-segment, restore a version, delete the title) are refused.
-          </p>
-        )}
-        <Section storageKey="review.ai.options" title="Check options" summary={checkFormSummary(checks, defaultEngine, drama.has_audio)}>
-          <div className="review-edit-row">
-            <EngineModelFields
-              engines={engines}
-              defaultEngine={defaultEngine}
-              engine={checks.engine}
-              model={checks.model}
-              help={`Which service runs these checks. The default is the title's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines cannot run these checks.`}
-              onChange={(n) => setChecks((c) => ({ ...c, ...n }))}
-            />
-            <div className="setting-list review-toggles">
-              <Field label="Tag emotion: use audio delivery cues">
-                <Toggle checked={cuesOn} onChange={(on) => setChecks((c) => ({ ...c, audioCues: on }))} />
-              </Field>
-            </div>
-          </div>
-        </Section>
-        {busy && <p className="muted review-ai-busy">A review job is running.</p>}
-        <fieldset className="review-fix" aria-label="Fix flagged lines">
-          <legend>Fix flagged lines</legend>
-          <p className="muted review-fix-hint">Redoes the source and English of every flagged line.</p>
-          <div className="review-actions">
-            <button type="button" className={buttonClass('secondary')} disabled={busy || noFlagged || noEdit} onClick={startFix}>
-              Fix flagged lines
-            </button>
-            {noFlagged && <span className="muted">Still needed: a flagged line.</span>}
-            {noEdit && <span className="muted">Needs permission to edit lines; ask an admin.</span>}
-          </div>
-          {problem && (
-            <p className="error" role="alert">
-              {problem}
-            </p>
-          )}
-          <Section storageKey="review.fix.options" title="Options" summary={fixFormSummary(fix, defaultEngine)}>
-            <div className="review-edit-row">
-              <EngineModelFields
-                engines={engines}
-                defaultEngine={defaultEngine}
-                engine={fix.engine}
-                model={fix.model}
-                help={`Which service re-translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP}`}
-                onChange={(n) => setFix((f) => ({ ...f, ...n }))}
-              />
-              {/* Text, not type=number: a browser turns a value it cannot parse ("5$", "1,5", "-")
-                  into "", which would start a paid job with no cap. fixFlaggedBody checks every value. */}
-              <Field label="Cost cap" unit="$" help={capHelp}>
-                <input
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={fix.cap}
-                  onChange={(e) => {
-                    setProblem(null)
-                    setFix((f) => ({ ...f, cap: e.target.value }))
-                  }}
-                />
-              </Field>
-            </div>
-          </Section>
-        </fieldset>
-        <BulkBatchesPanel reloadKey={batchReload} />
-        <ReviewFindings dramaId={dramaId} jobsDone={jobsDone} reloads={reloads} onGoTo={onGoTo} />
-        {children}
-      </Section>
-    </div>
+    </>
   )
+
+  const check = (
+    <>
+      <div role="list" aria-label="AI checks to run" className="review-check-grid">
+        {KINDS.map(({ kind, label, what }) => (
+          <div key={kind} role="listitem" className="review-job-row" data-testid={`review-job-${kind}`}>
+            <button
+              type="button"
+              className={buttonClass('secondary')}
+              disabled={busy}
+              onClick={() => void start(kind, reviewStartBody(kind, checks, bulkOn, defaultEngine, bulkEngines), what)}
+            >
+              {label}
+            </button>
+            <span className="review-bulk">
+              <Toggle
+                aria-label={`Bulk: ${label}`}
+                checked={bulkOk && !!bulkOn[kind]}
+                disabled={!bulkOk}
+                onChange={(on) => setBulkOn((c) => ({ ...c, [kind]: on }))}
+              />
+              <span aria-hidden="true">Bulk</span>
+              <HelpTip label="Bulk" id={`${bulkHelpId}-${kind}`}>{BULK_HELP}</HelpTip>
+            </span>
+          </div>
+        ))}
+      </div>
+      {bulkReason && <p className="muted">{bulkReason}{engineNow === 'gemini' && <> <a href="#/settings">Open Settings</a></>}</p>}
+      {anyBulk && (
+        <p className="muted" data-testid="bulk-warning">
+          Bulk is half price but slow: results can take up to 24 hours. Until they arrive, structural edits (add, delete, merge, split,
+          re-segment, restore a version, delete the title) are refused.
+        </p>
+      )}
+      <Section storageKey="review.ai.options" title="Check options" summary={checkFormSummary(checks, defaultEngine, drama.has_audio)}>
+        <div className="review-edit-row">
+          <EngineModelFields
+            engines={engines}
+            defaultEngine={defaultEngine}
+            engine={checks.engine}
+            model={checks.model}
+            help={`Which service runs these checks. The default is the title's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines cannot run these checks.`}
+            onChange={(n) => setChecks((c) => ({ ...c, ...n }))}
+          />
+          <div className="setting-list review-toggles">
+            <Field label="Tag emotion: use audio delivery cues">
+              <Toggle checked={cuesOn} onChange={(on) => setChecks((c) => ({ ...c, audioCues: on }))} />
+            </Field>
+          </div>
+        </div>
+      </Section>
+      {busy && <p className="muted review-ai-busy">A review job is running.</p>}
+      <BulkBatchesPanel reloadKey={batchReload} />
+      <ReviewFindings dramaId={dramaId} jobsDone={jobsDone} reloads={reloads} onGoTo={onGoTo} />
+    </>
+  )
+
+  const fixCard = (
+    <fieldset className="review-fix" aria-label="Fix flagged lines">
+      <legend>Fix flagged lines</legend>
+      <p className="muted review-fix-hint">Redoes the source and English of every flagged line.</p>
+      <div className="review-actions">
+        <button type="button" className={buttonClass('secondary')} disabled={busy || noFlagged || noEdit} onClick={startFix}>
+          Fix flagged lines
+        </button>
+        {noFlagged && <span className="muted">Still needed: a flagged line.</span>}
+        {noEdit && <span className="muted">Needs permission to edit lines; ask an admin.</span>}
+      </div>
+      {problem && (
+        <p className="error" role="alert">
+          {problem}
+        </p>
+      )}
+      <Section storageKey="review.fix.options" title="Options" summary={fixFormSummary(fix, defaultEngine)}>
+        <div className="review-edit-row">
+          <EngineModelFields
+            engines={engines}
+            defaultEngine={defaultEngine}
+            engine={fix.engine}
+            model={fix.model}
+            help={`Which service re-translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP}`}
+            onChange={(n) => setFix((f) => ({ ...f, ...n }))}
+          />
+          {/* Text, not type=number: a browser turns a value it cannot parse ("5$", "1,5", "-")
+              into "", which would start a paid job with no cap. fixFlaggedBody checks every value. */}
+          <Field label="Cost cap" unit="$" help={capHelp}>
+            <input
+              inputMode="decimal"
+              autoComplete="off"
+              value={fix.cap}
+              onChange={(e) => {
+                setProblem(null)
+                setFix((f) => ({ ...f, cap: e.target.value }))
+              }}
+            />
+          </Field>
+        </div>
+      </Section>
+    </fieldset>
+  )
+
+  return <div aria-label="AI checks" role="group" className="review-ai">{render({ status, check, fix: fixCard })}</div>
 }

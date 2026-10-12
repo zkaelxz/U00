@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openBenchSections } from './benchSections'
+import { openBenchTab } from './benchSections'
 
 import { mockReeval, overview } from './reevalMocks'
 import { hitHeight, installHitArea } from './hitArea'
@@ -37,7 +37,7 @@ async function smallTargets(page: Page) {
 test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll, two-step promote', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true, error: 'Skipped: estimated $0.0400, above the $0.02 limit set for scheduled runs.' }))
   await page.goto('/#/benchmark')
-  await openBenchSections(page)
+  await openBenchTab(page, 'Model re-evaluation')
   const c = card(page)
   await expect(c.getByTestId('reeval-production')).toContainText('Ollama · gemma4:12b')
   const rows = c.getByRole('list', { name: 'Candidates against production' })

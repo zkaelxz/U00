@@ -8,6 +8,7 @@ import {
   mergeFormDefaults,
   mergeSummary,
   parseMergeForm,
+  rangeText,
   resolveLineNumber,
   senseVoiceSummary,
   styleSummary,
@@ -26,6 +27,21 @@ describe('parseMergeForm', () => {
     expect(r.options).toBeNull()
     expect(Object.keys(r.errors).sort()).toEqual(['max_chars', 'max_gap', 'min_duration'])
     expect(r.errors.max_chars).toMatch(/whole number/)
+  })
+})
+
+describe('range hints', () => {
+  it('writes min-max with the same decimals and the unit after', () => {
+    expect(rangeText(0.1, 2, 's')).toBe('0.1-2.0 s')
+    expect(rangeText(10, 500, 'chars')).toBe('10-500 chars')
+    expect(rangeText(0, 5)).toBe('0-5')
+  })
+
+  it('uses it in the merge form errors', () => {
+    const r = parseMergeForm({ min_duration: '0', max_gap: '9', max_chars: '5' })
+    expect(r.errors.min_duration).toBe('Short line: 0.1-10.0 s')
+    expect(r.errors.max_gap).toBe('Max gap: 0-5 s')
+    expect(r.errors.max_chars).toBe('Max length: 10-500 chars')
   })
 })
 

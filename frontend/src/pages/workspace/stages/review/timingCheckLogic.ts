@@ -14,7 +14,7 @@ export function checkSummary(status: Pick<TimingCheckStatus, 'last_check'>): str
 export function snapSummary(r: TimingSnapResult): string {
   const parts = [`Snapped ${plural(r.snapped, 'line')} to speech.`]
   if (r.stale_ids.length) parts.push(`${plural(r.stale_ids.length, 'line')} changed since the check, so left alone; check timing again.`)
-  if (r.snapped) parts.push('Undo from Versions and history.')
+  if (r.snapped) parts.push('Undo from History.')
   return parts.join(' ')
 }
 

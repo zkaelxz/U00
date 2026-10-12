@@ -279,15 +279,23 @@ test.describe('phone width', () => {
         },
       }))
     await openExtras(page)
-    for (const title of ['Merge short lines', 'Learn my style', 'Audio tags', 'Burned subtitle preview']) await openSub(page, title)
+    const noSideways = async () => {
+      const { scroll, client } = await page.evaluate(() => ({
+        scroll: document.documentElement.scrollWidth,
+        client: document.documentElement.clientWidth,
+      }))
+      expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    }
+    // One tab at a time: only the shown tab's sections are on screen.
+    for (const title of ['Merge short lines']) await openSub(page, title)
     await page.getByRole('button', { name: 'Preview merge' }).click()
     await expect(page.getByTestId('merge-short-preview')).toBeVisible()
+    await noSideways()
+    await openSub(page, 'Learn my style')
+    await noSideways()
+    for (const title of ['Audio tags', 'Burned subtitle preview']) await openSub(page, title)
     await expect(page.getByTestId('sensevoice-table')).toBeVisible()
-    const { scroll, client } = await page.evaluate(() => ({
-      scroll: document.documentElement.scrollWidth,
-      client: document.documentElement.clientWidth,
-    }))
-    expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    await noSideways()
     await maybeScreenshot(page, 'review-ai-extras-390')
   })
 })

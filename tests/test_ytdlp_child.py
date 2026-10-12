@@ -28,6 +28,9 @@ class YoutubeDL:
         return self.opts["outtmpl"].replace("%(ext)s", "m4a")
     def extract_info(self, url, download=True):
         mode = os.environ["FAKE_YTDLP_MODE"]
+        if mode == "silent":
+            # What ffmpeg fetching a section looks like: no progress, no output.
+            time.sleep(120)
         for hook in self.opts["progress_hooks"]:
             hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
         if mode == "hang":
@@ -262,3 +265,78 @@ def test_nonce_in_other_lines_and_wrong_nonce_events_are_ignored(tmp_path, monke
     assert [i["event"] for i in items if "event" in i] == [{"path": media}]
     # Only right-nonce lines with a bad body count; the rest are not events at all.
     assert items[-1]["dropped"] == 4
+
+
+# ---- which rule refused a link, and how big it would be ---------------------------
+
+@pytest.mark.parametrize("info, reason", [
+    ({"_type": "playlist"}, "playlist"),
+    ({"_type": "multi_video"}, "playlist"),
+    ({"is_live": True}, "live"),
+    ({"live_status": "is_live"}, "live"),
+    ({"live_status": "is_upcoming"}, "upcoming"),
+    ({"duration": 6 * 3600 + 1}, "too_long"),
+])
+def test_refusal_detail_names_the_rule(info, reason):
+    assert ytdlp_child.refusal_detail(info)["reason"] == reason
+
+
+def test_a_playlist_that_is_also_marked_live_is_a_playlist():
+    assert ytdlp_child.refusal_detail({"_type": "playlist", "is_live": True})["reason"] == "playlist"
+
+
+def test_refusal_detail_allows_exactly_the_cap_and_a_normal_video():
+    assert ytdlp_child.refusal_detail({"duration": 6 * 3600}) is None
+    assert ytdlp_child.refusal_detail({"duration": 90}) is None
+    assert ytdlp_child.refusal_detail({}) is None and ytdlp_child.refusal_detail(None) is None
+
+
+def test_the_cap_can_be_raised_but_never_past_twelve_hours():
+    info = {"duration": 7 * 3600}
+    assert ytdlp_child.refusal_detail(info, 12 * 3600) is None
+    over = ytdlp_child.refusal_detail({"duration": 13 * 3600}, 99 * 3600)
+    assert over == {"reason": "too_long", "duration": 13 * 3600, "limit": 12 * 3600}
+
+
+def test_a_part_is_measured_by_its_own_length():
+    info = {"duration": 10 * 3600}
+    assert ytdlp_child.refusal_detail(info, part=(3600, 7200)) is None
+    assert ytdlp_child.refusal_detail(info, part=(3600, None))["duration"] == 9 * 3600
+    assert ytdlp_child.refusal_detail(info, part=(0, 20 * 3600))["duration"] == 10 * 3600
+    assert ytdlp_child.refusal_detail({"duration": 100}, part=(100, None))["reason"] == "part_outside"
+
+
+def test_estimate_bytes_uses_the_bitrates_and_is_none_without_them():
+    formats = [{"vcodec": "avc1", "tbr": 2000}, {"vcodec": "none", "abr": 128}]
+    video = ytdlp_child.estimate_bytes({"formats": formats}, False, 3600)
+    audio = ytdlp_child.estimate_bytes({"formats": formats}, True, 3600)
+    assert video > audio > 192_000 * 3600          # the WAV is the bulk of an audio-only download
+    assert ytdlp_child.estimate_bytes({"formats": []}, False, 3600) is None
+    assert ytdlp_child.estimate_bytes({"formats": formats}, False, 0) is None
+
+
+@pytest.mark.parametrize("event, ok", [
+    ({"rejected": {"reason": "too_long", "duration": 5, "limit": 6, "estimated_bytes": 7}}, True),
+    ({"rejected": {"reason": "live"}}, True),
+    ({"rejected": True}, False),
+    ({"rejected": {"reason": "bogus"}}, False),
+    ({"rejected": {"reason": "live", "text": "https://x.example/?sig=1"}}, False),
+    ({"rejected": {"reason": "too_long", "duration": "5"}}, False),
+    ({"estimate": 10}, True), ({"estimate": -1}, False), ({"estimate": True}, False),
+])
+def test_refusal_and_estimate_events_are_shape_checked(event, ok):
+    assert ytdlp_child._valid_event(event) is ok
+
+
+def test_a_download_that_prints_nothing_still_stops_at_the_free_disk_floor(child_env, isolated_db, monkeypatch):
+    """A section is fetched by ffmpeg: no progress events reach the parent, so the
+    space check has to run on the reader's timer, not per progress event."""
+    child_env.mode("silent")
+    monkeypatch.setattr(svc.shutil, "disk_usage", lambda path: type(
+        "U", (), {"free": svc.MIN_FREE_BYTES - 1})())
+    monkeypatch.setattr(svc.background_jobs, "is_cancel_requested", lambda job_id: False)
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match="almost full"):
+        svc._download("urlmedia_9", URL, child_env.work, False,
+                      {"part_start": 0, "part_end": 60})
+    assert time.monotonic() - t0 < 15

@@ -29,6 +29,7 @@ from api.schemas.reader import *  # noqa: F401,F403
 from api.schemas.novel_chapters import *  # noqa: F401,F403
 from api.schemas.voice import *  # noqa: F401,F403
 from api.schemas.transcribe import *  # noqa: F401,F403
+from api.schemas.source_suspect import *  # noqa: F401,F403
 from api.schemas.timing_check import *  # noqa: F401,F403
 from api.schemas.retranscribe_lines import *  # noqa: F401,F403
 from api.schemas.real_model_check import *  # noqa: F401,F403

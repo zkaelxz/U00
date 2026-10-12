@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampTime, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, playerKeyAction, popoutCaptionPx, SEEK_STEP_FINE_S, SEEK_STEP_S, SUBTITLE_OPTIONS, subtitleSrc, validRate, type PlayerKey } from './playerLogic'
+import { clampTime, jumpPlaceholder, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, playerKeyAction, popoutCaptionPx, SEEK_STEP_FINE_S, SEEK_STEP_S, SUBTITLE_OPTIONS, subtitleSrc, validRate, type PlayerKey } from './playerLogic'
 
 describe('parseJumpTime', () => {
   it('reads seconds, mm:ss and h:mm:ss', () => {
@@ -132,5 +132,16 @@ describe('overlayText', () => {
   it('is empty for an empty cue, so no box is drawn', () => {
     expect(overlayText('')).toBe('')
     expect(overlayText(' \n \u00a0 ')).toBe('')
+  })
+})
+
+describe('jumpPlaceholder', () => {
+  it('shows the live time while the box is idle', () => {
+    expect(jumpPlaceholder(363.4, false, '')).toBe('6:03')
+    expect(jumpPlaceholder(3723, false, '')).toBe('1:02:03')
+  })
+  it('falls back to the format hint while focused or typed in', () => {
+    expect(jumpPlaceholder(363, true, '')).toBe('mm:ss')
+    expect(jumpPlaceholder(363, false, '1:2')).toBe('mm:ss')
   })
 })

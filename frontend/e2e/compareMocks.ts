@@ -36,7 +36,15 @@ export interface CompareSeen {
   applies: unknown[]
 }
 
-export async function mockCompare(page: Page, opts: { estimate?: Record<string, unknown> } = {}): Promise<CompareSeen> {
+// initial: what the server already holds when the page opens: nothing, a finished
+// result (left unapplied on an earlier visit), or a run still going.
+export async function mockCompare(
+  page: Page,
+  opts: { estimate?: Record<string, unknown>; initial?: 'none' | 'done' | 'running' } = {},
+): Promise<CompareSeen> {
+  const initial = opts.initial ?? 'none'
+  let started = initial !== 'none'
+  let finished = initial === 'done'
   const seen: CompareSeen = { estimates: [], runs: [], applies: [] }
   const base = '**/api/transcribe/dramas/3/compare-transcription'
   let polls = 0
@@ -47,14 +55,17 @@ export async function mockCompare(page: Page, opts: { estimate?: Record<string, 
   })
   await page.route(`${base}/run`, (r) => {
     seen.runs.push(r.request().postDataJSON())
+    started = true
     return r.fulfill({ json: { job_id: 'comparetx_3', drama_id: 3, line_count: 3 } })
   })
   await page.route('**/api/jobs/comparetx_3', (r) => {
+    if (!started) return r.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No such job.' } } })
     polls += 1
-    return r.fulfill({ json: polls < 2 ? job('running') : job('done', { outcome: 'ok', result: { line_count: 3, candidate_count: 3 } }) })
+    finished = initial === 'done' || (initial === 'none' && polls >= 2)
+    return r.fulfill({ json: !finished ? job('running') : job('done', { outcome: 'ok', result: { line_count: 3, candidate_count: 3 } }) })
   })
   await page.route(`${base}/result`, (r) =>
-    r.fulfill({ json: { job_id: 'comparetx_3', proposals: PROPOSALS, line_count: 3, asr_backend: 'whisper', whisper_size: 'tiny', translated: true, partial: false, cap_reached: false, errors: [] } }))
+    !finished ? r.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No finished transcription comparison for this title.' } } }) : r.fulfill({ json: { job_id: 'comparetx_3', proposals: PROPOSALS, line_count: 3, asr_backend: 'whisper', whisper_size: 'tiny', translated: true, partial: false, cap_reached: false, errors: [] } }))
   await page.route(`${base}/apply`, (r) => {
     const body = r.request().postDataJSON() as { items: { line_id: number }[] }
     seen.applies.push(body)
