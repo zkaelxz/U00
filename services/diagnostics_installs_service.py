@@ -606,10 +606,12 @@ def _non_index_dists() -> set:
 
 
 def _restore(before: dict, skip: set, cancel):
-    """(restored, failed, skipped, stopped, added) dist names after putting back
-    every package whose version pip changed or removed."""
+    """(restored, failed, skipped, stopped, added, left_out) dist names after
+    putting back every package whose version pip changed or removed. left_out:
+    a plain OpenCV that stays removed because contrib is installed now."""
     now = pending_install.snapshot()
-    wanted = {n: v for n, v in before.items() if now.get(n) != v}
+    wanted, left_out = pending_install.without_clashing_cv2(
+        {n: v for n, v in before.items() if now.get(n) != v}, now, before)
     skipped = sorted(n for n in wanted if n in skip)
     safe = {n: v for n, v in wanted.items() if n not in skip
             and pending_install._NAME_RE.match(n) and pending_install._VERSION_RE.match(v)}
@@ -625,7 +627,7 @@ def _restore(before: dict, skip: set, cancel):
         now = pending_install.snapshot()
     restored = sorted(n for n, v in safe.items() if now.get(n) == v)
     failed = sorted(failed + [n for n in safe if n not in restored])
-    return restored, failed, skipped, stopped, sorted(set(now) - set(before))
+    return restored, failed, skipped, stopped, sorted(set(now) - set(before)), left_out
 
 
 def _put_back(kind: str, before: dict, skip: set) -> str:
@@ -637,7 +639,7 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     # honouring it would skip the very restore the Cancel asked for.
     cancel = None if probe() else probe
     try:
-        restored, failed, skipped, stopped, added = _restore(before, skip, cancel)
+        restored, failed, skipped, stopped, added, left_out = _restore(before, skip, cancel)
     except Exception:     # noqa: BLE001 -- the install's own outcome must still be stored
         return "Your earlier packages could not be put back; check Packages."
     again = ("Set up PyTorch again under GPU PyTorch." if kind == "gpu_torch"
@@ -651,6 +653,9 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
         parts.append(", ".join(skipped) + " came from outside the package index (git, a link "
                      "or a local file), so it was not put back; install it again the way you "
                      "first did.")
+    if left_out:
+        parts.append(", ".join(left_out) + " was not put back because opencv-contrib-python is "
+                     "installed now and the two cannot share one 'cv2' folder.")
     if restored and not (failed or skipped):
         parts.append("Your earlier packages were put back.")
     if added:

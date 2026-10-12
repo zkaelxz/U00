@@ -62,18 +62,16 @@ uroman>=1.2
 
 # --- OCR ---
 pytesseract>=0.3        # also needs the Tesseract binary + language packs
-# paddleocr>=2.7        # better Chinese accuracy, heavier. `pip install
-                         # paddleocr` today installs 3.x, which changed its
-                         # API from what a lot of older tutorials show
-                         # (use_angle_cls, .ocr(path, cls=True)) -- ocr.py's
-                         # extract_text_paddle() already targets the current
-                         # 3.x API, so just installing the package is enough.
-# paddlepaddle>=2.6     # NOTE: as of this writing, PaddlePaddle only publishes
-                         # wheels for Python 3.8-3.12. On 3.13/3.14 you'll get
-                         # "No matching distribution found" -- not a network or
-                         # pip problem, there's genuinely no wheel yet. Needs a
-                         # separate Python 3.11/3.12 install if you want it on
-                         # a newer interpreter. Check python --version first.
+paddleocr==3.7.0        # better Chinese accuracy, heavier. Pinned: 3.x changed its API from
+                         # what a lot of older tutorials show (use_angle_cls, .ocr(path, cls=True)),
+                         # and ocr.py's extract_text_paddle() targets this one. It requires
+                         # paddlex<3.8.0, which in turn pins opencv-contrib-python==4.10.0.84
+                         # exactly: Diagnostics removes a plain opencv-python first
+                         # (install_plan.py), because the two share one 'cv2' folder.
+paddlepaddle==3.3.1     # PaddlePaddle publishes wheels for Python 3.9-3.13 only. On 3.14 you'll
+                         # get "No matching distribution found" -- not a network or pip problem,
+                         # there's genuinely no wheel yet. Needs a separate Python 3.12/3.13
+                         # install if you want it on a newer interpreter. Check python --version first.
 # manga-ocr>=0.1        # Japanese manga speech bubbles
 
 # --- reader: segmentation, pinyin, furigana ---

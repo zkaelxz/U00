@@ -448,3 +448,16 @@ def test_non_index_dists_reads_direct_url(monkeypatch):
     monkeypatch.setattr(svc.importlib.metadata, "distributions",
                         lambda: [Dist("My_Lib", True), Dist("numpy", False)])
     assert svc._non_index_dists() == {"my-lib"}
+
+
+def test_put_back_leaves_a_plain_opencv_out_when_contrib_is_installed_now(monkeypatch):
+    from services import diagnostics_installs_service as inst
+    import pending_install
+    ran = []
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"opencv-contrib-python": "4.10.0.84"})
+    monkeypatch.setattr(inst.proc_run, "stream_tree", lambda *a, **k: ran.append(a) or iter(()))
+    restored, failed, _sk, _st, _added, left_out = inst._restore(
+        {"opencv-python": "4.10.0.84"}, set(), None)
+    assert ran == [] and left_out == ["opencv-python"] and failed == []
+    monkeypatch.setattr(inst, "_restore", lambda *a: ([], [], [], False, [], ["opencv-python"]))
+    assert "opencv-python was not put back" in inst._put_back("package", {}, set())

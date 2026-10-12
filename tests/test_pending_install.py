@@ -721,3 +721,129 @@ def test_a_failed_lock_write_does_not_keep_the_os_lock(data, monkeypatch):
     fd, busy = pi._try_hold(create=False)
     assert busy is False and fd is not None
     pi._close_held(fd)
+
+
+# --- the plain-OpenCV swap: one fixed `pip uninstall -y NAME`, then the install ---
+
+def _uninstall(name="opencv-python"):
+    return [sys.executable, "-m", "pip", "uninstall", "-y", name]
+
+
+def test_derive_adds_the_uninstall_step_for_a_plain_opencv(monkeypatch):
+    monkeypatch.setattr(pi, "snapshot", lambda: {"opencv-python-headless": "4.10.0.84"})
+    out = child.derive("paddleocr,paddlepaddle")
+    assert out["uninstall"] == [_uninstall("opencv-python-headless")]
+    assert pi._uninstall_steps_accepted(out["uninstall"]) and pi._argv_accepted(out["argv"])
+
+
+@pytest.mark.parametrize("installed", [{"opencv-python": "4.10", "opencv-contrib-python": "4.10"}, {}])
+def test_derive_adds_no_uninstall_step_otherwise(monkeypatch, installed):
+    monkeypatch.setattr(pi, "snapshot", lambda: installed)
+    assert child.derive("paddleocr")["uninstall"] == []
+
+
+def test_derive_adds_no_uninstall_step_for_a_key_that_needs_no_contrib(monkeypatch):
+    monkeypatch.setattr(pi, "snapshot", lambda: {"opencv-python": "4.10"})
+    assert child.derive("paddlepaddle")["uninstall"] == []
+
+
+def test_the_uninstall_allowlist_matches_the_registry():
+    import install_registry
+    assert pi._UNINSTALLABLE == install_registry.CV2_SWAP_UNINSTALLABLE
+
+
+def test_a_queued_plan_with_the_uninstall_step_runs_it_before_the_install(data, monkeypatch):
+    pi.write_pending(["paddleocr"], {})
+    derive = {"ok": True, "temp_files": [], "uninstall": [_uninstall()],
+              "argv": [sys.executable, "-m", "pip", "install", "paddleocr"]}
+    fake = Fake(monkeypatch, [{}], derive=derive)
+    assert pi.apply()["ran"] is True
+    assert [r[3] for r in fake.runs] == ["install", "uninstall", "install"]
+    assert "--dry-run" in fake.runs[0] and "--dry-run" not in fake.runs[2]
+    assert fake.runs[1][4:] == ["-y", "opencv-python"]
+    assert pi.read_result()["status"] == "ok"
+
+
+def test_a_failed_uninstall_never_reaches_the_install_and_restores(data, monkeypatch):
+    pi.write_pending(["paddleocr"], {})
+    derive = {"ok": True, "temp_files": [], "uninstall": [_uninstall()],
+              "argv": [sys.executable, "-m", "pip", "install", "paddleocr"]}
+    fake = Fake(monkeypatch, [{"opencv-python": "4.10"}, {}, {"opencv-python": "4.10"}],
+                rcs=(0, 1, 0), derive=derive)
+    pi.apply()
+    assert [r[3] for r in fake.runs] == ["install", "uninstall", "install"]
+    assert fake.runs[2][-1] == "opencv-python==4.10"          # the restore
+    assert pi.read_result()["status"] == "failed"
+
+
+@pytest.mark.parametrize("steps", [
+    [_uninstall("numpy")],
+    [_uninstall("opencv-contrib-python")],
+    [_uninstall("opencv-python") + ["--break-system-packages"]],
+    [_uninstall("opencv-python") + ["numpy"]],
+    [_uninstall("opencv-python"), _uninstall("opencv-python")],
+    [[sys.executable, "-m", "pip", "uninstall", "opencv-python"]],
+    [[sys.executable, "-m", "pip", "uninstall", "-y", "-r", "x.txt"]],
+    [["/bin/evil", "-m", "pip", "uninstall", "-y", "opencv-python"]],
+    [_uninstall("opencv-python"), "pip install x"],
+    "pip uninstall -y opencv-python",
+])
+def test_an_uninstall_step_outside_the_fixed_form_is_refused(data, monkeypatch, steps):
+    assert not pi._uninstall_steps_accepted(steps)
+    pi.write_pending(["paddleocr"], {})
+    derive = {"ok": True, "temp_files": [], "uninstall": steps,
+              "argv": [sys.executable, "-m", "pip", "install", "paddleocr"]}
+    fake = Fake(monkeypatch, [{}], derive=derive)
+    pi.apply()
+    assert fake.runs == [] and pi.read_result()["status"] == "refused"
+
+
+def test_uninstall_argv_refuses_any_other_name():
+    import install_registry
+    for bad in ("numpy", "opencv-contrib-python", "-r", "opencv-python numpy", ""):
+        with pytest.raises(ValueError):
+            install_registry.uninstall_argv(bad)
+
+
+def _swap_derive():
+    return {"ok": True, "temp_files": [], "uninstall": [_uninstall()],
+            "argv": [sys.executable, "-m", "pip", "install", "paddleocr"]}
+
+
+@pytest.mark.parametrize("rc", [1, "timeout"])
+def test_nothing_is_uninstalled_when_the_install_cannot_be_previewed(data, monkeypatch, rc):
+    pi.write_pending(["paddleocr"], {})
+    fake = Fake(monkeypatch, [{"opencv-python": "4.10"}], rcs=(rc,), derive=_swap_derive())
+    pi.apply()
+    assert len(fake.runs) == 1 and "--dry-run" in fake.runs[0]      # the uninstall never ran
+    result = pi.read_result()
+    assert result["status"] in ("failed", "timed_out") and "nothing was removed" in result["message"]
+
+
+def test_a_stop_after_contrib_landed_does_not_put_the_plain_opencv_back(data, monkeypatch):
+    pi.write_pending(["paddleocr"], {})
+    before = {"opencv-python": "4.10.0.84", "numpy": "2.5.3"}
+    now = {"opencv-contrib-python": "4.10.0.84", "numpy": "2.5.3"}     # uninstalled, contrib landed
+    fake = Fake(monkeypatch, [before, now], rcs=(0, 0, "timeout"), derive=_swap_derive())
+    pi.apply()
+    assert [r[3] for r in fake.runs] == ["install", "uninstall", "install"]   # no restore run
+    result = pi.read_result()
+    assert result["status"] == "timed_out" and result["restored"] == []
+    assert "opencv-python was not put back" in result["message"]
+
+
+def test_a_stop_before_contrib_landed_still_puts_the_plain_opencv_back(data, monkeypatch):
+    pi.write_pending(["paddleocr"], {})
+    before = {"opencv-python": "4.10.0.84"}
+    fake = Fake(monkeypatch, [before, {}, before], rcs=(0, 0, "timeout", 0), derive=_swap_derive())
+    pi.apply()
+    assert fake.runs[-1][-1] == "opencv-python==4.10.0.84"
+
+
+def test_without_clashing_cv2_keeps_other_packages_and_a_contrib_the_owner_had():
+    wanted = {"opencv-python": "4.10", "numpy": "2.5.3"}
+    assert pi.without_clashing_cv2(wanted, {"opencv-contrib-python": "4"}, {}) == (
+        {"numpy": "2.5.3"}, ["opencv-python"])
+    assert pi.without_clashing_cv2(wanted, {"opencv-contrib-python": "4"},
+                                   {"opencv-contrib-python": "3"}) == (wanted, [])
+    assert pi.without_clashing_cv2(wanted, {}, {}) == (wanted, [])

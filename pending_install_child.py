@@ -1,8 +1,8 @@
 """
 pending_install_child.py -- the two jobs pending_install.py hands to a
 short-lived child process, so the apply step itself never imports the app
-(see that module). `derive KEYS` prints the pip command re-derived from the
-registry; `redact PATH` cleans the text file at PATH for storage with diagnostics_report.redact_for_support.
+(see that module). `derive KEYS` prints the pip command (plus any plain-OpenCV
+uninstall steps that must run first) re-derived from the registry; `redact PATH` cleans the text file at PATH for storage with diagnostics_report.redact_for_support.
 """
 
 import json
@@ -17,7 +17,10 @@ def derive(arg: str) -> dict:
         return {"ok": False, "message": "The queued install was not run: "
                 + (reason or "nothing was listed") + " Nothing was changed."}
     pins_path = install_registry.write_torch_pins(keys)
+    import pending_install
+    swap = install_registry.cv2_swap_names(keys, pending_install.snapshot())
     return {"ok": True, "argv": install_registry.install_argv(keys, torch_pins_path=pins_path),
+            "uninstall": [install_registry.uninstall_argv(n) for n in swap],
             "temp_files": [pins_path] if pins_path else []}
 
 

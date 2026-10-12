@@ -63,8 +63,9 @@ def test_downgrading_something_the_app_does_not_need_is_listed_but_not_blocked()
 
 
 def test_a_second_opencv_flavour_is_refused_with_a_plain_message():
-    p = build(report(("paddleocr", "3.2.0"), ("opencv-contrib-python", "4.10.0.84")),
-              {"opencv-python": "4.9.0.80"}, windows=False)
+    # A key that is not on the contrib swap list: only paddleocr gets the swap.
+    p = build(report(("pytesseract", "0.3.13"), ("opencv-contrib-python", "4.10.0.84")),
+              {"opencv-python": "4.9.0.80"}, windows=False, keys=["pytesseract"])
     assert p["blocked"] and "two OpenCV packages" in p["blocked"][0]
     assert "opencv-contrib-python" in p["blocked"][0] and "opencv-python" in p["blocked"][0]
 
