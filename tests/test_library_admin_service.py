@@ -12,7 +12,8 @@ import background_jobs
 import db
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+                                     ServiceError)
 
 
 def _new(title="T", status="aligned", translated=False):
@@ -1437,14 +1438,15 @@ def test_bulk_delete_continues_when_the_language_pack_cleanup_fails(isolated_db,
 
 
 def _record_swap(monkeypatch, events, fail_verify=False):
-    """Records fsyncs (by file name) and renames in order, and the live
+    """Records fsyncs (by file identity) and renames in order, and the live
     library.db check after the swap, noting whether the previous library
     still sat beside it at that moment."""
     real_fsync, real_rename, real_check = os.fsync, os.rename, wjs._require_quick_check
     live = os.path.join(db.LIBRARY_DIR, "library.db")
 
     def fsync(fd):
-        events.append(("fsync", os.path.basename(os.readlink(f"/proc/self/fd/{fd}"))))
+        st = os.fstat(fd)
+        events.append(("fsync", (st.st_dev, st.st_ino)))
         real_fsync(fd)
 
     def rename(src, dst):
@@ -1462,7 +1464,6 @@ def _record_swap(monkeypatch, events, fail_verify=False):
     monkeypatch.setattr(wjs, "_require_quick_check", check)
 
 
-@pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="names fds through /proc")
 def test_restore_flushes_the_staged_databases_before_the_swap(isolated_db, monkeypatch):
     _new("A")
     src_store.track_series("site", "s1", "Tracked")
@@ -1472,13 +1473,15 @@ def test_restore_flushes_the_staged_databases_before_the_swap(isolated_db, monke
     _restore(data)
     first_rename = next(i for i, e in enumerate(events) if e[0] == "rename")
     flushed = {e[1] for e in events[:first_rename] if e[0] == "fsync"}
-    assert {"library.db", "sources.db"} <= flushed
+    # A rename keeps the file's identity, so the live files are the ones flushed.
+    for name in ("library.db", "sources.db"):
+        st = os.stat(os.path.join(db.LIBRARY_DIR, name))
+        assert (st.st_dev, st.st_ino) in flushed, name
     # The previous library is only removed once the swapped-in one checks out.
     assert ("verify", True) in events[first_rename:]
     assert not _leftovers()
 
 
-@pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="names fds through /proc")
 def test_a_restored_library_that_fails_its_check_is_rolled_back(isolated_db, monkeypatch):
     a = _new("Live")
     data = _backup_bytes()
@@ -1493,3 +1496,24 @@ def test_a_restored_library_that_fails_its_check_is_rolled_back(isolated_db, mon
     with open(os.path.join(db.LIBRARY_DIR, "notes.txt"), "rb") as f:
         assert f.read() == b"live file"
     assert not _leftovers()
+
+
+def test_a_restore_whose_rollback_fails_says_where_the_library_went(isolated_db, monkeypatch):
+    _new("Live")
+    data = _backup_bytes()
+    events = []
+    _record_swap(monkeypatch, events, fail_verify=True)
+    real_rename = os.rename
+
+    def rename(src, dst):
+        if ".pre_restore_" in os.path.basename(src):
+            raise OSError("in use")
+        real_rename(src, dst)
+    monkeypatch.setattr(os, "rename", rename)
+    with pytest.raises(ServiceError) as err:
+        _restore(data)
+    assert "left in place" not in err.value.message
+    assert "could not be put back" in err.value.message
+    assert db.LIBRARY_DIR not in err.value.message
+    [aside] = [n for n in _leftovers() if ".pre_restore_" in n]
+    assert os.path.isfile(os.path.join(os.path.dirname(db.LIBRARY_DIR), aside, "library.db"))

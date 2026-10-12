@@ -7,6 +7,7 @@ Python objects, `background_jobs` for progress/result reporting, and the
 database -- never any UI state.
 """
 
+import contextlib
 import logging
 import os
 import time
@@ -22,8 +23,8 @@ import emotion
 import core as core_module
 import whisper_models
 from core import transcribe_for_timing
-from services.library_restore_sql import (_open_carry_conn, _ro_uri, _schema_sql_allowed,
-                                          _table_names)
+from services.library_restore_sql import (_current_state_marker, _open_carry_conn, _ro_uri,
+                                          _schema_sql_allowed, _table_names)
 from services import (auth_service, fixflag_transcribe, fixflag_translate, job_timing_service,
                       language_pack_service, library_restore_sql, line_provenance_service,
                       run_settings_service, settings_service, timing_settings_service,
@@ -640,35 +641,6 @@ _RESTORE_SKIPPED_SIDECARS = tuple(f"{base}{ext}" for base in ("library.db", "sou
                                   for ext in ("-wal", "-shm", "-journal"))
 
 
-def _current_state_marker(library_dir: str):
-    """(max audit_log id, sources settings rows) of the live library,
-    compared right before the swap so a sign-in or settings change made
-    while the restore was preparing isn't silently dropped.
-
-    Known limits: a change landing between this last comparison and the
-    rename is still lost (a small window, no cross-process lock), and
-    only audited auth changes move the audit id -- a session created or
-    revoked without an audit entry, or a sources.db table other than
-    settings, isn't covered (sessions are revoked by the restore anyway)."""
-    import sqlite3
-    marker = []
-    for name, sql in (("library.db", "SELECT MAX(id) FROM audit_log"),
-                      ("sources.db", "SELECT key, value FROM settings ORDER BY key")):
-        path = os.path.join(library_dir, name)
-        if not os.path.isfile(path):
-            marker.append(None)
-            continue
-        try:
-            conn = sqlite3.connect(_ro_uri(path), uri=True)
-            try:
-                marker.append(tuple(tuple(r) for r in conn.execute(sql).fetchall()))
-            finally:
-                conn.close()
-        except sqlite3.Error:
-            marker.append(None)
-    return tuple(marker)
-
-
 BAD_LIBRARY_DB = ("The backup's library.db is not a readable Baihe library "
                    "database.")
 BAD_SOURCES_DB = "The backup's sources.db is not a readable database."
@@ -678,6 +650,10 @@ SOURCES_DB_NOT_CARRIED = ("The current sources.db could not be copied into the r
                           "series and source settings go with it) and try again.")
 RESTORED_DB_FAILED = ("The restored library.db failed a check once in place; your previous "
                       "library was put back unchanged.")
+RESTORE_NOT_PUT_BACK = ("The restore failed and the previous library could not be put back: it "
+                        "is in the folder ending in .pre_restore_ beside the library folder. "
+                        "Don't delete it; if a restart doesn't bring your library back, close "
+                        "Baihe and rename that folder to the library folder's name.")
 RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED, RESTORED_DB_FAILED)
 
 
@@ -899,17 +875,20 @@ def _require_quick_check(path: str, message: str) -> None:
 
 
 def _fsync_dir(path: str) -> None:
-    # Windows can't open a directory to flush it; NTFS journals renames.
-    if os.name == "nt":
-        return
+    with contextlib.suppress(OSError):   # durability only: the renames happen either way
+        db.fsync_dir(path)
+
+
+def _put_back(old_dir, library_dir: str, failed_dir: str = None) -> None:
+    from services.service_errors import ServiceError
     try:
-        fd = os.open(path, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    except OSError:
-        pass
+        if failed_dir:
+            os.rename(library_dir, failed_dir)
+        if old_dir:
+            os.rename(old_dir, library_dir)
+    except OSError as e:
+        logging.getLogger(__name__).exception("Restore: the previous library was not put back")
+        raise ServiceError(RESTORE_NOT_PUT_BACK) from e
 
 
 def _remove_entry(path: str):
@@ -1022,23 +1001,20 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
         _fsync_dir(staging_dir)
         old_dir = None
         if os.path.exists(library_dir):
-            old_dir = f"{library_dir}.pre_restore_{int(time.time())}"
+            old_dir = f"{library_dir}{db.PRE_RESTORE_MARKER}{int(time.time())}"
             os.rename(library_dir, old_dir)
         try:
             os.rename(staging_dir, library_dir)
         except Exception:
-            if old_dir is not None:
-                os.rename(old_dir, library_dir)
+            _put_back(old_dir, library_dir)
             raise
         failed_dir, staging_dir = staging_dir, None
         _fsync_dir(parent_dir)
         try:
             _require_quick_check(os.path.join(library_dir, "library.db"), RESTORED_DB_FAILED)
         except ValueError:
-            os.rename(library_dir, failed_dir)
+            _put_back(old_dir, library_dir, failed_dir)
             staging_dir = failed_dir
-            if old_dir is not None:
-                os.rename(old_dir, library_dir)
             raise
         if old_dir is not None:
             carried = True

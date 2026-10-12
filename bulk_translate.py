@@ -488,17 +488,26 @@ def _parse_strict(text: str, expected_ids: list) -> dict:
     return translate_engines.parse_id_keyed_json(stripped, expected_ids)
 
 
+def _save_flags(job: dict, current: list, counts: dict, guard=()) -> set:
+    """Compare-and-set flag save; the ids it left unwritten. A source-changed
+    flag that didn't land isn't counted."""
+    new = {ln.id for ln in current if ln.flag == "bulk_source_changed" != ln.orig["flag"]}
+    left = db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"),
+                         only_if_unchanged=True, guard_fields=guard)
+    counts["flagged_source_changed"] -= len(new & left)
+    return left
+
+
 def _save_applied_english(job: dict, current: list, counts: dict, label: str):
     did = job["drama_id"]
     if counts["applied"]:
         from services import reading_speed_dismissal_service as dismissals
         dismissals.flag_dense_lines(did, current)
     # Compare-and-set against the load: an edit saved since then is kept,
-    # and a flag is not computed from English the user has since replaced.
-    new_en = [ln for ln in current if ln.en != ln.orig["en"]]
-    kept = db.save_lines(did, new_en, fields=("en", "flag", "flag_note"), only_if_unchanged=True)
-    db.save_lines(did, [ln for ln in current if ln.en == ln.orig["en"]], fields=("flag", "flag_note"),
-                  only_if_unchanged=True, guard_fields=("en",))
+    # and nothing lands that was computed from text or timing changed since.
+    kept = db.save_lines(did, [ln for ln in current if ln.en != ln.orig["en"]], fields=("en",),
+                         only_if_unchanged=True, guard_fields=("zh",))
+    _save_flags(job, current, counts, ("zh", "en", "start", "end"))
     counts["applied"] -= len(kept)
     counts["kept_your_edit"] += len(kept)
     if counts["applied"]:
@@ -652,7 +661,7 @@ def _apply_reflect_faithful(job: dict, results) -> dict:
             counts["drafted"] += 1
 
     if changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"), only_if_unchanged=True)
+        _save_flags(job, current, counts)
     db.set_bulk_job_line_result_texts(job["id"], result_texts)
     return counts
 
@@ -747,7 +756,7 @@ def _apply_reflect_reflection(job: dict, results) -> dict:
             counts["critiqued" if critique else "no_critique_needed"] += 1
 
     if changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"), only_if_unchanged=True)
+        _save_flags(job, current, counts)
     db.set_bulk_job_line_result_texts(job["id"], result_texts)
     return counts
 
@@ -974,8 +983,8 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
             mine.add(lid)
 
     if counts["applied"] or counts["flagged_source_changed"]:
-        kept = mine & db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"),
-                                    only_if_unchanged=True)
+        # A review flag describes the English the model saw.
+        kept = mine & _save_flags(job, current, counts, ("zh", "en"))
         counts["applied"] -= len(kept)
         counts["kept_your_edit"] += len(kept)
     return counts
@@ -1088,7 +1097,7 @@ def apply_emotion_results(bulk_job_id: int, results) -> dict:
         id_by_idx = {cur_by_id[lid].idx: lid for lid in to_save}
         db.save_emotions(job["drama_id"], by_idx, id_by_idx=id_by_idx)
     if changed_flag:
-        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"), only_if_unchanged=True)
+        _save_flags(job, current, counts)
     return counts
 
 
@@ -1504,7 +1513,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            summary_engine=None, summary_engine_choice: str = None,
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float = None,
-                           enforce_ids=None, flags_needing_recheck: set = None) -> bool:
+                           flags_needing_recheck: set = None, *, enforce_ids) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
     returns, shared by Workspace's run_translate_job and `cli.py translate`
     so the two can't drift: applies
@@ -1540,8 +1549,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     -- its writes were no-ops, and a version or status would describe
     lines that no longer exist.
 
-    enforce_ids: when given, the run may write only its own lines'
-    English: the exact-term substitution touches only those line ids, and
+    enforce_ids: the run's own line ids, the only English it may write:
+    the exact-term substitution touches only those line ids, and
     only where the database still holds the English this run wrote. A
     line whose English differs (its write was skipped because it was
     edited mid-run, or it was edited since) is the user's: it gets no
@@ -1554,45 +1563,35 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # which the compare-and-set on this run's English would then refuse.
     source_change.save_cleared_flags(drama_id, lines)
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
-    landed = own_fresh = None
-    if enforce_ids is not None:
-        # One load only: the substitution's compare-and-set guards against
-        # edits after this read, so deciding which lines are still the run's
-        # from a second, earlier read would let an edit in between through.
-        run_en = {ln.id: (ln.en or "") for ln in lines if getattr(ln, "id", None) is not None}
-        fresh = db.load_line_objects(drama_id)
-        own_fresh = [ln for ln in fresh if ln.id in enforce_ids and ln.id in run_en
-                     and (ln.en or "") == run_en[ln.id]]
-        landed = {ln.id for ln in own_fresh}
-        # The version saved below must hold an edit the run kept, or restoring
-        # it later would bring this run's English back over the edit.
-        kept = {ln.id: ln.en for ln in fresh if ln.id not in landed}
-        for ln in lines:
-            ln.en = kept.get(ln.id, ln.en)
+    # One load only: the substitution's compare-and-set guards against
+    # edits after this read, so deciding which lines are still the run's
+    # from a second, earlier read would let an edit in between through.
+    run_en = {ln.id: (ln.en or "") for ln in lines if getattr(ln, "id", None) is not None}
+    fresh = db.load_line_objects(drama_id)
+    own_fresh = [ln for ln in fresh if ln.id in enforce_ids and ln.id in run_en
+                 and (ln.en or "") == run_en[ln.id]]
+    landed = {ln.id for ln in own_fresh}
+    # The version saved below must hold an edit the run kept, or restoring
+    # it later would bring this run's English back over the edit.
+    kept = {ln.id: ln.en for ln in fresh if ln.id not in landed}
+    for ln in lines:
+        ln.en = kept.get(ln.id, ln.en)
     if enforced:
-        # Substitute into a fresh DB read, not `lines`: the run's copies can
-        # be stale (the user may edit English while the job runs), and
-        # save_lines' orig-comparison then writes only what this changed.
-        _fresh_lines = db.load_line_objects(drama_id) if own_fresh is None else own_fresh
         substituted = {}
-        for ln in _fresh_lines:
+        for ln in own_fresh:
             if ln.en:
                 before = ln.en
                 ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
                 if ln.en != before:
                     substituted[ln.id] = (before, ln.en)
-        # Compare-and-set in own-lines mode: an edit saved since the load
-        # just above is kept too.
-        unwritten = db.save_lines(drama_id, _fresh_lines, fields=("en",),
-                                  only_if_unchanged=enforce_ids is not None)
-        for lid in unwritten or ():
+        # Compare-and-set: an edit saved since the load above is kept too.
+        for lid in db.save_lines(drama_id, own_fresh, fields=("en",), only_if_unchanged=True):
             substituted.pop(lid, None)
-        if landed is not None:
-            # The density check below reads the run's own copies: give them
-            # the substituted English that is now in the database.
-            for ln in lines:
-                if ln.id in substituted:
-                    ln.en = substituted[ln.id][1]
+        # The density check below reads the run's own copies: give them
+        # the substituted English that is now in the database.
+        for ln in lines:
+            if ln.id in substituted:
+                ln.en = substituted[ln.id][1]
         # The substitution is part of the machine translation: a line whose
         # provenance matched before still matches, so it isn't mistaken for
         # a hand-edited one.
@@ -1607,16 +1606,13 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # only ever exists on this run's in-memory copies.
     from services import reading_speed_dismissal_service as dismissals
     dismissals.flag_dense_lines(drama_id, lines)
-    if landed is None:
-        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
-    else:
-        # Compare-and-set on the analysed text too: an edit saved after the
-        # read above must not get a flag computed from this run's English.
-        stale = db.save_lines(drama_id, [ln for ln in lines if ln.id in landed],
-                              fields=("flag", "flag_note"), only_if_unchanged=True,
-                              guard_fields=("en", "start", "end"))
-        if flags_needing_recheck is not None:
-            flags_needing_recheck.update(stale or ())
+    # Compare-and-set on the analysed text too: an edit saved after the
+    # read above must not get a flag computed from this run's English.
+    stale = db.save_lines(drama_id, [ln for ln in lines if ln.id in landed],
+                          fields=("flag", "flag_note"), only_if_unchanged=True,
+                          guard_fields=("en", "start", "end"))
+    if flags_needing_recheck is not None:
+        flags_needing_recheck.update(stale)
 
     line_ids = [ln.id for ln in lines if getattr(ln, "id", None) is not None]
     if line_ids and not db.line_ids_exist(drama_id, line_ids):

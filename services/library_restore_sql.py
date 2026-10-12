@@ -46,3 +46,32 @@ def _schema_sql_allowed(sql: str) -> bool:
         return False
     # Generated columns: quick_check and the row copy would evaluate them.
     return "GENERATED" not in text and not re.search(r"\bAS ?\(", text)
+
+
+def _current_state_marker(library_dir: str):
+    """(max audit_log id, sources settings rows) of the live library,
+    compared right before the swap so a sign-in or settings change made
+    while the restore was preparing isn't silently dropped.
+
+    Known limits: a change landing between this last comparison and the
+    rename is still lost (a small window, no cross-process lock), and
+    only audited auth changes move the audit id -- a session created or
+    revoked without an audit entry, or a sources.db table other than
+    settings, isn't covered (sessions are revoked by the restore anyway)."""
+    import sqlite3
+    marker = []
+    for name, sql in (("library.db", "SELECT MAX(id) FROM audit_log"),
+                      ("sources.db", "SELECT key, value FROM settings ORDER BY key")):
+        path = os.path.join(library_dir, name)
+        if not os.path.isfile(path):
+            marker.append(None)
+            continue
+        try:
+            conn = sqlite3.connect(_ro_uri(path), uri=True)
+            try:
+                marker.append(tuple(tuple(r) for r in conn.execute(sql).fetchall()))
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            marker.append(None)
+    return tuple(marker)

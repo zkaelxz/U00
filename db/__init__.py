@@ -140,6 +140,7 @@ def _ensure_ready():
     global _db_ready
     if _db_ready:
         return
+    recover_interrupted_restore(LIBRARY_DIR)
     _db_ready = True
     os.makedirs(DRAMAS_DIR, exist_ok=True)
     try:
@@ -1940,16 +1941,8 @@ def _is_journalled_folder(final: str, entry: dict) -> bool:
     return ident is not None and _folder_identity(final) == ident
 
 
-def fsync_dir(path: str):
-    """Makes a rename into `path` durable; raises OSError. POSIX only:
-    Windows can't open a directory and commits the rename with the file."""
-    if os.name != "posix":
-        return
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+from db.library_folder import (  # noqa: E402,F401
+    PRE_RESTORE_MARKER, fsync_dir, recover_interrupted_restore)
 
 
 def _lock_file(path: str, create: bool):

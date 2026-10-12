@@ -987,7 +987,7 @@ class TestFinishTranslationRunGlossaryEnforcement:
 
     _term = {"term_translation": "Xiao Ming", "notes": "Xiaoming", "enforce_exact": True}
 
-    def test_substitution_is_applied_to_the_current_db_text_not_a_stale_job_copy(self, isolated_db):
+    def test_an_edit_saved_during_the_run_wins_over_the_stale_job_copy(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test", status="aligned",
                                        translation_engine="claude")
         isolated_db.save_lines(did, [
@@ -1003,12 +1003,13 @@ class TestFinishTranslationRunGlossaryEnforcement:
                                           id=job_lines[0].id)], fields=("en",))
 
         bt.finish_translation_run(did, job_lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=[self._term], errors=[])
+                                  glossary_terms=[self._term], errors=[],
+                                  enforce_ids={ln.id for ln in job_lines})
 
         saved = isolated_db.load_lines(did)[0]["en"]
-        # The user's edit survives, with the enforced term applied to IT --
-        # not the job's stale snapshot silently winning instead.
-        assert saved == "Xiao Ming actually left already"
+        # The user's edit survives as typed: the line is the user's now, so
+        # the run's term substitution leaves it alone too.
+        assert saved == "Xiaoming actually left already"
 
     def test_a_line_the_substitution_does_not_change_is_left_alone(self, isolated_db):
         """No enforce_exact term matches this line -- its `en` must not be
@@ -1022,7 +1023,8 @@ class TestFinishTranslationRunGlossaryEnforcement:
         job_lines = isolated_db.load_line_objects(did)
 
         bt.finish_translation_run(did, job_lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=[self._term], errors=[])
+                                  glossary_terms=[self._term], errors=[],
+                                  enforce_ids={ln.id for ln in job_lines})
 
         assert isolated_db.load_lines(did)[0]["en"] == "Nothing to enforce here"
 
@@ -1070,7 +1072,7 @@ class TestFinishTranslationRunEpisodeSummary:
         engine = _FakeSummaryEngine()
 
         bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=None, errors=[], summary_engine=engine)
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine)
 
         assert engine.call_count == 1
         assert isolated_db.get_drama(did)["episode_summary"] == "Auto-generated summary."
@@ -1083,7 +1085,7 @@ class TestFinishTranslationRunEpisodeSummary:
         engine = _FakeSummaryEngine()
 
         bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=None, errors=[], summary_engine=engine,
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine,
                                   summary_engine_choice="claude", summary_monthly_cap_usd=5.0)
 
         assert engine.call_count == 0
@@ -1095,7 +1097,7 @@ class TestFinishTranslationRunEpisodeSummary:
         engine = _FakeSummaryEngine()
 
         bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=None, errors=[], summary_engine=engine,
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine,
                                   summary_engine_choice="claude", summary_monthly_cap_usd=5.0)
 
         assert engine.call_count == 1
@@ -1106,7 +1108,7 @@ class TestFinishTranslationRunEpisodeSummary:
         engine = _FakeSummaryEngine()
 
         bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=None, errors=[], summary_engine=engine,
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine,
                                   summary_engine_choice="ollama", summary_monthly_cap_usd=5.0)
 
         assert engine.call_count == 1
@@ -1118,7 +1120,7 @@ class TestFinishTranslationRunEpisodeSummary:
 
         assert bt.finish_translation_run(
             did, lines, NS(model="fake"), "claude", "audio_drama",
-            glossary_terms=None, errors=[]) is True
+            glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}) is True
         assert isolated_db.get_drama(did)["episode_summary"] is None
 
     def test_not_generated_for_a_cancelled_run(self, isolated_db):
@@ -1126,7 +1128,7 @@ class TestFinishTranslationRunEpisodeSummary:
         engine = _FakeSummaryEngine()
 
         bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=None, errors=[], cancelled=True,
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, cancelled=True,
                                   summary_engine=engine)
 
         assert engine.call_count == 0
@@ -1146,7 +1148,7 @@ class TestFinishTranslationRunEpisodeSummary:
         engine = _FakeSummaryEngine()
 
         bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=None, errors=[], summary_engine=engine)
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine)
 
         assert engine.call_count == 0
         assert isolated_db.get_drama(did)["episode_summary"] is None
@@ -1162,7 +1164,7 @@ class TestFinishTranslationRunEpisodeSummary:
         engine = _FakeSummaryEngine()
 
         bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=None, errors=[], summary_engine=engine)
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine)
 
         assert engine.call_count == 1
 
@@ -1175,7 +1177,7 @@ class TestFinishTranslationRunEpisodeSummary:
         engine = _FakeSummaryEngine(summary_text="not valid json")
 
         bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
-                                  glossary_terms=None, errors=[], summary_engine=engine)
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine)
 
         assert isolated_db.get_drama(did)["episode_summary"] == "Earlier good summary."
 
@@ -1926,7 +1928,8 @@ class TestApplyKeepsEditsSavedDuringTheApply:
     flags dense lines) is kept, and the saved version holds it."""
 
     @staticmethod
-    def _edit_after_load(monkeypatch, isolated_db, did, edit):
+    def _edit_after_load(monkeypatch, isolated_db, did, edit,
+                         fields=("en", "flag", "flag_note")):
         real_load, done = isolated_db.load_line_objects, []
 
         def load(drama_id, *a, **kw):
@@ -1935,19 +1938,24 @@ class TestApplyKeepsEditsSavedDuringTheApply:
                 done.append(True)
                 fresh = real_load(did)
                 edit(fresh)
-                isolated_db.save_lines(did, fresh, fields=("en", "flag", "flag_note"))
+                isolated_db.save_lines(did, fresh, fields=fields)
             return loaded
         monkeypatch.setattr(bt.db, "load_line_objects", load)
 
-    def _apply_translation(self, monkeypatch, isolated_db, edit):
+    def _apply_translation(self, monkeypatch, isolated_db, edit, prepare=None,
+                           answer=lambda zh: f"EN[{zh}]", **kw):
         engine = _claude_engine()
         did = _drama(isolated_db, n=3)
         ids = [r["id"] for r in isolated_db.load_lines(did)]
+        if prepare:
+            lines = isolated_db.load_line_objects(did)
+            prepare(lines)
+            isolated_db.save_lines(did, lines)
         bulk_id = _submit(isolated_db, did, engine)
         batches = engine.client.messages.batches
-        _answer_every_request(batches)
+        _answer_every_request(batches, answer)
         batches.status = "ended"
-        self._edit_after_load(monkeypatch, isolated_db, did, edit)
+        self._edit_after_load(monkeypatch, isolated_db, did, edit, **kw)
         bt.check_once(bulk_id, bp.make_provider("claude", engine))
         [active] = [v for v in isolated_db.list_translation_versions(did) if v["is_active"]]
         version = {ln["id"]: ln["en"] for ln in isolated_db.get_translation_version(active["id"])["lines"]}
@@ -2002,3 +2010,88 @@ class TestApplyKeepsEditsSavedDuringTheApply:
         assert final[ids[0]] == ("slang_idiom", "mine")
         assert final[ids[1]] == ("uncertain_translation", "auto")
         assert summary["kept_your_edit"] == 1 and summary["applied"] == 1
+
+    def test_a_flag_change_alone_does_not_drop_the_new_english(self, monkeypatch, isolated_db):
+        def prepare(lines):
+            lines[1].flag, lines[1].flag_note = "source_changed", "old source"
+
+        def edit(fresh):
+            fresh[1].flag, fresh[1].flag_note = "slang_idiom", "mine"
+        ids, rows, _version, summary = self._apply_translation(
+            monkeypatch, isolated_db, edit, prepare=prepare)
+        assert rows[ids[1]] == "EN[第1句]"
+        row = next(r for r in isolated_db.load_lines(_drama_of(isolated_db, ids[1]))
+                   if r["id"] == ids[1])
+        assert (row["flag"], row["flag_note"]) == ("slang_idiom", "mine")
+        assert summary["applied"] == 3 and summary["kept_your_edit"] == 0
+
+    def test_english_for_a_source_changed_during_the_apply_is_not_written(
+            self, monkeypatch, isolated_db):
+        def edit(fresh):
+            fresh[1].zh = "改过的句子"
+        ids, rows, version, summary = self._apply_translation(
+            monkeypatch, isolated_db, edit, fields=("zh",))
+        assert rows[ids[1]] == "" and version[ids[1]] == ""
+        assert rows[ids[0]] == "EN[第0句]" and summary["applied"] == 2
+
+    def test_no_density_flag_from_timing_changed_during_the_apply(self, monkeypatch, isolated_db):
+        long_en = "A long English line nobody could read in a second and a half"
+
+        def prepare(lines):
+            lines[0].end = lines[0].start + 1.5
+
+        def edit(fresh):
+            fresh[0].end = fresh[0].start + 30
+        ids, rows, _version, _summary = self._apply_translation(
+            monkeypatch, isolated_db, edit, prepare=prepare, answer=lambda zh: long_en,
+            fields=("start", "end"))
+        row = next(r for r in isolated_db.load_lines(_drama_of(isolated_db, ids[0]))
+                   if r["id"] == ids[0])
+        assert rows[ids[0]] == long_en and row["flag"] is None
+
+    def test_a_review_flag_is_not_written_onto_english_replaced_meanwhile(
+            self, monkeypatch, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+        jid = bt.submit_bulk_flag(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+
+        def edit(fresh):
+            fresh[0].en = "Rewritten by hand"
+        self._edit_after_load(monkeypatch, isolated_db, did, edit)
+        payload = [{"line_idx": i, "reason": "uncertain_translation", "note": "auto"} for i in ids]
+        summary = bt.apply_flag_results(jid, [(key, json.dumps(payload), {}, None)])
+        final = {r["id"]: r["flag"] for r in isolated_db.load_lines(did)}
+        assert final == {ids[0]: None, ids[1]: "uncertain_translation"}
+        assert summary["applied"] == 1 and summary["kept_your_edit"] == 1
+
+    def test_a_source_changed_flag_that_did_not_land_is_not_counted(self, monkeypatch, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        jid = bt.submit_bulk_flag(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        lines = isolated_db.load_line_objects(did)
+        lines[0].zh = "changed text"
+        isolated_db.save_lines(did, lines, fields=("zh",))
+
+        def edit(fresh):
+            fresh[0].flag, fresh[0].flag_note = "slang_idiom", "mine"
+        self._edit_after_load(monkeypatch, isolated_db, did, edit)
+        summary = bt.apply_flag_results(jid, [(key, "[]", {}, None)])
+        assert isolated_db.load_lines(did)[0]["flag"] == "slang_idiom"
+        assert summary["flagged_source_changed"] == 0
+
+
+def _drama_of(isolated_db, line_id):
+    return next(d["id"] for d in isolated_db.list_dramas()
+                if any(r["id"] == line_id for r in isolated_db.load_lines(d["id"])))
+
+
+def test_finish_translation_run_requires_the_runs_own_line_ids(isolated_db):
+    did = _drama(isolated_db, n=1)
+    with pytest.raises(TypeError):
+        bt.finish_translation_run(did, isolated_db.load_line_objects(did), NS(model="m"),
+                                  "claude", "", [], [])

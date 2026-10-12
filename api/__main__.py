@@ -32,10 +32,10 @@ from dataclasses import replace
 def _serve():
     import uvicorn
     import db
-    from lib.errors import NewerDatabaseError
+    from lib.errors import NewerDatabaseError, UnfinishedRestoreError
     try:
         db.init_db()
-    except NewerDatabaseError as e:
+    except (NewerDatabaseError, UnfinishedRestoreError) as e:
         # One readable line instead of a traceback; also in the log.
         try:
             import applog
