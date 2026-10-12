@@ -2,6 +2,11 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 import { withExportLines } from './stageLineMocks'
 import { suggestFrom } from './suggestTerms'
 
+// The Glossary section starts folded the first time; these tests need its body.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '1'))
+})
+
 // Glossary > Suggest terms bar and the empty-state card. Drama reads hit the
 // real seeded API (drama 1, reported as in series 7); terms, novel status and
 // the extraction runs are mocked, so no engine is ever called.

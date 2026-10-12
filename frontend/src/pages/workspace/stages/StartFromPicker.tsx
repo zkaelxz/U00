@@ -5,7 +5,6 @@ import { applyTranslatePreset, applyWorkflowTier } from '../../../api/translateS
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
-import { buttonClass } from '../../../components/uiClasses'
 import { NOTHING_STARTS_HELP } from '../../../helpText'
 import type { LibraryPreset } from '../../../types/library'
 import type {
@@ -65,19 +64,18 @@ export async function applyStart(dramaId: number, value: string): Promise<StartA
   return { kind: 'preset', preset }
 }
 
-export function StartFromPicker({ config, initialTier, onTierChange, onTierApplied, onPresetApplied }: {
+// The Style select doubles as the way to start from a tier or a saved preset:
+// choosing one of those applies it at once (it never starts a run) and the
+// select keeps showing the form's style, which the applied values may have changed.
+export function StyleField({ config, style, onStyleChange, onTierApplied, onPresetApplied }: {
   config: TranslateRunConfig
-  initialTier: string | null
-  onTierChange: (tier: string) => void
+  style: string
+  onStyleChange: (key: string) => void
   onTierApplied: (t: WorkflowTierApplied) => void
   onPresetApplied: (p: TranslatePresetApplied) => void
 }) {
   const { dramaId } = useStage()
   const [presets, setPresets] = useState<LibraryPreset[] | null>(null)
-  const tiers = config.workflow_tiers ?? []
-  const [picked, setPicked] = useState(() =>
-    initialTier && tiers.some((t) => t.key === initialTier) ? `tier:${initialTier}`
-      : tiers.some((t) => t.key === 'standard') ? 'tier:standard' : tiers[0] ? `tier:${tiers[0].key}` : '')
   const [applied, setApplied] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState(false)
@@ -92,10 +90,9 @@ export function StartFromPicker({ config, initialTier, onTierChange, onTierAppli
     }
   }, [])
   const groups = startOptions(config.workflow_tiers, presets)
-  if (!groups.tiers.length && !groups.presets.length) return null
-  const apply = () => {
+  const apply = (value: string) => {
     setPending(true)
-    applyStart(dramaId, picked)
+    applyStart(dramaId, value)
       .then(
         (r) => {
           if (!r) return
@@ -113,33 +110,38 @@ export function StartFromPicker({ config, initialTier, onTierChange, onTierAppli
       .finally(() => setPending(false))
   }
   return (
-    <div className="check-row translate-tier">
-      <Field label="Start from…" help={`Fills in engine, model and the other settings together, and stays editable. Starting tiers: Draft is DeepSeek; Standard is Claude Sonnet; Release is Claude Opus with Reflect and Auto QC. My presets are the ones saved in the Library. ${NOTHING_STARTS_HELP}`}>
+    <>
+      <Field label="Style" help={`Style preset: what the translator is asked to sound like. The tiers and your saved presets in the same list fill in engine, model and the other settings together and stay editable. Starting tiers: Draft is DeepSeek; Standard is Claude Sonnet; Release is Claude Opus with Reflect and Auto QC. My presets are the ones saved in the Library. ${NOTHING_STARTS_HELP}`}>
         <select
-          value={picked}
+          value={style}
+          disabled={pending}
           onChange={(e) => {
-            setPicked(e.target.value)
             setApplied(null)
-            const p = parseStartValue(e.target.value)
-            if (p?.kind === 'tier') onTierChange(p.key)
+            if (parseStartValue(e.target.value)) apply(e.target.value)
+            else onStyleChange(e.target.value)
           }}
         >
-          {!picked && <option value="">Choose…</option>}
+          <optgroup label="Styles">
+            {config.style_presets.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </optgroup>
           {groups.tiers.length > 0 && (
-            <optgroup label="Starting tiers">
+            <optgroup label="Start from a tier">
               {groups.tiers.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </optgroup>
           )}
           {groups.presets.length > 0 && (
-            <optgroup label="My presets">
+            <optgroup label="Start from my preset">
               {groups.presets.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </optgroup>
           )}
         </select>
       </Field>
-      <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending || !picked} onClick={apply}>Apply</button>
-      {applied && <span className="muted" role="status">{applied}</span>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </div>
+      {(applied || error != null) && (
+        <div className="translate-basics-wide">
+          {applied && <span className="muted" role="status">{applied}</span>}
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        </div>
+      )}
+    </>
   )
 }

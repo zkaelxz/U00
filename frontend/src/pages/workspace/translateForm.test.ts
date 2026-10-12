@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TranslatePresetApplied, TranslateRunConfig, WorkflowTierApplied } from '../../types/translateStage'
 import {
+  batchOverride,
+  batchSizeRange,
+  contextRange,
   applyPresetToForm,
   applyTierToForm,
   buildEstimateParams,
@@ -512,8 +515,8 @@ describe('remembered run options', () => {
     bulk_supported_engines: ['claude'],
     engines: [{ name: 'deepseek', models: ['d1'] }, { name: 'claude', models: ['c1', 'c2'] }],
   } as unknown as TranslateRunConfig
-  const save = (id: number, patch: object, extra: object = {}) => {
-    const out = runOptionsDraft({ form: { ...initialForm(cfg), ...patch }, baseEngine: 'deepseek', reviewFirst: false, tier: '', ...extra })
+  const save = (id: number, patch: object, extra: object = {}, engineDefault?: number) => {
+    const out = runOptionsDraft({ form: { ...initialForm(cfg), ...patch }, baseEngine: 'deepseek', reviewFirst: false, ...extra }, engineDefault)
     drafts[id] = JSON.parse(JSON.stringify(out)) as Record<string, unknown>
   }
   const restore = (id: number, c = cfg) => restoreRunOptions(drafts[id] ?? null, initialForm(c), c)
@@ -522,18 +525,17 @@ describe('remembered run options', () => {
     drafts = {}
   })
 
-  it('saves and restores the choices, including the glossary toggle and tier', () => {
+  it('saves and restores the choices, including the glossary toggle', () => {
     save(1, {
       engine: 'claude', model: 'c2', style_preset: 'wuxia', locale: 'en-GB', style_note: 'keep puns',
       batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5', thinking: true,
-    }, { reviewFirst: true, tier: 'release' })
+    }, { reviewFirst: true })
     const r = restore(1)
     expect(r.form).toMatchObject({
       engine: 'claude', model: 'c2', style_preset: 'wuxia', locale: 'en-GB', style_note: 'keep puns',
       batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5', thinking: true,
     })
     expect(r.reviewFirst).toBe(true)
-    expect(r.tier).toBe('release')
   })
 
   it('never restores a pending re-translate or stores anything but plain choices', () => {
@@ -552,6 +554,30 @@ describe('remembered run options', () => {
     expect(restore(2).form).toMatchObject({ engine: 'claude', model: '', fallbacks: [] })
     save(3, { reflect: true, bulk: true, engine: 'claude' })
     expect(restore(3).form).toMatchObject({ reflect: true, bulk: false })
+  })
+
+  it('keeps a batch size the person typed that differs from the default', () => {
+    save(1, { engine: 'claude', batch_size: '30' })
+    expect(restore(1).form.batch_size).toBe('30')
+  })
+
+  it('drops a batch size saved by an older version that was the default then', () => {
+    save(1, { engine: 'claude', batch_size: '30' })
+    const old = { ...drafts[1] } as Record<string, unknown>
+    delete old.v
+    drafts[1] = old
+    expect(restore(1).form.batch_size).toBe('')
+  })
+
+  it('stores a batch size typed equal to the engine default as blank', () => {
+    save(1, { engine: 'claude', batch_size: '60' }, {}, 60)
+    expect((drafts[1].form as Record<string, unknown>).batch_size).toBe('')
+    expect(restore(1).form.batch_size).toBe('')
+  })
+
+  it('drops a restored batch size that equals the default today', () => {
+    save(1, { engine: 'claude', batch_size: '60' })
+    expect(restore(1).form.batch_size).toBe('')
   })
 
   it('clamps numbers to the field range', () => {
@@ -575,8 +601,30 @@ describe('remembered run options', () => {
 
   it('ignores a draft without a form or with the wrong shapes', () => {
     expect(restoreRunOptions(null, initialForm(cfg), cfg).form).toEqual(initialForm(cfg))
-    expect(restoreRunOptions({ reviewFirst: true }, initialForm(cfg), cfg)).toEqual({ form: initialForm(cfg), reviewFirst: false, tier: null })
-    expect(restoreRunOptions({ form: 'nope', tier: 3, reviewFirst: 'yes' }, initialForm(cfg), cfg)).toEqual({ form: initialForm(cfg), reviewFirst: false, tier: null })
+    expect(restoreRunOptions({ reviewFirst: true }, initialForm(cfg), cfg)).toEqual({ form: initialForm(cfg), reviewFirst: false })
+    expect(restoreRunOptions({ form: 'nope', reviewFirst: 'yes' }, initialForm(cfg), cfg)).toEqual({ form: initialForm(cfg), reviewFirst: false })
+  })
+})
+
+describe('batch size override', () => {
+  const f = initialForm(config)
+  it('is null while blank or equal to the engine default', () => {
+    expect(batchOverride(config, f)).toBeNull()
+    expect(batchOverride(config, { ...f, batch_size: '60' })).toBeNull()
+  })
+  it('names the typed value and the engine default', () => {
+    expect(batchOverride(config, { ...f, batch_size: ' 30 ' })).toEqual({ value: '30', engineDefault: 60 })
+  })
+  it('follows the chosen model\'s default', () => {
+    expect(batchOverride(config, { ...f, model: 'claude-haiku-4-5-20251001', batch_size: '30' })).toBeNull()
+  })
+})
+
+describe('range hints', () => {
+  it('reads the limits from the constants', () => {
+    expect(batchSizeRange()).toBe('1-60 lines')
+    expect(contextRange()).toBe('0-100 lines')
+    expect(validateRun({ ...initialForm(config), batch_size: '61' }, 'claude')).toBe('Batch size must be a whole number, 1-60 lines.')
   })
 })
 

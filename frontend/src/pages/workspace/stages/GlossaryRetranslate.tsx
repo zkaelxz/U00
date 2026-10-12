@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { getGlossaryAffected, startGlossaryAffectedRun } from '../../../api/translateStage'
@@ -25,16 +25,17 @@ function isStalePreview(e: unknown): boolean {
 
 // After glossary edits: re-translate only the lines the glossary affects, with
 // the Translate form's settings. Hand-edited lines stay unticked (and locked)
-// unless the person includes them. Closing the list changes nothing.
-export function GlossaryRetranslate({ f, busy, onStarted }: { f: RunForm; busy: boolean; onStarted: (jobId: string) => void }) {
+// unless the person includes them. Closing the list changes nothing. The
+// Translate stage mounts it from its action row's button and unmounts it on
+// `onClose`; the list loads when it appears.
+export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunForm; busy: boolean; onStarted: (jobId: string) => void; onClose: () => void }) {
   const { dramaId } = useStage()
   const ids = useId()
-  const [open, setOpen] = useState(false)
   const [termIds, setTermIds] = useState<number[]>([])
   const [preview, setPreview] = useState<GlossaryAffectedPreview | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [includeHand, setIncludeHand] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(false)
   const [stale, setStale] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -57,30 +58,31 @@ export function GlossaryRetranslate({ f, busy, onStarted }: { f: RunForm; busy: 
     ).finally(() => setLoading(false))
   }
 
-  const close = () => {
-    setOpen(false)
-    setPreview(null)
-    setStale(false)
-    setError(null)
-    setProblem(null)
-  }
+  // The first list loads on mount; `load` itself marks the reloads as loading.
+  useEffect(() => {
+    const params = affectedParams(f, [])
+    if (!params) {
+      setProblem('Cost cap must be a number of dollars, 0 or more.')
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    getGlossaryAffected(dramaId, params).then(
+      (p) => {
+        if (cancelled) return
+        setPreview(p)
+        setSelected(defaultSelection(p.lines))
+      },
+      (e: unknown) => !cancelled && setError(e),
+    ).finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
+    // Once per opening: later edits to the form don't reload a list the person is reading.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  if (!open) {
-    return (
-      <div className="check-row">
-        <button
-          type="button"
-          className={`${buttonClass('secondary')} glossary-retranslate-open`}
-          onClick={() => {
-            setOpen(true)
-            load(termIds)
-          }}
-        >
-          Re-translate lines affected by the glossary…
-        </button>
-      </div>
-    )
-  }
+  const close = onClose
 
   const chosen = preview ? chosenIds(preview.lines, selected, includeHand) : []
   const est = preview ? selectionEstimate(preview, chosen, includeHand) : null
