@@ -516,7 +516,7 @@ class TestCmdTranslateRetryAndWorkspaceParity:
     """Step 25c item 4: the CLI marked a drama "translated" even after a
     batch failure or a cost-cap stop, so its own suggested re-run (default
     --status aligned) skipped it; and it skipped the post-translate steps
-    Workspace does. Both now run bulk_translate.finish_translation_run."""
+    Workspace does. Both now run translation_finish.finish_translation_run."""
 
     class _Engine(TestCmdTranslateSpendingCaps._Engine):
         def translate_batch(self, zh_lines, context):
@@ -1708,10 +1708,10 @@ class TestCliServiceParity:
     def test_translate_passes_the_monthly_cap_for_the_summary_engine(self, isolated_db, monkeypatch):
         """Security review (PR #439): a paid episode-summary call is checked
         against the monthly cap (--monthly-cap, else Settings)."""
-        import bulk_translate
+        import translation_finish
         seen_caps = []
-        real_finish = bulk_translate.finish_translation_run
-        monkeypatch.setattr(bulk_translate, "finish_translation_run",
+        real_finish = translation_finish.finish_translation_run
+        monkeypatch.setattr(translation_finish, "finish_translation_run",
                             lambda *a, **k: seen_caps.append(k.get("summary_monthly_cap_usd"))
                             or real_finish(*a, **k))
         self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
