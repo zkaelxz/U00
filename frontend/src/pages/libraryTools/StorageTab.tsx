@@ -31,7 +31,7 @@ export function StorageTab({ pc, usage }: { pc: PcMode; usage: DiskUsage }) {
         </TabCard>
       )}
       <TabCard card="temp"><TempCleanup onCleaned={() => rescan(true)} /></TabCard>
-      <PreviousLibraryCard onChanged={changed} />
+      {pc === 'local' && <PreviousLibraryCard onChanged={changed} />}
     </>
   )
 }
