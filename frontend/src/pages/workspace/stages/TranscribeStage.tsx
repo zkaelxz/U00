@@ -52,6 +52,7 @@ import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { useNovelFilesVersion } from './novelFileEvents'
+import { SpeakerDetectionNotice } from './SpeakerDetectionNotice'
 import { SpeechCoverage } from './SpeechCoverage'
 import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId, needsReplaceConfirm } from './stageBlockers'
@@ -633,6 +634,7 @@ export default function TranscribeStage({
           <Toggle checked={runDiarize} onChange={setRunDiarize} />
         </Field>
       </div>
+      <SpeakerDetectionNotice dramaId={dramaId} active={runDiarize} />
       {notInstalled && (
         <div id="transcribe-not-installed">
           <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
@@ -746,6 +748,7 @@ export default function TranscribeStage({
               hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
             )}
           </div>
+          <SpeakerDetectionNotice dramaId={dramaId} active />
           <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
           <div className="source-grid">
             {select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'],
