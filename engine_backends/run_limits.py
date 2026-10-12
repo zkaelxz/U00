@@ -7,8 +7,8 @@ CONSECUTIVE_FAILURE_LIMIT = 3
 # A fully rate-limited batch waits about a minute, so this ends a run after
 # roughly ten of them instead of hours.
 RATE_LIMIT_WAIT_BUDGET_SECONDS = 600.0
-RATE_LIMIT_STOP_MESSAGE = ("Stopped: the provider keeps rate-limiting you; try later or switch engine. "
-                           "Lines already translated are kept.")
+RATE_LIMIT_STOP_REASON = "Stopped: the provider keeps rate-limiting you; try later or switch engine"
+RATE_LIMIT_STOP_MESSAGE = f"{RATE_LIMIT_STOP_REASON}. Lines already translated are kept."
 
 
 class TranslateRunStopped(RuntimeError):

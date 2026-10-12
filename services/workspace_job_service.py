@@ -16,15 +16,19 @@ import background_jobs
 import ollama_unload
 import translate_engines
 import translation_guide as tguide
+from engine_backends.run_limits import FailureStreak
 import bulk_translate
 import emotion
 import core as core_module
 import whisper_models
 from core import transcribe_for_timing
 from services import (fixflag_transcribe, fixflag_translate, job_timing_service,
-                      language_pack_service, line_provenance_service,
+                      language_pack_service, line_provenance_service, paid_job_service,
                       run_settings_service, settings_service, timing_settings_service,
                       vdb_names_service)
+
+
+CONSISTENCY_BATCH_SIZE = 60
 
 
 def _id_by_idx(lines):
@@ -401,17 +405,18 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
     translation itself, and losing its result to a page refresh (session
     state doesn't survive one) meant re-running it and re-paying for it.
     """
-    emap = emotion.detect_emotions(
-        lines, engine, use_audio_cues=use_audio_cues,
-        progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice, "emotion_detect") as limits:
+        emap = emotion.detect_emotions(
+            lines, engine, use_audio_cues=use_audio_cues,
+            progress_cb=lambda frac: background_jobs.update_progress(
+                job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
-    background_jobs.set_result(job_id, {"emotions": emap})
+    background_jobs.set_result(job_id, {"emotions": emap, **paid_job_service.stop_fields(limits)})
 
 
 def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
@@ -453,14 +458,15 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
     """
     started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
     stats = {}
-    translate_engines.flag_uncertain_lines(
-        lines, engine, source_language=lang, stats=stats,
-        progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice, "flag_review") as limits:
+        translate_engines.flag_uncertain_lines(
+            lines, engine, source_language=lang, stats=stats,
+            progress_cb=lambda frac: background_jobs.update_progress(
+                job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     items = []
     for ln in lines:
@@ -476,7 +482,8 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
     saved = {r["id"]: bool(r["flag"]) for r in db.load_lines(drama_id)}
     flagged = sum(saved.get(ln.id, False) if ln.id is not None else bool(ln.flag)
                   for ln in lines)
-    background_jobs.set_result(job_id, {"flagged_count": flagged, **stats})
+    background_jobs.set_result(job_id, {"flagged_count": flagged, **stats,
+                                        **paid_job_service.stop_fields(limits)})
 
 
 def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
@@ -485,18 +492,29 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=Non
     same as Review queue and Emotion detection, is what lets it run at the same time as those instead of forcing them
     to queue up one after another.
     """
-    issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
-        lines, engine, source_language=lang,
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
+                                    "consistency_check") as limits:
+        issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
+            lines, engine, batch_size=CONSISTENCY_BATCH_SIZE, source_language=lang,
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
-    db.save_consistency_issues(drama_id, issues)
+    if limits.stop_reason:
+        # Batches never sent count as failed, and a partial result must not
+        # replace (or wipe) the issues an earlier run saved.
+        wanted = -(-sum(1 for ln in lines if ln.en.strip()) // CONSISTENCY_BATCH_SIZE)
+        # (the batch it stopped at was counted but never sent)
+        failed_batches = wanted - (total_batches - failed_batches - 1)
+        total_batches = wanted
+    if issues or not limits.stop_reason:
+        db.save_consistency_issues(drama_id, issues)
     background_jobs.set_result(job_id, {
         "issue_count": len(issues),
         "failed_batches": failed_batches,
         "total_batches": total_batches,
+        **paid_job_service.stop_fields(limits),
     })
 
 
@@ -505,16 +523,19 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
     Runs generate_translation_notes_llm in a background thread -- same
     reasoning as run_consistency_job above.
     """
-    found_notes = tguide.generate_translation_notes_llm(
-        lines, engine,
-        usage_cb=lambda inp, out: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        cancel_check=lambda: _raise_if_cancelled(job_id))
+    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
+                                    "translation_notes") as limits:
+        found_notes = tguide.generate_translation_notes_llm(
+            lines, engine,
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     if found_notes:
         db.save_translation_notes(drama_id, found_notes, id_by_idx=_id_by_idx(lines))
-    background_jobs.set_result(job_id, {"note_count": len(found_notes)})
+    background_jobs.set_result(job_id, {"note_count": len(found_notes),
+                                        **paid_job_service.stop_fields(limits)})
 
 
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
@@ -573,14 +594,16 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     if cancelled or hearing_error:
         flagged = [ln for ln in flagged if ln.idx in heard_by_idx]
     try:
-        outcome = fixflag_translate.fix_lines(
-            flagged, engine=engine, engine_choice=engine_choice, drama_id=drama_id,
-            base_context=base_context, character_names=character_names,
-            source_language=source_language, heard_by_idx=heard_by_idx,
-            translate=not cancelled, cost_cap_usd=cost_cap_usd, errors=errors, all_lines=lines,
-            check_cancel=lambda: None if cancelled else _raise_if_cancelled(job_id),
-            on_progress=lambda done, total: background_jobs.update_progress(
-                job_id, done / max(total, 1), f"Fixing flagged lines... {done}/{total}"))
+        with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
+                                        "fix_flagged_line") as limits:
+            outcome = fixflag_translate.fix_lines(
+                flagged, engine=engine, engine_choice=engine_choice, drama_id=drama_id,
+                base_context=base_context, character_names=character_names,
+                source_language=source_language, heard_by_idx=heard_by_idx,
+                translate=not cancelled, cost_cap_usd=cost_cap_usd, errors=errors, all_lines=lines,
+                check_cancel=lambda: None if cancelled else _raise_if_cancelled(job_id),
+                on_progress=lambda done, total: background_jobs.update_progress(
+                    job_id, done / max(total, 1), f"Fixing flagged lines... {done}/{total}"))
     finally:
         if audio_path and os.path.exists(audio_path):
             whisper_models.release_gpu_models()  # re-transcription stage done
@@ -589,7 +612,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
         raise background_jobs.JobCancelled(job_id)
     background_jobs.set_result(job_id, {
         "fixed_count": outcome["fixed"], "total_flagged": total_flagged, "errors": errors[:20],
-        "cap_reached": outcome["cap_reached"],
+        "cap_reached": outcome["cap_reached"], **paid_job_service.stop_fields(limits),
         **({"timing_skipped_count": timing_skipped} if timing_skipped else {}),
         **({"unchanged_count": outcome["unchanged"]} if outcome["unchanged"] else {}), **kept})
 
@@ -642,11 +665,16 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     # The Settings default the single-title form starts from, so a title
     # translated in bulk matches one translated alone.
     style_note = settings_service.get("default_style_note") or ""
+    if (summary_engine is not None and not monthly_cap
+            and bulk_translate._summary_engine_is_paid(summary_engine, summary_choice)):
+        summary_engine = None  # a paid summary is paid work nobody watches: it needs a cap
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}
     models = models or {}
     total = len(drama_ids) or 1
+    # A broken key or an engine that is down fails every title the same way.
+    failed_titles = FailureStreak()
     for i, did in enumerate(drama_ids):
         if background_jobs.is_cancel_requested(job_id):
             break
@@ -689,6 +717,11 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         # that spend too.
         cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier)
         cost_cap = None
+        if cap_applies and not monthly_cap:
+            # Unattended spend needs a ceiling; the start refuses without one,
+            # so this is a cap removed since.
+            results["skipped_cap"].append(did)
+            continue
         if cap_applies and monthly_cap:
             cost_cap, refusal = translate_engines.resolve_cost_cap(
                 None, monthly_cap, db.get_month_spend())
@@ -785,6 +818,12 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             # ends "done": only a clean run (or a fully translated drama) counts.
             results["partial"][did] = ("cost cap reached" if per_result.get("cap_reached") is not None
                                        else "batch errors")
+        # A title stopped by the cap says nothing about the engine.
+        if failed_titles.record(failed=did in results["errors"] or (
+                did in results["partial"] and results["partial"][did] == "batch errors"),
+                succeeded=did in results["translated"]):
+            results["stopped"] = f"Stopped: {failed_titles.count} titles in a row failed"
+            break
 
     results["cancelled"] = background_jobs.is_cancel_requested(job_id)
     background_jobs.update_progress(job_id, 1.0, "Done")

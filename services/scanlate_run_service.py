@@ -35,13 +35,14 @@ import background_jobs
 import db
 import translate_engines
 from engine_backends import llm_tasks
+from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
 from lib import cancellable_lock
 from memory_headroom import HeadroomError
 from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
-from services import settings_service, translate_service
+from services import paid_job_service, settings_service, translate_service
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -167,7 +168,7 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
         result, new_context = scanlate.translate_regions_by_id(
             keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
             glossary_terms=glossary)
-    except (HeadroomError, LLMTaskTimeout):
+    except (HeadroomError, LLMTaskTimeout, TranslateRunStopped):
         # The Ollama check refuses on every page, and a timed-out request is
         # still running and would refuse the next page's call: stop the job once.
         raise
@@ -272,8 +273,9 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
     # Cancel and a total deadline for every AI call of the run, not only between
     # pages. One request per page, and with thinking on DeepSeek may take the
     # whole client timeout to answer, so the deadline is the per-request one.
-    with llm_tasks.bounded_llm_calls(jid, lambda: background_jobs.is_cancel_requested(jid),
-                                     deadline=llm_tasks.request_deadline_for(engine)):
+    with paid_job_service.job_calls(jid, drama_id, engine, engine_name, "scanlate_translate",
+                                    deadline=llm_tasks.request_deadline_for(engine),
+                                    lenient_empty=False) as limits:
         for n, pid in enumerate(page_ids, start=1):
             render_svc.check_cancel(jid)
             background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
@@ -282,6 +284,8 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                                      detect_kwargs, glossary, jid)] += 1
             except TranslationCancelled:
                 raise background_jobs.JobCancelled(jid)
+            except TranslateRunStopped:
+                break  # the pages still to do stay as they are
             except (background_jobs.JobCancelled, HeadroomError):
                 raise
             except Exception as exc:
@@ -309,4 +313,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
         parts.append(f"{counts['kept']} kept unchanged (redo failed)")
     if counts["failed"]:
         parts.append(f"{counts['failed']} failed")
-    background_jobs.update_progress(jid, 1.0, "Pages: " + ", ".join(parts) + ".")
+    background_jobs.update_progress(jid, 1.0, "Pages: " + ", ".join(parts) + "."
+                                    + (f" {limits.stop_reason}." if limits.stop_reason else ""))
+    if limits.stop_reason:
+        background_jobs.set_result(jid, paid_job_service.stop_fields(limits))

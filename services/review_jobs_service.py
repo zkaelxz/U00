@@ -37,7 +37,8 @@ import bulk_translate
 import core
 import db
 import translate_engines
-from services import (fixflag_translate, ownership_service, settings_service, transcribe_service,
+from services import (fixflag_translate, ownership_service, paid_job_service, settings_service,
+                      transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -139,6 +140,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     # Every paid run, live or bulk, is refused once the month's cap is used up.
     translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier)
     if bulk:
+        paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier)
         engine = translate_engines.get_engine(engine_name, api_key, model)
         return _start_bulk(kind, drama_id, engine, engine_name, len(lines),
                            bulk_kwargs(drama) if bulk_kwargs else {})
