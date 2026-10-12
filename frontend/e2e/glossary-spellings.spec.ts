@@ -1,5 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 
+// The Glossary section starts folded the first time; these tests need its body.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.translate.glossary', '1'))
+})
+
 // "Suggest spellings" and "Check English names" on the Glossary panel. The seeded dramas have
 // no series, so terms and the spelling routes are mocked; nothing is saved except through the
 // mocked term route, and only after the confirm.
