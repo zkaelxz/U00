@@ -184,10 +184,11 @@ def test_memory_is_read_first_before_anything_touches_the_gpu():
 
 
 def test_torch_cuda_statuses(monkeypatch):
+    import dependency_updates
     import diagnostics
     import diagnostics_torch
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
-    monkeypatch.setattr(diagnostics, "installed_dist_version", lambda name: "2.9.0")
+    monkeypatch.setattr(dependency_updates, "installed_dist_version", lambda name: "2.9.0")
     monkeypatch.setattr(diagnostics_torch, "get_gpu_status",
                         lambda: {"available": True, "torch_cuda_version": "12.8"})
     assert st.check_torch_cuda()[0] == st.PASS

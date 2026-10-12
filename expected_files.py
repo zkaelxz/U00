@@ -35,6 +35,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "db/speakers.py",
     "db/usage.py",
     "debug_view.py",
+    "dependency_updates.py",
     "device_tokens.py",
     "diagnostics.py",
     "diagnostics_report.py",
