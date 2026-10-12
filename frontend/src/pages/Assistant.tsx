@@ -161,6 +161,7 @@ export default function AssistantPage() {
     <PageShell
       width="narrow"
       title="Maintenance assistant"
+      label="Maintenance assistant"
       meta="Ask about this app's code and logs. Read-only: it suggests fixes but never applies them."
       tabs={tabs}
       className="assistant-page"

@@ -20,7 +20,7 @@ describe('pageShellClass', () => {
 describe('PageShell', () => {
   it('renders the shared header, then tabs, then the content', () => {
     const html = renderToStaticMarkup(
-      <PageShell width="narrow" title="Settings" meta="Engines" actions={<b>act</b>} back={<nav>crumbs</nav>} tabs={<i>tabs</i>}>
+      <PageShell width="narrow" title="Settings" label="Settings" meta="Engines" actions={<b>act</b>} back={<nav>crumbs</nav>} tabs={<i>tabs</i>}>
         <p>body</p>
       </PageShell>,
     )

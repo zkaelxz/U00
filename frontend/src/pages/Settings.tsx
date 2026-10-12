@@ -213,6 +213,7 @@ export default function SettingsPage() {
     <PageShell
       width="narrow"
       title="Settings"
+      label="Settings"
       className="settings-page"
       tabs={(
         <>

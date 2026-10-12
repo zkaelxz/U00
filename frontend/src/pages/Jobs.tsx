@@ -112,6 +112,7 @@ export default function JobsPage() {
     <PageShell
       width="wide"
       title="Jobs"
+      label="Jobs"
       className="jobs-page"
       meta={jobs ? `${counts.active} active · ${counts.all} in all` : undefined}
     >

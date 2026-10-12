@@ -30,15 +30,14 @@ export function PageShell({ as: Tag = 'section', width, title, meta, actions, ba
   back?: ReactNode
   tabs?: ReactNode | false
   className?: string
-  /** Accessible name of the page region; defaults to the heading text when `title` is a string. */
+  /** Names the page as a region. Optional: a page whose content already carries that region leaves it out. */
   label?: string
   /** Extra header content under the meta line (a status line, a notice). */
   headExtra?: ReactNode
   children?: ReactNode
 }) {
-  const name = label ?? (typeof title === 'string' ? title : undefined)
   return (
-    <Tag className={pageShellClass(width, className)} data-page-shell={width} aria-label={name}>
+    <Tag className={pageShellClass(width, className)} data-page-shell={width} aria-label={label}>
       {back}
       <header className="page-head" data-page-header>
         <div className="page-head-text">

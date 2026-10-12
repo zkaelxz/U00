@@ -41,7 +41,7 @@ const POLL_MS = 3000
 export default function DiagnosticsPage() {
   if (!useHolds('admin.diagnostics')) {
     return (
-      <PageShell width="standard" title="Diagnostics" className="diag-page">
+      <PageShell width="standard" title="Diagnostics" label="Diagnostics" className="diag-page">
         <p className="muted" data-testid="diagnostics-not-allowed">Only an admin can see this page.</p>
       </PageShell>
     )
@@ -168,6 +168,7 @@ function DiagnosticsContent() {
     <PageShell
       width="standard"
       title="Diagnostics"
+      label="Diagnostics"
       className="diag-page"
       meta={(
         <p className="page-meta pill-row" data-testid="diagnostics-summary">

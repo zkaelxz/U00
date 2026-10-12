@@ -31,6 +31,9 @@ type Measure = {
   gapToFirst: number | null
   shellTopBelowAppHeader: number
   overflow: number
+  viewport: number
+  // The widest the side rail can be at this width (none below 1024px, where the nav is a drawer).
+  railMax: number
   width: string | null
   titleSize: number
   titleWeight: string
@@ -89,6 +92,8 @@ const measure = (page: Page): Promise<Measure> =>
       headerTop: header.top,
       gapToFirst: first ? first.getBoundingClientRect().top - header.bottom : null,
       shellTopBelowAppHeader: box.top - appHeader.bottom,
+      viewport: window.innerWidth,
+      railMax: window.innerWidth >= 1024 ? 240 : 0,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       width: shell.getAttribute('data-page-shell'),
     }
@@ -121,6 +126,11 @@ export async function expectUniformShell(page: Page, theme: 'light' | 'dark') {
     expect(m.width, `${at}: shell preset`).toBe(width)
     const expected = width === 'wide' ? m.available : Math.min(PRESET_PX[width], m.available)
     expect(Math.abs(m.shellWidth - expected), `${at}: column ${m.shellWidth}px, want ${expected}px`).toBeLessThanOrEqual(TOLERANCE)
+    if (width === 'wide') {
+      // Against the viewport, not .app-main: a cap on .app-main itself must not make "wide" look right.
+      const cap = Math.min(1800 - 32, m.viewport - m.railMax - 32)
+      expect(m.shellWidth, `${at}: wide column ${m.shellWidth}px, want at least ${cap}px`).toBeGreaterThanOrEqual(cap - TOLERANCE)
+    }
     expect(m.overflow, `${at}: horizontal scroll`).toBeLessThanOrEqual(0)
 
     expect(m.gapToFirst, `${at}: something follows the header`).not.toBeNull()

@@ -17,7 +17,7 @@ export default function AdminPage() {
   const pc = usePcOnly()
   const allowed = canViewUsers(useSession())
   return (
-    <PageShell width="narrow" title="People and access" meta="Who can sign in, what they did, and the public address check." className="diag-page">
+    <PageShell width="narrow" title="People and access" label="People and access" meta="Who can sign in, what they did, and the public address check." className="diag-page">
       {allowed ? (
         // The first card opens the first time; each card then remembers how it was left.
         <div className="diag-folds">

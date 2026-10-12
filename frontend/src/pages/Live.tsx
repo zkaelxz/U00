@@ -283,7 +283,7 @@ export default function LivePage() {
   const delay = delayAuto ? (autoValue ?? estimate) : videoDelay
 
   return (
-    <PageShell width="standard" title="Live" className={videoLive ? 'live-page live-wide' : 'live-page'}>
+    <PageShell width="standard" title="Live" label="Live" className={videoLive ? 'live-page live-wide' : 'live-page'}>
       <div className="panel">
         {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
         <form onSubmit={start} className="live-form" noValidate>

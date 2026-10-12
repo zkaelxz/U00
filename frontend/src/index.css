@@ -206,9 +206,8 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* The app column takes the full wide cap; PageShell narrows a page to its preset inside it, and the routes that
+/* The app column (sideNav.css) takes the full wide cap; PageShell narrows a page to its preset inside it, and the routes that
    have no shell (title workspace, readers) sit in .app-bounded so they keep the 1200px column. */
-.has-rail > .app-main { max-width: var(--content-max-wide); }
 .app-bounded { max-width: var(--content-max); margin-inline: auto; }
 
 /* ---- header + top nav ---- */
