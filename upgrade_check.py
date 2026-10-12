@@ -9,6 +9,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 
 import diagnostics
 import job_process_kill
@@ -33,6 +34,8 @@ from lib import proc as proc_run
 
 UPGRADE_CHECK_PIP_TIMEOUT = 900
 UPGRADE_CHECK_TEST_TIMEOUT = 1800
+WORK_REMOVE_TRIES = 5
+WORK_REMOVE_PAUSE = 0.5
 
 
 def _env_package_dirs() -> list:
@@ -187,6 +190,18 @@ def test_suite_available(project_root: str = None) -> bool:
     return os.path.isdir(os.path.join(project_root, "tests"))
 
 
+def _remove_work_folder(work: str) -> bool:
+    """True when the folder is gone. Windows refuses to delete a file a
+    just-killed child still holds open, and releases it a moment later."""
+    for attempt in range(WORK_REMOVE_TRIES):
+        shutil.rmtree(work, ignore_errors=True)
+        if not os.path.exists(work):
+            return True
+        if attempt < WORK_REMOVE_TRIES - 1:
+            time.sleep(WORK_REMOVE_PAUSE)
+    return False
+
+
 def check_upgrade_candidate(pip_name: str, version: str = None, project_root: str = None,
                             test_args: list = None, python_executable: str = None,
                             parent_dirs: list = None, pip_extra_args: list = None,
@@ -207,6 +222,27 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
     point this at a tiny offline suite and local wheels. `cancel` (a
     callable) kills the running pip/pytest tree as soon as it turns true;
     the generator then ends without a final item (the caller knows why)."""
+    work = tempfile.mkdtemp(prefix="baihe_upgrade_check_")
+    final = None
+    try:
+        for item in _check_in_work(work, pip_name, version, project_root, test_args,
+                                   python_executable, parent_dirs, pip_extra_args,
+                                   pip_timeout, test_timeout, cancel):
+            if item.get("done"):
+                final = item     # held back until the folder is gone, so the result can say if it isn't
+            else:
+                yield item
+    finally:
+        removed = _remove_work_folder(work)
+    if final is not None:
+        if not removed:
+            final["reason"] = (final["reason"] + " (the temporary working folder couldn't be "
+                               "fully removed; it is safe to delete)").strip()
+        yield final
+
+
+def _check_in_work(work, pip_name, version, project_root, test_args, python_executable,
+                   parent_dirs, pip_extra_args, pip_timeout, test_timeout, cancel):
     project_root = project_root or os.path.dirname(os.path.abspath(__file__))
     python_executable = python_executable or sys.executable
     parent_dirs = _env_package_dirs() if parent_dirs is None else list(parent_dirs)
@@ -218,7 +254,12 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
     test_args = list(test_args or [os.path.join(project_root, "tests")])
     spec = f"{pip_name}=={version}" if version else pip_name
     pip_args = ["--upgrade", spec] + diagnostics.upgrade_pip_args(pip_name, project_root)[2:] + list(pip_extra_args or [])
-    test_env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    # The suite makes hundreds of temp files and folders, and on Windows some can't be
+    # deleted while sqlite still holds them. A private TMP inside `work` goes away with it.
+    scratch = os.path.join(work, "tmp")
+    os.makedirs(scratch, exist_ok=True)
+    test_env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1",
+                    TMP=scratch, TEMP=scratch, TMPDIR=scratch)
     result = {"done": True, "ok": False, "verdict": "incomplete", "reason": "",
               "version": version, "new_failures": [], "preexisting_failures": [],
               "conflicts": []}
@@ -230,137 +271,133 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
         cmd += args
         return _stream_process(cmd, test_timeout, cwd=project_root, env=test_env, cancel=cancel)
 
-    work = tempfile.mkdtemp(prefix="baihe_upgrade_check_")
-    try:
-        yield {"line": "Creating a throwaway environment -- your real install isn't touched."}
-        trial_py, err = _make_throwaway_venv(work, "trial", python_executable, parent_dirs, cancel)
-        if err:
-            if cancel is not None and cancel():
-                return
-            result["reason"] = f"couldn't create a throwaway environment: {err}"
-            yield result
-            return
-
-        yield {"line": f"Installing {spec} into it..."}
-        pip_lines, end = [], None
-        for item in _stream_process([python_executable, "-m", "pip", "--python", trial_py,
-                                     "install"] + pip_args, pip_timeout, cancel=cancel):
-            if "line" in item:
-                pip_lines.append(item["line"])
-                yield item
-            else:
-                end = item
-        if end.get("cancelled"):
-            return
-        if end["timed_out"]:
-            result["reason"] = f"installing {spec} took longer than {int(pip_timeout // 60)} minutes"
-            yield result
-            return
-        if end["returncode"] != 0:
-            if any("No space left on device" in line for line in pip_lines):
-                result["reason"] = "not enough disk space for the throwaway environment"
-            else:
-                result["reason"] = (f"{spec} couldn't be installed (no network, no such version, or "
-                                    f"a build failure -- see the output above)")
-            yield result
-            return
-        installed = _dist_version_in(trial_py, pip_name, cancel)
-        if not installed:
-            result["reason"] = f"{spec} reported success but isn't importable afterward"
-            yield result
-            return
-        result["version"] = installed
-        result["conflicts"] = _parse_pip_conflicts(pip_lines)
-
-        pytest_ok = True
-        for item in _ensure_pytest(trial_py, python_executable, pip_timeout, cancel):
-            if "line" in item:
-                yield item
-            else:
-                pytest_ok = item["ok"]
+    yield {"line": "Creating a throwaway environment -- your real install isn't touched."}
+    trial_py, err = _make_throwaway_venv(work, "trial", python_executable, parent_dirs, cancel)
+    if err:
         if cancel is not None and cancel():
             return
-        if not pytest_ok:
-            result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
-            yield result
-            return
+        result["reason"] = f"couldn't create a throwaway environment: {err}"
+        yield result
+        return
 
-        yield {"line": f"Running this app's test suite against {pip_name} {installed}..."}
-        test_lines, end = [], None
-        for item in _pytest(trial_py, test_args):
-            if "line" in item:
-                test_lines.append(item["line"])
-                yield item
-            else:
-                end = item
-        failures = _parse_pytest_failures(test_lines)
-        if end.get("cancelled"):
-            return
-        if end["timed_out"]:
-            result["reason"] = f"the test suite took longer than {int(test_timeout // 60)} minutes"
-            yield result
-            return
-        if end["returncode"] == 0:
-            result.update(ok=True, verdict="safe",
-                          reason=f"every test passed against {pip_name} {installed}")
-            yield _flag_conflicts(result)
-            return
-        if end["returncode"] not in (1, 2) or not failures:
-            result["reason"] = (f"the test run itself didn't complete (pytest exit code "
-                                f"{end['returncode']}) -- see the output above")
-            yield result
-            return
-
-        yield {"line": f"{len(failures)} test(s) failed -- re-running them without {pip_name} "
-                       f"{installed} to see which already fail on the current version..."}
-        base_py, err = _make_throwaway_venv(work, "baseline", python_executable, parent_dirs, cancel)
-        if err:
-            if cancel is not None and cancel():
-                return
-            result["reason"] = (f"{len(failures)} test(s) failed, but a comparison environment "
-                                f"couldn't be created to rule out already-failing ones: {err}")
-            result["new_failures"] = failures
-            yield result
-            return
-        pytest_ok = True
-        for item in _ensure_pytest(base_py, python_executable, pip_timeout, cancel):
-            if "line" in item:
-                yield item
-            else:
-                pytest_ok = item["ok"]
-        if not pytest_ok:
-            result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
-            result["new_failures"] = failures
-            yield result
-            return
-
-        base_lines, end = [], None
-        for item in _pytest(base_py, failures):
-            if "line" in item:
-                base_lines.append(item["line"])
-                yield item
-            else:
-                end = item
-        if end.get("cancelled"):
-            return
-        if end["timed_out"] or end["returncode"] not in (0, 1, 2):
-            result["reason"] = (f"{len(failures)} test(s) failed, but re-running them on the "
-                                f"current version didn't complete -- see the output above")
-            result["new_failures"] = failures
-            yield result
-            return
-        baseline = set(_parse_pytest_failures(base_lines))
-        new = [f for f in failures if f not in baseline]
-        pre = [f for f in failures if f in baseline]
-        result.update(new_failures=new, preexisting_failures=pre)
-        if new:
-            result.update(verdict="broken",
-                          reason=f"{len(new)} test(s) that pass on the current version fail "
-                                 f"against {pip_name} {installed}")
+    yield {"line": f"Installing {spec} into it..."}
+    pip_lines, end = [], None
+    for item in _stream_process([python_executable, "-m", "pip", "--python", trial_py,
+                                 "install"] + pip_args, pip_timeout, cancel=cancel):
+        if "line" in item:
+            pip_lines.append(item["line"])
+            yield item
         else:
-            result.update(ok=True, verdict="safe",
-                          reason=f"no new failures against {pip_name} {installed} ({len(pre)} "
-                                 f"test(s) already fail on the current version too)")
+            end = item
+    if end.get("cancelled"):
+        return
+    if end["timed_out"]:
+        result["reason"] = f"installing {spec} took longer than {int(pip_timeout // 60)} minutes"
+        yield result
+        return
+    if end["returncode"] != 0:
+        if any("No space left on device" in line for line in pip_lines):
+            result["reason"] = "not enough disk space for the throwaway environment"
+        else:
+            result["reason"] = (f"{spec} couldn't be installed (no network, no such version, or "
+                                f"a build failure -- see the output above)")
+        yield result
+        return
+    installed = _dist_version_in(trial_py, pip_name, cancel)
+    if not installed:
+        result["reason"] = f"{spec} reported success but isn't importable afterward"
+        yield result
+        return
+    result["version"] = installed
+    result["conflicts"] = _parse_pip_conflicts(pip_lines)
+
+    pytest_ok = True
+    for item in _ensure_pytest(trial_py, python_executable, pip_timeout, cancel):
+        if "line" in item:
+            yield item
+        else:
+            pytest_ok = item["ok"]
+    if cancel is not None and cancel():
+        return
+    if not pytest_ok:
+        result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
+        yield result
+        return
+
+    yield {"line": f"Running this app's test suite against {pip_name} {installed}..."}
+    test_lines, end = [], None
+    for item in _pytest(trial_py, test_args):
+        if "line" in item:
+            test_lines.append(item["line"])
+            yield item
+        else:
+            end = item
+    failures = _parse_pytest_failures(test_lines)
+    if end.get("cancelled"):
+        return
+    if end["timed_out"]:
+        result["reason"] = f"the test suite took longer than {int(test_timeout // 60)} minutes"
+        yield result
+        return
+    if end["returncode"] == 0:
+        result.update(ok=True, verdict="safe",
+                      reason=f"every test passed against {pip_name} {installed}")
         yield _flag_conflicts(result)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+        return
+    if end["returncode"] not in (1, 2) or not failures:
+        result["reason"] = (f"the test run itself didn't complete (pytest exit code "
+                            f"{end['returncode']}) -- see the output above")
+        yield result
+        return
+
+    yield {"line": f"{len(failures)} test(s) failed -- re-running them without {pip_name} "
+                   f"{installed} to see which already fail on the current version..."}
+    base_py, err = _make_throwaway_venv(work, "baseline", python_executable, parent_dirs, cancel)
+    if err:
+        if cancel is not None and cancel():
+            return
+        result["reason"] = (f"{len(failures)} test(s) failed, but a comparison environment "
+                            f"couldn't be created to rule out already-failing ones: {err}")
+        result["new_failures"] = failures
+        yield result
+        return
+    pytest_ok = True
+    for item in _ensure_pytest(base_py, python_executable, pip_timeout, cancel):
+        if "line" in item:
+            yield item
+        else:
+            pytest_ok = item["ok"]
+    if not pytest_ok:
+        result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
+        result["new_failures"] = failures
+        yield result
+        return
+
+    base_lines, end = [], None
+    for item in _pytest(base_py, failures):
+        if "line" in item:
+            base_lines.append(item["line"])
+            yield item
+        else:
+            end = item
+    if end.get("cancelled"):
+        return
+    if end["timed_out"] or end["returncode"] not in (0, 1, 2):
+        result["reason"] = (f"{len(failures)} test(s) failed, but re-running them on the "
+                            f"current version didn't complete -- see the output above")
+        result["new_failures"] = failures
+        yield result
+        return
+    baseline = set(_parse_pytest_failures(base_lines))
+    new = [f for f in failures if f not in baseline]
+    pre = [f for f in failures if f in baseline]
+    result.update(new_failures=new, preexisting_failures=pre)
+    if new:
+        result.update(verdict="broken",
+                      reason=f"{len(new)} test(s) that pass on the current version fail "
+                             f"against {pip_name} {installed}")
+    else:
+        result.update(ok=True, verdict="safe",
+                      reason=f"no new failures against {pip_name} {installed} ({len(pre)} "
+                             f"test(s) already fail on the current version too)")
+    yield _flag_conflicts(result)

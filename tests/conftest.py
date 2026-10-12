@@ -11,6 +11,8 @@ import sys
 import os
 import shutil
 import tempfile
+import threading
+import time
 import pytest
 
 # Never start the API's background services (chapter-check scheduler,
@@ -74,11 +76,29 @@ def _real_library_audit_hook(event, args):
         return
     for path in args[:2] if event == "os.rename" else args[:1]:
         if _is_real_library_path(path):
-            _REAL_LIBRARY_HITS.append(f"{event} {path}")
-            raise RuntimeError(f"test touched the real library: {event} {path}")
+            # A hit from a background job thread that outlived its test lands in
+            # whichever test runs next; the thread and test names say whose it is.
+            who = (f"{event} {path} (thread {threading.current_thread().name!r}, "
+                   f"test {os.environ.get('PYTEST_CURRENT_TEST', 'none')})")
+            _REAL_LIBRARY_HITS.append(who)
+            raise RuntimeError(f"test touched the real library: {who}")
 
 
 sys.addaudithook(_real_library_audit_hook)
+
+
+def _rmtree_retrying(path, tries=5, pause=0.5):
+    """Windows can't delete a sqlite file something still has open, and
+    ignore_errors=True then leaves the folder in %TEMP% for good. The
+    handle is usually released a moment later, so retry before giving up."""
+    if os.name != "nt":
+        tries = 1   # POSIX unlinks open files, so one pass is enough
+    for attempt in range(tries):
+        shutil.rmtree(path, ignore_errors=True)
+        if not os.path.exists(path):
+            return
+        if attempt < tries - 1:
+            time.sleep(pause)
 
 
 def pytest_configure(config):
@@ -86,7 +106,7 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
-    shutil.rmtree(_SESSION_ROOT, ignore_errors=True)
+    _rmtree_retrying(_SESSION_ROOT)
 
 
 @pytest.fixture(autouse=True)
@@ -275,7 +295,7 @@ def isolated_db(_template_library):
     db.init_db()
     yield db
     db.configure_library_dir(previous)
-    shutil.rmtree(parent_dir, ignore_errors=True)
+    _rmtree_retrying(parent_dir)
 
 
 def _reset_background_jobs_memory():
@@ -321,8 +341,6 @@ def _join_leftover_job_threads(timeout=5.0):
     and writes its job record while that test initialises its database
     ("database is locked" in CI, 2026-09-30). Only job runner/watcher
     threads are joined; the long-lived heartbeat thread is not."""
-    import threading
-    import time
     deadline = time.monotonic() + timeout
     for t in threading.enumerate():
         if t is threading.current_thread():
@@ -339,7 +357,7 @@ def tmp_path_str():
     scattering str() conversions through the tests.)"""
     d = tempfile.mkdtemp(prefix="baihe_tmp_")
     yield d
-    shutil.rmtree(d, ignore_errors=True)
+    _rmtree_retrying(d)
 
 
 @pytest.fixture

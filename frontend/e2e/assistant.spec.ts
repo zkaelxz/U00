@@ -247,6 +247,8 @@ test('tabs: Ask, Work list, GitHub and tools; the first card of each starts open
 
   await openTab(page, 'Work list')
   await fold('Changelog').locator('summary').first().click()
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => ['assistant.tools', 'assistant.changelog'].every((k) => window.localStorage.getItem(`baihe.section.${k}`) !== null))
   await page.reload()
   await expect(page.getByRole('tab', { name: 'Work list', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(fold('Changelog')).toHaveJSProperty('open', true)
