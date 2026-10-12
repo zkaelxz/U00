@@ -3,7 +3,6 @@ import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react
 import { ApiError } from '../../../api/client'
 import { updateDramaMetadata } from '../../../api/library'
 import {
-  dismissTranslateErrors,
   getTranslateConfig,
   getTranslateEstimate,
   saveTranslatePreset,
@@ -37,11 +36,9 @@ import {
   bulkAvailable,
   bulkReflectAvailable,
   FALLBACK_KIND_MESSAGE,
-  failedBatches,
   fallbackKindMismatch,
   fallbackOptions,
   initialForm,
-  lineRanges,
   loadPresetStart,
   restoreRunOptions,
   runOptionsDraft,
@@ -72,6 +69,7 @@ import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
 import { engineNotesHelp, engineOptionLabel } from '../../../api/translate'
+import { FailedBatchesNotice, GlossaryFlaggedNotice } from './FollowupNotices'
 import { GlossaryScanBanner } from './GlossaryScanBanner'
 import { GlossaryReview } from './GlossaryReview'
 import type { GlossarySource } from './glossaryExtract'
@@ -663,46 +661,6 @@ function RunPanel({
   )
 }
 
-// Warning about the last run's failed batches, with
-// Dismiss (clears only that record; the lines stay untranslated, so running
-// Translate again retries just those).
-function FailedBatchesNotice({ config, onDismissed }: { config: TranslateRunConfig; onDismissed: () => void }) {
-  const { dramaId } = useStage()
-  const [error, setError] = useState<unknown>(null)
-  const [pending, setPending] = useState(false)
-  const failed = failedBatches(config.last_translate_errors)
-  if (!failed) return null
-  const lines = failed.lineNumbers.length
-  const dismiss = () => {
-    setPending(true)
-    setError(null)
-    dismissTranslateErrors(dramaId).then(
-      () => onDismissed(),
-      (e: unknown) => {
-        setError(e)
-        setPending(false)
-      },
-    )
-  }
-  return (
-    <section className="panel translate-failed" aria-label="Failed batches" data-testid="failed-batches">
-      <p className="warn">
-        The last translation run had {failed.batches} failed batch{failed.batches === 1 ? '' : 'es'}
-        {lines > 0 && <>; line{lines === 1 ? '' : 's'} {lineRanges(failed.lineNumbers)} {lines === 1 ? 'is' : 'are'} still untranslated</>}.
-        {' '}Translate again to retry only the missing lines; lines already translated are skipped.
-      </p>
-      {failed.reasons.length > 0 && (
-        <ul className="muted translate-failed-reasons">
-          {failed.reasons.slice(0, 3).map((r) => <li key={r}>{r}</li>)}
-          {failed.reasons.length > 3 && <li>and {failed.reasons.length - 3} more</li>}
-        </ul>
-      )}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <button type="button" onClick={dismiss} disabled={pending}>Dismiss notice</button>
-    </section>
-  )
-}
-
 export default function TranslateStage() {
   const { dramaId, onJobDone } = useStage()
   const [config, setConfig] = useState<TranslateRunConfig | null>(null)
@@ -743,10 +701,16 @@ export default function TranslateStage() {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <SourceChangedWarning dramaId={dramaId} reloadKey={reloads} />
       {config && (
-        <FailedBatchesNotice
-          config={config}
-          onDismissed={() => setConfig((c) => (c ? { ...c, last_translate_errors: null } : c))}
-        />
+        <>
+          <FailedBatchesNotice
+            config={config}
+            form={runForm}
+            busy={busy}
+            onStarted={setJobId}
+            onDismissed={() => setConfig((c) => (c ? { ...c, last_translate_errors: null } : c))}
+          />
+          <GlossaryFlaggedNotice config={config} busy={busy} onStarted={setJobId} />
+        </>
       )}
       {!config && !error && (
         <div className="skeleton-block translate-skeleton" role="status" aria-busy="true" aria-label="Loading translate options" />

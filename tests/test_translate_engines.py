@@ -2862,7 +2862,9 @@ class TestStablePromptPrefix:
             lines, engine, {"title_en": "Drama"}, batch_size=2, novel_reference=novel,
             glossary_terms=[{"term_original": "苏杉", "term_translation": "Su Shan"},
                             {"term_original": "林婉", "term_translation": "Lin Wan"}])
-        first, second = (c["system"] for c in engine.client.messages.calls)
+        # The fake never uses the glossary names, so each batch is followed by its re-ask.
+        calls = engine.client.messages.calls
+        first, second = (calls[0]["system"], calls[2]["system"])
         assert first[1]["text"] != second[1]["text"]   # per-batch excerpts
         assert repr(first[0]) == repr(second[0])
         assert first[0]["cache_control"] == {"type": "ephemeral"}

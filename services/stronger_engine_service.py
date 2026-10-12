@@ -187,6 +187,11 @@ def get_suggestions(drama_id: int) -> dict:
     return out
 
 
+def stronger_engine_or_none(drama_id: int):
+    """The Settings pick when it differs from the title's own engine, else None."""
+    return _stronger(_drama(drama_id))
+
+
 def stronger_engine_name(drama_id: int) -> str:
     """The engine try_line will call, for the router's engines.paid gate;
     the router passes it on so the call can't use another one."""

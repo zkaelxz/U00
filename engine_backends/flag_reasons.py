@@ -30,6 +30,8 @@ SYSTEM_FLAG_REASONS = {
                        "translated; retranslate it or keep the English"),
     "pronoun_check": ("Pronoun check -- the translation says he/him but no he/him character "
                       "is set for this speaker"),
+    "glossary_missing": ("Glossary -- the translation doesn't use a glossary name the source "
+                         "line holds (see the note for which)"),
     "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "
                         "see the note for which engine and its stated reason"),
 }
