@@ -165,6 +165,17 @@ export interface BenchmarkRunStarted {
   estimated_cost_usd: number
 }
 
+/** Traditional vs Simplified in a Chinese transcript; null for other languages and stages. */
+export interface ScriptCounts {
+  traditional_lines: number
+  simplified_lines: number
+  mixed_lines: number
+  neutral_lines: number
+  traditional_chars: number
+  simplified_chars: number
+  neutral_chars: number
+}
+
 export interface BenchmarkRun {
   id: number
   label: string | null
@@ -189,6 +200,7 @@ export interface BenchmarkRun {
   case_filter: Record<string, unknown>
   delta_vs_first: number | null
   judge?: BenchmarkJudgeSummary | null
+  script_counts?: ScriptCounts | null
 }
 
 export interface BenchmarkResult {
@@ -204,6 +216,7 @@ export interface BenchmarkResult {
   cost_usd: number
   error: string | null
   judge?: BenchmarkJudgeScore | null
+  script_counts?: ScriptCounts | null
 }
 
 interface BenchmarkRunDetail {
