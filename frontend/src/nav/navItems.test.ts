@@ -5,7 +5,7 @@ import type { SessionState } from '../hooks/useSession'
 import type { Route } from '../router'
 import { readSavedRailChoice } from './useRailCollapsed'
 import { PREF_KEY_PREFIX, readPref, writePref } from '../hooks/usePersistedState'
-import { NAV_ITEMS, RAIL_COLLAPSED_KEY, resolveRailCollapsed, visibleNavItemsFor, visibleRailGroups, type NavContext } from './navItems'
+import { NAV_ITEMS, RAIL_COLLAPSED_KEY, customizableNavItems, isNavLocked, resolveRailCollapsed, visibleNavItemsFor, visibleRailGroups, type NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
 const meOf = (over: Partial<AuthMe>): SessionState => ({
@@ -43,9 +43,12 @@ const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
 const ALL = ['Library', 'Library tools', 'Quick translate', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
 
+// Make subtitles creates a title, so it follows the permission the Library's New title needs.
+const withMake = (l: string[]) => [...l.slice(0, 2), 'Make subtitles', ...l.slice(2)]
+
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
-    expect(labels(personas['owner at the PC'])).toEqual([...ALL, 'Admin', 'Diagnostics', 'Benchmark Lab'])
+    expect(labels(personas['owner at the PC'])).toEqual(withMake([...ALL, 'Admin', 'Diagnostics', 'Benchmark Lab']))
   })
 
   it('household member: no Admin, no Diagnostics', () => {
@@ -117,7 +120,7 @@ describe('left rail', () => {
     expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
-      ['Tools', ['Quick translate', 'Live']],
+      ['Tools', ['Make subtitles', 'Quick translate', 'Live']],
       ['System', ['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
     ])
   })
@@ -151,7 +154,7 @@ describe('left rail', () => {
     const ctx: NavContext = { ...owner, developerMode: true }
     const targets = visibleRailGroups(ctx).flatMap((g) => g.items.map((r) => r.item.target.name))
     expect(targets).toEqual(
-      expect.arrayContaining(['library', 'library-tools', 'sources', 'discover', 'translate', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
+      expect.arrayContaining(['library', 'library-tools', 'sources', 'discover', 'translate', 'make-subtitles', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
     )
   })
 
@@ -167,6 +170,7 @@ describe('left rail', () => {
     ['diagnostics', { name: 'diagnostics' }, ['Diagnostics']],
     ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],
     ['translate', { name: 'translate' }, ['Quick translate']],
+    ['make subtitles', { name: 'make-subtitles' }, ['Make subtitles']],
   ])('%s marks exactly one rail item current', (_name, route, expected) => {
     expect(railCurrent({ ...owner, developerMode: true }, route)).toEqual(expected)
   })
@@ -210,5 +214,22 @@ describe('rail collapse', () => {
     ['saved collapsed wins when wide', true, true, true],
   ])('default: %s', (_name, saved, wideEnough, collapsed) => {
     expect(resolveRailCollapsed(saved, wideEnough)).toBe(collapsed)
+  })
+})
+
+describe('Make subtitles menu item', () => {
+  const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
+
+  it('sits in the Tools group and can be hidden like the others', () => {
+    const owner = personas['owner at the PC']
+    const tools = visibleRailGroups(owner).find((g) => g.id === 'tools')
+    expect(tools?.items.map((r) => r.item.label)).toContain('Make subtitles')
+    expect(labels({ ...owner, hidden: ['make-subtitles'] })).not.toContain('Make subtitles')
+    expect(customizableNavItems(owner).map((i) => i.label)).toContain('Make subtitles')
+    expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Make subtitles')!)).toBe(false)
+  })
+
+  it('is not offered to people who cannot create titles', () => {
+    expect(labels(personas['household member'])).not.toContain('Make subtitles')
   })
 })
