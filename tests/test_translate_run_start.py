@@ -139,7 +139,7 @@ def test_errors(isolated_db, monkeypatch):
     monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
     with pytest.raises(DependencyUnavailableError) as exc:
         svc.start_translate_run(did, engine_name="claude")
-    assert exc.value.args[0] == "No claude key is configured. Set one in Settings first."
+    assert exc.value.args[0] == "No claude key is configured. Add it in Settings."
 
 
 def test_duplicate_start_conflicts(isolated_db):

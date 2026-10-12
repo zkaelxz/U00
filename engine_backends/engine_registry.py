@@ -2,6 +2,7 @@
 
 import inspect
 import re
+from lib.errors import MissingPackageError
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
 from .local import OllamaEngine, is_ollama_cloud_model
@@ -299,9 +300,23 @@ def get_engine(engine_name: str, api_key: str = None, model: str = None,
         kwargs["free_tier"] = free_tier
     if engine_name == "ollama" and base_url:
         kwargs["base_url"] = base_url
-    if model:
-        return cls(api_key, model, **kwargs)
-    return cls(api_key, **kwargs)
+    try:
+        if model:
+            return cls(api_key, model, **kwargs)
+        return cls(api_key, **kwargs)
+    except ImportError as exc:
+        raise MissingPackageError(_missing_package_name(exc, engine_name)) from None
+
+
+_PACKAGE_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def _missing_package_name(exc: ImportError, fallback: str) -> str:
+    """The top-level package an ImportError names. Only its name is kept: the
+    message and `exc.path` can carry a filesystem path, and the name is
+    checked so nothing else rides along into an API response."""
+    top = (exc.name or "").split(".")[0]
+    return top if _PACKAGE_NAME_RE.fullmatch(top) else fallback
 
 
 def default_translate_options(engine=None, model=None) -> dict:
