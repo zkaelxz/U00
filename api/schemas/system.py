@@ -263,8 +263,9 @@ class JobRecord(BaseModel):
     updated_at: float
     # A redacted, allowlisted projection of the job's result dict
     # (services/jobs_service.project_result) plus a normalised outcome
-    # (ok | failed | cancelled | partial | kept_existing), so a "done" job
-    # that actually failed or was cancelled does not look like a success.
+    # (ok | failed | cancelled | interrupted | partial | kept_existing), so a
+    # "done" job that actually failed or was cancelled does not look like a
+    # success.
     result: Optional[Dict[str, Any]] = None
     outcome: Optional[str] = None
     outcome_message: Optional[str] = None

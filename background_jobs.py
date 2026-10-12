@@ -458,23 +458,28 @@ def _timing_finish(job_id, token, thread_job=True):
         pass
 
 
-# A run that ended because a package it needs is missing, or a model it needs
-# could not be fetched, did nothing, so it must not read as "done" in the job list.
-def _missing_dependency_error(result, job_id=""):
+def _failed_outcome_error(result, job_id=""):
+    """The error text for a worker that returned instead of raising but
+    reports a failure (jobs_service.FAILED_REASON_MESSAGES), else None. The
+    job then ends as `error`, so the bell and the Jobs list say Failed, not
+    Finished. Other failure reasons stay `done`: their stage panels read
+    the done job's result for their own wording."""
     if not isinstance(result, dict):
         return None
     reason = result.get("failed_reason")
     if reason == "dependency_missing":
         return str(result.get("detail") or "A required component is not installed.")
+    from services import jobs_service
     if reason == "model_download":
-        # The same plain text the outcome line shows; scrubbed because the detail
-        # comes from a download error.
-        from services import jobs_service
-        detail = result.get("detail")
-        text = f"{jobs_service.model_download_message(job_id)} {detail}" if detail \
-            else jobs_service.model_download_message(job_id)
-        return jobs_service.scrub_text(text)
-    return None
+        text = jobs_service.model_download_message(job_id)
+    elif reason in jobs_service.FAILED_REASON_MESSAGES:
+        text = jobs_service.FAILED_REASON_MESSAGES[reason]
+    else:
+        return None
+    detail = result.get("detail")
+    # The same plain text the outcome line shows; scrubbed because the
+    # detail comes from a download, model or provider error.
+    return jobs_service.scrub_text(f"{text} {detail}" if detail else text)
 
 
 def _done_note(result):
@@ -499,12 +504,12 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                 if _still_running_locked(job_id):
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
-                    _missing = _missing_dependency_error(_result, job_id)
-                    _jobs[job_id]["status"] = "error" if _missing else "done"
-                    if _missing:
+                    _failed = _failed_outcome_error(_result, job_id)
+                    _jobs[job_id]["status"] = "error" if _failed else "done"
+                    if _failed:
                         _outcome = "error"
-                        _reason = _missing
-                        _jobs[job_id]["error"] = _missing
+                        _reason = _failed
+                        _jobs[job_id]["error"] = _failed
                         _jobs[job_id]["message"] = ""
                     else:
                         _jobs[job_id]["progress"] = 1.0
@@ -1374,13 +1379,13 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             elif outcome and outcome[0] == "ok":
                 _jobs[job_id]["result"] = result
                 _jobs[job_id]["finished_at"] = time.time()
-                _missing = _missing_dependency_error(result, job_id)
-                if _missing:
+                _failed = _failed_outcome_error(result, job_id)
+                if _failed:
                     _jobs[job_id]["status"] = "error"
-                    _jobs[job_id]["error"] = _missing
+                    _jobs[job_id]["error"] = _failed
                     _jobs[job_id]["message"] = ""
-                    _jobs_reason = _missing
-                    logger.error(f"job {job_id} failed: {_missing}")
+                    _jobs_reason = _failed
+                    logger.error(f"job {job_id} failed: {_failed}")
                 else:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
