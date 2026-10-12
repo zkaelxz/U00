@@ -448,6 +448,37 @@ def sweep_dead_owners(stale_seconds: float) -> int:
     return closed
 
 
+# fresh_active reads up to this many named rows one by one, more with one scan.
+_POINT_READ_IDS = 8
+
+
+def fresh_active(job_ids=None, prefix=None, exclude=None) -> bool:
+    """True while a matching job is queued or running: live in this process,
+    or a job_records row another process (the CLI, say) wrote within
+    STALE_JOB_SECONDS. An older row was left by a process that died, and
+    must not refuse the caller forever. Matches every job unless narrowed
+    to `job_ids` and/or an id `prefix`; `exclude` is one id never counted
+    (a job asking about the others)."""
+    import background_jobs as bj
+    wanted = set(job_ids) if job_ids is not None else None
+
+    def matches(job_id):
+        job_id = str(job_id or "")
+        return (job_id != exclude and (wanted is None or job_id in wanted)
+                and (prefix is None or job_id.startswith(prefix)))
+
+    if any(matches(jid) and job.get("status") in ACTIVE
+           for jid, job in bj.list_all_jobs().items()):
+        return True
+    cutoff = time.time() - bj.STALE_JOB_SECONDS
+    # job_records keeps every job ever run, so a few known ids are cheaper read
+    # one by one; a drama's ~50 possible job ids are not.
+    records = (filter(None, map(db.get_job_record, sorted(wanted)))
+               if wanted is not None and len(wanted) <= _POINT_READ_IDS else db.list_job_records())
+    return any(matches(rec.get("job_id")) and rec.get("status") in ACTIVE
+               and (rec.get("updated_at") or 0) >= cutoff for rec in records)
+
+
 def request_cancel(job_id: str) -> bool:
     """Flags a still queued/running row as cancel-requested, with the time,
     so the owner (maybe another process) stops it and every process judges
