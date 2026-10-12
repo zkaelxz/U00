@@ -718,7 +718,8 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .page-shell-narrow { max-width: var(--page-narrow); }
 .page-shell-standard { max-width: var(--page-standard); }
 .page-shell-wide { max-width: none; }
-.page-shell > *, .page-shell > .page-shell-body > * { min-width: 0; margin: 0; }
+/* Not dialogs: a modal sheet positions itself with its own auto margins. */
+.page-shell > :not(dialog), .page-shell > .page-shell-body > :not(dialog) { min-width: 0; margin: 0; }
 .page-shell-tabs { display: grid; gap: var(--space-3); }
 /* An empty slot would still take a grid row and add a second --page-gap while a page loads. */
 .page-shell-tabs:empty, .page-shell-body:empty { display: none; }
