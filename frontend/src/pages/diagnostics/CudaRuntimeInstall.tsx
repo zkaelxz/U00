@@ -49,7 +49,7 @@ export function CudaRuntimeInstall({ pc, jobsActive, busy, onStarted, onFinished
 
   return (
     <Section title="CUDA runtime for GPU Whisper" storageKey="diagnostics.cuda-runtime"
-      summary={result?.text ?? 'Recommended'} defaultOpen openSignal={openSignal}>
+      summary={result?.text ?? 'Recommended'} openSignal={openSignal}>
       <div className="diag-subcard" data-testid="cuda-runtime-install" role="group" aria-label="CUDA runtime for GPU Whisper">
         <p className="muted">{CUDA_RUNTIME_INTRO}</p>
         {running && job && (

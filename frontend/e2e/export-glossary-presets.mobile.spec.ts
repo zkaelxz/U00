@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
+import { openFold } from './foldHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -100,7 +101,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
 test('library rename form on a phone', async ({ page }) => {
   await page.route('**/api/library/presets', (r) => r.fulfill({ json: PRESETS }))
   await page.goto('/#/library-tools')
-  await page.locator('summary', { hasText: 'Presets' }).click()
+  await openFold(page, 'Presets')
   await expectTall(page.getByRole('button', { name: /^Rename / }))
   await page.getByRole('button', { name: /^Rename / }).click()
   await expectTall(page.getByRole('button', { name: 'Save name' }))

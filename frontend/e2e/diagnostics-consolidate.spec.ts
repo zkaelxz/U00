@@ -72,6 +72,8 @@ test('Models holds one model list with sizes and Delete; speaker detection is a 
 
   await openDiagTab(page, 'Models')
   const models = fold(page, /^Models/)
+  await expect(models).toHaveJSProperty('open', false) // only Model status, the first card, starts open
+  await openSection(page, /^Models/)
   await expect(models).toHaveJSProperty('open', true)
   // Each engine row carries its own downloads; an installed engine with none says so.
   const whisper = models.getByRole('list', { name: 'Whisper (faster-whisper) downloads' })
