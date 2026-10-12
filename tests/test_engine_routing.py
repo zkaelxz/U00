@@ -108,7 +108,8 @@ class TestMigratedCallSites:
             return "fake"
         monkeypatch.setattr(routing, "resolve_capability", fake)
         cfg = translate_run_service.get_translate_config(did)
-        assert asked == ["translation.cheap"] and cfg["translation_engine"] == "fake"
+        # The config also resolves the per-line AI default, so other capabilities may be asked.
+        assert "translation.cheap" in asked and cfg["translation_engine"] == "fake"
 
     def test_a_drama_engine_still_wins(self, isolated_db, monkeypatch):
         did = db.create_drama(title_zh="t")

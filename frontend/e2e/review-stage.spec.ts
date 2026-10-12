@@ -551,7 +551,6 @@ test('re-segment previews, then needs the typed word', async ({ page }) => {
   await page.route('**/api/jobs/rj', (route) => route.fulfill({ json: job('done') }))
   await open(page)
   await openFoldFor(page, 'Structure')
-  await page.locator('summary', { hasText: /^Structure/ }).click()
   await page.getByRole('button', { name: 'Preview re-segmentation' }).click()
   await expect(page.getByTestId('resegment-preview')).toContainText('3 → 4 lines; 1 change; 0 translated, 1 flagged, 0 notes would be split')
   const run = page.getByRole('button', { name: 'Re-segment lines' })
@@ -573,7 +572,6 @@ test('restore a line-history snapshot with the typed word', async ({ page }) => 
   await open(page)
   const ids = await rows(page).evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-line-id'))))
   await openFoldFor(page, 'Records')
-  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
   await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).click()
   await page.getByLabel('Type restore to confirm').fill('restore')
   await page.getByRole('button', { name: 'Restore snapshot' }).click()
@@ -827,6 +825,7 @@ test.describe('phone', () => {
     await expect(page.getByRole('slider', { name: 'Seek' })).toBeVisible()
     await page.screenshot({ path: 'test-results/review-player-phone.png' })
     await activate(page, 0)
+    await page.evaluate(() => scrollTo(0, 0)) // a scrolled bar hides the strip
     const { scroll, client } = await page.evaluate(() => ({
       scroll: document.documentElement.scrollWidth,
       client: document.documentElement.clientWidth,
@@ -927,8 +926,8 @@ test('flag lines for review runs only on click and reports each result', async (
   })
   await open(page)
   expect(posts).toEqual([])
+  await openFoldFor(page, 'Flag lines for review')
   const flags = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: /^Flag lines for review$/ }) })
-  await flags.locator(':scope > summary').click()
   await flags.getByRole('button', { name: 'Flag overlapping lines' }).click()
   await expect(flags.getByTestId('flag-result-overlaps')).toHaveText('Flagged 0 lines.')
   await flags.getByRole('button', { name: 'Run auto-QC and flag' }).click()
@@ -965,7 +964,6 @@ test('delete and restore keep header, Review tab and chips in step', async ({ pa
   await expectCounts(page, 2, 0)
 
   await openFoldFor(page, 'Records')
-  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
   await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).first().click()
   await page.getByLabel('Type restore to confirm').fill('restore')
   await page.getByRole('button', { name: 'Restore snapshot' }).click()

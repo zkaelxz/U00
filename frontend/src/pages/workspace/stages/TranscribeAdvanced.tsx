@@ -7,6 +7,7 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { TranscribeConfig } from '../../../types/workspace'
+import type { TitleKind } from '../titleKind'
 import { rangeHint } from '../formatRange'
 import {
   advancedSummary,
@@ -25,6 +26,7 @@ import { SpeakerDetectionNotice } from './SpeakerDetectionNotice'
 import { optionLabel, promptSummary, readableSummary, speakersSummary, switchesSummary, type ConfigForm } from './transcribeConfigForm'
 import { diarizeEstimate } from './transcribeEstimate'
 import { asrBackendHelp, GROQ_HELP } from './transcribeBackendField'
+import { whisperOnlyControlReason, type WhisperOnlyControl } from './transcribeRun'
 import { VoiceDetectorField } from './VoiceDetectorField'
 
 type NumKey = 'beam_size' | 'min_silence_ms' | 'min_pause_sec' | 'vad_threshold' | 'hallucination_silence_sec' | 'hardsub_interval_sec'
@@ -44,6 +46,8 @@ interface Props {
   config: TranscribeConfig | null
   setC: <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => void
   language: string
+  // Controls the kind has no use for (mediaTypeSettings.ts) are not rendered.
+  kind: TitleKind
   developerMode: boolean
   haveTranscript: boolean
   // The title's options were saved before (see optionsSaved in TranscribeStage): decides which fold opens first.
@@ -93,22 +97,31 @@ export function TranscribeAdvanced(p: Props) {
       </Field>
     ),
   })
-  const num = (label: string, key: NumKey, step: number, help: string, unit?: string): Placed => ({
-    zone: 'grid',
-    node: (
-      <Field label={label} help={help} unit={unit}>
-        <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
-      </Field>
-    ),
-  })
-  const toggle = (label: string, key: ToggleKey, help?: string): Placed => ({
-    zone: 'list',
-    node: (
-      <Field label={label} help={help}>
-        <Toggle checked={cf[key]} onChange={(v) => setC(key, v)} />
-      </Field>
-    ),
-  })
+  // A pasted transcript is aligned, so the ASR backend choice does not apply to that run.
+  const unusedReason = (control?: WhisperOnlyControl) => (control && !haveTranscript ? whisperOnlyControlReason(cf.asr_backend_choice, control) : null)
+  const withReason = (help: string | undefined, reason: string | null) => (reason ? [reason + '.', help].filter(Boolean).join(' ') : help)
+  const num = (label: string, key: NumKey, step: number, help: string, unit?: string, control?: WhisperOnlyControl): Placed => {
+    const reason = unusedReason(control)
+    return {
+      zone: 'grid',
+      node: (
+        <Field label={label} help={withReason(help, reason)} unit={unit}>
+          <input type="number" step={step} value={cf[key]} disabled={!!reason} onChange={(e) => setC(key, e.target.value)} />
+        </Field>
+      ),
+    }
+  }
+  const toggle = (label: string, key: ToggleKey, help: string, control?: WhisperOnlyControl): Placed => {
+    const reason = unusedReason(control)
+    return {
+      zone: 'list',
+      node: (
+        <Field label={label} help={withReason(help, reason)}>
+          <Toggle checked={cf[key]} disabled={!!reason} title={reason ?? undefined} onChange={(v) => setC(key, v)} />
+        </Field>
+      ),
+    }
+  }
   const speaker = (label: string, field: 'expected' | 'min' | 'max', help: string, range?: boolean): Placed => ({
     zone: 'grid',
     node: (
@@ -183,7 +196,7 @@ export function TranscribeAdvanced(p: Props) {
     sensitivity_preset: () =>
       select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'], 'Catches quieter or faster speech, but may add false text on music or breathing.'),
     min_silence_ms: () =>
-      num('Min silence', 'min_silence_ms', 50, `${rangeHint(RANGES.min_silence_ms.min, RANGES.min_silence_ms.max, { unit: 'ms', default: MIN_SILENCE_MS_DEFAULT })} Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms'),
+      num('Min silence', 'min_silence_ms', 50, `${rangeHint(RANGES.min_silence_ms.min, RANGES.min_silence_ms.max, { unit: 'ms', default: MIN_SILENCE_MS_DEFAULT })} Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms', 'min_silence'),
     min_pause_sec: () =>
       num('Pause that can split a long line', 'min_pause_sec', 0.05, `${rangeHint(RANGES.min_pause_sec.min, RANGES.min_pause_sec.max, { unit: 's', default: MIN_PAUSE_SEC_DEFAULT })} Longer lines are only cut where the speaker pauses at least this long. Higher gives fewer, longer lines. Lower cuts more.`, 's'),
     split_by_sentences: () =>
@@ -195,8 +208,8 @@ export function TranscribeAdvanced(p: Props) {
             ? ' Not used with the selected ASR backend: choose Whisper or Qwen3 ASR for this to apply. Long lines can still be cut afterwards in Review.'
             : ''),
       ),
-    realign_long_segments: () => toggle('Realign long segments', 'realign_long_segments'),
-    vad_threshold: () => num('VAD threshold', 'vad_threshold', 0.05, `${rangeHint(RANGES.vad_threshold.min, RANGES.vad_threshold.max, { default: VAD_THRESHOLD_DEFAULT })} Higher ignores more quiet sound.`),
+    realign_long_segments: () => toggle('Realign long segments', 'realign_long_segments', 'Experimental, off by default. Re-times each line against its own audio with the MMS aligner (needs torchaudio and uroman, about 1.1 GB on first use). It only changes timing, not the text.'),
+    vad_threshold: () => num('VAD threshold', 'vad_threshold', 0.05, `${rangeHint(RANGES.vad_threshold.min, RANGES.vad_threshold.max, { default: VAD_THRESHOLD_DEFAULT })} Higher ignores more quiet sound.`, undefined, 'vad_threshold'),
     hardsub_interval_sec: () => num('Hardsub interval', 'hardsub_interval_sec', 0.1, `${rangeHint(RANGES.hardsub_interval_sec.min, RANGES.hardsub_interval_sec.max, { unit: 's', default: HARDSUB_INTERVAL_DEFAULT })} How often video frames are read for on-screen text.`, 's'),
     alignment_method: () =>
       select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
@@ -208,7 +221,13 @@ export function TranscribeAdvanced(p: Props) {
       select('ASR backend', 'asr_backend_choice', asrOptions, [asrBackendHelp(asrOptions), config?.asr_backend_notice].filter(Boolean).join('\n')),
     voice_detector: () => ({ zone: 'grid', node: <VoiceDetectorField /> }),
     use_groq: () => toggle('Use Groq', 'use_groq', GROQ_HELP),
-    whisper_fast_mode: () => toggle('Whisper fast mode', 'whisper_fast_mode'),
+    whisper_fast_mode: () =>
+      toggle(
+        'Whisper fast mode',
+        'whisper_fast_mode',
+        "Off by default. Decodes several chunks of speech at once (about 2-4x faster on a GPU, uses more GPU memory). It can make lines fewer and longer than a normal run (Baihe's own test: 44 lines against 150, and a higher error rate); try Compare transcription first.",
+        'fast_mode',
+      ),
     vocabulary_hint: () =>
       toggle(
         'Name hint for Qwen3 ASR',
@@ -241,7 +260,7 @@ export function TranscribeAdvanced(p: Props) {
         </>
       ),
     }),
-    beam_size: () => num('Beam size', 'beam_size', 1, `${rangeHint(RANGES.beam_size.min, RANGES.beam_size.max, { default: BEAM_SIZE_DEFAULT })} Higher is slower and a little more accurate.`),
+    beam_size: () => num('Beam size', 'beam_size', 1, `${rangeHint(RANGES.beam_size.min, RANGES.beam_size.max, { default: BEAM_SIZE_DEFAULT })} Higher is slower and a little more accurate.`, undefined, 'beam_size'),
     separation_backend: () => select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.'),
     hardsub_ocr_backend: () =>
       select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.'),
@@ -252,12 +271,13 @@ export function TranscribeAdvanced(p: Props) {
         'Removes background music before transcribing. Skip it unless the background is music alone: it hurt with noise and did nothing on clean audio. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length).',
       ),
     hallucination_silence_sec: () =>
-      num('Hallucination guard', 'hallucination_silence_sec', 0.5, `Experimental. Off (0) by default: 0 or ${rangeHint(0.5, 10, { unit: 's' })} Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages and Fast mode.`, 's'),
+      num('Hallucination guard', 'hallucination_silence_sec', 0.5, `Experimental. Off (0) by default: 0 or ${rangeHint(0.5, 10, { unit: 's' })} Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages and Fast mode.`, 's', 'hallucination_guard'),
     whisper_repeat_guard: () =>
       toggle(
         'Whisper repeat guard',
         'whisper_repeat_guard',
         'Stops Whisper repeating the same few words. Can drop or change real Chinese and Japanese speech, where short words repeat naturally. Turn on only if a title shows repeated-phrase loops.',
+        'repeat_guard',
       ),
   }
 
@@ -275,7 +295,7 @@ export function TranscribeAdvanced(p: Props) {
       <p className="muted source-summary" data-testid="advanced-summary">
         {readableSummary(advancedSummary({ ...cf, prompt: p.override, source_language: language }, developerMode))}
       </p>
-      {advancedGroups(developerMode, p.optionsSaved).map((g) => {
+      {advancedGroups(developerMode, p.optionsSaved, p.kind).map((g) => {
         const placed = g.fields.map((f) => fields[f]())
         const grid = placed.filter((x) => x.zone === 'grid')
         const blocks = placed.filter((x) => x.zone === 'block')

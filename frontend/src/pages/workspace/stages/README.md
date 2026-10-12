@@ -7,7 +7,8 @@ shared `Tabs` (`../mediaTabs.ts`: Add media, Transcribe, Tools, Details, Credits
 only Add media, Details and Credits). `TranslateStage` is four sub-tabs the same way (`../translateTabs.ts`:
 Translate, Glossary, Characters, Reference novel), reusing `MediaTabPanel` with its own id prefix. `TranscribeStage.tsx` owns the Transcribe and Tools panels, and
 `TranscribeAdvanced.tsx` the Advanced options folds (`advancedGroups.ts` says which control sits
-in which fold). Stages take no props; they read the drama id from
+in which fold). `../mediaTypeSettings.ts` is the one table of which setting groups each title kind has: a
+setting a kind lacks is not rendered, and the tabs and `advancedGroups` read it. Stages take no props; they read the drama id from
 `useStage()` (`../StageContext.ts`).
 
 ## Start here

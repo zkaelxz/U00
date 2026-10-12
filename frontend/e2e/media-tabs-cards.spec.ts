@@ -69,6 +69,8 @@ test.describe('one open card per sub-tab', () => {
     await fold(panel, 'Credits').locator(':scope > summary').click()
     await expect(fold(panel, 'Cover and romanized credits')).toHaveAttribute('open', '')
     await expect(fold(panel, 'Credits')).not.toHaveAttribute('open', '')
+    // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+    await page.waitForFunction(() => ['source.cover', 'source.credits'].every((k) => window.localStorage.getItem(`baihe.section.${k}`) !== null))
     await page.reload()
     const again = mediaPanel(page, 'credits')
     await expect(fold(again, 'Cover and romanized credits')).toHaveAttribute('open', '')

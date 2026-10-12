@@ -89,9 +89,17 @@ reach a client (`jobs_service._redact`).
 - **Interrupted after a restart** is a `job_records` row left `queued`/`running` by a
   dead process. `jobs_service.sweep_stale_job_records` (`job_store.sweep_dead_owners`)
   closes it as `cancelled` with `error = background_jobs.INTERRUPTED_MESSAGE` and
-  `detail_state = "interrupted"`. It runs at startup (`api/server.py`)
+  `detail_state = "interrupted"`, which the job list reports as outcome `interrupted`
+  (Jobs: "Interrupted"). It runs at startup (`api/server.py`)
   and on every `jobs_service.list_jobs`. The in-memory dict is empty after a restart,
   so nothing resumes: records have no resume.
+- A thread job that stops for a cancel ends `cancelled` with the progress it reached,
+  whether it raised `JobCancelled` or (Translate) returned with its work kept and then
+  raised it. A worker that returns a `failed_reason` from
+  `jobs_service.FAILED_REASON_MESSAGES` ends `error` with that sentence; partial
+  reasons (`no_lines`, `no_text`, `empty_kept_existing`) end `done`.
+- "Is such a job still on?" is `job_store.fresh_active`: live here, or a
+  queued/running row heartbeated within `STALE_JOB_SECONDS`.
 - A worker that died without reporting back (thread gone, status still `running`) is
   marked `error` with `WORKER_LOST_MESSAGE` by `reconcile_dead_workers`.
 - A queued job that is cancelled ends `cancelled` and never starts.
@@ -236,7 +244,10 @@ CLI prints the same sentence.
 - **Running thread job:** the message becomes `CANCELLING_MESSAGE`. The job must notice
   and raise `JobCancelled`, which `_spawn` records as `cancelled`. Check with
   `is_cancel_requested(job_id)` between units of work; external commands go through
-  `run_cancellable` (ffmpeg and friends, killed as a process tree).
+  `run_cancellable` (ffmpeg and friends, killed as a process tree). Inside `job_workdir(job_id)`
+  it notes the command (pid, start time, command digest) in the folder, so if the server dies
+  without stopping it the next start stops it, only while it is still that same process, and
+  removes the folder (`storage.stop_orphaned_job_children`).
 - **Running process job:** `_process_watcher` sees the flag, stops the child
   (`_stop_process`: terminate, then kill; or `kill_tree` for `kill_whole_tree=True`),
   and marks the job `cancelled` ("Cancelled."). `on_done` is not called. A cancel that
@@ -259,7 +270,7 @@ does the same plus the `job_records` flag for jobs run by the API.
 
 A GPU job's worker is started through `services/gpu_process_job.py`: `run_in_child` for a thread job whose GPU stage must be killable and whose next stage needs the parent (`comparetx_`, `fixflag_`); the worker may send each finished unit as `("item", x)` so a cancel or timeout keeps what was done. It runs the body under `run_worker` (own process group, a deadline watchdog that closes the result queue before `os._exit`, scratch folder as the temp dir). The child never reads the database: the parent resolves settings and passes plain values.
 
-Every process-job worker hands its result back through `job_process_result.py`: small items go on the queue, a large final result is written to a file and only a short marker is queued, so a child killed mid-write cannot leave the parent blocked on a half-written message. A done job has already removed its result file. A thread job that waits for the pipeline lock takes it with `lib/cancellable_lock.hold(lock, cancel_check)`, which polls the cancel check between acquire attempts so Cancel works while it waits. A URL-media download runs yt-dlp in a killable child (`services/ytdlp_child.py`, started through `lib/proc.stream_tree`), so Cancel and the time cap kill extraction, challenge solving and ffmpeg post-processing together.
+Every process-job worker hands its result back through `job_process_result.py`: small items go on the queue, a large final result is written to a file and only a short marker is queued, so a child killed mid-write cannot leave the parent blocked on a half-written message. A done job has already removed its result file. A thread job that waits for the pipeline lock takes it with `lib/cancellable_lock.hold(lock, cancel_check)`, which polls the cancel check between acquire attempts so Cancel works while it waits. A URL-media download runs yt-dlp in a killable child (`services/ytdlp_child.py`, started through `lib/proc.stream_tree`), so Cancel and the time cap kill extraction, challenge solving and ffmpeg post-processing together. URL downloads queue inside `services/url_media_service.py`, not in the GPU queue: each request's job starts at once and waits in its own thread (message "Queued: Nth in line", status running) until a slot frees, so the Jobs page and Cancel treat it like any running job.
 
 The job store in `jobs/job_store.py` (#1058, merged) is the only writer of `job_records` rows; the in-memory dict still decides what a job this process runs does next.
 
@@ -433,17 +444,18 @@ The client reads the `job_records` row, never the in-memory dict, with these cha
   `.../name`). `owner_pid` and the store's own columns are dropped, and the response carries `owned_by_me`, never an
   owner id.
 - **Normalised outcome.** `derive_outcome` adds `outcome` (`ok`, `failed`, `cancelled`,
-  `partial`, `kept_existing`) and `outcome_message`, so a client does not need each job's
+  `interrupted`, `partial`, `kept_existing`) and `outcome_message`, so a client does not need each job's
   result shape. A `done` job with warnings (CPU fallback, capped spend, partial work)
   reads `partial`.
 - **Flags.** `stale` (an active row with no live owner, judged on the server's clock) and
   `stalled` (no progress for a while).
 - **Visibility.** `ownership_service.can_see_job`: the PC owner, admins and auth-off see
   every job. Otherwise a `<prefix><drama_id>` job follows its title's visibility and any
-  other job is visible only to its starter. A job you may not see is a 404.
+  other job is visible only to its starter. A job you may not see is a 404. The list
+  reads its titles' ownership once (`ownership_service.job_drama_ownership`), not per job.
 
-A cancelled job after a restart reads `cancelled` with an `Interrupted: ...` error, and
-its outcome message says so.
+A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and outcome
+`interrupted`.
 
 ## The CLI
 

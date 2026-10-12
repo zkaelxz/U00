@@ -498,6 +498,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/source-domains/proposals/dismiss` | local_only() |
 | `POST /api/source-domains/{name}` | local_only() |
 | `POST /api/source-domains/{name}/reset` | local_only() |
+| `GET /api/source-suspect/dramas/{drama_id}` | lines.read |
+| `POST /api/source-suspect/dramas/{drama_id}/check` | lines.edit |
 | `GET /api/source/dramas/{drama_id}/config` | library.read |
 | `POST /api/source/dramas/{drama_id}/config` | lines.edit |
 | `GET /api/sources` | library.read |

@@ -36,6 +36,36 @@ export function checkUrl(text: string): string | null {
   return null
 }
 
+// ---------------------------------------------------------------- part of a video
+
+export const MAX_PART_SECONDS = 12 * 3600
+
+/** Seconds from "h:mm:ss", "m:ss" or plain seconds; null for empty, 'bad' for anything else. */
+export function parseClock(text: string): number | null | 'bad' {
+  const t = text.trim()
+  if (!t) return null
+  if (!/^\d{1,3}(:\d{1,2}){0,2}$/.test(t)) return 'bad'
+  const parts = t.split(':').map(Number)
+  if (parts.slice(1).some((p) => p >= 60)) return 'bad'
+  return parts.reduce((total, p) => total * 60 + p, 0)
+}
+
+/** Why the chosen part can't be sent, or null (also null while both ends are empty). */
+export function partProblem(start: string, end: string): string | null {
+  const a = parseClock(start)
+  const b = parseClock(end)
+  if (a === 'bad' || b === 'bad') return 'Write the times like 1:02:30 (hours:minutes:seconds).'
+  if (b !== null && b <= (a ?? 0)) return 'The part must end after it starts.'
+  if (b !== null && b - (a ?? 0) > MAX_PART_SECONDS) return 'A part can be at most 12 hours.'
+  return null
+}
+
+export const PART_CLIP_NOTE =
+  'Subtitle times for a part start at 0:00 for the clip, not at the time you chose. Add that offset yourself if you need the original times.'
+export const EXACT_CUTS_HELP =
+  'Re-encodes the whole part so it starts exactly where you chose. This takes about as long as the part itself. Off: a fast copy that starts at the nearest keyframe.'
+export const QUEUE_NOTE = 'Up to 3 downloads run at once, started 20 seconds apart. More wait in line; you can leave this page.'
+
 // ---------------------------------------------------------------- preview
 
 const TYPE_LABELS: Record<string, string> = { video: 'Video', novel: 'Novel', comic: 'Comic', unknown: 'Unknown' }

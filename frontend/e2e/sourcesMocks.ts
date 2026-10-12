@@ -277,8 +277,8 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
 
 export const posted = (s: MockState, path: string) => s.calls.filter((c) => c.method === 'POST' && c.path === path)
 
-/** Opens Manage sources (the Sites tab, or the named one) and returns the page. */
-export async function openManage(page: Page, tab?: ManageTabName) {
-  await page.goto(tab ? `/#/sources/manage?tab=${tab}` : '/#/sources/manage')
-  return page.locator('.sources-manage-page')
+/** Opens the Manage sources tab of Sources (through the old page link when an area is named) and returns its panel. */
+export async function openManage(page: Page, area?: ManageTabName) {
+  await page.goto(area ? `/#/sources/manage?tab=${area}` : '/#/sources?tab=manage')
+  return page.locator('.sources-manage-panel')
 }

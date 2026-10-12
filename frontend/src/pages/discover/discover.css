@@ -1,14 +1,8 @@
 /* Discover page (#/discover). Tokens only; shared rules live in index.css. */
 
-.discover-page { display: grid; gap: var(--space-5); max-width: 860px; margin-inline: auto; min-width: 0; }
-.discover-page > * { min-width: 0; }
-.discover-page h2 { margin: 0; font-size: var(--text-2xl); font-weight: 600; }
 .discover-page h4 { margin: 0; }
-.discover-head { display: grid; gap: var(--space-2); }
-.discover-head > * { margin: 0; }
 .discover-engine { max-width: 22rem; }
 @media (max-width: 640px) {
-  .discover-page { gap: var(--space-4); }
   .discover-engine { max-width: none; }
 }
 
@@ -62,7 +56,9 @@ ul.discover-links, ul.discover-labels { margin: 0; overflow-wrap: anywhere; }
 }
 .discover-tab[aria-selected='true'] { color: var(--text); border-bottom-color: var(--accent); }
 .discover-tab:focus-visible { outline: 2px solid transparent; outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--focus); }
-.discover-panel { display: grid; gap: var(--space-5); min-width: 0; }
+.discover-panel { display: grid; gap: var(--page-gap); min-width: 0; }
+/* Two classes so it out-ranks details.section's own bottom margin. */
+.discover-page .discover-panel > * { margin: 0; }
 .discover-panel[hidden] { display: none; }
 .discover-group { display: grid; gap: var(--space-3); min-width: 0; }
 .discover-group > h3 { margin: 0; font-size: var(--text-lg); font-weight: 600; }

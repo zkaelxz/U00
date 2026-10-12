@@ -1,7 +1,5 @@
 /* Benchmark Lab (pages/Benchmark.tsx). Tokens only; phone rules at <= 640px and the coarse-pointer block. */
 
-.bench-page { display: grid; gap: var(--space-5); min-width: 0; }
-.bench-page > * { min-width: 0; margin: 0; }
 .bench-intro { max-width: 72ch; display: grid; gap: var(--space-1); }
 .bench-intro p { margin: 0; }
 .bench-page h4 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
@@ -106,7 +104,6 @@
 .bench-output { white-space: pre-wrap; }
 
 @media (max-width: 640px) {
-  .bench-page { gap: var(--space-4); }
   .bench-arena-texts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .bench-arena-cell { padding-inline: var(--space-2); }
   .bench-config-list > li > button { margin-left: auto; }

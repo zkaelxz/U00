@@ -105,6 +105,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "sensitivity_preset.py",
     "sentence_groups.py",
     "source_change.py",
+    "source_suspect.py",
     "stereo_cues.py",
     "stereo_render.py",
     "storage.py",

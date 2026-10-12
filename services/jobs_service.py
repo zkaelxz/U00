@@ -286,7 +286,7 @@ def project_result_json(result, run_settings=None):
     return json.dumps(projected) if projected is not None else None
 
 
-_FAILED_REASON_MESSAGES = {
+FAILED_REASON_MESSAGES = {
     "model_download": "The speech model could not be downloaded.",
     "empty": "Nothing was produced: no speech or text was found.",
     "dependency_missing": "A required component is not installed.",
@@ -327,16 +327,20 @@ def speaker_skip_text(result):
     return f"Speaker detection did not run: {why}." if why else None
 
 
-def derive_outcome(status, error, result):
+def derive_outcome(status, error, result, detail_state=None):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's
     own result shape; (None, None) while queued/running. outcome is one of
-    ok, failed, cancelled, partial, kept_existing. Transcribe warnings
-    (gpu_fallback, word_align_error, forced_align_error) map to partial."""
+    ok, failed, cancelled, interrupted, partial, kept_existing. Transcribe
+    warnings (gpu_fallback, word_align_error, forced_align_error) map to
+    partial. detail_state: the job_records column; "interrupted" marks a
+    row closed because its server stopped (jobs/job_store._close), which
+    is stored as cancelled but nobody cancelled it."""
     if status == "error":
         return "failed", (error or "The job failed.")
+    if status == "cancelled" and detail_state == "interrupted":
+        return "interrupted", (error or background_jobs.INTERRUPTED_MESSAGE)
     if status == "cancelled":
-        # An error on a cancelled record says why (INTERRUPTED_MESSAGE).
         return "cancelled", (error or "The job was cancelled.")
     if status != "done":
         return None, None
@@ -356,7 +360,7 @@ def derive_outcome(status, error, result):
         skipped = speaker_skip_text(result)
         return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
     if reason:
-        msg = _FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
+        msg = FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
         return "failed", (f"{msg} {detail}" if detail else msg)
     if result.get("status") in ("failed", "auth_error"):
         return "failed", (result.get("last_error") or "The job failed.")
@@ -493,7 +497,8 @@ def _redact(record: dict) -> dict:
     out["message"] = scrub_text(record.get("message") or "")
     out["error"] = scrub_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
-    outcome, message = derive_outcome(out.get("status"), out["error"], out["result"])
+    outcome, message = derive_outcome(out.get("status"), out["error"], out["result"],
+                                      record.get("detail_state"))
     out["outcome"] = outcome
     out["outcome_message"] = (scrub_text(message)[:_MAX_STR]
                               if message else None)
@@ -587,12 +592,12 @@ def job_page(job_id):
     return None
 
 
-def _visible(principal, record) -> bool:
+def _visible(principal, record, drama_rows=None) -> bool:
     return ownership_service.can_see_job(principal, record.get("job_id"),
-                                         record.get("owner_user_id"))
+                                         record.get("owner_user_id"), drama_rows=drama_rows)
 
 
-def _for_caller(principal, record) -> dict:
+def _for_caller(principal, record, drama_rows=None) -> dict:
     """_redact plus `owned_by_me` (ownership_service.owns_job), the only
     word on who owns the job a response carries: never an owner id. Also
     `drama_id`, `kind` and `page`; callers reach this only for a job they may see,
@@ -602,7 +607,8 @@ def _for_caller(principal, record) -> dict:
     out["kind"] = job_kind(record.get("job_id"))
     out["page"] = job_page(record.get("job_id"))
     out["owned_by_me"] = ownership_service.owns_job(principal, record.get("job_id"),
-                                                    record.get("owner_user_id"))
+                                                    record.get("owner_user_id"),
+                                                    drama_rows=drama_rows)
     return out
 
 
@@ -618,7 +624,9 @@ def list_jobs(principal=None) -> list:
     first, redacted for HTTP. Stale rows of dead owners are closed first
     (sweep_stale_job_records), so they don't list as running forever."""
     sweep_stale_job_records()
-    return [_for_caller(principal, r) for r in db.list_job_records() if _visible(principal, r)]
+    records = db.list_job_records()
+    rows = ownership_service.job_drama_ownership(principal, [r.get("job_id") for r in records])
+    return [_for_caller(principal, r, rows) for r in records if _visible(principal, r, rows)]
 
 
 def get_job(job_id: str, principal=None) -> dict:
@@ -673,6 +681,8 @@ def cancel_job(job_id: str, principal=None) -> dict:
         # The owner process has exited, or sent no heartbeat for
         # STALE_JOB_SECONDS: nobody will read the flag. Each close is
         # conditional, so a live owner's heartbeat, "done" or new run wins.
+        # It lists as interrupted, not cancelled: the work had already
+        # stopped when its process died; the Cancel only tidies the row.
         return {"job_id": job_id, "cancel_requested": True, "status": "cancelled"}
     # A queued job here ends at once (request_cancel); a running one says
     # "Cancelling..." until its worker stops.

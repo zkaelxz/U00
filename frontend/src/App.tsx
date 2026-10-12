@@ -29,7 +29,6 @@ import SavedMangaReader from './pages/SavedMangaReader'
 import SettingsPage from './pages/Settings'
 import SourcesPage from './pages/Sources'
 import MakeSubtitlesPage from './pages/MakeSubtitlesPage'
-import SourcesManagePage from './pages/SourcesManage'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
@@ -145,18 +144,9 @@ function SignInOverlay({ configured }: { configured: boolean }) {
   )
 }
 
-// List and card pages use the wider column; forms and reading pages keep the 1200px cap.
-const WIDE_ROUTES: ReadonlySet<string> = new Set([
-  'library',
-  'library-tools',
-  'jobs',
-  'sources',
-  'sources-manage',
-  'discover',
-  'diagnostics',
-  'manga',
-  'manga-series',
-])
+// Routes that render inside PageShell; the rest (a title's workspace, the readers) manage their own layout and
+// are held to the 1200px column by .app-bounded.
+const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'manga-read'])
 
 export default function App() {
   const route = useRoute()
@@ -194,41 +184,48 @@ export default function App() {
     </div>
   )
 
+  const routes = (
+    <>
+      {route.name === 'library' && <LibraryPage />}
+      {route.name === 'library-tools' && <LibraryToolsPage />}
+      {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
+      {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
+      {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
+      {route.name === 'manga' && <SavedMangaPage />}
+      {route.name === 'manga-series' && (
+        <SavedMangaPage key={`${route.source}/${route.series}`} source={route.source} series={route.series} />
+      )}
+      {route.name === 'manga-read' && (
+        <SavedMangaReader
+          key={`${route.source}/${route.series}/${route.chapter}`}
+          source={route.source}
+          series={route.series}
+          chapter={route.chapter}
+          page={route.page}
+        />
+      )}
+      {route.name === 'jobs' && <JobsPage />}
+      {route.name === 'settings' && <SettingsPage />}
+      {route.name === 'admin' && <AdminPage />}
+      {route.name === 'translate' && <TranslatePage />}
+      {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
+      {(route.name === 'sources' || route.name === 'sources-manage') && (
+        <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} area={route.name === 'sources-manage' ? route.tab : undefined} />
+      )}
+      {route.name === 'discover' && <DiscoverPage />}
+      {route.name === 'live' && <LivePage />}
+      {route.name === 'diagnostics' && <DiagnosticsPage />}
+      {route.name === 'assistant' && <AssistantPage />}
+      {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
+    </>
+  )
+
   // Header and nav stay outside the boundary so a crashed page can still be left.
   const content = (
     <>
       <RemoteHealthBanner />
       <RouteErrorBoundary>
-        {route.name === 'library' && <LibraryPage />}
-        {route.name === 'library-tools' && <LibraryToolsPage />}
-        {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
-        {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
-        {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
-        {route.name === 'manga' && <SavedMangaPage />}
-        {route.name === 'manga-series' && (
-          <SavedMangaPage key={`${route.source}/${route.series}`} source={route.source} series={route.series} />
-        )}
-        {route.name === 'manga-read' && (
-          <SavedMangaReader
-            key={`${route.source}/${route.series}/${route.chapter}`}
-            source={route.source}
-            series={route.series}
-            chapter={route.chapter}
-            page={route.page}
-          />
-        )}
-        {route.name === 'jobs' && <JobsPage />}
-        {route.name === 'settings' && <SettingsPage />}
-        {route.name === 'admin' && <AdminPage />}
-        {route.name === 'translate' && <TranslatePage />}
-        {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
-        {route.name === 'sources' && <SourcesPage />}
-        {route.name === 'sources-manage' && <SourcesManagePage tab={route.tab} />}
-        {route.name === 'discover' && <DiscoverPage />}
-        {route.name === 'live' && <LivePage />}
-        {route.name === 'diagnostics' && <DiagnosticsPage />}
-        {route.name === 'assistant' && <AssistantPage />}
-        {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
+        {BOUNDED_ROUTES.has(route.name) ? <div className="app-bounded">{routes}</div> : routes}
       </RouteErrorBoundary>
     </>
   )
@@ -239,7 +236,7 @@ export default function App() {
       {signedOut && <SignInOverlay configured={signInConfigured} />}
       <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
         {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
-        <div className="app-main" data-width={WIDE_ROUTES.has(route.name) ? 'wide' : undefined}>
+        <div className="app-main">
           {wide ? (
             <header className="app-header" ref={headerRef}>{headerEnd}</header>
           ) : (

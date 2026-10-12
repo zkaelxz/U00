@@ -7,6 +7,8 @@ import type { TranslateEngine } from './translate'
 export interface TranslateRunConfig {
   drama_id: number
   translation_engine: string
+  // The engine the per-line AI helpers use when none is named (missing on an older server).
+  line_ai_engine?: string
   // The owner's saved choice for this title; null/omitted = never chosen.
   default_female_pronouns?: boolean | null
   include_genre_notes?: boolean | null

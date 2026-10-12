@@ -18,6 +18,7 @@ import { browserStorage } from '../../../hooks/usePersistedState'
 import { parseRoute } from '../../../router'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
+import { appliesTo } from '../mediaTypeSettings'
 import { MEDIA_TAB_PREFIX, hashWithTab, isMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
@@ -41,6 +42,7 @@ import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
 import { NovelChaptersPanel } from './NovelChaptersPanel'
 import { SubtitleImport } from './SubtitleImport'
+import { NovelFlow } from './NovelFlow'
 import { NovelPanel } from './NovelPanel'
 import { novelSections, stableNovelSections } from './novelFile'
 import { useNovelPresence } from './novelFileEvents'
@@ -308,8 +310,9 @@ export default function SourceStage() {
     </>
   )
 
-  // Novel text and chapter images come first for a novel or comic; for audio they are the optional extra.
-  const kind = mediaKind(drama.media_type)
+  // A novel is translated first, so its text leads; for audio the novel is the optional extra.
+  // The title's kind decides, not just its media type: a narrated novel keeps whatever type it was made with.
+  const kind = kindOfTitle === 'novel' ? 'novel' : mediaKind(drama.media_type)
   const novelPresence = useNovelPresence(dramaId, reloads)
   const presenceSections = novelSections(kind, drama.media_type, drama.content_mode, novelPresence)
   // A panel must not move under the viewer's hands: saving a raw novel from the optional row
@@ -321,14 +324,15 @@ export default function SourceStage() {
   // Record what is shown, not what was read, so a held layout never counts as the other one.
   if (novelPresence && sections === 'optional' && optionalFor !== dramaId) setOptionalFor(dramaId)
   if (novelPresence && sections === 'full' && fullFor !== dramaId) setFullFor(dramaId)
-  const novel = sections !== 'hidden' && (
+  const novel = sections !== 'hidden' && (appliesTo(kindOfTitle, 'novel_text') || appliesTo(kindOfTitle, 'chapter_ocr')) && (
     <div key="novel" className="source-group">
+      {kind === 'novel' && <NovelFlow busy={busy} onJobStarted={setJobId} />}
       {kind === 'novel' && <NovelChaptersPanel />}
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} optional={sections === 'optional'} />
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
-  const subtitles = (
+  const subtitles = appliesTo(kindOfTitle, 'subtitle_import') && (
     <Section
       key="subtitles"
       storageKey="source.group.subtitles"
@@ -339,19 +343,33 @@ export default function SourceStage() {
       <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
     </Section>
   )
+  // For a novel the audio is for dubbing the finished translation, so it waits behind a fold.
+  const audio = !appliesTo(kindOfTitle, 'media_upload') ? null : kind === 'novel' ? (
+    <Section
+      key="audio"
+      storageKey="source.group.novelAudio"
+      defaultOpen={hasMedia}
+      title="Audio (optional, for dubbing later)"
+      summary={hasMedia ? 'attached' : 'none'}
+    >
+      {mediaSlot}
+    </Section>
+  ) : (
+    mediaSlot
+  )
   const addMedia = (
     <>
       {kind === 'audio' ? (
         <>
-          {hasTranscribe && <TranscriptModePicker onChanged={setTranscriptMode} />}
-          {mediaSlot}
+          {hasTranscribe && appliesTo(kindOfTitle, 'transcript_source') && <TranscriptModePicker onChanged={setTranscriptMode} />}
+          {audio}
           {subtitles}
           {novel}
         </>
       ) : (
         <>
           {novel}
-          {mediaSlot}
+          {audio}
           {subtitles}
         </>
       )}

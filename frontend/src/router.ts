@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
-import { isManageTab, manageHref, type ManageTab } from './pages/sources/manageTabs'
+import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
+import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, type SourcesTab } from './pages/sources/manageTabs'
 import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isTranslateTab, type TranslateTab } from './pages/workspace/translateTabs'
+import { isBenchmarkTab, type BenchmarkTab } from './pages/benchmark/benchmarkTabs'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
 export type Route =
@@ -13,9 +15,10 @@ export type Route =
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
+  // tools: "#/drama/3/review?tools=coverage" opens that tab of the Review tools panel.
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
   // "#/drama/3/translate?tab=glossary" that of the Translate stage.
-  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tab?: MediaTab | TranslateTab }
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; tools?: ReviewToolsTab; tab?: MediaTab | TranslateTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads' }
@@ -25,11 +28,14 @@ export type Route =
   | { name: 'diagnostics'; tab?: DiagnosticsTab; card?: DiagnosticsCard }
   // compare: the raw "engine:model,engine:model" value of ?compare= (Model
   // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
-  | { name: 'benchmark'; compare?: string }
+  // tab: "#/benchmark?tab=runs" opens that tab (the last one used is remembered otherwise).
+  | { name: 'benchmark'; compare?: string; tab?: BenchmarkTab }
   | { name: 'translate' }
   | { name: 'make-subtitles' }
-  | { name: 'sources' }
-  // tab: "#/sources/manage?tab=network"; no tab opens Sites.
+  // tab: "#/sources?tab=new"; no tab opens Find.
+  | { name: 'sources'; tab?: SourcesTab }
+  // The old Manage sources page, kept as a deep link: it opens the Manage sources tab of Sources and
+  // scrolls to the area named by "?tab=network".
   | { name: 'sources-manage'; tab?: ManageTab }
   | { name: 'discover' }
   | { name: 'live' }
@@ -41,7 +47,7 @@ export type Route =
   | { name: 'manga-series'; source: string; series: string }
   | { name: 'manga-read'; source: string; series: string; chapter: string; page: number | null }
 
-export type DramaFocus = 'glossary' | 'characters' | 'flagged'
+export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare'
 
 export const DEFAULT_STAGE = 'source'
 
@@ -73,11 +79,19 @@ export function parseRoute(hash: string): Route {
   if (head === 'benchmark' && parts.length === 1) {
     // Kept raw (still %-encoded) so a ":" or "," inside a model name can't be misread.
     const compare = qs.split('&').find((p) => p.startsWith('compare='))?.slice('compare='.length)
-    return compare && compare.length <= 1000 ? { name: 'benchmark', compare } : { name: 'benchmark' }
+    const tab = new URLSearchParams(qs).get('tab')
+    return {
+      name: 'benchmark',
+      ...(compare && compare.length <= 1000 ? { compare } : {}),
+      ...(isBenchmarkTab(tab) ? { tab } : {}),
+    }
   }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
-  if (head === 'sources' && parts.length === 1) return { name: 'sources' }
+  if (head === 'sources' && parts.length === 1) {
+    const tab = new URLSearchParams(qs).get('tab')
+    return isSourcesTab(tab) ? { name: 'sources', tab } : { name: 'sources' }
+  }
   if (head === 'sources' && a === 'manage' && parts.length === 2) {
     const tab = new URLSearchParams(qs).get('tab')
     return isManageTab(tab) ? { name: 'sources-manage', tab } : { name: 'sources-manage' }
@@ -120,12 +134,14 @@ export function parseRoute(hash: string): Route {
     }
     const q = new URLSearchParams(qs)
     const focus = q.get('focus')
+    const tools = q.get('tools')
     const tab = q.get('tab')
     return {
       name: 'drama',
       id: Number(a),
       stage,
-      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' ? { focus } : {}),
+      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
+      ...(isReviewToolsTab(tools) ? { tools } : {}),
       ...((stage === 'translate' ? isTranslateTab(tab) : isMediaTab(tab)) ? { tab: tab as MediaTab | TranslateTab } : {}),
     }
   }
@@ -135,7 +151,7 @@ export function parseRoute(hash: string): Route {
 export function routeHref(r: Route): string {
   if (r.name === 'drama') {
     const base = r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
-    const query = [r.focus && `focus=${r.focus}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
+    const query = [r.focus && `focus=${r.focus}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
     return query ? `${base}?${query}` : base
   }
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
@@ -147,8 +163,12 @@ export function routeHref(r: Route): string {
   if (r.name === 'library-tools' && r.tab) return `#/library-tools?tab=${r.tab}`
   if (r.name === 'diagnostics' && (r.card || r.tab)) return r.card ? `#/diagnostics?card=${r.card}` : `#/diagnostics?tab=${r.tab}`
   if (r.name === 'sources-manage') return manageHref(r.tab)
+  if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
-  if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
+  if (r.name === 'benchmark') {
+    const query = [r.compare && `compare=${r.compare}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
+    return query ? `#/benchmark?${query}` : '#/benchmark'
+  }
   return `#/${r.name}`
 }
 

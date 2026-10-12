@@ -41,6 +41,8 @@ export interface TranscribeConfig {
   whisper_size_notice: string | null
   // {model: {language: reason}} for models not recommended for a language.
   whisper_exclusions: Record<string, Record<string, string>>
+  // The sizes the picker lists (server: whisper_models.selectable_whisper_sizes); absent from an older server.
+  selectable_whisper_sizes?: string[]
   whisper_model_cached: boolean
   // Audio seconds per second of work on the last finished run of this model and device; null if none yet.
   measured_speed: number | null
@@ -422,6 +424,8 @@ export interface CompareOptions {
   saved_asr_backend: string
   saved_alignment_method: string
   whisper_sizes: string[]
+  // The subset of whisper_sizes the picker offers; a saved size outside it is listed as an older choice.
+  selectable_whisper_sizes?: string[]
   source_language: string
   whisper_exclusions: Record<string, Record<string, string>>
   backends: CompareBackendOption[]

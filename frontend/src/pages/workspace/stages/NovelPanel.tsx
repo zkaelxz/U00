@@ -8,6 +8,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { buttonClass } from '../../../components/uiClasses'
 import type { NovelAttachResult, NovelMode, NovelStatus } from '../../../types/workspace'
 import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
@@ -185,6 +186,14 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
             ? `Attached: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
             : 'No novel text attached.'}
         </p>
+        {kind === 'novel' && hasRaw && !status?.has_novel_text && (
+          <div className="source-needed" data-testid="scraped-not-attached" role="note">
+            <span>Scraped chapters are saved as reference only. Use them as the text to translate:</span>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={attaching} onClick={() => attach(() => attachNovelFromSources(dramaId, mode))}>
+              Use scraped chapters
+            </button>
+          </div>
+        )}
         {(status?.has_novel_text || hasRaw) && (
           <p className="muted">
             <a href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Build the glossary from this novel in Translate →</a>

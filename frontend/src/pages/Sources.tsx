@@ -7,27 +7,30 @@
  * import a novel page); the other mode stays mounted, hidden, so its text
  * and results survive a switch. Open a series to see its chapter list
  * (another job, per source), tick chapters to import them into a drama or
- * track the series for new chapters (SeriesPanel). New chapters: Check
- * now, the notifications, and the tracked series (stop tracking, which
- * drama auto-import goes to). Cover images are never rendered: loading
- * them would bypass pacing.
+ * track the series for new chapters (SeriesPanel). Cover images are never
+ * rendered: loading them would bypass pacing.
  *
- * Site settings (PC only) live on their own page, Manage sources
- * (#/sources/manage, pages/SourcesManage.tsx), reached by the link in the
- * header. Searching, importing, tracking and Check now are PC only for now
- * too (SEARCH_REMOTE_ALLOWED / IMPORT_REMOTE_ALLOWED).
+ * One level of tabs (#/sources, #/sources?tab=new, #/sources?tab=manage):
+ * Find (the above); New chapters (Check now, the notifications, and the
+ * tracked series: stop tracking, which drama auto-import goes to); Manage
+ * sources (PC only: sites, timing, network, activity; pages/SourcesManage.tsx).
+ * The old page link #/sources/manage still works and opens that tab. Find and
+ * New chapters stay mounted when hidden so a search, its results and a
+ * running Check now survive a switch; Manage mounts on first visit. Searching,
+ * importing, tracking and Check now are PC only for now too
+ * (SEARCH_REMOTE_ALLOWED / IMPORT_REMOTE_ALLOWED).
  *
- * Desktop (>=1024 px): search and results left, the open series right
- * (sticky), New chapters below both. Narrower: one
- * column, and an open series replaces the results until "‹ Results".
+ * Find, desktop (>=1024 px): search and results left, the open series right.
+ * Narrower: one column, and an open series replaces the results until "‹ Results".
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId, startSeries, untrackSeries } from '../api/sources'
-import { Badge } from '../components/Badge'
-import { ButtonLink } from '../components/Button'
+import { PageShell } from '../components/PageShell'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { Tabs } from '../components/Tabs'
+import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -39,13 +42,15 @@ import type {
   SourceSummary,
   TrackedSeries,
 } from '../types/sources'
+import SourcesManagePanel from './SourcesManage'
 import { FindModeSwitch, type FindMode } from './sources/FindModeSwitch'
+import { SOURCES_TABS, sourcesHref, type ManageTab, type SourcesTab } from './sources/manageTabs'
 import { NewChapters } from './sources/NewChapters'
 import { SearchPanel } from './sources/SearchPanel'
 import { SeriesPanel } from './sources/SeriesPanel'
 import { UrlBox } from './sources/UrlBox'
 import { IMPORT_REMOTE_ALLOWED } from './sources/urlImportFormat'
-import { SEARCH_REMOTE_ALLOWED, pageSummary } from './sources/sourcesFormat'
+import { SEARCH_REMOTE_ALLOWED } from './sources/sourcesFormat'
 import { seriesView } from './sources/sourcesSeries'
 import { useSourcesJob } from './sources/useSourcesJob'
 import './sources/sources.css'
@@ -57,7 +62,10 @@ function validSeries(v: unknown): OpenSeries | null {
     : null
 }
 
-export default function SourcesPage() {
+const PREFIX = 'sources'
+
+// tab comes from the URL; area is the old "#/sources/manage?tab=network" link's target within Manage.
+export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: SourcesTab; area?: ManageTab }) {
   const pc = usePcOnly()
   const remote = pc === 'remote'
   const wide = useMediaQuery('(min-width: 1024px)')
@@ -70,12 +78,28 @@ export default function SourcesPage() {
   const [untrackBusy, setUntrackBusy] = useState<string | null>(null)
   const [untrackError, setUntrackError] = useState<unknown>(null)
 
+  // Mirrors the URL, but changes in the same render as the click, so a series opened from New chapters is
+  // already on a visible Find tab when it takes focus.
+  const [tab, setTab] = useState(urlTab)
+  const [seenUrlTab, setSeenUrlTab] = useState(urlTab)
+  if (seenUrlTab !== urlTab) {
+    setSeenUrlTab(urlTab)
+    setTab(urlTab)
+  }
+  const [manageVisited, setManageVisited] = useState(urlTab === 'manage')
+  if (tab === 'manage' && !manageVisited) setManageVisited(true)
+  function selectTab(id: SourcesTab) {
+    setTab(id)
+    window.location.hash = sourcesHref(id)
+  }
+
   const [storedMode, setStoredMode] = usePersistedState<FindMode>('sources.find', 'search')
   const [storedSeries, setStoredSeries] = usePersistedState<OpenSeries | null>('sources.lastSeries', null)
   const open = validSeries(storedSeries)
   const [cleared, setCleared] = useState(false)
   const [focusKey, setFocusKey] = useState(0)
-  const opener = useRef<{ key: string; scrollY: number } | null>(null)
+  // `tab` is where the opener lives, so closing the series can go back to it (New chapters is another tab).
+  const opener = useRef<{ key: string; scrollY: number; tab: SourcesTab } | null>(null)
   // A chapter to tick in the series opened from a pasted chapter link.
   const [preselect, setPreselect] = useState<{ source: string; series_id: string; chapter_id: string } | null>(null)
   // A web-search result handed to the Paste a link box (n: a new hand-off each time).
@@ -111,12 +135,13 @@ export default function SourcesPage() {
 
   // Opens from a list: no chapter is ticked.
   function openSeries(s: OpenSeries, openerKey?: string) {
+    if (tab !== 'find') selectTab('find')
     setPreselect(null)
     showSeries(s, openerKey)
   }
 
   function showSeries(s: OpenSeries, openerKey?: string) {
-    opener.current = openerKey ? { key: openerKey, scrollY: window.scrollY } : null
+    opener.current = openerKey ? { key: openerKey, scrollY: window.scrollY, tab } : null
     // Already open and loading (or its start is in flight): just go to it.
     if (open && open.source === s.source && open.series_id === s.series_id && view.status === 'running') {
       setFocusKey((k) => k + 1)
@@ -148,6 +173,7 @@ export default function SourcesPage() {
     setWasBusy(false)
     const o = opener.current
     opener.current = null
+    if (o && o.tab !== 'find') selectTab(o.tab)
     // After the results are shown again: same scroll position, focus on the opener.
     // Narrow layouts only: the results were hidden, so put the scroll back.
     requestAnimationFrame(() => {
@@ -176,7 +202,6 @@ export default function SourcesPage() {
   const openTracked = open
     ? tracked.find((t) => t.source === open.source && t.series_id === open.series_id) ?? null
     : null
-  const summary = sources ? pageSummary(sources) : null
   const searchBlocked = remote && !SEARCH_REMOTE_ALLOWED
 
   const canLink = !(remote && !IMPORT_REMOTE_ALLOWED)
@@ -189,80 +214,91 @@ export default function SourcesPage() {
       }
     : null
 
+  const panel = (id: SourcesTab, children: ReactNode, className?: string) => (
+    <div id={tabPanelId(PREFIX, id)} role="tabpanel" aria-labelledby={tabButtonId(PREFIX, id)} className={`sources-panel${className ? ` ${className}` : ''}`} hidden={tab !== id}>
+      {children}
+    </div>
+  )
+
   return (
-    <div className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}>
-      <header className="page-head sources-head">
-        <div className="sources-head-row">
-          <h2>Sources</h2>
-          <ButtonLink variant="ghost" size="sm" href="#/sources/manage">Manage sources</ButtonLink>
-        </div>
-        <p className="page-meta" data-testid="sources-summary">
-          {summary ? (
-            <>
-              {summary.on} ·{' '}
-              {summary.paused ? <Badge tone="warn">{summary.paused} paused</Badge> : '0 paused'}
-            </>
-          ) : loadError ? null : (
-            'Loading…'
-          )}
-        </p>
-      </header>
-      <ErrorBanner error={loadError} />
-
-      <Card className="sources-main" aria-label="Search or paste a link">
-        {canLink && canSearch && (
-          <FindModeSwitch value={mode} onChange={setStoredMode} />
-        )}
-        {canLink && (
-          <div className="sources-find" hidden={mode !== 'link'}>
-            <UrlBox display={display} onOpenSeries={openFromUrl} handoff={linkHandoff} />
-          </div>
-        )}
-        {canSearch && sources && (
-          <div className="sources-find" hidden={mode !== 'search'}>
-            <SearchPanel
-              sources={sources}
-              remote={remote}
-              job={search}
-              resultsHidden={seriesShown && !wide}
-              onOpen={openSeries}
-              onUseLink={useWebLink}
-            />
-          </div>
-        )}
-        {!canSearch && <p className="muted">Searching sources is PC only for now.</p>}
-        {!canLink && <p className="muted">Importing from a link is PC only for now.</p>}
-      </Card>
-
-      {seriesShown && open && (
-        <SeriesPanel
-          key={`${open.source}:${open.series_id}`}
-          open={open}
-          display={display(open.source)}
-          job={series}
-          view={view}
-          tracked={openTracked}
-          remote={remote}
-          cleared={cleared}
-          busyEnded={wasBusy && !view.busyOther && view.status === 'idle'}
-          focusKey={focusKey}
-          showBack={!wide && search.status === 'done' && !!search.result}
-          onReload={reloadSeries}
-          onClose={closeSeries}
-          onUntrack={untrack}
-          untrackBusy={!!openTracked && untrackBusy === `${openTracked.source}:${openTracked.series_id}`}
-          sourceInfo={sources?.find((x) => x.name === open.source) ?? null}
-          preselect={
-            preselect && preselect.source === open.source && preselect.series_id === open.series_id
-              ? preselect.chapter_id
-              : null
-          }
-          phone={phone}
-          onTracked={setTracked}
+    <PageShell
+      width="wide"
+      title="Sources"
+      className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}
+      tabs={(
+        <Tabs
+          label="Sources"
+          idPrefix={PREFIX}
+          tabs={SOURCES_TABS.map((t) => (t.id === 'new' && notifications.length > 0 ? { ...t, count: notifications.length } : t))}
+          active={tab}
+          onSelect={selectTab}
         />
       )}
+    >
+      <ErrorBanner error={loadError} />
 
-      {(notifications.length > 0 || tracked.length > 0) && (
+      {panel('find', (
+        <>
+          <Card className="sources-main" aria-label="Search or paste a link">
+            {canLink && canSearch && (
+              <FindModeSwitch value={mode} onChange={setStoredMode} />
+            )}
+            {canLink && (
+              <div className="sources-find" hidden={mode !== 'link'}>
+                <UrlBox display={display} onOpenSeries={openFromUrl} handoff={linkHandoff} />
+              </div>
+            )}
+            {canSearch && sources && (
+              <div className="sources-find" hidden={mode !== 'search'}>
+                <SearchPanel
+                  sources={sources}
+                  remote={remote}
+                  job={search}
+                  resultsHidden={seriesShown && !wide}
+                  onOpen={openSeries}
+                  onUseLink={useWebLink}
+                />
+              </div>
+            )}
+            {!canSearch && <p className="muted">Searching sources is PC only for now.</p>}
+            {!canLink && <p className="muted">Importing from a link is PC only for now.</p>}
+          </Card>
+
+          {seriesShown && open && (
+            <SeriesPanel
+              key={`${open.source}:${open.series_id}`}
+              open={open}
+              display={display(open.source)}
+              job={series}
+              view={view}
+              tracked={openTracked}
+              remote={remote}
+              cleared={cleared}
+              busyEnded={wasBusy && !view.busyOther && view.status === 'idle'}
+              focusKey={focusKey}
+              showBack={!wide && search.status === 'done' && !!search.result}
+              onReload={reloadSeries}
+              onClose={closeSeries}
+              onUntrack={untrack}
+              untrackBusy={!!openTracked && untrackBusy === `${openTracked.source}:${openTracked.series_id}`}
+              sourceInfo={sources?.find((x) => x.name === open.source) ?? null}
+              preselect={
+                preselect && preselect.source === open.source && preselect.series_id === open.series_id
+                  ? preselect.chapter_id
+                  : null
+              }
+              phone={phone}
+              onTracked={setTracked}
+            />
+          )}
+
+          <p className="muted sources-manage-link">
+            Site settings, timing and network: <a href={sourcesHref('manage')}>Manage sources</a>
+          </p>
+        </>
+      ), 'sources-find-panel')}
+
+      {panel('new', notifications.length > 0 || tracked.length > 0 ? (
         <NewChapters
           notifications={notifications}
           tracked={tracked}
@@ -278,8 +314,11 @@ export default function SourcesPage() {
           untrackError={untrackError}
           clearUntrackError={() => setUntrackError(null)}
         />
-      )}
+      ) : (
+        <p className="muted">No tracked series yet. Open a series on the Find tab and track it to hear about new chapters here.</p>
+      ))}
 
-    </div>
+      {manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}
+    </PageShell>
   )
 }

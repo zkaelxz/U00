@@ -47,6 +47,9 @@ class HungJob:
 
     def release(self):
         self.gate.set()
+        # Returning before the late writes land lets them hit a library the
+        # next fixture teardown is already deleting or repointing.
+        assert self.late_writes_done.wait(10), "the released worker never finished"
 
 
 def _cancelling_for(job_id, seconds):

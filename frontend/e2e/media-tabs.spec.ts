@@ -104,6 +104,8 @@ test('the advanced options are folds; Switches opens first on a new title, and t
   for (const i of [0, 1, 2]) await expect(folds.nth(i)).not.toHaveAttribute('open', '')
   await folds.nth(2).locator(':scope > summary').click()
   await folds.nth(3).locator(':scope > summary').click()
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => Object.keys(window.localStorage).filter((k) => k.startsWith('baihe.section.source.advanced.')).length >= 2)
   await page.reload()
   await expect(mediaTab(page, 'tools')).toHaveAttribute('aria-selected', 'true')
   const again = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' }).locator(':scope > details.section')
@@ -117,7 +119,8 @@ test('every advanced control is reachable, and Developer Mode ones only with the
     'Split lines by sentences', 'Realign long segments', 'Alignment method', 'ASR backend', 'Voice detector', 'Use Groq',
     'Whisper fast mode', 'Name hint for Qwen3 ASR', 'Extra names to expect', 'Separate vocals first',
   ]
-  const developer = ['Beam size', 'VAD threshold', 'Hardsub interval', 'Separation backend', 'Hardsub OCR', 'Hallucination guard', 'Whisper repeat guard']
+  // Seeded title 1 is an audio drama: it has no picture, so the hardsub controls are not there (title 3, a video, has them).
+  const developer = ['Beam size', 'VAD threshold', 'Separation backend', 'Hallucination guard', 'Whisper repeat guard']
   await gotoMedia(page, 'tools')
   const advanced = await openAdvanced(page)
   for (const label of everyday) await expect(advanced.getByLabel(label, { exact: true }), label).toBeVisible()

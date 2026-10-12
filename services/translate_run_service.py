@@ -122,6 +122,7 @@ def get_translate_config(drama_id: int) -> dict:
     return {
         "drama_id": drama_id,
         "translation_engine": engine_name,
+        "line_ai_engine": engine_routing_service.line_tool_engine(drama),
         "engines": (engines := translate_service.list_engines()),
         "batch_size_defaults": translate_engines.batch_size_defaults(engines),
         "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}

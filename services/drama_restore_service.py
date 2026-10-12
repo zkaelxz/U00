@@ -28,6 +28,7 @@ from lib import gzip_text
 from services import delete_service
 from services import library_admin_service as las
 from services import library_restore_service as lrs
+from services import library_restore_sql
 from services.auto_backup_service import (RESTORE_CONFIRM_TEXT, _BAD_SNAPSHOT, _pick_copy,
                                           _read_manifest, _snapshot_lock, extract_db,
                                           job_running, ro_uri)
@@ -176,7 +177,8 @@ def _free_series_name(dst, name, label="restored") -> str:
     return candidate
 
 
-def _resolve_series(src, dst, series_id, drama_owner, users, counts, import_as=None) -> tuple:
+def _resolve_series(src, dst, series_id, drama_owner, owners, counts, import_as=None,
+                    owner_unmatched=False) -> tuple:
     """(live series id or None, {old series_character id: live id},
     outcome "none" | "linked" | "recreated" | "dropped_private").
     A live series with the snapshot's id that is now someone else's
@@ -190,7 +192,11 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts, import_as=N
     different one), and a name match alone never links. In every other case
     the series comes back from the snapshot as a new series (renamed
     "... (restored <date>)" if its name is taken) with its glossary,
-    characters and memory.
+    characters and memory, its owner matched by email (`owners`, see
+    copy_drama); drama_owner is the already matched one, and
+    owner_unmatched says it is None only because the copy's owner has no
+    live match: that title is someone's, not the PC owner's, so it never
+    joins another person's private series.
     import_as (see _copy_drama) skips all of that: the series is always
     created new, owned by the importing user, once per source series."""
     if series_id is None:
@@ -210,7 +216,8 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts, import_as=N
         return live_id, char_map, "recreated"
     live = dst.execute("SELECT id, owner_user_id, COALESCE(is_private, 0), name FROM series "
                        "WHERE id = ?", (series_id,)).fetchone()
-    if live is not None and live[2] and drama_owner is not None and drama_owner != live[1]:
+    if live is not None and live[2] and (
+            owner_unmatched or (drama_owner is not None and drama_owner != live[1])):
         # Checked on the id alone, whatever the name: never copy or re-share
         # a series that is now someone else's private series.
         return None, {}, "dropped_private"
@@ -219,8 +226,7 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts, import_as=N
             "SELECT id FROM series_characters WHERE series_id = ?", (series_id,))}
         return series_id, {c: c for c in live_chars}, "linked"
     row = {k: v for k, v in series.items() if k != "id"}
-    if row.get("owner_user_id") not in users:
-        row["owner_user_id"] = None
+    row["owner_user_id"] = owners.get(row.get("owner_user_id"))
     if dst.execute("SELECT 1 FROM series WHERE name = ?", (row.get("name"),)).fetchone():
         row["name"] = _free_series_name(dst, row.get("name"))
     live_id, char_map = _insert_series(src, dst, series_id, row, counts)
@@ -247,10 +253,15 @@ def _insert_series(src, dst, series_id, row, counts) -> tuple:
     return live_id, char_map
 
 
-def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> tuple:
+def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owners=None) -> tuple:
     """Inserts the drama and its children into dst (inside the caller's
     transaction). new_id None = a fresh id. Returns (live id, counts,
     series outcome -- see _resolve_series).
+    owners ({copy account id: live account id}, library_restore_sql's
+    owner_map) names the live owner of the drama and a recreated series;
+    an id it lacks becomes the PC owner (NULL). Account ids repeat across
+    libraries, so keeping the copy's id could hand a private title to
+    whoever has that id now.
     import_as (a backup from another library, see backup_import_service) =
     {"owner_user_id", "is_private", "series": {}, "media_dir"}: the owner
     and privacy come from it and never from the file, the series is always
@@ -263,7 +274,6 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
         raise NotFoundError("That title isn't in the snapshot.")
     drama = drama[0]
     counts = {}
-    users = {r[0] for r in dst.execute("SELECT id FROM users")}
     profiles = _live_ids(dst, "profiles")
     row = sensitivity_preset.older_row(drama)
     if import_as is not None:
@@ -271,10 +281,17 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
         row["is_private"] = import_as["is_private"]
         row["notion_page_id"] = None
         _sanitise_file_refs("dramas", row, import_as)
-    elif row.get("owner_user_id") not in users:
-        row["owner_user_id"] = None
+    else:
+        owners = owners or {}
+        row["owner_user_id"] = owners.get(drama.get("owner_user_id"))
+    # db.auth.assign_drama_series lets only the PC owner's titles (owner NULL)
+    # join another account's private series; an unmatched owner only looks
+    # like one after the remap.
+    owner_unmatched = (import_as is None and drama.get("owner_user_id") is not None
+                       and row["owner_user_id"] is None)
     series_id, char_map, series_outcome = _resolve_series(
-        src, dst, drama.get("series_id"), row["owner_user_id"], users, counts, import_as)
+        src, dst, drama.get("series_id"), row["owner_user_id"], owners, counts, import_as,
+        owner_unmatched)
     row["series_id"] = series_id
     if series_id is not None:
         row["is_private"] = 0   # a drama in a series follows the series (decision 4)
@@ -420,7 +437,10 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
     when that id (and its folder) are free, else it becomes a new drama
     titled "... (restored <date>)". Returns {drama_id, restored_as_new,
     title, media_restored, snapshot (the copy's name), snapshot_kind,
-    series, counts, skipped_tables}."""
+    series, owners_reassigned (how many of the title and a recreated series
+    went to another account id: the live one with the same email, or the
+    PC owner), copy_has_accounts (False: the copy has no usable account, so
+    every owner became the PC owner), counts, skipped_tables}."""
     if isinstance(drama_id, bool) or not isinstance(drama_id, int) or drama_id < 1:
         raise InvalidInputError("A title id is a positive whole number.")
     las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a title")
@@ -459,6 +479,15 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
                 end_media_staging(staging)
 
 
+def _owners_reassigned(src, drama_id, series_outcome, owners) -> int:
+    drama = table_rows(src, "dramas", "id = ?", (drama_id,))[0]
+    old = [drama.get("owner_user_id")]
+    if series_outcome == "recreated":
+        old += [r.get("owner_user_id") for r in
+                table_rows(src, "series", "id = ?", (drama.get("series_id"),))]
+    return sum(1 for o in old if o is not None and owners.get(o) != o)
+
+
 def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_name) -> dict:
     folder_free = not os.path.lexists(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     keep_id = db.get_drama(drama_id) is None and folder_free
@@ -470,8 +499,11 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
         src.execute("PRAGMA trusted_schema = OFF")
         try:
             dst.execute("BEGIN IMMEDIATE")
+            copy_has_accounts = library_restore_sql.has_usable_accounts(src)
+            owners = library_restore_sql.owner_map_between(dst, src)
             live_id, counts, series_outcome = copy_drama(src, dst, drama_id, drama_id if keep_id else None,
-                                          suffix)
+                                          suffix, owners=owners)
+            reassigned = _owners_reassigned(src, drama_id, series_outcome, owners)
             claim_folder(live_id, conflict)   # never inherit a stray dramas/<new id>
             if staged is not None:
                 move_media_in(staging, {live_id: staged}, conflict)
@@ -493,11 +525,15 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
         from services import auth_service
         auth_service.write_audit(actor_id, "library.restore_drama",
                                  f"drama {drama_id} restored from backup copy {copy_name} "
-                                 f"as title {live_id}")
+                                 f"as title {live_id}; {reassigned} owner"
+                                 f"{'' if reassigned == 1 else 's'} matched by email or given "
+                                 f"to the PC owner"
+                                 f"{'' if copy_has_accounts else ' (the copy has no accounts)'}")
     except Exception:
         log.warning("Could not write the audit entry for a drama restore")
     return {"drama_id": live_id, "restored_as_new": not keep_id, "title": title or "",
             "media_restored": staged is not None, "snapshot": copy_name,
             "snapshot_kind": manifest["kind"],
             "series": series_outcome,
+            "owners_reassigned": reassigned, "copy_has_accounts": copy_has_accounts,
             "counts": counts, "skipped_tables": sorted(_SKIPPED_TABLES)}

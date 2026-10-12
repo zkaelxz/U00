@@ -1,5 +1,6 @@
 import { readPref, writePref } from '../../hooks/usePersistedState'
 import type { StorageLike } from '../../components/sectionStorage'
+import { appliesTo } from './mediaTypeSettings'
 import type { TitleKind } from './titleKind'
 
 /** The sub-tabs of the Media (Source) stage. */
@@ -15,11 +16,11 @@ const TABS: { id: MediaTab; label: string }[] = [
 
 export const isMediaTab = (v: unknown): v is MediaTab => TABS.some((t) => t.id === v)
 
-// Novels and comics have no audio to transcribe, so the two tabs about it would only be empty.
-const NO_TRANSCRIBE: readonly TitleKind[] = ['novel', 'comic']
+// A tab about settings the kind does not have would only be empty (mediaTypeSettings.ts).
+const TAB_NEEDS = { transcribe: 'transcribe', tools: 'speech_tuning' } as const
 
 export function mediaTabsFor(kind: TitleKind): { id: MediaTab; label: string }[] {
-  return NO_TRANSCRIBE.includes(kind) ? TABS.filter((t) => t.id !== 'transcribe' && t.id !== 'tools') : TABS
+  return TABS.filter((t) => !(t.id in TAB_NEEDS) || appliesTo(kind, TAB_NEEDS[t.id as keyof typeof TAB_NEEDS]))
 }
 
 /** The tab to show: the wanted one when this kind has it, else Add media. */

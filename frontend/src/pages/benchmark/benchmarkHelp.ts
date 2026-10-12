@@ -83,7 +83,7 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
   },
 }
 
-// Open on first visit: the golden set is the first thing a new user needs.
-export const BENCH_DEFAULT_OPEN: Record<BenchSectionId, boolean> = { sets: true, run: false, reeval: false, runs: false }
+// Each section is the first card of its own tab, so it starts open.
+export const BENCH_DEFAULT_OPEN: Record<BenchSectionId, boolean> = { sets: true, run: true, reeval: true, runs: true }
 
 export const NO_CASES_HINT = 'No cases match yet. Import a golden set above, or widen Tier and Golden set.'

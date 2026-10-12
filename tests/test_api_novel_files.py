@@ -334,6 +334,22 @@ def test_source_import_in_another_process_blocks_raw_novel(client):
     assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 200
 
 
+def test_a_stale_source_import_record_does_not_block_raw_novel(isolated_db, monkeypatch):
+    """A row nobody has heartbeated for STALE_JOB_SECONDS was left by a dead
+    process; a row inside the window, or one of an unrelated job, is judged
+    on its own."""
+    import time
+    db.save_job_record("source_import_demo_7", "running")
+    db.save_job_record("translate_1", "running")
+    real = time.time()
+    monkeypatch.setattr(time, "time",
+                        lambda: real + background_jobs.STALE_JOB_SECONDS - 60)
+    assert svc._source_import_running() is True
+    monkeypatch.setattr(time, "time",
+                        lambda: real + background_jobs.STALE_JOB_SECONDS + 60)
+    assert svc._source_import_running() is False
+
+
 def test_paste_routes_are_pc_only(isolated_db):
     did = _drama()
     remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
