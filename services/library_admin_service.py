@@ -1025,7 +1025,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     kept entries carried across). Nothing is touched unless every check
     passes. Afterwards every sign-in session is revoked and an audit entry
     is written (attributed to actor_id, the signed-in user, if given).
-    Returns {restored, sessions_revoked, media_kept}."""
+    Returns {restored, sessions_revoked, media_kept, previous_library_kept}."""
     from services import auth_service
     require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
     if not background_jobs.acquire_exclusive("Library restore"):
@@ -1045,8 +1045,8 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                 raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
-            media_kept = wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR,
-                                                    before_swap=_recheck)
+            outcome = wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR,
+                                                 before_swap=_recheck)
         except ServiceError:
             raise
         except (ValueError, zipfile.BadZipFile, RuntimeError, zlib.error) as e:
@@ -1062,7 +1062,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                                  f"library restored from backup; sessions revoked: {revoked}")
     finally:
         background_jobs.release_exclusive()
-    return {"restored": True, "sessions_revoked": revoked, "media_kept": media_kept}
+    return {"restored": True, "sessions_revoked": revoked, **(outcome or {})}
 
 
 # --------------------------------------------------------------------------

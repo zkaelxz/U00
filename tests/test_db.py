@@ -2552,7 +2552,8 @@ class TestInterruptedRestoreRecovery:
         self._aside(tmp_path, "library.pre_restore_100", b"old")
         assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
         assert (tmp_path / "library" / "library.db").read_bytes() == b"old"
-        assert sorted(p.name for p in tmp_path.iterdir()) == ["library"]
+        assert sorted(p.name for p in tmp_path.iterdir()
+                      if not p.name.endswith(".restore-lock")) == ["library"]
 
     def test_a_present_library_is_left_alone(self, tmp_path):
         (tmp_path / "library").mkdir()
@@ -2596,7 +2597,8 @@ class TestInterruptedRestoreRecovery:
         self._aside(tmp_path, "library.pre_restore_100", b"old")
         assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
         assert (tmp_path / "library" / "library.db").read_bytes() == b"old"
-        assert sorted(p.name for p in tmp_path.iterdir()) == ["library"]
+        assert sorted(p.name for p in tmp_path.iterdir()
+                      if not p.name.endswith(".restore-lock")) == ["library"]
 
     def test_a_folder_with_content_is_never_replaced(self, tmp_path):
         (tmp_path / "library" / "dramas" / "1").mkdir(parents=True)
@@ -2618,7 +2620,18 @@ class TestInterruptedRestoreRecovery:
         (self._aside(tmp_path, "library.pre_restore_100") / "backups").mkdir()
         [note] = db.library_startup_notes(str(tmp_path / "library"))
         assert "library.pre_restore_100" in note and "backups" in note
+        assert "media" in note and "previous library" in note and "check" in note
         assert str(tmp_path) not in note
+
+    def test_a_restore_in_progress_is_left_alone(self, tmp_path):
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        holder = db.hold_restore_lock(str(tmp_path / "library"))
+        try:
+            assert db.recover_interrupted_restore(str(tmp_path / "library")) is None
+            assert not (tmp_path / "library").exists()
+        finally:
+            db.release_restore_lock(holder)
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
 
     def test_the_cli_checks_the_library_before_its_command_runs(self, tmp_path, monkeypatch, capsys):
         import cli

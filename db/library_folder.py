@@ -24,6 +24,24 @@ def fsync_dir(path: str):
         os.close(fd)
 
 
+def _lock_path(library_dir: str) -> str:
+    return os.path.abspath(library_dir) + ".restore-lock"
+
+
+def hold_restore_lock(library_dir: str):
+    """Held by a restore across its renames, so another process's start-up
+    check can't take a moment between them for a crash. The OS lets go when
+    the holder dies, so a crashed restore never leaves it held. A holder for
+    release_restore_lock, or None when another process holds it."""
+    fd = db._lock_file(_lock_path(library_dir), create=True)
+    return None if fd is None else [fd]
+
+
+def release_restore_lock(holder) -> None:
+    if holder:
+        db._release_lock(holder)
+
+
 def _set_aside(library_dir: str) -> list:
     parent, base = os.path.split(os.path.abspath(library_dir))
     try:
@@ -61,9 +79,16 @@ def recover_interrupted_restore(library_dir: str):
             f"keep to '{base}' and start Baihe again.")
     if not aside:
         return None
-    if os.path.lexists(library_dir):
-        shutil.rmtree(library_dir)   # only logs and empty folders (_is_missing)
-    os.rename(os.path.join(os.path.dirname(os.path.abspath(library_dir)), aside[0]), library_dir)
+    holder = db.hold_restore_lock(library_dir)
+    if holder is None:
+        return None   # a restore in another process is between its renames
+    try:
+        if os.path.lexists(library_dir):
+            shutil.rmtree(library_dir)   # only logs and empty folders (_is_missing)
+        os.rename(os.path.join(os.path.dirname(os.path.abspath(library_dir)), aside[0]),
+                  library_dir)
+    finally:
+        db.release_restore_lock(holder)
     return aside[0]
 
 
@@ -75,9 +100,14 @@ def library_startup_notes(library_dir: str) -> list:
     back = db.recover_interrupted_restore(library_dir)
     if back:
         notes.append(f"Put back the library an interrupted restore had set aside in '{back}'.")
+    holder = db.hold_restore_lock(library_dir)
+    if holder is None:
+        return notes   # a restore is running: its folder set aside is expected
+    db.release_restore_lock(holder)
     left = _set_aside(library_dir)
     if left:
-        notes.append(f"{', '.join(repr(n) for n in left)} beside the library folder was left by "
-                     "a restore and may still hold saved backups, site sign-ins or the browser "
-                     "extension token: move back what you need, then delete it.")
+        notes.append(f"{', '.join(repr(n) for n in left)} beside the library folder holds the "
+                     "previous library a restore set aside: its database and possibly media, "
+                     "saved backups, site sign-ins and the browser extension token. Don't delete "
+                     "it until you have checked the library; move back what you need first.")
     return notes

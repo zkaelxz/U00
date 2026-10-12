@@ -76,6 +76,7 @@ export interface LibraryRestoreDone {
   restored: boolean
   sessions_revoked: number
   media_kept: boolean
+  previous_library_kept: boolean
 }
 
 export interface LibraryStorageCategory {

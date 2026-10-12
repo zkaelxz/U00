@@ -753,6 +753,9 @@ class LibraryRestoreDone(BaseModel):
     sessions_revoked: int
     # True when the backup held no media and the current media was kept.
     media_kept: bool = False
+    # The previous library stayed beside the restored one (something in it
+    # could not be moved across): the owner must check before deleting it.
+    previous_library_kept: bool = False
 
 
 class LibraryStorageCategory(BaseModel):

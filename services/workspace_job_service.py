@@ -7,7 +7,6 @@ Python objects, `background_jobs` for progress/result reporting, and the
 database -- never any UI state.
 """
 
-import contextlib
 import logging
 import os
 import time
@@ -23,8 +22,8 @@ import emotion
 import core as core_module
 import whisper_models
 from core import transcribe_for_timing
-from services.library_restore_sql import (_current_state_marker, _open_carry_conn, _ro_uri,
-                                          _schema_sql_allowed, _table_names)
+from services.library_restore_sql import (_current_state_marker, _fsync_dir, _open_carry_conn,
+                                          _ro_uri, _schema_sql_allowed, _table_names)
 from services import (auth_service, fixflag_transcribe, fixflag_translate, job_timing_service,
                       language_pack_service, library_restore_sql, line_provenance_service,
                       run_settings_service, settings_service, timing_settings_service,
@@ -878,11 +877,6 @@ def _require_quick_check(path: str, message: str) -> None:
         raise ValueError(message)
 
 
-def _fsync_dir(path: str) -> None:
-    with contextlib.suppress(OSError):   # durability only: the renames happen either way
-        db.fsync_dir(path)
-
-
 def _put_back(old_dir, library_dir: str, failed_dir: str = None) -> None:
     from services.service_errors import ServiceError
     try:
@@ -903,7 +897,7 @@ def _remove_entry(path: str):
         os.remove(path)
 
 
-def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None) -> bool:
+def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None) -> dict:
     """Validate an uploaded backup zip and swap it in for
     library_dir, without ever destroying the existing library if the
     upload turns out to be invalid.
@@ -930,8 +924,8 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     before_swap: optional callable run right before the rename; if it
     raises, nothing is changed and the exception propagates.
 
-    Returns True when the zip held no media and the current media folders
-    were kept.
+    Returns {media_kept: the zip held no media and the current media was
+    kept, previous_library_kept: it was left beside the restored one}.
     """
     import io
     import shutil
@@ -978,7 +972,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             for info in infos:
                 norm = info.filename.replace("\\", "/")
                 top = norm.lstrip("/").split("/", 1)[0]
-                zipped.add(top.casefold())
+                zipped.add(top)
                 if top in kept or norm in _RESTORE_SKIPPED_SIDECARS:
                     continue
                 zf.extract(info, staging_dir)
@@ -1008,45 +1002,42 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
                 with open(os.path.join(staging_dir, name), "r+b") as fh:
                     os.fsync(fh.fileno())
         _fsync_dir(staging_dir)
-        old_dir = None
-        if os.path.exists(library_dir):
-            old_dir = f"{library_dir}{db.PRE_RESTORE_MARKER}{int(time.time())}"
-            os.rename(library_dir, old_dir)
+        # Held until the swap is done: another process's start-up check
+        # must not take the moment between the renames for a crash.
+        holder = db.hold_restore_lock(library_dir)
+        if holder is None:
+            raise ConflictError("Baihe is starting in another window; try again in a moment.")
         try:
-            os.rename(staging_dir, library_dir)
-        except Exception:
-            _put_back(old_dir, library_dir)
-            raise
-        failed_dir, staging_dir = staging_dir, None
-        _fsync_dir(parent_dir)
-        try:
-            _require_quick_check(os.path.join(library_dir, "library.db"), RESTORED_DB_FAILED)
-        except ValueError:
-            _put_back(old_dir, library_dir, failed_dir)
-            staging_dir = failed_dir
-            raise
-        # A backup without media must not delete the current media: it
-        # moves across like the kept entries.
-        media = tuple(n for n in _RESTORE_MEDIA_DIRS if n not in zipped)
-        media_kept = False
-        if old_dir is not None:
-            carried = True
-            for name in kept + media:
-                src = os.path.join(old_dir, name)
-                if not os.path.lexists(src):
-                    continue
-                try:
-                    has_files = name in media and bool(os.listdir(src))
-                    os.rename(src, os.path.join(library_dir, name))
-                    media_kept = media_kept or has_files
-                except OSError:
-                    carried = False
-                    logging.getLogger(__name__).warning(
-                        "Restore: could not carry a kept entry across; the previous "
-                        "library was left in place beside the restored one.")
-            if carried:
-                shutil.rmtree(old_dir, ignore_errors=True)
-        return media_kept
+            old_dir = None
+            if os.path.exists(library_dir):
+                old_dir = f"{library_dir}{db.PRE_RESTORE_MARKER}{int(time.time())}"
+                os.rename(library_dir, old_dir)
+            try:
+                os.rename(staging_dir, library_dir)
+            except Exception:
+                _put_back(old_dir, library_dir)
+                raise
+            failed_dir, staging_dir = staging_dir, None
+            _fsync_dir(parent_dir)
+            try:
+                _require_quick_check(os.path.join(library_dir, "library.db"), RESTORED_DB_FAILED)
+            except ValueError:
+                _put_back(old_dir, library_dir, failed_dir)
+                staging_dir = failed_dir
+                raise
+            library_restore_sql.flush_tree(library_dir)
+            # A backup without media must not delete the current media.
+            media = tuple(n for n in _RESTORE_MEDIA_DIRS if n not in zipped)
+            media_kept = carried = False
+            if old_dir is not None:
+                media_kept, carried = library_restore_sql.carry_across(old_dir, library_dir,
+                                                                       kept + media, media)
+                if carried:
+                    shutil.rmtree(old_dir, ignore_errors=True)
+            return {"media_kept": media_kept,
+                    "previous_library_kept": old_dir is not None and not carried}
+        finally:
+            db.release_restore_lock(holder)
     finally:
         if staging_dir is not None:
             shutil.rmtree(staging_dir, ignore_errors=True)

@@ -1,8 +1,13 @@
 """Helpers for the library restore: its SQL, and which zip members are
 unsafe to extract (services/workspace_job_service, library_admin_service)."""
+import contextlib
+import logging
 import os
 import re
+import sqlite3
 import zipfile
+
+import db
 
 
 def copy_rows(conn, src: str, table: str):
@@ -92,3 +97,83 @@ def _unsafe_member(info: zipfile.ZipInfo) -> bool:
     if any(p in ("", ".", "..") or p.endswith((".", " ")) for p in parts):
         return True
     return (info.external_attr >> 16) & 0o170000 == 0o120000  # symlink entry
+
+
+def _fsync_dir(path: str) -> None:
+    with contextlib.suppress(OSError):   # durability only: never fails the restore
+        db.fsync_dir(path)
+
+
+def flush_tree(path: str) -> None:
+    """Best effort: what the zip put in `path` reaches the disk before the
+    previous library, the other copy of it, is removed."""
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            with contextlib.suppress(OSError):
+                with open(os.path.join(root, name), "r+b") as fh:
+                    os.fsync(fh.fileno())
+        _fsync_dir(root)
+
+
+def _titles(db_path: str) -> dict:
+    conn = sqlite3.connect(_ro_uri(db_path), uri=True)
+    try:
+        return {str(i): c for i, c in conn.execute("SELECT id, created_at FROM dramas") if c}
+    finally:
+        conn.close()
+
+
+def _raise_drama_sequence(db_path: str, floor: int) -> None:
+    conn = _open_carry_conn(db_path)
+    try:
+        conn.execute("INSERT OR IGNORE INTO sqlite_sequence (name, seq) "
+                     "SELECT 'dramas', 0 WHERE NOT EXISTS "
+                     "(SELECT 1 FROM sqlite_sequence WHERE name = 'dramas')")
+        conn.execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'dramas'", (floor,))
+    finally:
+        conn.close()
+
+
+def _carry_titles(src: str, dst: str, library_dir: str, old_dir: str) -> bool:
+    """Media folders are named by title id, and ids repeat across libraries
+    and after a restore: a folder moves only when both databases hold the
+    same title under its id (same created_at). Leftovers stay in `src`, and
+    new ids start above every one of them. True when any folder moved."""
+    restored = _titles(os.path.join(library_dir, "library.db"))
+    previous = _titles(os.path.join(old_dir, "library.db"))
+    os.makedirs(dst, exist_ok=True)
+    moved = False
+    for name in os.listdir(src):
+        if name in restored and restored[name] == previous.get(name):
+            os.rename(os.path.join(src, name), os.path.join(dst, name))
+            moved = True
+    _raise_drama_sequence(os.path.join(library_dir, "library.db"),
+                          max((int(n) for n in os.listdir(src) if n.isdigit()), default=0))
+    return moved
+
+
+def carry_across(old_dir: str, library_dir: str, names, media) -> tuple:
+    """Moves `names` from the previous library into the restored one;
+    `media` are the media folders the zip had none of. (media kept,
+    everything moved: only then may the previous library be removed)."""
+    media_kept, carried = False, True
+    for name in names:
+        src, dst = os.path.join(old_dir, name), os.path.join(library_dir, name)
+        if not os.path.lexists(src):
+            continue
+        try:
+            if name == "dramas" and name in media:
+                media_kept = _carry_titles(src, dst, library_dir, old_dir) or media_kept
+                carried = carried and not os.listdir(src)
+                _fsync_dir(dst)
+            else:
+                has_files = name in media and bool(os.listdir(src))
+                os.rename(src, dst)
+                media_kept = media_kept or has_files
+        except (OSError, sqlite3.Error):
+            carried = False
+            logging.getLogger(__name__).warning(
+                "Restore: could not carry %s across; the previous library was left in "
+                "place beside the restored one.", name)
+    _fsync_dir(library_dir)
+    return media_kept, carried

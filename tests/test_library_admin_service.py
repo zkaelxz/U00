@@ -395,6 +395,7 @@ import tempfile  # noqa: E402
 import threading  # noqa: E402
 
 import page_server  # noqa: E402
+import shutil  # noqa: E402
 from services import auth_service  # noqa: E402
 from sources import store as src_store  # noqa: E402
 
@@ -1552,3 +1553,80 @@ def test_a_full_backup_still_replaces_the_media(isolated_db):
     r = _restore(data)
     assert r["media_kept"] is False
     assert os.path.isfile(kept) and not os.path.exists(later)
+
+
+def _with_db_change(data, sql):
+    """The zip with `sql` run on its library.db (to stand in for another library)."""
+    path = _zip_db(data)
+    conn = sqlite3.connect(path)
+    conn.execute(sql)
+    conn.commit()
+    conn.close()
+    with open(path, "rb") as f:
+        return _rewrite(data, replace={"library.db": f.read()})
+
+
+def test_media_of_titles_not_in_an_older_backup_is_not_carried(isolated_db):
+    a = _new("In the backup")
+    kept = _write(os.path.join("dramas", str(a), "audio.wav"), b"a")
+    data = _db_only_backup()
+    b = _new("Added later")
+    _write(os.path.join("dramas", str(b), "audio.wav"), b"b")
+    r = _restore(data)
+    assert os.path.isfile(kept)
+    assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(b)))
+    assert r["previous_library_kept"] is True    # b's media waits in the folder set aside
+    # A new title's id starts above every media folder set aside.
+    assert db.create_drama(title_en="New") > b
+
+
+def test_a_backup_from_another_library_gets_none_of_this_librarys_media(isolated_db):
+    a = _new("Here")
+    audio = _write(os.path.join("dramas", str(a), "audio.wav"), b"ours")
+    data = _with_db_change(_db_only_backup(), "UPDATE dramas SET created_at = '2001-01-01T00:00:00'")
+    _restore(data)
+    assert not os.path.exists(audio)
+
+
+def test_a_failed_carry_is_reported(isolated_db, monkeypatch):
+    _new("A")
+    _write(os.path.join("backups", "keep.txt"), b"k")
+    data = _db_only_backup()
+    real_rename = os.rename
+
+    def rename(src, dst):
+        if os.path.basename(src) == "backups" and ".pre_restore_" in src:
+            raise OSError("in use")
+        real_rename(src, dst)
+    monkeypatch.setattr(os, "rename", rename)
+    r = _restore(data)
+    assert r["previous_library_kept"] is True
+    assert any(".pre_restore_" in n for n in _leftovers())
+
+
+def test_extracted_media_is_flushed_before_the_old_library_is_removed(isolated_db, monkeypatch):
+    did = _new("Full")
+    audio = _write(os.path.join("dramas", str(did), "audio.wav"), b"RIFF")
+    data = _backup_bytes()
+    events = []
+    _record_swap(monkeypatch, events)
+    real_rmtree = shutil.rmtree
+
+    def rmtree(path, *a, **k):
+        events.append(("rmtree", os.path.basename(path)))
+        real_rmtree(path, *a, **k)
+    monkeypatch.setattr(shutil, "rmtree", rmtree)
+    _restore(data)
+    st = os.stat(audio)
+    removed = next(i for i, e in enumerate(events)
+                   if e[0] == "rmtree" and ".pre_restore_" in e[1])
+    assert ("fsync", (st.st_dev, st.st_ino)) in events[:removed]
+
+
+@pytest.mark.skipif(os.path.normcase("A") == "a", reason="needs a case-sensitive file system")
+def test_a_differently_cased_media_folder_in_the_zip_does_not_drop_the_media(isolated_db):
+    did = _new("A")
+    audio = _write(os.path.join("dramas", str(did), "audio.wav"), b"ours")
+    data = _rewrite(_db_only_backup(), extra={"Dramas/9/x.wav": b"x"})
+    _restore(data)
+    assert os.path.isfile(audio)

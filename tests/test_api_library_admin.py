@@ -421,7 +421,8 @@ class TestRestore:
         background_jobs.clear_all_jobs()
         r = _clean(_restore(client, data))
         assert r.status_code == 200, r.text
-        assert r.json() == {"restored": True, "sessions_revoked": 0, "media_kept": False}
+        assert r.json() == {"restored": True, "sessions_revoked": 0, "media_kept": False,
+                            "previous_library_kept": False}
         assert [d["id"] for d in db.list_dramas()] == [a]
 
 
