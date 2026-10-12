@@ -67,6 +67,7 @@ class SeriesDeletePreview(BaseModel):
     character_count: int
     translation_memory_count: int
     dismissal_count: int
+    style_profile_count: int = Field(description="The learned style profile (0 or 1).")
     has_instructions: bool
     needs_typed_confirm: bool = Field(description="It holds something: confirm_text DELETE.")
     job_running: bool

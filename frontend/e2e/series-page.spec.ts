@@ -45,7 +45,7 @@ async function mockSeries(page: Page) {
       return route.fulfill({
         json: {
           series_id: 9, name: 'Saga', title_count: 2, glossary_term_count: 1, character_count: 2,
-          translation_memory_count: 0, dismissal_count: 0, has_instructions: true, needs_typed_confirm: true, job_running: false,
+          translation_memory_count: 0, dismissal_count: 0, style_profile_count: 1, has_instructions: true, needs_typed_confirm: true, job_running: false,
         },
       })
     }
@@ -99,6 +99,7 @@ test('opens a series from the Library and uses every tab', async ({ page }) => {
   await expect(prompt).toContainText('2 titles kept: they become “No series”.')
   await expect(prompt).toContainText('1 glossary term')
   await expect(prompt).toContainText('the series instructions')
+  await expect(prompt).toContainText('the learned style profile')
   await expect(prompt.getByRole('button', { name: 'Delete series' })).toBeDisabled()
   await prompt.getByLabel('Type DELETE to confirm').fill('DELETE')
   await prompt.getByRole('button', { name: 'Delete series' }).click()

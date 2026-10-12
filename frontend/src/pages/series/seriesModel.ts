@@ -37,6 +37,7 @@ export function deleteLines(p: SeriesDeletePreview): { deleted: string[]; kept: 
     p.has_instructions && 'the series instructions',
     p.translation_memory_count > 0 && plural(p.translation_memory_count, 'translation memory entry', 'translation memory entries'),
     p.dismissal_count > 0 && plural(p.dismissal_count, 'dismissed glossary suggestion'),
+    p.style_profile_count > 0 && 'the learned style profile',
   ].filter((x): x is string => !!x)
   const kept = p.title_count > 0 ? `${plural(p.title_count, 'title')} kept: ${p.title_count === 1 ? 'it becomes' : 'they become'} “No series”.` : null
   return { deleted, kept }

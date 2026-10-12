@@ -44,6 +44,7 @@ export interface SeriesDeletePreview {
   character_count: number
   translation_memory_count: number
   dismissal_count: number
+  style_profile_count: number
   has_instructions: boolean
   needs_typed_confirm: boolean
   job_running: boolean

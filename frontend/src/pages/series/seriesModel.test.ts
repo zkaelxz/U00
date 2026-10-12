@@ -7,7 +7,7 @@ import {
 
 const preview = (over: Partial<SeriesDeletePreview> = {}): SeriesDeletePreview => ({
   series_id: 1, name: 'Saga', title_count: 0, glossary_term_count: 0, character_count: 0,
-  translation_memory_count: 0, dismissal_count: 0, has_instructions: false,
+  translation_memory_count: 0, dismissal_count: 0, style_profile_count: 0, has_instructions: false,
   needs_typed_confirm: false, job_running: false, ...over,
 })
 
@@ -35,11 +35,11 @@ describe('series page model', () => {
   it('lists what a delete removes and keeps', () => {
     const lines = deleteLines(preview({
       title_count: 2, glossary_term_count: 1, character_count: 3, has_instructions: true,
-      translation_memory_count: 1, dismissal_count: 2,
+      translation_memory_count: 1, dismissal_count: 2, style_profile_count: 1,
     }))
     expect(lines.deleted).toEqual([
       '1 glossary term', '3 series characters', 'the series instructions',
-      '1 translation memory entry', '2 dismissed glossary suggestions',
+      '1 translation memory entry', '2 dismissed glossary suggestions', 'the learned style profile',
     ])
     expect(lines.kept).toBe('2 titles kept: they become “No series”.')
     expect(deleteLines(preview())).toEqual({ deleted: [], kept: null })

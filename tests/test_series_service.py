@@ -29,6 +29,13 @@ def people(isolated_db):
             "remote_admin": _p(adm, admin=True, override=False), "a_id": a, "b_id": b}
 
 
+def _bulk_terms(series_id, n, prefix="t"):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.executemany("INSERT INTO glossary_terms (series_id, term_original, term_translation) "
+                         "VALUES (?, ?, ?)", [(series_id, f"{prefix}{i}", f"T{i}") for i in range(n)])
+        conn.commit()
+
+
 def _audit(action):
     with contextlib.closing(db.get_conn()) as conn:
         return [dict(r) for r in conn.execute(
@@ -78,6 +85,26 @@ class TestPage:
         assert ids[one]["title_count"] == 1
 
 
+    def test_a_legacy_private_title_in_a_shared_series_stays_hidden(self, people):
+        s = db.create_series("Shared", owner_user_id=people["a_id"])
+        db.create_drama(title_en="Open", source_language="zh", series_id=s,
+                        owner_user_id=people["a_id"])
+        hidden = db.create_drama(title_en="Old private", source_language="zh",
+                                 owner_user_id=people["b_id"])
+        with contextlib.closing(db.get_conn()) as conn:   # from before the flag was cleared
+            conn.execute("UPDATE dramas SET series_id = ?, is_private = 1 WHERE id = ?",
+                         (s, hidden))
+            conn.commit()
+        other = db.auth_create_user("c@example.com")
+        page = svc.get_series_page(_p(other), s)
+        assert [t["title_en"] for t in page["titles"]] == ["Open"]
+        listed = {x["id"]: x for x in svc.list_series(_p(other))}
+        assert listed[s]["title_count"] == 1
+        # Its owner and the series owner still see it.
+        assert len(svc.get_series_page(people["b"], s)["titles"]) == 2
+        assert len(svc.get_series_page(people["a"], s)["titles"]) == 2
+
+
 # --- rename ------------------------------------------------------------------
 
 class TestRename:
@@ -90,7 +117,8 @@ class TestRename:
         s = db.create_series("saga", owner_user_id=people["a_id"])
         assert svc.rename_series(people["a"], s, "Saga")["name"] == "Saga"
 
-    @pytest.mark.parametrize("bad", ["", "   ", "x" * 301, "bad\nname", 7])
+    @pytest.mark.parametrize("bad", ["", "   ", "x" * 301, "bad\nname", 7, "Sa\u200bga",
+                                     "evil\u202egnp", "line\u2028sep", "para\u2029sep"])
     def test_rejects_blank_long_or_control_characters(self, people, bad):
         s = db.create_series("Old", owner_user_id=people["a_id"])
         with pytest.raises(InvalidInputError):
@@ -103,6 +131,20 @@ class TestRename:
             with pytest.raises(ConflictError):
                 svc.rename_series(people["a"], s, clash)
         assert svc.get_series_page(people["a"], s)["name"] == "Other"
+
+    def test_a_zero_width_space_cannot_sneak_a_lookalike_name_in(self, people):
+        db.create_series("Saga", owner_user_id=people["a_id"])
+        s = db.create_series("Other", owner_user_id=people["a_id"])
+        with pytest.raises(InvalidInputError):
+            svc.rename_series(people["a"], s, "Sa\u200bga")
+        assert svc.get_series_page(people["a"], s)["name"] == "Other"
+
+    def test_the_clash_check_runs_inside_the_rename_transaction(self, people):
+        db.create_series("Saga", owner_user_id=people["a_id"])
+        s = db.create_series("Other", owner_user_id=people["a_id"])
+        result = db.rename_series(s, "SAGA", svc.term_key)
+        assert result == {"renamed": False, "clash": "Saga"}
+        assert db.get_series_id_by_name("Other") == s
 
     def test_exact_name_of_a_series_the_caller_cannot_see_is_refused(self, people):
         db.create_series("Secret", owner_user_id=people["b_id"], is_private=True)
@@ -138,6 +180,7 @@ def _full_series(owner_id, private=False):
     db.update_series_instructions(s, "Formal.")
     db.add_glossary_dismissals(s, ["废物"])
     db.record_translation_memory(s, "你好", "Hello")
+    db.save_style_profile(f"series:{s}", {"tone": "formal"}, sample_count=8)
     return s, d1, d2, sc
 
 
@@ -151,6 +194,7 @@ class TestDelete:
         assert p["has_instructions"] is True
         assert p["dismissal_count"] == 1
         assert p["translation_memory_count"] == 1
+        assert p["style_profile_count"] == 1
         assert p["needs_typed_confirm"] is True
         assert p["job_running"] is False
 
@@ -170,6 +214,7 @@ class TestDelete:
         assert db.list_series_characters(s) == []
         assert db.list_glossary_dismissals(s) == []
         assert db.list_translation_memory(s) == []
+        assert db.get_style_profile(f"series:{s}") is None
         kept = [c for c in db.list_characters(ch) if c["speaker_label"] == "SPEAKER_00"]
         assert kept[0]["character_name"] == "Lin Feng"
         assert kept[0]["series_character_id"] is None
@@ -181,7 +226,7 @@ class TestDelete:
         assert len(rows) == 1
         detail = rows[0]["detail_redacted"]
         assert "Full" not in detail and "林" not in detail
-        assert "titles=2" in detail and "terms=2" in detail
+        assert "titles=2" in detail and "terms=2" in detail and "style_profiles=1" in detail
 
     def test_titles_leaving_a_private_series_stay_private(self, people):
         s, d1, _d2, _sc = _full_series(people["a_id"], private=True)
@@ -228,6 +273,56 @@ class TestDelete:
         with pytest.raises(ForbiddenError):
             svc.delete_series(people["remote_admin"], s, confirm=True, confirm_text="DELETE")
         assert svc.delete_series(LOCAL, s, confirm=True, confirm_text="DELETE")["deleted"]
+
+    def test_refused_when_the_series_changes_after_the_counts_were_read(self, people,
+                                                                         monkeypatch):
+        s, d1, *_ = _full_series(people["a_id"])
+
+        def late_term(_series_id):   # runs between the count and the delete
+            db.upsert_glossary_term(s, "新", "New")
+            return False
+        monkeypatch.setattr(svc, "_job_running", late_term)
+        with pytest.raises(ConflictError):
+            svc.delete_series(people["a"], s, confirm=True, confirm_text="DELETE")
+        assert db.get_item_ownership("series", s) is not None
+        assert db.get_drama(d1)["series_id"] == s
+        assert len(db.list_glossary_terms(s)) == 3
+
+    def test_a_database_without_the_foreign_keys_is_left_with_no_orphans(self, people):
+        # Tables from a version before the ON DELETE CASCADE keys: CREATE TABLE
+        # IF NOT EXISTS in init_db never adds them to an existing table.
+        old = {
+            "glossary_terms": "id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, "
+                              "term_original TEXT, term_translation TEXT, notes TEXT, "
+                              "UNIQUE(series_id, term_original)",
+            "series_characters": "id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT "
+                                 "NULL, character_name TEXT NOT NULL, aliases TEXT, notes TEXT, "
+                                 "created_at TEXT, UNIQUE(series_id, character_name)",
+            "translation_memory": "id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT "
+                                  "NULL, source_text TEXT NOT NULL, translation TEXT NOT NULL, "
+                                  "use_count INTEGER DEFAULT 1, updated_at TEXT, "
+                                  "UNIQUE(series_id, source_text)",
+            "glossary_dismissals": "id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT "
+                                   "NULL, term_original TEXT NOT NULL, created_at TEXT, "
+                                   "UNIQUE(series_id, term_original)",
+        }
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            for table, cols in old.items():
+                conn.execute(f"DROP TABLE {table}")
+                conn.execute(f"CREATE TABLE {table} ({cols})")
+            conn.commit()
+        db.init_db()
+        with contextlib.closing(db.get_conn()) as conn:
+            fks = {t: conn.execute(f"PRAGMA foreign_key_list({t})").fetchall() for t in old}
+        assert not any(fks.values())   # the upgrade really leaves them without keys
+        s, *_ = _full_series(people["a_id"])
+        svc.delete_series(people["a"], s, confirm=True, confirm_text="DELETE")
+        with contextlib.closing(db.get_conn()) as conn:
+            for table in old:
+                n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE series_id = ?",
+                                 (s,)).fetchone()[0]
+                assert n == 0, table
 
     def test_no_files_are_touched(self, people, tmp_path):
         import os
@@ -295,6 +390,48 @@ class TestCopyTerms:
         t = db.list_glossary_terms(dst)[0]
         assert (t["aliases"], t["banned_translations"], t["enforce_exact"]) == \
             ("Lyn", "Forest", 1)
+
+    def test_a_failure_part_way_adds_nothing(self, people):
+        dst = db.create_series("D", owner_user_id=people["a_id"])
+        terms = [{"term_original": f"t{i}", "term_translation": f"T{i}",
+                  "aliases": "a", "banned_translations": "b"} for i in range(5)]
+        seen = []
+
+        def key(text):
+            seen.append(text)
+            if len(seen) == 4:
+                raise RuntimeError("boom")
+            return svc.term_key(text)
+        with pytest.raises(RuntimeError):
+            db.copy_series_terms(dst, terms, key)
+        assert db.list_glossary_terms(dst) == []
+
+    def test_more_than_the_cap_is_refused_before_anything_is_read_out(self, people):
+        src = db.create_series("Big", owner_user_id=people["a_id"])
+        dst = db.create_series("D", owner_user_id=people["a_id"])
+        _bulk_terms(src, svc.MAX_COPY_TERMS + 1)
+        for call in (svc.copy_terms_preview, svc.copy_terms):
+            with pytest.raises(InvalidInputError, match=str(svc.MAX_COPY_TERMS)):
+                call(people["a"], dst, src)
+        assert db.list_glossary_terms(dst) == []
+
+    def test_a_full_size_copy_uses_a_fixed_number_of_connections(self, people, monkeypatch):
+        src = db.create_series("Big", owner_user_id=people["a_id"])
+        dst = db.create_series("D", owner_user_id=people["a_id"])
+        _bulk_terms(src, svc.MAX_COPY_TERMS)
+        _bulk_terms(dst, 10)   # t0..t9 are already there
+        opened = []
+        real = db.get_conn
+
+        def counting():
+            opened.append(1)
+            return real()
+        monkeypatch.setattr(db, "get_conn", counting)
+        r = svc.copy_terms(people["a"], dst, src)
+        assert (r["added"], r["skipped"]) == (svc.MAX_COPY_TERMS - 10, 10)
+        assert len(opened) < 10
+        monkeypatch.setattr(db, "get_conn", real)
+        assert len(db.list_glossary_terms(dst)) == svc.MAX_COPY_TERMS
 
     def test_private_source_of_another_user_is_refused(self, people):
         src = db.create_series("Theirs", owner_user_id=people["b_id"], is_private=True)
