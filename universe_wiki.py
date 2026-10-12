@@ -79,7 +79,7 @@ def extract_wiki_entries(lines, engine, up_to_line_idx: int, drama_meta: dict = 
             + known_block + f"\n\nExcerpt:\n{excerpt}"
         )
 
-        text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]")
+        text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", expect="json_array")
         text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
         try:
             entries = json.loads(text)

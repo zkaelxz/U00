@@ -10,8 +10,8 @@ from .fallback import (FALLBACK_BACKOFF_BASE_SECONDS, FALLBACK_BACKOFF_CAP_SECON
                        FALLBACK_TRANSIENT_RETRIES, FallbackEngine)
 from .flag_reasons import FLAG_REASONS, SYSTEM_FLAG_REASONS
 from .gemini import GeminiEngine
-from .local import (OllamaEngine, _ollama_chat, abort_check_var, estimate_ollama_num_ctx,
-                    ollama_chat_timeout, strip_ollama_thinking)
+from .local import (OllamaEngine, _ollama_chat, abort_check_var, ollama_max_request_seconds,
+                    ollama_task_reply)
 from .openai_compat import OpenAIEngine
 from .shared import (
     _backoff_wait_var,
@@ -128,7 +128,7 @@ _BATCH_REQUESTS = 2
 
 def _request_timeout_for(engine) -> float:
     if isinstance(engine, OllamaEngine):
-        return ollama_chat_timeout(engine.model)
+        return ollama_max_request_seconds(engine.model)
     return SDK_REQUEST_TIMEOUT
 
 
@@ -278,7 +278,8 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float = None,
 
 
 def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "[]",
-                   usage_cb=None, system: str = None) -> str:
+                   usage_cb=None, system: str = None, expect: str = "json_object",
+                   translation_of: str = None) -> str:
     """
     Shared single-prompt LLM call for every feature that isn't a
     translation batch: emotion tagging, translation notes, glossary
@@ -307,10 +308,16 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     the call then reports (input, output, cache_read, cache_write) to usage_cb
     instead of two numbers, so only a caller whose usage_cb takes four passes it.
 
+    expect: the reply's shape -- "json_object", "json_array" or "text"; and
+    translation_of: the source line when the text reply is its English. Only
+    Ollama uses them (see local.ollama_task_reply): its JSON mode can only
+    produce an object, and a weak model's text needs checking.
+
     Always has a total deadline; inside bounded_llm_calls it can also be
     cancelled and reports retries.
     """
-    return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system),
+    return _bounded(lambda: _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system,
+                                           expect, translation_of),
                     engine)
 
 
@@ -367,7 +374,8 @@ def _deepseek_kwargs(engine, max_tokens) -> dict:
     return kwargs
 
 
-def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None) -> str:
+def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None,
+                   expect="json_object", translation_of=None) -> str:
     client = getattr(engine, "client", None)
     chat_messages = ([{"role": "system", "content": system}] if system else []) + [
         {"role": "user", "content": prompt}]
@@ -429,16 +437,8 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None) 
         return call_with_backoff(lambda: engine.chat(chat_messages, usage_cb=usage_cb))
 
     if isinstance(engine, OllamaEngine):
-        data = _ollama_chat(engine.base_url, {
-            "model": engine.model,
-            "messages": chat_messages,
-            "stream": False,
-            "format": "json",
-            "options": {"num_ctx": estimate_ollama_num_ctx(system or "", prompt)},
-        })
-        if usage_cb:
-            usage_cb(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
-        return strip_ollama_thinking(data["message"]["content"])
+        return ollama_task_reply(_ollama_chat, engine, chat_messages, max_tokens, expect,
+                                 usage_cb, translation_of)
 
     if getattr(engine, "client", True) is None:
         # An engine with an empty LLM client slot declines cleanly: fallback
@@ -644,7 +644,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
         prompt = build_consistency_prompt(batch, source_language)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None,
-                                  usage_cb=usage_cb)
+                                  usage_cb=usage_cb, expect="json_array")
             if text is None:
                 failed_batches += 1
                 continue
@@ -791,7 +791,7 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
         prompt = build_flag_prompt(batch, source_language=source_language)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]",
-                                  usage_cb=usage_cb)
+                                  usage_cb=usage_cb, expect="json_array")
         except Exception:
             text = "[]"  # a check failing shouldn't block anything -- just skip that batch
             failed_batches += 1

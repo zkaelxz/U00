@@ -76,7 +76,7 @@ def who_is_character(character_name: str, lines, drama_meta: dict, engine,
         "Do not include plot developments that aren't in the excerpt -- the reader may not "
         "have gotten that far. Keep it to a short paragraph.\n\n" + excerpt
     )
-    return call_llm_json(engine, prompt, max_tokens=800, fallback="")
+    return call_llm_json(engine, prompt, max_tokens=800, fallback="", expect="text")
 
 
 def build_relationship_map(lines, engine, max_context_lines: int = 400):
@@ -169,7 +169,7 @@ def summarize_section(lines, engine, section_label: str = "", spoiler_safe: bool
         "Cover the main developments and any shift in the relationship between the leads. "
         f"Two or three sentences.{spoiler_clause}\n\n" + excerpt
     )
-    return call_llm_json(engine, prompt, max_tokens=600, fallback="")
+    return call_llm_json(engine, prompt, max_tokens=600, fallback="", expect="text")
 
 
 def explain_reference(phrase: str, lines, engine, source_language: str = "zh"):
@@ -188,7 +188,7 @@ def explain_reference(phrase: str, lines, engine, source_language: str = "zh"):
         "where it comes from. Keep it to a short paragraph -- informative, not a lecture.\n"
         + (f"\nHow it's used here:\n{context}" if context.strip() else "")
     )
-    return call_llm_json(engine, prompt, max_tokens=700, fallback="")
+    return call_llm_json(engine, prompt, max_tokens=700, fallback="", expect="text")
 
 
 # ---------------------------------------------------------------------------
