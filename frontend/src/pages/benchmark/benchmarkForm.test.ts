@@ -298,24 +298,23 @@ describe('page sections', () => {
     return { getItem: (k: string) => data[k] ?? null, setItem: (k: string, v: string) => void (data[k] = v) }
   }
 
-  it('opens only the golden sets on a first visit', () => {
+  it('opens every section on a first visit: each is the first card of its tab', () => {
     const s = store()
-    expect(benchSectionOpen(s, 'sets')).toBe(true)
-    for (const id of ['run', 'reeval', 'runs'] as const) expect(benchSectionOpen(s, id)).toBe(false)
+    for (const id of ['sets', 'run', 'reeval', 'runs'] as const) expect(benchSectionOpen(s, id)).toBe(true)
   })
 
   it('remembers a choice over the default, per section', () => {
     const s = store()
     writeSectionOpen(s, benchSectionStorageKey('sets'), false)
-    writeSectionOpen(s, benchSectionStorageKey('run'), true)
+    writeSectionOpen(s, benchSectionStorageKey('run'), false)
     expect(benchSectionOpen(s, 'sets')).toBe(false)
-    expect(benchSectionOpen(s, 'run')).toBe(true)
-    expect(benchSectionOpen(s, 'runs')).toBe(false)
+    expect(benchSectionOpen(s, 'run')).toBe(false)
+    expect(benchSectionOpen(s, 'runs')).toBe(true)
   })
 
   it('falls back to the default without storage or with junk in it', () => {
     expect(benchSectionOpen(null, 'sets')).toBe(true)
-    expect(benchSectionOpen(store({ [sectionStorageKey(benchSectionStorageKey('run'))]: 'maybe' }), 'run')).toBe(false)
+    expect(benchSectionOpen(store({ [sectionStorageKey(benchSectionStorageKey('run'))]: 'maybe' }), 'run')).toBe(true)
   })
 
   it('shows the percentage while a job runs', () => {
