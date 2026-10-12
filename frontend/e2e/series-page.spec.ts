@@ -13,7 +13,7 @@ const SERIES = [
 
 const FIELDS = [
   { key: 'translation_engine', label: 'Translation engine', group: 'translate', type: 'choice', choices: ['claude', 'gemini'] },
-  { key: 'translate_thinking', label: 'Thinking', group: 'translate', type: 'bool' },
+  { key: 'default_female_pronouns', label: 'Default to she/her', group: 'translate', type: 'bool' },
   { key: 'beam_size', label: 'Beam size', group: 'transcribe', type: 'int', min: 1, max: 10 },
   { key: 'vad_threshold', label: 'Voice detection threshold', group: 'transcribe', type: 'number', min: 0.1, max: 0.9 },
 ]
@@ -53,14 +53,14 @@ async function mockSeries(page: Page) {
       })
     }
     if (path === '/api/series/9/defaults') {
-      return route.fulfill({ json: { series_id: 9, settings: { translate_thinking: true }, fields: FIELDS } })
+      return route.fulfill({ json: { series_id: 9, settings: { default_female_pronouns: true }, fields: FIELDS } })
     }
     if (path === '/api/series/9/defaults/apply-preview') {
       return route.fulfill({
         json: {
           series_id: 9, mode: new URL(req.url()).searchParams.get('mode'), title_count: 2, changed_titles: 1, fields_changed: 2, job_running: false,
           titles: [
-            { id: 1, title_en: 'Saga Ep 1', title_zh: null, changes: { beam_size: { from: null, to: 8 }, translate_thinking: { from: false, to: true } }, unsuited: [] },
+            { id: 1, title_en: 'Saga Ep 1', title_zh: null, changes: { beam_size: { from: null, to: 8 }, default_female_pronouns: { from: false, to: true } }, unsuited: [] },
             { id: 2, title_en: 'Saga Ep 2', title_zh: null, changes: {}, unsuited: [] },
           ],
         },
@@ -141,7 +141,7 @@ test('Defaults: save title settings, preview and apply them to every title', asy
   const posts = await mockSeries(page)
   await page.goto('/#/series/9?tab=defaults')
   const card = page.locator('.series-defaults-card')
-  await expect(card.getByLabel('Thinking')).toHaveValue('true')
+  await expect(card.getByLabel('Default to she/her')).toHaveValue('true')
   await card.getByLabel('Beam size').fill('99')
   await card.getByRole('button', { name: 'Save defaults' }).click()
   await expect(card.getByRole('alert')).toHaveText('Beam size: between 1 and 10.')
@@ -161,7 +161,7 @@ test('Defaults: save title settings, preview and apply them to every title', asy
   await expect(apply.getByTestId('series-defaults-result')).toHaveText('Changed 2 settings on 1 title.')
 
   expect(posts).toEqual([
-    { path: '/api/series/9/defaults', body: { settings: { translation_engine: 'gemini', translate_thinking: true, beam_size: 8 } } },
+    { path: '/api/series/9/defaults', body: { settings: { translation_engine: 'gemini', default_female_pronouns: true, beam_size: 8 } } },
     { path: '/api/series/9/defaults/apply', body: { mode: 'overwrite' } },
   ])
 })

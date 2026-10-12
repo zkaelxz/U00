@@ -4,16 +4,22 @@ per-title translate and transcribe options a title already stores on its own
 row (SETTINGS), kept as JSON on the series (series.default_settings).
 
   - A title created in the series starts with them (inherit_new); a title
-    moved into it gets them for the settings it hasn't changed from the
-    app's default (inherit_moved).
+    moved into it gets them only for settings it has no value for
+    (inherit_moved). Both are best-effort: the caller's create or move
+    stands even if this fails.
   - "Apply to all titles in this series": a preview, then one transaction
     that writes only those settings columns, refuses while a job runs for
     any of the series' titles, and refuses if a title changed since the
-    plan was made (db.apply_series_settings).
+    plan was made (db.apply_series_settings). "Fill" counts a value still
+    equal to the app's default as not set; titles the caller may not edit
+    are left out.
 
 Only the keys in SETTINGS are ever stored or written: they become SQL
 column names in db.update_drama / db.apply_series_settings. No secret is a
-setting: engine keys stay in Settings. Values are checked with the same
+setting: engine keys stay in Settings. A title setting whose own write needs
+engines.paid (use_groq, translate_thinking) is never a default: defaults are
+set with lines.edit and copied to every title. translation_engine is one,
+because every run gates the engine it uses (api.auth.require_engines_allowed). Values are checked with the same
 rules as a title's own (transcribe_service.check_transcribe_fields, the
 engine registry); the checks that depend on a title's language run per
 title, and a default that doesn't suit a title's language is skipped there.
@@ -62,7 +68,6 @@ SETTINGS = {
     "translation_engine": _choice("Translation engine", "translate", translate_engines.ENGINES),
     "include_genre_notes": _bool("Genre notes in the prompt", "translate"),
     "default_female_pronouns": _bool("Default to she/her", "translate"),
-    "translate_thinking": _bool("Thinking", "translate"),
     "translate_by_sentence": _bool("Translate by sentence", "translate"),
     "whisper_size": _choice("Whisper model", "transcribe",
                             sorted(transcribe_service._allowed_whisper_sizes())),
@@ -87,7 +92,6 @@ SETTINGS = {
     "whisper_repeat_guard": _bool("Repeat guard", "transcribe"),
     "split_by_sentences": _bool("Split by sentences", "transcribe"),
     "vocabulary_hint": _bool("Vocabulary hint", "transcribe"),
-    "use_groq": _bool("Transcribe with Groq", "transcribe"),
 }
 _ALLOWED = frozenset(SETTINGS)
 _TRANSCRIBE = frozenset(k for k, f in SETTINGS.items() if f["group"] == "transcribe")
@@ -105,8 +109,11 @@ def _check_type(key, value):
     elif kind == "int":
         ok = isinstance(value, int) and not isinstance(value, bool)
     elif kind == "number":
-        ok = (isinstance(value, (int, float)) and not isinstance(value, bool)
-              and math.isfinite(value))
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+        try:
+            ok = ok and math.isfinite(value)
+        except OverflowError:   # an int too large for a float
+            ok = False
     else:
         ok = isinstance(value, str)
     if not ok:
@@ -222,13 +229,18 @@ def _suits_title(key, value, drama) -> bool:
 
 
 def _plan_title(drama, defaults, mode, skip=()) -> tuple:
-    """({column: new}, {column: old}, [keys skipped for this title's language])."""
+    """({column: new}, {column: old}, [keys skipped for this title's language]).
+    mode: "overwrite"; "fill" (NULL or still at the app default); "null"
+    (NULL only: a move never replaces a value the title holds, even one equal
+    to the app default it may have chosen on purpose)."""
     new, old, unsuited = {}, {}, []
     for key, value in defaults.items():
         if key in skip:
             continue
         column = drama.get(key)
         if mode == "fill" and not _unset(key, column):
+            continue
+        if mode == "null" and column is not None:
             continue
         if _as_value(key, column) == value:
             continue
@@ -257,9 +269,9 @@ def inherit_new(drama_id, series_id, skip=()) -> None:
 
 
 def inherit_moved(drama_id, series_id) -> None:
-    """A title just moved into the series: defaults fill the settings it
-    still has at the app's default; what it set itself stays."""
-    _inherit(drama_id, series_id, "fill")
+    """A title just moved into the series: defaults fill only the settings it
+    has no value for (NULL); every value it holds stays."""
+    _inherit(drama_id, series_id, "null")
 
 
 def _check_mode(mode):
@@ -271,10 +283,18 @@ def _job_running(series_id) -> bool:
     return series_service.job_running_for_series(series_id)
 
 
-def _plan(series_id, mode) -> tuple:
+def _plan(principal, series_id, mode) -> tuple:
+    """(plan for db.apply_series_settings, the titles it changes, listed).
+    A title the caller may not edit (a legacy private title of someone else
+    in a shared series) stays in the plan with nothing to write, so the
+    transaction still checks the series' titles, and is neither counted nor
+    shown."""
     defaults = _stored(_series_row(series_id))
     plan, titles = {}, []
     for drama in db.list_dramas_by_series(series_id):
+        if not ownership_service.can_edit_drama(principal, drama["id"]):
+            plan[drama["id"]] = {"old": {}, "new": {}}
+            continue
         new, old, unsuited = _plan_title(drama, defaults, mode)
         plan[drama["id"]] = {"old": old, "new": new}
         titles.append({"id": drama["id"], "title_en": drama.get("title_en"),
@@ -286,19 +306,15 @@ def _plan(series_id, mode) -> tuple:
 
 
 def apply_preview(principal, series_id, mode) -> dict:
-    """What "Apply to all titles" would change, per title. Writes nothing.
-    Lists titles the viewer can see only (a legacy private title in a shared
-    series stays hidden), but counts and applies to every title."""
+    """What "Apply to all titles" would change, per title the caller may
+    edit. Writes nothing."""
     ownership_service.require_editable(principal, "series", series_id)
     _check_mode(mode)
-    plan, titles = _plan(series_id, mode)
-    visible = db.series_content_counts(
-        series_id, visible_to=ownership_service.visible_to_filter(principal))["title_lines"]
+    _, titles = _plan(principal, series_id, mode)
     return {"series_id": series_id, "mode": mode, "title_count": len(titles),
             "changed_titles": sum(1 for t in titles if t["changes"]),
             "fields_changed": sum(len(t["changes"]) for t in titles),
-            "job_running": _job_running(series_id),
-            "titles": [t for t in titles if t["id"] in visible]}
+            "job_running": _job_running(series_id), "titles": titles}
 
 
 def apply_defaults(principal, series_id, mode) -> dict:
@@ -307,7 +323,7 @@ def apply_defaults(principal, series_id, mode) -> dict:
     refuses if a title changed since the plan. Audit: counts only."""
     ownership_service.require_editable(principal, "series", series_id)
     _check_mode(mode)
-    plan, titles = _plan(series_id, mode)
+    plan, titles = _plan(principal, series_id, mode)
     if _job_running(series_id):
         raise ConflictError(_JOB_RUNNING)
     changed = {d: c for d, c in plan.items() if c["new"]}
@@ -317,7 +333,7 @@ def apply_defaults(principal, series_id, mode) -> dict:
         raise ConflictError(_CHANGED)
     auth_service.write_audit(
         ownership_service.user_id(principal), "series.apply_defaults",
-        f"series {series_id}: mode={mode} titles={len(plan)} changed_titles={titles_changed} "
+        f"series {series_id}: mode={mode} titles={len(titles)} changed_titles={titles_changed} "
         f"fields={fields_changed}")
-    return {"series_id": series_id, "mode": mode, "title_count": len(plan),
+    return {"series_id": series_id, "mode": mode, "title_count": len(titles),
             "titles_changed": titles_changed, "fields_changed": fields_changed}

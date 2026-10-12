@@ -38,7 +38,7 @@ def _audit(action):
 
 
 GOOD = {"beam_size": 8, "vad_threshold": 0.4, "whisper_fast_mode": True,
-        "include_genre_notes": False, "translate_thinking": True,
+        "include_genre_notes": False, "default_female_pronouns": True,
         "separation_backend": "demucs"}
 
 
@@ -85,6 +85,18 @@ class TestDefaults:
         with pytest.raises(InvalidInputError):
             svc.set_defaults(people["a"], s, bad)
         assert svc.get_defaults(people["a"], s)["settings"] == {}
+
+    @pytest.mark.parametrize("bad", [{"vad_threshold": 10**400}, {"beam_size": 10**400}])
+    def test_a_huge_int_is_a_422_not_a_crash(self, people, bad):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        with pytest.raises(InvalidInputError):
+            svc.set_defaults(people["a"], s, bad)
+
+    @pytest.mark.parametrize("key", ["use_groq", "translate_thinking"])
+    def test_paid_gated_title_settings_are_refused(self, people, key):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        with pytest.raises(InvalidInputError):
+            svc.set_defaults(people["a"], s, {key: True})
 
     def test_rejects_a_non_dict(self, people):
         s = db.create_series("Saga", owner_user_id=people["a_id"])
@@ -141,7 +153,7 @@ class TestInheritance:
                                        principal=people["a"])
         row = db.get_drama(d["id"])
         assert (row["beam_size"], row["vad_threshold"], row["whisper_fast_mode"]) == (8, 0.4, 1)
-        assert (row["include_genre_notes"], row["translate_thinking"]) == (0, 1)
+        assert (row["include_genre_notes"], row["default_female_pronouns"]) == (0, 1)
         assert row["separation_backend"] == "demucs"
 
     def test_a_new_title_naming_an_existing_series_inherits_too(self, people):
@@ -167,7 +179,7 @@ class TestInheritance:
                                        principal=people["a"])
         assert db.get_drama(d["id"])["beam_size"] == 5
 
-    def test_a_moved_title_keeps_what_it_set_and_fills_the_rest(self, people):
+    def test_a_moved_title_gets_defaults_only_where_it_has_no_value(self, people):
         s = db.create_series("Saga", owner_user_id=people["a_id"])
         svc.set_defaults(people["a"], s, GOOD)
         d = db.create_drama(title_en="Old", source_language="ko", owner_user_id=people["a_id"])
@@ -175,7 +187,26 @@ class TestInheritance:
         drama_service.update_drama_metadata(d, series_id=s, principal=people["a"])
         row = db.get_drama(d)
         assert row["beam_size"] == 3
-        assert row["vad_threshold"] == 0.4 and row["whisper_fast_mode"] == 1
+        # Values the title holds stay, even ones equal to the app default it
+        # may have chosen on purpose; only NULL settings are filled.
+        assert row["vad_threshold"] == 0.5 and row["whisper_fast_mode"] == 0
+        assert (row["include_genre_notes"], row["default_female_pronouns"]) == (0, 1)
+
+    def test_a_move_keeps_its_other_edits_when_inheriting_fails(self, people, monkeypatch):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        d = db.create_drama(title_en="Old", source_language="ko", owner_user_id=people["a_id"])
+        monkeypatch.setattr(svc, "inherit_moved", lambda *a, **k: 1 / 0)
+        drama_service.update_drama_metadata(d, series_id=s, genre="Wuxia", principal=people["a"])
+        row = db.get_drama(d)
+        assert (row["series_id"], row["genre"]) == (s, "Wuxia")
+
+    def test_a_create_stands_when_inheriting_fails(self, people, monkeypatch):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        monkeypatch.setattr(svc, "inherit_new", lambda *a, **k: 1 / 0)
+        d = drama_service.create_drama(source_language="ko", title_en="New", series_id=s,
+                                       principal=people["a"])
+        assert db.get_drama(d["id"])["series_id"] == s
+        assert len(db.list_dramas_by_series(s)) == 1
 
     def test_a_default_wrong_for_the_titles_language_is_skipped(self, people, monkeypatch):
         s = db.create_series("Saga", owner_user_id=people["a_id"])
@@ -293,3 +324,49 @@ def test_the_db_write_refuses_a_key_outside_the_whitelist(isolated_db):
     with pytest.raises(ValueError):
         db.apply_series_settings(s, plan, allowed=frozenset(svc.SETTINGS))
     assert db.get_drama(d)["status"] == row["status"]
+
+
+# Title columns whose own write needs engines.paid. A series default is set
+# with lines.edit and copied to every title, so none of these may ever be a
+# setting; adding one to SETTINGS must fail here first.
+#   use_groq           -- api/routers/transcribe_routes.py post_transcribe_config:
+#                         require_paid_engines when use_groq (Groq cloud on the
+#                         owner's key; the run route checks it again).
+#   translate_thinking -- services/translate_thinking_service.may_remember: only an
+#                         engines.paid holder may turn a title's saved thinking on,
+#                         because later paid calls reuse it.
+PAID_GATED_TITLE_COLUMNS = {"use_groq", "translate_thinking"}
+# Checked and allowed: translation_engine (every run gates the engine it uses
+# with api.auth.require_engines_allowed, a missing engine counting as paid);
+# the transcribe tuning knobs and the other Translate toggles (lines.edit, no
+# paid gate on their write routes).
+
+
+def test_no_default_is_a_paid_gated_title_setting():
+    assert not set(svc.SETTINGS) & PAID_GATED_TITLE_COLUMNS
+
+
+def _legacy_private_title(series_id, owner_id):
+    d = db.create_drama(title_en="Their private one", source_language="ko",
+                        owner_user_id=owner_id)
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE dramas SET series_id = ?, is_private = 1 WHERE id = ?",
+                     (series_id, d))
+        conn.commit()
+    return d
+
+
+def test_apply_never_touches_a_title_the_caller_cannot_edit(people):
+    s = db.create_series("Shared", owner_user_id=people["b_id"])
+    mine = db.create_drama(title_en="Mine", source_language="ko", series_id=s,
+                           owner_user_id=people["a_id"])
+    hidden = _legacy_private_title(s, people["b_id"])
+    # The member a edits the shared series of b, which holds b's private title.
+    svc.set_defaults(people["a"], s, {"beam_size": 8})
+    p = svc.apply_preview(people["a"], s, "overwrite")
+    assert (p["title_count"], p["changed_titles"], p["fields_changed"]) == (1, 1, 1)
+    assert [t["id"] for t in p["titles"]] == [mine]
+    r = svc.apply_defaults(people["a"], s, "overwrite")
+    assert (r["title_count"], r["titles_changed"]) == (1, 1)
+    assert db.get_drama(mine)["beam_size"] == 8
+    assert db.get_drama(hidden)["beam_size"] == 5

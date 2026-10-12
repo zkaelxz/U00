@@ -156,12 +156,13 @@ def list_series_with_dramas(principal=None, include_single: bool = False) -> lis
     out = []
     uid = None if principal is None else principal.get("user_id")
     visible_to = ownership_service.visible_to_filter(principal)
+    # A private title left in a shared series from before titles lost their
+    # own flag on joining one stays hidden from others (one query for all).
+    seen = None if visible_to is None else {
+        d["id"] for d in db.list_dramas(visible_to=visible_to)}
     for s in db.list_series(visible_to=visible_to):
         dramas = db.list_dramas_by_series(s["id"])
-        if visible_to is not None:
-            # A private title left in a shared series from before titles
-            # lost their own flag on joining one stays hidden from others.
-            seen = db.series_content_counts(s["id"], visible_to=visible_to)["title_lines"]
+        if seen is not None:
             dramas = [d for d in dramas if d["id"] in seen]
         if len(dramas) < (1 if include_single else 2):
             continue

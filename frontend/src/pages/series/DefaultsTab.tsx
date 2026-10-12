@@ -77,8 +77,9 @@ function SettingsCard({ data, defaults, onSaved }: { data: SeriesPageData; defau
   return (
     <Card title="Default title settings" className="series-defaults-card">
       <p className="muted">
-        A new title in this series starts with these. A title moved into the series gets them for the settings it
-        hasn't changed itself. Not set: the title keeps the app's own default. API keys stay in Settings.
+        A new title in this series starts with these. A title moved into the series gets them only for settings it has
+        no value for. Not set: the title keeps the app's own default. API keys and the paid-only switches (Groq
+        transcription, Thinking) stay per title.
       </p>
       {readOnly && <p className="muted">You can't change this series' defaults.</p>}
       {GROUPS.map((g) => (
@@ -139,7 +140,7 @@ function ApplyCard({ data, defaults }: { data: SeriesPageData; defaults: SeriesD
             <legend className="visually-hidden">Which settings to change</legend>
             <label>
               <input type="radio" name="defaults-mode" checked={mode === 'fill'} onChange={() => pick('fill')} />
-              {' '}Only fill settings a title hasn't changed
+              {' '}Only fill settings a title hasn't changed (a value equal to the app's default counts as unchanged)
             </label>
             <label>
               <input type="radio" name="defaults-mode" checked={mode === 'overwrite'} onChange={() => pick('overwrite')} />
