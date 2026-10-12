@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
-import { openTranscribeOptions } from './sourceHelpers'
+import { mediaTab } from './mediaTabs'
 
 // Phone project (390x844, touch): the auto-tune results, glossary-from-novel
 // proposals and PC-only delete buttons fit the width, use cards instead of
@@ -42,7 +42,8 @@ async function expectTall(loc: Locator) {
 
 async function openSection(page: Page, title: string) {
   await openFoldFor(page, title)
-  if (['More options', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
+  // Auto-tune and the Advanced options folds are on the Tools tab.
+  if (title === 'Auto-tune min silence') await mediaTab(page, 'tools').click()
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
@@ -64,7 +65,6 @@ test('auto-tune results are cards with 44px Use buttons', async ({ page }) => {
     }),
   )
   await page.goto('/#/drama/1/source')
-  await openSection(page, 'More options')
   await openSection(page, 'Auto-tune min silence')
   const cards = page.locator('ul.autotune-cards > li')
   await expect(cards).toHaveCount(3)

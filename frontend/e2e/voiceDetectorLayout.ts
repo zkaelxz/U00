@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openAdvanced } from './sourceHelpers'
 
 type State = 'not-downloaded' | 'failed' | 'downloaded' | 'standard'
 
@@ -24,8 +24,7 @@ export async function openVoiceDetector(page: Page, state: State) {
         : { id: 'job-vad', status: 'done' },
     }))
   await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
   const select = page.getByLabel('Voice detector', { exact: true })
   await expect(select).toBeVisible()
   return select
@@ -87,4 +86,36 @@ export async function expectSelectTextReadable(select: Locator) {
     return { overflow: s.textOverflow }
   })
   expect(style.overflow, 'long selected text ends in an ellipsis').toBe('ellipsis')
+}
+
+// A label that wraps once left its input lower than its neighbours' in the same row, away from their tops.
+// Items in one visual row share a top; their inputs must too, and a unit suffix stays inside its field.
+export async function expectRowInputsAligned(scope: Locator) {
+  const rows = await scope.locator('.source-grid').evaluateAll((grids) =>
+    grids.flatMap((grid) => {
+      const cells = [...grid.querySelectorAll<HTMLElement>(':scope > .field-item, :scope > .field-with-extras > .field-item')]
+      return cells.map((item) => {
+        const control = item.querySelector<HTMLElement>('.field-control')!
+        const input = control.firstElementChild!.getBoundingClientRect()
+        const unit = control.querySelector<HTMLElement>('.field-unit')?.getBoundingClientRect()
+        return {
+          name: item.querySelector('label')!.textContent ?? '',
+          row: Math.round((item.closest('.field-with-extras') ?? item).getBoundingClientRect().top),
+          inputTop: input.top,
+          fieldRight: item.getBoundingClientRect().right,
+          unitRight: unit?.right ?? null,
+        }
+      })
+    }))
+  expect(rows.length, 'fields in the grids').toBeGreaterThan(3)
+  const byRow = new Map<number, typeof rows>()
+  for (const r of rows) {
+    const key = [...byRow.keys()].find((k) => Math.abs(k - r.row) <= 2) ?? r.row
+    byRow.set(key, [...(byRow.get(key) ?? []), r])
+  }
+  for (const group of byRow.values()) {
+    const top = group[0].inputTop
+    for (const r of group) expect(Math.abs(r.inputTop - top), `${r.name}: input top matches its row`).toBeLessThanOrEqual(1)
+  }
+  for (const r of rows) if (r.unitRight !== null) expect(r.unitRight, `${r.name}: unit stays inside the field`).toBeLessThanOrEqual(r.fieldRight + 0.5)
 }

@@ -104,7 +104,8 @@ test('a finished run shows as Last run after a fresh visit, and Retry starts it 
   await expect(card.getByTestId('last-run-when')).toHaveText('10 min ago')
   await expect(card.getByTestId('last-run-text')).toHaveText('Finished with problems: 2 problem(s), first: rate limited')
   await expect(card.getByTestId('last-run-counts')).toHaveText('3 lines · 2 failed')
-  await expect(card.getByRole('link', { name: 'All jobs' })).toHaveAttribute('href', '#/jobs')
+  // The header's Jobs menu has the link to every job; the card does not repeat it.
+  await expect(card.getByRole('link', { name: 'All jobs' })).toHaveCount(0)
   await expect(page.getByTestId('job-status')).toHaveCount(0)
 
   // Retry runs the stage's own start with the current form, so the card offers it only once the form has loaded.

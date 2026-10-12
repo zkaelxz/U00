@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { editPauseAndSave, openAdvanced } from './minPauseHelpers'
+import { editPauseAndSave } from './minPauseHelpers'
+import { openAdvanced } from './sourceHelpers'
 
 // The "Pause that can split a long line" field in Transcribe > Advanced
 // (desktop; min-pause.mobile.spec.ts runs the same edit on a phone).

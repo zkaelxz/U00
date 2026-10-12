@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { listBody, mockChapters, row } from './novelChaptersMocks'
+import { listBody, mockChapters, openChapters, row } from './novelChaptersMocks'
 
 // Saved chapters panel (Source stage, novel titles): list, preview, marks.
 // The chapter routes are mocked; the page itself is the real built app.
@@ -12,6 +12,7 @@ test('lists the saved chapters with counts, source and date, and marks what is i
   const rows = [row(1, { in_translation: true }), row(2, { in_translation: true }), row(3)]
   await mockChapters(page, listBody(rows, { translation_chars: 9000 }))
   await page.goto('/#/drama/2/source')
+  await openChapters(page)
   const panel = page.getByRole('region', { name: 'Saved chapters' })
   await expect(panel.getByTestId('chapters-headline')).toHaveText('3 chapters, 12,006 characters')
   await expect(panel.getByTestId('chapters-translation')).toHaveText(
@@ -27,6 +28,7 @@ test('lists the saved chapters with counts, source and date, and marks what is i
 test('shows the empty state', async ({ page }) => {
   await mockChapters(page, listBody([]))
   await page.goto('/#/drama/2/source')
+  await openChapters(page)
   await expect(page.getByTestId('chapters-headline')).toHaveText(
     'No chapters saved yet. Import from Sources or paste text.',
   )
@@ -40,6 +42,7 @@ test('shows text with no chapter markers as one Unsplit text block', async ({ pa
   const block = row(1, { title: 'Unsplit text', unsplit: true, source: '', imported_at: '', chars: 90000 })
   await mockChapters(page, listBody([block], { split: false, total: 1 }))
   await page.goto('/#/drama/2/source')
+  await openChapters(page)
   const panel = page.getByRole('region', { name: 'Saved chapters' })
   await expect(panel.getByTestId('chapters-headline')).toHaveText('Unsplit text, 90,000 characters')
   await expect(panel.getByRole('button', { name: /Unsplit text/ })).toBeVisible()
@@ -56,6 +59,7 @@ test('opens a preview, loads the rest with Show all, and copies', async ({ page,
           in_translation: false, offset, text: 'B'.repeat(100000), next_offset: null },
   )
   await page.goto('/#/drama/2/source')
+  await openChapters(page)
   await page.getByRole('button', { name: /第1章 标题/ }).click()
   const preview = page.getByRole('region', { name: 'Chapter preview' })
   await expect(preview).toContainText('20,000 of 120,000 characters')
@@ -83,6 +87,7 @@ test('the chapter selector steps through chapters and each chapter links to its 
     in_translation: false, url: number === 1 ? 'https://novel.example/b/1.html' : '', offset: 0, text: `正文${number}`, next_offset: null,
   }))
   await page.goto('/#/drama/2/source')
+  await openChapters(page)
   const panel = page.getByRole('region', { name: 'Saved chapters' })
   const nav = panel.getByRole('group', { name: 'Chapter selector' })
   await expect(nav.getByRole('button', { name: 'Previous chapter' })).toBeDisabled()
@@ -108,6 +113,7 @@ test('each chapter source link sits beside its row and names its chapter', async
   const rows = [row(1, { url: 'https://novel.example/b/1.html' }), row(2, { url: 'https://novel.example/b/2.html' })]
   await mockChapters(page, listBody(rows))
   await page.goto('/#/drama/2/source')
+  await openChapters(page)
   const list = page.getByRole('region', { name: 'Saved chapters' }).getByRole('list', { name: 'Saved chapters' })
   const link = list.getByRole('link', { name: 'Open chapter page: 2. 第2章 标题' })
   await expect(link).toHaveAttribute('href', 'https://novel.example/b/2.html')

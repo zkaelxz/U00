@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openTranscribeOptions, enableDeveloperMode } from './sourceHelpers'
+import { mediaPanel, mediaTab } from './mediaTabs'
+import { openTranscribeOptions, enableDeveloperMode, transcribeCard, openAdvanced } from './sourceHelpers'
 
 // The Transcribe card: a refused option is flagged on its own field, the
 // settings fold once the drama has lines, "Still needed" is a callout, and
@@ -29,12 +30,12 @@ test('a refused option is highlighted on its field, with the reason beside it', 
       json: { error: { code: 'validation_error', message: QWEN_SENTENCE } },
     }),
   )
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await page.getByLabel('Transcript text').fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
 
   const field = page.getByLabel('Alignment method', { exact: true })
-  await expect(field).toBeVisible() // Advanced was folded: it is opened for you
+  await expect(field).toBeVisible() // The field is on Tools, in a fold: the tab and fold are opened for you
   await expect(field).toHaveAttribute('aria-invalid', 'true')
   await expect(page.locator('.field-error', { hasText: 'Qwen3 forced alignment needs a transcript' })).toBeVisible()
   await expect(page.getByText('Fix the highlighted option, then transcribe again.')).toBeVisible()
@@ -50,39 +51,39 @@ test('the form survives a reload, and Reset to defaults clears it', async ({ pag
   await enableDeveloperMode(page)
   // A fresh context: no draft and every fold closed.
   await page.goto('/#/drama/1/source')
-  const card = page.getByRole('region', { name: 'Transcribe' })
-  const beam = card.getByLabel('Beam size', { exact: true })
   await openTranscribeOptions(page)
-  // Fresh storage: Advanced starts folded, and stays open across the reload below.
-  await card.locator('.section-title', { hasText: /^More options$/ }).first().click()
+  const run = transcribeCard(page)
+  const tools = await openAdvanced(page)
+  const beam = tools.getByLabel('Beam size', { exact: true })
   await expect(beam).toBeVisible()
   const savedBeam = await beam.inputValue()
-  await card.getByLabel('Source language').selectOption('ja')
-  await card.getByLabel('Transcript text').fill('kept across a reload')
   await beam.fill('7')
-  await card.getByLabel('Extra names to expect', { exact: true }).fill('沈清疑')
-  // The override sits in a plain <details> that is not remembered: open it each time.
-  const openOverride = () => card.locator('summary', { hasText: 'More: replace the automatic prompt' }).click()
-  await openOverride()
-  await card.getByLabel('Replacement prompt', { exact: true }).fill('full prompt')
+  await tools.getByLabel('Extra names to expect', { exact: true }).fill('沈清疑')
+  // The prompt fold holds Extra names and the replacement prompt; openAdvanced opens it.
+  await tools.getByLabel('Replacement prompt', { exact: true }).fill('full prompt')
+  await openTranscribeOptions(page)
+  await run.getByLabel('Source language').selectOption('ja')
+  await run.getByLabel('Transcript text').fill('kept across a reload')
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('baihe.draft.1.transcribe')))
     .toContain('"beam_size":"7"')
 
   await page.reload()
-  await expect(card.getByLabel('Source language')).toHaveValue('ja')
-  await expect(card.getByLabel('Transcript text')).toHaveValue('kept across a reload')
-  await expect(beam).toHaveValue('7')
-  await expect(card.getByLabel('Extra names to expect', { exact: true })).toHaveValue('沈清疑')
-  await openOverride()
-  await expect(card.getByLabel('Replacement prompt', { exact: true })).toHaveValue('full prompt')
+  await openTranscribeOptions(page)
+  await expect(run.getByLabel('Source language')).toHaveValue('ja')
+  await expect(run.getByLabel('Transcript text')).toHaveValue('kept across a reload')
+  const again = await openAdvanced(page)
+  await expect(again.getByLabel('Beam size', { exact: true })).toHaveValue('7')
+  await expect(again.getByLabel('Extra names to expect', { exact: true })).toHaveValue('沈清疑')
+  await expect(again.getByLabel('Replacement prompt', { exact: true })).toHaveValue('full prompt')
 
-  await card.getByRole('button', { name: 'Reset to defaults' }).click()
-  await expect(card.getByLabel('Source language')).toHaveValue('zh')
-  await expect(card.getByLabel('Transcript text')).toHaveValue('')
-  await expect(beam).toHaveValue(savedBeam)
-  await expect(card.getByLabel('Extra names to expect', { exact: true })).toHaveValue('')
-  await expect(card.getByLabel('Replacement prompt', { exact: true })).toHaveValue('')
+  await again.getByRole('button', { name: 'Reset to defaults' }).click()
+  await expect(again.getByLabel('Beam size', { exact: true })).toHaveValue(savedBeam)
+  await expect(again.getByLabel('Extra names to expect', { exact: true })).toHaveValue('')
+  await expect(again.getByLabel('Replacement prompt', { exact: true })).toHaveValue('')
+  await openTranscribeOptions(page)
+  await expect(run.getByLabel('Source language')).toHaveValue('zh')
+  await expect(run.getByLabel('Transcript text')).toHaveValue('')
 })
 
 test('forced alignment is disabled with a reason when there is no supplied transcript', async ({ page }) => {
@@ -91,7 +92,7 @@ test('forced alignment is disabled with a reason when there is no supplied trans
     await route.fulfill({ response: resp, json: { ...(await resp.json()), transcript_mode: 'whisper', alignment_method: 'whisper_diff' } })
   })
   await page.goto('/#/drama/1/source')
-  await page.getByLabel('Alignment method', { exact: true }).waitFor({ state: 'attached' })
+  await openAdvanced(page)
   await expect(page.getByLabel('Alignment method', { exact: true }).locator('option[value="qwen3_forced_align"]')).toBeDisabled()
   await expect(page.getByText('for raw audio, pick Whisper or Qwen3-ASR')).toBeAttached()
 })
@@ -103,37 +104,42 @@ test('an unnamed 422 shows the server sentence in the banner', async ({ page }) 
       json: { error: { code: 'validation_error', message: 'Unknown source_language.' } },
     }),
   )
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await page.getByLabel('Transcript text').fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.locator('.error-banner')).toContainText('Unknown source_language.')
 })
 
-test('the language and Whisper model are always in view; the options start folded', async ({ page }) => {
-  await page.goto('/#/drama/1/source')
-  const card = page.getByRole('region', { name: 'Transcribe' })
+test('the language and Whisper model are on Transcribe; the options are on Tools in folds', async ({ page }) => {
+  await page.goto('/#/drama/1/source?tab=transcribe')
+  const card = transcribeCard(page)
   await expect(page.getByTestId('settings-summary')).toBeVisible()
   await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
-  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeHidden()
-  await expect(card.getByLabel('Beam size', { exact: true })).toBeHidden()
+  await expect(card.getByLabel('Expected speakers', { exact: true })).toHaveCount(0)
+  await expect(card.getByLabel('Beam size', { exact: true })).toHaveCount(0)
   await expect(card.getByRole('heading', { name: 'Transcribe' })).toHaveCount(0)
   await shot(page, 'transcribe-folded-desktop')
-  await card.locator('.section-title', { hasText: /^More options$/ }).click()
-  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
+  await mediaTab(page, 'tools').click()
+  const tools = mediaPanel(page, 'tools')
+  // Options never saved: the Switches fold opens by itself and the others stay closed until opened.
+  await expect(tools.getByRole('switch', { name: 'Use Groq' })).toBeVisible()
+  await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeHidden()
+  await tools.locator('.section-title', { hasText: /^Speakers$/ }).click()
+  await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   // Remembered: still open after a reload. Section saves the state in its toggle
   // handler, which runs after the open attribute changes, so wait for the save.
   await expect
-    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.advanced')))
+    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.advanced.speakers')))
     .toBe('1')
   await page.reload()
-  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
+  await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   // Developer Mode is off here, so the gated knobs are not in the DOM even with the fold open.
-  await expect(card.getByLabel('Beam size', { exact: true })).toHaveCount(0)
+  await expect(tools.getByLabel('Beam size', { exact: true })).toHaveCount(0)
 })
 
 test('"Still needed" is a callout with its fix button', async ({ page }) => {
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   const callout = page.locator('#transcribe-needed')
   await expect(callout).toContainText('Still needed: the transcript text.')
   await expect(callout.getByRole('button', { name: 'Paste transcript' })).toBeVisible()
@@ -153,8 +159,7 @@ test('a running auto-tune shows elapsed time and an estimate', async ({ page }) 
     }),
   )
   await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).first().click()
+  await openAdvanced(page)
   await page.locator('.section-title', { hasText: /^Auto-tune min silence$/ }).click()
   await expect(page.getByTestId('autotune-elapsed')).toContainText(/0:0\d elapsed/)
   await expect(page.getByTestId('autotune-elapsed')).toContainText(/0:0[2-9] elapsed/)
@@ -166,7 +171,7 @@ test('the setup checklist sits above Transcribe so its reason is read first', as
     const real = await route.fetch()
     await route.fulfill({ response: real, json: { ...(await real.json()), whisper_installed: false } })
   })
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   const button = page.getByRole('button', { name: 'Transcribe', exact: true })
   await expect(button).toBeDisabled()
   const checklist = page.locator('#transcribe-not-installed')

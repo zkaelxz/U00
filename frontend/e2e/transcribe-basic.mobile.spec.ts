@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test'
 
-import { openTranscribeOptions } from './sourceHelpers'
+import { openTranscribeOptions, transcribeCard } from './sourceHelpers'
 
 test('on a phone the basic view fits and the controls are 44px tall', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  const card = page.getByRole('region', { name: 'Transcribe' })
+  const card = transcribeCard(page)
   for (const l of ['Source language', 'Whisper model']) {
     const box = await card.getByLabel(l, { exact: true }).boundingBox()
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(43.5)

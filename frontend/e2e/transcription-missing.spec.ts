@@ -13,7 +13,7 @@ test.afterEach(async ({ page }) => {
 
 test('not installed: the card says so and offers the install in place', async ({ page }) => {
   const m = await mockTranscription(page, false)
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   const card = page.locator('#transcribe-not-installed').getByRole('region', { name: 'Before you run' })
   await expect(card.getByTestId('preflight-whisper')).toContainText('Not installed')
   // Disabled up front: the card is the reason, so nothing can start and fail with a raw error.
@@ -26,7 +26,7 @@ test('not installed: the card says so and offers the install in place', async ({
 
 test('installed: no note on the card and no block in Diagnostics', async ({ page }) => {
   await mockTranscription(page, true)
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(page.locator('#transcribe-not-installed')).toHaveCount(0)
   await page.goto('/#/diagnostics?card=packages')

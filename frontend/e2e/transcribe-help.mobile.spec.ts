@@ -1,12 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openAdvanced } from './sourceHelpers'
 
 // Phone project: the (i) text stays inside the screen. Real taps are covered
 // in field-help-tap.mobile.spec.ts.
-async function openAdvanced(page: Page) {
+async function openOptions(page: Page) {
   await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
 }
 
 async function expectOnScreen(page: Page, text: ReturnType<Page['getByRole']>) {
@@ -19,7 +18,7 @@ async function expectOnScreen(page: Page, text: ReturnType<Page['getByRole']>) {
 }
 
 test('the ASR backend (i) opens and fits the phone', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   await page.getByRole('button', { name: 'Help: ASR backend' }).focus()
   const text = page.getByRole('tooltip').filter({ hasText: 'Whisper:' })
   await expect(text).toBeVisible()
@@ -28,7 +27,7 @@ test('the ASR backend (i) opens and fits the phone', async ({ page }) => {
 })
 
 test('the Use Groq (i) opens and fits the phone', async ({ page }) => {
-  await openAdvanced(page)
+  await openOptions(page)
   await page.getByRole('button', { name: 'Help: Use Groq' }).focus()
   const text = page.getByRole('tooltip').filter({ hasText: "Groq's servers" })
   await expect(text).toBeVisible()

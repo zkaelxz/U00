@@ -14,7 +14,7 @@ test.afterEach(async ({ page }) => {
 
 test('the estimate line says rough, names model and device, and notes a download and separation', async ({ page }) => {
   await mockTranscribeCard(page, { durationSeconds: 3600, cached: false, separate: true }, { progress: 0, message: '' })
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   const line = page.getByTestId('transcribe-estimate')
   await expect(line).toContainText('Rough estimate: about 1.5-4 h for this audio (large-v3 on CPU).')
   await expect(line).toContainText('First use also downloads the model.')
@@ -23,13 +23,13 @@ test('the estimate line says rough, names model and device, and notes a download
 
 test('a speed measured on the last run replaces the built-in range', async ({ page }) => {
   await mockTranscribeCard(page, { durationSeconds: 3600, measuredSpeed: 2 }, { progress: 0, message: '' })
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await expect(page.getByTestId('transcribe-estimate')).toContainText('based on your last run')
 })
 
 test('no estimate (and no error) when the audio length is unknown', async ({ page }) => {
   await mockTranscribeCard(page, { durationSeconds: 0 }, { progress: 0, message: '' })
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(page.getByTestId('transcribe-estimate')).toHaveCount(0)
   await expect(page.locator('.error-banner')).toHaveCount(0)
@@ -39,7 +39,7 @@ test('the job card shows elapsed, then "about N min left", and only elapsed in a
   const job: MockJob = { progress: 0, message: 'Transcribing... starting; the percent appears once the first lines are found' }
   await page.clock.install()
   await mockTranscribeCard(page, { durationSeconds: 3600 }, job)
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
 
   const elapsed = page.getByTestId('job-elapsed')

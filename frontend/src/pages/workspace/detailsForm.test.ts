@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { DramaDetail } from '../../api/types'
 import {
   buildDetailsPayload,
+  CREDITS_FIELDS,
+  unsavedTabs,
   formFromDrama,
   isEmptyPayload,
   mediaKind,
@@ -198,5 +200,24 @@ describe('mediaKind', () => {
     expect(mediaKind('anime')).toBe('audio')
     expect(mediaKind('')).toBe('audio')
     expect(mediaKind(null)).toBe('audio')
+  })
+})
+
+describe('unsavedTabs', () => {
+  const base = formFromDrama(drama)
+
+  it('marks nothing for an untouched form', () => {
+    expect(unsavedTabs(base, base)).toEqual({ details: false, credits: false })
+  })
+
+  it('marks Details for a details field and Credits for a credits field', () => {
+    expect(unsavedTabs({ ...base, summary: 'x' }, base)).toEqual({ details: true, credits: false })
+    expect(unsavedTabs({ ...base, author: 'x' }, base)).toEqual({ details: false, credits: true })
+    expect(unsavedTabs({ ...base, genre: 'x', title_en: 'B' }, base)).toEqual({ details: true, credits: true })
+  })
+
+  it('puts genre with the credits and the publication status with the details', () => {
+    expect(CREDITS_FIELDS).toContain('genre')
+    expect(CREDITS_FIELDS).not.toContain('publication_status')
   })
 })

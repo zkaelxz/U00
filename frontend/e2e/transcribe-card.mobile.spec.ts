@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
+import { transcribeCard, openAdvanced } from './sourceHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -27,7 +28,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test('the "Still needed" callout fits and its button is 44px tall', async ({ page }) => {
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   const callout = page.locator('#transcribe-needed')
   await expect(callout).toBeVisible()
   expect(await hitHeight(callout.getByRole('button', { name: 'Paste transcript' }))).toBeGreaterThanOrEqual(44)
@@ -42,7 +43,7 @@ test('a refused option is flagged on the phone without sideways scroll', async (
       json: { error: { code: 'validation_error', message: 'Qwen3 forced alignment needs a transcript to align, but this title is in Whisper-text-only mode.' } },
     }),
   )
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await page.getByLabel('Transcript text').fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByLabel('Alignment method', { exact: true })).toHaveAttribute('aria-invalid', 'true')
@@ -51,14 +52,14 @@ test('a refused option is flagged on the phone without sideways scroll', async (
 })
 
 test('folded settings on the phone', async ({ page }) => {
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1/source?tab=transcribe')
   await expect(page.getByTestId('settings-summary')).toBeVisible()
-  const card = page.getByRole('region', { name: 'Transcribe' })
+  const card = transcribeCard(page)
   await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
-  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeHidden()
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
-  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Expected speakers', { exact: true })).toHaveCount(0)
+  const tools = await openAdvanced(page)
+  await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await shot(page, 'transcribe-folded-phone')
 })

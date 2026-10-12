@@ -1,10 +1,30 @@
 import { expect, type Page } from '@playwright/test'
 
-// The Whisper model sits beside Source language; Speakers and Advanced are
-// their own folds. Wait for the saved options to load (the settings summary
-// shows then) so a click on a fold is not undone by the first render.
+import { mediaPanel, mediaTab, openAllFolds } from './mediaTabs'
+
+// The Media stage's sub-tabs: the Transcribe tab holds the run form (language, model, the Transcribe button),
+// the Tools tab the Advanced options folds, Auto-tune and Speech coverage. Wait for the saved options to load
+// (the settings summary shows then) so a click is not undone by the first render.
 export async function openTranscribeOptions(page: Page) {
+  await mediaTab(page, 'transcribe').click()
   await expect(page.getByTestId('settings-summary')).toBeVisible()
+}
+
+/** The Transcribe tab's body. */
+export const transcribeCard = (page: Page) => mediaPanel(page, 'transcribe')
+
+/**
+ * Opens the Tools tab with the Advanced options folds open, and returns that section. The prompt fold
+ * (Extra names, Replacement prompt) is opened too unless `prompt` is false.
+ */
+export async function openAdvanced(page: Page, prompt = true) {
+  await mediaTab(page, 'tools').click()
+  const advanced = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })
+  await expect(advanced).toBeVisible()
+  await openAllFolds(advanced)
+  const more = advanced.locator('details.prompt-fold')
+  if (prompt && (await more.count()) && (await more.getAttribute('open')) === null) await more.locator(':scope > summary').click()
+  return advanced
 }
 
 // Turns Developer Mode on for this page: the Transcribe knobs it gates (beam size, VAD threshold and so on) are

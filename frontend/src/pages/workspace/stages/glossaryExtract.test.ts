@@ -141,7 +141,7 @@ describe('suggest terms sources', () => {
   it('novel only: defaults to the novel', () => {
     const b = blockers(7, true, false)
     expect(b.novel).toBeNull()
-    expect(b.lines).toEqual({ text: 'Still needed: transcript lines', link: 'transcribe it on Media', href: '#/drama/3/source' })
+    expect(b.lines).toEqual({ text: 'Still needed: transcript lines', link: 'transcribe it on Media', href: '#/drama/3/source?tab=transcribe' })
     expect(defaultSuggestSource(b, false)).toBe('novel')
   })
 

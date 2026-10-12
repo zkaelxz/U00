@@ -1,8 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { openGroup } from './source-groups'
+import { mediaPanel, mediaTab } from './mediaTabs'
+import { nextFrames } from './sourceHelpers'
+import { openCreditsTab, openDetailsTab, openGroup } from './source-groups'
 
-// The Source stage leads with the workflow for the drama's media type, and
+// The Media stage's Add media tab leads with the workflow for the drama's media type, and
 // the details form shows only the fields that type uses. The drama read is
 // the seeded drama 2 served with a patched media type.
 
@@ -21,18 +23,19 @@ async function stubNovel(page: Page, has: boolean) {
   await page.route('**/api/novel/dramas/2/raw-novel', (r) => r.fulfill({ json: { drama_id: 2, present: false, size_bytes: 0, char_count: 0 } }))
 }
 
-const titles = (page: Page) => page.locator('.stage-source .section-title').filter({ hasText: /^(Transcribe audio or video|Novel text|Attach novel text \(optional\)|Details and credits)$/ }).allTextContents()
+const titles = (page: Page) => page.locator('.stage-source .section-title').filter({ hasText: /^(Novel text|Attach novel text \(optional\)|Import subtitle file)$/ }).allTextContents()
 const isOpen = async (page: Page, title: string) =>
   (await page.locator('details.section', { has: page.locator('summary > .section-title', { hasText: new RegExp(`^${title}$`) }) }).first().getAttribute('open')) !== null
 
-test('an audio drama leads with Transcribe, open', async ({ page }) => {
+test('an audio drama adds media first, then the subtitle import (open) and the optional novel row (closed)', async ({ page }) => {
   await stubType(page, 'audio_drama', { content_mode: 'audio_drama' })
   await stubNovel(page, false)
   await page.goto('/#/drama/2/source')
-  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
-  expect((await titles(page)).slice(0, 2)).toEqual(['Transcribe audio or video', 'Attach novel text (optional)'])
+  await expect(mediaPanel(page, 'add').getByRole('radiogroup', { name: 'Get audio or video' })).toBeVisible()
+  await expect(mediaTab(page, 'transcribe')).toBeVisible()
+  expect(await titles(page)).toEqual(['Import subtitle file', 'Attach novel text (optional)'])
+  expect(await isOpen(page, 'Import subtitle file')).toBe(true)
   expect(await isOpen(page, 'Attach novel text \\(optional\\)')).toBe(false)
-  expect(await isOpen(page, 'Details and credits')).toBe(false)
 })
 
 test('an audio drama with no novel gets one optional row that opens to the attach controls', async ({ page }) => {
@@ -51,7 +54,7 @@ test('a streamer VOD with no novel shows neither novel section', async ({ page }
   await stubType(page, 'streamer_vod', { content_mode: 'streamer_vod' })
   await stubNovel(page, false)
   await page.goto('/#/drama/2/source')
-  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  await expect(mediaPanel(page, 'add').getByRole('radiogroup', { name: 'Get audio or video' })).toBeVisible()
   await expect(page.locator('.stage-source .section-title', { hasText: /novel/i })).toHaveCount(0)
   await expect(page.getByText('Raw source novel', { exact: false })).toHaveCount(0)
 })
@@ -66,12 +69,12 @@ test('a streamer VOD that already has novel text still shows Novel text', async 
   await expect(novel.getByTestId('novel-status')).toHaveText('Attached: 1,200 characters, 3 chapters.')
 })
 
-test('a video drama leads with Transcribe, open', async ({ page }) => {
+test('a video drama adds media first, then the subtitle import (open) and the optional novel row (closed)', async ({ page }) => {
   await stubType(page, 'video_drama')
   await page.goto('/#/drama/2/source')
-  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
-  expect((await titles(page)).slice(0, 2)).toEqual(['Transcribe audio or video', 'Attach novel text (optional)'])
-  expect(await isOpen(page, 'Transcribe audio or video')).toBe(true)
+  await expect(mediaPanel(page, 'add').getByRole('radiogroup', { name: 'Get audio or video' })).toBeVisible()
+  expect(await titles(page)).toEqual(['Import subtitle file', 'Attach novel text (optional)'])
+  expect(await isOpen(page, 'Import subtitle file')).toBe(true)
   expect(await isOpen(page, 'Attach novel text \\(optional\\)')).toBe(false)
 })
 
@@ -82,7 +85,9 @@ test('a novel leads with Novel text, open, with raw and translation text labelle
   await expect(novel.getByText('Text used for translation', { exact: true })).toBeVisible()
   await expect(novel.getByText('Raw source novel (original language, used as reference)', { exact: true })).toBeVisible()
   expect((await titles(page))[0]).toBe('Novel text')
-  expect(await isOpen(page, 'Transcribe audio or video')).toBe(false)
+  // No audio to transcribe: the Transcribe and Tools tabs are not offered.
+  await expect(mediaTab(page, 'transcribe')).toHaveCount(0)
+  await expect(mediaTab(page, 'tools')).toHaveCount(0)
   await page.setViewportSize({ width: 1440, height: 900 })
   if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/source-desktop-novel.png`, fullPage: true })
 })
@@ -93,16 +98,16 @@ test('a comic leads with image OCR open', async ({ page }) => {
   await expect(page.getByLabel('Page images', { exact: true })).toBeVisible()
 })
 
-test('Details hide the fields another content type owns, and Add credits reveals the form', async ({ page }) => {
+test('Details and Credits hide the fields another content type owns, and Add credits reveals the form', async ({ page }) => {
   await stubType(page, 'novel', { author: '', studio: '', director: '', voice_actors: '' })
   await page.goto('/#/drama/2/source')
-  await openGroup(page, 'Details and credits')
-  await page.locator('.section-title', { hasText: 'Edit details' }).click()
+  await openDetailsTab(page)
   await expect(page.getByLabel('Chapter count', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Director', { exact: true })).toHaveCount(0)
-  await expect(page.getByLabel('Voice actors', { exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Content mode')).toHaveCount(0)
   await expect(page.getByLabel('Source URL', { exact: true })).toHaveCount(1)
+  await openCreditsTab(page, true)
+  await expect(page.getByLabel('Director', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Voice actors', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Romanize credits' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Add credits' }).click()
   await expect(page.getByLabel('Author', { exact: true })).toBeFocused()
@@ -120,12 +125,22 @@ test('"Keep original files" in Media saves through the metadata update and expla
   })
   await stubNovel(page, false)
   await page.goto('/#/drama/2/source')
+  // The cards above fill in as their reads land (media status, novel text) and move everything below them;
+  // wait for the last of them so the click does not land on a row that has just shifted.
+  await expect(page.getByLabel('Audio or video file')).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Attach text' }).first()).toBeAttached()
+  await nextFrames(page)
   const block = page.getByTestId('keep-original')
   const toggle = block.getByRole('switch', { name: 'Keep original files' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  // The click is the behaviour under test, so it goes first; the help text is checked after.
+  // CI saw the click land without reaching the switch (no request sent, no pending state) on a page whose
+  // event stream was being refused, so retry the click until the save starts, and never click once it has.
+  await expect(async () => {
+    if (sent.length === 0) await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 1500 })
+  }).toPass({ timeout: 15_000 })
   await block.getByRole('button', { name: 'Help: Keep original files' }).hover()
   await expect(page.getByText(/never removes this title's source media.*disk space/)).toBeVisible()
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', 'true')
   expect(sent).toEqual([{ keep_original: true }])
 })

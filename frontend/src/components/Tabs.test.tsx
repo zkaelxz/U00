@@ -33,3 +33,14 @@ describe('Tabs', () => {
     expect(html).toContain('>0</span>')
   })
 })
+
+describe('unsaved dot', () => {
+  it('marks a tab with unsaved edits and names it for screen readers', () => {
+    const html = renderToStaticMarkup(
+      <Tabs label="T" idPrefix="t" tabs={[{ id: 'a', label: 'Alpha', unsaved: true }, { id: 'b', label: 'Beta' }]} active="a" onSelect={() => {}} />,
+    )
+    expect(html).toContain('data-testid="tab-unsaved-a"')
+    expect(html).toContain('(unsaved changes)')
+    expect(html).not.toContain('tab-unsaved-b')
+  })
+})

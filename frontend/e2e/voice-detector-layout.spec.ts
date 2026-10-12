@@ -1,5 +1,5 @@
 import { test } from '@playwright/test'
-import { expectInputsBesideLabels, expectSelectTextReadable, expectStackedLayout, openVoiceDetector } from './voiceDetectorLayout'
+import { expectInputsBesideLabels, expectRowInputsAligned, expectSelectTextReadable, expectStackedLayout, openVoiceDetector } from './voiceDetectorLayout'
 
 // The field once rendered its notes in the select's flex row, one letter per line.
 for (const state of ['not-downloaded', 'failed', 'downloaded', 'standard'] as const) {
@@ -17,6 +17,7 @@ for (const width of [360, 1280, 1700]) {
       await page.setViewportSize({ width, height: 900 })
       const select = await openVoiceDetector(page, state)
       await expectInputsBesideLabels(page)
+      await expectRowInputsAligned(page.getByRole('region', { name: 'Advanced options' }))
       await expectSelectTextReadable(select)
     })
   }

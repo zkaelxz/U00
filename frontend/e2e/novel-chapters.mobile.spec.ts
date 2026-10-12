@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { installHitArea } from './hitArea'
-import { listBody, mockChapters, row } from './novelChaptersMocks'
+import { listBody, mockChapters, openChapters, row } from './novelChaptersMocks'
 
 // Phone project: the saved-chapters list and preview fit 390px, keep 44px
 // targets and never scroll the page sideways.
@@ -17,6 +17,7 @@ test('chapters list and preview fit the phone', async ({ page }) => {
     in_translation: false, offset: 0, text: '正文。'.repeat(1000), next_offset: null,
   }))
   await page.goto('/#/drama/2/source')
+  await openChapters(page)
   const panel = page.getByRole('region', { name: 'Saved chapters' })
   await expect(panel.getByTestId('chapters-headline')).toContainText('12 chapters')
   const rowsLoc = panel.locator('.chapters-row')
@@ -48,6 +49,7 @@ test('a 130-character chapter title with no spaces wraps at 360px and the row li
       in_translation: false, url: 'https://novel.example/b/1.html', offset: 0, text: '正文', next_offset: null,
     }))
     await page.goto('/#/drama/2/source')
+    await openChapters(page)
     const panel = page.getByRole('region', { name: 'Saved chapters' })
     await panel.locator('.chapters-row').first().click()
     const preview = panel.getByRole('region', { name: 'Chapter preview' })

@@ -77,8 +77,8 @@ export function novelGlossaryBlocker(
   hasNovel: boolean,
 ): Blocker | null {
   const href = `#/drama/${dramaId}/source`
-  if (!seriesId) return { text: 'Still needed: a series for this title', link: 'set it in Details', href }
-  if (!hasNovel) return { text: 'Still needed: novel text', link: 'attach it on Media', href }
+  if (!seriesId) return { text: 'Still needed: a series for this title', link: 'set it in Details', href: `${href}?tab=details` }
+  if (!hasNovel) return { text: 'Still needed: novel text', link: 'attach it on Media', href: `${href}?tab=add` }
   return null
 }
 

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { openTranscribeOptions } from './sourceHelpers'
+import { openTranscribeOptions, transcribeCard, openAdvanced } from './sourceHelpers'
 
 // The "Detect speakers only" control sends a min/max speaker
 // range. The run and job endpoints are mocked; reads hit the seeded API.
@@ -19,11 +19,11 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
     }))
   await page.route('**/api/jobs/fake-diarize/cancel', (route) => route.abort())
 
-  await page.goto('/#/drama/1/source')
-  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  await page.goto('/#/drama/1/source?tab=transcribe')
+  await expect(transcribeCard(page)).toBeVisible()
   // Speaker counts and "Detect speakers only" live in the Speakers section.
   await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
   const detect = page.getByRole('button', { name: 'Detect speakers only' })
 
   // An inverted range is caught before anything is sent.
@@ -68,25 +68,27 @@ test('transcribe with speaker detection sends the speaker range', async ({ page 
     }))
   await page.route('**/api/jobs/fake-transcribe/cancel', (route) => route.abort())
 
-  await page.goto('/#/drama/1/source')
-  await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  await page.goto('/#/drama/1/source?tab=transcribe')
+  await expect(transcribeCard(page)).toBeVisible()
   await openTranscribeOptions(page)
   const detectAfter = page.getByRole('switch', { name: 'Detect speakers after transcribing' })
   if (!(await detectAfter.isChecked())) await detectAfter.click()
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await openAdvanced(page)
   await page.getByLabel('Expected speakers', { exact: true }).fill('')
-  const transcript = page.getByLabel('Transcript text', { exact: true })
-  if (await transcript.count()) await transcript.fill('line one')
-
   // An inverted range is caught before anything is sent.
   await page.getByLabel('Min speakers', { exact: true }).fill('4')
   await page.getByLabel('Max speakers', { exact: true }).fill('2')
+  await openTranscribeOptions(page)
+  const transcript = page.getByLabel('Transcript text', { exact: true })
+  if (await transcript.count()) await transcript.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('more than max')
   expect(bodies).toEqual([])
 
+  await openAdvanced(page)
   await page.getByLabel('Min speakers', { exact: true }).fill('2')
   await page.getByLabel('Max speakers', { exact: true }).fill('4')
+  await openTranscribeOptions(page)
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect.poll(() => bodies.length).toBe(1)
   expect(bodies[0]).toMatchObject({ run_diarize: true, min_speakers: 2, max_speakers: 4 })

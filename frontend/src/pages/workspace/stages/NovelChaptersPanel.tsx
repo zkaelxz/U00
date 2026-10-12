@@ -141,7 +141,7 @@ export function NovelChaptersPanel() {
 
   return (
     <section className="panel" aria-label="Saved chapters">
-      <Section storageKey="source.novel.chapters" defaultOpen title="Saved chapters" summary={chaptersSummary(list)}>
+      <Section storageKey="source.novel.chapters" title="Saved chapters" summary={chaptersSummary(list)}>
         <p className="muted" data-testid="chapters-headline">{chaptersHeadline(list)}</p>
         {list && !hasText && (
           <div className="actions">
