@@ -6,7 +6,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { DiagnosticsGpuTorchStatus } from '../../types/diagnostics'
-import { GPU_BANNER_REMOTE, GPU_BANNER_TEXT, gpuBannerState } from './gpuBanner'
+import { GPU_BANNER_REMOTE, GPU_BANNER_TEXT, gpuBannerState } from './gpuBannerState'
 
 /**
  * A calm one-click "Turn on GPU" once GPU PyTorch is there and the setting is

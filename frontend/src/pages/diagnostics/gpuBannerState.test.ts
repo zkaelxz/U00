@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsGpuTorchStatus } from '../../types/diagnostics'
-import { gpuBannerState } from './gpuBanner'
+import { gpuBannerState } from './gpuBannerState'
 
 const status = (o: { found?: boolean; build?: 'cuda' | 'cpu' | null } = {}): DiagnosticsGpuTorchStatus => ({
   nvidia: { found: o.found ?? true },
