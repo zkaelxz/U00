@@ -292,14 +292,16 @@ class TestModelDownloadErrorHandling:
 
 
 class TestDefaultWhisperSize:
-    """large-v3-turbo is the default and its label says so, without the old
-    claim that it is weaker on Japanese/Korean (the benchmarks don't show it)."""
+    """large-v3 is the default (the owner's readability preference) and its label says
+    so; turbo's label calls it the fast option, without the old claim that it is
+    weaker on Japanese/Korean (the benchmarks don't show it)."""
 
-    def test_default_whisper_size_is_large_v3_turbo(self):
+    def test_default_whisper_size_is_large_v3(self):
         from whisper_models import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
-        assert DEFAULT_WHISPER_SIZE == "large-v3-turbo"
+        assert DEFAULT_WHISPER_SIZE == "large-v3"
         assert DEFAULT_WHISPER_SIZE in WHISPER_MODELS
-        assert "default" in WHISPER_MODELS["large-v3-turbo"]
+        assert "default" in WHISPER_MODELS["large-v3"]
+        assert "default" not in WHISPER_MODELS["large-v3-turbo"]
         assert "default" not in WHISPER_MODELS["medium"]
         assert "weaker" not in WHISPER_MODELS["large-v3-turbo"]
 

@@ -319,7 +319,7 @@ export function CompareTranscription({
                 const reason = whisperExclusionReason(options.whisper_exclusions, s, options.source_language)
                 return (
                   <option key={s} value={s} disabled={!!reason} title={reason ?? undefined}>
-                    {s}{s === options.saved_whisper_size ? ' (saved)' : ''}{reason ? ' (not recommended for this language)' : ''}
+                    {s}{options.selectable_whisper_sizes && !options.selectable_whisper_sizes.includes(s) ? ' (older choice, hidden)' : ''}{s === options.saved_whisper_size ? ' (saved)' : ''}{reason ? ' (not recommended for this language)' : ''}
                   </option>
                 )
               })}
