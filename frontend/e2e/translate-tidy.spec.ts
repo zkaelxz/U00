@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { ME } from './authMocks'
 import { untilTestEnds } from './stageLineMocks'
+import { gotoTranslate, translateTab } from './translateTabs'
 
 // The Translate tab after the tidy: one Style control, one action row, the
 // batch-size note, the fold rule and the double-click guard. Config reads hit
@@ -99,22 +100,28 @@ test('Style is one control and the action row holds Translate and Estimate (re-t
   await expect(run.getByRole('switch', { name: 'Review glossary before translating' })).toBeVisible()
 })
 
-test('the cards below the run start folded and a section stays as the viewer left it', async ({ page }) => {
+test('the first card of each tab opens on its own, the rest start folded, and a section stays as the viewer left it', async ({ page }) => {
   await setup(page)
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'translate')
   const section = (title: string) => page.locator('details.section').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
-  for (const title of ['Glossary', 'Characters', 'More options']) await expect(section(title)).not.toHaveAttribute('open', /.*/)
-  await section('Glossary').locator(':scope > summary').click()
-  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
-  await page.waitForFunction(() => window.localStorage.getItem('baihe.section.translate.glossary') !== null)
-  await page.reload()
+  // The run form is the Translate tab's first card; the folds under it start closed.
+  await expect(section('More options')).not.toHaveAttribute('open', /.*/)
+  await translateTab(page, 'glossary').click()
   await expect(section('Glossary')).toHaveAttribute('open', /.*/)
+  await translateTab(page, 'characters').click()
+  await expect(section('Characters')).toHaveAttribute('open', /.*/)
+  await section('Characters').locator(':scope > summary').click()
+  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
+  await page.waitForFunction(() => window.localStorage.getItem('baihe.section.translate.characters') !== null)
+  await page.reload()
   await expect(section('Characters')).not.toHaveAttribute('open', /.*/)
+  await translateTab(page, 'glossary').click()
+  await expect(section('Glossary')).toHaveAttribute('open', /.*/)
 })
 
 test('the reference text row is a Section like Glossary, with no panel border around it', async ({ page }) => {
   await setup(page)
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'novel')
   const row = page.locator('details.section').filter({ has: page.locator('.section-title', { hasText: /reference/i }) })
   await expect(row).toHaveCount(1)
   await expect(row.locator('xpath=..')).not.toHaveClass(/panel/)

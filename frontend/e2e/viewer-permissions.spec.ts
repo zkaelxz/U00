@@ -5,6 +5,7 @@ import { openTab } from './reviewFolds'
 import { mockExportReady, openExportBlock } from './exportBlocks'
 import { clearDrama3Lines, clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 import { withExportLines, withTranslateLines } from './stageLineMocks'
+import { gotoTranslate } from './translateTabs'
 
 // A limited household member (library.read and lines.edit, nothing else) on the workspace pages and Settings.
 // Only /api/auth/me and /api/meta are mocked; reads go to the seeded API (auth off), and every write is
@@ -79,8 +80,7 @@ test('Translate: Translate is refused plainly and starts no job', async ({ page 
 
 test('Translate: editing the drama (create series) is refused plainly', async ({ page }) => {
   const refused = await signInAsMember(page)
-  await page.goto(`/#/drama/${DRAMA}/translate`)
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await gotoTranslate(page, 'glossary', DRAMA)
   await page.getByRole('button', { name: /^Create series/ }).click()
   await expect(refusal(page)).toBeVisible()
   expect(refused).toEqual([`POST /api/dramas/${DRAMA}/metadata`])

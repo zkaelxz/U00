@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
+import { gotoTranslate } from './translateTabs'
 
 // The Glossary section starts folded the first time; these tests need its body.
 test.beforeEach(async ({ page }) => {
@@ -16,7 +17,7 @@ const TERMS = [
 ]
 
 async function openGlossary(page: Page, tab: 'Terms' | 'Find terms' = 'Find terms') {
-  await page.goto('/#/drama/1/translate')
+  await gotoTranslate(page, 'glossary')
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossaryTab(page, tab)
   return glossary

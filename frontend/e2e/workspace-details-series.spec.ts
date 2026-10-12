@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openCreditsTab, openDetailsTab } from './source-groups'
+import { gotoTranslate } from './translateTabs'
 
 // Parity P10 (the rest of Edit details), P11 ("+ New series…") and X09 (the
 // series picker in the glossary box). The drama read is the real seeded
@@ -94,8 +95,7 @@ test('Edit details "+ New series…" sends the name and then shows the new serie
 
 test('the glossary box explains a title without a series and creates one in one tap', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: null })
-  await page.goto('/#/drama/2/translate')
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await gotoTranslate(page, 'glossary', 2)
   const box = page.getByTestId('series-assign')
   await expect(box).toContainText("isn't in a series, so it can't hold glossary terms")
   await expect(page.getByRole('button', { name: 'Add term' })).toBeDisabled()
@@ -107,8 +107,7 @@ test('the glossary box explains a title without a series and creates one in one 
 
 test('the glossary box can move the title to another series', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: 41 })
-  await page.goto('/#/drama/2/translate')
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await gotoTranslate(page, 'glossary', 2)
   const box = page.getByTestId('series-assign')
   await expect(box.getByLabel('Series', { exact: true })).toHaveValue('41')
   await box.getByLabel('Series', { exact: true }).selectOption('7')

@@ -70,8 +70,11 @@ describe('describeError for a missing key', () => {
 describe('describeError for a refused export', () => {
   it('shows the server sentence when asked to', () => {
     const err = new ApiError(422, { code: 'validation_error', message: 'There is no narration yet. Create it in Dub first.' })
-    expect(describeError(err).detail).toBeNull()
-    expect(describeError(err, { serverText: true }).detail).toBe('There is no narration yet. Create it in Dub first.')
+    // A 422 sentence is the heading by default; the options only matter for other statuses.
+    expect(describeError(err)).toEqual({
+      title: 'There is no narration yet. Create it in Dub first.',
+      detail: null,
+    })
     expect(describeError(err, { reasonAsTitle: true })).toEqual({
       title: 'There is no narration yet. Create it in Dub first.',
       detail: null,
@@ -80,6 +83,7 @@ describe('describeError for a refused export', () => {
   it('keeps the generic heading when the server text looks like it holds a path', () => {
     const err = new ApiError(422, { code: 'validation_error', message: 'Bad file /home/x/a.wav' })
     expect(describeError(err, { reasonAsTitle: true }).title).toMatch(/not valid/)
+    expect(describeError(err).title).toMatch(/not valid/)
   })
 })
 
@@ -103,5 +107,53 @@ describe('describeError for a model that is not downloaded', () => {
     const want = 'This model is not downloaded yet. Ask the owner of the main PC to download it first.'
     expect(describeError(err).title).toBe(want)
     expect(describeError(err, { pcOnly: true }).title).toBe(want)
+  })
+})
+
+describe('describeError shows the real reason', () => {
+  const api = (status: number, code: string, message: string, method?: string) =>
+    new ApiError(status, { code, message }, method)
+
+  it('422 shows the server sentence as the title', () => {
+    for (const message of ['Invalid find pattern: unterminated group.', "Line 2 isn't valid JSON.", '2000 characters max']) {
+      expect(describeError(api(422, 'validation_error', message, 'POST'))).toEqual({ title: message, detail: null })
+    }
+    expect(describeError(api(422, 'invalid_input', 'Pick a language.', 'PUT')).title).toBe('Pick a language.')
+  })
+
+  it('422 keeps the generic text when the sentence is FastAPI\'s own or is path- or key-like', () => {
+    const generic = 'Some of the values entered are not valid. Check them and try again.'
+    expect(describeError(api(422, 'validation_error', 'The request is invalid.', 'POST')).title).toBe(generic)
+    expect(describeError(api(422, 'validation_error', 'Bad /home/kae/x.srt', 'POST')).title).toBe(generic)
+    expect(describeError(api(422, 'validation_error', 'key sk-abcdef123456', 'POST')).title).toBe(generic)
+  })
+
+  it('429 uses the server wait text, with the generic text as the fallback', () => {
+    expect(describeError(api(429, 'rate_limited', 'Wait a few seconds before testing again.', 'POST')).title).toBe(
+      'Wait a few seconds before testing again.',
+    )
+    expect(describeError(api(429, 'rate_limited', 'at /var/log/x', 'POST')).title).toMatch(/^Too many requests/)
+  })
+
+  it('a failed read says it could not load; a failed write keeps the nothing-changed text', () => {
+    expect(describeError(api(400, 'application_error', 'x', 'GET')).title).toMatch(/^Could not load/)
+    expect(describeError(api(500, 'internal_error', 'Traceback /home/kae', 'GET')).title).toMatch(/^Could not load/)
+    expect(describeError(api(500, 'internal_error', 'x', 'GET')).detail).toBeNull()
+    expect(describeError(api(400, 'application_error', 'x', 'POST')).title).toMatch(/^The action failed\. Nothing was changed/)
+    expect(describeError(api(500, 'internal_error', 'x', 'POST')).title).toMatch(/^Something went wrong inside Baihe/)
+    // A caller that did not record the method is treated as a write, as before.
+    expect(describeError(api(400, 'application_error', 'x')).title).toMatch(/^The action failed/)
+  })
+
+  it('a network failure and a timeout read differently for reads and writes', () => {
+    expect(describeError(api(0, 'network_error', 'x', 'GET')).title).toMatch(/Could not reach the Baihe API/)
+    expect(describeError(api(0, 'timeout', 'x', 'POST')).title).toMatch(/may not have been saved/)
+    expect(describeError(api(0, 'timeout', 'x', 'GET')).title).toMatch(/^Could not load.*too long/)
+  })
+
+  it('409 shows the server text as detail', () => {
+    expect(describeError(api(409, 'conflict', 'A translate job is already running.', 'POST'))).toMatchObject({
+      detail: 'A translate job is already running.',
+    })
   })
 })
