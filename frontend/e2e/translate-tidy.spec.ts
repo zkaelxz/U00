@@ -80,7 +80,7 @@ test('a batch size typed equal to the default is remembered as blank and shows n
   await expect.poll(() => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? 'null')?.values?.form?.batch_size, DRAFT_KEY)).toBe('')
 })
 
-test('Style is one control and the action row holds Translate and Estimate (re-translating lives in the Glossary)', async ({ page }) => {
+test('Style is one control and the action row holds Translate and Estimate (the glossary re-translate action sits beside them)', async ({ page }) => {
   await setup(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
@@ -92,7 +92,9 @@ test('Style is one control and the action row holds Translate and Estimate (re-t
   const estimate = await run.getByRole('button', { name: 'Estimate cost' }).boundingBox()
   expect(translate && estimate).toBeTruthy()
   expect(Math.abs(translate!.y - estimate!.y)).toBeLessThan(8)
-  await expect(run.getByRole('button', { name: /Re-translate lines affected by the glossary/ })).toHaveCount(0)
+  const retranslate = await run.getByRole('button', { name: 'Re-translate lines affected by the glossary…' }).boundingBox()
+  expect(retranslate).toBeTruthy()
+  expect(Math.abs(translate!.y - retranslate!.y)).toBeLessThan(8)
 
   // Review glossary lives in More options.
   await expect(run.getByRole('switch', { name: 'Review glossary before translating' })).toBeHidden()

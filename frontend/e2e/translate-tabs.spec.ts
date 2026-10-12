@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { expectNoSidewaysScroll, topCards } from './mediaTabs'
+import { openAllFolds } from './glossaryTabs'
 import { gotoTranslate, translatePanel, translateTab, type TranslateTabName } from './translateTabs'
 
 // The Translate stage is one screen per sub-tab, like the Media stage. Seeded titles: 1 audio drama, 2 novel, 3 video drama.
@@ -205,11 +206,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 1280, height: 800 })
     for (const tab of TABS) {
       await gotoTranslate(page, tab)
-      const folds = translatePanel(page, tab).locator('details.section')
-      for (let i = 0; i < (await folds.count()); i++) {
-        const fold = folds.nth(i)
-        if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
-      }
+      await openAllFolds(page, tab)
       await expectNoSidewaysScroll(page, `${tab} ${scheme}`)
     }
   })
