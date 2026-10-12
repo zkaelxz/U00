@@ -56,3 +56,39 @@ def test_modules_come_from_this_clone_not_its_parent_folder():
     # The repo root has __init__.py, so pytest puts the clone's parent on sys.path first; a stray
     # core.py or cli.py there would shadow the real module.
     assert Path(core.__file__).resolve().parent == ROOT
+
+
+def _fake_runner(monkeypatch, failing_step=None):
+    ran = []
+
+    def fake_run(step, **kwargs):
+        ran.append(step)
+        code = 1 if failing_step and failing_step in step else 0
+        return subprocess.CompletedProcess(step, code)
+
+    monkeypatch.setattr(cc.subprocess, "run", fake_run)
+    return ran
+
+
+def test_check_change_run_executes_the_printed_steps_and_exits_zero(monkeypatch):
+    ran = _fake_runner(monkeypatch)
+    monkeypatch.setattr(cc, "changed_files", lambda base: (["frontend/src/pages/x/Card.tsx"], ""))
+    assert cc.main(["--run"]) == 0
+    assert ran[0].startswith(cc.LEAN_PYTEST) and all(g in ran[0] for g in cc.GUARDS)
+    assert ran[1].endswith("npx tsc -b")
+
+
+def test_check_change_run_stops_at_the_first_failing_step(monkeypatch):
+    ran = _fake_runner(monkeypatch, failing_step="pytest")
+    monkeypatch.setattr(cc, "changed_files", lambda base: (["frontend/src/pages/x/Card.tsx"], ""))
+    assert cc.main(["--run"]) == 1
+    assert len(ran) == 1
+
+
+def test_check_change_default_prints_without_running(monkeypatch, capsys):
+    ran = _fake_runner(monkeypatch)
+    monkeypatch.setattr(cc, "changed_files", lambda base: (["docs/STATUS.md"], ""))
+    assert cc.main([]) == 0
+    assert ran == []
+    out = capsys.readouterr().out
+    assert out.startswith("changed: 1 files vs ") and cc.LEAN_PYTEST in out

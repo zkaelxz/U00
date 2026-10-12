@@ -3,6 +3,8 @@
 OpenCode loads this file, not `CLAUDE.md`. You must still read the project rules in
 `CLAUDE.md`; if the two disagree, `CLAUDE.md` wins. Read the section below that touches your task.
 
+Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-and-ask list and the commands.
+
 ## How to work
 - Search before opening, and bound it: `python tools/repo_map.py --find "<word>"` (names, signatures, docstrings),
   `python tools/repo_map.py --callers <name>` (max 30 lines), or `git grep -n -m 3 -w <name> -- '*.py'`.
