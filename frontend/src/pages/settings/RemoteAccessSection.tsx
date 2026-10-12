@@ -1,5 +1,5 @@
 /*
- * Settings > Remote access: the public-address check the remote-access
+ * People and access > Public address check: the check the remote-access
  * health monitor uses to see whether the public name still points at this
  * PC (services/remote_health_service.py). PC only. The saved address may
  * carry a token, so it is write-only: the input is never pre-filled, the page
@@ -11,25 +11,25 @@ import { useEffect, useState } from 'react'
 import { clearIpCheck, getIpCheckStatus, setIpCheck, testIpCheck } from '../../api/diagnostics'
 import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import { Badge } from '../../components/Badge'
-import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { RemoteIpCheckTestResult } from '../../types/diagnostics'
 import { SAVED_ON_PC_NOTE } from './preferences'
 import { IP_CHECK_PLACEHOLDER, draftProblem, ipCheckErrorMessage, testBadge } from './remoteIpCheck'
 
-const TITLE = 'Remote access'
+const TITLE = 'Public address check'
 
 export function RemoteAccessSection() {
   const pc = usePcOnly()
   if (pc === 'remote') {
     return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
+      <Section title={TITLE} storageKey="admin.address" summary={PC_ONLY_SUMMARY}>
         <p className="muted">{PC_ONLY_BODY}</p>
-      </Card>
+      </Section>
     )
   }
   return <IpCheckControls />
@@ -109,17 +109,10 @@ function IpCheckControls() {
   const badge = result ? testBadge(result) : null
 
   return (
-    <Card
+    <Section
       title={TITLE}
-      meta={configured == null ? undefined : configured ? 'Address check set' : 'Address check not set'}
-      aria-label={TITLE}
-      actions={
-        configured && (
-          <button type="button" className={buttonClass('secondary', 'sm')} disabled={testing || busy} onClick={test}>
-            {testing ? 'Testing…' : 'Test'}
-          </button>
-        )
-      }
+      storageKey="admin.address"
+      summary={configured == null ? undefined : configured ? 'Address check set' : 'Address check not set'}
     >
       <ErrorBanner error={loadError} onDismiss={() => setLoadError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
@@ -130,7 +123,8 @@ function IpCheckControls() {
         !loadError && <p className="muted">Loading…</p>
       ) : (
         <div className="status-form">
-          <Field label="Public address check" error={fieldError ?? problem}>
+          <p className="muted" data-testid="ip-check-state">{configured ? 'Address check set' : 'Address check not set'}</p>
+          <Field label="Address" error={fieldError ?? problem}>
             <input
               type="text"
               inputMode="url"
@@ -147,6 +141,11 @@ function IpCheckControls() {
             />
           </Field>
           <div className="settings-actions">
+            {configured && (
+              <button type="button" className={buttonClass('secondary')} disabled={testing || busy} onClick={test}>
+                {testing ? 'Testing…' : 'Test'}
+              </button>
+            )}
             <ConfirmButton
               label="Save…"
               ariaLabel="Save public address check"
@@ -183,6 +182,6 @@ function IpCheckControls() {
           <p className="settings-note">{SAVED_ON_PC_NOTE}</p>
         </div>
       )}
-    </Card>
+    </Section>
   )
 }

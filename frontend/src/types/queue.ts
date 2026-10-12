@@ -36,3 +36,18 @@ export interface QueueState {
   monthly_cap_usd: number
   items: QueueItem[]
 }
+
+// GET /api/queue/settings: what a queued step will use for a title, read-only.
+export interface QueueSettingRow {
+  label: string
+  value: string
+  // Engine id on the engine row; the page words it.
+  engine?: string | null
+}
+
+export interface QueueStepSettings {
+  drama_id: number
+  step: QueueStep
+  title: string
+  rows: QueueSettingRow[]
+}

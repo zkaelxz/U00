@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// Admin > Remote access: the public-address check (PC only). The
+// People and access > Public address check (PC only). The
 // ip-check routes are mocked; other reads go to the seeded API and any other
 // write is aborted and recorded. The saved address is never shown back.
 
@@ -53,10 +53,16 @@ async function mockIpCheck(page: Page, configured: boolean, saveStatus = 200): P
   return m
 }
 
+const checkSection = (page: Page) =>
+  page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Public address check' }) })
+
 async function open(page: Page) {
   await page.goto('/#/admin')
-  const section = page.getByRole('region', { name: 'Remote access' })
+  const section = checkSection(page)
   await expect(section).toBeVisible()
+  // Closed the first time: only the first card (People) starts open.
+  await section.locator('summary').click()
+  await expect(section).toHaveAttribute('open', '')
   return section
 }
 
@@ -64,10 +70,10 @@ test('set the address check, test it, then clear it; the address is never shown 
   const unmocked = await guard(page)
   const m = await mockIpCheck(page, false)
   const section = await open(page)
-  await expect(section.locator('.card-meta')).toHaveText('Address check not set')
+  await expect(section.getByTestId('ip-check-state')).toHaveText('Address check not set')
   await expect(section.getByRole('button', { name: 'Test' })).toHaveCount(0)
 
-  const input = section.getByRole('textbox', { name: 'Public address check' })
+  const input = section.getByRole('textbox', { name: 'Address' })
   await expect(input).toHaveValue('')
   await input.fill('http://ip.example.net/')
   await expect(section.getByText('The address must start with https:// and have no spaces.')).toBeVisible()
@@ -76,7 +82,7 @@ test('set the address check, test it, then clear it; the address is never shown 
   await input.fill(SECRET)
   await section.getByRole('button', { name: 'Save public address check' }).click()
   await section.getByRole('button', { name: 'Confirm save public address check' }).click()
-  await expect(section.locator('.card-meta')).toHaveText('Address check set')
+  await expect(section.getByTestId('ip-check-state')).toHaveText('Address check set')
   await expect(section.getByText('Saved. The next check uses it.')).toBeVisible()
   await expect(input).toHaveValue('')
   expect(await page.content()).not.toContain('SECRET-DDNS-TOKEN')
@@ -88,7 +94,7 @@ test('set the address check, test it, then clear it; the address is never shown 
 
   await section.getByRole('button', { name: 'Clear public address check' }).click()
   await section.getByRole('button', { name: 'Confirm clear public address check' }).click()
-  await expect(section.locator('.card-meta')).toHaveText('Address check not set')
+  await expect(section.getByTestId('ip-check-state')).toHaveText('Address check not set')
   await expect(section.getByText('Cleared.')).toBeVisible()
 
   expect(m.bodies.map((b) => b.path)).toEqual([IP_CHECK, `${IP_CHECK}/test`, `${IP_CHECK}/clear`])
@@ -102,18 +108,18 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   const unmocked = await guard(page)
   await mockIpCheck(page, false, 403)
   const section = await open(page)
-  const input = section.getByRole('textbox', { name: 'Public address check' })
+  const input = section.getByRole('textbox', { name: 'Address' })
   await input.fill(SECRET)
   await section.getByRole('button', { name: 'Save public address check' }).click()
   await section.getByRole('button', { name: 'Confirm save public address check' }).click()
   await expect(section.getByText(/Change this on the Baihe PC with key writes on/)).toBeVisible()
   await expect(input).toHaveValue('')
-  await expect(section.locator('.card-meta')).toHaveText('Address check not set')
+  await expect(section.getByTestId('ip-check-state')).toHaveText('Address check not set')
   expect(await page.content()).not.toContain('SECRET-DDNS-TOKEN')
   expect(unmocked).toEqual([])
 })
 
-test('away from the PC the card says PC only and makes no calls', async ({ page }) => {
+test('away from the PC the check says PC only and makes no calls', async ({ page }) => {
   const unmocked = await guard(page)
   const calls: string[] = []
   await page.route((u) => u.pathname.startsWith(IP_CHECK), (route) => {
@@ -126,8 +132,9 @@ test('away from the PC the card says PC only and makes no calls', async ({ page 
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/admin')
-  const section = page.getByRole('region', { name: 'Remote access' })
-  await expect(section.locator('.card-meta')).toHaveText('PC only')
+  const section = checkSection(page)
+  await expect(section.locator('.section-summary')).toHaveText('PC only')
+  await section.locator('summary').click()
   await expect(section.getByText('Run this on the main PC.')).toBeVisible()
   await expect(section.getByRole('textbox')).toHaveCount(0)
   expect(calls).toEqual([])

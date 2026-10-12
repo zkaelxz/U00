@@ -18,7 +18,7 @@ type Action = 'active' | 'revoke' | 'admin'
 type Busy = { id: number; what: Action } | null
 
 /**
- * "Users": the household's accounts. An admin can deactivate or activate
+ * "People": the household's accounts. An admin can deactivate or activate
  * one, end its sessions, or (on the PC only; not shown elsewhere) remove an
  * admin's rights, each after a confirm step. Admin accounts can only be
  * changed on the PC (off elsewhere, with the reason). Adding people
@@ -26,14 +26,14 @@ type Busy = { id: number; what: Action } | null
  * opened; hidden from anyone without admin.users.read, and read-only (no
  * buttons) without admin.users, as for an admin on the household address.
  */
-export function UsersSection({ pc }: { pc: PcMode }) {
+export function UsersSection({ pc, defaultOpen = false }: { pc: PcMode; defaultOpen?: boolean }) {
   const session = useSession()
   if (!canViewUsers(session)) return null
   const signInOff = session.status === 'ready' && !session.me.auth_enabled
-  return <UsersBody signInOff={signInOff} pc={pc} canChange={canChangeUsers(session)} />
+  return <UsersBody signInOff={signInOff} pc={pc} canChange={canChangeUsers(session)} defaultOpen={defaultOpen} />
 }
 
-function UsersBody({ signInOff, pc, canChange }: { signInOff: boolean; pc: PcMode; canChange: boolean }) {
+function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boolean; pc: PcMode; canChange: boolean; defaultOpen: boolean }) {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<Busy>(null)
@@ -73,7 +73,7 @@ function UsersBody({ signInOff, pc, canChange }: { signInOff: boolean; pc: PcMod
   }
 
   return (
-    <Section title="Users" storageKey="diagnostics.users" count={users?.length}
+    <Section title="People" storageKey="admin.people" defaultOpen={defaultOpen} count={users?.length}
       summary="Who can sign in">
       <div ref={openRef} className="diag-stack" data-testid="admin-users">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -84,9 +84,9 @@ function UsersBody({ signInOff, pc, canChange }: { signInOff: boolean; pc: PcMod
         {users === null ? (
           !error && <p className="muted">Loading…</p>
         ) : users.length === 0 ? (
-          <p className="muted">No users yet. Add the first admin on the PC with: python -m api grant-admin &lt;email&gt;</p>
+          <p className="muted">No one is signed up yet. Ask the first person to sign in on the main PC.</p>
         ) : (
-          <ul className="pkg-list admin-user-list" aria-label="Users">
+          <ul className="pkg-list admin-user-list" aria-label="People">
             {users.map((u) => (
               <UserRow key={u.id} user={u} users={users} pc={pc} busy={busy} canChange={canChange}
                 onRun={(what) => void run(u, what)} />

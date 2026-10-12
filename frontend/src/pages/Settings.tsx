@@ -207,7 +207,7 @@ export default function SettingsPage() {
         settings.gpu_limit_enabled ? `${settings.gpu_max_parallel} GPU job${settings.gpu_max_parallel === 1 ? '' : 's'} at once` : 'no GPU job limit'
       }`
     : undefined
-  // Remote access and the household's accounts live on the Admin page.
+  // The public address check and the household's accounts live on the People and access page.
   return (
     <section className="panel page-narrow settings-page" aria-label="Settings">
       <h2>Settings</h2>

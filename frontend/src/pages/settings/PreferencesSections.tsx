@@ -1,16 +1,15 @@
 /*
- * Settings > the persisted PC-side preferences (inventory G05, G06 URLs,
- * G08, G09, G13, G14, G15). The theme (G03) is the header button, not a setting here.
- * The preferences live on the Baihe PC (db app_settings, endpoint URLs in
- * .env) and are used by the server's translate, transcribe, OCR and
- * download jobs and by the CLI. Changing them is PC only; away from the PC
- * each block shows "PC only".
+ * Settings > the persisted PC-side preferences. The theme is the header
+ * button, not a setting here. They live on the Baihe PC (db app_settings,
+ * endpoint URLs in .env) and are used by the server's translate, transcribe,
+ * OCR and download jobs and by the CLI, so changing them is PC only; away
+ * from the PC each block shows "PC only".
  *
- * Layout (UI refresh §3.12): Defaults and Spending are Cards;
- * OCR, offline, downloads, program locations and server addresses are rare, so they are
- * Sections inside one "Offline, paths and limits" Card. Their fields are generated from the
- * declared settings (SchemaCard); the server addresses are .env values and
- * stay hand-written.
+ * Defaults and Spending are used on most visits, so they are Cards. OCR,
+ * offline, downloads, program locations and server addresses are rare, so
+ * they are Sections inside one "Offline, paths and limits" Card. Their fields
+ * are generated from the declared settings (SchemaCard); the server addresses
+ * are .env values and stay hand-written.
  */
 import { useState } from 'react'
 

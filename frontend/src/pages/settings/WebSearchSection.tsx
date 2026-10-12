@@ -1,5 +1,5 @@
 /*
- * Settings > Web search (roadmap item 114): the optional "Search the web"
+ * Settings > Integrations > Web search: the optional "Search the web"
  * fallback under an empty Sources title search, through the user's own
  * SearXNG server. Off by default, PC only. Changing the address decides
  * where Baihe sends searches, so, like the engine endpoint URLs, it works

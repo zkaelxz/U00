@@ -1,7 +1,6 @@
 /*
- * Reset library: reset the whole library (PC only). Kept self-contained and
- * mounted with one line in Diagnostics.tsx, so it can be removed if reset
- * becomes CLI-only. No storageKey: always collapsed on load.
+ * Reset library: reset the whole library (PC only). Destructive, so the
+ * Section has no storageKey and is always collapsed on load.
  */
 import { useEffect, useRef, useState } from 'react'
 

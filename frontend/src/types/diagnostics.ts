@@ -258,7 +258,7 @@ export interface RemoteHealth {
   listener: RemoteHealthCheck
 }
 
-// Settings > Remote access: the public-address check (PC only). The address
+// People and access > Public address check: the public-address check (PC only). The address
 // is write-only: the API answers `configured` and, for Test, a state and a
 // fixed message, never the address.
 export interface RemoteIpCheckStatus {

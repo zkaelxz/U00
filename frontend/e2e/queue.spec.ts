@@ -98,3 +98,35 @@ test('a member sees no run controls', async ({ page }) => {
   await expect(card).toContainText('Only the PC owner can start, pause or schedule the queue.')
   await expect(card.getByRole('button', { name: 'Start queue now' })).toHaveCount(0)
 })
+
+test('Saved settings for this step: closed, read-only, per step, with a link to the stage that changes them', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  const mock = await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  // Nothing to show until a title is picked, and nothing is read while it is closed.
+  await expect(card.getByText('Saved settings for this step')).toHaveCount(0)
+  await card.getByLabel('Title').selectOption({ label: 'Signal' })
+  const panel = card.locator('details.section').filter({ hasText: 'Saved settings for this step' })
+  await expect(panel).not.toHaveAttribute('open', '')
+  expect(mock.settingsReads).toEqual([])
+
+  await panel.locator('summary').click()
+  const rows = panel.getByTestId('queue-saved-settings')
+  await expect(rows).toContainText('Speech model')
+  await expect(rows).toContainText('Whisper small')
+  await expect(panel.getByRole('link', { name: "Change in the title's Media stage" })).toHaveAttribute('href', '#/drama/3/source')
+
+  await card.getByLabel('Step').selectOption('translate')
+  await expect(rows).toContainText('Claude, claude-sonnet-5-5')
+  for (const label of ['Tone and character voice', 'Batch size', 'Thinking', 'Glossary', 'Language packs', 'VTuber names', 'Reply check', 'Off-peak start', 'Cost', 'Monthly cap left']) {
+    await expect(rows).toContainText(label)
+  }
+  await expect(panel.getByRole('link', { name: "Change in the title's Translate stage" })).toHaveAttribute('href', '#/drama/3/translate')
+  // Read-only: no inputs, and reading it queued nothing.
+  await expect(panel.locator('input, select, textarea')).toHaveCount(0)
+  expect(mock.calls).toEqual([])
+  expect(mock.settingsReads).toEqual(['3:transcribe', '3:translate'])
+  // One full stop, not two, in the sentence under the form.
+  await expect(card.getByTestId('queue-step-help')).not.toContainText('..')
+})

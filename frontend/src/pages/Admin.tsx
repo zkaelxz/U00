@@ -1,8 +1,8 @@
 /*
- * Admin: who can use this PC's library and how it is reached. Sign-in
- * accounts, the audit log and the remote-access address check. Only an admin
- * (or the owner at the PC) sees it; what is wrong with the PC or the app is
- * Diagnostics, and engines, keys and preferences are Settings.
+ * People and access: who can use this PC's library and how it is reached.
+ * Sign-in accounts, the activity log and the public address check. Only an
+ * admin (or the owner at the PC) sees it; what is wrong with the PC or the
+ * app is Diagnostics, and engines, keys and preferences are Settings.
  */
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useSession } from '../hooks/useSession'
@@ -16,19 +16,18 @@ export default function AdminPage() {
   const pc = usePcOnly()
   const allowed = canViewUsers(useSession())
   return (
-    <section className="page-narrow diag-page" aria-label="Admin">
+    <section className="page-narrow diag-page" aria-label="People and access">
       <header className="page-head">
-        <h2>Admin</h2>
-        <p className="page-meta">People who can sign in, what they did, and remote access.</p>
+        <h2>People and access</h2>
+        <p className="page-meta">Who can sign in, what they did, and the public address check.</p>
       </header>
       {allowed ? (
-        <>
+        // The first card opens the first time; each card then remembers how it was left.
+        <div className="diag-folds">
+          <UsersSection pc={pc} defaultOpen />
+          <AuditLogSection />
           <RemoteAccessSection />
-          <div className="diag-folds">
-            <UsersSection pc={pc} />
-            <AuditLogSection />
-          </div>
-        </>
+        </div>
       ) : (
         <p className="muted">Only an admin can see this page.</p>
       )}

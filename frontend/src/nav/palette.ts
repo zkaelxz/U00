@@ -23,7 +23,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   library: 'titles dramas novels comics',
   settings: 'engines keys notifications sharing devices backup disk save folder cbz',
   'library-tools': 'saved manga cbz comics chapters series presets',
-  admin: 'users people accounts',
+  admin: 'admin users accounts sign in activity audit',
   diagnostics: 'health logs disk',
   jobs: 'queue progress running',
   translate: 'text',

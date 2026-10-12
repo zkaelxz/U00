@@ -8,7 +8,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueMove",
-           "QueueScheduleSet", "QueuePolicy"]
+           "QueueScheduleSet", "QueuePolicy", "QueueSettingRow", "QueueStepSettings"]
 
 _QueueStep = Literal["transcribe", "translate", "export"]
 
@@ -66,3 +66,17 @@ class QueueScheduleSet(BaseModel):
 
 class QueuePolicy(BaseModel):
     stop_on_failure: bool
+
+
+class QueueSettingRow(BaseModel):
+    label: str
+    value: str
+    # Set on the engine row: its id, which the page words.
+    engine: Optional[str] = None
+
+
+class QueueStepSettings(BaseModel):
+    drama_id: int
+    step: _QueueStep
+    title: str
+    rows: List[QueueSettingRow]

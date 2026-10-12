@@ -195,7 +195,7 @@ test('/me failing (502) then answering: the app at once, then the signed-in user
   expect(s.unmocked).toEqual([])
 })
 
-test('/me unavailable: no Admin, and Sign out is still offered', async ({ page, context, baseURL }) => {
+test('/me unavailable: no People and access, and Sign out is still offered', async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-token-123', url: baseURL! }])
   const s = await mockAuth(page, ME.signedIn)
   await page.route((u) => u.pathname === '/api/auth/me', (route) =>
@@ -203,7 +203,7 @@ test('/me unavailable: no Admin, and Sign out is still offered', async ({ page, 
   )
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Admin' })).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'People and access' })).toHaveCount(0)
   const menu = page.locator('details.user-menu')
   await expect(menu.locator('summary')).toContainText('Account')
   await menu.locator('summary').click()

@@ -119,7 +119,7 @@ export function voiceDetectorNote(
 ): string | null {
   if (o.voice_detector === 'standard') return null
   if (!o.asmr_vad_onnxruntime_installed) {
-    return 'The ASMR detector needs onnxruntime (install it in Diagnostics > Packages). Until then, runs use Standard.'
+    return 'The ASMR detector needs onnxruntime (install it in Diagnostics > Packages and installs). Until then, runs use Standard.'
   }
   if (!o.asmr_vad_model_downloaded) {
     return 'The ASMR detector model is not downloaded yet, so runs use Standard until it is.'

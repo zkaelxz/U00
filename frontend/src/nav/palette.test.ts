@@ -31,9 +31,9 @@ describe('paletteEntries', () => {
 
   it('leaves out permission-hidden pages and shows them with the permission', () => {
     const without = labels(paletteEntries(member, { name: 'library' }))
-    for (const hiddenPage of ['Admin', 'Diagnostics', 'Benchmark Lab', 'Assistant']) expect(without).not.toContain(hiddenPage)
+    for (const hiddenPage of ['People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant']) expect(without).not.toContain(hiddenPage)
     const withIt = labels(paletteEntries(admin, { name: 'library' }))
-    for (const page of ['Admin', 'Diagnostics', 'Benchmark Lab']) expect(withIt).toContain(page)
+    for (const page of ['People and access', 'Diagnostics', 'Benchmark Lab']) expect(withIt).toContain(page)
   })
 
   it('adds the open title\'s stages first, only inside a title', () => {

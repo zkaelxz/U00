@@ -1,9 +1,11 @@
-import type { QueueState, QueueStep } from '../types/queue'
+import type { QueueState, QueueStep, QueueStepSettings } from '../types/queue'
 import { getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
 export const getQueue = (f?: Fetch) => getJson<QueueState>('/api/queue', f)
+export const getQueueStepSettings = (dramaId: number, step: QueueStep, f?: Fetch) =>
+  getJson<QueueStepSettings>(`/api/queue/settings?drama_id=${dramaId}&step=${step}`, f)
 export const addQueueItem = (dramaId: number, step: QueueStep, f?: Fetch) =>
   postJson<QueueState>('/api/queue/items', { drama_id: dramaId, step }, f)
 export const moveQueueItem = (id: number, direction: 'up' | 'down', f?: Fetch) =>

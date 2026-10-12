@@ -1,6 +1,7 @@
 // Pure helpers for the Queue card on the Jobs page (JobQueue.tsx).
-import type { BadgeTone } from '../../components/labels'
-import type { QueueItem, QueueItemStatus, QueueSchedule, QueueState, QueueStep } from '../../types/queue'
+import { humanize, type BadgeTone } from '../../components/labels'
+import type { QueueItem, QueueItemStatus, QueueSchedule, QueueSettingRow, QueueState, QueueStep } from '../../types/queue'
+import { STAGE_LABELS, type StageId } from '../workspace/stages'
 
 export const STEP_LABELS: Record<QueueStep, string> = {
   transcribe: 'Transcribe',
@@ -59,9 +60,26 @@ export const HHMM = /^([01][0-9]|2[0-3]):[0-5][0-9]$/
 // The plain cost line next to a Translate item: which engine, and that it
 // spends money on the owner's key, capped by the Spending settings.
 export function translateCostNote(engineLabel: string, paid: boolean, monthlyCap: number): string {
+  // Engine descriptions end with a full stop; the sentence supplies its own.
+  engineLabel = engineLabel.replace(/\.+$/, '')
   if (!paid) return `Uses ${engineLabel}, which is free.`
   const cap = monthlyCap > 0
     ? `It stops at your $${monthlyCap.toFixed(2)} monthly spending cap.`
     : 'No monthly spending cap is set, so the queue will skip it: set one in Settings > Spending.'
   return `Uses ${engineLabel}. Uses your API key and costs money. ${cap}`
+}
+
+const STEP_STAGE: Record<QueueStep, StageId> = { transcribe: 'source', translate: 'translate', export: 'export' }
+
+/** The title stage where a step's options are changed. */
+export const settingsStage = (step: QueueStep): { stage: StageId; label: string } => ({
+  stage: STEP_STAGE[step],
+  label: STAGE_LABELS[STEP_STAGE[step]],
+})
+
+/** A saved-settings row's value; the engine row names the engine in words. */
+export function savedSettingValue(row: QueueSettingRow): string {
+  if (!row.engine) return row.value
+  const engine = humanize('engine', row.engine)
+  return row.value ? `${engine}, ${row.value}` : engine
 }

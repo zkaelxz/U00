@@ -89,7 +89,7 @@ export const NAV_ITEMS: NavItem[] = [
   }),
   // A member sees only Sharing and devices here, which needs library.read.
   item('Settings', { name: 'settings' }, { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
-  item('Admin', { name: 'admin' }, {
+  item('People and access', { name: 'admin' }, {
     requires: 'admin.users.read',
     hideWithoutPermission: true,
     rail: { group: 'system', active: ['admin'] },

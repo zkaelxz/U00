@@ -1,5 +1,4 @@
-/* Jobs page (pages/Jobs.tsx). Wider than .page-narrow: the table has nine columns. */
-.jobs-page { max-width: 1100px; margin-inline: auto; }
+/* Jobs page (pages/Jobs.tsx). Width comes from the shared page layout (.page-narrow). */
 .jobs-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .jobs-chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 /* Five chips wrap on a phone: a dense button's hit area reaches 6px past its box, so rows need 12px between them. */
@@ -14,6 +13,7 @@
 .jobs-skeleton li { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 
 .jobs-table { table-layout: auto; }
+.jobs-table th.jobs-nowrap { white-space: nowrap; min-width: 4.5rem; }
 .jobs-table th button.link { font: inherit; color: inherit; font-weight: inherit; }
 .jobs-table th[aria-sort] button.link { color: var(--text); }
 .jobs-name { max-width: 16rem; overflow-wrap: anywhere; }
@@ -58,6 +58,11 @@
 .queue-controls { flex-direction: column; align-items: stretch; }
 .queue-add .field-item { flex: 1 1 12rem; min-width: 0; }
 .queue-add select { width: 100%; }
+.queue-settings { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); }
+.queue-setting { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr; gap: var(--space-3); min-width: 0; }
+.queue-setting dt { color: var(--muted); }
+.queue-setting dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .queue-setting { grid-template-columns: 1fr; gap: 0; } }
 
 @media (pointer: coarse), (max-width: 640px) {
   .queue-item-head a, .queue-item a[download] { display: inline-flex; align-items: center; min-height: 44px; }

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { announceLiveStarted, describeFollowError, startFromFollow } from '../api/liveFollows'
 import { listNotifications } from '../api/notifications'
+import { plainJobText } from '../pages/diagnosticsFormat'
 import { routeHref } from '../router'
 import { useEventStream } from '../hooks/useEventStream'
 import type { NotificationItem, NotificationList } from '../types/notifications'
@@ -241,7 +242,7 @@ export function NotificationBell() {
                       <time dateTime={isoTime(i.at)}>{capFirst(shortAgo(i.at))}</time>
                       {isNew && <span className="notify-new">New</span>}
                     </div>
-                    <p className="notify-text">{i.text}</p>
+                    <p className="notify-text">{plainJobText(i.text)}</p>
                     {startsAtText(i.starts_at) && <p className="notify-text">{startsAtText(i.starts_at)}</p>}
                     {i.action === 'start_live' && typeof i.follow_id === 'number' && <StartLiveAction followId={i.follow_id} />}
                   </li>

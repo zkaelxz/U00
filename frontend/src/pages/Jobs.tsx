@@ -20,8 +20,8 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
 import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
-import { FORCE_STOP_HINT, jobName, offersCancel, offersForceStop, jobOutcomeText, type JobRecord } from '../types/jobs'
-import { formatDuration, isActive, isFinished, jobDetail, statusLabel } from './diagnosticsFormat'
+import { FORCE_STOP_HINT, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, shownStatus, type JobRecord } from '../types/jobs'
+import { formatDuration, isActive, isFinished, jobBaseName, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
 import { JobQueue } from './jobs/JobQueue'
 import { RunSettings } from './jobs/RunSettings'
@@ -108,7 +108,7 @@ export default function JobsPage() {
   }
 
   return (
-    <section className="jobs-page" aria-label="Jobs">
+    <section className="page-narrow jobs-page" aria-label="Jobs">
       <header className="page-head">
         <h2>Jobs</h2>
         {jobs && <p className="page-meta">{counts.active} active · {counts.all} in all</p>}
@@ -242,12 +242,12 @@ interface RowProps {
   onDelete: (id: string) => void
 }
 
-function ProgressBar({ job }: { job: JobRecord }) {
+function ProgressBar({ job, titles }: { job: JobRecord; titles: ReadonlyMap<number, string> }) {
   const pct = progressPercent(job)
   if (pct === null) return null
   return (
     <span className="jobs-progress">
-      <span className="jobs-bar" role="progressbar" aria-label={`Progress of ${jobName(job)}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+      <span className="jobs-bar" role="progressbar" aria-label={`Progress of ${jobTitledName(job, titles)}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
         <span style={{ width: `${pct}%` }} />
       </span>
       <span className="jobs-pct">{pct}%</span>
@@ -256,19 +256,20 @@ function ProgressBar({ job }: { job: JobRecord }) {
 }
 
 function StatusCell({ job }: { job: JobRecord }) {
-  const outcome = jobOutcomeText(job)
+  // A failed job's error already shows under its name; say it once.
+  const outcome = isFinished(job.status) && jobOutcomeDetail(job) !== jobDetail(job) ? jobOutcomeDetail(job) : null
   return (
     <>
-      <Badge tone={statusTone(job.status)}>{statusLabel(job.status)}</Badge>
+      <Badge tone={statusTone(shownStatus(job))}>{jobStatusLabel(job)}</Badge>
       {job.stale && <Badge tone="warn">Stale</Badge>}
       {job.stalled && !job.stale && <Badge tone="warn">Stalled</Badge>}
-      {outcome && isFinished(job.status) && outcome !== statusLabel(job.status) && <div className="muted jobs-outcome">{outcome}</div>}
+      {outcome && <div className="muted jobs-outcome">{plainJobText(outcome)}</div>}
     </>
   )
 }
 
 function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps; expanded: boolean }) {
-  const name = jobName(job)
+  const name = jobTitledName(job, props.titles)
   const links = jobLinks(job)
   return (
     <div className="jobs-actions">
@@ -298,7 +299,7 @@ function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps;
 
 function Details({ job, now }: { job: JobRecord; now: number }) {
   const detail = jobDetail(job)
-  const outcome = jobOutcomeText(job)
+  const outcome = isFinished(job.status) ? jobOutcomeText(job) : null
   const fields = Object.entries(job.result ?? {}).filter(([, v]) => ['string', 'number', 'boolean'].includes(typeof v))
   return (
     <div className="jobs-details" data-testid={`job-details-${job.job_id}`}>
@@ -309,8 +310,8 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
         <dt>Duration</dt>
         <dd>{formatDuration(job, now)}</dd>
       </dl>
-      {outcome && <p>{outcome}</p>}
-      {detail && <p className={job.status === 'error' ? 'error' : 'muted'}>{detail}</p>}
+      {outcome && <p className={shownStatus(job) === 'error' ? 'error' : undefined}>{plainJobText(outcome)}</p>}
+      {detail && <p className={job.status === 'error' ? 'error' : 'muted'}>{plainJobText(detail)}</p>}
       {fields.length > 0 && (
         <dl>
           {fields.map(([k, v]) => (<span key={k} className="jobs-field"><dt>{k.replace(/_/g, ' ')}</dt><dd>{String(v)}</dd></span>))}
@@ -335,11 +336,11 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
           <th>Title</th>
           <th>Stage</th>
           <th>Status</th>
-          <th>Progress</th>
-          <th aria-sort={ariaSort('started')}>
+          <th className="jobs-nowrap">Progress</th>
+          <th className="jobs-nowrap" aria-sort={ariaSort('started')}>
             <button type="button" className="link" onClick={() => onSort('started')}>Started</button>
           </th>
-          <th aria-sort={ariaSort('duration')}>
+          <th className="jobs-nowrap" aria-sort={ariaSort('duration')}>
             <button type="button" className="link" onClick={() => onSort('duration')}>Duration</button>
           </th>
           {props.authOn && <th>Who</th>}
@@ -356,13 +357,13 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
             <Fragment key={j.job_id}>
               <tr data-testid={`job-row-${j.job_id}`}>
                 <td className="jobs-name">
-                  <strong>{jobName(j)}</strong>
-                  {note && <div className="muted jobs-note">{note}</div>}
+                  <strong>{jobBaseName(j)}</strong>
+                  {note && <div className="muted jobs-note">{plainJobText(note)}</div>}
                 </td>
                 <td>{title && links.title ? <a href={routeHref(links.title)}>{title}</a> : ''}</td>
                 <td>{links.stage ? <a href={routeHref(links.stage.route)}>{links.stage.label}</a> : ''}</td>
                 <td><StatusCell job={j} /></td>
-                <td><ProgressBar job={j} /></td>
+                <td><ProgressBar job={j} titles={props.titles} /></td>
                 <td>{j.started_at != null && <time dateTime={new Date(j.started_at * 1000).toISOString()}>{relativeTime(j.started_at, props.now)}</time>}</td>
                 <td>{formatDuration(j, props.now)}</td>
                 {props.authOn && <td>{j.owned_by_me ? 'You' : 'Someone else'}</td>}
@@ -392,10 +393,10 @@ function JobCards({ jobs, ...props }: RowProps & { jobs: JobRecord[] }) {
         return (
           <li key={j.job_id} data-testid={`job-row-${j.job_id}`}>
             {title && links.title ? <a className="jobs-card-title" href={routeHref(links.title)}>{title}</a> : null}
-            <strong>{jobName(j)}</strong>
+            <strong>{jobBaseName(j)}</strong>
             <div className="jobs-card-status"><StatusCell job={j} /><span className="muted">{formatDuration(j, props.now)}</span></div>
-            <ProgressBar job={j} />
-            {note && <p className="muted jobs-note">{note}</p>}
+            <ProgressBar job={j} titles={props.titles} />
+            {note && <p className="muted jobs-note">{plainJobText(note)}</p>}
             {props.authOn && <p className="muted">{j.owned_by_me ? 'You' : 'Someone else'}</p>}
             <JobActions job={j} props={props} expanded={expanded} />
             {expanded && <Details job={j} now={props.now} />}

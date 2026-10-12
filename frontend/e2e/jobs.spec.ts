@@ -403,3 +403,87 @@ test('the menu has Jobs with a running count, and it opens the page', async ({ p
   await openMenu(page)
   await expect(link).toHaveAttribute('aria-current', 'page')
 })
+
+// A worker that returned, but whose work failed: the server calls it done and the outcome says failed.
+function failedTranscription() {
+  const t = Math.floor(Date.now() / 1000)
+  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, page: null, kind: 'transcribe', drama_id: 3 }
+  return [
+    { ...base, job_id: 'transcribe_3', status: 'done', description: 'Transcription (title #3)', started_at: t - 120, finished_at: t - 100, outcome: 'failed', outcome_message: 'The speech model could not be downloaded.' },
+    { ...base, job_id: 'translate_3', status: 'done', description: 'Translation (title #3)', started_at: t - 90, finished_at: t - 60, outcome: 'ok', outcome_message: 'Finished.' },
+    { ...base, job_id: 'ocr_4', status: 'error', description: 'Audio emotion tags (drama #4)', error: 'Audio emotion tags need: pip install funasr', started_at: t - 50, finished_at: t - 40, outcome: 'failed', outcome_message: 'Audio emotion tags need: pip install funasr', drama_id: 4, kind: 'other' },
+  ]
+}
+
+test('a done job whose outcome failed reads Failed in the row, the details, the filters and the menu', async ({ page }) => {
+  await mockJobsApi(page, failedTranscription(), true)
+  await page.goto('/#/jobs')
+  await chip(page, 'All').click()
+  const row = page.getByTestId('job-row-transcribe_3')
+  await expect(row.locator('.pill')).toHaveText('Failed')
+  await expect(row).not.toContainText('Done')
+  // The reason alone: the pill already says Failed.
+  await expect(row).toContainText('The speech model could not be downloaded.')
+  await expect(row).not.toContainText('Failed: ')
+  await expect(chip(page, /^Failed/)).toContainText('2')
+  await expect(chip(page, /^Finished/)).toContainText('1')
+  await chip(page, /^Failed/).click()
+  await expect(rows(page)).toHaveCount(2)
+
+  await page.getByRole('button', { name: /^Details for Transcription/ }).first().click()
+  await expect(page.getByTestId('job-details-transcribe_3')).toContainText('The speech model could not be downloaded.')
+  await expect(page.getByTestId('job-details-transcribe_3').locator('p.error')).toHaveCount(1)
+
+  await page.getByRole('button', { name: /^Jobs/ }).click()
+  const panel = page.locator('.jobs-panel')
+  const item = panel.locator('li', { hasText: 'Transcription - Signal' })
+  await expect(item.locator('.pill')).toHaveText('Failed')
+})
+
+test('"Finished" is said once, titles are named by their name, and a pip instruction points at Diagnostics', async ({ page }) => {
+  await mockJobsApi(page, failedTranscription(), true)
+  await page.goto('/#/jobs')
+  await chip(page, 'All').click()
+  const done = page.getByTestId('job-row-translate_3')
+  await expect(done.locator('.pill')).toHaveText('Done')
+  await expect(done).not.toContainText('Finished: Finished')
+  await expect(done).not.toContainText('Finished.')
+  await expect(done.getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
+  await expect(done.locator('.jobs-name strong')).toHaveText('Translation')
+  const body = page.getByTestId('jobs-table')
+  await expect(body).not.toContainText('drama')
+  await expect(body).not.toContainText('#3')
+  const pip = page.getByTestId('job-row-ocr_4')
+  await expect(pip).toContainText('Diagnostics > Packages and installs (funasr)')
+  await expect(pip).not.toContainText('pip install')
+  await expect(pip.locator('.jobs-name strong')).toHaveText('Audio emotion tags')
+})
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`${scheme}: Progress and Duration headers stay on one line and nothing scrolls sideways at 1280x800`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.emulateMedia({ colorScheme: scheme })
+    await mockJobsApi(page, [...pageJobs(), ...failedTranscription()], true)
+    await page.goto('/#/jobs')
+    await chip(page, 'All').click()
+    for (const name of ['Progress', 'Duration']) {
+      const lines = await page.getByRole('columnheader', { name }).evaluate((th) => {
+        const walker = document.createTreeWalker(th, NodeFilter.SHOW_TEXT)
+        let count = 0
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const r = document.createRange()
+          r.selectNodeContents(n)
+          count += new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size
+        }
+        return count
+      })
+      expect(lines, `${name} header wraps`).toBe(1)
+    }
+    const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
+    expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    const table = await page.getByTestId('jobs-table').evaluate((t) => ({ right: t.getBoundingClientRect().right, scrolls: t.parentElement!.scrollWidth > t.parentElement!.clientWidth }))
+    expect(table.right).toBeLessThanOrEqual(1280)
+    expect(table.scrolls, 'the table needs its own horizontal scroll').toBe(false)
+    if (process.env.JOBS_SCREENS_DIR) await page.screenshot({ path: `${process.env.JOBS_SCREENS_DIR}/jobs-desktop-${scheme}.png`, fullPage: true })
+  })
+}

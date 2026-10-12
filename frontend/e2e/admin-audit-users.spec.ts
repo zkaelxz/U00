@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { navLink } from './settingsNav'
 
-// Admin > Users and Audit log (desktop). Every /api/admin call is
+// People and access > People and Activity log (desktop). Every /api/admin call is
 // mocked; a catch-all fails the test on any other non-GET /api call, so no
 // real account is ever changed.
 
@@ -55,7 +55,7 @@ const openSection = async (page: Page, title: RegExp) => {
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
-test('Users: lists accounts, explains the guards, and deactivates after a confirm', async ({ page }) => {
+test('People: lists accounts, explains the guards, and deactivates after a confirm', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, ['library.read', 'admin.diagnostics', 'admin.users.read', 'admin.users'])
   let users = [ME_ADMIN, KID, GUEST]
@@ -68,8 +68,8 @@ test('Users: lists accounts, explains the guards, and deactivates after a confir
     return r.fulfill({ json: updated })
   })
   await page.goto('/#/admin')
-  await openSection(page, /^Users/)
-  const list = page.getByRole('list', { name: 'Users' })
+  await openSection(page, /^People/)
+  const list = page.getByRole('list', { name: 'People' })
   await expect(list.locator('li')).toHaveCount(3)
 
   const self = list.locator('li').nth(0)
@@ -105,7 +105,7 @@ test('Users: a refused action shows the server reason in plain words', async ({ 
     json: { error: { code: 'conflict', message: "This is the last active admin. Baihe needs at least one, so it can't be deactivated." } },
   }))
   await page.goto('/#/admin')
-  await openSection(page, /^Users/)
+  await openSection(page, /^People/)
   const section = page.getByTestId('admin-users')
 
   await section.getByRole('button', { name: 'Deactivate second@example.com' }).click()
@@ -128,8 +128,8 @@ test('Users: away from the PC, admin accounts are off with the reason; others st
   const otherOff = user({ id: 5, email: 'third@example.com', is_admin: true, is_active: false, active_sessions: 0 })
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, other, otherOff, KID] } }))
   await page.goto('/#/admin')
-  await openSection(page, /^Users/)
-  const list = page.getByRole('list', { name: 'Users' })
+  await openSection(page, /^People/)
+  const list = page.getByRole('list', { name: 'People' })
   const second = list.locator('li').nth(1)
   await expect(second).toContainText('Admin accounts can only be changed on the main PC.')
   await expect(second.getByRole('button', { name: 'Deactivate second@example.com' })).toBeDisabled()
@@ -156,8 +156,8 @@ test('Users: on the PC, removes admin rights after a confirm and refreshes the l
     return r.fulfill({ json: updated })
   })
   await page.goto('/#/admin')
-  await openSection(page, /^Users/)
-  const list = page.getByRole('list', { name: 'Users' })
+  await openSection(page, /^People/)
+  const list = page.getByRole('list', { name: 'People' })
   const self = list.locator('li').nth(0)
   await expect(self).toContainText("You can't remove your own admin rights.")
   await expect(self.getByRole('button', { name: 'Remove admin owner@example.com' })).toBeDisabled()
@@ -185,7 +185,7 @@ test('Users: a last-admin refusal from the server is shown in the banner', async
     json: { error: { code: 'conflict', message: "This is the last active admin. Baihe needs at least one, so their admin rights can't be removed." } },
   }))
   await page.goto('/#/admin')
-  await openSection(page, /^Users/)
+  await openSection(page, /^People/)
   const section = page.getByTestId('admin-users')
   await section.getByRole('button', { name: 'Remove admin second@example.com' }).click()
   await section.getByRole('button', { name: 'Confirm remove admin rights from second@example.com' }).click()
@@ -198,15 +198,15 @@ test('Users: an admin on the household address sees the list without any buttons
   await mockPage(page, ['library.read', 'admin.users.read'], false)
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID, GUEST] } }))
   await page.goto('/#/admin')
-  await openSection(page, /^Users/)
+  await openSection(page, /^People/)
   const section = page.getByTestId('admin-users')
-  await expect(section.getByRole('list', { name: 'Users' }).locator('li')).toHaveCount(3)
+  await expect(section.getByRole('list', { name: 'People' }).locator('li')).toHaveCount(3)
   await expect(section).toContainText('Account changes are made on the main PC.')
   await expect(section.getByRole('button')).toHaveCount(0)
   expect(unmocked).toEqual([])
 })
 
-test('Audit log: newest first, filters by action and user, pages back', async ({ page }) => {
+test('Activity log: newest first, filters by action and user, pages back', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, ['admin.users.read', 'admin.users'])
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID] } }))
@@ -223,8 +223,8 @@ test('Audit log: newest first, filters by action and user, pages back', async ({
     return r.fulfill({ json: { events: [event(9), event(8)], next_before_id: 8, actions: ['login.denied', 'login.success', 'user.deactivate'] } })
   })
   await page.goto('/#/admin')
-  await openSection(page, /^Audit log/)
-  const rows = page.getByRole('table', { name: 'Audit log' }).locator('tbody tr')
+  await openSection(page, /^Activity log/)
+  const rows = page.getByRole('table', { name: 'Activity log' }).locator('tbody tr')
   await expect(rows).toHaveCount(2)
   await expect(rows.first()).toContainText('2026-09-30 12:09 UTC')
   await expect(rows.first()).toContainText('Kid (kid@example.com)')
@@ -259,9 +259,57 @@ test('hidden from a signed-in user without admin.users.read', async ({ page }) =
   })
   await page.goto('/#/admin')
   await expect(page.getByText('Only an admin can see this page.')).toBeVisible()
-  await expect(navLink(page, 'Admin')).toHaveCount(0)
-  await expect(page.locator('summary', { hasText: /^Users/ })).toHaveCount(0)
-  await expect(page.locator('summary', { hasText: /^Audit log/ })).toHaveCount(0)
+  await expect(navLink(page, 'People and access')).toHaveCount(0)
+  await expect(page.locator('summary', { hasText: /^People/ })).toHaveCount(0)
+  await expect(page.locator('summary', { hasText: /^Activity log/ })).toHaveCount(0)
   expect(admin).toEqual([])
   expect(unmocked).toEqual([])
 })
+
+test('People and access: first card open the first time, the rest closed and remembered; renamed cards', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['library.read', 'admin.diagnostics', 'admin.users.read', 'admin.users'])
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [] } }))
+  await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: false } }))
+  await page.goto('/#/admin')
+  await expect(page.getByRole('heading', { name: 'People and access', level: 2 })).toBeVisible()
+  await expect(navLink(page, 'People and access')).toBeVisible()
+  const cards = page.locator('details.section')
+  await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Public address check'])
+  await expect(cards.nth(0)).toHaveAttribute('open', '')
+  await expect(cards.nth(1)).not.toHaveAttribute('open', '')
+  await expect(cards.nth(2)).not.toHaveAttribute('open', '')
+  // Same page layout as the other pages: no page-specific width.
+  await expect(page.locator('section[aria-label="People and access"]')).toHaveClass(/page-narrow/)
+  // Empty text names no command.
+  await expect(page.getByText('No one is signed up yet. Ask the first person to sign in on the main PC.')).toBeVisible()
+  await expect(page.locator('section[aria-label="People and access"]')).not.toContainText('grant-admin')
+
+  await cards.nth(1).locator('summary').click()
+  await cards.nth(0).locator('summary').click()
+  // The toggle event that saves the choice fires after the click, so wait for both before reloading.
+  await page.waitForFunction(() =>
+    window.localStorage.getItem('baihe.section.admin.people') === '0' && window.localStorage.getItem('baihe.section.admin.activity') === '1')
+  await page.reload()
+  await expect(cards.nth(0)).not.toHaveAttribute('open', '')
+  await expect(cards.nth(1)).toHaveAttribute('open', '')
+  expect(unmocked).toEqual([])
+})
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`${scheme}: People and access has no sideways scroll at 1280x800 with every card open`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.emulateMedia({ colorScheme: scheme })
+    const unmocked = await guard(page)
+    await mockPage(page, ['library.read', 'admin.diagnostics', 'admin.users.read', 'admin.users'])
+    await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID, GUEST] } }))
+    await page.route('**/api/admin/audit**', (r) => r.fulfill({ json: { events: [event(1)], next_before_id: null, actions: ['login.success'] } }))
+    await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: true } }))
+    await page.goto('/#/admin')
+    for (const title of [/^People/, /^Activity log/, /^Public address check/]) await openSection(page, title)
+    await expect(page.getByRole('table', { name: 'Activity log' })).toBeVisible()
+    const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
+    expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    expect(unmocked).toEqual([])
+  })
+}

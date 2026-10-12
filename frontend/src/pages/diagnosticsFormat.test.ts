@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { JobRecord } from '../types/jobs'
 import {
   upsertJob, isFinished, orderJobs,
-  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, splitDependencies,
+  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
+  plainJobText, splitDependencies,
 } from './diagnosticsFormat'
 
 const job = (o: Partial<JobRecord>): JobRecord => ({
@@ -70,5 +71,46 @@ describe('upsertJob', () => {
   it('knows finished statuses', () => {
     expect(['done', 'error', 'cancelled'].every(isFinished)).toBe(true)
     expect(isFinished('running') || isFinished('queued')).toBe(false)
+  })
+})
+
+describe('job wording', () => {
+  it('reads a done job whose outcome failed as Failed', () => {
+    expect(jobStatusLabel(job({ status: 'done', outcome: 'failed' }))).toBe('Failed')
+    expect(jobStatusLabel(job({ status: 'done', outcome: 'cancelled' }))).toBe('Cancelled')
+    expect(jobStatusLabel(job({ status: 'done', outcome: 'ok' }))).toBe('Done')
+    expect(jobStatusLabel(job({ status: 'running' }))).toBe('Running')
+  })
+
+  it('points a pip instruction at Diagnostics > Packages and installs', () => {
+    expect(plainJobText('Run `pip install ebooklib` to export EPUB.')).toBe(
+      'Open Diagnostics > Packages and installs (ebooklib) to export EPUB.')
+    expect(plainJobText('Audio emotion tags need: pip install funasr')).toBe(
+      'Audio emotion tags need: Diagnostics > Packages and installs (funasr)')
+    expect(plainJobText('Needs `pip install genanki` for .apkg export')).toBe(
+      'Needs Diagnostics > Packages and installs (genanki) for .apkg export')
+    expect(plainJobText('pip install "transformers>=5.15" torch')).toBe('Diagnostics > Packages and installs (transformers)')
+    expect(plainJobText('Nothing to install here.')).toBe('Nothing to install here.')
+  })
+
+  it('says title, not drama', () => {
+    expect(plainJobText('Transcription (drama #1)')).toBe('Transcription (title #1)')
+    expect(plainJobText('No lines in this drama. Dramas differ.')).toBe('No lines in this title. Titles differ.')
+  })
+
+  it('names a job without its title reference', () => {
+    expect(jobBaseName({ job_id: 'j', description: 'Transcription (title #1)' })).toBe('Transcription')
+    expect(jobBaseName({ job_id: 'j', description: 'Transcription (drama #12)' })).toBe('Transcription')
+    expect(jobBaseName({ job_id: 'j', description: 'Re-transcribing 3 lines (title #4)' })).toBe('Re-transcribing 3 lines')
+    expect(jobBaseName({ job_id: 'j', description: null })).toBe('j')
+    expect(jobBaseName({ job_id: 'j', description: '(title #4)' })).toBe('(title #4)')
+  })
+
+  it('adds the title name where the menu has room for one label', () => {
+    const titles = new Map([[1, 'Signal']])
+    expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #1)', drama_id: 1 }, titles)).toBe('Transcription - Signal')
+    expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #9)', drama_id: 9 }, titles)).toBe('Transcription')
+    expect(jobTitledName({ job_id: 'j', description: 'URL download', drama_id: null }, titles)).toBe('URL download')
+    expect(jobTitledName({ job_id: 'j', description: 'Translate Signal', drama_id: 1 }, titles)).toBe('Translate Signal')
   })
 })
