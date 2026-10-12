@@ -91,12 +91,17 @@ def post_upload_and_transcribe(
              description="The URL must be a public http(s) address (checked before anything "
                          "starts). Replacing existing audio needs confirm_replace_audio=true "
                          "(422 with details.reason \"confirm_replace_audio\" otherwise). Poll "
-                         "GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel.",
+                         "GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 "
+                         "downloads run at once, started at least 20 s apart; more wait in line "
+                         "(the job message says \"Queued: 2nd in line\"). allow_long raises the 6 h "
+                         "cap to 12 h for this download; part_start/part_end (h:mm:ss) download "
+                         "only that section, exact_cuts re-encodes it for precise cuts.",
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def post_download_url(body: MediaUrlDownloadRequest, drama_id: int = Path(ge=1)):
-    return url_media_service.start_url_download(drama_id, body.url, body.audio_only,
-                                                body.confirm_replace_audio)
+    return url_media_service.start_url_download(
+        drama_id, body.url, body.audio_only, body.confirm_replace_audio, body.allow_long,
+        body.part_start, body.part_end, body.exact_cuts)
 
 
 def _play(drama_id: int, kind: str) -> FileResponse:

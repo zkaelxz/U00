@@ -8,16 +8,20 @@
  *
  * Remote viewers get one muted line instead ("PC only for now").
  */
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { startUrlDownload } from '../../../api/sourcesImport'
+import type { UrlDownloadRequest } from '../../../types/sourcesImport'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
+import { useJob } from '../../../hooks/useJob'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
-import { MAX_URL_LEN, defaultAudioOnly, downloadReason } from '../../sources/urlImportFormat'
+import {
+  EXACT_CUTS_HELP, MAX_URL_LEN, PART_CLIP_NOTE, QUEUE_NOTE, defaultAudioOnly, downloadReason, partProblem,
+} from '../../sources/urlImportFormat'
 import { SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl } from '../sourceForm'
 import './urlDownload.css'
 
@@ -53,21 +57,41 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, re
   // The server says the drama has audio even if the status we read did not.
   const [serverHasAudio, setServerHasAudio] = useState(false)
   const reasonId = useId()
+  // "Only this part": kept for this visit only, like Replace.
+  const [partStart, setPartStart] = useState('')
+  const [partEnd, setPartEnd] = useState('')
+  const [exactCuts, setExactCuts] = useState(false)
+  const partStartRef = useRef<HTMLInputElement>(null)
+  // The job this form started, to offer the choices after a "longer than 6 hours" refusal.
+  const [started, setStarted] = useState<{ id: string; key: number } | null>(null)
+  const { job } = useJob(started?.id ?? null, { runKey: started?.key })
 
   if (pc === 'remote') return <p className="muted">{URL_PC_ONLY}</p>
 
   const url = fixedUrl ?? typed
   const audioThere = hasAudio || serverHasAudio
-  const reason = downloadReason(url, audioThere, replace)
+  const partReason = partProblem(partStart, partEnd)
+  const reason = downloadReason(url, audioThere, replace) ?? partReason
+  const hasPart = partStart.trim() !== '' || partEnd.trim() !== ''
+  // The server's own words for why it refused (services/url_media_service.py failed_reason).
+  const refusedFor = job?.status === 'error' ? (job.result as { failed_reason?: string } | null | undefined)?.failed_reason : undefined
   const audioOnlyResult = audioOnly || isDirectAudioUrl(url)
 
-  const start = () => {
+  const start = (anyway = false) => {
     if (reason || busy || starting) return
     setStarting(true)
     setError(null)
-    startUrlDownload(dramaId, { url: url.trim(), audio_only: audioOnly, confirm_replace_audio: audioThere && replace }).then(
+    const body: UrlDownloadRequest = { url: url.trim(), audio_only: audioOnly, confirm_replace_audio: audioThere && replace }
+    if (anyway) body.allow_long = true
+    if (hasPart && !isDirectAudioUrl(url)) {
+      if (partStart.trim()) body.part_start = partStart.trim()
+      if (partEnd.trim()) body.part_end = partEnd.trim()
+      if (exactCuts) body.exact_cuts = true
+    }
+    startUrlDownload(dramaId, body).then(
       (r) => {
         setStarting(false)
+        setStarted((prev) => ({ id: r.job_id, key: (prev?.key ?? 0) + 1 }))
         onStarted(r.job_id)
       },
       (e: unknown) => {
@@ -100,6 +124,50 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, re
           <Toggle checked={audioOnly} onChange={setAudioOnly} />
         </Field>
       </div>
+      {!isDirectAudioUrl(url) && (
+        <fieldset className="url-download-part">
+          <legend>Only this part (optional)</legend>
+          <div className="url-download-part-times">
+            <label>
+              From
+              <input
+                ref={partStartRef}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="0:00:00"
+                aria-label="Part start (h:mm:ss)"
+                value={partStart}
+                onChange={(e) => setPartStart(e.target.value)}
+              />
+            </label>
+            <label>
+              To
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="end"
+                aria-label="Part end (h:mm:ss)"
+                value={partEnd}
+                onChange={(e) => setPartEnd(e.target.value)}
+              />
+            </label>
+          </div>
+          {hasPart && (
+            <>
+              <label>
+                <input type="checkbox" checked={exactCuts} onChange={(e) => setExactCuts(e.target.checked)} />
+                Exact cuts
+              </label>
+              <p className="muted">{EXACT_CUTS_HELP}</p>
+              <p className="muted" data-testid="url-part-offset">
+                {PART_CLIP_NOTE}
+              </p>
+            </>
+          )}
+        </fieldset>
+      )}
       {audioThere && (
         <div className="url-download-checks">
           <label>
@@ -123,7 +191,7 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, re
           className="primary"
           disabled={!!reason || busy || starting}
           aria-describedby={reason ? reasonId : undefined}
-          onClick={start}
+          onClick={() => start()}
         >
           {starting ? 'Starting…' : 'Download'}
         </button>
@@ -134,6 +202,23 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, re
         )}
         {busy && <span className="muted">Wait for the running job to finish.</span>}
       </div>
+      <p className="muted">{QUEUE_NOTE}</p>
+      {refusedFor === 'too_long' && !busy && (
+        <div className="url-download-long" data-testid="url-download-long">
+          <p>Download only part of it, or all of it anyway (up to 12 hours; free disk space is checked first).</p>
+          <div className="actions">
+            <button type="button" className="secondary" onClick={() => partStartRef.current?.focus()}>
+              Download only part
+            </button>
+            <button type="button" disabled={!!reason || starting} onClick={() => start(true)}>
+              Download anyway
+            </button>
+          </div>
+        </div>
+      )}
+      {refusedFor === 'too_long_max' && !busy && (
+        <p className="muted">Even with Download anyway the limit is 12 hours: choose a part above.</p>
+      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
     </div>
   )

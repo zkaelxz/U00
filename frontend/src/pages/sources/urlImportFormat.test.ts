@@ -40,6 +40,7 @@ import {
   toggleId,
   urlImportText,
   videoDramas,
+  parseClock, partProblem,
 } from './urlImportFormat'
 
 const preview = (over: Partial<UrlPreview> = {}): UrlPreview => ({
@@ -322,5 +323,27 @@ describe('save as CBZ', () => {
     expect(saveOutcomeText(failed)).toBe('Failed: site down')
     expect(saveOutcomeTone('saved')).toBe('ok')
     expect(saveOutcomeTone('failed')).toBe('bad')
+  })
+})
+
+describe('part of a video', () => {
+  it('reads h:mm:ss, m:ss and plain seconds', () => {
+    expect(parseClock('1:02:30')).toBe(3750)
+    expect(parseClock('2:30')).toBe(150)
+    expect(parseClock(' 45 ')).toBe(45)
+    expect(parseClock('')).toBeNull()
+  })
+
+  it('rejects anything else', () => {
+    for (const t of ['abc', '1:75:00', '1:2:3:4', '-5', '1.5']) expect(parseClock(t)).toBe('bad')
+  })
+
+  it('says why a part cannot be sent', () => {
+    expect(partProblem('', '')).toBeNull()
+    expect(partProblem('1:00', '')).toBeNull()
+    expect(partProblem('1:00:00', '1:30:00')).toBeNull()
+    expect(partProblem('x', '')).toMatch(/like 1:02:30/)
+    expect(partProblem('10:00', '5:00')).toMatch(/end after it starts/)
+    expect(partProblem('0', '13:00:00')).toMatch(/12 hours/)
   })
 })

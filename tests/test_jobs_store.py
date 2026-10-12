@@ -680,6 +680,10 @@ class TestExitFlush:
             monkeypatch.setattr(db, "get_conn", real_conn)
             release.set()
             _finish("st_ex_live")
+            # The heartbeat's own retry may be asleep inside the Locked fake with
+            # _retry_lock held (up to its 5 s busy wait); the next test's flush
+            # would then wait out its whole budget for that lock.
+            assert _wait_for(lambda: not job_store._retry_lock.locked(), timeout=10.0)
         assert "st_ex_pending" in job_store._pending
         bg.clear_job("st_ex_pending")
 
@@ -699,6 +703,44 @@ class TestExitFlush:
         assert db.get_job_record("st_exit_pending")["status"] == "done"
         assert "st_exit_pending" not in job_store._pending
         bg.clear_job("st_exit_pending")
+
+    def test_flush_waits_for_a_retry_already_writing_the_row(self, isolated_db, monkeypatch):
+        real = db.save_job_record
+        failing = [True]
+
+        def save(job_id, *a, **k):
+            if k.get("status") == "done" and failing[0]:
+                raise sqlite3.OperationalError("disk I/O error")
+            return real(job_id, *a, **k)
+        monkeypatch.setattr(db, "save_job_record", save)
+        assert bg.start_job("st_exit_race", lambda: None)
+        assert _wait_for(lambda: bg.get_status("st_exit_race")["status"] == "done")
+        _finish()
+        assert "st_exit_race" in job_store._pending
+        # A heartbeat retry is mid-write on the row when the exit flush starts.
+        in_write, release, flushed = threading.Event(), threading.Event(), threading.Event()
+
+        def blocking(job_id, *a, **k):
+            if k.get("status") == "done":
+                in_write.set()
+                assert release.wait(10.0)
+            return real(job_id, *a, **k)
+        failing[0] = False
+        monkeypatch.setattr(db, "save_job_record", blocking)
+        retry = threading.Thread(target=job_store.retry_pending)
+        retry.start()
+        assert in_write.wait(5.0)
+        flush = threading.Thread(target=lambda: (job_store.flush_at_exit(), flushed.set()))
+        flush.start()
+        # It queues behind the retry (same lock) instead of racing it.
+        assert not flushed.wait(0.3)
+        release.set()
+        retry.join(5.0)
+        assert flushed.wait(5.0)
+        flush.join(5.0)
+        assert db.get_job_record("st_exit_race")["status"] == "done"
+        assert "st_exit_race" not in job_store._pending
+        bg.clear_job("st_exit_race")
 
 
 _OWNER_SCRIPT = r"""

@@ -138,8 +138,10 @@ test('with every line translated, the reason offers Re-translate in one tap', as
 test('glossary and characters panels load; a title without a series is told it cannot hold terms (X09)', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   // Glossary and Characters start folded; open both to reach the bodies.
-  await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  // hasText is a case-insensitive substring over the whole section, so "Characters" also matches the
+  // "Project instructions 0 characters" section; match the title the summary starts with.
+  await page.locator('details.section > summary').filter({ hasText: /^Characters/ }).click()
+  await page.locator('details.section > summary').filter({ hasText: /^Glossary/ }).click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Characters' })).toBeVisible()
