@@ -49,6 +49,7 @@ button.notify-bell-btn[aria-expanded='true'] { color: var(--text); }
 .notify-item-meta time { font-variant-numeric: tabular-nums; }
 .notify-new { color: var(--accent-text); font-weight: var(--weight-bold); }
 .notify-text { margin: var(--space-1) 0 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.notify-action { margin-top: var(--space-1); }
 
 @media (pointer: coarse), (max-width: 640px) {
   button.notify-bell-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }

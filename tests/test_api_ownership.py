@@ -68,6 +68,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "device_token_id": "an extension device token: the own route scopes it to the caller's "
                        "user id from their session (404 otherwise); the route for "
                        "everyone's tokens is local_only()",
+    "follow_id": "a followed Live channel: live_follow_service._require shows it only to its "
+                 "owner (and the local owner and admins) via can_see_job, 404 otherwise",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a

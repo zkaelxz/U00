@@ -4,7 +4,7 @@ closing the server's window, the uninstaller, Ctrl+C).
 
 A clean stop, in order: refuse new job starts on every listener in the
 process (background_jobs.refuse_new_jobs), stop starting new work (the
-chapter-check scheduler, the API's own GPU-queue/backup poller registered by
+chapter-check scheduler, the followed-channel live checks, the API's own GPU-queue/backup poller registered by
 `python -m api`, and any new Playwright browser), cancel this process's
 running and queued jobs through the normal cancel path
 (jobs_service.cancel_job), give them a few seconds to stop -- a process
@@ -137,7 +137,9 @@ def stop_new_work() -> None:
     """No new scheduled check, poller tick or browser from here on."""
     from sources import chapter_check
     import page_fetch
+    from services import live_follow_poller
     _quietly(chapter_check.stop_scheduler)
+    _quietly(live_follow_poller.stop)
     if _background_stopper is not None:
         _quietly(_background_stopper)
     # Also tells an open sign-in window to close itself.

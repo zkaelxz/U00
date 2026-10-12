@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
 @router.get("", dependencies=[require_permission("library.read")],
-            response_model=NotificationList,
+            response_model=NotificationList, response_model_exclude_none=True,
             summary="Recent job and new-chapter events for the header bell")
 def list_recent(request: Request):
     return {"items": svc.list_recent(principal=request.state.principal)}

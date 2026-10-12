@@ -262,6 +262,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `line_provenance_service.py`
 - `line_tools_service.py`
 - `lines_service.py`
+- `live_follow_poller.py` (the followed-channel live checks: the manual-check queue, the optional hourly scheduler, one yt-dlp metadata read at a time, backoff, the extra check before a scheduled start, notify once per stream, the PC owner's automatic start)
+- `live_follow_service.py` (followed YouTube channels on the Live page: channel input, ownership, limits, saved Live options, Start Live from a follow)
 - `live_service.py`
 - `lncrawl_service.py`
 - `loaded_models_service.py`
@@ -457,6 +459,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `library_routes.py`
 - `line_ai_routes.py`
 - `lines_routes.py`
+- `live_follow_routes.py`
 - `live_routes.py`
 - `loaded_models_routes.py`
 - `media_routes.py`
@@ -556,6 +559,7 @@ Site adapters, the fetch ladder and the source store (`sources.db`).
 - `http.py` (the one paced HTTP client every adapter and the generic importer go through)
 - `ladder.py` (the access-method ladder)
 - `limiter.py` (the per-source concurrency limit)
+- `live_follow_store.py` (the `followed_channels` rows in `sources.db` behind `services/live_follow_service.py`)
 - `lzstring.py` (LZString's Base64 variant, which some sites use to compress data their own page JS unpacks)
 - `mock.py` (an offline demo source)
 - `models.py` (the shared vocabulary of the source-adapter system)
