@@ -31,6 +31,7 @@ import diagnostics
 import diagnostics_report
 import diagnostics_torch as gpu_torch
 import install_registry
+import pending_install
 import upgrade_check
 from lib import proc as proc_run
 from lib.proc import stream_tree
@@ -294,9 +295,12 @@ def _install_commands(name: str) -> list:
     """(command, timeout) pairs for a plain install. torch, torchvision or
     torchaudio on an NVIDIA PC never reaches here: the install plan refuses
     them (install_registry.unqueueable_reason) for the GPU PyTorch setup."""
-    return [(_pip("install", diagnostics.pip_install_name(name),
-                  *diagnostics.constraints_pip_args(default_project_root())),
-             PIP_TIMEOUT_SECONDS)]
+    # Fresh snapshot: the plan the owner confirmed may be minutes old.
+    removals = [(install_registry.uninstall_argv(n), PIP_TIMEOUT_SECONDS)
+                for n in install_registry.cv2_swap_names([name], pending_install.snapshot())]
+    return removals + [(_pip("install", diagnostics.pip_install_name(name),
+                             *diagnostics.constraints_pip_args(default_project_root())),
+                        PIP_TIMEOUT_SECONDS)]
 
 
 def _torch_setup_commands(variant: str) -> list:
@@ -412,7 +416,9 @@ def _run_pip(name: str, confirm, cmds_for, job_id: str = None) -> dict:
             return _run_commands(cmds, job_id=job_id)
         path = _write_torch_pins(pins)
         try:
-            return _run_commands([(cmd + ["-c", path], t) for cmd, t in cmds],
+            # Only an install reads a constraints file; `pip uninstall` has no -c.
+            return _run_commands([(cmd + ["-c", path] if cmd[3] == "install" else cmd, t)
+                                  for cmd, t in cmds],
                                  torch_pins=pins, job_id=job_id)
         finally:
             try:

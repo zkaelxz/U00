@@ -245,7 +245,7 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
     keys = list(keys)
     plan = {"keys": keys, "available": False, "mode": "now", "installs": [], "changes": [],
             "loaded": [], "blocked": [], "needs_confirm": [], "summary": [], "before": {},
-            "note": None}
+            "swap": [], "note": None}
     reason = install_registry.unqueueable_reason(keys)
     if reason:
         plan["blocked"].append(reason)
@@ -269,15 +269,23 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
     changes = _classify(parse_report(report), installed)
     plan.update(available=True, changes=changes, summary=_summary(changes),
                 installs=[c for c in changes if c["kind"] == "install"])
-    clash = cv2_clash(installed, changes)
+    swap = install_registry.cv2_swap_names(keys, installed)
+    plan["swap"] = swap
+    if swap:
+        plan["summary"].insert(0, "Remove " + ", ".join(swap) + " first: PaddleOCR needs "
+                               "opencv-contrib-python, and the two cannot share one 'cv2' folder.")
+    # The swap removes the plain flavour before the install, so the clash check
+    # sees the environment as it will be then.
+    clash = cv2_clash({n: v for n, v in installed.items() if n not in swap}, changes)
     if clash:
         plan["blocked"].append(clash)
     mins = diagnostics.required_min_versions() if mins is None else mins
     required = app_required_names() if required is None else required
     plan["needs_confirm"] = _risks(changes, required, mins)
     replaced = [c for c in changes if c["kind"] != "install"]
-    plan["before"] = {c["name"]: c["from"] for c in replaced}
-    plan["loaded"] = sorted(c["name"] for c in replaced if windows and in_use(c["name"]))
+    plan["before"] = {**{n: installed[n] for n in swap}, **{c["name"]: c["from"] for c in replaced}}
+    plan["loaded"] = sorted(n for n in {c["name"] for c in replaced} | set(swap)
+                            if windows and in_use(n))
     if plan["loaded"]:
         plan["note"] = ("Baihe is using " + ", ".join(plan["loaded"]) + " right now, and "
                         "Windows can't replace files in use.")

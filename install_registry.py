@@ -19,6 +19,14 @@ import diagnostics_torch
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
+# Plain OpenCV builds that may be removed so a contrib build can take their
+# place; pending_install.py repeats this tuple (it cannot import the app) and
+# a test keeps the two equal. Nothing outside it ever reaches `pip uninstall`.
+CV2_SWAP_UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
+CV2_CONTRIB = "opencv-contrib-python"
+# Keys whose install pulls the exact contrib build (PaddleX pins it).
+NEEDS_CV2_CONTRIB = frozenset({"paddleocr"})
+
 
 def installable_packages() -> set:
     """Package names an install/upgrade wrapper accepts: optional
@@ -59,6 +67,24 @@ def install_argv(keys, python: str = None, torch_pins_path: str = None,
     if torch_pins_path:
         argv += ["-c", torch_pins_path]
     return argv
+
+
+def cv2_swap_names(keys, installed: dict) -> list:
+    """Plain OpenCV dists to remove before installing `keys`, from {canonical
+    dist: version}. Only when a key needs the contrib build and it is not
+    installed yet: plain and contrib share one 'cv2' folder, so the plain one
+    must go first or the two break each other."""
+    if not NEEDS_CV2_CONTRIB & set(keys) or CV2_CONTRIB in installed:
+        return []
+    return [n for n in CV2_SWAP_UNINSTALLABLE if n in installed]
+
+
+def uninstall_argv(name: str, python: str = None) -> list:
+    """The literal `pip uninstall -y NAME` argv. No flag and no name beyond
+    CV2_SWAP_UNINSTALLABLE can reach it."""
+    if name not in CV2_SWAP_UNINSTALLABLE:
+        raise ValueError("not an uninstallable package")
+    return [python or sys.executable, "-m", "pip", "uninstall", "-y", name]
 
 
 def write_torch_pins(keys):

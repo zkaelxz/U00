@@ -52,6 +52,8 @@ _PINS_RE = re.compile(r"^baihe-torch-pins-[A-Za-z0-9_]+\.txt$")      # install_r
 # Mirrors diagnostics.PIP_INSTALL_FLAGS, which this stdlib-only module cannot import;
 # a test keeps the two equal.
 _PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
+# Mirrors install_registry.CV2_SWAP_UNINSTALLABLE for the same reason.
+_UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
 _FILES = {"pending": "pending.json", "result": "result.json", "lock": "apply.lock"}
 
 
@@ -443,6 +445,20 @@ def _argv_accepted(argv) -> bool:
     return True
 
 
+def _uninstall_steps_accepted(steps) -> bool:
+    """The only other command the apply step runs: `pip uninstall -y NAME` for
+    a plain OpenCV, once per name, with no other flag or argument."""
+    if not isinstance(steps, list) or len(steps) > len(_UNINSTALLABLE):
+        return False
+    names = []
+    for step in steps:
+        if (not isinstance(step, list) or len(step) != 6 or step[0] != sys.executable
+                or step[1:5] != ["-m", "pip", "uninstall", "-y"] or step[5] not in _UNINSTALLABLE):
+            return False
+        names.append(step[5])
+    return len(set(names)) == len(names)
+
+
 def _norm(path: str) -> str:
     return os.path.normcase(os.path.realpath(path))
 
@@ -594,7 +610,8 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
         if isinstance(plan.get("temp_files"), list):
             temp_files = [p for p in plan["temp_files"] if _is_pins_file(p)]
         argv = plan.get("argv")
-        if not _argv_accepted(argv):
+        uninstall = plan.get("uninstall") or []
+        if not _argv_accepted(argv) or not _uninstall_steps_accepted(uninstall):
             return {"ran": True, **_finish({
                 "status": "refused", "packages": keys, "restored": [], "restore_failed": [],
                 "message": "The queued install was not run: the package list was not accepted. "
@@ -604,10 +621,17 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
         _write_json("result", {"status": "running", "packages": keys, "before": before, "tail": [],
                                "message": "Installing the packages you queued...",
                                "restored": [], "restore_failed": []})
-        argv[1:1] = _python()[1:]
         if echo:
             print("Installing the packages you queued: " + ", ".join(keys), flush=True)
-        rc, lines, timed_out = run_capture(argv, min(PIP_SECONDS, deadline - time.time()), echo)
+        # Each step runs only after the one before it exited 0, so a failed
+        # uninstall never reaches the install and the restore below puts back
+        # whatever it removed.
+        rc, lines, timed_out = 0, [], False
+        for step in [*uninstall, argv]:
+            step[1:1] = _python()[1:]
+            rc, lines, timed_out = run_capture(step, min(PIP_SECONDS, deadline - time.time()), echo)
+            if rc != 0 or timed_out:
+                break
         if rc == 0 and not timed_out:
             return {"ran": True, **_finish({
                 "status": "ok", "packages": keys, "restored": [], "restore_failed": [],

@@ -720,3 +720,27 @@ def test_a_failed_install_is_not_retried_and_the_sox_fallback_is_gone(monkeypatc
     assert out["ok"] is False and out["hint"] is None and len(seen) == 1
     assert not hasattr(diagnostics, "SoxBuildWatch") and not hasattr(svc, "_install_qwen_asr")
 
+
+
+def test_a_plain_opencv_is_uninstalled_before_paddleocr_installs(monkeypatch):
+    monkeypatch.setattr(svc.pending_install, "snapshot", lambda: {"opencv-python": "4.10.0.84"})
+    cmds = [cmd for cmd, _t in svc._install_commands("paddleocr")]
+    assert [c[3] for c in cmds] == ["uninstall", "install"]
+    assert cmds[0][4:] == ["-y", "opencv-python"]
+
+
+def test_no_swap_when_contrib_is_already_installed(monkeypatch):
+    monkeypatch.setattr(svc.pending_install, "snapshot",
+                        lambda: {"opencv-python": "4.10", "opencv-contrib-python": "4.10"})
+    assert [c[3] for c, _t in svc._install_commands("paddleocr")] == ["install"]
+
+
+def test_the_torch_pins_constraint_goes_only_on_the_install_step(monkeypatch):
+    monkeypatch.setattr(svc.pending_install, "snapshot", lambda: {"opencv-python": "4.10"})
+    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: ["torch==2.11.0"])
+    seen = []
+    monkeypatch.setattr(svc, "_run_commands", lambda cmds, **kw: seen.extend(c for c, _t in cmds)
+                        or {"ok": True, "output_tail": [], "hint": None})
+    svc.install_dependency("paddleocr", True, job_id="j")
+    assert "-c" not in seen[0] and seen[0][3] == "uninstall"
+    assert seen[1][3] == "install" and "-c" in seen[1]
