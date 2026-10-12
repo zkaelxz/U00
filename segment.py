@@ -65,16 +65,22 @@ def _per_chunk(fn):
     return run
 
 
+def opencc_t2s():
+    """The shared OpenCC Traditional-to-Simplified converter; ImportError
+    when opencc-python-reimplemented isn't installed."""
+    global _opencc_t2s
+    if _opencc_t2s is None:
+        import opencc
+        _opencc_t2s = opencc.OpenCC("t2s")
+    return _opencc_t2s
+
+
 def _cut_traditional(text: str):
     """Word-boundary lengths come from segmenting the Simplified conversion
     (jieba's own dictionary); the actual words returned are sliced from the
     ORIGINAL Traditional text, not the converted one -- so the reading
     order's characters are always exactly what was in the source."""
-    global _opencc_t2s
-    if _opencc_t2s is None:
-        import opencc
-        _opencc_t2s = opencc.OpenCC("t2s")
-    simplified = _opencc_t2s.convert(text)
+    simplified = opencc_t2s().convert(text)
     if len(simplified) != len(text):
         # OpenCC's t2s is character-count-preserving for the overwhelming
         # majority of real text; on the rare input where it isn't, slicing
