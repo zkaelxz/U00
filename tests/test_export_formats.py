@@ -413,3 +413,85 @@ class TestLinesForClip:
         out = sf.lines_for_clip(lines, 10.0, 22.0)
         assert [l.idx for l in out] == [0, 1]
         assert lines[1].start == 10.0  # the source line is a copy, not mutated
+
+
+class TestCjkWordAwareWrap:
+    """wrap_text breaks CJK between words when a segmenter offers offsets."""
+
+    TEXT = "あいうえおかきくけこさしすせそたちつてと"  # 20 chars, no punctuation
+
+    @staticmethod
+    def _tiers(*tiers):
+        return lambda text, language, script="simplified": [set(t) for t in tiers]
+
+    def test_cut_is_the_last_allowed_offset_in_the_window(self, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "line_break_tiers", self._tiers({4, 12, 15}))
+        assert sf.wrap_text(self.TEXT, 16, "ja").split("\n")[0] == self.TEXT[:15]
+
+    def test_first_tier_wins_over_a_later_offset_in_a_lower_tier(self, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "line_break_tiers", self._tiers({10}, {14}))
+        assert sf.wrap_text(self.TEXT, 16, "ja").split("\n")[0] == self.TEXT[:10]
+
+    def test_no_allowed_offset_in_the_window_cuts_at_the_limit(self, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "line_break_tiers", self._tiers({2}))  # below the floor
+        assert sf.wrap_text(self.TEXT, 16, "ja").split("\n")[0] == self.TEXT[:16]
+
+    def test_language_not_given_keeps_todays_behaviour(self, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "line_break_tiers", self._tiers({10}))
+        assert sf.wrap_text(self.TEXT, 16).split("\n")[0] == self.TEXT[:16]
+
+    def test_segmenter_not_installed_keeps_todays_behaviour(self, monkeypatch):
+        import segment
+
+        def missing(*_a, **_k):
+            raise ImportError
+        monkeypatch.setattr(segment, "line_break_tiers", missing)
+        assert sf.wrap_text(self.TEXT, 16, "ja").split("\n")[0] == self.TEXT[:16]
+        monkeypatch.setattr(segment, "line_break_tiers", lambda *a, **k: None)
+        assert sf.wrap_text(self.TEXT, 16, "ja").split("\n")[0] == self.TEXT[:16]
+
+    def test_fallback_cut_never_leaves_a_lone_full_stop_or_small_kana(self):
+        # 17 characters: a cut at 16 would leave "。" alone on line two.
+        assert sf.wrap_text("あいうえおかきくけこさしすせそた。", 16) == "あいうえおかきくけこさしすせそ\nた。"
+        assert sf.wrap_text("あいうえおかきくけこさしすせそしゃ", 16) == "あいうえおかきくけこさしすせそ\nしゃ"
+
+    @pytest.mark.parametrize("text", [
+        "彼は何も食べないでそのまま寝てしまったので、朝になってもまだ眠かったのです。そうですね",
+        "あいうえおかきくけこさしすせそたちつてとなにぬねのっぺぺゃゅょ、。ー",
+    ])
+    def test_no_cut_lands_before_punctuation_or_small_kana(self, text, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "line_break_tiers",
+                            lambda t, lang, script="simplified": [set(range(1, len(t)))])
+        lines = sf.wrap_text(text, 16, "ja").split("\n")
+        assert "".join(lines) == text.replace("\n", "")
+        assert all(ln and ln[0] not in sf.NO_LINE_START for ln in lines)
+
+    def test_language_reaches_every_format(self, monkeypatch):
+        import segment
+        calls = []
+
+        def tiers(text, language, script="simplified"):
+            calls.append((language, script))
+            return [{10}]
+        monkeypatch.setattr(segment, "line_break_tiers", tiers)
+        lines = [Line(idx=0, start=0, end=5, zh=self.TEXT, en="Hi")]
+        wrap = {"en": 42, "zh": 16}
+        kw = {"language": "ja", "chinese_script": "traditional"}
+        first = self.TEXT[:10]
+        assert first + "\nさし" in sf.lines_to_vtt(lines, "zh", wrap_chars=wrap, **kw)
+        assert first + " " in sf.lines_to_lrc(lines, "zh", wrap_chars=wrap, **kw)
+        assert first + "\\N" in sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "zh", wrap_chars=wrap, **kw)
+        assert sf.wrap_lines(lines, wrap, **kw)[0].zh.split("\n")[0] == first
+        assert set(calls) == {("ja", "traditional")}
+
+    def test_translation_text_is_not_broken_with_the_source_language(self, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "line_break_tiers", self._tiers({10}))
+        lines = [Line(idx=0, start=0, end=5, zh="x", en=self.TEXT)]
+        out = sf.lines_to_vtt(lines, "en", wrap_chars={"en": 16, "zh": 16}, language="ja")
+        assert self.TEXT[:16] + "\n" in out

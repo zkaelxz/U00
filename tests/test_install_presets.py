@@ -24,7 +24,7 @@ KNOWN_PYPI_DISTS = {
     "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
     "omnivoice", "pytesseract", "pillow", "paddleocr",
     "paddlepaddle",
-    "manga-ocr", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
+    "manga-ocr", "budoux", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
     "transformers", "torch", "torchaudio", "uroman", "sentencepiece", "yt-dlp",
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
     "pypdf", "genanki", "ebooklib", "plyer", "playwright",
