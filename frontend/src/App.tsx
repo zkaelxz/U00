@@ -29,6 +29,7 @@ import SavedMangaReader from './pages/SavedMangaReader'
 import SettingsPage from './pages/Settings'
 import SourcesPage from './pages/Sources'
 import MakeSubtitlesPage from './pages/MakeSubtitlesPage'
+import SourcesManagePage from './pages/SourcesManage'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
@@ -150,6 +151,7 @@ const WIDE_ROUTES: ReadonlySet<string> = new Set([
   'library-tools',
   'jobs',
   'sources',
+  'sources-manage',
   'discover',
   'diagnostics',
   'manga',
@@ -221,6 +223,7 @@ export default function App() {
         {route.name === 'translate' && <TranslatePage />}
         {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
         {route.name === 'sources' && <SourcesPage />}
+        {route.name === 'sources-manage' && <SourcesManagePage tab={route.tab} />}
         {route.name === 'discover' && <DiscoverPage />}
         {route.name === 'live' && <LivePage />}
         {route.name === 'diagnostics' && <DiagnosticsPage />}

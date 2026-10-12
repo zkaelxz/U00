@@ -25,14 +25,14 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartException
 
-from api.auth import local_only, require_engines_allowed, require_permission
+from api.auth import is_at_pc, local_only, require_engines_allowed, require_permission
 from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
 from api.schemas import ErrorResponse
-from services import (page_import_limits, scanlate_pages_service, scanlate_render_service,
-                      scanlate_run_service, settings_service)
+from services import (model_readiness_service, page_import_limits, scanlate_pages_service,
+                      scanlate_render_service, scanlate_run_service, settings_service)
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/scanlate", tags=["scanlate"])
@@ -125,6 +125,8 @@ def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge
     # a drama whose default engine is a free one.
     engine = body.engine or settings_service.get("default_engine")
     require_engines_allowed(request, engine)
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_scanlate, drama_id, body.detect_backend)
     return scanlate_run_service.start_run(
         drama_id, mode=body.mode, page_id=body.page_id, confirm=body.confirm, engine=engine,
         detect_backend=body.detect_backend, chapter_id=body.chapter_id)
@@ -133,7 +135,10 @@ def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge
 @router.post("/dramas/{drama_id}/render", dependencies=[require_permission("jobs.start")],
              response_model=ScanlateJobStarted, responses=_JOB_ERRS,
              summary="Re-render the typeset image of one page, or of every page with regions")
-def post_render(body: ScanlateRenderRequest, drama_id: int = Path(ge=1, le=2**31 - 1)):
+def post_render(body: ScanlateRenderRequest, request: Request,
+                drama_id: int = Path(ge=1, le=2**31 - 1)):
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_scanlate_render)
     return scanlate_render_service.start_render(drama_id, page_id=body.page_id)
 
 
@@ -141,5 +146,8 @@ def post_render(body: ScanlateRenderRequest, drama_id: int = Path(ge=1, le=2**31
              response_model=ScanlateJobStarted, responses=_JOB_ERRS,
              summary="Write the chapter as a ZIP and/or PDF (download from /api/artifacts, "
                      "kinds scanlate_zip / scanlate_pdf)")
-def post_export(body: ScanlateExportRequest, drama_id: int = Path(ge=1, le=2**31 - 1)):
+def post_export(body: ScanlateExportRequest, request: Request,
+                drama_id: int = Path(ge=1, le=2**31 - 1)):
+    model_readiness_service.require_ready(
+        is_at_pc(request), model_readiness_service.for_scanlate_render)
     return scanlate_render_service.start_export(drama_id, formats=body.formats)

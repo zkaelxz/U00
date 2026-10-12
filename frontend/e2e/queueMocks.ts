@@ -9,6 +9,32 @@ type Item = Record<string, unknown> & { id: number; status: string; mine: boolea
 export interface QueueMock {
   state: Record<string, unknown> & { items: Item[] }
   calls: string[]
+  // "drama_id:step" of every Saved settings read.
+  settingsReads: string[]
+}
+
+const SETTINGS_ROWS: Record<string, { label: string; value: string; engine?: string }[]> = {
+  transcribe: [
+    { label: 'Speech model', value: 'Whisper small' },
+    { label: 'Source language', value: 'Chinese' },
+    { label: 'Beam size', value: '5' },
+    { label: 'Groq (paid)', value: 'Off' },
+  ],
+  translate: [
+    { label: 'Engine and model', value: 'claude-sonnet-5-5', engine: 'claude' },
+    { label: 'Tone and character voice', value: 'Audio drama (spoken aloud)' },
+    { label: 'English variant', value: 'en-US' },
+    { label: 'Batch size', value: '20' },
+    { label: 'Thinking', value: 'Off' },
+    { label: 'Glossary', value: 'Off, no glossary terms yet' },
+    { label: 'Language packs', value: 'Off' },
+    { label: 'VTuber names', value: 'Off' },
+    { label: 'Reply check', value: 'Off' },
+    { label: 'Off-peak start', value: 'Off: the queue runs it right away' },
+    { label: 'Cost', value: 'About $0.40; uses your API key and costs money' },
+    { label: 'Monthly cap left', value: '$5.00 of $5.00' },
+  ],
+  export: [{ label: 'Format', value: 'SRT' }, { label: 'Language', value: 'English' }],
 }
 
 const TITLES: Record<number, string> = { 3: 'Signal', 4: 'Kae' }
@@ -27,6 +53,7 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
       can_control: true, monthly_cap_usd: 5, items, ...extra,
     },
     calls: [],
+    settingsReads: [],
   }
   let nextId = 100
   await page.route('**/api/translate-run/dramas/*/config', (route) => route.fulfill({
@@ -40,6 +67,12 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
     const path = new URL(r.url()).pathname
     const body = r.postDataJSON?.() ?? {}
     const s = mock.state
+    if (r.method() === 'GET' && path === '/api/queue/settings') {
+      const q = new URL(r.url()).searchParams
+      const step = q.get('step') ?? ''
+      mock.settingsReads.push(`${q.get('drama_id')}:${step}`)
+      return route.fulfill({ json: { drama_id: Number(q.get('drama_id')), step, title: 'Signal', rows: SETTINGS_ROWS[step] ?? [] } })
+    }
     if (r.method() === 'POST') mock.calls.push(path.replace('/api/queue', '') || '/')
     const find = () => s.items.findIndex((i) => i.id === Number(path.split('/')[4]))
     if (r.method() === 'POST' && path === '/api/queue/items') {

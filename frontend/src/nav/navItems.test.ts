@@ -48,19 +48,19 @@ const withMake = (l: string[]) => [...l.slice(0, 2), 'Make subtitles', ...l.slic
 
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
-    expect(labels(personas['owner at the PC'])).toEqual(withMake([...ALL, 'Admin', 'Diagnostics', 'Benchmark Lab']))
+    expect(labels(personas['owner at the PC'])).toEqual(withMake([...ALL, 'People and access', 'Diagnostics', 'Benchmark Lab']))
   })
 
-  it('household member: no Admin, no Diagnostics', () => {
+  it('household member: no People and access, no Diagnostics', () => {
     expect(labels(personas['household member'])).toEqual(ALL)
   })
 
-  it('member holding admin.diagnostics: Diagnostics without Admin', () => {
+  it('member holding admin.diagnostics: Diagnostics without People and access', () => {
     expect(labels(personas['member with admin.diagnostics'])).toEqual([...ALL, 'Diagnostics', 'Benchmark Lab'])
   })
 
-  it('remote admin: Admin, no Diagnostics (the household listener never reports admin.diagnostics), no Assistant', () => {
-    expect(labels(personas['remote admin'])).toEqual([...ALL, 'Admin'])
+  it('remote admin: People and access, no Diagnostics (the household listener never reports admin.diagnostics), no Assistant', () => {
+    expect(labels(personas['remote admin'])).toEqual([...ALL, 'People and access'])
   })
 
   it('auth unavailable: every page but the admin ones until /me answers', () => {
@@ -68,7 +68,7 @@ describe('nav registry per persona', () => {
     expect(labels(ctx)).toEqual(ALL)
   })
 
-  it('session still loading: no Admin or Diagnostics', () => {
+  it('session still loading: no People and access or Diagnostics', () => {
     const ctx: NavContext = { session: { status: 'loading' }, pcMode: 'unknown', developerMode: false }
     expect(labels(ctx)).toEqual(ALL)
   })
@@ -121,26 +121,26 @@ describe('left rail', () => {
       [null, ['Library', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
       ['Tools', ['Make subtitles', 'Quick translate', 'Live']],
-      ['System', ['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
+      ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab']],
     ])
   })
 
-  it('household member: no Admin, Diagnostics or Benchmark Lab', () => {
+  it('household member: no People and access, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
     expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Quick translate', 'Live', 'Jobs', 'Settings'])
   })
 
-  it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not Admin', () => {
+  it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not People and access', () => {
     const labelsOf = railLabels(personas['member with admin.diagnostics'])
     expect(labelsOf).toEqual(expect.arrayContaining(['Diagnostics', 'Benchmark Lab']))
-    expect(labelsOf).not.toContain('Admin')
+    expect(labelsOf).not.toContain('People and access')
   })
 
   it('a failed /me still renders every non-admin page', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
     const labelsOf = railLabels(ctx)
     expect(labelsOf).toContain('Jobs')
-    expect(labelsOf).not.toEqual(expect.arrayContaining(['Admin']))
+    expect(labelsOf).not.toEqual(expect.arrayContaining(['People and access']))
     expect(labelsOf).not.toContain('Diagnostics')
   })
 

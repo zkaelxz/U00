@@ -89,5 +89,5 @@ def test_backup_excludes_temp_folder(isolated_db, tmp_path):
 
 
 def test_restore_keeps_temp_name_excluded():
-    from services import workspace_job_service as wjs
-    assert storage.TEMP_DIRNAME in wjs.restore_kept_names()
+    from services import library_restore_service as lrs
+    assert storage.TEMP_DIRNAME in lrs.restore_kept_names()

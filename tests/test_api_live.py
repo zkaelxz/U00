@@ -151,7 +151,10 @@ def _headers(*perms, email="kid@example.com", revoke=()):
             api_auth.CSRF_HEADER: s["csrf_token"]}
 
 
-def test_auth_on_permissions(fake_live):
+def test_auth_on_permissions(fake_live, monkeypatch):
+    from services import model_readiness_service
+    # On disk, so the remote run is refused only by the rule under test.
+    monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a: True)
     c = _on_client()
     free = {"url": URL, "engine": "fake"}
     paid = {"url": URL, "engine": "claude"}

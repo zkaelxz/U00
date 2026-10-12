@@ -16,7 +16,7 @@ import type {
   LiveSessionSummary,
 } from '../types/live'
 import { ApiError, getJson, postJson } from './client'
-import { describeError } from '../components/errorMessages'
+import { describeError, MODEL_NOT_DOWNLOADED } from '../components/errorMessages'
 
 type Fetch = typeof fetch
 
@@ -200,7 +200,10 @@ export function pickSession(list: LiveSessionSummary[]): string | null {
 }
 
 /** One status line for the session. */
-export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'> & { model?: string | null }, lines: number): string {
+export function statusLine(
+  s: Pick<LiveSessionStatus, 'status' | 'message' | 'stop_reason'> & { model?: string | null },
+  lines: number,
+): string {
   const n = `${lines} line${lines === 1 ? '' : 's'}${s.model ? ` · ${s.model}` : ''}`
   switch (s.status) {
     case 'queued':
@@ -210,7 +213,7 @@ export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'> & { 
     case 'done':
       return `Finished · ${n}`
     case 'cancelled':
-      return `Stopped · ${n}`
+      return s.stop_reason ? `${s.stop_reason} · ${n}` : `Stopped · ${n}`
     default:
       return `Stopped with an error: ${s.message || 'the live session failed.'}`
   }
@@ -236,7 +239,7 @@ export const LIVE_FORBIDDEN =
 /** Plain text for a failed start or stop. */
 export function describeLiveError(err: unknown): string {
   const e = err as Partial<ApiError> | null
-  if (e?.status === 403) return LIVE_FORBIDDEN
+  if (e?.status === 403 && e.code !== MODEL_NOT_DOWNLOADED) return LIVE_FORBIDDEN
   if (e?.status === 409) return 'A live session is already running. Stop it first.'
   const { title, detail } = describeError(err, { serverText: true })
   return detail ? `${title} ${detail}` : title

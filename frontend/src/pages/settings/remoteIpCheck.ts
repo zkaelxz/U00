@@ -1,4 +1,4 @@
-// Pure text helpers for Settings > Remote access (RemoteAccessSection.tsx):
+// Pure text helpers for People and access > Public address check (RemoteAccessSection.tsx):
 // the public-address check. Nothing here ever sees a saved address: the API
 // returns `configured`, and Test a state and a fixed message.
 import { ApiError } from '../../api/client'

@@ -14,7 +14,7 @@ import { useDetailsOpen } from './diagnosticsAdmin'
 type Filter = { action: string; userId: number | null }
 
 /**
- * "Audit log": sign-ins and admin actions, newest first, read-only. Loads
+ * "Activity log": sign-ins and admin actions, newest first, read-only. Loads
  * one page when opened; "Show older" pages back. Hidden from anyone
  * without admin.users.read.
  */
@@ -72,7 +72,7 @@ function AuditBody() {
   }
 
   return (
-    <Section title="Audit log" storageKey="diagnostics.audit" summary="Sign-ins and admin actions">
+    <Section title="Activity log" storageKey="admin.activity" summary="Sign-ins and admin actions">
       <div ref={openRef} className="diag-stack" data-testid="audit-log">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         <div className="actions audit-filters">
@@ -98,7 +98,7 @@ function AuditBody() {
           <p className="muted">Nothing recorded{filter.action || filter.userId != null ? ' for this filter' : ''}.</p>
         ) : (
           <div className="table-scroll">
-            <table aria-label="Audit log">
+            <table aria-label="Activity log">
               <thead>
                 <tr>
                   <th>When</th>

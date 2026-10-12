@@ -11,7 +11,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
 | `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status) | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
@@ -89,6 +89,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `sensitivity_preset.py`
 - `vad_segments.py`
 - `voice_id.py`
+- `cuda_runtime_path.py` (puts the folders holding cuBLAS 12 and cuDNN 9 on the Windows DLL search path so CTranslate2 can use the GPU; inspects folders only)
 - `whisper_models.py` (loads or releases the Whisper model on the right device and explains why it fell back to the CPU; the model list, GPU status and download-error diagnosis)
 - `word_align.py`
 
@@ -182,10 +183,12 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
 - `gzip_text.py` (`pack`/`unpack`: gzip for stored text that readers must take in both plain and compressed form, with a capped inflate)
 - `ct2_repo.py` (which files of a Hugging Face CTranslate2 Whisper repo may be downloaded; refuses a listing holding code-bearing files; shared by `whisper_models` and `tools/ja_whisper_models.py`)
+- `ort_telemetry.py` (`disable`: switches off ONNX Runtime's usage reporting in this process before a session is made; called by the Whisper loader and the ASMR voice detector)
 - `file_lock.py` (`hold`: an exclusive cross-process lock on a file, for a model download two processes must not run at once)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
+- `model_offline.py` (offline model loads for a run started away from the PC: the per-run mark jobs carry into their thread or child process, and the Hugging Face / ModelScope cache folders)
 - `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
 
 ## services/
@@ -216,9 +219,11 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `delete_service.py`
 - `device_token_service.py`
 - `diagnostics_gaps_service.py`
+- `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
+- `previous_library_service.py` (the library copies kept beside the library folder after a restore or before a Reset library: size for Disk usage, delete, the reset safety copy)
 - `diarization_service.py`
 - `discover_catalog_service.py`
 - `discover_lookup_service.py`
@@ -243,6 +248,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
+- `glossary_name_report_service.py` (read-only "name check across all titles": runs the per-title name scan over every title the caller may see as one cancellable job, merges the clusters that are one name, keeps the owner's right/wrong/skip marks, and exports the unresolved groups as text)
 - `glossary_spelling_service.py` (one bounded model call that proposes how a known name may be spelled in the transcript, kept only when it occurs in the lines; and a read-only check of lines whose English renders a name differently)
 - `glossary_service.py`
 - `glossary_variants_service.py` (read-only scans: other spellings of a glossary term in the source lines, and names that recur under several spellings)
@@ -256,6 +262,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `vdb_names_service.py` (the optional personal VTuber name list, downloaded on demand; personal use only, never exported)
 - `library_admin_service.py`
 - `library_restore_sql.py` (SQL helpers for the library restore)
+- `library_restore_service.py` (restoring a whole-library backup zip: validation, staged databases, the folder swap)
 - `library_service.py`
 - `library_translated_guard.py` (what counts as translated for bulk status and export)
 - `line_ai_service.py`
@@ -265,6 +272,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `live_follow_poller.py` (the followed-channel live checks: the manual-check queue, the optional hourly scheduler, one yt-dlp metadata read at a time, backoff, the extra check before a scheduled start, notify once per stream, the PC owner's automatic start)
 - `live_follow_service.py` (followed YouTube channels on the Live page: channel input, ownership, limits, saved Live options, Start Live from a follow)
 - `live_service.py`
+- `live_spend_service.py` (cap check, usage log and failure stop for a Live session on a paid engine)
 - `lncrawl_service.py`
 - `loaded_models_service.py`
 - `maintenance_assistant_service.py`
@@ -274,6 +282,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `media_upload_service.py`
 - `metadata_research_service.py`
 - `metadata_service.py`
+- `model_readiness_service.py` (whether a run's models are on disk; refuses a run started away from the PC that would download one)
 - `model_reeval_service.py`
 - `model_registry_service.py`
 - `narration_service.py`
@@ -523,11 +532,13 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `openai_compat.py` (DeepSeek and OpenAI engines)
 - `pricing.py` (Model lists, per-million-token prices and cost estimation)
 - `prompts.py` (Prompt builders shared by the LLM engines)
+- `reflect_pass.py` (Reflect mode: three passes over one batch)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
+- `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)
-- `translate_pipeline.py` (Reflect mode and the per-run translate loop)
+- `translate_pipeline.py` (The per-run translate loop)
 - `translation_guard.py` (Post-checks on a translated batch for the ways an id-keyed reply can be complete and still wrong)
 
 ## jobs/

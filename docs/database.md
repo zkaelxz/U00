@@ -281,18 +281,18 @@ last known state.
 
 | What | Where | Database part | Media |
 |---|---|---|---|
-| Manual full backup | `library_admin_service.start_backup`, `write_backup_zip` | `_sanitized_snapshot`: backup-API copy with every `auth_sessions` row deleted (`secure_delete`), journal mode `DELETE` | yes |
+| Manual full backup | `library_admin_service.start_backup`, `write_backup_zip` | `_sanitized_snapshot`: backup-API copy with every `auth_sessions` and `extension_device_tokens` row deleted (`secure_delete`), journal mode `DELETE`; accounts (`users`, `user_permissions`) stay | yes |
 | Database-only backup | `start_database_backup` | same snapshot | no |
 | Automatic backup | `auto_backup_service` (settings in `app_settings`) | same writer | `include_media`, off by default |
 | My-items backup | `write_user_backup_zip`, per `USER_BACKUP_TABLES` | filtered copy: owner's rows only, auth and machine-local tables emptied | owner's drama media |
 | Single-drama restore / import | `drama_restore_service.restore_drama`, `backup_import_service.import_dramas` | `copy_drama` copies rows with new ids | staged, then moved in |
-| Full restore | `library_admin_service.restore_backup` -> `workspace_job_service.restore_library_backup` | staged, rebuilt from the app's own schema, current auth tables kept | staged, rename-aside, rename-in |
+| Full restore | `library_admin_service.restore_backup` -> `library_restore_service.restore_library_backup` | staged, rebuilt from the app's own schema, current auth tables kept | staged, rename-aside, rename-in |
 
 What they skip or keep:
 
 - **Never in a backup:** `backups/`, `profiles/` (saved site sign-ins),
   `source_profiles/`, the extension token, `tmp/`
-  (`workspace_job_service.restore_kept_names`), `source_cache/`, live `-wal` /
+  (`library_restore_service.restore_kept_names`), `source_cache/`, live `-wal` /
   `-shm` files, symlinks and `.env`. A full restore keeps the current copies of
   these instead of taking them from the upload.
 - **A full restore keeps** the live `users`, `user_permissions`, `audit_log`, the
@@ -302,6 +302,54 @@ What they skip or keep:
   first, and rolls back if the swap fails. The uploaded database is only ever
   attached read-only; its rows are copied into a database built fresh from the
   current schema.
+- **Accounts on a library without any** (a rebuilt PC): when the live
+  `users` table is empty (a live database that can't be read counts as having
+  accounts), the restore takes `users` and `user_permissions`
+  from the backup (`auth_service.RESTORE_ACCOUNT_TABLES`), so titles' owners
+  resolve again; sessions and device tokens never come from a backup. When
+  the live accounts are kept, the backup's `followed_channels` (sources.db)
+  pass to the PC owner (`owner_user_id` NULL, `pc_owner` 0, automatic checks
+  off, mode `notify`); every account id the restored rows name (titles,
+  series, job records, translate history, speaker-merge undos, and in a
+  restored `sources.db` tracked-series links and extension-only marks) becomes
+  the live account with the same email, or NULL (the PC owner) when there is
+  none, its Google sign-in differs, or the backup's account row has no integer
+  id or text email (`library_restore_sql.owner_map`; private
+  flags unchanged, the count of titles moved is in the result as
+  `titles_reassigned` and in the audit entry). New account ids still start
+  above every id the backup's rows named (`library_restore_sql.settle_accounts`).
+- **The previous library** (`<library>.pre_restore_<time>`) is deleted once
+  everything was carried across. It stays when something couldn't be: the
+  media of titles added since a database-only backup, and any folder the zip
+  lacks other than media and the folders the app rebuilds (named in the
+  restore result as `folders_left_behind`). Disk usage lists it, an unfinished
+  `.restore_staging_*` folder and the copy kept before a Reset library
+  (`<library>.pre_reset_<time>`, the last one only) as one entry, "Previous
+  library kept after restore", deleted after typing `DELETE`
+  (`services/previous_library_service.py`). The delete is refused while the live
+  `library.db` is missing, fails `quick_check`, or holds no titles while a
+  `.pre_restore_*` copy does (a start during a restore can create a fresh, empty
+  library while the real one is set aside); the previous library may then be the
+  only good copy. A `.restore_staging_*` folder is taken only once nothing has
+  written to it for 6 hours, since a restore in another process stages without
+  the restore lock.
+- **`<library>.restore-lock`** (beside the library folder) is an OS lock a
+  restore holds across its renames and the start-up recovery takes before
+  putting a set-aside library back. The holder removes the file when it lets
+  go and no other process has it, so it stays only while a restore or recovery
+  may be running, or after a crash (the next holder removes it). A process
+  that locked a file the last holder had just removed doesn't count that lock
+  (`db/library_folder.py`).
+- **Reset library** keeps the database (a snapshot) and `dramas/` in
+  `<library>.pre_reset_<time>` first and refuses with nothing changed when that
+  copy can't be made. If the reset itself then fails while the live database
+  still holds every title, the media is moved back and that copy dropped; if
+  the database was already deleted or emptied, the copy (database and media)
+  stays whole. Older copies are removed only after a reset succeeded.
+- **Backup snapshots are vacuumed** after sessions, device tokens and the
+  VTuber-name prompt text are removed: the backup API copies the live file's
+  free pages, which can still hold deleted rows where SQLite was built without
+  secure delete.
 - **Single-drama restore and import skip** `usage_log`, `speaker_merge_undos`,
   `bulk_jobs` and `metadata_research_results` (`_SKIPPED_TABLES`: restoring them
   would double-count spend, replay stale undos or batches, or collide on ids).

@@ -1245,6 +1245,18 @@ class TestSpokenLanguage:
         bulk_id = _submit(isolated_db, did, engine, batch_size=10)
         assert len(isolated_db.list_bulk_job_lines(bulk_id)) == 2
 
+    def test_an_edit_made_while_submission_copies_english_lines_is_kept(self, isolated_db):
+        engine = _claude_engine()
+        did = _mixed_drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        english = next(ln for ln in lines if ln.zh == "hello there")
+        with isolated_db.get_conn() as conn:
+            conn.execute("UPDATE lines SET en = 'Hi, typed meanwhile' WHERE id = ?", (english.id,))
+        bt.submit_bulk_translation(did, lines, engine, "claude", {"drama_meta": {}},
+                                   translate_args={"style_preset": "audio_drama"}, batch_size=10)
+        rows = {r["zh"]: r for r in isolated_db.load_lines(did)}
+        assert rows["hello there"]["en"] == "Hi, typed meanwhile"
+
     def test_single_language_bulk_prompt_has_no_tag(self, isolated_db):
         engine = _claude_engine()
         did = _drama(isolated_db)
@@ -1743,7 +1755,7 @@ class TestBulkReflectMatchesLiveReflect:
         return did, drama, args
 
     def test_the_faithful_prompt_is_the_live_pass_one_prompt(self, isolated_db, monkeypatch):
-        from engine_backends import translate_pipeline
+        from engine_backends import reflect_pass
         import translation_guide
         did, drama, args = self._setup(isolated_db)
         engine = _claude_engine()
@@ -1752,7 +1764,7 @@ class TestBulkReflectMatchesLiveReflect:
         bulk_prompt = _request_text(engine)
 
         seen = []
-        monkeypatch.setattr(translate_pipeline, "call_llm_json",
+        monkeypatch.setattr(reflect_pass, "call_llm_json",
                             lambda eng, prompt, system=None, **k: seen.append(f"{system}\n\n{prompt}") or "{}")
         names = translation_guide.build_speaker_labels(
             isolated_db.list_characters_with_series_names(did), [])

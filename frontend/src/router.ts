@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
+import { isManageTab, manageHref, type ManageTab } from './pages/sources/manageTabs'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
 export type Route =
@@ -24,6 +25,8 @@ export type Route =
   | { name: 'translate' }
   | { name: 'make-subtitles' }
   | { name: 'sources' }
+  // tab: "#/sources/manage?tab=network"; no tab opens Sites.
+  | { name: 'sources-manage'; tab?: ManageTab }
   | { name: 'discover' }
   | { name: 'live' }
   | { name: 'assistant' }
@@ -71,6 +74,10 @@ export function parseRoute(hash: string): Route {
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
   if (head === 'sources' && parts.length === 1) return { name: 'sources' }
+  if (head === 'sources' && a === 'manage' && parts.length === 2) {
+    const tab = new URLSearchParams(qs).get('tab')
+    return isManageTab(tab) ? { name: 'sources-manage', tab } : { name: 'sources-manage' }
+  }
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
   if (head === 'live' && parts.length === 1) return { name: 'live' }
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
@@ -128,6 +135,7 @@ export function routeHref(r: Route): string {
   }
   if (r.name === 'library-tools' && r.tab) return `#/library-tools?tab=${r.tab}`
   if (r.name === 'diagnostics' && (r.card || r.tab)) return r.card ? `#/diagnostics?card=${r.card}` : `#/diagnostics?tab=${r.tab}`
+  if (r.name === 'sources-manage') return manageHref(r.tab)
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
   return `#/${r.name}`

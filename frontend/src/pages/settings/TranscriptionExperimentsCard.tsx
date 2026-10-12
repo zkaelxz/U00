@@ -2,7 +2,7 @@
  * Settings > System > Advanced transcription. All are off by
  * default and PC only:
  *   - Qwen3-ASR batch size (Developer Mode only): how many lines go to Qwen3-ASR at once when a
- *     drama's ASR backend is Qwen3 ASR. 1 is the original one-at-a-time run.
+ *     title's ASR backend is Qwen3 ASR. 1 is the original one-at-a-time run.
  *   - Mixed languages: detect the spoken language per speech span.
  * Another device sees "PC only" and makes no calls.
  */

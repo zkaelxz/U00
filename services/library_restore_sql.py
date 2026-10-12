@@ -1,5 +1,5 @@
 """Helpers for the library restore: its SQL, and which zip members are
-unsafe to extract (services/workspace_job_service, library_admin_service)."""
+unsafe to extract (services/library_restore_service, library_admin_service)."""
 import contextlib
 import logging
 import os
@@ -177,3 +177,159 @@ def carry_across(old_dir: str, library_dir: str, names, media) -> tuple:
                 "place beside the restored one.", name)
     _fsync_dir(library_dir)
     return media_kept, carried
+
+
+def has_accounts(db_path: str) -> bool:
+    """Whether a library database holds any account: False only when it, or
+    its users table, is missing. A database that can't be read (locked,
+    damaged) counts as having accounts, so the live ones are kept."""
+    if not os.path.isfile(db_path):
+        return False
+    try:
+        conn = sqlite3.connect(_ro_uri(db_path), uri=True)
+        try:
+            return conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as e:
+        return "no such table" not in str(e)
+    except sqlite3.Error:
+        return True
+
+
+# Columns naming an account. An id one of them still names must never go to
+# a new account: it would inherit that person's private titles and history.
+_ACCOUNT_ID_COLUMNS = (("dramas", "owner_user_id"), ("series", "owner_user_id"),
+                       ("job_records", "owner_user_id"), ("translate_history", "user_id"),
+                       ("speaker_merge_undos", "user_id"), ("audit_log", "user_id"))
+
+
+def settle_accounts(conn, live_path: str) -> None:
+    """On the staged library.db (main): drops permissions of accounts it
+    doesn't hold, and starts new account ids above every id its rows or the
+    live library ever used."""
+    conn.execute("DELETE FROM main.user_permissions WHERE user_id NOT IN "
+                 "(SELECT id FROM main.users)")
+    floor = conn.execute("SELECT COALESCE(MAX(id), 0) FROM main.users").fetchone()[0]
+    for table, column in _ACCOUNT_ID_COLUMNS:
+        cols = {r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")')}
+        if column in cols:
+            floor = max(floor, conn.execute(
+                f'SELECT COALESCE(MAX("{column}"), 0) FROM main."{table}" '
+                f"WHERE typeof(\"{column}\") = 'integer'").fetchone()[0])
+    if os.path.isfile(live_path):
+        conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_path),))
+        try:
+            row = conn.execute("SELECT seq FROM cur.sqlite_sequence WHERE name = 'users'") \
+                .fetchone()
+            floor = max(floor, int(row[0] or 0) if row else 0)
+        except sqlite3.OperationalError:
+            pass
+        finally:
+            conn.execute("DETACH DATABASE cur")
+    conn.execute("INSERT INTO main.sqlite_sequence (name, seq) SELECT 'users', 0 WHERE NOT EXISTS "
+                 "(SELECT 1 FROM main.sqlite_sequence WHERE name = 'users')")
+    conn.execute("UPDATE main.sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'users'",
+                 (floor,))
+
+
+# The account-naming columns of rows that come from the backup when the live
+# accounts are kept (audit_log is the live library's own then).
+_RESTORED_ACCOUNT_ID_COLUMNS = tuple(c for c in _ACCOUNT_ID_COLUMNS if c[0] != "audit_log")
+_SOURCES_ACCOUNT_ID_COLUMNS = (("tracked_series", "linked_by_user_id"),
+                               ("source_extension_only", "marked_by_user_id"))
+
+
+def _accounts(conn, schema: str) -> list:
+    """(id, lower-case email, google_sub) of the accounts that have an integer
+    id and a text email; a crafted backup's other rows name no one."""
+    try:
+        rows = conn.execute(f"SELECT id, email, google_sub FROM {schema}.users").fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [(uid, email.strip().lower(), sub if isinstance(sub, str) and sub else None)
+            for uid, email, sub in rows
+            if type(uid) is int and isinstance(email, str) and email.strip()]
+
+
+def owner_map(conn, backup_path: str) -> dict:
+    """{backup account id: live account id} for each backup account with a
+    live account of the same email, read with the staged library.db (main,
+    which holds the live accounts) open. Emails match only if the two
+    accounts' Google sign-ins don't differ: that would be another person
+    given the address since. An id the backup names twice for different
+    people is left out (an unknown owner)."""
+    live = {email: (uid, sub) for uid, email, sub in _accounts(conn, "main")}
+    conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(backup_path),))
+    try:
+        backup = _accounts(conn, "up")
+    finally:
+        conn.execute("DETACH DATABASE up")
+    mapping = {}
+    for uid, email, sub in backup:
+        match = live.get(email)
+        new = match[0] if match and not (sub and match[1] and sub != match[1]) else None
+        mapping[uid] = new if mapping.get(uid, new) == new else None
+    return {old: new for old, new in mapping.items() if new is not None}
+
+
+def remap_owners(conn, mapping: dict, columns) -> None:
+    """On `conn`'s main database: each id in `columns` becomes mapping[id], or
+    NULL (the PC owner) when the mapping doesn't name it. Ids repeat across
+    libraries, so a backup's id alone would hand a member's private titles
+    to a stranger."""
+    conn.execute("CREATE TEMP TABLE owner_map (old INTEGER PRIMARY KEY, new INTEGER)")
+    try:
+        conn.executemany("INSERT INTO temp.owner_map (old, new) VALUES (?, ?)", mapping.items())
+        for table, column in columns:
+            cols = {r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")')}
+            if column in cols:
+                # One statement per table, so a swap (1 -> 2, 2 -> 1) can't chain.
+                conn.execute(f'UPDATE main."{table}" SET "{column}" = (SELECT new FROM '
+                             f'temp.owner_map WHERE old = main."{table}"."{column}") '
+                             f'WHERE "{column}" IS NOT NULL')
+    finally:
+        conn.execute("DROP TABLE temp.owner_map")
+
+
+def match_owners(conn, mapping: dict) -> int:
+    """remap_owners on the staged library.db's restored rows; private flags
+    are left as they are. Returns how many titles changed owner."""
+    reassigned = sum(1 for (owner,) in conn.execute(
+        "SELECT owner_user_id FROM main.dramas WHERE owner_user_id IS NOT NULL")
+        if mapping.get(owner) != owner)
+    remap_owners(conn, mapping, _RESTORED_ACCOUNT_ID_COLUMNS)
+    return reassigned
+
+
+def match_source_owners(sources_path: str, mapping: dict) -> None:
+    conn = _open_carry_conn(sources_path)
+    try:
+        remap_owners(conn, mapping, _SOURCES_ACCOUNT_ID_COLUMNS)
+    finally:
+        conn.close()
+
+
+def hand_follows_to_pc_owner(sources_path: str) -> None:
+    """The restored followed channels name accounts of the backup's library,
+    which the live accounts kept by the restore are not: each passes to the
+    PC owner (no account), without the owner's powers or automatic checks
+    until someone turns them back on."""
+    conn = _open_carry_conn(sources_path)
+    try:
+        if "followed_channels" in _table_names(conn, "main"):
+            conn.execute("UPDATE followed_channels SET owner_user_id = NULL, pc_owner = 0, "
+                         "auto_check = 0, mode = 'notify'")
+    finally:
+        conn.close()
+
+
+def folders_left_behind(old_dir: str, skip) -> list:
+    """Names of the folders still in the previous library that are not in
+    `skip` (what the zip held, media, folders the app rebuilds)."""
+    try:
+        with os.scandir(old_dir) as entries:
+            return sorted(e.name for e in entries
+                          if e.is_dir(follow_symlinks=False) and e.name not in skip)
+    except OSError:
+        return []

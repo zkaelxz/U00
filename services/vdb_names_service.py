@@ -22,6 +22,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import unicodedata
@@ -304,6 +305,32 @@ def forget_title(drama_id: int) -> None:
         logger.warning("Could not drop title %s's VTuber-names choice: %s", drama_id, type(e).__name__)
 
 
+_PROMPT_HEADING = "\n\nKnown names (keep as written): "
+_PROMPT_BLOCK_RE = re.compile(re.escape(_PROMPT_HEADING) + r"[^\n]*")
+
+
+def strip_from_snapshot(conn) -> None:
+    """Takes this list's prompt block out of the bulk jobs' saved prompt
+    arguments in a database snapshot (a backup), so the names never leave
+    the PC in one."""
+    have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "bulk_jobs" not in have:
+        return
+    rows = conn.execute("SELECT id, translate_args FROM bulk_jobs "
+                        "WHERE translate_args LIKE '%Known names (keep as written)%'").fetchall()
+    for job_id, raw in rows:
+        try:
+            args = json.loads(raw)
+        except ValueError:
+            args = None
+        if isinstance(args, dict) and isinstance(args.get("style_guidelines"), str):
+            args["style_guidelines"] = _PROMPT_BLOCK_RE.sub("", args["style_guidelines"])
+            cleaned = json.dumps(args)
+        else:
+            cleaned = None      # not ours to parse: drop it rather than ship the names
+        conn.execute("UPDATE bulk_jobs SET translate_args = ? WHERE id = ?", (cleaned, job_id))
+
+
 def block_for(drama: dict, lines, glossary_terms=None) -> str:
     """The prompt section for a run ("" or a blank line then the block, ready
     to append to the guidelines). Chosen from every line the run translates so
@@ -317,4 +344,4 @@ def block_for(drama: dict, lines, glossary_terms=None) -> str:
     names = [n for n in entries_for_text(text) if not any(n in s for s in covered)]
     if not names:
         return ""
-    return "\n\nKnown names (keep as written): " + ", ".join(names[:MAX_PROMPT_NAMES])
+    return _PROMPT_HEADING + ", ".join(names[:MAX_PROMPT_NAMES])

@@ -36,7 +36,7 @@ import traceback
 import gpu_probe
 import job_force_stop
 import job_process_result
-from lib import settings_schema
+from lib import model_offline, settings_schema
 from job_process_kill import _kill_worker_group, _stop_process, kill_tree, reap_worker  # noqa: F401
 
 _jobs = {}
@@ -224,7 +224,7 @@ def set_notify_on_completion(enabled: bool):
 
 
 def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
-                         with_errors=False):
+                         with_errors=False, reason=None):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
@@ -240,7 +240,7 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
         from services import notification_service
         notification_service.notify_job_finished(description, status, job_id=job_id,
                                                  owner_user_id=owner_user_id,
-                                                 with_errors=with_errors)
+                                                 with_errors=with_errors, reason=reason)
     except Exception:
         pass
     if not get_notify_on_completion():
@@ -458,12 +458,29 @@ def _timing_finish(job_id, token, thread_job=True):
         pass
 
 
-# A run that ended because a package it needs is missing did nothing, so it
-# must not read as "done" in the job list.
-def _missing_dependency_error(result):
-    if isinstance(result, dict) and result.get("failed_reason") == "dependency_missing":
+# A run that ended because a package it needs is missing, or a model it needs
+# could not be fetched, did nothing, so it must not read as "done" in the job list.
+def _missing_dependency_error(result, job_id=""):
+    if not isinstance(result, dict):
+        return None
+    reason = result.get("failed_reason")
+    if reason == "dependency_missing":
         return str(result.get("detail") or "A required component is not installed.")
+    if reason == "model_download":
+        # The same plain text the outcome line shows; scrubbed because the detail
+        # comes from a download error.
+        from services import jobs_service
+        detail = result.get("detail")
+        text = f"{jobs_service.model_download_message(job_id)} {detail}" if detail \
+            else jobs_service.model_download_message(job_id)
+        return jobs_service.scrub_text(text)
     return None
+
+
+def _done_note(result):
+    """Short plain note a finished job adds to its bell text, or None."""
+    from services import jobs_service
+    return jobs_service.speaker_skip_text(result)
 
 
 def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
@@ -475,28 +492,30 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
         _timing = _timing_start(job_id)
         try:
             target(*args, **kwargs)
-            _description = _owner = None
+            _description = _owner = _reason = None
             _with_errors = False
             _outcome = "done"
             with _lock:
                 if _still_running_locked(job_id):
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
-                    _missing = _missing_dependency_error(_result)
+                    _missing = _missing_dependency_error(_result, job_id)
                     _jobs[job_id]["status"] = "error" if _missing else "done"
                     if _missing:
                         _outcome = "error"
+                        _reason = _missing
                         _jobs[job_id]["error"] = _missing
                         _jobs[job_id]["message"] = ""
                     else:
                         _jobs[job_id]["progress"] = 1.0
+                        _reason = _done_note(_result)
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
                     _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
             _notify_job_finished(_description, _outcome, job_id=job_id, owner_user_id=_owner,
-                                 with_errors=_with_errors)
+                                 with_errors=_with_errors, reason=_reason)
         except JobCancelled:
             with _lock:
                 _mark_cancelled_locked(job_id)
@@ -879,6 +898,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     (refuse_new_jobs).
     """
     owner_user_id = _acting_user_id()
+    if model_offline.active():
+        target = model_offline.for_thread(target)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
@@ -998,6 +1019,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     start_job().
     """
     owner_user_id = _acting_user_id()
+    if model_offline.active():
+        target = model_offline.for_process(target)
+        # on_done may start the next stage's job (transcription -> speakers).
+        on_done = on_done and model_offline.for_thread(on_done)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
@@ -1310,6 +1335,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         reap_worker(proc, kill_whole_tree)
         reaped = True
         hook_error = None
+        _jobs_reason = None
         result = outcome[1] if outcome and outcome[0] == "ok" else None
         if outcome and outcome[0] == "ok" and on_done is not None:
             with _lock:
@@ -1348,15 +1374,17 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             elif outcome and outcome[0] == "ok":
                 _jobs[job_id]["result"] = result
                 _jobs[job_id]["finished_at"] = time.time()
-                _missing = _missing_dependency_error(result)
+                _missing = _missing_dependency_error(result, job_id)
                 if _missing:
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = _missing
                     _jobs[job_id]["message"] = ""
+                    _jobs_reason = _missing
                     logger.error(f"job {job_id} failed: {_missing}")
                 else:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
+                    _jobs_reason = _done_note(result)
                     logger.info(f"job {job_id} finished")
             elif outcome and outcome[0] == "error":
                 _, exc_type, msg = outcome
@@ -1380,7 +1408,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _final_status = _jobs[job_id]["status"]
             _description = _jobs[job_id].get("description")
             _owner = _jobs[job_id].get("owner_user_id")
-        _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner)
+        _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner,
+                             reason=_jobs_reason)
     except Exception as exc:
         # A complete message that fails to unpickle, a broken queue or any
         # other watcher failure: without this the job stays "running"
