@@ -169,7 +169,7 @@ def test_a_series_pick_uses_the_series_glossary_and_the_newest_titles_packs(isol
     packs.set_title_packs(newest_with_choice, {"packs": {"ja-address": None}})
     found = _series_hints(sid)(["真白、先輩"])
     assert [h[0] for h in found] == ["真白", "先輩"]
-    # `newest_without` has no choice of its own, so it is skipped rather than ending the search.
+    # The newest title has no pack choice of its own, so it is skipped rather than ending the search.
 
 
 def test_a_series_with_no_pack_choice_gives_glossary_only(isolated_db):

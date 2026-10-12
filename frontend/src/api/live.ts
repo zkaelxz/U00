@@ -187,7 +187,11 @@ export function glossaryChoices(
       out.push({ value: `t:${t.id}`, label: `${t.name} (in ${s.name})`, group: `Titles in ${s.name}` })
     }
   }
-  for (const t of titles.filter((x) => x.series_id === null || !byId.has(x.series_id))) {
+  // A title whose series is not in the list still has one, and the server uses its glossary.
+  for (const t of titles.filter((x) => x.series_id !== null && !byId.has(x.series_id))) {
+    out.push({ value: `t:${t.id}`, label: `${t.name} (in a series)`, group: 'Titles in other series' })
+  }
+  for (const t of titles.filter((x) => x.series_id === null)) {
     out.push({ value: `t:${t.id}`, label: `${t.name} (No series: only this title's packs)`, group: 'Titles with no series' })
   }
   return out

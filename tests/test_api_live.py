@@ -271,3 +271,10 @@ def test_a_visible_series_reaches_the_job_as_a_hint_function(client, fake_live):
     assert _wait(lambda: "kw" in fake_live)
     assert callable(fake_live["kw"]["term_hints"])
     _no_leak(r)
+
+
+def test_ids_are_strict_positive_integers(client, fake_live):
+    for body in ({"series_id": "3"}, {"series_id": 0}, {"glossary_drama_id": 1.5},
+                 {"glossary_drama_id": True}, {"series_id": 2 ** 63}):
+        r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake", **body})
+        assert r.status_code == 422, body

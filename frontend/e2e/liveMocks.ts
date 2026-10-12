@@ -114,8 +114,12 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
       { id: 7, title_en: 'Moonlit Letters', title_zh: '月下书信', series_id: null },
       { id: 8, title_en: 'Chapter Two', title_zh: null, series_id: 3 },
     ], count: 2 }))
+  // The picker asks for one-title series too; the real endpoint lists each series with its titles.
   await page.route((u) => u.pathname === '/api/library/series', (route) =>
-    json(route, { items: [{ id: 3, name: 'Moonlit', character_count: 0, glossary_term_count: 0, dramas: [] }] }))
+    json(route, { items: [{
+      id: 3, name: 'Moonlit', is_private: false, owned_by_me: true, character_count: 0, glossary_term_count: 0,
+      dramas: [{ id: 8, title_en: 'Chapter Two', title_zh: null, status: null, media_type: null, updated_at: null }],
+    }] }))
   await page.route('**/api/translate/engines', (route) => opts.enginesFail
     ? json(route, { error: { code: 'internal', message: 'Boom.' } }, 500)
     : json(route, { items: opts.ollama ? [OLLAMA, ...ENGINES] : ENGINES }))

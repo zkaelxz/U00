@@ -52,8 +52,8 @@ describe('buildStartBody', () => {
     expect(opts.map((o) => [o.value, o.label])).toEqual([
       ['s:3', 'Series: Moon'],
       ['t:8', 'Two (in Moon)'],
+      ['t:9', 'Lost (in a series)'],
       ['t:7', "Letters (No series: only this title's packs)"],
-      ['t:9', "Lost (No series: only this title's packs)"],
     ])
   })
 

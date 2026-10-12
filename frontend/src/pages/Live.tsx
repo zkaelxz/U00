@@ -24,7 +24,7 @@ import {
   advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, glossaryChoices, glossaryIds, glossaryValue, hasPending, isActive, lagLine,
   listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
-import { getSeries } from '../api/library'
+import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
 import { PageShell } from '../components/PageShell'
@@ -106,7 +106,7 @@ export default function LivePage() {
       (r) => setTitles(r.items.map((d) => ({ id: d.id, name: d.title_en || d.title_zh || `#${d.id}`, series_id: d.series_id ?? null }))),
       () => setTitles([]),
     )
-    getSeries().then(
+    getAllSeries().then(
       (r) => setSeriesList(r.items.map((s) => ({ id: s.id, name: s.name }))),
       () => setSeriesList([]),
     )

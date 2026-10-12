@@ -275,10 +275,11 @@ class LiveSessionStart(BaseModel):
     use_gpu: StrictBool = False
     reply_without_thinking: StrictBool = Field(
         True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
-    glossary_drama_id: Optional[int] = Field(
-        None, description="A title whose glossary and language packs the translation may use (read-only).")
-    series_id: Optional[int] = Field(
-        None, description="Instead of a title: a series whose glossary, and the packs of its newest title "
+    glossary_drama_id: Optional[StrictInt] = Field(
+        None, ge=1, le=2**62,
+        description="A title whose glossary and language packs the translation may use (read-only).")
+    series_id: Optional[StrictInt] = Field(
+        None, ge=1, le=2**62, description="Instead of a title: a series whose glossary, and the packs of its newest title "
                           "with a pack choice, the translation may use (read-only). Not with glossary_drama_id.")
 
 
