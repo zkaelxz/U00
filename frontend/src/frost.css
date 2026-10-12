@@ -204,7 +204,8 @@ fieldset.segmented {
 
 /* Sticky bars sit over scrolling content, so they need a backing. A fade to transparent avoids a hard-edged rectangle on the colour wash; the toolbar is solid so lines never show through it. */
 .app-header,
-.ws-strip {
+.workspace .ws-strip {
+  /* workspace.css loads after this file and gives the strip a solid page colour, hence the extra class. */
   background: transparent;
   border-bottom: 0;
   isolation: isolate;
@@ -213,15 +214,18 @@ fieldset.segmented {
 .ws-strip::before {
   content: '';
   position: absolute;
-  inset: 0 0 -14px;
+  inset: 0 -12px -14px;
   z-index: -1;
   pointer-events: none;
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
-  -webkit-mask-image: linear-gradient(#000 72%, transparent);
-  mask-image: linear-gradient(#000 72%, transparent);
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  /* Faded on all four sides so the tint never shows as a band against the colour wash. */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent), linear-gradient(#000 70%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent), linear-gradient(#000 70%, transparent);
+  mask-composite: intersect;
 }
 @supports (backdrop-filter: blur(1px)) {
-  .app-header::before, .ws-strip::before { backdrop-filter: blur(14px); }
+  .app-header::before, .ws-strip::before { backdrop-filter: blur(22px); }
 }
 .review-toolbar { background: var(--surface); backdrop-filter: none; border-radius: 22px; }
 .review-lines { overflow: hidden; }
