@@ -233,6 +233,83 @@ def settle_accounts(conn, live_path: str) -> None:
                  (floor,))
 
 
+# The account-naming columns of rows that come from the backup when the live
+# accounts are kept (audit_log is the live library's own then).
+_RESTORED_ACCOUNT_ID_COLUMNS = tuple(c for c in _ACCOUNT_ID_COLUMNS if c[0] != "audit_log")
+_SOURCES_ACCOUNT_ID_COLUMNS = (("tracked_series", "linked_by_user_id"),
+                               ("source_extension_only", "marked_by_user_id"))
+
+
+def _accounts(conn, schema: str) -> list:
+    """(id, lower-case email, google_sub) of the accounts that have an integer
+    id and a text email; a crafted backup's other rows name no one."""
+    try:
+        rows = conn.execute(f"SELECT id, email, google_sub FROM {schema}.users").fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [(uid, email.strip().lower(), sub if isinstance(sub, str) and sub else None)
+            for uid, email, sub in rows
+            if type(uid) is int and isinstance(email, str) and email.strip()]
+
+
+def owner_map(conn, backup_path: str) -> dict:
+    """{backup account id: live account id} for each backup account with a
+    live account of the same email, read with the staged library.db (main,
+    which holds the live accounts) open. Emails match only if the two
+    accounts' Google sign-ins don't differ: that would be another person
+    given the address since. An id the backup names twice for different
+    people is left out (an unknown owner)."""
+    live = {email: (uid, sub) for uid, email, sub in _accounts(conn, "main")}
+    conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(backup_path),))
+    try:
+        backup = _accounts(conn, "up")
+    finally:
+        conn.execute("DETACH DATABASE up")
+    mapping = {}
+    for uid, email, sub in backup:
+        match = live.get(email)
+        new = match[0] if match and not (sub and match[1] and sub != match[1]) else None
+        mapping[uid] = new if mapping.get(uid, new) == new else None
+    return {old: new for old, new in mapping.items() if new is not None}
+
+
+def remap_owners(conn, mapping: dict, columns) -> None:
+    """On `conn`'s main database: each id in `columns` becomes mapping[id], or
+    NULL (the PC owner) when the mapping doesn't name it. Ids repeat across
+    libraries, so a backup's id alone would hand a member's private titles
+    to a stranger."""
+    conn.execute("CREATE TEMP TABLE owner_map (old INTEGER PRIMARY KEY, new INTEGER)")
+    try:
+        conn.executemany("INSERT INTO temp.owner_map (old, new) VALUES (?, ?)", mapping.items())
+        for table, column in columns:
+            cols = {r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")')}
+            if column in cols:
+                # One statement per table, so a swap (1 -> 2, 2 -> 1) can't chain.
+                conn.execute(f'UPDATE main."{table}" SET "{column}" = (SELECT new FROM '
+                             f'temp.owner_map WHERE old = main."{table}"."{column}") '
+                             f'WHERE "{column}" IS NOT NULL')
+    finally:
+        conn.execute("DROP TABLE temp.owner_map")
+
+
+def match_owners(conn, mapping: dict) -> int:
+    """remap_owners on the staged library.db's restored rows; private flags
+    are left as they are. Returns how many titles changed owner."""
+    reassigned = sum(1 for (owner,) in conn.execute(
+        "SELECT owner_user_id FROM main.dramas WHERE owner_user_id IS NOT NULL")
+        if mapping.get(owner) != owner)
+    remap_owners(conn, mapping, _RESTORED_ACCOUNT_ID_COLUMNS)
+    return reassigned
+
+
+def match_source_owners(sources_path: str, mapping: dict) -> None:
+    conn = _open_carry_conn(sources_path)
+    try:
+        remap_owners(conn, mapping, _SOURCES_ACCOUNT_ID_COLUMNS)
+    finally:
+        conn.close()
+
+
 def hand_follows_to_pc_owner(sources_path: str) -> None:
     """The restored followed channels name accounts of the backup's library,
     which the live accounts kept by the restore are not: each passes to the
