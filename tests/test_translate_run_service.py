@@ -123,7 +123,8 @@ def test_estimate_relationships(isolated_db, cap):
     assert forced["estimated_usd"] > plain["estimated_usd"]
 
 
-def test_free_engines(isolated_db, cap):
+def test_free_engines(isolated_db, cap, monkeypatch):
+    patch_setting(monkeypatch, "gemini_free_tier", True)  # a request alone can't grant the free tier
     cap(0)
     did = _drama()
     _seed(did, [("你好" * 20, "")])
@@ -158,7 +159,8 @@ def test_a_removed_engine_is_refused_with_a_clear_message(isolated_db, engine):
         svc.start_translate_run(did, engine_name=engine)
 
 
-def test_validation(isolated_db):
+def test_validation(isolated_db, monkeypatch):
+    patch_setting(monkeypatch, "gemini_free_tier", True)
     did = _drama()
     with pytest.raises(InvalidInputError):
         svc.estimate_translate_cost(did, "nope")

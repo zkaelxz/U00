@@ -14,7 +14,7 @@ from typing import Optional
 import bulk_translate
 import db
 import translate_engines
-from services import ownership_service, settings_service
+from services import ownership_service, settings_service, translate_run_service
 from services.service_errors import (
     DependencyUnavailableError,
     InvalidInputError,
@@ -127,6 +127,38 @@ def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optiona
     return settings_service.resolve_key(engine_name, env_path)
 
 
+class _UsageMeter:
+    """Wraps an engine for translate_engines.standalone_translate, which calls
+    translate_batch once per chunk group while the engine resets last_usage on
+    every call: the totals have to be summed between calls to price the whole
+    request."""
+
+    def __init__(self, engine, engine_name: str):
+        self._engine = engine
+        self._engine_name = engine_name
+        self.input_tokens = 0
+        self.output_tokens = 0
+
+    def __getattr__(self, name):
+        return getattr(self._engine, name)
+
+    def translate_batch(self, texts, context=None):
+        try:
+            return self._engine.translate_batch(texts, context)
+        finally:
+            usage = getattr(self._engine, "last_usage", None) or {}
+            self.input_tokens += usage.get("input_tokens", 0) or 0
+            self.output_tokens += usage.get("output_tokens", 0) or 0
+
+    def log(self, operation: str) -> None:
+        if not (self.input_tokens or self.output_tokens):
+            return
+        db.log_usage(None, self._engine_name, getattr(self._engine, "model", self._engine_name),
+                     operation, self.input_tokens, self.output_tokens,
+                     translate_engines.estimate_cost_for_engine(
+                         self._engine, self.input_tokens, self.output_tokens))
+
+
 def translate(text: str, engine_name: str, source_language: str, target_language: str,
               model: Optional[str] = None, free_tier: Optional[bool] = None,
               env_path: Optional[str] = None, principal=None) -> dict:
@@ -151,21 +183,26 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     if api_key is None:
         raise MissingKeyError(engine_name)
 
+    use_free_tier = (engine_name == "gemini"
+                     and settings_service.resolve_gemini_free_tier(free_tier))
+    translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier)
     engine = translate_engines.get_engine(
-        engine_name, api_key, model,
-        free_tier=(settings_service.resolve_gemini_free_tier(free_tier)
-                   if engine_name == "gemini" else False),
+        engine_name, api_key, model, free_tier=use_free_tier,
         base_url=((settings_service.resolve_key("ollama_url") or None)
                   if engine_name == "ollama" else None))
+    metered = _UsageMeter(engine, engine_name)
 
     try:
         translated_text = translate_engines.standalone_translate(
-            text, engine, source_language, target_language)
+            text, metered, source_language, target_language)
     except translate_engines.UnsupportedDirectionError as exc:
         raise UnsupportedOperationError(str(exc)) from exc
     except translate_engines.OllamaUnavailableError as exc:
         raise DependencyUnavailableError(
             translate_engines.redact_secrets(exc.message), details={"reason": exc.reason}) from None
+    finally:
+        # Logged even when a later chunk failed: the earlier chunks were billed.
+        metered.log("translate_text")
 
     db.save_translate_history(source_language, target_language, engine_name, text, translated_text,
                               user_id=None if principal is None else principal.get("user_id"))

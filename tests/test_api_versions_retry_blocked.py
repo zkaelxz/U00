@@ -491,7 +491,7 @@ class TestPermissions:
         assert remote.post(url, json={"engine": "ollama"}).status_code == 401
         editor = _user("e@example.com", "lines.edit")
         assert remote.post(url, json={"engine": "ollama"}, headers=_h(editor)).status_code == 403
-        household = _user("h@example.com", "jobs.start")
+        household = _user("h@example.com", "jobs.start", "lines.read", "lines.edit")
         assert remote.post(url, json={"engine": "claude"},
                            headers=_h(household)).status_code == 403
         assert remote.post(url, json={"engine": "gemini"},
@@ -504,10 +504,22 @@ class TestPermissions:
         r = remote.post(url, json={"engine": "ollama"}, headers=_h(household))
         assert r.status_code == 200 and r.json()["retried"] is True
 
+    def test_retry_returns_line_text_so_it_needs_lines_read_and_edit(self, remote, monkeypatch):
+        did, ids = _blocked()
+        _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Goodbye"]))
+        url = _retry(did, ids[1])
+        body = {"engine": "ollama"}
+        no_read = _user("nr@example.com", "jobs.start", "lines.edit")
+        assert remote.post(url, json=body, headers=_h(no_read)).status_code == 403
+        no_edit = _user("ne@example.com", "jobs.start", "lines.read")
+        assert remote.post(url, json=body, headers=_h(no_edit)).status_code == 403
+        both = _user("b@example.com", "jobs.start", "lines.read", "lines.edit")
+        assert remote.post(url, json=body, headers=_h(both)).status_code == 200
+
     def test_retry_paid_engine_with_engines_paid(self, remote, monkeypatch):
         did, ids = _blocked()
         _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Goodbye"]))
-        paid = _user("p@example.com", "jobs.start", "engines.paid")
+        paid = _user("p@example.com", "jobs.start", "lines.read", "lines.edit", "engines.paid")
         r = remote.post(_retry(did, ids[1]), json={"engine": "claude"}, headers=_h(paid))
         assert r.status_code == 200
         _no_leak(r)
