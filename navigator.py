@@ -63,4 +63,4 @@ def generate_navigation_steps(site_name_or_url: str, goal: str, target_language:
         "and give your best general guidance based on how sites like this typically work."
         + labels_block
     )
-    return call_llm_json(engine, prompt, max_tokens=1500, fallback="")
+    return call_llm_json(engine, prompt, max_tokens=1500, fallback="", expect="text")

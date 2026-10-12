@@ -3,6 +3,7 @@ complete and still wrong: two lines merged into one reply, text shifted onto a
 neighbouring id, or source script left in the English. Pure functions; the
 retry and flagging live in translate_pipeline."""
 
+import json
 import math
 import re
 
@@ -22,6 +23,12 @@ SWAP_MIN_EXPECTED = 6          # swap-fit needs lines long enough for length to 
 SWAP_IMPROVEMENT = 0.5         # swapped replies must fit at least twice as well to count as shifted
 
 FLAG_NOTE = "check: may be merged or shifted"
+
+# Far past "merged": a reply this long for its source is reasoning or
+# commentary written into the line, not a translation of it.
+ABSURD_LONG_FACTOR = 5
+ABSURD_SLACK_WORDS = 15
+_REASONING_MARKER = re.compile(r"</?(?:think|thinking|reasoning)>|<\|?channel\|?>", re.IGNORECASE)
 
 _CJK = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ]")
 _CJK_RUN = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ]+")
@@ -60,6 +67,48 @@ def leftover_source_script(reply: str, allowed_runs=()) -> bool:
     for run in sorted(allowed_runs, key=len, reverse=True):
         text = text.replace(run, " ")
     return bool(_CJK.search(text))
+
+
+def _parses_as_json(text: str) -> bool:
+    # A line may open with a stage direction ("[Sighs] Fine."); only a JSON
+    # array written as the line is a malformed reply.
+    try:
+        json.loads(text)
+    except ValueError:
+        return False
+    return True
+
+
+def unusable_reply(source: str, reply: str, allowed_runs=()):
+    """Why this reply can't be written as the English for source at all
+    (None when it can): empty, JSON, reasoning markers, source script left
+    in it, or absurdly long. Stricter checks that only make a line suspect
+    live in line_problems."""
+    text = reply.strip()
+    if not text:
+        return "empty"
+    if text[0] == "{" or (text[0] == "[" and _parses_as_json(text)):
+        return "JSON instead of a line"
+    if _REASONING_MARKER.search(text):
+        return "reasoning text"
+    if leftover_source_script(text, allowed_runs):
+        return "source text left in it"
+    if _english_words(text) > ABSURD_LONG_FACTOR * _expected_words(source) + ABSURD_SLACK_WORDS:
+        return "far too long for the line"
+    return None
+
+
+def flag_unusable_replies(lines, rejected) -> None:
+    """Flags lines left untranslated because every reply for them was
+    unusable. rejected: {line id: reason} from an engine that checks each
+    value (OllamaEngine.last_rejected); anything else flags nothing."""
+    if not isinstance(rejected, dict):
+        return
+    for ln in lines:
+        reason = rejected.get(getattr(ln, "id", None))
+        if reason and not ln.flag:
+            ln.flag = "uncertain_translation"
+            ln.flag_note = f"check: the model's reply for this line was unusable ({reason})"
 
 
 def length_issue(source: str, reply: str, soft: bool = False):

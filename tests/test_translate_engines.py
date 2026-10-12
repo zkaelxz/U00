@@ -1434,7 +1434,8 @@ class TestOllamaEngine:
         patch_post(monkeypatch, self._fake_response(captured))
         engine = te.OllamaEngine()
         engine.translate_batch(["你好"], {})
-        assert captured["json"]["format"] == te._OLLAMA_ID_KEYED_JSON_SCHEMA
+        from engine_backends.local import id_keyed_schema
+        assert captured["json"]["format"] == id_keyed_schema([1])
 
     def test_num_ctx_is_never_below_the_floor_for_a_short_prompt(self, monkeypatch):
         captured = {}

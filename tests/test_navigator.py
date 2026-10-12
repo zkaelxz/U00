@@ -39,7 +39,7 @@ def _fake_llm(monkeypatch, label_answer):
     label_answer(prompt), the steps prompt gets fixed steps text."""
     prompts = []
 
-    def fake_call(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+    def fake_call(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None, **_kw):
         prompts.append(prompt)
         if "UI labels" in prompt:
             return label_answer(prompt)

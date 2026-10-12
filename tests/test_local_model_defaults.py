@@ -218,7 +218,8 @@ class TestGemma4Models:
         for model in ("qwen3:8b", "gemma4:12b"):
             te.OllamaEngine(model=model).translate_batch(["你好"], {})
         (qwen, _), (gemma, _) = sent
-        assert gemma["format"] == qwen["format"] == te._OLLAMA_ID_KEYED_JSON_SCHEMA
+        from engine_backends.local import id_keyed_schema
+        assert gemma["format"] == qwen["format"] == id_keyed_schema([1])
         assert gemma["options"] == qwen["options"] and gemma["stream"] is False
         assert [m["role"] for m in gemma["messages"]] == ["system", "user"]
 

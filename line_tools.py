@@ -38,7 +38,7 @@ def explain_translation(zh: str, en: str, engine, source_language: str = "zh",
         "reasonable. Be candid if you think a choice is questionable.\n\n"
         "A short paragraph -- explain, don't lecture." + gloss
     )
-    return call_llm_json(engine, prompt, max_tokens=800, fallback="")
+    return call_llm_json(engine, prompt, max_tokens=800, fallback="", expect="text")
 
 
 def alternative_translations(zh: str, en: str, engine, count: int = 3,
@@ -58,7 +58,7 @@ def alternative_translations(zh: str, en: str, engine, count: int = 3,
         'Return ONLY a JSON array: [{"translation": "...", "approach": "...", '
         '"tradeoff": "..."}]. No preamble, no markdown fences.'
     )
-    text = call_llm_json(engine, prompt, max_tokens=1200, fallback="[]")
+    text = call_llm_json(engine, prompt, max_tokens=1200, fallback="[]", expect="json_array")
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         alts = json.loads(text)
@@ -86,7 +86,8 @@ def improve_line(zh: str, en: str, engine, issue: str = "", source_language: str
         + "\n\nReturn ONLY the improved translation as plain text -- no quotes, no "
         "explanation, no preamble."
     )
-    result = call_llm_json(engine, prompt, max_tokens=500, fallback="").strip()
+    result = call_llm_json(engine, prompt, max_tokens=500, fallback="", expect="text",
+                           translation_of=zh).strip()
     return result.strip('"').strip() or en
 
 
@@ -105,7 +106,7 @@ def grammar_breakdown(zh: str, engine, source_language: str = "zh"):
         'Return ONLY a JSON array: [{"word": "...", "reading": "...", "meaning": "...", '
         '"function": "..."}]. No preamble, no markdown fences.'
     )
-    text = call_llm_json(engine, prompt, max_tokens=1500, fallback="[]")
+    text = call_llm_json(engine, prompt, max_tokens=1500, fallback="[]", expect="json_array")
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         parts = json.loads(text)

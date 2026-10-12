@@ -12,6 +12,8 @@ from lib import capped_body, http
 from memory_headroom import HeadroomError
 from sentence_groups import render_grouped
 
+from .translation_guard import unusable_reply
+
 
 def _empty_usage() -> dict:
     return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
@@ -83,6 +85,15 @@ class LLMTaskTimeout(RuntimeError):
 class FreeTierDailyLimitReached(RuntimeError):
     """The free-tier daily request limit is used up; waiting it out would
     take hours, so the run stops instead."""
+
+
+def stops_translate_run(exc) -> bool:
+    """Whether a batch error ends the whole translate run: after a timeout the
+    abandoned request may still be running, a used-up quota or memory reserve
+    fails every later batch too, and an engine marks its own such errors
+    with stops_run."""
+    return (isinstance(exc, (FreeTierDailyLimitReached, HeadroomError, LLMTaskTimeout))
+            or getattr(exc, "stops_run", False) is True)
 
 
 # Set by translate_lines_with_engine for the duration of a run so the
@@ -513,7 +524,7 @@ def parse_flag_entries(entries):
     return by_id, unreadable
 
 
-def parse_id_keyed_json(text: str, expected_ids: list) -> dict:
+def parse_id_keyed_json(text: str, expected_ids: list, recover: bool = False) -> dict:
     """
     Parses a response expected to be a JSON object mapping each line's
     id (as a string) to its translation, e.g. {"1": "Hello.", "2": "Hi."}.
@@ -527,9 +538,14 @@ def parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     malformed and returns {}: an array can be short, long or reordered,
     so matching it to ids by position could put a translation on the
     wrong line. The retry path re-requests those ids instead.
+
+    recover (for local models, see _recover_id_keyed): take the last object
+    rather than the first, and keep the complete pairs of a cut-off reply.
     """
     stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     expected_str = {str(i) for i in expected_ids}
+    if recover:
+        return _recover_id_keyed(stripped, expected_str)
     data = extract_first_json_value(stripped)
     if data is None:
         return {}
@@ -539,8 +555,65 @@ def parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     return {}
 
 
+# One complete "id": "text" pair; the value's closing quote proves it was
+# written to the end, unlike the pair a reply was cut off in.
+_ID_PAIR_RE = re.compile(r'"\s*(\d+)\s*"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _salvage_pairs(text: str, expected_str: set) -> dict:
+    found = {}
+    for m in _ID_PAIR_RE.finditer(text):
+        if m.group(1) not in expected_str:
+            continue
+        try:
+            found[m.group(1)] = json.loads(f'"{m.group(2)}"')
+        except json.JSONDecodeError:
+            continue
+    return found
+
+
+def _recover_id_keyed(text: str, expected_str: set) -> dict:
+    """A weak model may write a draft object before its answer, or run out of
+    output mid-object. The answer is what it wrote last: a cut-off object
+    after the last complete one gives its complete pairs, else the last
+    complete object holding any expected id is used."""
+    decoder = json.JSONDecoder()
+    objects, i, end = [], 0, 0
+    while i < len(text):
+        if text[i] == "{":
+            try:
+                value, stop = decoder.raw_decode(text, i)
+            except json.JSONDecodeError:
+                i += 1
+                continue
+            if isinstance(value, dict):
+                objects.append(value)
+                end = stop
+            i = stop
+            continue
+        i += 1
+    tail = text[end:]
+    if "{" in tail:
+        salvaged = _salvage_pairs(tail[tail.index("{"):], expected_str)
+        if salvaged:
+            return salvaged
+    for data in reversed(objects):
+        found = {str(k): v for k, v in data.items() if str(k) in expected_str and isinstance(v, str)}
+        if found:
+            return found
+    return {}
+
+
+def _echoed_label(reply: str, line_id, speaker) -> bool:
+    """The prompt's own "12. " numbering or "[Name] " prefix copied into the line."""
+    if re.match(rf"\s*\[?{line_id}\]?\s*[.:)]\s", reply):
+        return True
+    return bool(speaker) and reply.lstrip().startswith(f"[{speaker}]")
+
+
 def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retries: int = 1,
-                            engine_name: str = None) -> dict:
+                            engine_name: str = None, recover: bool = False, check_value=None,
+                            rejected: dict = None) -> dict:
     """The actual id-keyed request/parse/retry-missing loop shared by
     request_translations_with_retry below (every engine's own
     translate_batch) and reflect_translate_batch (three passes,
@@ -557,16 +630,34 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     to the plain translate_batch path each engine's own translate_batch
     already raises ContentModerationBlocked from directly for a real
     structural signal; left None there keeps Reflect mode's behavior
-    exactly as it was."""
+    exactly as it was.
+
+    recover and check_value are for local models: recover is passed to
+    parse_id_keyed_json, call_model_fn then also gets the ids being asked
+    for, and check_value(id_str, text) returns why a value can't be written
+    (None if it can). A rejected value counts as missing, so it is asked for
+    again; rejected (a dict) ends up holding {id_str: reason} for those still
+    rejected at the end."""
     remaining_ids = list(ids)
     result_map = {}
     for _attempt in range(max_retries + 1):
         if not remaining_ids:
             break
-        text = call_model_fn(build_batch_text(remaining_ids))
+        batch_text = build_batch_text(remaining_ids)
+        text = (call_model_fn(batch_text, remaining_ids) if recover
+                else call_model_fn(batch_text))
         # By id, never position: a short, padded or reordered reply would
         # otherwise shift translations onto the wrong lines.
-        parsed = parse_id_keyed_json(text, remaining_ids)
+        parsed = parse_id_keyed_json(text, remaining_ids, recover=recover)
+        if check_value is not None:
+            for key in list(parsed):
+                reason = check_value(key, parsed[key])
+                if reason:
+                    del parsed[key]
+                    if rejected is not None:
+                        rejected[key] = reason
+                elif rejected is not None:
+                    rejected.pop(key, None)
         if engine_name and text.strip() and not parsed:
             # A real structural refusal signal (stop_reason/refusal) is
             # already checked -- and raises directly -- inside each
@@ -584,7 +675,9 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
 
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
                                      line_ids=None, engine_name: str = None, line_languages=None,
-                                     sentence_groups=None):
+                                     sentence_groups=None, recover_replies: bool = False,
+                                     check_replies: bool = False, allowed_runs=(),
+                                     rejected: dict = None):
     """
     The shared id-keyed request/parse/retry-missing logic behind every
     LLM translation engine's own translate_batch (Claude/DeepSeek/
@@ -613,6 +706,15 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
     Each is shown as the whole sentence plus its numbered parts; the reply
     is still one translation per fragment id. Omitted, the request is
     exactly the plain numbered list.
+
+    recover_replies (local models): call_model_fn(numbered_text, ids) also
+    gets the ids asked for, and a draft or cut-off reply is recovered (see
+    _recover_id_keyed). check_replies: each value is checked before it is
+    used: the prompt's own numbering or speaker prefix, JSON, source script
+    outside allowed_runs, reasoning or an absurd length makes it missing.
+    A refusal opener is not checked per line ("I won't leave you." is
+    dialogue); the whole-reply check above still applies. rejected (a dict)
+    gets {position in zh_lines: reason} for lines left untranslated that way.
     """
     ids = list(range(1, len(zh_lines) + 1))
     # The lines' own permanent ids when every line has one and
@@ -651,8 +753,19 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
                        if line_languages and len(line_languages) == len(zh_lines) else None)
         return build_numbered_lines(batch_ids, batch_lines, batch_names, batch_langs)
 
+    def check_value(key, value):
+        p = pos[int(key)]
+        if _echoed_label(value, key, speaker_names[p] if speaker_names else None):
+            return "copied the prompt's numbering or speaker"
+        return unusable_reply(zh_lines[p], value, allowed_runs)
+
+    still_rejected = {}
     result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries,
-                                         engine_name=engine_name)
+                                         engine_name=engine_name, recover=recover_replies,
+                                         check_value=check_value if check_replies else None,
+                                         rejected=still_rejected)
+    if rejected is not None:
+        rejected.update({pos[int(k)]: reason for k, reason in still_rejected.items()})
     # Back to input order by id; a still-missing id is "" (untranslated),
     # never filled from a neighbour's slot.
     return [result_map.get(str(i), "") for i in ids]
@@ -705,6 +818,16 @@ def _detect_soft_refusal_text(text: str):
         if lowered.startswith(opener):
             return stripped[:200]
     return None
+
+
+# Openers that apologise first. "I can't"/"I won't" alone open real dialogue
+# ("I won't leave you."), so only these count when one reply is one line.
+_APOLOGY_REFUSAL_OPENERS = tuple(o for o in _SOFT_REFUSAL_OPENERS
+                                 if o.startswith(("sorry", "i'm sorry", "i apologize")))
+
+
+def is_apology_refusal(text: str) -> bool:
+    return text.strip().lower().startswith(_APOLOGY_REFUSAL_OPENERS)
 
 
 # Per-request timeout (seconds) for the Anthropic/OpenAI SDK clients, so a

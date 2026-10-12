@@ -343,7 +343,8 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
         f"No preamble, no markdown fences.{known_block}\n\nText:\n{sample}"
     )
 
-    text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", usage_cb=usage_cb)
+    text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", usage_cb=usage_cb,
+                         expect="json_array")
     entries = parse_json_array(text, 0)
     if not isinstance(entries, list):
         return []
@@ -422,7 +423,8 @@ def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb
             cancel_check()
         batch = translated[start:start + batch_size]
         prompt = build_translation_notes_prompt(batch)
-        text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb)
+        text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb,
+                             expect="json_array")
         notes = parse_json_array(text, 0)
         if isinstance(notes, list):
             for n in notes:
@@ -667,7 +669,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         cached = text is not None
         if not cached:
             text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
-                                 usage_cb=usage_cb)
+                                 usage_cb=usage_cb, expect="json_array")
         entries = parse_json_array(text, 0)
         if (response_cache and not cached and isinstance(entries, list)
                 and any(isinstance(e, dict) and e.get("term") for e in entries)):
