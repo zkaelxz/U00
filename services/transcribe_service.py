@@ -848,6 +848,11 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     nothing; so does a run whose cancel arrived before the write.
     diarize_requested is the "Detect speakers after transcribing" switch: when it
     is on and no detection starts, the result says why (diarize_skipped_reason)."""
+    # Logged here, not in the pipeline: a spawned worker has no redirected library, so its
+    # logger would write to the real one.
+    if outcome.get("stage_summary"):
+        import applog
+        applog.get_logger().info(f"transcription of title {drama_id}: {outcome['stage_summary']}")
     if "failed_reason" in outcome:
         if outcome["failed_reason"] == "no_lines" and diarize_requested:
             return {**outcome, "diarize_skipped_reason": "the transcription produced no lines"}

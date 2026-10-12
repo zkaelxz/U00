@@ -2,8 +2,10 @@ import type {
   EngineList,
   TranslateDirection,
   TranslateEngine,
+  TranslateEstimate,
   TranslateHistoryEntry,
   TranslateRequest,
+  TranslateResult,
 } from '../types/translate'
 import { deleteJson, getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -102,7 +104,11 @@ export const translateApi = {
       (r) => r.items,
     ),
   translate: (req: TranslateRequest, f?: Fetch) =>
-    postJson<{ translated_text: string }>('/api/translate', req, f).then((r) => r.translated_text),
+    translateApi.translateWithNotice(req, f).then((r) => r.translated_text),
+  translateWithNotice: (req: TranslateRequest, f?: Fetch) =>
+    postJson<TranslateResult>('/api/translate', req, f),
+  estimate: (req: TranslateRequest, f?: Fetch) =>
+    postJson<TranslateEstimate>('/api/translate/estimate', req, f),
   // PC only (local_only route); the server refuses without confirm=true.
   clearHistory: (f?: Fetch) =>
     deleteJson<{ cleared: boolean }>('/api/translate/history?confirm=true', pcOnlyFetch(f)),

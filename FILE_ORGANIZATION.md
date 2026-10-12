@@ -243,6 +243,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_common.py` (helpers shared by glossary_service and glossary_extract_service)
 - `glossary_extract_service.py` (glossary extraction from the attached novel: job, proposals, cache)
 - `glossary_retranslate_service.py`
+- `glossary_name_report_service.py` (read-only "name check across all titles": runs the per-title name scan over every title the caller may see as one cancellable job, merges the clusters that are one name, keeps the owner's right/wrong/skip marks, and exports the unresolved groups as text)
 - `glossary_spelling_service.py` (one bounded model call that proposes how a known name may be spelled in the transcript, kept only when it occurs in the lines; and a read-only check of lines whose English renders a name differently)
 - `glossary_service.py`
 - `glossary_variants_service.py` (read-only scans: other spellings of a glossary term in the source lines, and names that recur under several spellings)
@@ -265,6 +266,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `live_follow_poller.py` (the followed-channel live checks: the manual-check queue, the optional hourly scheduler, one yt-dlp metadata read at a time, backoff, the extra check before a scheduled start, notify once per stream, the PC owner's automatic start)
 - `live_follow_service.py` (followed YouTube channels on the Live page: channel input, ownership, limits, saved Live options, Start Live from a follow)
 - `live_service.py`
+- `live_spend_service.py` (cap check, usage log and failure stop for a Live session on a paid engine)
 - `lncrawl_service.py`
 - `loaded_models_service.py`
 - `maintenance_assistant_service.py`
@@ -523,11 +525,13 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `openai_compat.py` (DeepSeek and OpenAI engines)
 - `pricing.py` (Model lists, per-million-token prices and cost estimation)
 - `prompts.py` (Prompt builders shared by the LLM engines)
+- `reflect_pass.py` (Reflect mode: three passes over one batch)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
+- `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)
-- `translate_pipeline.py` (Reflect mode and the per-run translate loop)
+- `translate_pipeline.py` (The per-run translate loop)
 - `translation_guard.py` (Post-checks on a translated batch for the ways an id-keyed reply can be complete and still wrong)
 
 ## jobs/

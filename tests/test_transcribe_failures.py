@@ -137,6 +137,13 @@ class TestZeroLines:
         for hint in ("More sensitive", "large-v3-turbo", "silent"):
             assert hint in message
 
+    def test_stage_counts_reach_the_app_log_from_the_parent(self, drama, monkeypatch):
+        import applog
+        did, audio = drama
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: [])
+        _run(did, audio)
+        assert any("ASR output" in line and f"title {did}" in line for line in applog.tail(50))
+
     def test_blank_segments_count_as_no_lines_too(self, drama, monkeypatch):
         did, audio = drama
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
