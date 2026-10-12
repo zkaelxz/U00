@@ -12,7 +12,8 @@ import pytest
 import background_jobs
 import whisper_models
 from lib import ct2_repo
-from services import (jobs_service, notification_service, speech_coverage_service,
+import diagnostics
+from services import (diarization_service, jobs_service, notification_service, speech_coverage_service,
                       transcribe_pipeline, transcribe_service)
 from services.service_errors import ConflictError
 
@@ -76,12 +77,12 @@ def drama(isolated_db):
         background_jobs.clear_job(job_id)
 
 
-def _run(did, audio):
+def _run(did, audio, hf_token=None, **kwargs):
     job_id = f"transcribe_{did}"
     assert background_jobs.start_job(
         job_id, transcribe_service._run_transcribe_and_apply_job, job_id, did, audio, "whisper",
         None, "zh", "simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False,
-        None, None, None, description=f"Transcription (title #{did})")
+        None, hf_token, None, description=f"Transcription (title #{did})", **kwargs)
     return job_id, _wait_finished(job_id)
 
 
@@ -146,3 +147,81 @@ class TestZeroLines:
         _run(did, audio)
         with pytest.raises(ConflictError):
             speech_coverage_service.start_speech_coverage(did)
+
+
+class TestSpeakerDetectionSkipped:
+    @pytest.fixture(autouse=True)
+    def _asr(self, monkeypatch):
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+        self.started = []
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, args=(), **k: self.started.append(job_id) or True)
+        self.monkeypatch = monkeypatch
+
+    def _installed(self, yes):
+        real = diagnostics.check_dependency
+        self.monkeypatch.setattr(diagnostics, "check_dependency",
+                                 lambda name: yes if name == "pyannote.audio" else real(name))
+
+    def _bell(self, job):
+        return notification_service.build_message(
+            job["description"], job["status"], reason=transcribe_service.background_jobs._done_note(job["result"]))
+
+    def test_no_token_says_so_in_outcome_and_bell(self, drama):
+        self._installed(True)
+        _, job = _run(*drama, diarize_requested=True)
+        assert job["result"]["diarize_skipped_reason"] == "no Hugging Face token"
+        outcome, message = jobs_service.derive_outcome(job["status"], None, job["result"])
+        assert outcome == "partial"
+        assert "Speaker detection did not run: no Hugging Face token." in message
+        assert self._bell(job).endswith("Speaker detection did not run: no Hugging Face token.")
+        assert not self.started
+
+    def test_pyannote_missing(self, drama):
+        self._installed(False)
+        did, audio = drama
+        _, job = _run(did, audio, hf_token="hf_x", diarize_requested=True, diarize_audio_path=audio)
+        assert job["result"]["diarize_skipped_reason"] == "pyannote.audio is not installed"
+        assert not self.started
+
+    def test_no_audio_for_the_title(self, drama):
+        self._installed(True)
+        _, job = _run(*drama, hf_token="hf_x", diarize_requested=True, diarize_audio_path=None)
+        assert job["result"]["diarize_skipped_reason"] == "no audio file for this title"
+
+    def test_zero_lines_names_it(self, drama, monkeypatch):
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: [])
+        _, job = _run(*drama, hf_token="hf_x", diarize_requested=True)
+        _, message = jobs_service.derive_outcome(job["status"], None, job["result"])
+        assert "Speaker detection did not run: the transcription produced no lines." in message
+
+    def test_switch_off_says_nothing(self, drama):
+        _, job = _run(*drama)
+        assert job["result"]["diarize_skipped_reason"] is None
+        assert "Speaker detection" not in jobs_service.derive_outcome("done", None, job["result"])[1]
+
+    def test_token_and_audio_still_start_diarization(self, drama):
+        self._installed(True)
+        did, audio = drama
+        _, job = _run(did, audio, hf_token="hf_x", diarize_requested=True, diarize_audio_path=audio)
+        assert job["result"]["diarize_started"] is True and self.started == [f"diarize_{did}"]
+        assert job["result"]["diarize_skipped_reason"] is None
+
+
+class TestSpeakerNotice:
+    def test_no_token_notice_is_actionable_and_has_no_secret(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diarization_service.settings_service, "resolve_key", lambda name: "")
+        code, text = diarization_service.speaker_detection_problem()
+        assert code == "no_token"
+        assert "Hugging Face token" in text and "Settings" in text and "terms" in text
+
+    def test_token_but_no_package(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diarization_service.settings_service, "resolve_key", lambda name: "hf_x")
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
+        assert diarization_service.speaker_detection_problem()[0] == "no_pyannote"
+
+    def test_nothing_in_the_way(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diarization_service.settings_service, "resolve_key", lambda name: "hf_x")
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+        assert diarization_service.speaker_detection_problem() is None

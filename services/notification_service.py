@@ -312,8 +312,8 @@ def build_message(description, status, shared_only=False, with_errors=False,
     title = _drama_title(description, shared_only)
     if title:
         text += f" - {title}"
-    if reason and status != "done":
-        text += f": {_tidy(reason, 160)}"
+    if reason:
+        text += (f". {_tidy(reason, 160)}" if status == "done" else f": {_tidy(reason, 160)}")
     return redact_secrets(text)
 
 

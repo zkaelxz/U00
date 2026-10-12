@@ -474,6 +474,12 @@ def _missing_dependency_error(result):
     return None
 
 
+def _done_note(result):
+    """Short plain note a finished job adds to its bell text, or None."""
+    from services import jobs_service
+    return jobs_service.speaker_skip_text(result)
+
+
 def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
     def runner():
         import applog
@@ -499,6 +505,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                         _jobs[job_id]["message"] = ""
                     else:
                         _jobs[job_id]["progress"] = 1.0
+                        _reason = _done_note(_result)
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
                     _owner = _jobs[job_id].get("owner_user_id")
@@ -1368,6 +1375,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 else:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
+                    _jobs_reason = _done_note(result)
                     logger.info(f"job {job_id} finished")
             elif outcome and outcome[0] == "error":
                 _, exc_type, msg = outcome

@@ -83,6 +83,8 @@ class DiarizationConfig(BaseModel):
     itself."""
     drama_id: int
     hf_token_configured: bool
+    # Plain text of what stops speaker detection (no token, no pyannote), or None when it can run.
+    speaker_notice: Optional[str] = None
     expected_speakers: Optional[int] = None
     # The speaker-count range the last run used, if any.
     min_speakers: Optional[int] = None

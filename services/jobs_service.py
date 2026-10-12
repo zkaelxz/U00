@@ -43,7 +43,7 @@ RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
     "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
-    "coverage_warning", "ollama_notice", "stage_summary",
+    "coverage_warning", "ollama_notice", "stage_summary", "diarize_skipped_reason",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
@@ -300,6 +300,12 @@ NO_LINES_MESSAGE = (
     "or the audio is silent.")
 
 
+def speaker_skip_text(result):
+    """"Speaker detection did not run: <reason>." when the switch was on and nothing started."""
+    why = result.get("diarize_skipped_reason") if isinstance(result, dict) else None
+    return f"Speaker detection did not run: {why}." if why else None
+
+
 def derive_outcome(status, error, result):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's
@@ -324,7 +330,8 @@ def derive_outcome(status, error, result):
                                  if count is not None else
                                  "Nothing new was produced, so the existing lines were kept.")
     if reason == "no_lines":
-        return "partial", NO_LINES_MESSAGE
+        skipped = speaker_skip_text(result)
+        return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
     if reason:
         msg = _FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
         return "failed", (f"{msg} {detail}" if detail else msg)
@@ -393,6 +400,10 @@ def derive_outcome(status, error, result):
         warned = True
     if result.get("ollama_notice"):
         parts.append(str(result["ollama_notice"]))
+        warned = True
+    skipped_speakers = speaker_skip_text(result)
+    if skipped_speakers:
+        parts.append(skipped_speakers)
         warned = True
     if result.get("flags_needing_recheck"):
         parts.append("Some lines changed while the job ran, so their review flags "
