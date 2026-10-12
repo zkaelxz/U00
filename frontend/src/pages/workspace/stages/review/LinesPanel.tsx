@@ -32,6 +32,8 @@ import { UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
+import { SourceSuspectPanel } from './SourceSuspect'
+import { useSourceSuspects } from './useSourceSuspects'
 import { ShortcutSheet } from './ShortcutSheet'
 import { useStrongerOffers } from './useStrongerOffers'
 import { DRAFT_NOT_SAVED, buildStructureEdits, type UndoOffer } from './structureEdits'
@@ -107,6 +109,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     return () => window.removeEventListener('scroll', onScroll)
   }, [isPhone])
   const collapsed = isPhone && scrolled
+  const suspects = useSourceSuspects(dramaId, reloads)
+  const [suspectOpen, setSuspectOpen] = useState(false)
   const selection = useLineSelectionContext()
   const route = useRoute()
   // A warning elsewhere links here with ?focus=flagged to show those lines first.
@@ -438,6 +442,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           counts={counts}
           gapCount={gaps.gaps.length}
           onNextGap={jumpToNextGap}
+          suspectCount={suspects.length}
+          suspectOpen={suspectOpen}
+          onToggleSuspect={() => setSuspectOpen((o) => !o)}
           onFilter={(f) => void changeFilter(f)}
           search={input}
           searchRef={searchRef}
@@ -478,6 +485,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           <p className="sr-only" data-testid="line-counts">
             {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
           </p>
+        )}
+        {suspectOpen && suspects.length > 0 && (
+          <SourceSuspectPanel dramaId={dramaId} items={suspects} onGoTo={(n) => void goToNumber(n)} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
         )}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
         {!searching && !!data?.flagged_count && (

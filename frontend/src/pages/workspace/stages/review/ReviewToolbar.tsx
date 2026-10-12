@@ -20,6 +20,10 @@ interface Props {
   // Stretches with no line (from the waveform's gap check); the chip jumps to the next one.
   gapCount: number
   onNextGap: () => void
+  // Lines flagged "Source text looks off"; the chip opens their list.
+  suspectCount: number
+  suspectOpen: boolean
+  onToggleSuspect: () => void
   onFilter: (f: LineFilter) => void
   search: string
   searchRef: RefObject<HTMLInputElement | null>
@@ -156,6 +160,12 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
         {p.gapCount > 0 && (
           <button type="button" className="review-chip review-gaps-chip" title="Jump to the next stretch with no line" onClick={p.onNextGap}>
             {gapChipLabel(p.gapCount)}
+          </button>
+        )}
+        {p.suspectCount > 0 && (
+          <button type="button" className="review-chip review-suspect-chip" aria-expanded={p.suspectOpen}
+                  title="Lines whose transcription looks wrong or split badly" onClick={p.onToggleSuspect}>
+            {p.isPhone ? `Source ${p.suspectCount}` : `Source looks off ${p.suspectCount}`}
           </button>
         )}
         {p.isPhone && !showSearch && (
