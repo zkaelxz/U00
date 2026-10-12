@@ -178,6 +178,7 @@ def test_run_starts_only_visible_pages_of_the_chapter(drama, monkeypatch):
     svc.set_visibility(drama, True, page_ids=[ids[4]])
     seen = {}
     monkeypatch.setattr(run, "_require_ocr_backend", lambda d: None)
+    monkeypatch.setattr(run, "_require_opencv", lambda: None)
     monkeypatch.setattr(run, "_build_engine", lambda n: object())
     patch_setting(monkeypatch, "default_engine", "x")
     monkeypatch.setattr(run.pages_svc, "start_drama_job",
