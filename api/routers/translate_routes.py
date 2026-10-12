@@ -36,6 +36,7 @@ def get_history(request: Request, limit: int = Query(50, ge=1, le=200)):
 
 
 @router.post("", dependencies=[require_permission("engines.paid")], response_model=TranslateResponse,
+             response_model_exclude_none=True,
             summary="Translate text with a chosen engine (server-side key resolution, D2)",
             responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
                       429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
