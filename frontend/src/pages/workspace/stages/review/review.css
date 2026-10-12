@@ -456,9 +456,13 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 /* The player stays mounted so its sound and time keep going. */
 .review-toolbar.is-collapsed .review-player, .review-toolbar.is-collapsed .review-extras { display: none; }
-/* Scrolled phone: the title row goes too (the stage tabs stay), so the strip above the lines is two thin rows. */
+/* Scrolled phone: the title row goes too and the stage tabs go too (scroll up to switch stage), so only the filter chips stay stuck under the app header. */
 @media (max-width: 640px) {
-  body:has(.review-toolbar.is-collapsed) .workspace-header { display: none; }
+  body:has(.review-toolbar.is-collapsed) :is(.workspace-header, .stage-tabs) { display: none; }
   .review-toolbar.is-collapsed { padding-block: 0; }
 }
 .review-toolbar.is-collapsed .review-search-toggle, .review-toolbar.is-collapsed .review-more-toggle { display: none; }
+/* Phones: tighter line height on the two texts, so a scrolled screen holds 8 lines (padding and the 44px targets are untouched). */
+@media (max-width: 640px) {
+  .review-zh, .stage-review button.review-en { line-height: 1.3; }
+}

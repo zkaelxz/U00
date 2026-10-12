@@ -85,7 +85,7 @@ export function ReviewTools({ dramaId, status, panels, attention = {}, request =
 
   const tabs: TabInfo<ReviewToolsTab>[] = REVIEW_TOOLS_TABS.map((t) => ({ ...t, attention: attention[t.id] }))
   return (
-    <section className="review-toolbox" aria-label="Review tools">
+    <section className="review-toolbox" aria-label="Checks and tools">
       {status}
       <Tabs label="Review tools" idPrefix={ID_PREFIX} tabs={tabs} active={tab} onSelect={select} />
       {REVIEW_TOOLS_TABS.map(({ id }) => (

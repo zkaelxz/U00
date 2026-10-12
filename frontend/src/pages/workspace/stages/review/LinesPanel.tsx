@@ -536,7 +536,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             )}
           </div>
         )}
-        <ul className={['review-lines', (compact || collapsed) && 'is-compact', selection.count > 0 && 'has-selection'].filter(Boolean).join(' ')} ref={listRef}>
+        <ul className={['review-lines', compact && 'is-compact', selection.count > 0 && 'has-selection'].filter(Boolean).join(' ')} ref={listRef}>
           {shown.map((l) => (
             <LineRow
               key={l.id}
