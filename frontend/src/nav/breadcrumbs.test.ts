@@ -29,7 +29,7 @@ describe('routeCrumbs', () => {
 
   it('covers nested pages from the registry labels', () => {
     expect(crumbs('#/library-tools')).toEqual([{ label: 'Library', href: '#/library' }, { label: 'Library tools' }])
-    expect(crumbs('#/sources/manage?tab=network')).toEqual([{ label: 'Sources', href: '#/sources' }, { label: 'Manage sources' }])
+    expect(crumbs('#/sources/manage?tab=network')).toEqual([])
     expect(crumbs('#/settings?section=developer-mode')).toEqual([{ label: 'Settings', href: '#/settings' }, { label: 'Developer mode' }])
     expect(crumbs('#/benchmark')).toEqual([{ label: 'Diagnostics', href: '#/diagnostics' }, { label: 'Benchmark Lab' }])
   })

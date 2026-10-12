@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MANAGE_CARDS, MANAGE_TABS, cardStartsOpen, cardStorageKey, emptyTabMessage, isManageTab, manageHref, tabFromParam,
+  MANAGE_CARDS, MANAGE_TABS, SOURCES_TABS, cardStartsOpen, cardStorageKey, emptyTabMessage, isManageTab, isSourcesTab, manageHref, sourcesHref, tabFromParam,
   type ManageTab,
 } from './manageTabs'
 
-describe('Manage sources tabs', () => {
-  it('lists the four tabs in order, Sites first', () => {
+describe('Sources tabs and Manage sources areas', () => {
+  it('lists the four areas in order, Sites first', () => {
     expect(MANAGE_TABS.map((t) => t.label)).toEqual(['Sites', 'Timing & cache', 'Network', 'Activity'])
   })
 
-  it('reads the tab from a link and falls back to Sites', () => {
+  it('reads the area from a link and falls back to Sites', () => {
     expect(tabFromParam('network')).toBe('network')
     expect(tabFromParam('timing')).toBe('timing')
     expect(tabFromParam(null)).toBe('sites')
@@ -19,7 +19,7 @@ describe('Manage sources tabs', () => {
     expect(isManageTab('Activity')).toBe(false)
   })
 
-  it('writes a link the parser reads back, with no query for the default tab', () => {
+  it('writes a link the parser reads back, with no query for the default area', () => {
     expect(manageHref()).toBe('#/sources/manage')
     expect(manageHref('sites')).toBe('#/sources/manage')
     for (const t of MANAGE_TABS.filter((x) => x.id !== 'sites')) {
@@ -27,12 +27,21 @@ describe('Manage sources tabs', () => {
     }
   })
 
-  it('opens only the first card of each tab', () => {
-    for (const t of MANAGE_TABS) {
-      const cards = MANAGE_CARDS[t.id] as readonly string[]
-      expect(cards.length).toBeGreaterThan(0)
-      cards.forEach((c, i) => expect(cardStartsOpen(t.id, c as never)).toBe(i === 0))
-    }
+  it('opens only the first card of the whole Manage sources tab', () => {
+    const open = MANAGE_TABS.flatMap((t) =>
+      (MANAGE_CARDS[t.id] as readonly string[]).filter((c) => cardStartsOpen(t.id, c as never)).map((c) => `${t.id}.${c}`),
+    )
+    expect(open).toEqual(['sites.sites'])
+  })
+
+  it('names the three Sources tabs and writes links the parser reads back', () => {
+    expect(SOURCES_TABS.map((t) => t.label)).toEqual(['Find', 'New chapters', 'Manage sources'])
+    expect(sourcesHref()).toBe('#/sources')
+    expect(sourcesHref('find')).toBe('#/sources')
+    expect(sourcesHref('new')).toBe('#/sources?tab=new')
+    expect(sourcesHref('manage')).toBe('#/sources?tab=manage')
+    expect(isSourcesTab('new')).toBe(true)
+    expect(isSourcesTab('find')).toBe(false)
   })
 
   it('remembers each card under its own key', () => {
@@ -41,7 +50,7 @@ describe('Manage sources tabs', () => {
     expect(cardStorageKey('network', 'proxy')).toBe('sources.manage.network.proxy')
   })
 
-  it('has an empty-state message for every tab', () => {
+  it('has an empty-state message for every area', () => {
     for (const t of MANAGE_TABS) expect(emptyTabMessage(t.id as ManageTab).length).toBeGreaterThan(10)
   })
 })

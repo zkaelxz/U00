@@ -12,7 +12,7 @@ export const SHELL_PAGES: { hash: string; width: 'narrow' | 'standard' | 'wide' 
   { hash: '#/benchmark', width: 'standard' },
   { hash: '#/diagnostics', width: 'standard' },
   { hash: '#/library-tools', width: 'standard' },
-  { hash: '#/sources/manage', width: 'standard' },
+  { hash: '#/sources?tab=manage', width: 'wide' },
   { hash: '#/manga', width: 'standard' },
   { hash: '#/jobs', width: 'wide' },
   { hash: '#/sources', width: 'wide' },
