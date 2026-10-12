@@ -290,7 +290,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   )
 }
 
-export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
+export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: boolean; defaultOpen?: boolean }) {
   const { dramaId, drama } = useStage()
   const focusSignal = useStageFocus('characters', 'translate-characters', focusReady)
   const [entries, setEntries] = useState<CharacterEntry[] | null>(null)
@@ -409,6 +409,7 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
   return (
     <Section
       storageKey="translate.characters"
+      defaultOpen={defaultOpen}
       openSignal={focusSignal}
       title="Characters"
       count={entries?.length}

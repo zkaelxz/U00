@@ -14,19 +14,33 @@ import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { ModelSelect } from '../../../components/ModelSelect'
 import { Section } from '../../../components/Section'
+import { Tabs } from '../../../components/Tabs'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
 import { isBulkJobId, translateJobIds } from '../stageJobIds'
-import { routeHref } from '../../../router'
+import { parseRoute, routeHref } from '../../../router'
 import type {
   TranslatePresetApplied,
   TranslateRunConfig,
   TranslateRunEstimate,
   WorkflowTierApplied,
 } from '../../../types/translateStage'
+import { browserStorage } from '../../../hooks/usePersistedState'
+import { hashWithTab } from '../mediaTabs'
+import {
+  TRANSLATE_TAB_PREFIX,
+  TRANSLATE_TABS,
+  isTranslateTab,
+  readTranslateTab,
+  resolveTranslateTab,
+  tabForFocus,
+  writeTranslateTab,
+  type TranslateTab,
+} from '../translateTabs'
 import { useStage } from '../StageContext'
+import { MediaTabPanel } from './MediaTabPanel'
 import {
   applyPresetToForm,
   applyTierToForm,
@@ -506,7 +520,7 @@ function RunPanel({
         <p className="muted" id="translate-busy" data-testid="translate-busy">
           {bulkPending
             ? 'A bulk batch is waiting on the provider, which can take hours. To run a normal translation now, cancel it under Bulk batches below.'
-            : 'A translate job is running. Progress is shown below.'}
+            : 'A translate job is running. Progress is shown above.'}
         </p>
       )}
       {problem && <p className="error" role="alert">{problem}</p>}
@@ -670,6 +684,37 @@ export default function TranslateStage() {
   const retry = useRef<(() => void) | null>(null)
   const [reloads, setReloads] = useState(0)
 
+  // The sub-tab: a link's ?tab= first, then the panel a ?focus= link points at, then the one this title was
+  // last left on.
+  const linkedTab = () => {
+    const r = parseRoute(window.location.hash)
+    if (r.name !== 'drama' || r.id !== dramaId) return undefined
+    return isTranslateTab(r.tab) ? r.tab : tabForFocus(r.focus) ?? undefined
+  }
+  const [wantedTab, setWantedTab] = useState<TranslateTab | null>(() => linkedTab() ?? readTranslateTab(browserStorage(), dramaId))
+  // A link followed while this stage is open (a glossary blocker, "Build the glossary") moves the tab too.
+  useEffect(() => {
+    const follow = () => {
+      const next = linkedTab()
+      if (next) setWantedTab(next)
+    }
+    window.addEventListener('hashchange', follow)
+    return () => window.removeEventListener('hashchange', follow)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dramaId])
+  const tab = resolveTranslateTab(wantedTab)
+  const selectTab = (next: TranslateTab) => {
+    setWantedTab(next)
+    writeTranslateTab(browserStorage(), dramaId, next)
+    // Keep the address true to the tab shown, so a reload or Back lands here and not on the tab first linked.
+    // replaceState sends no hashchange, so this does not come back through the listener above.
+    try {
+      window.history.replaceState(null, '', hashWithTab(window.location.hash, next))
+    } catch {
+      // the address stays as it was
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
     getTranslateConfig(dramaId).then(
@@ -696,51 +741,73 @@ export default function TranslateStage() {
     getTranslateConfig(dramaId).then((c) =>
       setConfig((prev) => (prev ? { ...prev, ollama_reachable: c.ollama_reachable ?? null } : prev)))
 
+  // A live job shows above every tab so a run started here stays in view from the Glossary tab; the finished
+  // run (Last run) belongs to the Translate tab.
+  const showJob = jobId !== null || tab === 'translate'
+
   return (
     <div className="stage-translate">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <SourceChangedWarning dramaId={dramaId} reloadKey={reloads} />
-      {config && (
-        <>
-          <FailedBatchesNotice
-            config={config}
-            form={runForm}
-            busy={busy}
-            onStarted={setJobId}
-            onDismissed={() => setConfig((c) => (c ? { ...c, last_translate_errors: null } : c))}
-          />
-          <GlossaryFlaggedNotice config={config} busy={busy} onStarted={setJobId} />
-        </>
-      )}
-      {!config && !error && (
-        <div className="skeleton-block translate-skeleton" role="status" aria-busy="true" aria-label="Loading translate options" />
-      )}
-      {config && (
-        <RunPanel
-          config={config}
-          busy={busy}
-          bulkPending={isBulkJobId(jobId)}
-          onStarted={setJobId}
-          onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
-          onPresetApplied={(p) => setConfig((c) => (c ? withPresetEngine(c, p) : c))}
-          onRecheckOllama={recheckOllama}
-          onForm={setRunForm}
-          retryRef={retry}
+      {showJob && (
+        <JobPanel
+          jobId={jobId}
+          job={job}
+          pollError={pollError}
+          lastRun={{ dramaId, ids: translateJobIds(dramaId), retryFor: () => (config ? () => retry.current?.() : null) }}
         />
       )}
-      <JobPanel
-        jobId={jobId}
-        job={job}
-        pollError={pollError}
-        lastRun={{ dramaId, ids: translateJobIds(dramaId), retryFor: () => (config ? () => retry.current?.() : null) }}
+      <Tabs
+        label="Translate sections"
+        idPrefix={TRANSLATE_TAB_PREFIX}
+        tabs={TRANSLATE_TABS}
+        active={tab}
+        onSelect={selectTab}
       />
-      <BulkBatchesPanel reloadKey={reloads} />
-      <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
-      <GlossaryPanel
-        focusReady={config !== null || error !== null}
-        retranslate={config && runForm ? { f: runForm, busy, onStarted: setJobId } : null}
-      />
-      <CharactersPanel focusReady={config !== null || error !== null} />
+      <MediaTabPanel id="translate" active={tab} prefix={TRANSLATE_TAB_PREFIX} className="translate-tabpanel">
+        {config && (
+          <>
+            <FailedBatchesNotice
+              config={config}
+              form={runForm}
+              busy={busy}
+              onStarted={setJobId}
+              onDismissed={() => setConfig((c) => (c ? { ...c, last_translate_errors: null } : c))}
+            />
+            <GlossaryFlaggedNotice config={config} busy={busy} onStarted={setJobId} />
+          </>
+        )}
+        {!config && !error && (
+          <div className="skeleton-block translate-skeleton" role="status" aria-busy="true" aria-label="Loading translate options" />
+        )}
+        {config && (
+          <RunPanel
+            config={config}
+            busy={busy}
+            bulkPending={isBulkJobId(jobId)}
+            onStarted={setJobId}
+            onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
+            onPresetApplied={(p) => setConfig((c) => (c ? withPresetEngine(c, p) : c))}
+            onRecheckOllama={recheckOllama}
+            onForm={setRunForm}
+            retryRef={retry}
+          />
+        )}
+        <BulkBatchesPanel reloadKey={reloads} />
+      </MediaTabPanel>
+      <MediaTabPanel id="glossary" active={tab} prefix={TRANSLATE_TAB_PREFIX} className="translate-tabpanel">
+        <GlossaryPanel
+          defaultOpen
+          focusReady={config !== null || error !== null}
+          retranslate={config && runForm ? { f: runForm, busy, onStarted: setJobId } : null}
+        />
+      </MediaTabPanel>
+      <MediaTabPanel id="characters" active={tab} prefix={TRANSLATE_TAB_PREFIX} className="translate-tabpanel">
+        <CharactersPanel defaultOpen focusReady={config !== null || error !== null} />
+      </MediaTabPanel>
+      <MediaTabPanel id="novel" active={tab} prefix={TRANSLATE_TAB_PREFIX} className="translate-tabpanel">
+        <NovelFilePanel kind="reference" defaultOpen busy={busy} onChanged={() => setReloads((n) => n + 1)} />
+      </MediaTabPanel>
     </div>
   )
 }

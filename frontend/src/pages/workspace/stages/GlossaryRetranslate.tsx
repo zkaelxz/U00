@@ -118,7 +118,7 @@ export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunFor
       <h4 id={`${ids}-title`}>Lines affected by the glossary</h4>
       <p className="muted">
         Lines whose source uses a glossary term (or one of its aliases), and lines whose English uses a banned
-        translation. Only the lines you tick are translated again, with the settings above.
+        translation. Only the lines you tick are translated again, with the settings on the Translate tab.
       </p>
       {preview && preview.terms.length > 0 && (
         <details className="glossary-retranslate-terms">

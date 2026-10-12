@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
 import { withExportLines } from './stageLineMocks'
+import { gotoTranslate } from './translateTabs'
 
 // Phone project (390x844, touch): the Suggest terms bar and the start card
 // fit the width and keep 44px touch targets.
@@ -17,8 +18,7 @@ test('the bar and the start card fit the phone with 44px targets', async ({ page
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: [] }))
   await withExportLines(page, 1, 3)
-  await page.goto('/#/drama/1/translate')
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await gotoTranslate(page, 'glossary')
   const card = page.getByTestId('glossary-start')
   await expect(card).toBeVisible()
   const targets = [

@@ -1,6 +1,7 @@
 import type { Locator, Page, Route } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { showTranslateCard } from './translateTabs'
 
 // Shared page.route mocks for the Maintenance assistant specs.
 // Every /api/assistant/* call is mocked (asking would reach an AI engine);
@@ -272,6 +273,7 @@ export async function openTab(page: Page, label: string) {
 // Open a fold by its region name, switching to its tab first.
 export async function openSection(page: Page, region: string) {
   if (TAB_OF[region]) await openTab(page, TAB_OF[region])
+  await showTranslateCard(page, region)
   const fold = page.getByRole('region', { name: region }).locator('details.section').first()
   if (!(await fold.evaluate((e) => (e as HTMLDetailsElement).open))) await fold.locator('summary').first().click()
 }

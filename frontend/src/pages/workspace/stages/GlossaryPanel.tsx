@@ -139,7 +139,7 @@ function RetranslateTab({ retranslate }: { retranslate?: RetranslateProps | null
         <button type="button" className={`${buttonClass('secondary')} glossary-retranslate-open`} disabled={open} onClick={() => setOpen(true)}>
           Re-translate lines affected by the glossary…
         </button>
-        <span className="muted">Uses the settings on the Translate form above.</span>
+        <span className="muted">Uses the settings on the Translate tab.</span>
       </div>
       {open && (
         <GlossaryRetranslate
@@ -153,13 +153,13 @@ function RetranslateTab({ retranslate }: { retranslate?: RetranslateProps | null
   )
 }
 
-export function GlossaryPanel({ focusReady, retranslate }: { focusReady?: boolean; retranslate?: RetranslateProps | null }) {
+export function GlossaryPanel({ focusReady, retranslate, defaultOpen }: { focusReady?: boolean; retranslate?: RetranslateProps | null; defaultOpen?: boolean }) {
   const { dramaId } = useStage()
   // Everything below belongs to one title; a different title starts clean.
-  return <GlossaryBody key={dramaId} focusReady={focusReady} retranslate={retranslate} />
+  return <GlossaryBody key={dramaId} focusReady={focusReady} retranslate={retranslate} defaultOpen={defaultOpen} />
 }
 
-function GlossaryBody({ focusReady, retranslate }: { focusReady?: boolean; retranslate?: RetranslateProps | null }) {
+function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: boolean; retranslate?: RetranslateProps | null; defaultOpen?: boolean }) {
   const { dramaId, drama } = useStage()
   const focusSignal = useStageFocus('glossary', 'translate-glossary', focusReady)
   const seriesId = drama.series_id ?? null
@@ -337,6 +337,7 @@ function GlossaryBody({ focusReady, retranslate }: { focusReady?: boolean; retra
   return (
     <Section
       storageKey="translate.glossary"
+      defaultOpen={defaultOpen}
       openSignal={focusSignal}
       title="Glossary"
       count={terms?.length}

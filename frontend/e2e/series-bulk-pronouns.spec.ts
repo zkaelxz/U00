@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { showTranslateCard } from './translateTabs'
 
 // Translate > Characters > Series cast > Bulk pronouns (parity X16): tick
 // people, pick pronouns, and the page edits them one at a time through the
@@ -18,6 +19,7 @@ async function shot(page: Page, name: string) {
 }
 
 async function openSection(page: Page, title: string) {
+  await showTranslateCard(page, title)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }

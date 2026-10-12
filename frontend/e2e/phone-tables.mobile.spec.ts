@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { installHitArea } from './hitArea'
 import { mockPhoneTables } from './phoneTablesMocks'
+import { showTranslateCard } from './translateTabs'
 
 // Phone: the Characters and Glossary tables are stacked cards and Bulk batches the stacked list. Nothing scrolls
 // sideways, every field and the Save and Edit buttons are on screen and answer a tap, names stay accessible.
@@ -17,6 +18,7 @@ test.afterEach(async ({ page }) => {
 const sizes = [{ width: 390, height: 844 }, { width: 360, height: 800 }]
 
 async function openSection(page: Page, title: string) {
+  await showTranslateCard(page, title)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }

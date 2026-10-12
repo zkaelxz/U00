@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
+import { translateTab } from './translateTabs'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -85,7 +86,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   await expectNoHorizontalOverflow(page)
   await shot(page, 'translate-preset-phone')
 
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await translateTab(page, 'glossary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossary.getByRole('tab', { name: /^Find terms/ }).click()
   await glossary.getByText('Import or export').click()

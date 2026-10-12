@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
 import { hitHeight, installHitArea } from './hitArea'
+import { gotoTranslate } from './translateTabs'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -24,8 +25,7 @@ test('the name check fits a phone', async ({ page }) => {
     result: { titles_total: 2, titles_scanned: 2, titles_unavailable: 0, titles_failed: 0, reasons: [], truncated: false, stopped_early: false,
       singletons_omitted: 0, groups_omitted: 0, groups: [group], counts: { unresolved: 1, right: 0, wrong: 0, skip: 0 } },
   } }))
-  await page.goto('/#/drama/1/translate')
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await gotoTranslate(page, 'glossary')
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossaryTab(page, 'Names')
   await glossary.getByRole('button', { name: 'Check names across all titles' }).click()

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockPhoneTables } from './phoneTablesMocks'
+import { showTranslateCard } from './translateTabs'
 
 // Desktop: the Characters and Glossary tables keep their real table layout (the card layout is phone-only).
 
@@ -14,6 +15,7 @@ test.afterEach(async ({ page }) => {
 })
 
 async function open(page: Page, title: string) {
+  await showTranslateCard(page, title)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
@@ -24,6 +26,7 @@ test('characters and glossary stay tables at 1280', async ({ page }) => {
   await open(page, 'Characters')
   await open(page, 'Glossary')
   for (const name of ['Characters', 'Glossary']) {
+    await showTranslateCard(page, name)
     const table = page.getByRole('region', { name }).locator('table')
     await expect(table).toHaveCSS('display', 'table')
     await expect(table.locator('thead')).toHaveCSS('display', 'table-header-group')
@@ -31,10 +34,12 @@ test('characters and glossary stay tables at 1280', async ({ page }) => {
     await expect(table.locator('td').first()).toHaveCSS('display', 'table-cell')
     expect(await table.evaluate((t) => t.scrollWidth <= t.parentElement!.clientWidth)).toBe(true)
   }
+  await showTranslateCard(page, 'Glossary')
+  await expect(page.getByRole('region', { name: 'Glossary' }).getByRole('columnheader', { name: 'Aliases' })).toBeVisible()
+  await showTranslateCard(page, 'Characters')
   const chars = page.getByRole('region', { name: 'Characters' })
   await expect(chars.getByRole('columnheader', { name: 'Speaker' })).toBeVisible()
   await expect(chars.getByRole('columnheader', { name: 'Reference' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Glossary' }).getByRole('columnheader', { name: 'Aliases' })).toBeVisible()
   // The label pseudo-elements are phone-only.
   const before = await chars.locator('td[data-label="Lines"]').first().evaluate((e) => getComputedStyle(e, '::before').content)
   expect(before).toBe('none')
