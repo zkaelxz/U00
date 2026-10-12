@@ -102,9 +102,8 @@ def _build_engine(engine_name: str):
             free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
-    except ImportError:
-        raise DependencyUnavailableError(
-            f"The {engine_name} engine isn't installed on this PC.") from None
+    except DependencyUnavailableError:
+        raise  # a missing package keeps its own 503 and package name
     except Exception as e:
         _log_failure("engine start", e)
         raise ServiceError("The engine could not be started.") from None

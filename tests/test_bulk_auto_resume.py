@@ -148,3 +148,26 @@ def test_settings_route_writes_the_toggle(isolated_db):
     assert client.get("/api/settings").json()["bulk_auto_resume"] is False
     assert client.post("/api/settings", json={"bulk_auto_resume": True}).json()["bulk_auto_resume"] is True
     assert client.post("/api/settings", json={"bulk_auto_resume": "yes"}).status_code == 422
+
+
+def test_a_job_whose_package_is_missing_is_skipped_but_others_still_resume(isolated_db, monkeypatch):
+    import translate_engines
+    from lib.errors import MissingPackageError
+    did = _setup(monkeypatch)
+    real = translate_engines.get_engine
+
+    def get_engine(name, *a, **k):
+        if name == "claude":
+            raise MissingPackageError("anthropic")
+        return real(name, *a, **k)
+    monkeypatch.setattr(translate_engines, "get_engine", get_engine)
+    broken = _pending_batch(did, engine="claude")
+    ok = _pending_batch(did, engine="gemini")
+    settings_service.set_settings({"bulk_auto_resume": True})
+    assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 1, "skipped": 1}
+    assert background_jobs.is_running(bt.poll_job_id(ok))
+    assert not background_jobs.is_running(bt.poll_job_id(broken))
+    assert db.get_bulk_job(broken)["status"] == "submitted"
+    assert any("package is not installed" in t for t in _notes())
+    bt.cancel_bulk_job(ok)
+    _wait_idle([ok])

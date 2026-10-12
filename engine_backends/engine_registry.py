@@ -2,6 +2,7 @@
 
 import inspect
 import re
+from pathlib import Path
 from lib.errors import MissingPackageError
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
@@ -305,10 +306,32 @@ def get_engine(engine_name: str, api_key: str = None, model: str = None,
             return cls(api_key, model, **kwargs)
         return cls(api_key, **kwargs)
     except ImportError as exc:
-        raise MissingPackageError(_missing_package_name(exc, engine_name)) from None
+        package = _missing_package_name(exc, engine_name)
+        _log_import_failure(exc, engine_name)
+        if _is_own_module(package):
+            raise  # our own broken import is a bug (500 with a traceback), not a missing install
+        raise MissingPackageError(package) from None
 
 
 _PACKAGE_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _is_own_module(top: str) -> bool:
+    return (_REPO_ROOT / top).is_dir() or (_REPO_ROOT / f"{top}.py").is_file()
+
+
+def _log_import_failure(exc: ImportError, engine_name: str) -> None:
+    """The 503 carries only the package name, so the cause is logged here:
+    type and module name only, since the message and path can hold a path."""
+    try:
+        import applog
+        applog.get_logger().warning("Engine %s could not be built: %s (module %r)", engine_name,
+                                    type(exc).__name__, getattr(exc, "name", None))
+    except Exception:
+        pass
 
 
 def _missing_package_name(exc: ImportError, fallback: str) -> str:

@@ -126,3 +126,64 @@ def test_a_missing_hugging_face_token_is_its_own_error(drama, monkeypatch):
         diarization_service.start_diarization_run(drama[0])
     assert exc.value.message == "No Hugging Face token is configured. Add it in Settings."
     assert exc.value.details["reason"] == "no_token"
+
+
+def test_cancelling_a_bulk_job_still_cancels_locally_when_the_package_is_missing(drama):
+    did, _ = drama
+    jid = db.create_bulk_job(did, "claude", "m", "submitted", [(0, "k", "h", "")])
+    out = translate_run_service.cancel_bulk_translation(did, jid)
+    assert out["bulk_job"]["status"] == "cancelled"
+    assert db.get_bulk_job(jid)["status"] == "cancelled"
+    assert "provider's console" in out["message"]
+
+
+def test_retry_blocked_line_keeps_the_package_error():
+    from services import blocked_retry_service
+    with pytest.raises(MissingPackageError) as exc:
+        blocked_retry_service._build_engine("claude")
+    _assert_package_error(exc.value)
+
+
+def test_sources_extraction_keeps_the_package_error():
+    from services import sources_extraction_service
+    with pytest.raises(MissingPackageError) as exc:
+        sources_extraction_service.build_ai_engine("claude")
+    _assert_package_error(exc.value)
+
+
+def test_diagnostics_engine_test_names_the_package():
+    import diagnostics_report
+    out = diagnostics_report.check_engine_reachable("claude", "k")
+    assert out == {"engine": "claude", "ok": False,
+                   "error": "The Python package anthropic is not installed."}
+
+
+def test_our_own_broken_import_stays_an_import_error_and_is_logged(monkeypatch):
+    import applog
+
+    def boom(api_key):
+        raise ModuleNotFoundError("No module named 'lib.errors'", name="lib.errors")
+    monkeypatch.setattr("engine_backends.claude.make_anthropic_client", boom)
+    logged = []
+
+    class Log:
+        def warning(self, *a):
+            logged.append(a)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+    with pytest.raises(ImportError) as exc:
+        translate_engines.get_engine("claude", "k")
+    assert not isinstance(exc.value, MissingPackageError)
+    assert logged and "lib" in repr(logged[0]) and "ModuleNotFoundError" in repr(logged[0])
+
+
+def test_a_missing_package_is_logged_with_type_and_module_name_only(monkeypatch):
+    import applog
+    logged = []
+
+    class Log:
+        def warning(self, *a):
+            logged.append(a)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+    with pytest.raises(MissingPackageError):
+        translate_engines.get_engine("claude", "k")
+    assert logged and "anthropic" in repr(logged[0])
