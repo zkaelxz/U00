@@ -1,23 +1,27 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   deleteGlossaryTerms,
   getGlossaryCatalogues,
   getGlossaryTerms,
   getInstructions,
+  getSpellingSuggestions,
   saveGlossaryTerm,
-  saveInstructions,
 } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { Tabs } from '../../../components/Tabs'
+import { tabButtonId, tabPanelId } from '../../../components/tabIds'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateStage'
-import { splitLines } from '../translateForm'
+import { splitLines, type RunForm } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
+import { InstructionsEditor } from './GlossaryInstructions'
+import { GlossaryRetranslate } from './GlossaryRetranslate'
 import { SuggestSpellings } from './GlossarySpellings'
 import { PossibleNames, SimilarSpellings } from './GlossaryVariants'
 import { NameReportPanel } from './NameReportPanel'
@@ -26,7 +30,10 @@ import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
-import { useGlossaryTermsVersion } from './useGlossaryRun'
+import { scanBanner, scanSummary, sourceToShow } from './glossaryScan'
+import { GLOSSARY_TABS, emptyTabText, instructionsSummary, type GlossaryTab } from './glossaryTabs'
+import { loadGlossaryUi, saveGlossaryUi } from './glossaryUi'
+import { useGlossaryScans, useGlossaryTermsVersion } from './useGlossaryRun'
 
 interface TermForm {
   id?: number
@@ -115,48 +122,53 @@ function TermEditor({ initial, catalogues, onSave, onCancel }: {
   )
 }
 
-function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; initial: string }) {
-  const { dramaId } = useStage()
-  const [text, setText] = useState(initial)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<unknown>(null)
-  const label = scope === 'project' ? 'Project instructions' : 'Series instructions'
+// What the Translate stage hands over so the Re-translate tab can use the run form's settings.
+export interface RetranslateProps {
+  f: RunForm
+  busy: boolean
+  onStarted: (jobId: string) => void
+}
+
+// The list loads when it opens, not when the page does: it reads every line.
+function RetranslateTab({ retranslate }: { retranslate?: RetranslateProps | null }) {
+  const [open, setOpen] = useState(false)
+  if (!retranslate) return <p className="muted" role="status">Loading the translate options…</p>
   return (
-    <div className="stack">
-      <Field label={label}>
-        <textarea
-          rows={3}
-          value={text}
-          onChange={(e) => {
-            setSaved(false)
-            setText(e.target.value)
-          }}
-        />
-      </Field>
+    <>
       <div className="actions">
-        <button
-          type="button"
-          className={buttonClass('secondary', 'sm')}
-          onClick={() =>
-            saveInstructions(dramaId, scope, text).then(() => {
-              setError(null)
-              setSaved(true)
-            }, setError)
-          }
-        >
-          Save {scope} instructions
+        <button type="button" className={`${buttonClass('secondary')} glossary-retranslate-open`} disabled={open} onClick={() => setOpen(true)}>
+          Re-translate lines affected by the glossary…
         </button>
-        {saved && <span role="status">Saved.</span>}
+        <span className="muted">Uses the settings on the Translate form above.</span>
       </div>
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </div>
+      {open && (
+        <GlossaryRetranslate
+          f={retranslate.f}
+          busy={retranslate.busy}
+          onStarted={retranslate.onStarted}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   )
 }
 
-export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
+export function GlossaryPanel({ focusReady, retranslate }: { focusReady?: boolean; retranslate?: RetranslateProps | null }) {
+  const { dramaId } = useStage()
+  // Everything below belongs to one title; a different title starts clean.
+  return <GlossaryBody key={dramaId} focusReady={focusReady} retranslate={retranslate} />
+}
+
+function GlossaryBody({ focusReady, retranslate }: { focusReady?: boolean; retranslate?: RetranslateProps | null }) {
   const { dramaId, drama } = useStage()
   const focusSignal = useStageFocus('glossary', 'translate-glossary', focusReady)
   const seriesId = drama.series_id ?? null
+  const [remembered] = useState(() => loadGlossaryUi(dramaId))
+  const [tab, setTabState] = useState<GlossaryTab>(remembered.tab ?? 'terms')
+  const setTab = (t: GlossaryTab) => {
+    setTabState(t)
+    saveGlossaryUi(dramaId, { tab: t })
+  }
   const [terms, setTerms] = useState<GlossaryTerm[] | null>(null)
   const [catalogues, setCatalogues] = useState<GlossaryCatalogues | null>(null)
   // seriesId is the series the text was read for: the series editor waits
@@ -174,14 +186,33 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   const termsVersion = useGlossaryTermsVersion()
   const [deleteFailure, setDeleteFailure] = useState<unknown>(null)
   const sources = useSuggestSources()
-  // The viewer's source choice (null follows the default) and a pending
-  // "suggest" request from the empty-state card.
-  const [pick, setPick] = useState<GlossarySource | null>(null)
+  const scans = useGlossaryScans(dramaId)
+  // A source chosen on this visit; null follows a held scan, then the remembered source, then the default.
+  const [userPick, setUserPick] = useState<GlossarySource | null>(null)
+  const source = sourceToShow({ userPick, storedPick: remembered.source, scans: scans.scans, defaultSource: sources.defaultSource })
+  const held = scans.loaded ? scanBanner(scans.scans, remembered.source) : null
+  const heldSource = held?.source ?? null
+  // A pending "suggest" request from the empty-state card.
   const [suggestRequested, setSuggestRequested] = useState(false)
   const [importSignal, setImportSignal] = useState(0)
-  const [showNameReport, setShowNameReport] = useState(false)
+  const [showNameReport, setShowNameReportState] = useState(remembered.nameReportOpen)
+  const setShowNameReport = (open: boolean) => {
+    setShowNameReportState(open)
+    saveGlossaryUi(dramaId, { nameReportOpen: open })
+  }
   const [similarFor, setSimilarFor] = useState<number | null>(null)
-  const [suggestFor, setSuggestFor] = useState<number | null>(null)
+  const [suggestFor, setSuggestForState] = useState<number | null>(remembered.spellingTermId)
+  const setSuggestFor = (id: number | null) => {
+    setSuggestForState(id)
+    saveGlossaryUi(dramaId, { spellingTermId: id })
+  }
+
+  // The chosen source is remembered once it is the person's choice or a scan lives there, so a
+  // remount (leaving the page, a reload) opens on the same source rather than on the default.
+  useEffect(() => {
+    if (userPick) saveGlossaryUi(dramaId, { source: userPick })
+    else if (heldSource) saveGlossaryUi(dramaId, { source: heldSource })
+  }, [dramaId, userPick, heldSource])
 
   useEffect(() => {
     let cancelled = false
@@ -197,6 +228,26 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       cancelled = true
     }
   }, [dramaId, reloads, termsVersion, seriesId])
+
+  // The spelling suggestions live on the server; when this page was left and reopened, the panel
+  // for the term they answered comes back with them.
+  const spellingChecked = useRef(false)
+  useEffect(() => {
+    if (!terms || spellingChecked.current) return
+    spellingChecked.current = true
+    if (suggestFor !== null) return
+    getSpellingSuggestions(dramaId).then(
+      (r) => {
+        const answered = r.status === 'done' ? r.result?.term : null
+        const t = answered ? terms.find((x) => x.term_original === answered) : null
+        if (t) {
+          setSuggestForState(t.id)
+          saveGlossaryUi(dramaId, { spellingTermId: t.id })
+        }
+      },
+      () => undefined,
+    )
+  }, [dramaId, terms, suggestFor])
 
   useEffect(() => {
     let cancelled = false
@@ -260,7 +311,28 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   // Empty glossary of a drama in a series: one card to start from. Without a
   // series the Series section above is the first thing to do.
   const showStart = !!terms && terms.length === 0 && seriesId != null
-  const startSource = pick ?? sources.defaultSource
+  const hasTerms = !!terms && terms.length > 0
+  const emptyCtx = { hasSeries: seriesId != null, termCount: terms ? terms.length : null }
+  const tabs = GLOSSARY_TABS.map((t) =>
+    t.id === 'find' && held ? { ...t, attention: held.kind === 'ready' ? held.count : 1 } : t,
+  )
+  const termsSummary = seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined
+  const sectionSummary = [termsSummary, held ? scanSummary(held) : null].filter(Boolean).join(', ') || undefined
+  const panel = (id: GlossaryTab, children: ReactNode) => (
+    <div
+      id={tabPanelId('glossary', id)}
+      role="tabpanel"
+      aria-labelledby={tabButtonId('glossary', id)}
+      className="stack glossary-panel"
+      hidden={tab !== id}
+    >
+      {emptyTabText(id, emptyCtx) !== null && id !== 'terms' ? <p className="muted" role="status">{emptyTabText(id, emptyCtx)}</p> : children}
+    </div>
+  )
+  const openNames = (open: () => void) => {
+    open()
+    setTab('names')
+  }
 
   return (
     <Section
@@ -268,19 +340,15 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       openSignal={focusSignal}
       title="Glossary"
       count={terms?.length}
-      summary={seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined}
+      summary={sectionSummary}
     >
-      <div id="translate-glossary" role="region" aria-label="Glossary">
+      <div id="translate-glossary" role="region" aria-label="Glossary" className="stack">
+      <Tabs label="Glossary" idPrefix="glossary" tabs={tabs} active={tab} onSelect={setTab} />
+      {panel('terms', (
+        <>
       <SeriesAssign />
-      <SuggestTerms
-        sources={sources}
-        hasTerms={!!terms && terms.length > 0}
-        startRequested={suggestRequested}
-        onStartHandled={() => setSuggestRequested(false)}
-        pick={pick}
-        onPick={setPick}
-      />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {emptyTabText('terms', emptyCtx) && <p className="muted" role="status">{emptyTabText('terms', emptyCtx)}</p>}
       {showStart && !editing && (
         <div className="glossary-start" role="group" aria-label="Start your glossary" data-testid="glossary-start">
           <h4>Start your glossary</h4>
@@ -289,16 +357,26 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
             <button
               type="button"
               className={buttonClass('primary')}
-              disabled={!!sources.blockers[startSource] || !sources.ready}
+              disabled={!!sources.blockers[source] || !sources.ready}
               onClick={() => {
-                setPick(startSource)
+                setUserPick(source)
                 setSuggestRequested(true)
+                setTab('find')
               }}
             >
-              {startCardSuggestLabel(startSource)}
+              {startCardSuggestLabel(source)}
             </button>
             <button type="button" className={buttonClass('secondary')} onClick={() => setEditing(EMPTY)}>Add a term</button>
-            <button type="button" className={buttonClass('secondary')} onClick={() => setImportSignal((n) => n + 1)}>Import a file</button>
+            <button
+              type="button"
+              className={buttonClass('secondary')}
+              onClick={() => {
+                setImportSignal((n) => n + 1)
+                setTab('find')
+              }}
+            >
+              Import a file
+            </button>
           </div>
         </div>
       )}
@@ -339,29 +417,13 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
                 <td role="cell" data-label="Banned" className="card-meta">{t.banned_translations.join(', ')}</td>
                 <td role="cell" data-label="Exact" className="card-meta">{t.enforce_exact ? 'Yes' : 'No'}</td>
                 <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={() => setSimilarFor(similarFor === t.id ? null : t.id)}>Find similar</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} title="Ask the engine how this name may have been written, then check it against the lines" onClick={() => setSuggestFor(suggestFor === t.id ? null : t.id)}>Suggest spellings</button></td>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={() => openNames(() => setSimilarFor(similarFor === t.id ? null : t.id))}>Find similar</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} title="Ask the engine how this name may have been written, then check it against the lines" onClick={() => openNames(() => setSuggestFor(suggestFor === t.id ? null : t.id))}>Suggest spellings</button></td>
               </tr>
             ))}
           </tbody>
         </table></div>
       )}
-      {terms?.map((t) => t.id === similarFor && (
-        <SimilarSpellings
-          key={`similar-${t.id}-${termsVersion}`}
-          term={t}
-          onAdded={() => setReloads((n) => n + 1)}
-          onClose={() => setSimilarFor(null)}
-        />
-      ))}
-      {terms?.map((t) => t.id === suggestFor && (
-        <SuggestSpellings
-          key={`suggest-${t.id}-${termsVersion}`}
-          term={t}
-          onAdded={() => setReloads((n) => n + 1)}
-          onClose={() => setSuggestFor(null)}
-        />
-      ))}
       {terms && terms.length > 0 && (
         <div className="glossary-bulk">
           {!confirming ? (
@@ -410,7 +472,55 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
         </div>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
+      <LanguagePacks
+        glossarySources={(terms ?? []).map((t) => t.term_original)}
+        hasSeries={seriesId != null}
+        onAdded={() => setReloads((n) => n + 1)}
+      />
+      <VtuberNames />
+        </>
+      ))}
+      {panel('find', (
+        <>
+      {scans.loaded ? (
+        <SuggestTerms
+          sources={sources}
+          source={source}
+          hasTerms={hasTerms}
+          startRequested={suggestRequested}
+          onStartHandled={() => setSuggestRequested(false)}
+          onPick={setUserPick}
+        />
+      ) : (
+        <p className="muted" role="status">Checking for a glossary scan…</p>
+      )}
+      <GlossaryImport openSignal={importSignal} hasTerms={hasTerms} onImported={() => setReloads((n) => n + 1)} />
+        </>
+      ))}
+      {panel('names', (
+        <>
       <PossibleNames hasSeries={seriesId != null} onCreated={() => setReloads((n) => n + 1)} />
+      {similarFor === null && suggestFor === null && hasTerms && (
+        <p className="muted">To look for other spellings of a term, use Find similar or Suggest spellings on its row in Terms.</p>
+      )}
+      {terms?.map((t) => t.id === similarFor && (
+        <SimilarSpellings
+          key={`similar-${t.id}-${termsVersion}`}
+          term={t}
+          onAdded={() => setReloads((n) => n + 1)}
+          onClose={() => setSimilarFor(null)}
+        />
+      ))}
+      {terms?.map((t) => t.id === suggestFor && (
+        <SuggestSpellings
+          key={`suggest-${t.id}-${termsVersion}`}
+          term={t}
+          initialEnglish={loadGlossaryUi(dramaId).english[String(t.id)]}
+          onEnglish={(v) => saveGlossaryUi(dramaId, { english: { [String(t.id)]: v } })}
+          onAdded={() => setReloads((n) => n + 1)}
+          onClose={() => setSuggestFor(null)}
+        />
+      ))}
       {showNameReport ? (
         <NameReportPanel onClose={() => setShowNameReport(false)} />
       ) : (
@@ -425,21 +535,36 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
           </button>
         </div>
       )}
-      <GlossaryImport openSignal={importSignal} hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />
-      <LanguagePacks
-        glossarySources={(terms ?? []).map((t) => t.term_original)}
-        hasSeries={seriesId != null}
-        onAdded={() => setReloads((n) => n + 1)}
-      />
-      <VtuberNames />
-      {instructions && (
+        </>
+      ))}
+      {panel('instructions', instructions ? (
         <>
-          <InstructionsEditor key="project" scope="project" initial={instructions.project} />
-          {instructions.seriesId === seriesId && (
-            <InstructionsEditor key={`series-${seriesId ?? 'none'}`} scope="series" initial={instructions.series} />
+          <p className="muted" data-testid="instructions-state">
+            Project: {instructionsSummary(instructions.project)}
+            {seriesId != null && instructions.seriesId === seriesId ? ` · Series: ${instructionsSummary(instructions.series)}` : ''}
+          </p>
+          <InstructionsEditor
+            key="project"
+            scope="project"
+            initial={instructions.project}
+            saved={instructions.project}
+            defaultOpen
+            onSaved={(text) => setInstructions((cur) => cur && { ...cur, project: text })}
+          />
+          {seriesId == null ? (
+            <p className="muted">Series instructions need a series: add this title to one in the Terms tab.</p>
+          ) : instructions.seriesId === seriesId && (
+            <InstructionsEditor
+              key={`series-${seriesId}`}
+              scope="series"
+              initial={instructions.series}
+              saved={instructions.series}
+              onSaved={(text) => setInstructions((cur) => cur && { ...cur, series: text })}
+            />
           )}
         </>
-      )}
+      ) : <p className="muted" role="status">Loading instructions…</p>)}
+      {panel('retranslate', <RetranslateTab retranslate={retranslate} />)}
       </div>
     </Section>
   )

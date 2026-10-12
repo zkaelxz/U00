@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { glossaryTab } from './glossaryTabs'
 
 // The Glossary section starts folded the first time; these tests need its body.
 test.beforeEach(async ({ page }) => {
@@ -25,7 +26,7 @@ async function openGlossary(page: Page, mockTerms = true) {
   if (mockTerms) await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: TERMS }))
   await page.goto('/#/drama/1/translate')
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByLabel('Project instructions')).toBeVisible()
+  await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
   return glossary
 }
 
@@ -86,6 +87,7 @@ test('possible names: a cluster can be named, but needs a series first', async (
     },
   }))
   const glossary = await openGlossary(page)
+  await glossaryTab(page, 'Names')
   await glossary.getByRole('button', { name: 'Find possible names' }).click()
   const names = glossary.getByRole('region', { name: 'Possible names' })
   await expect(names).toContainText('ミカ · ミッカ')
