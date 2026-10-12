@@ -296,11 +296,16 @@ def _install_commands(name: str) -> list:
     torchaudio on an NVIDIA PC never reaches here: the install plan refuses
     them (install_registry.unqueueable_reason) for the GPU PyTorch setup."""
     # Fresh snapshot: the plan the owner confirmed may be minutes old.
-    removals = [(install_registry.uninstall_argv(n), PIP_TIMEOUT_SECONDS)
-                for n in install_registry.cv2_swap_names([name], pending_install.snapshot())]
-    return removals + [(_pip("install", diagnostics.pip_install_name(name),
-                             *diagnostics.constraints_pip_args(default_project_root())),
-                        PIP_TIMEOUT_SECONDS)]
+    install = _pip("install", diagnostics.pip_install_name(name),
+                   *diagnostics.constraints_pip_args(default_project_root()))
+    swap = install_registry.cv2_swap_names([name], pending_install.snapshot())
+    if not swap:
+        return [(install, PIP_TIMEOUT_SECONDS)]
+    # The preview comes first: the uninstall always works, but putting the
+    # package back after a failed install needs the index.
+    return [(install_registry.preflight_argv(install), PIP_TIMEOUT_SECONDS),
+            *[(install_registry.uninstall_argv(n), PIP_TIMEOUT_SECONDS) for n in swap],
+            (install, PIP_TIMEOUT_SECONDS)]
 
 
 def _torch_setup_commands(variant: str) -> list:
@@ -312,16 +317,18 @@ _TORCH_CONSTRAINT_RE = re.compile(r"\(constraint\)\s+(torch|torchvision|torchaud
                                   re.IGNORECASE)
 
 
-def torch_conflict_hint(lines, pins: list) -> str:
+def torch_conflict_hint(lines, pins: list, changed: bool = False) -> str:
     """A plain-English refusal when pip stopped because the package needs a
     different torch than the pinned one (pip names the constraint in its
     "The conflict is caused by" block). pip resolves before it changes
-    anything, so nothing was installed or removed."""
+    anything, so nothing was installed or removed, unless an earlier command of
+    the same run (`changed`) already removed a package."""
     for line in lines:
         if _TORCH_CONSTRAINT_RE.search(line or ""):
             have = ", ".join(p.replace("==", " ") for p in pins)
             return ("This package needs a different PyTorch than the one installed "
-                    f"({have}), so nothing was changed: installing it would have replaced "
+                    f"({have}), so " + ("it was not installed" if changed else "nothing was changed")
+                    + ": installing it would have replaced "
                     "your PyTorch (and a CUDA build with a CPU one). Leave it, or set up a "
                     "PyTorch version it supports under GPU PyTorch first.")
     return None
@@ -343,7 +350,7 @@ def _run_commands(cmds: list, torch_pins: list = None, job_id: str = None) -> di
     stream_kwargs = {"warn": job_process_kill._warn_via_jobs}
     if cancel is not None:
         stream_kwargs["cancel"] = cancel
-    tail, ok, hint, raw = [], True, None, []
+    tail, ok, hint, raw, removed = [], True, None, [], False
     for n, (cmd, timeout) in enumerate(cmds):
         if cancel is not None and cancel():
             raise background_jobs.JobCancelled(job_id)
@@ -362,12 +369,13 @@ def _run_commands(cmds: list, torch_pins: list = None, job_id: str = None) -> di
                 if item.get("cancelled"):
                     raise background_jobs.JobCancelled(job_id)
                 ok = ok and item["returncode"] == 0 and not item.get("timed_out")
+                removed = removed or (ok and cmd[3:4] == ["uninstall"])
                 if item.get("timed_out"):
                     tail = (tail + ["(stopped: pip took too long)"])[-_ADMIN_OUTPUT_TAIL:]
         if not ok:
             break
     if not ok and torch_pins:
-        hint = torch_conflict_hint(raw, torch_pins) or hint
+        hint = torch_conflict_hint(raw, torch_pins, changed=removed) or hint
     return {"ok": ok, "output_tail": tail, "hint": None if ok else hint}
 
 

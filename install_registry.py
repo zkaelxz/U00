@@ -87,6 +87,14 @@ def uninstall_argv(name: str, python: str = None) -> list:
     return [python or sys.executable, "-m", "pip", "uninstall", "-y", name]
 
 
+def preflight_argv(install: list) -> list:
+    """The install argv resolved without changing anything. It runs before an
+    uninstall: the uninstall is local and always works, but the restore after
+    a failed install needs the index, so the swap must not start unless pip
+    can already resolve the install."""
+    return [*install, "--dry-run", "--quiet"]
+
+
 def write_torch_pins(keys):
     """Path of a temporary constraints file pinning the installed torch family
     (the caller removes it), or None when there is nothing to pin or the keys

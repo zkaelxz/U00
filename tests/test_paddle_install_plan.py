@@ -63,3 +63,11 @@ def test_contrib_over_contrib_is_not_a_clash():
 def test_the_registry_offers_both_paddle_packages():
     assert install_registry.unqueueable_reason(["paddleocr", "paddlepaddle"]) is None
     assert {"paddleocr", "paddlepaddle"} <= set(diagnostics.OPTIONAL_DEPENDENCIES)
+
+
+def test_a_plan_without_a_preview_still_discloses_the_removal(monkeypatch):
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: (None, "offline"))
+    p = plan_mod.build_plan(["paddleocr"], windows=False,
+                            installed={**APP_ENV, "opencv-python": "4.10.0.84"})
+    assert p["swap"] == ["opencv-python"] and p["summary"][0].startswith("Remove opencv-python first")
+    assert p["available"] is False

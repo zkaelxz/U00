@@ -174,6 +174,12 @@ def _summary(changes: list) -> list:
     return lines
 
 
+def _swap_line(swap: list) -> str:
+    return ("Remove " + ", ".join(swap) + " first: PaddleOCR needs opencv-contrib-python, and "
+            "the two cannot share one 'cv2' folder. Baihe previews the install before it "
+            "removes anything.")
+
+
 def _dry_run(argv: list, runner):
     fd, report_path = tempfile.mkstemp(prefix="baihe-plan-", suffix=".json")
     os.close(fd)
@@ -258,6 +264,11 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
                                "you have, so nothing was changed.")
         return plan
     if report is None:
+        swap = install_registry.cv2_swap_names(
+            keys, pending_install.snapshot() if installed is None else installed)
+        plan["swap"] = swap
+        if swap:
+            plan["summary"].append(_swap_line(swap))
         plan["note"] = ("Couldn't preview what will change: " + (why or "no preview.")
                         + (" It will install when you restart Baihe." if windows else ""))
         plan["mode"] = "restart" if windows else "now"
@@ -272,8 +283,7 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
     swap = install_registry.cv2_swap_names(keys, installed)
     plan["swap"] = swap
     if swap:
-        plan["summary"].insert(0, "Remove " + ", ".join(swap) + " first: PaddleOCR needs "
-                               "opencv-contrib-python, and the two cannot share one 'cv2' folder.")
+        plan["summary"].insert(0, _swap_line(swap))
     # The swap removes the plain flavour before the install, so the clash check
     # sees the environment as it will be then.
     clash = cv2_clash({n: v for n, v in installed.items() if n not in swap}, changes)
