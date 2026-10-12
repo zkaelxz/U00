@@ -79,6 +79,9 @@ test('the first card of a tab is open the first time, the rest are closed, and a
   await expect(card('Structure')).toHaveAttribute('open', '')
   await expect(card('Merge short lines')).not.toHaveAttribute('open', '')
   await card('Structure').locator(':scope > summary').click()
+  // Section saves the choice from the <details> toggle event, which fires in a later task than the
+  // click; reloading before it runs would lose the choice, so wait for the stored value.
+  await page.waitForFunction(() => window.localStorage.getItem('baihe.section.review.structure') === '0')
   await page.reload()
   await openTab(page, 'Restructure')
   await expect(card('Structure')).not.toHaveAttribute('open', '')
