@@ -479,23 +479,25 @@ def job_drama_ownership(principal, job_ids) -> dict:
     return rows
 
 
-def can_see_job(principal, job_id, owner_user_id, drama_rows=None) -> bool:
+def can_see_job(principal, job_id, owner_user_id, writing: bool = False,
+                drama_rows=None) -> bool:
     """Admins, the local owner and auth off see every job. A drama's job
     (`<prefix><drama_id>`) is visible to whoever can see that drama --
     its starter included, so a drama that went private stops showing its
     jobs to them (review L-1). Any other job is visible only to the user
     who started it: another user's or the PC's Discover/Sources/Live/
     library job is hidden. Seeing a job is not leave to stop it
-    (may_cancel_job). `drama_rows`: job_drama_ownership's result, read
-    once for a whole list."""
-    if _sees_everything(principal):
+    (may_cancel_job). `writing` (changing a Live follow): an admin without
+    the override may act only on what a member could see. `drama_rows`:
+    job_drama_ownership's result, read once for a whole list."""
+    if _everything(principal, writing):
         return True
     drama_id = drama_id_of_job(job_id)
     if drama_id is not None and drama_rows is not None:
         row = drama_rows.get(drama_id)
-        return bool(row) and _visible(principal, "drama", row)
+        return bool(row) and _visible(principal, "drama", row, writing)
     if drama_id is not None:
-        return can_see_drama(principal, drama_id)
+        return (can_edit_drama if writing else can_see_drama)(principal, drama_id)
     uid = user_id(principal)
     return uid is not None and owner_user_id == uid
 

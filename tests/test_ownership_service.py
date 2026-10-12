@@ -145,11 +145,14 @@ def test_admin_without_override_sees_everything_but_changes_as_a_member(people):
     # Jobs: every job is visible, and every job can be stopped from away
     # too (owner decision 2026-10-12), though only their own is theirs.
     assert own.can_see_job(remote, "other-pc-job", None)
+    assert not own.can_see_job(remote, "other-pc-job", None, writing=True)
+    assert own.can_see_job(remote, "other-mine", remote["user_id"], writing=True)
     assert own.may_cancel_job(remote, "other-pc-job", None)
     assert not own.owns_job(remote, "other-pc-job", None)
     assert own.owns_job(remote, "other-mine", remote["user_id"])
     # With the override (the PC, or the single-port setup) nothing changes.
     assert own.can_edit_drama(people["admin"], theirs)
+    assert own.can_see_job(people["admin"], "other-pc-job", None, writing=True)
     assert own.may_cancel_job(people["admin"], "other-pc-job", None)
     # Default-deny: an admin principal without the flag acts as a member.
     bare = {"user_id": remote["user_id"], "is_admin": True, "is_local_owner": False}
