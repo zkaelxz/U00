@@ -144,6 +144,66 @@ class TestTranslate:
         env_path = _write_env(tmp_path, "")
         assert translate_service.resolve_api_key("ollama", env_path) == "local"
 
+class _BilledEngine:
+    name = "claude"
+    model = "claude-sonnet-5-5"
+
+    def __init__(self):
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+    def translate_batch(self, texts, context=None):
+        self.last_usage = {"input_tokens": 1000, "output_tokens": 500}
+        return [f"EN:{t}" for t in texts]
+
+
+class TestTranslateSpending:
+    def _paid_engine(self, monkeypatch, engine):
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: engine)
+
+    def _usage_rows(self):
+        import contextlib
+        import db
+        with contextlib.closing(db.get_conn()) as conn:
+            return [tuple(r) for r in conn.execute(
+                "SELECT engine, operation, input_tokens, output_tokens, estimated_cost_usd "
+                "FROM usage_log").fetchall()]
+
+    def test_a_paid_translation_is_logged_with_its_real_cost(self, isolated_db, monkeypatch):
+        self._paid_engine(monkeypatch, _BilledEngine())
+        translate_service.translate("你好", "claude", "zh", "en")
+        [(engine, operation, inp, out, cost)] = self._usage_rows()
+        assert (engine, operation, inp, out) == ("claude", "translate_text", 1000, 500)
+        assert cost == pytest.approx(translate_engines.estimate_cost("claude-sonnet-5-5", 1000, 500))
+        assert cost > 0
+
+    def test_usage_sums_every_chunk_group(self, isolated_db, monkeypatch):
+        self._paid_engine(monkeypatch, _BilledEngine())
+        # > 8 chunks, so standalone_translate makes a second translate_batch call
+        text = "\n\n".join("段" * 1400 for _ in range(10))
+        translate_service.translate(text, "claude", "zh", "en")
+        [(_, _, inp, out, _)] = self._usage_rows()
+        assert (inp, out) == (2000, 1000)
+
+    def test_cap_spent_refuses_a_paid_engine_before_any_call(self, isolated_db, monkeypatch):
+        import db
+        from services import translate_run_service
+        engine = _BilledEngine()
+        self._paid_engine(monkeypatch, engine)
+        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
+        monkeypatch.setattr(db, "get_month_spend", lambda *a, **kw: 1.0)
+        with pytest.raises(UnsupportedOperationError):
+            translate_service.translate("你好", "claude", "zh", "en")
+        assert engine.last_usage["input_tokens"] == 0 and self._usage_rows() == []
+
+    def test_a_free_engine_ignores_the_cap(self, isolated_db, monkeypatch):
+        import db
+        from services import translate_run_service
+        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
+        monkeypatch.setattr(db, "get_month_spend", lambda *a, **kw: 1.0)
+        assert translate_service.translate("你好", "fake", "zh", "en") == {"translated_text": "[TEST] 你好"}
+        assert all(row[4] == 0 for row in self._usage_rows())
+
 
 class TestClearHistory:
     def test_without_confirm_raises_and_leaves_history_untouched(self, isolated_db):

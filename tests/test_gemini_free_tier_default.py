@@ -59,7 +59,31 @@ def test_resolve_helper(monkeypatch):
     assert settings_service.resolve_gemini_free_tier(False) is False
     patch_setting(monkeypatch, "gemini_free_tier", False)
     assert settings_service.resolve_gemini_free_tier(None) is False
-    assert settings_service.resolve_gemini_free_tier(True) is True
+    # A request can switch the free tier off, never on.
+    assert settings_service.resolve_gemini_free_tier(True) is False
+    assert settings_service.resolve_gemini_free_tier(False) is False
+
+
+def test_request_true_with_saved_false_keeps_the_cap_and_logs_cost(_env, monkeypatch):
+    patch_setting(monkeypatch, "gemini_free_tier", False)
+    did = _seed()
+    est = translate_run_service.estimate_translate_cost(did, "gemini", gemini_free_tier=True)
+    assert est["free"] is False and est["cap_applies"] is True
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
+    monkeypatch.setattr(db, "get_month_spend", lambda *a, **kw: 5.0)
+    with pytest.raises(UnsupportedOperationError):
+        line_ai_service.engine_for(db.get_drama(did), "gemini", None, True, check_cap=True)
+    _env.clear()
+    line_ai_service.engine_for(db.get_drama(did), "gemini", None, False)
+    engine_kwargs = _env[0]
+    assert engine_kwargs["free_tier"] is False
+
+
+def test_request_true_with_saved_true_and_omitted_are_unchanged():
+    did = _seed()
+    for value in (True, None):
+        est = translate_run_service.estimate_translate_cost(did, "gemini", gemini_free_tier=value)
+        assert est["free"] is True and est["cap_applies"] is False
 
 
 def test_estimate_and_run_agree(_env):

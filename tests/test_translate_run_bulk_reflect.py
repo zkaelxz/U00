@@ -216,6 +216,7 @@ def test_bulk_estimate_above_cap_is_refused(isolated_db, monkeypatch):
 
 
 def test_mode_validation(isolated_db, monkeypatch):
+    patch_setting(monkeypatch, "gemini_free_tier", True)  # a request alone can't grant it
     did = _seed([("一", "")])
     _current["did"] = did
     _fake_engines(monkeypatch)

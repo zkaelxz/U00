@@ -14,11 +14,9 @@ from .reflect_prompts import (build_reflect_expressive_task, build_reflect_faith
                               build_reflect_reflection_task)
 from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
-from .translation_guard import allowed_source_runs, guard_batch
+from .translation_guard import allowed_source_runs, flag_unusable_replies, guard_batch
 from .shared import (
     ContentModerationBlocked,
-    FreeTierDailyLimitReached,
-    LLMTaskTimeout,
     _backoff_wait_var,
     _cancel_check_var,
     _id_keyed_batch_request,
@@ -28,9 +26,9 @@ from .shared import (
     tagged_line_languages,
     redact_secrets,
     TranslationCancelled,
+    stops_translate_run,
 )
 import source_change
-from memory_headroom import HeadroomError
 
 
 REFLECT_PASSES = ("draft", "critique", "rewrite")
@@ -467,6 +465,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         engine, drama_meta, style_note=style_note, novel_reference=novel_reference, locale=locale,
         glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         ollama_num_ctx_override=ollama_num_ctx_override, thinking=thinking)
+    context["check_replies"] = check_replies
     errors = []
     stop_run = []
     translated = []
@@ -640,7 +639,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                "error": redacted})
                 # After a timeout the abandoned request may still be running, so
                 # the next batch would be refused or double-billed.
-                if isinstance(e, (FreeTierDailyLimitReached, HeadroomError, LLMTaskTimeout)):
+                if stops_translate_run(e):
                     stop_run.append(True)
                 import applog
                 applog.get_logger().error(f"translate batch {bi} failed: {redacted}")
@@ -669,6 +668,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                         fresh.append(ln)
                     else:
                         empty.append(ln)
+                flag_unusable_replies(empty, getattr(engine, "last_rejected", None))
                 if empty:
                     errors.append({"batch_index": bi, "lines": [ln.idx for ln in empty],
                                    "error": f"{len(empty)} of {len(chunk)} lines got no "
@@ -695,7 +695,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                     return None
                 except Exception as e:
                     redacted = redact_secrets(str(e))
-                    if isinstance(e, (FreeTierDailyLimitReached, HeadroomError, LLMTaskTimeout)):
+                    if stops_translate_run(e):
                         # The run ends here, so the reason must reach the job's errors.
                         stop_run.append(True)
                         errors.append({"batch_index": bi, "lines": [ln.idx for ln in lines_to_redo],

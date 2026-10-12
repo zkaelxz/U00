@@ -4,7 +4,8 @@ content-moderation grounds, usually with another engine.
 Thin adapter over `services.blocked_retry_service`.
 
 Synchronous, so it takes a slot from the shared LLM cap (api/llm_slots.py;
-429 when busy). Declares `jobs.start`; the paid-engine check
+429 when busy). Declares `jobs.start` plus `lines.read` (the reply carries the
+line's source and English) and `lines.edit` (it writes the English); the paid-engine check
 (`require_engines_allowed` on the named engine) runs as a dependency ahead
 of body validation, so a household user naming a paid engine gets 403
 whatever else the body holds. Only the engine name is accepted: never a
@@ -39,7 +40,7 @@ async def _engine_gate(request: Request):
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/retry-blocked",
-             dependencies=[require_permission("jobs.start"), Depends(_engine_gate)],
+             dependencies=[require_permission("jobs.start", "lines.read", "lines.edit"), Depends(_engine_gate)],
              response_model=BlockedRetryResult, responses=_ERRS,
              summary="Re-translate one content-blocked line with the chosen engine")
 def post_retry_blocked(body: BlockedRetryRequest, request: Request,
