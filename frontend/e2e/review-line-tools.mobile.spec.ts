@@ -92,6 +92,8 @@ test('per-line tools fit a phone; next flagged crosses pages', async ({ page }) 
   await expect(row(page, 0).getByTestId('line-alternatives')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await expectTouchTargets(page, '[data-testid="line-tools-panel"] button', 2)
+  await expect(row(page, 0).getByTestId('line-ai-picker')).toBeVisible()
+  await expectTouchTargets(page, '[data-testid="line-ai-picker"] select', 1)
   await page.screenshot({ path: `${shotDir}/phone-alternatives.png`, fullPage: false })
 
   await row(page, 0).getByRole('button', { name: 'More actions for line 1' }).tap()
