@@ -584,6 +584,8 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
         return _whisper_model_cache[cache_key]
 
     cuda_runtime_path.ensure_cuda_runtime_on_path()
+    from lib import ort_telemetry
+    ort_telemetry.disable()   # faster-whisper's voice detector is an ONNX session
     from faster_whisper import WhisperModel
 
     # An HF token isn't required for public models, but without one you get
