@@ -130,6 +130,16 @@ class TestGenerateSubtitleText:
         assert "00:00:00,000 --> 00:00:03,000" not in text
         assert "00:00:00,000 --> 00:00:02,000" in text
 
+    def test_ass_clamps_overlaps_unless_asked_to_keep_them(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        assert "0:00:00.00,0:00:03.00" not in export_service.generate_ass_text(did)
+        kept = export_service.generate_ass_text(did, keep_overlaps=True)
+        assert "0:00:00.00,0:00:03.00" in kept and "0:00:02.00,0:00:04.00" in kept
+
     def test_wrap_chars_applies_to_srt(self, isolated_db):
         did = _drama(isolated_db)
         long_text = "This is a very long English subtitle line that should wrap onto more than one line"

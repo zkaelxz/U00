@@ -323,8 +323,33 @@ def test_softsub_srt_holds_the_lines(client, drama, isolated_db, monkeypatch):
     assert seen["timeout"] and seen["timeout"] > 0
 
 
+def test_softsub_ass_forces_mkv_and_keeps_overlapping_cues(client, drama, isolated_db, monkeypatch):
+    isolated_db.save_lines(drama, [
+        Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+        Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+    ])
+    _add_video(isolated_db, drama, "source.mp4")
+    seen = {}
+
+    def fake(job_id, cmd, cwd=None, **kw):
+        with open(os.path.join(cwd, "subs.ass"), encoding="utf-8") as f:
+            seen["ass"] = f.read()
+        seen["cmd"] = cmd
+        with open(os.path.join(cwd, cmd[-1]), "wb") as f:
+            f.write(b"x")
+    monkeypatch.setattr(background_jobs, "run_cancellable", fake)
+    r = client.post(f"/api/export/dramas/{drama}/softsub-video", json={"subtitle_format": "ass"})
+    assert r.status_code == 200
+    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mkv"
+    cmd = seen["cmd"]
+    assert cmd[-1].endswith(".mkv") and cmd[cmd.index("-c:s") + 1] == "ass"
+    # Line 0 still ends at 0:00:03.00, after line 1 starts at 0:00:02.00.
+    assert "0:00:00.00,0:00:03.00" in seen["ass"] and "0:00:02.00,0:00:04.00" in seen["ass"]
+
+
 @pytest.mark.parametrize("body", [{"field": "fr"}, {"field": "en", "extra": 1},
-                                  {"include_notes": "yes"}])
+                                  {"include_notes": "yes"}, {"subtitle_format": "vtt"}])
 def test_softsub_bad_body_422(client, drama, isolated_db, body, fake_ffmpeg):
     _add_video(isolated_db, drama)
     assert client.post(f"/api/export/dramas/{drama}/softsub-video", json=body).status_code == 422
