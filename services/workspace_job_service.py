@@ -11,7 +11,6 @@ in `workspace_audio_job_service`, the LLM review jobs in
 `workspace_review_job_service`.
 """
 
-import os
 import time
 
 import adaptive_style
@@ -25,8 +24,8 @@ import translation_finish
 import emotion
 import core as core_module
 from services import (job_timing_service, language_pack_service, line_provenance_service,
-                      run_settings_service, settings_service, timing_settings_service,
-                      vdb_names_service)
+                      novel_files_service, run_settings_service, settings_service,
+                      timing_settings_service, vdb_names_service)
 
 
 def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):
@@ -365,12 +364,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
             default_female_pronouns=default_female_pronouns)
         defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
-        novel_reference = None
-        if drama.get("novel_reference_filename"):
-            novel_path = os.path.join(db.drama_dir(did), drama["novel_reference_filename"])
-            if os.path.exists(novel_path):
-                with open(novel_path, encoding="utf-8") as f:
-                    novel_reference = f.read()
+        novel_reference = novel_files_service.read_reference_text(did, drama)
 
         # start_job returns False when someone else's translate_<id> run
         # started since the check above: skip it rather than adopt (and

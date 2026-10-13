@@ -98,6 +98,38 @@ def _plain_file(drama_id: int, filename):
     return path
 
 
+def _readable_path(drama_id: int, filename, capped: bool = True):
+    path = _plain_file(drama_id, filename)
+    if path is None or not os.path.isfile(path):
+        return None
+    if capped and os.path.getsize(path) > MAX_TEXT_BYTES:
+        return None
+    return path
+
+
+def read_stored_text(drama_id: int, filename, capped: bool = True) -> Optional[str]:
+    """The UTF-8 text of a stored novel file, or None when the name is not a
+    plain file in the title folder, is missing, or (when capped) is over
+    MAX_TEXT_BYTES. A restored or imported row can hold any filename, and
+    this text goes to the translation engine. The raw novel is read uncapped:
+    Sources chapter imports append to it with no total limit, and treating a
+    long one as absent would make glossary extraction use the other file."""
+    path = _readable_path(drama_id, filename, capped)
+    if path is None:
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def has_reference(drama_id: int, drama: dict) -> bool:
+    """True only when read_reference_text would return the file."""
+    return _readable_path(drama_id, drama.get("novel_reference_filename")) is not None
+
+
+def read_reference_text(drama_id: int, drama: dict) -> Optional[str]:
+    return read_stored_text(drama_id, drama.get("novel_reference_filename"))
+
+
 def _extension(client_filename, allowed) -> str:
     name = str(client_filename or "").replace("\\", "/").rsplit("/", 1)[-1]
     ext = os.path.splitext(name)[1].lower()
