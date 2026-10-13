@@ -29,7 +29,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`starting-a-project.md`** — a retrospective: the day-one setup, session habits and feature rules to follow when starting a project like this from scratch.
-- **`user-guide.md`** — the feature walkthroughs, CLI, dev setup and ports, troubleshooting, Diagnostics and Benchmark Lab that used to be in the root `README.md`.
+- **`user-guide.md`** — the feature walkthroughs, dev setup and ports, troubleshooting, Diagnostics and Benchmark Lab that used to be in the root `README.md`.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
 - **`household-access.md`** — step-by-step guide to reach Baihe from
@@ -44,7 +44,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`api-and-services.md`** — how the FastAPI layer fits together: request flow, errors, route declarations, ownership, schemas, and an "adding an endpoint" checklist.
 - **`remote-access-decision.md`** — the remote-access design as built. **`route-permissions.md`** — the route table `tests/test_api_permissions.py` enforces.
 - **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
-- **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API and the CLI, with an add-a-job checklist.
+- **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API, with an add-a-job checklist.
 - **`local-agent-backlog.md`** — open follow-ups sorted by who can do them (local model, free tier, paid burst), with briefs for the paid ones. **`small-model-checklist.md`** — working with a 64k local model.
 - **`asr-experiments.md`** — the transcription options (backends, batch size, mixed languages, vocal separation), install and failure-mode notes, and a dated snapshot of the benchmarks.
 - **`research/twmanga-vetting.md`** — dated browser-tier vetting of `twmanga.com` (a `baozimh.com` mirror): headers, image delivery, redirect chain, policies, verdict.
