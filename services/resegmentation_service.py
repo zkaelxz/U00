@@ -91,13 +91,38 @@ def preview_resegmentation(drama_id: int) -> dict:
             "reason": long_line_split.resegment_reason(lines, language, changed, new_lines)}
 
 
-def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
-    """The job's write step: same guard as Apply."""
+def _note_ids_by_line(drama_id: int) -> dict:
+    out = {}
+    for note in db.list_translation_notes(drama_id):
+        out.setdefault(note["line_id"], set()).add(note["id"])
+    return out
+
+
+def _apply_guard(drama_id: int, lines) -> tuple:
+    """What the job's write is checked against: the lines and their notes as
+    the job read them."""
+    return _line_fingerprint(lines), _note_ids_by_line(drama_id)
+
+
+def _apply_resegmented(drama_id: int, new_lines, guard: tuple) -> dict:
+    """The job's write step: same guard as Apply. A kept line only gets the
+    fields the job changed (save_lines diffs against `orig`), but a split
+    line is deleted with its text, translation, flag and notes, so one
+    edited or given a note while the job ran is refused rather than lost
+    (the start's confirm covered only what was there then)."""
+    fingerprint, notes_then = guard
     with _drama_lock(drama_id):
-        current = db.load_line_objects(drama_id)
-        if [ln.id for ln in current] != source_ids:
+        current = db.load_line_objects(drama_id, with_words=True)
+        if [ln.id for ln in current] != [lid for lid, _ in fingerprint]:
             raise RuntimeError("This title's lines changed while re-segmenting -- nothing was "
                                "changed; run it again.")
+        kept_ids = {ln.id for ln in new_lines if ln.id is not None}
+        now = dict(_line_fingerprint(current))
+        notes_now = _note_ids_by_line(drama_id)
+        if any(now[lid] != was or notes_now.get(lid, set()) - notes_then.get(lid, set())
+               for lid, was in fingerprint if lid not in kept_ids):
+            raise RuntimeError("A line being split was edited or given a note while "
+                               "re-segmenting -- nothing was changed; run it again.")
         _commit(drama_id, current, list(new_lines), "before re-segment")
     return {"line_count": len(new_lines)}
 
@@ -122,7 +147,7 @@ def _bounded(job_id, drama_id, engine, engine_name):
         deadline=llm_tasks.request_deadline_for(engine))
 
 
-def _run_resegment_job(job_id, drama_id, lines, source_ids, language, engine, engine_name,
+def _run_resegment_job(job_id, drama_id, lines, guard, language, engine, engine_name,
                        segments, script, min_pause):
     usage = _usage_logger(drama_id, engine_name, engine) if engine is not None else None
     with _bounded(job_id, drama_id, engine, engine_name):
@@ -132,16 +157,16 @@ def _run_resegment_job(job_id, drama_id, lines, source_ids, language, engine, en
             check_cancel=lambda: _raise_if_cancelled(job_id))
     result = {"changed": len(changed)}
     if changed:
-        result.update(_apply_resegmented(drama_id, new_lines, source_ids))
+        result.update(_apply_resegmented(drama_id, new_lines, guard))
     background_jobs.set_result(job_id, result)
 
 
-def _make_on_done(drama_id, source_ids, engine_name, engine):
+def _make_on_done(drama_id, guard, engine_name, engine):
     def on_done(job_id, result):
         for inp, out in (result or {}).get("usage_calls", []):
             _usage_logger(drama_id, engine_name, engine)(inp, out)
         if (result or {}).get("changed"):
-            _apply_resegmented(drama_id, result["lines"], source_ids)
+            _apply_resegmented(drama_id, result["lines"], guard)
     return on_done
 
 
@@ -193,16 +218,17 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     _check_expected(lines, expected_line_ids)
     if confirm is not True and _needs_confirm(drama_id, lines, language):
         raise InvalidInputError(_CONFIRM_NEEDED)
+    guard = _apply_guard(drama_id, lines)
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
     desc = f"Re-segmenting (title #{drama_id})"
     if engine_name == "ollama":
         started = job_launch.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
-            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
+            description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_on_done(drama_id, guard, engine_name, eng))
     else:
         started = job_launch.start_job(
-            job_id, _run_resegment_job, job_id, drama_id, lines, expected_line_ids, language,
+            job_id, _run_resegment_job, job_id, drama_id, lines, guard, language,
             eng, engine_name, segments, script, min_pause, description=desc)
     if not started:
         raise ConflictError("A re-segmentation is already running for this title.")

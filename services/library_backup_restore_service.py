@@ -134,8 +134,12 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
                 if check_limits and total > total_cap:
                     raise InvalidInputError("The backup would expand too large; it looks "
                                             "corrupted or unsafe to extract.")
+            # The rebuild writes a scratch copy and a fresh file of each
+            # database beside the extracted one.
+            rebuild = 2 * sum(i.file_size for i in infos
+                              if i.filename in ("library.db", "sources.db"))
             if check_disk and not has_disk_room(os.path.dirname(os.path.abspath(db.LIBRARY_DIR)),
-                                                 total):
+                                                 total + rebuild):
                 raise InvalidInputError("Not enough free disk space to restore this backup.")
             if zf.testzip() is not None:
                 raise InvalidInputError("The backup zip is corrupted.")
