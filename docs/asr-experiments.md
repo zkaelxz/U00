@@ -16,7 +16,7 @@ table) is in `archive/asr-experiments-history.md`.
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
 | Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
-| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (app only, not in the CLI; see "anime-whisper in the app"). |
+| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (see "anime-whisper in the app"). |
 | Qwen3-ASR batch size | Settings > System > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
 | Mixed languages | same card | off | |
@@ -110,7 +110,7 @@ speech, sits in silence, or overlaps the next line. The note is fixed text plus 
 ("Starts 1.4 s before speech."). The thresholds are constants in `timing_drift.py`.
 
 - It runs by itself after a transcription with either Qwen-only backend, and on demand
-  for any title (`python cli.py timing-check --id N [--snap]`).
+  for any title (Check timing).
 - Only `flag` and `flag_note` are written, only while a line's times are unchanged since
   they were judged. A line with another flag keeps it; a `timing_drift` flag that no
   longer applies is cleared. **Dismiss flag** on a timing flag is remembered
@@ -174,7 +174,7 @@ Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
 
 Which sizes the pickers offer is one function, `whisper_models.selectable_whisper_sizes(context)`: the
 Transcribe stage and Compare transcription list `large-v3`, `large-v3-turbo` and the opt-in Japanese models;
-`tiny`, `base`, `small` and `medium` are hidden unless Developer Mode is on. The API, the CLI and saved titles
+`tiny`, `base`, `small` and `medium` are hidden unless Developer Mode is on. The API and saved titles
 still accept the hidden sizes, and a title that saved one shows it as "medium (older choice, hidden)" with a
 one-click switch to large-v3; it is never changed silently. Live keeps its own list
 (`whisper_models.LIVE_WHISPER_SIZES`: tiny to medium and turbo, default small) and the Groq hosted model stays
@@ -206,7 +206,7 @@ check is skipped for a folder, as it is for any local path.
 
 Which Whisper models a language may use is one table, `whisper_models.WHISPER_LANGUAGE_RULES`
 (model, languages, reason). The server refuses an excluded pair (title settings, a run that names
-another language, Compare transcription, Benchmark Lab, `cli.py align`), and the pickers read the same
+another language, Compare transcription, Benchmark Lab), and the pickers read the same
 table from the config and options payloads (`whisper_exclusions`), showing an excluded model disabled with
 its reason. A title saved with a model that is no longer allowed falls back to the default and the
 Transcribe stage says so (`whisper_size_notice`). A model is excluded for a language only where this
@@ -405,10 +405,10 @@ its auto-mapping and `prepare_forced_aligner_inputs` / `decode_forced_alignment`
   4.1 GB (1.7B), 1.6 GB (0.6B) and 1.8 GB (the aligner) from Hugging Face; the old
   folders can be deleted in Diagnostics > Model cache.
 - **Japanese and Korean alignment** need `nagisa` and `soynlp`; a missing one is
-  reported in plain words, at job start (app and CLI), not as an ImportError after
+  reported in plain words, at job start, not as an ImportError after
   the recognition pass.
 - **Name hint (off by default).** A per-title switch in the Transcribe stage's
-  Advanced section (CLI: `transcribe --vocab-hint` / `--no-vocab-hint`) sends
+  Advanced section sends
   `Vocabulary: a, b, c` as the processor's `prompt=`, built from the title's
   character names and series glossary (`services/vocabulary_hint_service.py`).
   At most 40 terms and 300 characters, because every segment's request carries

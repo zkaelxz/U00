@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mediaPanel, mediaTab } from './mediaTabs'
+import { mockTranscription } from './transcriptionMissingMocks'
 import { openTranscribeOptions, enableDeveloperMode, transcribeCard, openAdvanced } from './sourceHelpers'
 
 // The Transcribe card: a refused option is flagged on its own field, the
@@ -166,11 +167,8 @@ test('a running auto-tune shows elapsed time and an estimate', async ({ page }) 
 })
 
 test('the setup checklist sits above Transcribe so its reason is read first', async ({ page }) => {
-  await page.route('**/api/transcribe/dramas/1/config', async (route) => {
-    if (route.request().method() !== 'GET') return route.fallback()
-    const real = await route.fetch()
-    await route.fulfill({ response: real, json: { ...(await real.json()), whisper_installed: false } })
-  })
+  // Config, presets and diagnostics all say Whisper is missing, as on a fresh install.
+  await mockTranscription(page, false)
   await page.goto('/#/drama/1/source?tab=transcribe')
   const button = page.getByRole('button', { name: 'Transcribe', exact: true })
   await expect(button).toBeDisabled()

@@ -271,8 +271,8 @@ def _check_ordered_pairs(cleaned: dict) -> None:
 
 def _developer_mode_on() -> bool:
     # Imported here: the maintenance assistant imports this module.
-    from services import maintenance_assistant_service
-    return maintenance_assistant_service.developer_mode_enabled()
+    from services import assistant_settings_service
+    return assistant_settings_service.developer_mode_enabled()
 
 
 def set_settings(updates: dict, env_path: str = None) -> dict:

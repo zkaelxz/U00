@@ -3,9 +3,6 @@ tests/test_speaker_rerun.py -- Step 4 (R2): re-run speaker detection on
 its own, from stored audio, without re-transcribing -- and without ever
 silently undoing a speaker someone corrected by hand.
 """
-import argparse
-import contextlib
-import io
 import os
 import sys
 import types
@@ -106,8 +103,6 @@ def no_asr(monkeypatch):
     # the tab never calls that bare name -- its per-line re-transcribe goes
     # through core_module, patched above -- so it was dropped for the
     # Streamlit retirement.)
-    import cli
-    monkeypatch.setattr(cli, "transcribe_for_timing", boom)
     # Migration Slice 2: run_transcribe_job/run_fix_flagged_lines_job now
     # live in services/workspace_job_service.py and resolve this name from
     # their own module globals -- patching it there too is what actually
@@ -144,73 +139,4 @@ def _drama_with_audio(isolated_db):
         ln.speaker = diarize.assign_speaker_to_line(ln.start, ln.end, TWO)
     isolated_db.save_lines(did, lines)
     return did, ddir
-
-
-class TestCliDiarize:
-    def _run(self, did, **kw):
-        import cli
-        args = argparse.Namespace(id=did, hf_token=kw.get("hf_token", "hf"), num_speakers=kw.get("num_speakers", 0),
-                                  overwrite_manual=kw.get("overwrite_manual", False))
-        with contextlib.redirect_stdout(io.StringIO()) as out:
-            cli.cmd_diarize(args)
-        return out.getvalue()
-
-    def test_saved_settings_hf_token_is_used_when_no_flag_or_env(
-            self, isolated_db, no_asr, monkeypatch):
-        import cli
-        did, _ = _drama_with_audio(isolated_db)
-        for name in ("HF_TOKEN", "BAIHE_HF_TOKEN"):
-            monkeypatch.delenv(name, raising=False)
-        monkeypatch.setattr(cli.settings_service, "resolve_key",
-                            lambda name, *a: "saved-hf" if name == "hf_token" else None)
-        tokens = []
-
-        def fake(audio_path, hf_token, num_speakers=None, return_model=False,
-                 return_embeddings=False, **kwargs):
-            tokens.append(hf_token)
-            return (TWO, "fake-model", {}) if return_model and return_embeddings else TWO
-        monkeypatch.setattr(diarize, "diarize", fake)
-        self._run(did, hf_token=None)
-        assert tokens == ["saved-hf"]
-
-    def test_changing_expected_speakers_relabels_without_asr(self, isolated_db, no_asr, fake_diarize):
-        did, ddir = _drama_with_audio(isolated_db)
-        before = [(r["zh"], r["start"], r["end"]) for r in isolated_db.load_lines(did)]
-        self._run(did, num_speakers=3)
-        rows = isolated_db.load_lines(did)
-        assert [r["speaker"] for r in rows] == ["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"]
-        assert [(r["zh"], r["start"], r["end"]) for r in rows] == before
-        assert fake_diarize == [3]
-        assert diarize.load_turns(ddir) == THREE
-
-    def test_a_speaker_set_in_the_app_while_detection_runs_is_kept(self, isolated_db, no_asr, monkeypatch):
-        did, _ = _drama_with_audio(isolated_db)
-        line_id = isolated_db.load_lines(did)[2]["id"]
-
-        def detect_while_the_owner_edits(audio_path, hf_token, num_speakers=None, return_model=False,
-                                         return_embeddings=False, **kwargs):
-            with isolated_db.get_conn() as conn:
-                conn.execute("UPDATE lines SET speaker = 'Xiaoling', speaker_manual = 1 WHERE id = ?",
-                             (line_id,))
-            return THREE, "fake-model", {}
-        monkeypatch.setattr(diarize, "diarize", detect_while_the_owner_edits)
-        self._run(did, num_speakers=3, overwrite_manual=True)
-        rows = isolated_db.load_lines(did)
-        assert (rows[2]["speaker"], rows[2]["speaker_manual"]) == ("Xiaoling", 1)
-        assert rows[1]["speaker"] == "SPEAKER_01"
-
-    def test_a_manual_correction_survives_unless_overwrite_manual(self, isolated_db, no_asr, fake_diarize):
-        did, _ = _drama_with_audio(isolated_db)
-        lines = isolated_db.load_line_objects(did)
-        lines[2].speaker, lines[2].speaker_manual = "Xiaoling", True
-        isolated_db.save_lines(did, lines)
-
-        out = self._run(did, num_speakers=3)
-        assert isolated_db.load_lines(did)[2]["speaker"] == "Xiaoling"
-        assert "kept 1 hand-corrected" in out
-
-        self._run(did, num_speakers=3, overwrite_manual=True)
-        row = isolated_db.load_lines(did)[2]
-        assert row["speaker"] == "SPEAKER_02" and not row["speaker_manual"]
-
 

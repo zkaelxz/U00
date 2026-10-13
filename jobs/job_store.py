@@ -479,16 +479,26 @@ def fresh_active(job_ids=None, prefix=None, exclude=None) -> bool:
                and (rec.get("updated_at") or 0) >= cutoff for rec in records)
 
 
-def request_cancel(job_id: str) -> bool:
+_ANY_OWNER = object()
+
+
+def request_cancel(job_id: str, owner_user_id=_ANY_OWNER) -> bool:
     """Flags a still queued/running row as cancel-requested, with the time,
     so the owner (maybe another process) stops it and every process judges
-    Force stop from the same moment. Returns whether it flagged a row."""
+    Force stop from the same moment. With `owner_user_id`, only a row that
+    person started (see background_jobs.request_cancel). Returns whether it
+    flagged a row."""
+    sql = ("UPDATE job_records SET cancel_requested = 1, "
+           "cancel_requested_at = COALESCE(cancel_requested_at, ?) "
+           "WHERE job_id = ? AND status IN ('queued', 'running')")
+    params = (time.time(), job_id)
+    if owner_user_id is not _ANY_OWNER:
+        sql += " AND owner_user_id IS ?"
+        params += (owner_user_id,)
+
     def run(_left):
         with contextlib.closing(db.get_conn()) as conn:
-            cur = conn.execute(
-                "UPDATE job_records SET cancel_requested = 1, "
-                "cancel_requested_at = COALESCE(cancel_requested_at, ?) "
-                "WHERE job_id = ? AND status IN ('queued', 'running')", (time.time(), job_id))
+            cur = conn.execute(sql, params)
             conn.commit()
             return cur.rowcount > 0
     return _retrying(run)

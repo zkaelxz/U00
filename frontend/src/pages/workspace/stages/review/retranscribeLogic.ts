@@ -13,8 +13,8 @@ export const NO_AUDIO_MESSAGE = 'Needs this title’s audio or video.'
 
 // The sheet's "Re-transcribe…" item: same availability as the editor's button,
 // plus the job guard the sheet's other source-changing items use.
-export function retranscribeMenuState(canRun: boolean, jobMessage: string | null): { disabled: boolean; reason: string | null } {
-  const reason = jobMessage ?? (canRun ? null : NO_AUDIO_MESSAGE)
+export function retranscribeMenuState(canRun: boolean, jobMessage: string | null, needReason: string | null = null): { disabled: boolean; reason: string | null } {
+  const reason = jobMessage ?? (canRun ? needReason : NO_AUDIO_MESSAGE)
   return { disabled: reason !== null, reason }
 }
 

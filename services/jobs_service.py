@@ -663,18 +663,24 @@ def cancel_job(job_id: str, principal=None) -> dict:
     it (throttled check in background_jobs). Unknown id -> NotFoundError;
     already finished -> ConflictError (409). Cancellation is
     asynchronous: the returned status is the record's current one. A job
-    `principal` may not see is a 404 (visibility, not starter-only: anyone
-    who can see a drama may cancel its jobs, as before); one an admin sees
-    only through the admin view (away from the PC) is a 403."""
+    `principal` may not see is a 404; one they see but may not stop
+    (ownership_service.may_cancel_job: another member's job on a shared
+    title, say) is a 403."""
     record = db.get_job_record(job_id)
     if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
-    ownership_service.require_job_changeable(principal, record.get("job_id"),
-                                             record.get("owner_user_id"))
+    owner = record.get("owner_user_id")
+    ownership_service.require_job_changeable(principal, record.get("job_id"), owner)
     if record.get("status") not in ("queued", "running"):
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
-    background_jobs.request_cancel(job_id)
-    job_store.request_cancel(job_id)
+    # Only the run just checked: a shared id (sources_search,
+    # bulk_series_translate...) may have been restarted by someone else.
+    # A finished run of this id here says nothing about another process's
+    # (the CLI's) run, which job_store's owner check covers.
+    if not background_jobs.request_cancel(job_id, owner_user_id=owner) or (
+            not job_store.request_cancel(job_id, owner_user_id=owner)
+            and _restarted_by_someone_else(job_id, owner)):
+        raise ConflictError(_RESTARTED)
     live = background_jobs.get_status(job_id)
     if live is None and (job_store.close_if_owner_gone(record) or job_store.close_stale(
             job_id, time.time() - STALE_JOB_SECONDS)):
@@ -690,6 +696,15 @@ def cancel_job(job_id: str, principal=None) -> dict:
     return {"job_id": job_id, "cancel_requested": True, "status": status}
 
 
+_RESTARTED = "That job finished and a new one started. Refresh the list."
+
+
+def _restarted_by_someone_else(job_id: str, owner) -> bool:
+    fresh = db.get_job_record(job_id)
+    return bool(fresh) and fresh.get("status") in ("queued", "running") \
+        and fresh.get("owner_user_id") != owner
+
+
 def force_stop_job(job_id: str, principal=None) -> dict:
     """Closes the record of a thread job that ignored Cancel for over a
     minute; same visibility and ownership rules as cancel_job. Unknown/invisible -> NotFoundError; not eligible ->
@@ -702,6 +717,23 @@ def force_stop_job(job_id: str, principal=None) -> dict:
                                              record.get("owner_user_id"))
     result = job_force_stop.force_stop(job_id)
     return {"job_id": job_id, "force_stopped": True, **result}
+
+
+def queue_summary(principal=None) -> dict:
+    """Counts of running and waiting jobs across every process, and the
+    place in the GPU line (1 = next) of each waiting job of the caller's
+    own (ownership_service.owns_job): the GPU queue is the only one jobs
+    wait in. Names, titles, ids and owners of anyone else's jobs never
+    appear, only the counts. A stale row of a dead process counts until
+    GET /api/jobs sweeps it, which the Jobs page does on every load."""
+    counts = db.count_active_job_records()
+    order = background_jobs.gpu_queue_order()
+    rows = ownership_service.job_drama_ownership(principal, [jid for jid, _o in order])
+    mine = [{"job_id": jid, "position": n}
+            for n, (jid, owner) in enumerate(order, start=1)
+            if ownership_service.owns_job(principal, jid, owner, drama_rows=rows)]
+    return {"lane": "gpu", "running": counts["running"], "waiting": counts["queued"],
+            "mine": mine}
 
 
 # job_records / background_jobs status names of a job that has ended.

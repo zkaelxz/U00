@@ -20,7 +20,9 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
+from services import auto_backup_copies as abc_
 from services import auto_backup_service as abs_
+from services import auto_backup_settings as abt_
 from services import backup_import_service as bis
 from services import drama_restore_service as drs
 from services import library_admin_service as las
@@ -138,7 +140,7 @@ def test_list_manual_zip_without_manifest(client):
 def test_list_automatic_snapshot_copy(client):
     _world()
     abs_._backup_job(abs_.JOB_ID, False)
-    path = abs_._list_copies(abs_._target_dir(create=False))[0]["path"]
+    path = abc_._list_copies(abt_._target_dir(create=False))[0]["path"]
     with open(path, "rb") as fh:
         r = _post_list(client, fh.read())
     assert r.status_code == 200 and len(r.json()["dramas"]) == 3

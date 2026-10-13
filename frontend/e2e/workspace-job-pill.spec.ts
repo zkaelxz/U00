@@ -53,19 +53,19 @@ test('popover shows the job and cancels it', async ({ page }) => {
   await expect(page.getByTestId('job-pill')).toHaveText('Failed')
 })
 
-test('no Cancel for a job a remote admin does not own', async ({ page }) => {
+test('no Cancel for a job a member does not own', async ({ page }) => {
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({
       json: {
         auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet', permissions: ['library.read'],
-        user: { id: 2, email: 'a@example.com', display_name: 'Admin', is_admin: true, is_local_owner: false },
+        user: { id: 2, email: 'm@example.com', display_name: 'Member', is_admin: false, is_local_owner: false },
       },
     }))
   await serveJobs(page, { current: [rec({ owned_by_me: false })] })
   await page.goto('/#/drama/3/source')
   await page.getByTestId('job-pill').click()
   const region = page.getByRole('region', { name: 'Running on this title' })
-  await expect(region.getByText('Changing other people’s items is done on the main PC.')).toBeVisible()
+  await expect(region.getByText('Only the person who started a job, the title’s owner or an admin can cancel it.')).toBeVisible()
   await expect(region.getByRole('button', { name: /^Cancel / })).toHaveCount(0)
 })
 

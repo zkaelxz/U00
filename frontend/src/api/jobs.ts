@@ -1,4 +1,4 @@
-import type { JobCancelResult, JobForceStopResult, JobListResponse, JobRecord, JobStageTimings } from '../types/jobs'
+import type { JobCancelResult, JobForceStopResult, JobListResponse, JobQueueSummary, JobRecord, JobStageTimings } from '../types/jobs'
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -7,6 +7,8 @@ type Fetch = typeof fetch
 export const getJob = (id: string, f?: Fetch) =>
   getJson<JobRecord>(`/api/jobs/${encodeURIComponent(id)}`, f)
 export const listJobs = (f?: Fetch) => getJson<JobListResponse>('/api/jobs', f)
+// Running/waiting counts for everyone, and the caller's own places in the GPU queue.
+export const getQueueSummary = (f?: Fetch) => getJson<JobQueueSummary>('/api/jobs/queue-summary', f)
 export const cancelJob = (id: string, f?: Fetch) =>
   postJson<JobCancelResult>(`/api/jobs/${encodeURIComponent(id)}/cancel`, undefined, f)
 // Closes the record of a thread job that ignored Cancel for over a minute (409 otherwise).

@@ -12,8 +12,8 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
 | `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
-| `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
-| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
+| `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
+| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
@@ -38,10 +38,6 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `job_process_result.py` (the channel a process-job worker sends its result through: a large result travels as a file so a child killed mid-write cannot hang the watcher)
 - `benchmark.py`
 - `check_setup.py`
-- `cli.py`
-- `cli_subtitle.py` (the `import-subtitle` command)
-- `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
-- `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
   - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
@@ -65,7 +61,6 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `portable.py`
 - `process_guard.py`
 - `qwen3_native.py`
-- `real_model_check_cli.py`
 - `run_tests.py`
 - `storage.py`
 
@@ -202,11 +197,19 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 
 - `artifact_service.py`
 - `asr_options_service.py`
+- `assistant_backlog_service.py` (the maintenance assistant's backlog items, written only by the user)
+- `assistant_diagnosis_service.py` (one assistant diagnosis run: prompts, input checks, engine build, the tool loop)
 - `assistant_github_service.py`
 - `assistant_pytest_guard.py`
+- `assistant_repo_access.py` (what the assistant may see: redaction, repo path rules, the read-only git runner)
 - `assistant_roles_service.py`
+- `assistant_settings_service.py` (the assistant's settings: Developer Mode, engines, cloud consent, escalation ladder)
+- `assistant_tools_service.py` (the assistant's fixed table of read-only tools and the runner)
 - `auth_service.py`
-- `auto_backup_service.py`
+- `auto_backup_service.py` (automatic backup orchestration: save settings, the backup job, the due-check, delete copies, list dramas in a copy)
+- `auto_backup_settings.py` (the automatic backup's settings, run state and when the next run is due)
+- `auto_backup_copies.py` (the copies in the backup folder: library identity, ownership, rotation, default restore pick, `snapshot_info`)
+- `auto_backup_files.py` (snapshot files: manifest, verification, placing a new copy, reading `library.db` out, moving copies to a new folder)
 - `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
 - `backup_space_check.py` (the automatic backup's free-space check before it writes a copy)
@@ -230,18 +233,23 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
+- `setup_readiness_service.py` (booleans for what is installed and configured, so a control can say why it is off)
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
 - `previous_library_service.py` (the library copies kept beside the library folder after a restore or before a Reset library: size for Disk usage, delete, the reset safety copy)
 - `diarization_service.py`
 - `discover_catalog_service.py`
 - `discover_lookup_service.py`
 - `disk_usage_clips_service.py`
+- `disk_usage_guard.py` (path confinement and the protection rules for clear and move)
+- `disk_usage_hold.py` (why clear/move are refused now, and the exclusive library hold around a change)
 - `disk_usage_links.py`
-- `disk_usage_service.py`
+- `disk_usage_measure.py` (the bounded walk and the public record of one item)
+- `disk_usage_service.py` (scan, clear and move)
 - `disk_usage_title_sizes.py` (each title's size split into originals, raw transcripts, line-history snapshots and regenerable files)
 - `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
+- `disk_usage_trash_store.py` (the Trash folder layout, manifests and the rename into it)
 - `temp_cleanup_service.py`
-- `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, never the reverse)
+- `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, `auto_backup_copies` and `auto_backup_files`, never the reverse)
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
@@ -288,7 +296,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_flagged_service.py` (one-click redo of the lines flagged for a missing glossary name, with the stronger engine)
 - `lncrawl_service.py`
 - `loaded_models_service.py`
-- `maintenance_assistant_service.py`
+- `maintenance_assistant_service.py` (one assistant turn: ask, escalation, independent review, developer report, changelog)
 - `media_export_service.py`
 - `media_peaks_service.py`
 - `media_playback_service.py`
@@ -428,6 +436,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `pending_install.py` (Pydantic models for api/routers/pending_install_routes.py)
 - `queue.py` (/api/queue: the user-managed job queue on the Jobs page)
 - `reader.py` (Reader and novel shapes: reading views, notes, vocabulary, wiki and novel files)
+- `setup.py` (GET /api/setup/readiness: what is installed, as booleans)
 - `real_model_check.py` (Pydantic models for api/routers/real_model_check_routes.py)
 - `retranscribe_lines.py` (Review's many-line re-transcription and the untranscribed-gap helpers)
 - `review.py` (Review shapes: line views and edits, records and versions, restructure and resegment, and the Review AI extras)
@@ -464,6 +473,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `diagnostics_gaps_routes.py`
 - `diagnostics_installs_routes.py`
 - `diagnostics_routes.py`
+- `setup_routes.py` (GET /api/setup/readiness, booleans only, `library.read`)
 - `pending_install_routes.py`
 - `diarization_routes.py`
 - `source_suspect_routes.py`

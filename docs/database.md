@@ -93,7 +93,7 @@ ones create):
 Things to know:
 
 - **`_safe_alter`** swallows only `duplicate column name`. `init_db` has no
-  cross-process lock, so the API server and a separate `cli.py` can both reach
+  cross-process lock, so the API server and a second process can both reach
   the same missing-column check; the second `ALTER` then fails even though the
   migration succeeded. Any other error is re-raised.
 - **Every migration is idempotent.** A fresh database and an upgraded one must
@@ -141,7 +141,7 @@ or `series` go when the parent goes.
 | `speaker_merge_undos` | Single-use snapshot (`snapshot`, `stale`, `expires_at`) to undo a speaker merge | `characters_service` | written inside `merge_speakers_atomic`; consumed by `undo_merge_speakers_atomic`; `drop_speaker_merge_undos` expires old ones |
 | `pages`, `bubbles` | Comic pages and their text bubbles; `pages.rev` is bumped on bubble edits | `scanlate_*_service`, `scanlate.py` | `create_page`, `update_bubble_fields` (compare-and-set), `replace_bubbles_if_unchanged`, `save_bubbles` |
 | `known_titles` | The discover catalogue | `discover_catalog_service` | `create_known_title` |
-| `translation_notes`, `line_emotions` | Per-line notes/emotion, keyed by `line_id` (not `idx`) | `lines_service`, `workspace_job_service`, `cli.py`, `bulk_apply.py` | `save_translation_notes`, `save_emotions` |
+| `translation_notes`, `line_emotions` | Per-line notes/emotion, keyed by `line_id` (not `idx`) | `lines_service`, `workspace_job_service`, `bulk_apply.py` | `save_translation_notes`, `save_emotions` |
 | `consistency_issues`, `vocab_lookups`, `wiki_entries`, `edit_samples`, `bug_reports` | Review and reading records per drama | `review_records_service`, `reader_service`, `lines_service`, `bug_report_service` | `save_consistency_issues`, `save_vocab_lookup`, `upsert_wiki_entry`, `record_edit_sample` |
 | `line_history` | Whole-drama line snapshots taken before risky bulk edits; `snapshot_json`, newest 10 kept per drama | `lines_service`, `line_tools_service`, `translation_version_service`, `transcribe_service` | `save_line_history_snapshot` (insert and prune in one transaction) |
 | `translation_versions` | Named full translations (`lines_json`, `engine`, `model`, `is_active`) so a re-translation does not destroy the previous one | `translation_version_service`, `bulk_apply.py`, `translation_finish.py` | `save_translation_version`, `set_active_translation_version` |
@@ -247,8 +247,8 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 - *Atomic writes.* `core.atomic_write(path, data)` writes a temp file in the same
   folder and `os.replace`s it, so a crash never leaves a truncated file. Backups
   are written to a hidden partial file, verified, flushed and linked into place
-  (`auto_backup_service._place_copy`, `lib.link_new.link_new`); the Trash uses one same-volume
-  rename (`disk_usage_service._rename`). New drama media goes through a staging
+  (`auto_backup_files._place_copy`, `lib.link_new.link_new`); the Trash uses one same-volume
+  rename (`disk_usage_trash_store._rename`). New drama media goes through a staging
   folder with a journal (`db.new_media_staging`, `move_staged_folder`,
   `recover_media_imports`) so a crash between the database insert and the folder
   move does not leave an orphan or adopt a stranger's folder:
@@ -262,7 +262,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 
 `background_jobs._jobs` (in memory) is the authority for jobs the process owns.
 `_mirror_locked` copies every status change into `job_records` with
-`db.save_job_record` so another process (the CLI, a restarted server) can see the
+`db.save_job_record` so another process (a restarted server) can see the
 last known state.
 
 - A failed write never breaks the job; `jobs/job_store.py` shows it on the job
@@ -395,7 +395,7 @@ Inside `dramas/<id>/`: source audio/video and `audio.wav`, `transcript.txt`,
 (per-line TTS), `voice_refs/` (clone samples), `pages/` (comic scans and
 typeset output). `drama_dir(id)` creates the folder on demand.
 
-**Regenerable vs irreplaceable** (`services/disk_usage_service.py`, with the
+**Regenerable vs irreplaceable** (`services/disk_usage_measure.py`, with the
 categories in `storage.CLEANABLE_CATEGORIES`):
 
 | Regenerable (rebuilt by the app or re-downloaded) | Irreplaceable (cannot be recreated inside Baihe) |
