@@ -9,6 +9,7 @@ import {
   catalogCount,
   commitEntries,
   discoverEngines,
+  discoverEnginesOff,
   existingDramaId,
   hasChinese,
   mediaLabel,
@@ -26,6 +27,11 @@ describe('discoverEngines', () => {
   it('keeps configured engines the Discover routes accept', () => {
     const all = [eng('claude'), eng('gemini', false), eng('ollama'), eng('fake_mt')]
     expect(discoverEngines(all).map((e) => e.name)).toEqual(['claude', 'ollama'])
+  })
+
+  it('lists accepted engines that cannot run yet, to show them switched off', () => {
+    const all = [eng('claude'), eng('gemini', false), eng('ollama', false), eng('fake_mt', false)]
+    expect(discoverEnginesOff(all).map((e) => e.name)).toEqual(['gemini', 'ollama'])
   })
 })
 

@@ -9,7 +9,7 @@ import type { AdminJob } from './useAdminJob'
 import { SelectionBar } from './SelectionBar'
 import {
   MAX_SELECTION, TRANSLATE_NEEDS, anyJobActive, describeBulkResult, describeClean, describeDeleteResult,
-  describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
+  describeNoKeySkips, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
   pruneSelection, selectAllVisible, toggleId, translatableIds, allSelected, selectIds, visibleTitles,
 } from './libraryAdmin'
 
@@ -74,6 +74,15 @@ describe('result lines', () => {
     expect(describeTranslateSkips([], names)).toBeNull()
     expect(describeTranslateSkips([{ drama_id: 4, reason: 'not_aligned' }], names))
       .toBe('1 skipped: not aligned (T4)')
+  })
+
+  it('no-key skips of a finished bulk translate', () => {
+    expect(describeNoKeySkips(null, names)).toBeNull()
+    expect(describeNoKeySkips({ bulk: { skipped: {} } }, names)).toBeNull()
+    expect(describeNoKeySkips({ bulk: { skipped: { no_key: { count: 1, drama_ids: [4] } } } }, names))
+      .toBe('1 title was not translated: no key (or no installed package) for its engine (T4).')
+    expect(describeNoKeySkips({ bulk: { skipped: { no_key: { count: 5, drama_ids: [1, 2, 3, 4] } } } }, names))
+      .toBe('5 titles were not translated: no key (or no installed package) for their engine (T1, T2, T3 and 2 more).')
   })
 
   it('sizes, scan and clean', () => {

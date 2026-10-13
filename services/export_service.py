@@ -613,19 +613,21 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
             f"Drama {drama_id} isn't in novel-narration mode -- EPUB export only "
             "applies to novel content.")
 
-    try:
-        import epub_io
-    except ImportError as exc:
-        raise DependencyUnavailableError(
-            "The `ebooklib` package isn't installed. Run `pip install ebooklib` "
-            "to enable EPUB export.") from exc
+    import epub_io
 
     ddir = db.drama_dir(drama_id)
     out_path = os.path.join(ddir, "translated.epub")
     title = drama.get("title_en") or drama.get("title_zh") or "Untitled"
-    epub_io.export_epub(lines, title, drama.get("author", ""), out_path, field=field,
-                        images_dir=os.path.join(ddir, "epub_images"),
-                        source_language=drama.get("source_language"))
+    try:
+        epub_io.export_epub(lines, title, drama.get("author", ""), out_path, field=field,
+                            images_dir=os.path.join(ddir, "epub_images"),
+                            source_language=drama.get("source_language"))
+    except ImportError as exc:
+        # ebooklib is imported inside export_epub, not at epub_io's import time.
+        raise DependencyUnavailableError(
+            "EPUB export needs the ebooklib package, which isn't installed. "
+            "Install it in Diagnostics > Packages.",
+            details={"reason": "missing_package", "package": "ebooklib"}) from exc
 
     with open(out_path, "rb") as f:
         return f.read()

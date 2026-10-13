@@ -9,6 +9,7 @@ writes to the database, flags a line, or writes a file to disk --
 generate_subtitle_text() only returns text for the caller to serve.
 """
 
+import sys
 import pytest
 
 from core import Line, lines_from_rows
@@ -411,18 +412,13 @@ class TestGenerateEpub:
             export_service.generate_epub(did, field="bilingual")
 
     def test_missing_ebooklib_raises_dependency_unavailable(self, isolated_db, monkeypatch):
-        import builtins
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "epub_io":
-                raise ImportError("simulated missing ebooklib")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", fake_import)
+        # ebooklib is imported inside epub_io.export_epub, so block that package itself.
+        monkeypatch.setitem(sys.modules, "ebooklib", None)
         did = self._novel_drama_with_lines(isolated_db)
-        with pytest.raises(DependencyUnavailableError):
+        with pytest.raises(DependencyUnavailableError) as exc:
             export_service.generate_epub(did)
+        assert "ebooklib" in str(exc.value) and "Diagnostics" in str(exc.value)
+        assert exc.value.details == {"reason": "missing_package", "package": "ebooklib"}
 
 
 class TestGenerateEpubWithEbooklib:
