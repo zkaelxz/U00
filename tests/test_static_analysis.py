@@ -850,8 +850,7 @@ _CAPTURE_ALLOWED = {
     # sc / netsh / icacls calls, timeout= COMMAND_TIMEOUT (120 s); no grandchildren.
     "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
     # pending: ffmpeg runs bounded by timeout= only.
-    "audio_extract.py::extract_audio_from_video": "pending: ffmpeg",
-    "audio_extract.py::extract_audio_slice": "pending: ffmpeg",
+    "audio_extract.py::_run_ffmpeg": "pending: ffmpeg",
     "dub.py::time_stretch": "pending: ffmpeg",
     "dub_narration.py::export_narration_m4b": "pending: ffmpeg",
     "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
