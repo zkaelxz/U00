@@ -296,13 +296,13 @@ class TestOverwriteManual:
 
 class TestDiarizationSpeedRecording:
     def _run(self, isolated_db, monkeypatch, result):
-        from services import transcribe_pipeline, transcribe_service
+        from services import transcribe_pipeline, transcribe_speed_service
         did = isolated_db.create_drama(title_en="D")
         monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: None)
         monkeypatch.setattr(diarization_service, "_drama_audio_path", lambda d, dr: "/x.wav")
         monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 600.0)
         diarization_service.make_apply_on_done(did)("diarize_1", result)
-        return transcribe_service
+        return transcribe_speed_service
 
     def test_a_finished_run_records_its_seconds_per_device(self, isolated_db, monkeypatch):
         ts = self._run(isolated_db, monkeypatch, {"segments": [], "device": "cuda", "seconds": 60.0})

@@ -16,9 +16,9 @@ import core as core_module
 import whisper_models
 import db
 import forced_align
-from services import (compare_transcription_service as compare, jobs_service,
-                      settings_service, timing_settings_service, transcribe_pipeline,
-                      transcribe_service)
+from services import (compare_transcription_service as compare, jobs_service, settings_service,
+                      timing_settings_service, transcribe_pipeline, transcribe_service,
+                      retranscribe_line_service, qwen3_requirements_service)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 
@@ -26,7 +26,7 @@ MAX_LINES = compare.MAX_LINES
 # Late starts mean the speech begins before the stored start, so the audio
 # window reaches back (and forward) this far, never into a neighbouring line.
 _PAD_S = 3.0
-_BLOCKING_PREFIXES = transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES + ("comparetx_",)
+_BLOCKING_PREFIXES = retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES + ("comparetx_",)
 _MOVED_EPSILON_S = 0.01
 _MIN_LINE_S = 0.1
 _SNAPSHOT_LABEL = "before re-time apply"
@@ -53,7 +53,7 @@ def start_retime(drama_id: int, line_ids: list) -> dict:
     if audio_path is None:
         raise UnsupportedOperationError("This title has no stored audio to re-time against.")
     picked = compare.select_lines(drama_id, {"kind": "line_ids", "line_ids": line_ids})
-    transcribe_service.require_qwen3_packages(
+    qwen3_requirements_service.require_qwen3_packages(
         "The Qwen3 forced aligner", drama.get("source_language") or "zh")
     for prefix in _BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")

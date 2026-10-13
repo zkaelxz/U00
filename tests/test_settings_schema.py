@@ -403,7 +403,7 @@ OTHER_READERS = {
     "services/ownership_service.py": "household share default, read on the ownership hot path",
     "services/remote_health_service.py": "reads its own health document",
     "services/sources_save_service.py": "reads the comic save folder document",
-    "services/transcribe_service.py": "reads the transcription speed document",
+    "services/transcribe_speed_service.py": "reads the transcription speed document",
     "services/update_service.py": "update check switch and timestamp",
     "services/web_search_service.py": "normalises the web search document",
 }

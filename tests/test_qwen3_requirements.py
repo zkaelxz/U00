@@ -108,13 +108,13 @@ def test_start_check_names_the_missing_tokeniser_package(monkeypatch, language, 
 
 
 def test_a_japanese_long_run_is_refused_at_start_without_nagisa(monkeypatch):
-    from services import transcribe_service
+    from services import transcribe_options_service
     _fake_installed(monkeypatch, missing=("nagisa",))
-    monkeypatch.setattr(transcribe_service, "_require_vad_packages", lambda: None)
+    monkeypatch.setattr(transcribe_options_service, "_require_vad_packages", lambda: None)
     with pytest.raises(DependencyUnavailableError, match="nagisa"):
-        transcribe_service._check_run_choices("whisper", "qwen3_asr_long", "whisper_diff", "ja")
-    transcribe_service._check_run_choices("whisper", "qwen3_asr", "whisper_diff", "ja")
-    transcribe_service._check_run_choices("whisper", "qwen3_asr_long", "whisper_diff", "zh")
+        transcribe_options_service._check_run_choices("whisper", "qwen3_asr_long", "whisper_diff", "ja")
+    transcribe_options_service._check_run_choices("whisper", "qwen3_asr", "whisper_diff", "ja")
+    transcribe_options_service._check_run_choices("whisper", "qwen3_asr_long", "whisper_diff", "zh")
 
 
 @pytest.mark.parametrize("version,too_old", [

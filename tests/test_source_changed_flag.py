@@ -15,9 +15,9 @@ import source_change
 from api.server import create_app
 from core import Line
 from services import (compare_transcription_service as compare, fixflag_translate, lines_service,
-                      restructure_service, retranscribe_many_service as many,
-                      source_change_service, subtitle_import_service, transcribe_service,
-                      translate_run_service, workspace_job_service)
+                      restructure_service, retranscribe_many_service as many, source_change_service,
+                      subtitle_import_service, translate_run_service,
+                      workspace_job_service, retranscribe_line_service)
 from services.service_errors import ConflictError
 
 FLAG = source_change.SOURCE_CHANGED_FLAG
@@ -123,22 +123,22 @@ class TestFindReplaceAndTm:
 
 class TestRetranscribeOne:
     def _proposal(self, monkeypatch, base, proposed):
-        monkeypatch.setattr(transcribe_service, "_finished_proposal", lambda d, l: {
+        monkeypatch.setattr(retranscribe_line_service, "_finished_proposal", lambda d, l: {
             "proposed_zh": proposed, "base_zh": base, "base_start": 0.0, "base_end": 0.9})
 
     def test_apply_keeps_english_and_flags(self, isolated_db, monkeypatch):
         did, ids = _seed([("旧", "Old")])
         self._proposal(monkeypatch, "旧", "新")
-        transcribe_service.apply_retranscribe_line(
-            did, ids[0], transcribe_service.retranscribe_line_job_id(did), "旧", "新")
+        retranscribe_line_service.apply_retranscribe_line(
+            did, ids[0], retranscribe_line_service.retranscribe_line_job_id(did), "旧", "新")
         row = _by_id(did)[ids[0]]
         assert (row["zh"], row["en"], row["flag"]) == ("新", "Old", FLAG)
 
     def test_untranslated_line_is_not_flagged(self, isolated_db, monkeypatch):
         did, ids = _seed([("旧", "")])
         self._proposal(monkeypatch, "旧", "新")
-        transcribe_service.apply_retranscribe_line(
-            did, ids[0], transcribe_service.retranscribe_line_job_id(did), "旧", "新")
+        retranscribe_line_service.apply_retranscribe_line(
+            did, ids[0], retranscribe_line_service.retranscribe_line_job_id(did), "旧", "新")
         assert _by_id(did)[ids[0]]["flag"] is None
 
     def test_english_edited_before_the_write_wins(self, isolated_db, monkeypatch):
@@ -152,8 +152,8 @@ class TestRetranscribeOne:
             return real(d, lines, label)
         monkeypatch.setattr(db, "save_line_history_snapshot", edit_then_snapshot)
         with pytest.raises(ConflictError):
-            transcribe_service.apply_retranscribe_line(
-                did, ids[0], transcribe_service.retranscribe_line_job_id(did), "旧", "新")
+            retranscribe_line_service.apply_retranscribe_line(
+                did, ids[0], retranscribe_line_service.retranscribe_line_job_id(did), "旧", "新")
         row = _by_id(did)[ids[0]]
         assert (row["zh"], row["en"], row["flag"]) == ("旧", "Mine", None)
 

@@ -20,8 +20,8 @@ from pydantic import ValidationError
 
 from api.schemas import (ErrorResponse, MediaPeaks, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
                          MediaUrlDownloadStarted, TranscribeRunRequest, UploadAndTranscribeResult)
-from services import (media_peaks_service, media_playback_service, media_upload_service, transcribe_service,
-                      url_media_service)
+from services import (media_peaks_service, media_playback_service, media_upload_service, url_media_service,
+                      transcribe_options_service)
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -78,7 +78,7 @@ def post_upload_and_transcribe(
             min_speakers=min_speakers, max_speakers=max_speakers)
     except ValidationError:
         raise InvalidInputError("Invalid transcribe options.")
-    transcribe_service.validate_transcribe_options(drama_id, **opts.model_dump())
+    transcribe_options_service.validate_transcribe_options(drama_id, **opts.model_dump())
     upload = media_upload_service.upload_media(drama_id, file.filename, file.file,
                                                transcribe_options=opts.model_dump(),
                                                confirm_replace_audio=confirm_replace_audio)

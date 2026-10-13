@@ -213,8 +213,8 @@ def _record_run_speed(drama_id: int, result) -> None:
         audio_path = _drama_audio_path(drama_id, drama) if drama else None
         if seconds is None or audio_path is None:
             return
-        from services import transcribe_service  # imports this module, so not at the top
-        transcribe_service.record_diarize_speed(
+        from services import transcribe_speed_service  # imports this module, so not at the top
+        transcribe_speed_service.record_diarize_speed(
             result.get("device") == "cuda", transcribe_pipeline._audio_duration_seconds(audio_path),
             seconds)
     except Exception:

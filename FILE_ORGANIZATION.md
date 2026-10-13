@@ -326,8 +326,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `real_model_check_service.py`
 - `remote_health_service.py`
 - `restructure_service.py`
+- `retranscribe_line_service.py` (Review's "Re-transcribe" for one line: the job, its in-memory proposal and the compare-and-set apply)
 - `retranscribe_many_service.py` (Review's "Re-transcribe selected": start, read and apply of the many-line re-transcription; shares the one-line job's id)
-- `retranscribe_worker.py` (the spawned workers and result hooks of the one-line and many-line re-transcriptions; the one-line start, read and apply stay in transcribe_service)
+- `retranscribe_worker.py` (the spawned workers and result hooks of the one-line and many-line re-transcriptions; the one-line start, read and apply are in retranscribe_line_service)
 - `gpu_process_job.py` (the shared GPU process-job shape: `run_in_child` in the parent, `run_worker` with the deadline watchdog in the child)
 - `compare_hear_worker.py` (the spawned worker that cuts and hears the chosen lines for compare transcription, so Cancel can kill it)
 - `retime_service.py`
@@ -373,7 +374,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `reading_speed_dismissal_service.py` (remembers dismissed reading-speed flags in a sidecar, keyed by line id and English text hash)
 - `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
 - `transcribe_pipeline.py` (the in-process transcription pipeline and its spawn-target worker: separation, model load, VAD, decode, Qwen pass, realign, split; writes no database rows)
+- `transcribe_options_service.py` (what a transcribe run may be asked to do: tuning defaults, the Whisper sizes a title may store, and validation of saved config fields and run choices)
 - `transcribe_service.py`
+- `transcribe_speed_service.py` (remembered speed of finished transcription and speaker-detection runs per model and device, behind the time estimate)
 - `translate_run_service.py`
 - `translate_service.py`
 - `translate_thinking_service.py`

@@ -8,7 +8,7 @@ import os
 import pytest
 
 import background_jobs
-from services import diarization_service, transcribe_pipeline, transcribe_service
+from services import diarization_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from services.service_errors import InvalidInputError
 
 
@@ -52,7 +52,7 @@ def test_bad_ranges_are_refused_before_starting(isolated_db, captured, kw, msg):
     with pytest.raises(InvalidInputError, match=msg):
         transcribe_service.start_transcribe_run(did, run_diarize=True, **kw)
     with pytest.raises(InvalidInputError, match=msg):
-        transcribe_service.validate_transcribe_options(did, **kw)
+        transcribe_options_service.validate_transcribe_options(did, **kw)
     assert captured == {}
 
 

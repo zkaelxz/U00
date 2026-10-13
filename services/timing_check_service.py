@@ -283,8 +283,8 @@ def start_timing_check(drama_id: int, after_transcription: bool = False) -> dict
     if not after_transcription:
         # Any job that rewrites this title's lines or times; imported late
         # because these modules import this one.
-        from services import retime_service, transcribe_service
-        for prefix in (transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES
+        from services import retime_service, retranscribe_line_service
+        for prefix in (retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES
                        + retime_service._BLOCKING_PREFIXES + ("retranscribe_", "retime_")):
             other = background_jobs.get_status(f"{prefix}{drama_id}")
             if other and other.get("status") in ("running", "queued"):

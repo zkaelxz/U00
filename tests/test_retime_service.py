@@ -17,7 +17,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import (jobs_service, ownership_service, restructure_service, retime_service as svc,
-                      settings_service, transcribe_pipeline, transcribe_service)
+                      qwen3_requirements_service, settings_service, transcribe_pipeline)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
@@ -27,7 +27,7 @@ from tests.saved_settings import patch_setting
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
-    monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature, language=None: None)
+    monkeypatch.setattr(qwen3_requirements_service, "require_qwen3_packages", lambda feature, language=None: None)
     monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     patch_setting(monkeypatch, "use_gpu", True)
     calls = {"groups": [], "languages": [], "use_gpu": [], "shift": -0.4,
@@ -100,7 +100,7 @@ class TestStart:
 
         def missing(feature, language=None):
             raise DependencyUnavailableError("needs qwen-asr")
-        monkeypatch.setattr(transcribe_service, "require_qwen3_packages", missing)
+        monkeypatch.setattr(qwen3_requirements_service, "require_qwen3_packages", missing)
         with pytest.raises(DependencyUnavailableError):
             svc.start_retime(did, ids)
         with pytest.raises(NotFoundError):

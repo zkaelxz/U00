@@ -23,7 +23,7 @@ import memory_headroom
 import qwen3_native
 import sensitivity_preset as presets
 import whisper_models
-from services import asr_options_service, settings_service, timing_settings_service, transcribe_service
+from services import asr_options_service, settings_service, timing_settings_service, transcribe_service, transcribe_options_service, transcribe_speed_service
 
 MAX_BEAM = 20
 DETECTORS = ("standard", "asmr")
@@ -157,13 +157,13 @@ def _whisper_pass(ctx: RunContext, r: Recipe, wav: str = None) -> list:
     segments = whisper_transcribe.transcribe_for_timing(
         wav or ctx.wav, r.model, language=ctx.language, use_gpu=ctx.use_gpu,
         local_model_path=ctx.local_model_path, hf_token=None, initial_prompt=prompt,
-        beam_size=r.beam or drama.get("beam_size") or transcribe_service._DEFAULT_TUNING["beam_size"],
+        beam_size=r.beam or drama.get("beam_size") or transcribe_options_service._DEFAULT_TUNING["beam_size"],
         min_silence_duration_ms=(drama.get("min_silence_ms")
-                                 or transcribe_service._DEFAULT_TUNING["min_silence_ms"]),
+                                 or transcribe_options_service._DEFAULT_TUNING["min_silence_ms"]),
         vad_threshold=presets.effective_vad_threshold(drama.get("vad_threshold"), preset),
         on_gpu_fallback=ctx.note_gpu_fallback,
         fast_mode=bool(drama.get("whisper_fast_mode")),
-        hallucination_silence_sec=transcribe_service.stored_hallucination_silence_sec(drama),
+        hallucination_silence_sec=transcribe_options_service.stored_hallucination_silence_sec(drama),
         repeat_guard=bool(drama.get("whisper_repeat_guard")), sensitivity_preset=preset, **extra)
     info = whisper_models.get_whisper_device_info(r.model, ctx.use_gpu, ctx.local_model_path)
     if info.get("gpu_error"):
@@ -385,7 +385,7 @@ def estimate_seconds(recipe: Recipe, window_s: float, use_gpu: bool) -> float:
     speed = None
     if recipe.model:
         try:
-            speed = transcribe_service.measured_transcribe_speed(recipe.model, use_gpu)
+            speed = transcribe_speed_service.measured_transcribe_speed(recipe.model, use_gpu)
         except Exception:
             speed = None
     factor = spec.rtf[0 if use_gpu else 1]

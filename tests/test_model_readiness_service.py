@@ -113,7 +113,7 @@ def _owned_drama(**fields):
 ROUTES = [
     ("/api/transcribe/dramas/{did}/run", {}, "transcribe_service", "start_transcribe_run", _whisper),
     ("/api/transcribe/dramas/{did}/autotune", {}, "autotune_service", "start_autotune_run", _whisper),
-    ("/api/transcribe/dramas/{did}/lines/1/retranscribe", {}, "transcribe_service",
+    ("/api/transcribe/dramas/{did}/lines/1/retranscribe", {}, "retranscribe_line_service",
      "start_retranscribe_line", _whisper),
     ("/api/transcribe/dramas/{did}/retranscribe-lines", {"line_ids": [1]},
      "retranscribe_many_service", "start_retranscribe_many", _whisper),
