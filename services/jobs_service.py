@@ -675,6 +675,8 @@ def cancel_job(job_id: str, principal=None) -> dict:
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
     # Only the run just checked: a shared id (sources_search,
     # bulk_series_translate...) may have been restarted by someone else.
+    # A finished run of this id here says nothing about another process's
+    # (the CLI's) run, which job_store's owner check covers.
     if not background_jobs.request_cancel(job_id, owner_user_id=owner) or (
             not job_store.request_cancel(job_id, owner_user_id=owner)
             and _restarted_by_someone_else(job_id, owner)):

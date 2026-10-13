@@ -357,8 +357,7 @@ def _refresh_queue_messages_locked():
 
 
 def gpu_queue_order() -> list:
-    """[(job_id, owner_user_id)] of the jobs waiting for the GPU in this
-    process, next first: the place in line their messages give."""
+    """[(job_id, owner_user_id)] waiting for the GPU here, next first."""
     with _lock:
         return [(jid, _jobs[jid].get("owner_user_id")) for jid in _queued_in_order_locked()]
 
@@ -1781,13 +1780,8 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
     before this returns). A running job's message becomes
     CANCELLING_MESSAGE (mirrored) until it stops, so a worker blocked in a
     call with no cancel point (a model load) shows the cancel was heard.
-
-    With `owner_user_id`, only that person's queued or running run is
-    stopped: a shared job id may have ended and been started again by
-    someone else since the caller checked who may stop it. Returns False
-    (nothing done) only then. A finished run here says nothing about a run
-    of the same id in another process (the CLI), which job_store's own
-    owner check covers."""
+    With `owner_user_id`, False (nothing done) for a queued or running run
+    someone else started (see jobs_service.cancel_job)."""
     hooks = []
     with _lock:
         job = _jobs.get(job_id)
