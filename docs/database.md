@@ -85,8 +85,9 @@ for backup and restore operations see `runbook.md`.
   `db/bulk_jobs.py` (bulk translation jobs and their lines),
   `db/presets.py` (workspace-configuration presets),
   `db/line_history.py` (line history snapshots for undo),
-  `db/translation_versions.py` (alternate translation versions) and
-  `db/vocab.py` (Reader vocab lookups).
+  `db/translation_versions.py` (alternate translation versions),
+  `db/vocab.py` (Reader vocab lookups) and
+  `db/wiki.py` (universe wiki entries).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
