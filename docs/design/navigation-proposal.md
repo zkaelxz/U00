@@ -17,7 +17,7 @@ Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner ans
 | D6 Diagnostics and Benchmark Lab gated by `admin.diagnostics` | Built | `navItems.ts` (#795) |
 | D9 `?find=` / `?line=` and Settings fold anchors | Not built | no such parameter in `router.ts` |
 | D13 Customize menu | Built | `nav/hiddenNav.ts` (#813) |
-| Rail collapsed by default below 1280 px | Built | `nav/useRailCollapsed.ts` (#787) |
+| Rail collapsed by default below 1280 px | Replaced by the floating dock (icons at rest, opens on hover), shown from 600 px | `nav/SideNav.tsx` |
 
 The other decisions (D1-D3, D5, D7, D8, D10-D12) were not checked one by one here.
 Written 2026-10-05 against `baihe-subtitler` at 611e69e. Every code claim below was read in `frontend/src`, `services/` or `api/` on that commit; where a doc and the code disagree, the code wins and the doc is named.

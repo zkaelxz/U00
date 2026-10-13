@@ -12,16 +12,8 @@ import { holds } from '../pages/diagnostics/adminUsers'
 import type { Route } from '../router'
 import type { SessionState } from '../hooks/useSession'
 
-/** usePersistedState key for the rail's collapsed state. */
-export const RAIL_COLLAPSED_KEY = 'nav.collapsed'
-
-/** Viewport width from which the rail starts expanded when the viewer never chose. */
-export const RAIL_EXPANDED_MIN_WIDTH = 1280
-
-/** A saved choice wins at every width; with none, narrow viewports start collapsed so pages keep their width. */
-export function resolveRailCollapsed(saved: boolean | null, wideEnoughToExpand: boolean): boolean {
-  return saved ?? !wideEnoughToExpand
-}
+/** Viewport width from which the side dock replaces the header menu and drawer. */
+export const DOCK_MIN_WIDTH = 600
 
 export type RailGroup = 'library' | 'find' | 'tools' | 'system'
 

@@ -1,27 +1,40 @@
-/* The left rail (nav/SideNav.tsx), shown from 1024px up; narrower screens keep the header nav. */
-.app-shell.has-rail { display: grid; grid-template-columns: 15rem minmax(0, 1fr); align-items: start; min-height: 100vh; }
-.app-shell.has-rail:has(> .app-rail[data-collapsed='true']) { grid-template-columns: 3.5rem minmax(0, 1fr); }
-/* The page column takes the wide cap (PageShell narrows each page inside it); body's own cap and padding move here so the rail can sit outside it. */
-.has-rail > .app-main { min-width: 0; width: 100%; max-width: var(--content-max-wide); margin-inline: auto; padding: var(--space-4); }
+/* The side dock (nav/SideNav.tsx), shown from 600px up; narrower screens keep the header nav and drawer.
+   It floats over the page: icons at rest, labelled rows when pointed at or when anything inside has focus. */
+.app-shell.has-rail { min-height: 100vh; }
+/* The page column takes the wide cap (PageShell narrows each page inside it); body's own cap and padding move here so the dock can sit outside it.
+   The left padding keeps the page clear of the resting dock (56px wide plus its 18px margin). */
+.has-rail > .app-main { min-width: 0; width: 100%; max-width: var(--content-max-wide); margin-inline: auto; padding: var(--space-4); padding-left: 5.75rem; }
 body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 .has-rail > .app-main > .app-header { justify-content: flex-end; }
 
 .app-rail {
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  position: fixed;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: var(--z-sticky, 3);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  width: 64px;
+  max-height: calc(100vh - 32px);
   padding: var(--space-3) var(--space-2);
   overflow-x: hidden;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
+  border-radius: 32px;
+  border: 1px solid var(--glass-edge, var(--border));
+  background: var(--glass, var(--surface));
+  box-shadow: var(--glass-shadow, var(--shadow-pop));
+  transition: width var(--dur-3) var(--ease);
 }
+@supports (backdrop-filter: blur(1px)) {
+  .app-rail { backdrop-filter: blur(22px) saturate(1.4); }
+}
+/* Opens over the page without moving it. */
+.app-rail:hover,
+.app-rail:focus-within { width: 15rem; border-radius: 28px; background: color-mix(in srgb, var(--surface) 94%, transparent); }
 .rail-brand { margin: 0; font-size: var(--text-lg); }
 .rail-brand a { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; padding: 0 var(--space-2); color: var(--text); text-decoration: none; border-radius: var(--radius-sm); }
-.rail-brand-mark { display: none; width: 18px; text-align: center; font-weight: 700; }
 .app-rail nav { display: grid; gap: var(--space-3); flex: 1 1 auto; align-content: start; }
 :is(.app-rail, .nav-drawer) .rail-group { display: grid; gap: 2px; }
 :is(.app-rail, .nav-drawer) .rail-heading { margin: var(--space-2) 0 0; padding: 0 var(--space-2); font-size: var(--text-xs); font-weight: 600; text-transform: none; color: var(--muted); }
@@ -30,8 +43,7 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 .app-rail nav, .app-rail .rail-group, .app-rail nav a { min-width: 0; }
 
 .app-rail nav a,
-.nav-drawer nav a,
-.rail-toggle {
+.nav-drawer nav a {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -47,8 +59,7 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
   cursor: pointer;
 }
 .app-rail nav a:hover,
-.nav-drawer nav a:hover,
-.rail-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.nav-drawer nav a:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .app-rail nav a[aria-current='page'],
 .nav-drawer nav a[aria-current='page'] {
   color: var(--text);
@@ -60,19 +71,18 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 /* The open title sits one step in under Library; no stage rows, the strip in the page stays the only stage navigation. */
 :is(.app-rail, .nav-drawer) nav a.rail-title { margin-left: var(--space-4); min-height: 32px; font-size: var(--text-sm); }
 .rail-title-mark { flex: none; width: 18px; text-align: center; }
-.rail-toggle { width: 100%; }
 
-.app-rail[data-collapsed='true'] .rail-brand a { justify-content: center; padding: 0; }
-.app-rail[data-collapsed='true'] .rail-brand-mark { display: block; }
-.app-rail[data-collapsed='true'] .rail-label,
-.app-rail[data-collapsed='true'] .rail-title { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.app-rail[data-collapsed='true'] .rail-heading { height: 1px; margin: var(--space-1) var(--space-2) 0; padding: 0; overflow: hidden; background: var(--border); color: transparent; font-size: 0; }
-.app-rail[data-collapsed='true'] nav a,
-.app-rail[data-collapsed='true'] .rail-toggle { justify-content: center; padding: 0; }
+/* At rest the dock is icons only: labels stay in the DOM as the accessible names (and each link carries a title). */
+.app-rail:not(:hover, :focus-within) .rail-brand a { justify-content: center; padding: 0; }
+.app-rail:not(:hover, :focus-within) .rail-label,
+.app-rail:not(:hover, :focus-within) .rail-title { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.app-rail:not(:hover, :focus-within) .rail-heading { height: 1px; margin: var(--space-1) var(--space-2) 0; padding: 0; overflow: hidden; background: var(--border); color: transparent; font-size: 0; }
+.app-rail:not(:hover, :focus-within) nav a { justify-content: center; padding: 0; }
+.app-rail:not(:hover, :focus-within) .rail-badge { display: none; }
+.rail-brand-mark { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 700; }
 @media (pointer: coarse) {
-  .app-rail nav a, .rail-toggle, .rail-brand a { min-height: 44px; }
+  .app-rail nav a, .rail-brand a { min-height: 44px; }
 }
-/* Drawer rows are 44px wherever it opens, touch or not (it only exists below 1024px). */
+/* Drawer rows are 44px wherever it opens, touch or not (it only exists below 600px). */
 .nav-drawer nav a, .nav-drawer nav a.rail-title { min-height: 44px; }
 :is(.app-rail, .nav-drawer) .rail-badge { margin-left: auto; }
-.app-rail[data-collapsed='true'] .rail-badge { display: none; }

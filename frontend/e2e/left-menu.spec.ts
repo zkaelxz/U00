@@ -80,98 +80,6 @@ test('the brand links to Library', async ({ page }) => {
   await expect(page).toHaveURL(/#\/library$/)
 })
 
-test('collapsing keeps the links reachable and is remembered after a reload', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/#/library')
-  const toggle = page.getByRole('button', { name: 'Side menu' })
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  const wide = (await page.locator('.app-rail').boundingBox())!.width
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  expect((await page.locator('.app-rail').boundingBox())!.width).toBeLessThan(wide / 2)
-  // Labels remain the accessible names and a tooltip names each icon.
-  await expect(rail(page).getByRole('link', { name: 'Sources', exact: true })).toHaveAttribute('title', 'Sources')
-
-  await page.reload()
-  await expect(page.getByRole('button', { name: 'Side menu' })).toHaveAttribute('aria-expanded', 'false')
-  await rail(page).getByRole('link', { name: 'Sources', exact: true }).click()
-  await expect(page).toHaveURL(/#\/sources$/)
-
-  await page.getByRole('button', { name: 'Side menu' }).click()
-  await page.reload()
-  await expect(page.getByRole('button', { name: 'Side menu' })).toHaveAttribute('aria-expanded', 'true')
-})
-
-test('with no saved choice the rail starts collapsed at 1100px and expanded at 1280px', async ({ page }) => {
-  const toggle = page.getByRole('button', { name: 'Side menu' })
-  await page.setViewportSize({ width: 1100, height: 800 })
-  await page.goto('/#/library')
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(rail(page).getByRole('link', { name: 'Sources', exact: true })).toBeVisible()
-
-  // Crossing 1280 follows the default without remounting the rail.
-  await rail(page).evaluate((el) => el.setAttribute('data-probe', '1'))
-  await page.setViewportSize({ width: 1280, height: 800 })
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(rail(page)).toHaveAttribute('data-probe', '1')
-  await page.setViewportSize({ width: 1100, height: 800 })
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(rail(page)).toHaveAttribute('data-probe', '1')
-})
-
-test('with no saved choice: collapsed rail at 1100px, expanded at 1280px, drawer at 800px', async ({ page }) => {
-  const toggle = page.getByRole('button', { name: 'Side menu' })
-  await page.setViewportSize({ width: 1100, height: 800 })
-  await page.goto('/#/library')
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await page.setViewportSize({ width: 1280, height: 800 })
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-
-  await page.setViewportSize({ width: 800, height: 800 })
-  await expect(toggle).toHaveCount(0)
-  await openMenu(page)
-  await expect(navLink(page, 'Sources')).toBeVisible()
-})
-
-test('a saved rail choice does not change the drawer below 1024px', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/#/library')
-  await page.getByRole('button', { name: 'Side menu' }).click()
-  await page.setViewportSize({ width: 800, height: 800 })
-  // openMenu returns at once when there is no Menu button yet, so wait for the narrow layout first.
-  await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
-  await openMenu(page)
-  await expect(navLink(page, 'Sources')).toBeVisible()
-  await expect(navLink(page, 'Sources')).toHaveText(/Sources/)
-})
-
-test('a saved choice wins at both widths', async ({ page }) => {
-  const toggle = page.getByRole('button', { name: 'Side menu' })
-  await page.setViewportSize({ width: 1100, height: 800 })
-  await page.goto('/#/library')
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await page.reload()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await page.setViewportSize({ width: 1400, height: 800 })
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await page.setViewportSize({ width: 1100, height: 800 })
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-})
-
-test('a wide screen at 1280 keeps the form-page column at its 860px preset when the rail is collapsed', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/#/settings')
-  await page.getByRole('button', { name: 'Side menu' }).click()
-  const main = (await page.locator('.app-main').boundingBox())!
-  expect(main.width).toBeGreaterThan(1150)
-  const column = (await page.locator('[data-page-shell]').boundingBox())!
-  expect(column.width).toBeLessThanOrEqual(860)
-  const scroll = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth])
-  expect(scroll[0]).toBeLessThanOrEqual(scroll[1])
-})
-
 test('household member: no People and access, Diagnostics or Benchmark Lab; Jobs sits under System', async ({ page }) => {
   await mockAuth(page, { ...ME.signedIn, permissions: ['library.read', 'lines.read', 'lines.edit', 'review.use', 'jobs.start', 'jobs.cancel'] })
   await page.goto('/#/library')
@@ -182,4 +90,32 @@ test('household member: no People and access, Diagnostics or Benchmark Lab; Jobs
   await expect(rail(page).getByRole('link', { name: 'Benchmark Lab', exact: true })).toHaveCount(0)
   await expect(rail(page).getByRole('link', { name: 'Jobs', exact: true })).toBeVisible()
   await expect(rail(page).getByRole('link', { name: 'Settings', exact: true })).toBeVisible()
+})
+
+test('the dock shows icons at rest, opens to labelled rows on hover, and swaps for the drawer below 600px', async ({ page }) => {
+  await page.setViewportSize({ width: 834, height: 900 })
+  await page.goto('/#/library')
+  const dock = page.locator('.app-rail')
+  const resting = (await dock.boundingBox())!.width
+  expect(resting).toBeLessThan(90)
+  // Labels stay the accessible names and a tooltip names each icon.
+  await expect(rail(page).getByRole('link', { name: 'Sources', exact: true })).toHaveAttribute('title', 'Sources')
+  await dock.hover()
+  await expect.poll(async () => (await dock.boundingBox())!.width).toBeGreaterThan(resting * 2)
+  await expect(page.getByRole('button', { name: 'Side menu' })).toHaveCount(0)
+
+  await page.setViewportSize({ width: 560, height: 900 })
+  await expect(page.locator('.app-rail')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
+})
+
+test('a wide screen at 1280 keeps the form-page column at its 860px preset beside the dock', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/#/settings')
+  const main = (await page.locator('.app-main').boundingBox())!
+  expect(main.width).toBeGreaterThan(1150)
+  const column = (await page.locator('[data-page-shell]').boundingBox())!
+  expect(column.width).toBeLessThanOrEqual(860)
+  const scroll = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth])
+  expect(scroll[0]).toBeLessThanOrEqual(scroll[1])
 })
