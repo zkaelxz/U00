@@ -209,8 +209,7 @@ def sniff_image(data: bytes):
     header so a huge image is refused before anything decodes it."""
     from services import page_import_limits
     try:
-        fmt, _w, _h = page_import_limits.check_image(data)
+        return page_import_limits.image_extension(data), None
     except page_import_limits.ImageRejected as exc:
         reason = str(exc)
         return None, (413 if reason.startswith("over the") else 415, reason)
-    return page_import_limits._EXT_FOR[fmt], None

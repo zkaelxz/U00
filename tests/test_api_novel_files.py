@@ -330,6 +330,14 @@ def test_raw_novel_writes_refused_during_this_titles_source_import(client):
             job_table._jobs.pop(f"sourceimport_{did}", None)
 
 
+def test_source_import_in_another_process_blocks_this_titles_raw_novel(client):
+    did = _drama()
+    db.save_job_record(f"sourceimport_{did}", "running")
+    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 409
+    db.save_job_record(f"sourceimport_{did}", "done")
+    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 200
+
+
 def test_paste_routes_are_pc_only(isolated_db):
     did = _drama()
     remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,

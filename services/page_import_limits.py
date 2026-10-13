@@ -69,6 +69,12 @@ def check_image(content: bytes) -> tuple:
     return fmt, w, h
 
 
+def image_extension(content: bytes) -> str:
+    """The file extension for an accepted image, from its bytes. Raises
+    ImageRejected like check_image."""
+    return _EXT_FOR[check_image(content)[0]]
+
+
 def is_strip(width: int, height: int) -> bool:
     return width > 0 and height > STRIP_SLICE_RATIO * width
 

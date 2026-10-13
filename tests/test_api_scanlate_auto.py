@@ -601,6 +601,76 @@ def test_redo_where_nothing_gets_translated_keeps_the_page(client, monkeypatch):
     assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
 
 
+def test_redo_keeps_the_page_when_one_chunk_of_a_dense_page_is_rejected(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    old = [_region(i, text=f"旧{i}", translated_text=f"good {i}") for i in range(45)]
+    db.save_bubbles(pid, old)
+    before = [(b["id"], b["translated_text"]) for b in db.load_bubbles(pid)]
+    new = [_region(i, text=f"新{i}") for i in range(45)]
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (new, []))
+    replies = iter([
+        json.dumps({"translations": {str(i): f"new {i}" for i in range(40)},
+                    "context_summary": "s"}),
+        "not json"])                                    # the second chunk (5 regions)
+    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: next(replies))
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    _run(client, did, mode="page", page_id=pid, engine="claude")
+    st = _wait(f"scanlate_{did}")
+    assert "kept unchanged" in st["message"]
+    assert [(b["id"], b["translated_text"]) for b in db.load_bubbles(pid)] == before
+    assert "weren't translated" in db.get_page(pid)["run_notes"]
+
+
+def test_a_partly_translated_first_run_still_saves_what_was_translated(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    new = [_region(i, text=f"新{i}") for i in range(45)]
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (new, []))
+    replies = iter([json.dumps({"translations": {str(i): f"new {i}" for i in range(40)},
+                                "context_summary": "s"}), "not json"])
+    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: next(replies))
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    _run(client, did, mode="page", page_id=pid, engine="claude")
+    _wait(f"scanlate_{did}")
+    done = [b for b in db.load_bubbles(pid) if b["translated_text"]]
+    assert len(done) == 40 and "weren't translated" in db.get_page(pid)["run_notes"]
+
+
+def test_redo_with_ocr_error_keeps_hand_corrected_source_text(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(1, text="手改", translated_text=""),
+                          _region(50, text="另一个", translated_text="")])
+    before = [(b["id"], b["source_text"]) for b in db.load_bubbles(pid)]
+    paid = []
+    monkeypatch.setattr(translate_engines, "call_llm_json",
+                        lambda *a, **k: paid.append(1) or "{}")
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (
+        [_region(5, "你好"), _region(50, "")], [("error", "OCR failed on 1 of 2 regions.")]))
+    _run(client, did, mode="page", page_id=pid, engine="fake")
+    st = _wait(f"scanlate_{did}")
+    assert "kept unchanged" in st["message"]
+    assert [(b["id"], b["source_text"]) for b in db.load_bubbles(pid)] == before
+    assert paid == []
+
+
+def test_a_redo_that_will_be_thrown_away_is_not_translated_or_billed(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(1, translated_text="good")])
+    paid = []
+    monkeypatch.setattr(translate_engines, "call_llm_json",
+                        lambda *a, **k: paid.append(1) or "{}")
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (
+        [_region(5, "你好"), _region(50, "")], [("error", "OCR failed on 1 of 2 regions.")]))
+    _run(client, did, mode="page", page_id=pid, engine="claude")
+    _wait(f"scanlate_{did}")
+    assert paid == []
+    assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
+
+
 def test_answers_are_applied_by_key_not_position(monkeypatch):
     import services.scanlate_run_service as rs
     monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: json.dumps(

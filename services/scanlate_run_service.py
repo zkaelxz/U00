@@ -18,8 +18,11 @@ Safety (spec §4):
   what the job read before detecting (db.replace_bubbles_if_unchanged), so
   a page edited while the job ran keeps the edit; the job notes it.
 - A redo never trades a page's translated regions for nothing (no region
-  detected) or for OCR-only text (translation failed): the old regions are
-  kept and the page's notes say so.
+  detected), for OCR-only text (translation failed), or for an incomplete
+  result (OCR lost some regions, or a chunk of a dense page was rejected so
+  some regions stayed untranslated): the old regions are kept and the page's
+  notes say so. Hand-corrected source text is kept the same way when a redo's
+  OCR fails on some regions.
 - Rolling context comes from the predecessor page's stored
   context_summary; each page stores its own afterwards.
 - SFX regions are not sent to the engine (region_excluded_from_auto).
@@ -214,23 +217,37 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
         return False, None
     for key, text in result.items():
         by_key[key]["translated_text"] = text
+    if len(result) < len(by_key):
+        # A rejected chunk of a dense page is simply absent from the result.
+        # What was translated is kept on the regions (a first run saves it); the
+        # False return is what stops a redo from replacing a complete page.
+        notes.append(("warning", f"{len(by_key) - len(result)} of {len(by_key)} regions weren't "
+                                 "translated: part of the answer couldn't be matched to them "
+                                 "by id. Use Redo this page to try again."))
+        return False, new_context
     return True, new_context
+
+
+def _ocr_lost_text(existing: list, notes) -> bool:
+    """OCR failed on some regions while the page already holds text (OCR'd,
+    hand-corrected or translated): replacing it would blank those regions."""
+    return (any(level == "error" for level, *_ in notes)
+            and any(_has_text(b) for b in existing))
 
 
 def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool,
                           notes: list = ()) -> bool:
     """A redo replaces the page's regions. It must not swap translated
     regions for nothing (detection found none), for OCR-only text (the
-    translation failed), for a page where OCR lost some regions, or for one
-    where no region ended up translated; the page then keeps what it has."""
-    if not bubbles:
+    translation failed or was partial), for a page where OCR lost some
+    regions, or for one where no region ended up translated; the page then
+    keeps what it has."""
+    if not bubbles or _ocr_lost_text(existing, notes):
         return True
-    had_translation = any((b.get("translated_text") or "").strip() for b in existing)
-    if not had_translation:
+    if not any((b.get("translated_text") or "").strip() for b in existing):
         return False
-    if not translated_ok or any(level == "error" for level, *_ in notes):
-        return True
-    return not any((b.get("translated_text") or "").strip() for b in bubbles)
+    return not translated_ok or not any((b.get("translated_text") or "").strip()
+                                        for b in bubbles)
 
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
@@ -262,7 +279,8 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     notes = [_detector_note(detect_kwargs["detect_backend"], detect_notes)]
     notes += detect_notes
     new_context, translated_ok = None, True
-    if bubbles:
+    # A result that will be thrown away is not worth a paid translation call.
+    if bubbles and not _ocr_lost_text(existing, detect_notes):
         translated_ok, new_context = _translate(
             bubbles, engine, engine_name, drama, glossary,
             _predecessor_context(drama_id, page_id), drama_id, notes)
