@@ -36,19 +36,26 @@ const job = (status: string, extra: Record<string, unknown> = {}) => ({
 const lineIdOf = (route: Route) => Number(route.request().url().split('/lines/')[1].split('/')[0])
 
 // POST starts the job; GET reads the finished proposal (same path).
+// Like the server, nothing is held (GET is a 404) until a run has been started.
 async function mockRun(page: Page, proposal: { proposed_zh: string; base_zh: string } | null, onGet?: () => void) {
+  let started = false
   await page.route('**/api/transcribe/dramas/3/config', (route) =>
     route.fulfill({ json: { drama_id: 3, has_audio_pipeline: true, audio_available: true } }))
   await page.route('**/api/transcribe/dramas/3/lines/*/retranscribe', async (route) => {
     const lineId = lineIdOf(route)
     if (route.request().method() === 'GET') {
+      if (!started) return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No finished re-transcription for this line.' } } })
       onGet?.()
       if (!proposal) return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No finished re-transcription for this line.' } } })
       return route.fulfill({ json: { job_id: 'retranscribe_3', line_id: lineId, status: 'done', ...proposal } })
     }
+    started = true
     return route.fulfill({ json: { job_id: 'retranscribe_3', drama_id: 3, line_id: lineId } })
   })
+  return () => started
 }
+
+const noJob = (route: Route) => route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No such job.' } } })
 
 test('hidden when the title has no audio', async ({ page }) => {
   await page.goto('/#/drama/3/review')
@@ -70,7 +77,7 @@ test('progress, then the raw proposal next to the text; "Use this" sends exactly
   const target = lines.lines.find((l: { idx: number }) => l.idx === 1)
   expect(target).toBeTruthy()
 
-  await mockRun(page, raw)
+  const started = await mockRun(page, raw)
   await page.route('**/api/transcribe/dramas/3/lines/*/retranscribe/apply', async (route) => {
     applied = { url: route.request().url(), body: route.request().postDataJSON() }
     // Do the write the real apply would do, so the editor's reload sees it.
@@ -79,6 +86,7 @@ test('progress, then the raw proposal next to the text; "Use this" sends exactly
     await route.fulfill({ json: { drama_id: 3, line_id: target.id, zh: raw.proposed_zh } })
   })
   await page.route('**/api/jobs/retranscribe_3', (route) => {
+    if (!started()) return noJob(route)
     polls += 1
     return route.fulfill({
       json: polls < 3
@@ -116,8 +124,9 @@ test('progress, then the raw proposal next to the text; "Use this" sends exactly
 test('another line\'s run is ignored: no Cancel, no proposal', async ({ page }) => {
   let got = false
   let polls = 0
-  await mockRun(page, { proposed_zh: '别的', base_zh: '你好' }, () => { got = true })
+  const started = await mockRun(page, { proposed_zh: '别的', base_zh: '你好' }, () => { got = true })
   await page.route('**/api/jobs/retranscribe_3', (route) => {
+    if (!started()) return noJob(route)
     polls += 1
     return route.fulfill({
       json: polls < 3

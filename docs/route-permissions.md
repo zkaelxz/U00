@@ -322,6 +322,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/metadata/dramas/{drama_id}/provenance` | library.read |
 | `POST /api/metadata/dramas/{drama_id}/research` | media.import_url |
 | `POST /api/metadata/dramas/{drama_id}/research/apply` | admin.library |
+| `GET /api/metadata/dramas/{drama_id}/research/cached` | library.read |
 | `POST /api/metadata/dramas/{drama_id}/romanize-credits` | admin.library |
 | `GET /api/metadata/research/budget` | library.read |
 | `POST /api/models/check` | local_only() |

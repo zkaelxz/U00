@@ -6,12 +6,14 @@ import { applyRetranscribeLines, getRetranscribeLinesResult, startRetranscribeLi
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useStoredRun } from '../../../../hooks/useStoredRun'
 import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeManyResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import {
   applyItems, applyNote, failureSummary, retranscribeLinesOutcome, retranscribeLinesProblem,
 } from './retranscribeLinesLogic'
+import { retranscribeJobId } from './retranscribeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
 import { NeedsInstall } from '../../../readiness/NeedsInstall'
 import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
@@ -49,9 +51,23 @@ export function RetranscribeLines({
   const [error, setError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
   const [applying, setApplying] = useState(false)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [result, setResult] = useState<RetranscribeManyResult | null>(null)
   const [checked, setChecked] = useState<ReadonlySet<number>>(new Set())
+  // Proposals not applied before the page was left are still on the server, and a run left going keeps going.
+  useStoredRun({
+    dramaId,
+    kind: 'retranscribe-lines',
+    jobIds: [retranscribeJobId(dramaId)],
+    adopt: adoptJob,
+    fetchResult: (id) => getRetranscribeLinesResult(id),
+    onResult: (r) => {
+      setResult((cur) => cur ?? r)
+      setChecked((cur) => (cur.size ? cur : new Set(r.proposals.map((p) => p.line_id))))
+    },
+    onError: setError,
+    draftShape: {},
+  })
   const [failure, setFailure] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
 
@@ -59,6 +75,10 @@ export function RetranscribeLines({
   const { job, error: pollError } = useJob(jobId, {
     runKey,
     onDone: (j) => {
+      if (typeof j.result?.line_id === 'number') {
+        setJobId(null) // the one-line run's record: not ours to show
+        return
+      }
       const o = retranscribeLinesOutcome(j)
       if (o.kind === 'none') {
         setFailure(o.text)
@@ -71,7 +91,8 @@ export function RetranscribeLines({
     },
   })
 
-  const active = !!job && !TERMINAL_STATUSES.includes(job.status)
+  const ours = typeof job?.result?.line_id !== 'number'
+  const active = !!job && ours && !TERMINAL_STATUSES.includes(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
 
   const start = (ids: number[]) => {
