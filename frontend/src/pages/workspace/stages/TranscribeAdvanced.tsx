@@ -28,6 +28,8 @@ import { diarizeEstimate } from './transcribeEstimate'
 import { asrBackendHelp, GROQ_HELP } from './transcribeBackendField'
 import { whisperOnlyControlReason, type WhisperOnlyControl } from './transcribeRun'
 import { VoiceDetectorField } from './VoiceDetectorField'
+import { NeedsInstall } from '../../readiness/NeedsInstall'
+import { QWEN3_BACKENDS, unavailableBackends, type Need, type TranscribeNeeds } from '../../readiness/needs'
 
 type NumKey = 'beam_size' | 'min_silence_ms' | 'min_pause_sec' | 'vad_threshold' | 'hallucination_silence_sec' | 'hardsub_interval_sec'
 type SelectKey = 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend' | 'sensitivity_preset'
@@ -50,6 +52,9 @@ interface Props {
   kind: TitleKind
   developerMode: boolean
   haveTranscript: boolean
+  // What the controls need from this PC (null while readiness is unknown: nothing is switched off).
+  needs: TranscribeNeeds | null
+  onNeedInstalled: () => void
   // The title's options were saved before (see optionsSaved in TranscribeStage): decides which fold opens first.
   optionsSaved: boolean
   fieldError: (f: RunField) => string | null
@@ -85,16 +90,21 @@ type Placed = { zone: 'grid' | 'block' | 'list'; node: ReactNode }
 export function TranscribeAdvanced(p: Props) {
   const { cf, config, setC, language, developerMode, haveTranscript } = p
 
-  const select = (label: string, key: SelectKey, options: string[], help?: string, disabled: string[] = []): Placed => ({
+  // The way to fix a missing need, under the control it switches off.
+  const fix = (need: Need | null | undefined) => (need ? <NeedsInstall need={need} onInstalled={p.onNeedInstalled} /> : null)
+  const select = (label: string, key: SelectKey, options: string[], help?: string, disabled: string[] = [], below: ReactNode = null): Placed => ({
     zone: 'grid',
     node: (
-      <Field label={label} help={help} error={key === 'alignment_method' || key === 'asr_backend_choice' ? p.fieldError(key) : null}>
-        <select value={cf[key]} onChange={(e) => setC(key, e.target.value)}>
-          {(options.includes(cf[key]) ? options : [cf[key], ...options]).map((o) => (
-            <option key={o} value={o} disabled={disabled.includes(o) && o !== cf[key]}>{optionLabel(o)}</option>
-          ))}
-        </select>
-      </Field>
+      <div>
+        <Field label={label} help={help} error={key === 'alignment_method' || key === 'asr_backend_choice' ? p.fieldError(key) : null}>
+          <select value={cf[key]} onChange={(e) => setC(key, e.target.value)}>
+            {(options.includes(cf[key]) ? options : [cf[key], ...options]).map((o) => (
+              <option key={o} value={o} disabled={disabled.includes(o) && o !== cf[key]}>{optionLabel(o)}</option>
+            ))}
+          </select>
+        </Field>
+        {below}
+      </div>
     ),
   })
   // A pasted transcript is aligned, so the ASR backend choice does not apply to that run.
@@ -111,14 +121,20 @@ export function TranscribeAdvanced(p: Props) {
       ),
     }
   }
-  const toggle = (label: string, key: ToggleKey, help: string, control?: WhisperOnlyControl): Placed => {
+  // `missing`: what this switch needs from the PC. Off, it cannot be switched on and the fix is shown under
+  // it; already on (a kept draft), it can still be turned off and the Before-you-run list carries the fix.
+  const toggle = (label: string, key: ToggleKey, help: string, control?: WhisperOnlyControl, missing?: Need | null): Placed => {
     const reason = unusedReason(control)
+    const unavailable = !!missing && !cf[key]
     return {
       zone: 'list',
       node: (
-        <Field label={label} help={withReason(help, reason)}>
-          <Toggle checked={cf[key]} disabled={!!reason} title={reason ?? undefined} onChange={(v) => setC(key, v)} />
-        </Field>
+        <>
+          <Field label={label} help={withReason(help, reason)}>
+            <Toggle checked={cf[key]} disabled={!!reason || unavailable} title={reason ?? (unavailable ? missing.reason : undefined)} onChange={(v) => setC(key, v)} />
+          </Field>
+          {unavailable && fix(missing)}
+        </>
       ),
     }
   }
@@ -136,6 +152,7 @@ export function TranscribeAdvanced(p: Props) {
     ),
   })
 
+  const speakersMissing = !!p.needs && p.needs.speakers.length > 0
   const asrOptions = asrBackendOptionsFor(language)
   const fields: Record<AdvancedFieldId, () => Placed> = {
     expected_speakers: () => speaker('Expected speakers', 'expected', `${rangeHint(0, 20)} Blank lets the app decide.`),
@@ -176,8 +193,9 @@ export function TranscribeAdvanced(p: Props) {
             <button
               type="button"
               className={buttonClass('ghost')}
-              disabled={p.busy || p.needsAck}
+              disabled={p.busy || p.needsAck || speakersMissing}
               aria-describedby={p.needsAck ? 'diarize-needed' : undefined}
+              title={speakersMissing ? p.needs?.speakers[0]?.reason : undefined}
               onClick={p.onDiarize}
             >
               Detect speakers only
@@ -188,7 +206,8 @@ export function TranscribeAdvanced(p: Props) {
               p.hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(p.duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
             )}
           </div>
-          <SpeakerDetectionNotice dramaId={p.dramaId} active />
+          {p.needs?.speakers.map((n) => <Fragment key={n.id}>{fix(n)}</Fragment>)}
+          <SpeakerDetectionNotice dramaId={p.dramaId} active={!speakersMissing} />
           <DiarizationDeviceNote dramaId={p.dramaId} refreshKey={p.busy} />
         </>
       ),
@@ -208,7 +227,7 @@ export function TranscribeAdvanced(p: Props) {
             ? ' Not used with the selected ASR backend: choose Whisper or Qwen3 ASR for this to apply. Long lines can still be cut afterwards in Review.'
             : ''),
       ),
-    realign_long_segments: () => toggle('Realign long segments', 'realign_long_segments', 'Experimental, off by default. Re-times each line against its own audio with the MMS aligner (needs torchaudio and uroman, about 1.1 GB on first use). It only changes timing, not the text.'),
+    realign_long_segments: () => toggle('Realign long segments', 'realign_long_segments', 'Experimental, off by default. Re-times each line against its own audio with the MMS aligner (needs torchaudio and uroman, about 1.1 GB on first use). It only changes timing, not the text.', undefined, p.needs?.realign),
     vad_threshold: () => num('VAD threshold', 'vad_threshold', 0.05, `${rangeHint(RANGES.vad_threshold.min, RANGES.vad_threshold.max, { default: VAD_THRESHOLD_DEFAULT })} Higher ignores more quiet sound.`, undefined, 'vad_threshold'),
     hardsub_interval_sec: () => num('Hardsub interval', 'hardsub_interval_sec', 0.1, `${rangeHint(RANGES.hardsub_interval_sec.min, RANGES.hardsub_interval_sec.max, { unit: 's', default: HARDSUB_INTERVAL_DEFAULT })} How often video frames are read for on-screen text.`, 's'),
     alignment_method: () =>
@@ -216,11 +235,15 @@ export function TranscribeAdvanced(p: Props) {
         haveTranscript
           ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
           : 'Forced alignment lines up a transcript you provide; for raw audio, pick Whisper or Qwen3-ASR.',
-        haveTranscript ? [] : ['qwen3_forced_align']),
+        haveTranscript ? (p.needs?.qwenAlign ? ['qwen3_forced_align'] : []) : ['qwen3_forced_align'],
+        haveTranscript && cf.alignment_method !== 'qwen3_forced_align' ? fix(p.needs?.qwenAlign) : null),
     asr_backend_choice: () =>
-      select('ASR backend', 'asr_backend_choice', asrOptions, [asrBackendHelp(asrOptions), config?.asr_backend_notice].filter(Boolean).join('\n')),
+      select('ASR backend', 'asr_backend_choice', asrOptions, [asrBackendHelp(asrOptions), config?.asr_backend_notice].filter(Boolean).join('\n'),
+        p.needs ? unavailableBackends(p.needs) : [],
+        // The chosen backend's own need is in the Before-you-run list; this is for the options it rules out.
+        QWEN3_BACKENDS.includes(cf.asr_backend_choice) ? null : fix(p.needs?.qwen3)),
     voice_detector: () => ({ zone: 'grid', node: <VoiceDetectorField /> }),
-    use_groq: () => toggle('Use Groq', 'use_groq', GROQ_HELP),
+    use_groq: () => toggle('Use Groq', 'use_groq', GROQ_HELP, undefined, p.needs?.groq),
     whisper_fast_mode: () =>
       toggle(
         'Whisper fast mode',
@@ -269,6 +292,8 @@ export function TranscribeAdvanced(p: Props) {
         'Separate vocals first',
         'separate_vocals_first',
         'Removes background music before transcribing. Skip it unless the background is music alone: it hurt with noise and did nothing on clean audio. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length).',
+        undefined,
+        p.needs?.separation,
       ),
     hallucination_silence_sec: () =>
       num('Hallucination guard', 'hallucination_silence_sec', 0.5, `Experimental. Off (0) by default: 0 or ${rangeHint(0.5, 10, { unit: 's' })} Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages and Fast mode.`, 's', 'hallucination_guard'),

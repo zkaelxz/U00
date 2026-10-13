@@ -225,6 +225,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
+- `setup_readiness_service.py` (booleans for what is installed and configured, so a control can say why it is off)
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
 - `previous_library_service.py` (the library copies kept beside the library folder after a restore or before a Reset library: size for Disk usage, delete, the reset safety copy)
 - `diarization_service.py`
@@ -423,6 +424,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `pending_install.py` (Pydantic models for api/routers/pending_install_routes.py)
 - `queue.py` (/api/queue: the user-managed job queue on the Jobs page)
 - `reader.py` (Reader and novel shapes: reading views, notes, vocabulary, wiki and novel files)
+- `setup.py` (GET /api/setup/readiness: what is installed, as booleans)
 - `real_model_check.py` (Pydantic models for api/routers/real_model_check_routes.py)
 - `retranscribe_lines.py` (Review's many-line re-transcription and the untranscribed-gap helpers)
 - `review.py` (Review shapes: line views and edits, records and versions, restructure and resegment, and the Review AI extras)
@@ -459,6 +461,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `diagnostics_gaps_routes.py`
 - `diagnostics_installs_routes.py`
 - `diagnostics_routes.py`
+- `setup_routes.py` (GET /api/setup/readiness, booleans only, `library.read`)
 - `pending_install_routes.py`
 - `diarization_routes.py`
 - `source_suspect_routes.py`

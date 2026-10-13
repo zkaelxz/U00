@@ -68,8 +68,11 @@ export function engineShortName(engine: Pick<TranslateEngine, 'name'>): string {
 // Closed <select> text for an engine: its short name, never the note. The
 // selects sit in narrow grid cells, so the note goes in the field's help
 // (engineNotesHelp) instead of being cut off mid-word.
-export function engineOptionLabel(engine: Pick<TranslateEngine, 'name' | 'key_configured'>): string {
-  return `${engineShortName(engine)}${engine.key_configured ? '' : ' (no key)'}`
+export function engineOptionLabel(engine: Pick<TranslateEngine, 'name' | 'key_configured'> & { package_installed?: boolean }): string {
+  if (engine.key_configured) return engineShortName(engine)
+  // Say which fix applies: a missing SDK is installed, a local server is started, anything else needs a key.
+  const why = engine.package_installed === false ? 'not installed' : engine.name === 'ollama' ? 'not running' : 'no key'
+  return `${engineShortName(engine)} (${why})`
 }
 
 export function engineNotesHelp(engines: Pick<TranslateEngine, 'name' | 'label'>[]): string {

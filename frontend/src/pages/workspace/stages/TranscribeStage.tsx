@@ -15,6 +15,7 @@ import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { usePersistedState } from '../../../hooks/usePersistedState'
+import { useReadiness } from '../../../hooks/useReadiness'
 import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
 import type {
   DiarizationConfig,
@@ -42,6 +43,9 @@ import {
 import { useDeveloperMode } from '../../assistant/developerMode'
 import { GpuBanner } from '../../diagnostics/GpuBanner'
 import { PreflightCard } from '../../preflight/PreflightCard'
+import { NeedRows, type ListedNeed } from '../../readiness/NeedRows'
+import { NeedsInstall } from '../../readiness/NeedsInstall'
+import { QWEN3_BACKENDS, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
 import { useStage } from '../StageContext'
 import type { MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
@@ -111,6 +115,7 @@ export default function TranscribeStage({
 }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const developerMode = useDeveloperMode()
+  const { readiness, refresh: refreshReadiness } = useReadiness()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
@@ -491,8 +496,32 @@ export default function TranscribeStage({
   const whisperRun = !!cf && (mode === 'whisper'
     ? cf.asr_backend_choice === 'whisper'
     : mode === 'have_transcript' && cf.alignment_method === 'whisper_diff')
-  // Undefined (an older server) counts as installed.
-  const notInstalled = whisperRun && config?.whisper_installed === false
+  // What the settings on screen need from this PC (unknown readiness needs nothing: the server still refuses).
+  const needsForm: TranscribeNeedsForm | null = cf
+    ? {
+        backend: cf.asr_backend_choice, separateVocals: cf.separate_vocals_first, separationBackend: cf.separation_backend,
+        alignmentMethod: cf.alignment_method, realignLong: cf.realign_long_segments, useGroq: cf.use_groq,
+        runDiarize, language, mode: mode ?? 'whisper',
+      }
+    : null
+  const needs = needsForm ? transcribeNeeds(readiness, needsForm) : null
+  const blockers = needs && needsForm ? runBlockers(needs, needsForm) : []
+  // The stage's own answer (config.whisper_installed, undefined from an older server counts as installed)
+  // and readiness agree on the package; Groq replaces the local Whisper step, so it needs none.
+  const notInstalled = (needsForm ? usesLocalWhisper(needsForm) : whisperRun) && (config?.whisper_installed === false || !!needs?.whisper)
+  // The switch stays off while speaker detection cannot run; once on (a kept draft) it can still be turned off.
+  const speakersOff = needs && needs.speakers.length > 0 ? needs.speakers : null
+  const otherBlockers = blockers.filter((b) => b.id !== 'whisper')
+  const qwen3Chosen = !!needsForm && needsForm.mode === 'whisper' && QWEN3_BACKENDS.includes(needsForm.backend)
+  const aligning = !!needsForm && needsForm.mode === 'have_transcript' && needsForm.alignmentMethod === 'qwen3_forced_align'
+  const listed: ListedNeed[] = [
+    ...otherBlockers.map((need) => ({ need, blocking: true })),
+    // Speaker detection only skips a step when it cannot run, so it is shown but never stops the run.
+    ...(runDiarize && needs ? needs.speakers.map((need) => ({ need, blocking: false })) : []),
+    ...(needs?.gpuTorch ? [{ need: needs.gpuTorch, blocking: false }] : []),
+  ]
+  const qwenWarnings = [qwen3Chosen && qwen3Warning(), aligning && qwen3Warning(true)].filter((w): w is string => !!w)
+  const showBeforeYouRun = notInstalled || listed.length > 0 || qwenWarnings.length > 0
   const estimate = cf && whisperRun && !uploadFile && hasMedia
     ? transcribeEstimate({
         audioSeconds: duration,
@@ -592,13 +621,18 @@ export default function TranscribeStage({
         )}
         <div className="setting-list">
           <Field label="Detect speakers after transcribing">
-            <Toggle checked={runDiarize} onChange={setRunDiarize} />
+            <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} title={speakersOff?.[0]?.reason} onChange={setRunDiarize} />
           </Field>
         </div>
+        {speakersOff && !runDiarize && speakersOff.map((n) => <NeedsInstall key={n.id} need={n} onInstalled={() => void refreshReadiness()} />)}
         <SpeakerDetectionNotice dramaId={dramaId} active={runDiarize} />
-        {notInstalled && (
-          <div id="transcribe-not-installed">
-            <PreflightCard needs={['whisper', 'ffmpeg', 'gpu']} whisperInstalled={false} onReady={reloadConfigWhenReady} />
+        {showBeforeYouRun && (
+          <div id={notInstalled ? 'transcribe-not-installed' : 'transcribe-before-you-run'}>
+            <PreflightCard
+              needs={notInstalled ? ['whisper'] : []} whisperInstalled={false} onReady={reloadConfigWhenReady}
+              hasExtra={listed.length > 0 || qwenWarnings.length > 0}
+              extra={<NeedRows items={listed} warnings={qwenWarnings} onInstalled={() => void refreshReadiness()} />}
+            />
           </div>
         )}
         <GpuBanner onTurnedOn={() => setUseGpu(true)} />
@@ -614,8 +648,8 @@ export default function TranscribeStage({
           <button
             type="button"
             className="primary"
-            disabled={busy || !cf || !!needed || notInstalled}
-            aria-describedby={[notInstalled && 'transcribe-not-installed', needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
+            disabled={busy || !cf || !!needed || notInstalled || otherBlockers.length > 0}
+            aria-describedby={[showBeforeYouRun && (notInstalled ? 'transcribe-not-installed' : 'transcribe-before-you-run'), needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
             onClick={transcribe}
           >
             Transcribe
@@ -666,6 +700,8 @@ export default function TranscribeStage({
             kind={titleKind(drama.media_type, drama.content_mode)}
             developerMode={developerMode}
             haveTranscript={haveTranscript}
+            needs={needs}
+            onNeedInstalled={() => void refreshReadiness()}
             optionsSaved={optionsSaved}
             fieldError={fieldError}
             speakers={{

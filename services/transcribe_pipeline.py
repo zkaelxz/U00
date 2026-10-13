@@ -65,6 +65,9 @@ def _raise_if_job_cancelled(job_id):
 # Fixed sentences, never the ImportError text: that names a module and reads
 # as a crash. The Diagnostics page is where the install button is.
 MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnostics to install it."
+# Hard-subtitle reading is OCR, not speech recognition: saying "Transcription isn't installed"
+# would send the user to install Whisper while the missing piece is an OCR package.
+MISSING_OCR_MESSAGE = "Reading on-screen text needs an OCR package that isn't installed yet. Open Diagnostics to install one."
 _MISSING_VAD_MESSAGE = ("Qwen3 speech detection needs transcription, which isn't installed yet. "
                         "Open Diagnostics to install it.")
 

@@ -65,8 +65,8 @@ def _print_report(file=sys.stdout):
     if not cuda["torch_installed"]:
         lines.append(
             f"{sym['info']} torch isn't installed -- GPU-accelerated transcription/dubbing/diarization "
-            "won't be available (this app still runs fine on CPU, just slower). See "
-            "requirements-media.txt if you want it.")
+            "won't be available (this app still runs fine on CPU, just slower). Open "
+            "Diagnostics > Recommended installs in the app if you want it.")
     elif cuda["cuda_available"] is False:
         lines.append(
             f"{sym['info']} torch is installed but no CUDA GPU is available to it -- GPU-touching steps "
@@ -83,7 +83,7 @@ def _print_report(file=sys.stdout):
     for line in lines:
         print(line, file=file)
     print("\nNone of this stops the app from starting -- see the Diagnostics tab for the "
-         "full picture anytime.", file=file)
+         "full picture anytime. Its Recommended installs card lists the optional extras.", file=file)
 
 
 if __name__ == "__main__":

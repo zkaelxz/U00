@@ -24,6 +24,7 @@ import {
 import { GpuTorchPanel } from './GpuTorchPanel'
 import { PendingInstallBanner, pendingKeys } from './PendingInstall'
 import { useInstallPlan } from './useInstallPlan'
+import { usePickedPackage } from './usePickedPackage'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
 import { InstallProgress } from './InstallProgress'
 import { cancelledText, runInstallJob } from './installJob'
@@ -51,7 +52,7 @@ export type Outcome =
  * an upgrade is still one request that stays open. Either way every admin
  * button on the page waits for it.
  */
-export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted, onQueuedChange, openSignal }: {
+export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted, onQueuedChange, openSignal, pickPackage }: {
   overview: DiagnosticsOverview
   pc: PcMode
   jobsActive: boolean
@@ -65,6 +66,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   // How many installs wait for the next start (drives the tab's attention badge).
   onQueuedChange: (count: number) => void
   openSignal: number
+  // A package a link picked (route.pkg): its row is opened and focused once the rows are there.
+  pickPackage?: string
 }) {
   const [openRef, open] = useDetailsOpen()
   const [outcome, setOutcome] = useState<Outcome | null>(null)
@@ -134,6 +137,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   // Transcription is the one missing thing a fresh install can't do without.
   const noTranscription = missingTranscription(presets)
   const noTranscriptionRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  usePickedPackage(panelRef, pickPackage, !!presets, openSignal)
   const wantsTranscription = noTranscription !== null && window.location.hash.includes('install=transcription')
   useEffect(() => {
     if (wantsTranscription) noTranscriptionRef.current?.scrollIntoView({ block: 'center' })
@@ -314,7 +319,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 
   return (
     <Section title="Packages" defaultOpen openSignal={openSignal} storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
-      <div ref={openRef} data-testid="dependency-panel" className="diag-stack">
+      <div ref={(el) => { openRef(el); panelRef.current = el }} data-testid="dependency-panel" className="diag-stack">
         {pc === 'remote' && <p className="muted">Installing is PC only.</p>}
         {pending && <p className="muted" data-testid="pc-pending">{pending}</p>}
         {local && blocked && !running && <p className="muted" id={reasonId}>{blocked}</p>}
@@ -356,7 +361,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             <h4>{hasTasks ? 'Not part of a task' : 'Not installed'}</h4>
             <ul aria-label={hasTasks ? 'Packages not part of a task' : 'Not installed'} className="pkg-list">
               {leftover.map((d) => (
-                <li key={d.name}>
+                <li key={d.name} data-pkg={d.name}>
                   <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} queued={queued.has(d.name)} />
                   {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && !queued.has(d.name) && action('install', d.name)}
                 </li>
@@ -490,7 +495,7 @@ function TaskRow({ task, packages, action, torchInstalled, installOne, queued }:
             const role = roleLabel(task, n)
             const min = minVersionText(packages[n])
             return (
-              <span key={n} data-testid={`task-pkg-${n}`}
+              <span key={n} data-testid={`task-pkg-${n}`} data-pkg={n}
                 className={`task-pkg${packages[n]?.installed ? ' installed' : ''}${role ? ` role-${task.roles?.[n]}` : ''}`}>
                 {packages[n]?.installed ? '✓ ' : ''}{n}
                 {role && <span className="task-role"> · {role}</span>}

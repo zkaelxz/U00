@@ -86,8 +86,9 @@ export function gapLabel(g: Pick<TranscribeGap, 'start' | 'end' | 'seconds' | 'p
 }
 
 // Why a gap's button is off, or null.
-export function gapBlockedReason(opts: { jobRunning: boolean; editing: boolean; canTranscribe: boolean }): string | null {
+export function gapBlockedReason(opts: { jobRunning: boolean; editing: boolean; canTranscribe: boolean; needReason?: string | null }): string | null {
   if (!opts.canTranscribe) return 'Needs this title’s audio or video.'
+  if (opts.needReason) return opts.needReason
   if (opts.editing) return 'Save or cancel the open edit first.'
   if (opts.jobRunning) return 'Another job is running on this title. Try again when it finishes.'
   return null

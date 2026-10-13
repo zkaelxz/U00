@@ -23,6 +23,8 @@ import {
   rawStatusText,
 } from './speechCoverageText'
 import { useRunStatus } from './useRunStatus'
+import { NeedsInstall } from '../../readiness/NeedsInstall'
+import { useAudioToolNeed } from '../../readiness/useAudioToolNeed'
 import './speechCoverage.css'
 import { buttonClass } from '../../../components/uiClasses'
 
@@ -49,6 +51,7 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
   const stopAt = useRef<number | null>(null)
 
   const active = isActiveStatus(status?.status)
+  const need = useAudioToolNeed(true)
   const blocker = active ? null : coverageBlocker(hasAudio, busy)
   const report = status?.status === 'done' ? status.result : null
 
@@ -132,12 +135,13 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
           </p>
         ) : (
           <div className="actions">
-            <button type="button" disabled={!!blocker || starting} onClick={start}>
+            <button type="button" disabled={!!blocker || starting || !!need} title={need?.reason} onClick={start}>
               {report ? 'Check again' : 'Check coverage'}
             </button>
             {blocker && <span className="muted">{blocker}</span>}
           </div>
         )}
+        {need && !active && <NeedsInstall need={need} />}
         {!error && isForbidden(loadError) ? (
           <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>
         ) : (

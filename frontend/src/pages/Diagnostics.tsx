@@ -26,6 +26,7 @@ import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
+import { RecommendedInstalls } from './diagnostics/RecommendedInstalls'
 import { RealModelCheck } from './diagnostics/RealModelCheck'
 import { SetupSection } from './diagnostics/SetupSection'
 import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
@@ -205,7 +206,9 @@ function DiagnosticsContent() {
       <ErrorBanner error={cacheError} />
 
       {panel('setup', (
-        card('setup', setup ? (
+        <>
+        {card('recommended', <RecommendedInstalls setup={setup} openSignal={signal('recommended')} />)}
+        {card('setup', setup ? (
           <SetupSection
             checks={setup}
             gpu={overview?.gpu ?? null}
@@ -218,7 +221,8 @@ function DiagnosticsContent() {
           />
         ) : (
           !error && <p className="muted">Loading…</p>
-        ))
+        ))}
+        </>
       ))}
 
       {panel('packages', (
@@ -247,6 +251,7 @@ function DiagnosticsContent() {
               onJobStarted={() => void refreshJobs()}
               onQueuedChange={setQueuedInstalls}
               openSignal={signal('packages')}
+              pickPackage={route.name === 'diagnostics' ? route.pkg : undefined}
             />
           ))}
           {card('speaker', <PyannoteSection openSignal={signal('speaker')} />)}

@@ -9,7 +9,10 @@ export interface TranslateEngine {
   model_labels?: Record<string, string>
   // Models that run on the provider's servers (Ollama cloud tags), not on this PC.
   cloud_models?: string[]
+  // Can run: a key is set and the SDK is installed, or (Ollama) the server answers.
   key_configured: boolean
+  // False when the engine's SDK is not installed (older servers omit it: treated as installed).
+  package_installed?: boolean
 }
 
 export interface EngineList {

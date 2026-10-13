@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { ApiError } from '../../api/client'
 import { getDiagnostics, getGpuTorch, getInstallPresets, getSetupChecks, installDependency, setupGpuTorch } from '../../api/diagnostics'
@@ -52,13 +52,16 @@ const EMPTY: Loaded = {
  * `whisperInstalled` is the stage's own answer and is used when the presets
  * can't be read; `onReady(true)` fires when nothing blocking is left.
  */
-export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseEngine }: {
+export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseEngine, extra, hasExtra = false }: {
   needs: PreflightNeed[]
   engine?: string
   whisperInstalled?: boolean
   onReady?: (ok: boolean, blockers: PreflightRow[]) => void
   /** Switch to another translator (the caller owns where that choice is stored). */
   onUseEngine?: (name: string) => void
+  /** More rows after the card's own (what the settings on screen need, from useReadiness); `hasExtra` keeps the card open for them. */
+  extra?: ReactNode
+  hasExtra?: boolean
 }) {
   const pc = usePcOnly()
   const [loaded, setLoaded] = useState<Loaded>(EMPTY)
@@ -153,7 +156,7 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
   const previewWhisper = () => void withPlan('transcription', task?.to_install ?? [], async (accepted) => installWhisper(accepted))
   const installGpu = () => install('GPU PyTorch', (onJob) => runInstallJob(() => setupGpuTorch(), onJob, 'GPU PyTorch'))
 
-  if (!rows.length) return null
+  if (!rows.length && !hasExtra) return null
   const readOnly = pc === 'remote'
 
   const action = (r: PreflightRow) => {
@@ -226,6 +229,7 @@ export function PreflightCard({ needs, engine, whisperInstalled, onReady, onUseE
             )}
           </li>
         ))}
+        {extra}
       </ul>
       {busy && (busy.job
         ? <InstallProgress job={busy.job} name={busy.name} />

@@ -2144,7 +2144,7 @@ class TestMissingPackageOutcome:
                            "detail": transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE}
         assert "faster_whisper" not in outcome["detail"]
 
-    def test_the_hardsub_thread_job_ends_as_an_error_with_the_fixed_sentence(self, isolated_db, monkeypatch):
+    def test_the_hardsub_thread_job_names_ocr_not_transcription(self, isolated_db, monkeypatch):
         def boom(*a, **k):
             raise ImportError("No module named 'cv2'")
         monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", boom)
@@ -2160,7 +2160,8 @@ class TestMissingPackageOutcome:
                 break
             time.sleep(0.02)
         assert status["status"] == "error"
-        assert status["error"] == transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE
+        assert status["error"] == transcribe_pipeline.MISSING_OCR_MESSAGE
+        assert "Transcription isn't installed" not in status["error"]
         assert "cv2" not in status["error"]
         background_jobs.clear_job(job_id)
 

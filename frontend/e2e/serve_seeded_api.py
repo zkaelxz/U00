@@ -85,6 +85,13 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     real_check = diagnostics.check_dependency
     setattr_(diagnostics, "check_dependency",
              lambda name, *a, **k: True if name == "faster_whisper" else real_check(name, *a, **k))
+    # Controls switch off for whatever is not installed (GET /api/setup/readiness); the machine
+    # running the specs has almost nothing optional, so every spec starts from "all present" and
+    # the readiness specs mock the route to show a missing piece.
+    from api.schemas.setup import SetupReadiness
+    from services import setup_readiness_service
+    setattr_(setup_readiness_service, "get_readiness",
+             lambda: dict.fromkeys(SetupReadiness.model_fields, True))
     setattr_(ext, "set_enabled", lambda enabled, start_now=True: {
         "enabled": bool(enabled), "running": False, "restart_needed": False})
     setattr_(ext, "reveal_token", lambda confirm=False: {"token": E2E_STUB_TOKEN})

@@ -16,6 +16,7 @@ import from `common` only.
 
 from api.schemas.common import *  # noqa: F401,F403
 from api.schemas.system import *  # noqa: F401,F403
+from api.schemas.setup import *  # noqa: F401,F403
 from api.schemas.settings import *  # noqa: F401,F403
 from api.schemas.loaded_models import *  # noqa: F401,F403
 from api.schemas.review import *  # noqa: F401,F403

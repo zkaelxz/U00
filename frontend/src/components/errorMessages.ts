@@ -67,6 +67,9 @@ export interface DescribeOptions {
   reasonAsTitle?: boolean
 }
 
+// A package the server named in `details` (fixed text; no path or traceback): install it, don't add a key.
+export const MISSING_PACKAGE_TITLE = "A package this needs isn't installed. Install it in Diagnostics."
+
 const SERVER_TEXT_CODES = ['not_found', 'conflict', 'unsupported_operation', 'dependency_unavailable']
 
 const SENSITIVE =
@@ -92,10 +95,14 @@ export function describeError(
     code === 'dependency_unavailable' && typeof reason === 'string' && reason.startsWith('ollama_')
       ? safeDetail(e?.message ?? '')
       : null
-  // A missing key is not a missing package: it has its own heading.
-  const missingKey = code === 'dependency_unavailable' && reason === 'no_key'
+  // A missing key or token is not a missing package: each has its own heading and fix.
+  const missingToken = code === 'dependency_unavailable' && reason === 'no_token'
+  const missingKey = code === 'dependency_unavailable' && (reason === 'no_key' || missingToken)
+  const missingPackage = code === 'dependency_unavailable' && reason === 'missing_package'
   const engine = (e?.details as { engine?: unknown } | undefined)?.engine
-  const keyTitle = `No key is set for ${typeof engine === 'string' && /^[\w-]{1,40}$/.test(engine) ? engineLabel(engine) : 'this engine'}. Add it in Settings.`
+  const keyTitle = missingToken
+    ? `No ${typeof engine === 'string' && /^[\w -]{1,40}$/.test(engine) ? engine : 'access'} token is set. Add it in Settings.`
+    : `No key is set for ${typeof engine === 'string' && /^[\w-]{1,40}$/.test(engine) ? engineLabel(engine) : 'this engine'}. Add it in Settings.`
   const refusalText =
     opts.reasonAsTitle && OPT_IN_SERVER_TEXT_CODES.includes(code) && e?.message ? safeDetail(e.message) : null
   const isRead = e?.method === 'GET' || e?.method === 'HEAD'
@@ -113,6 +120,7 @@ export function describeError(
       ? PC_ONLY_FORBIDDEN
       : (ollamaText ??
         (missingKey ? keyTitle : null) ??
+        (missingPackage ? MISSING_PACKAGE_TITLE : null) ??
         refusalText ??
         serverTitle ??
         (isRead ? READ_GENERIC[code] : undefined) ??

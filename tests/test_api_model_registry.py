@@ -20,6 +20,12 @@ from lib import http
 from services import auth_service, translate_service
 from services import model_registry_service as svc
 
+
+@pytest.fixture(autouse=True)
+def _no_ollama_probe(monkeypatch):
+    """GET /api/translate/engines checks whether Ollama answers; no test may make that network call."""
+    monkeypatch.setattr("services.translate_run_service.ollama_reachable", lambda: False)
+
 REMOTE = "https://baihe.example.com"
 LOCAL_HDR = {"X-Baihe-Local": "1"}
 SECRET = "sk-ant-SECRETKEY1234567890abcdef"

@@ -158,11 +158,13 @@ if defined MISS_LIBASS set "STILL=1"
 if defined MISS_NODE set "STILL=1"
 if not defined STILL if defined HAVE_LISTED (
     echo Everything is installed. Open a NEW window so PATH updates, then run start.bat.
+    echo Optional extras ^(GPU PyTorch, vocal separation, speaker detection^) are listed in Baihe, Diagnostics, Recommended installs.
     pause
     exit /b 0
 )
 if not defined STILL (
     echo Ready: everything Baihe needs is installed. Double-click start.bat.
+    echo Optional extras ^(GPU PyTorch, vocal separation, speaker detection^) are listed in Baihe, Diagnostics, Recommended installs.
     pause
     exit /b 0
 )

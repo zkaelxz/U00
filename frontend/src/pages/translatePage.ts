@@ -3,7 +3,7 @@
  * labels, restoring remembered choices, the language swap and the history
  * list. Kept here so they can be tested without a browser.
  */
-import { NON_ENGLISH_LANGUAGES, engineShortName, usableEngines } from '../api/translate'
+import { NON_ENGLISH_LANGUAGES, engineOptionLabel as sharedLabel, engineShortName, usableEngines } from '../api/translate'
 import { humanize } from '../components/labels'
 import type { TranslateDirection, TranslateEngine, TranslateHistoryEntry } from '../types/translate'
 
@@ -11,10 +11,9 @@ import type { TranslateDirection, TranslateEngine, TranslateHistoryEntry } from 
 export const HISTORY_PREVIEW = 5
 export const HISTORY_LIMIT = 50
 
-/** Picker text: the short name, plus "(no key)" when the engine can't run yet. */
-export function engineOptionLabel(engine: Pick<TranslateEngine, 'name' | 'key_configured'>): string {
-  const name = engineShortName(engine)
-  return engine.key_configured ? name : `${name} (no key)`
+/** Picker text: the short name, plus why when the engine can't run yet ("no key", "not installed", "not running"). */
+export function engineOptionLabel(engine: Pick<TranslateEngine, 'name' | 'key_configured' | 'package_installed'>): string {
+  return sharedLabel(engine)
 }
 
 /** Usable engines first (API order), then the ones missing a key. */

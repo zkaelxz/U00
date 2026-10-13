@@ -1,6 +1,8 @@
 import { lazy, Suspense, type RefObject } from 'react'
 
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { NeedsInstall } from '../../../readiness/NeedsInstall'
+import type { Need } from '../../../readiness/needs'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
 import type { PlayerHandle } from './Player'
@@ -25,11 +27,13 @@ interface Props {
   gaps: WaveformGaps
   jobRunning: boolean
   canTranscribe: boolean
+  // A missing install (Whisper) that turns the gap buttons off, with its fix shown under the waveform.
+  need?: Need | null
   focusGap: { gap: TranscribeGap; seq: number } | null
 }
 
-export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle, onRetime, editingActive, gaps, jobRunning, canTranscribe, focusGap }: Props) {
-  const blocked = gapBlockedReason({ jobRunning, editing: editingActive, canTranscribe })
+export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle, onRetime, editingActive, gaps, jobRunning, canTranscribe, need = null, focusGap }: Props) {
+  const blocked = gapBlockedReason({ jobRunning, editing: editingActive, canTranscribe, needReason: need?.reason })
   return (
     <div className="review-wave-section">
       <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={open} onClick={onToggle}>
@@ -43,6 +47,7 @@ export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle,
           />
         </Suspense>
       )}
+      {open && need && canTranscribe && gaps.gaps.length > 0 && <NeedsInstall need={need} />}
       {open && <ErrorBanner error={gaps.error} onDismiss={gaps.dismissError} />}
     </div>
   )
