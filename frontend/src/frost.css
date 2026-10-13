@@ -199,7 +199,7 @@ fieldset.segmented {
 /* Tab labels stay whole words. On a phone the row wraps onto a second line instead of squeezing a label until it breaks inside the word or scrolling the rest out of sight. */
 @media (max-width: 640px) {
   .ui-tabs { flex-wrap: wrap; overflow: visible; }
-  .ui-tabs .ui-tab { flex: 1 1 auto; min-width: 0; white-space: nowrap; }
+  .ui-tabs .ui-tab { flex: 1 1 auto; min-width: 44px; white-space: nowrap; }
 }
 /* Discover's tabs were the one underline tab bar left; they match the others. */
 .discover-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: 22px; background: var(--glass); overflow-x: auto; }
