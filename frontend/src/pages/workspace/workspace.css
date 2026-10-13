@@ -114,6 +114,8 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .ws-actions { margin: var(--space-2) 0; justify-content: flex-end; }
   /* The back arrow and the title say what the crumbs say, so the row goes. */
   .workspace > .crumbs { display: none; }
+  /* Margin, not padding: the strip's height is --bar-h, which the Review toolbar's scroll-collapse thresholds depend on. */
+  .ws-strip { margin-bottom: var(--space-3); }
   /* Kept to their own width: stretched full width, Read outranked each stage's own primary action. */
   .workspace .ws-actions a.btn, .workspace .ws-actions a.ws-source-add { flex: 0 1 auto; justify-content: center; min-height: 44px; }
   .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); }

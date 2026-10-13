@@ -392,7 +392,12 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-job-row > button { min-width: 0; white-space: normal; }
 .review-bulk { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
 @media (max-width: 640px) {
-  .review-check-grid { grid-template-columns: minmax(0, 1fr); }
+  /* A Bulk switch sits right under its button, so the gap between checks has to be larger than the gap inside one,
+     or the switch reads as belonging to the next button. */
+  .review-check-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .review-job-row { gap: var(--space-2); }
+  /* Six tabs wrap to two rows; growing them fills both rows instead of leaving one tab alone on the second. */
+  .review-toolbox .ui-tabs .ui-tab { flex: 1 1 auto; }
 }
 
 /* Sections nested in a Section share its one border instead of stacking boxes. */
