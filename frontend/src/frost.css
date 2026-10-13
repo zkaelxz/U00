@@ -14,9 +14,6 @@
   --active: #ffffff;
   --wash-1: #ffd2b3;
   --wash-2: #a9dcff;
-  --tile-base: #ffffff;
-  --tile-hi: 46%;
-  --tile-lo: 14%;
 }
 
 /* Dark: the system's choice unless light or sepia was picked, and always for dark or oled (same split as index.css). */
@@ -31,9 +28,6 @@
     --active: rgba(142, 197, 255, 0.22);
     --wash-1: #5a3a62;
     --wash-2: #1f4f78;
-        --tile-base: #1c2240;
-    --tile-hi: 62%;
-    --tile-lo: 24%;
   }
 }
 :root:is([data-theme="dark"], [data-theme="oled"]) {
@@ -46,9 +40,6 @@
   --active: rgba(142, 197, 255, 0.22);
   --wash-1: #5a3a62;
   --wash-2: #1f4f78;
-  --tile-base: #1c2240;
-  --tile-hi: 62%;
-  --tile-lo: 24%;
 }
 /* Glass on pure black has nothing to blur, so OLED keeps a faint edge and only a hint of colour. */
 :root[data-theme="oled"] {
@@ -58,9 +49,6 @@
   --btn: rgba(255, 255, 255, 0.08);
   --wash-1: #1b1030;
   --wash-2: #07202e;
-  --tile-base: #121212;
-  --tile-hi: 58%;
-  --tile-lo: 20%;
 }
 :root[data-theme="sepia"] {
   --glass: rgba(248, 240, 220, 0.62);
@@ -72,9 +60,6 @@
   --active: #fbf5e4;
   --wash-1: #f2c9a0;
   --wash-2: #e6d9a8;
-  --tile-base: #fbf5e4;
-  --tile-hi: 44%;
-  --tile-lo: 14%;
 }
 
 /* Two off-centre blobs at 60%: the four-corner wash competed with the content, and the corners are where the nav and header sit. */
@@ -218,10 +203,11 @@ fieldset.segmented {
 /* Badges: flat tinted pills, no border. */
 .pill { border: 0; box-shadow: none; }
 
-/* Covers: each title's hue (tile-h0..5) fades from strong to soft; the tint is mixed into --tile-base so it reads on every theme. */
+/* Covers: each title's hue (tile-h0..5) is a flat fill, so a cover reads as a colour chip rather than a gradient. */
 .drama-tile[class*='tile-h'],
 .continue-tile[class*='tile-h'] {
-  background: linear-gradient(160deg, color-mix(in srgb, var(--tile) var(--tile-hi), var(--tile-base)), color-mix(in srgb, var(--tile) var(--tile-lo), var(--tile-base)));
+  background: var(--tile);
+  color: var(--on-tile);
   border-radius: 16px;
   border: 1px solid var(--glass-edge);
 }
