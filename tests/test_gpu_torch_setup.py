@@ -15,6 +15,9 @@ import diagnostics
 import diagnostics_torch
 from lib import proc as proc_run
 from services import diagnostics_gaps_service as svc
+from services import diagnostics_admin_service as admin_svc
+from services import diagnostics_packages_service as packages_svc
+from services import diagnostics_gpu_torch_service as torch_svc
 
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
 
@@ -45,7 +48,7 @@ def _fake_pip(monkeypatch, seen, lines=(), returncode=0, read_pins=None):
         for ln in lines:
             yield {"line": ln}
         yield {"returncode": returncode, "timed_out": False}
-    monkeypatch.setattr(svc, "stream_tree", fake)
+    monkeypatch.setattr(packages_svc, "stream_tree", fake)
 
 
 # ---- the static table ----
@@ -158,7 +161,7 @@ def test_other_installs_carry_a_torch_pins_file_that_is_removed(monkeypatch):
     _versions(monkeypatch, torch="2.11.0+cu128", torchvision="0.26.0+cu128")
     seen, pins = [], []
     _fake_pip(monkeypatch, seen, read_pins=pins)
-    for fn in (svc.install_dependency, svc.upgrade_dependency):
+    for fn in (packages_svc.install_dependency, packages_svc.upgrade_dependency):
         assert fn("omnivoice", confirm=True)["ok"] is True
     assert len(seen) == 2 and len(pins) == 2
     for path, text in pins:
@@ -175,7 +178,7 @@ def test_no_pins_file_without_torch(monkeypatch):
     _versions(monkeypatch)
     seen = []
     _fake_pip(monkeypatch, seen)
-    svc.install_dependency("pydub", confirm=True)
+    packages_svc.install_dependency("pydub", confirm=True)
     assert seen[0][0][3:] == ["install", *FLAGS, "pydub", *CONSTRAINTS]
 
 
@@ -190,18 +193,18 @@ def test_a_package_needing_another_torch_is_refused_with_a_plain_hint(monkeypatc
         "    omnivoice 0.2 depends on torch==2.6.0",
         "    The user requested (constraint) torch==2.11.0+cu128",
         "ERROR: ResolutionImpossible"])
-    out = svc.install_dependency("omnivoice", confirm=True)
+    out = packages_svc.install_dependency("omnivoice", confirm=True)
     assert out["ok"] is False
     assert "nothing was changed" in out["hint"] and "torch 2.11.0+cu128" in out["hint"]
 
 
 def test_torch_upgrade_goes_through_the_setup(monkeypatch):
     _no_jobs(monkeypatch)
-    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
-    with pytest.raises(svc.AdminActionNotPossible):
-        svc.upgrade_dependency("torch", confirm=True)
-    with pytest.raises(svc.AdminActionUnconfirmed):
-        svc.upgrade_dependency("torch", confirm=False)
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    with pytest.raises(admin_svc.AdminActionNotPossible):
+        packages_svc.upgrade_dependency("torch", confirm=True)
+    with pytest.raises(admin_svc.AdminActionUnconfirmed):
+        packages_svc.upgrade_dependency("torch", confirm=False)
 
 
 # ---- setup and status ----
@@ -220,34 +223,34 @@ def test_setup_installs_the_triple_then_verifies(monkeypatch):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch)
     _versions(monkeypatch, torch="2.11.0+cpu")
-    monkeypatch.setattr(svc, "verify_torch", lambda: dict(GOOD_VERIFY))
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda: dict(GOOD_VERIFY))
     seen = []
     _fake_pip(monkeypatch, seen)
-    out = svc.setup_gpu_torch(confirm=True)
+    out = torch_svc.setup_gpu_torch(confirm=True)
     assert out["ok"] is True and out["variant"] == "cu128" and out["verify"] == GOOD_VERIFY
     (first, t1), (second, t2) = seen
     assert "--force-reinstall" in first and "--no-deps" in first
     assert "--force-reinstall" not in second
-    assert t1 == t2 == svc.GPU_TORCH_TIMEOUT_SECONDS
+    assert t1 == t2 == torch_svc.GPU_TORCH_TIMEOUT_SECONDS
     assert not any(os.path.basename(a).startswith("baihe-torch-pins-") for a in first + second)
 
 
 def test_setup_not_ok_when_cuda_is_still_unavailable(monkeypatch):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch)
-    monkeypatch.setattr(svc, "verify_torch", lambda: {**GOOD_VERIFY, "cuda_available": False})
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda: {**GOOD_VERIFY, "cuda_available": False})
     _fake_pip(monkeypatch, [])
-    out = svc.setup_gpu_torch("cu128", confirm=True)
+    out = torch_svc.setup_gpu_torch("cu128", confirm=True)
     assert out["ok"] is False and "driver" in out["hint"]
 
 
 def test_setup_skips_verify_when_pip_fails(monkeypatch):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch)
-    monkeypatch.setattr(svc, "verify_torch", lambda: pytest.fail("no verify"))
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda: pytest.fail("no verify"))
     seen = []
     _fake_pip(monkeypatch, seen, returncode=1)
-    out = svc.setup_gpu_torch("cu128", confirm=True)
+    out = torch_svc.setup_gpu_torch("cu128", confirm=True)
     assert out["ok"] is False and out["verify"] is None and len(seen) == 1
 
 
@@ -259,27 +262,27 @@ def test_setup_refusals(monkeypatch, driver, variant, msg):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch, driver)
     monkeypatch.setattr(diagnostics.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
-    with pytest.raises(svc.AdminActionNotPossible, match=msg):
-        svc.setup_gpu_torch(variant, confirm=True)
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    with pytest.raises(admin_svc.AdminActionNotPossible, match=msg):
+        torch_svc.setup_gpu_torch(variant, confirm=True)
 
 
 def test_setup_refuses_an_unsupported_python(monkeypatch):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch)
     monkeypatch.setattr(diagnostics_torch, "TORCH_SUPPORTED_PYTHON", ((3, 99), (3, 99)))
-    with pytest.raises(svc.AdminActionNotPossible, match="Python"):
-        svc.setup_gpu_torch(confirm=True)
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="Python"):
+        torch_svc.setup_gpu_torch(confirm=True)
 
 
 def test_cpu_variant_needs_no_gpu(monkeypatch):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch, None)
-    monkeypatch.setattr(svc, "verify_torch", lambda: {
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda: {
         **GOOD_VERIFY, "torch": "2.11.0+cpu", "cuda_available": False})
     seen = []
     _fake_pip(monkeypatch, seen)
-    out = svc.setup_gpu_torch(confirm=True)     # default without a GPU: cpu
+    out = torch_svc.setup_gpu_torch(confirm=True)     # default without a GPU: cpu
     assert out["ok"] is True and out["variant"] == "cpu"
     assert "https://download.pytorch.org/whl/cpu" in seen[0][0]
 
@@ -296,7 +299,7 @@ def test_cpu_variant_needs_no_gpu(monkeypatch):
 def test_status_states(monkeypatch, have, gpu, state):
     _gpu(monkeypatch, "581.42" if gpu else None)
     _versions(monkeypatch, **have)
-    out = svc.get_gpu_torch_status()
+    out = torch_svc.get_gpu_torch_status()
     assert out["state"] == state and out["probe"] is None
     assert out["recommended"]["variant"] == ("cu128" if gpu else "cpu")
 
@@ -313,7 +316,7 @@ def test_verify_runs_in_a_subprocess_and_redacts(monkeypatch):
         return _captured('{"torch": "2.11.0+cu128", "cuda_available": false, '
                          '"error": "RuntimeError: at /home/someone/venv/torch"}\n')
     monkeypatch.setattr(proc_run, "run_captured", run)
-    out = svc.verify_torch()
+    out = torch_svc.verify_torch()
     assert seen["timeout"] == diagnostics_torch.TORCH_VERIFY_TIMEOUT_SECONDS
     assert seen["cmd"][1:3] == ["-c", diagnostics_torch.TORCH_VERIFY_SCRIPT]
     assert out["torch"] == "2.11.0+cu128" and out["cuda_available"] is False
@@ -323,7 +326,7 @@ def test_verify_runs_in_a_subprocess_and_redacts(monkeypatch):
 def test_verify_timeout(monkeypatch):
     monkeypatch.setattr(proc_run, "run_captured",
                         lambda cmd, timeout, **kw: _captured(timed_out=True))
-    assert "too long" in svc.verify_torch()["error"]
+    assert "too long" in torch_svc.verify_torch()["error"]
 
 
 def test_verify_passes_the_cancel_probe_to_the_runner(monkeypatch):
@@ -334,25 +337,25 @@ def test_verify_passes_the_cancel_probe_to_the_runner(monkeypatch):
         return _captured(cancelled=True)
     monkeypatch.setattr(proc_run, "run_captured", run)
     probe = lambda: True      # noqa: E731
-    assert svc.verify_torch(cancel=probe)["error"] == "cancelled" and seen["cancel"] is probe
+    assert torch_svc.verify_torch(cancel=probe)["error"] == "cancelled" and seen["cancel"] is probe
 
 
 def test_cuda_check_never_queues_behind_another(monkeypatch):
-    monkeypatch.setattr(svc, "_verify_torch_once", lambda: pytest.fail("no second check"))
-    assert svc._VERIFY_LOCK.acquire(blocking=False)
+    monkeypatch.setattr(torch_svc, "_verify_torch_once", lambda: pytest.fail("no second check"))
+    assert torch_svc._VERIFY_LOCK.acquire(blocking=False)
     try:
-        with pytest.raises(svc.AdminActionStale):
-            svc.verify_torch(blocking=False)
+        with pytest.raises(admin_svc.AdminActionStale):
+            torch_svc.verify_torch(blocking=False)
     finally:
-        svc._VERIFY_LOCK.release()
+        torch_svc._VERIFY_LOCK.release()
 
 
 def test_cuda_check_refused_while_a_job_runs(monkeypatch):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
-    monkeypatch.setattr(svc, "_verify_torch_once", lambda: pytest.fail("no check"))
-    with pytest.raises(svc.AdminActionJobsRunning):
-        svc.check_gpu_torch()
+    monkeypatch.setattr(torch_svc, "_verify_torch_once", lambda: pytest.fail("no check"))
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
+        torch_svc.check_gpu_torch()
 
 
 # ---- Volta (compute 7.0): the cu126 build ----
@@ -407,14 +410,14 @@ def test_status_and_default_setup_pick_cu126_for_a_v100(monkeypatch):
     _gpu(monkeypatch)
     monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: 7.0)
     _versions(monkeypatch)
-    status = svc.get_gpu_torch_status()
+    status = torch_svc.get_gpu_torch_status()
     assert status["recommended"]["variant"] == "cu126" and "7.0" in status["recommended_reason"]
     assert [v["variant"] for v in status["variants"]] == ["cu128", "cu126", "cpu"]
     seen = []
     _fake_pip(monkeypatch, seen)
-    monkeypatch.setattr(svc, "verify_torch", lambda: {
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda: {
         **GOOD_VERIFY, "torch": "2.11.0+cu126"})
-    out = svc.setup_gpu_torch(confirm=True)
+    out = torch_svc.setup_gpu_torch(confirm=True)
     assert out["variant"] == "cu126" and out["ok"] is True
     assert "https://download.pytorch.org/whl/cu126" in seen[0][0]
 
@@ -480,21 +483,21 @@ def test_no_kernels_message_names_the_card_and_the_cu126_fix():
 def test_setup_fails_with_the_no_kernels_message_instead_of_passing(monkeypatch):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch)
-    monkeypatch.setattr(svc, "verify_torch", lambda: {
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda: {
         **GOOD_VERIFY, "error": diagnostics_torch.unsupported_gpu_message(
             [{"name": "Tesla V100", "capability": "7.0", "supported": False}])})
     _fake_pip(monkeypatch, [])
-    out = svc.setup_gpu_torch("cu128", confirm=True)
+    out = torch_svc.setup_gpu_torch("cu128", confirm=True)
     assert out["ok"] is False and "can't run on your GPU" in out["hint"]
     assert "install the cu126 build" in out["verify"]["error"]
 
 
 def test_verify_torch_surfaces_the_no_kernels_message(monkeypatch):
     devices = [{"index": 0, "name": "Tesla V100", "capability": "7.0", "supported": False}]
-    monkeypatch.setattr(svc.proc_run, "run_captured", lambda *a, **k: _captured(
+    monkeypatch.setattr(torch_svc.proc_run, "run_captured", lambda *a, **k: _captured(
         __import__("json").dumps({"torch": "2.11.0+cu128", "cuda_available": True,
                                   "devices": devices})))
-    out = svc.verify_torch()
+    out = torch_svc.verify_torch()
     assert "no kernels for your GPU" in out["error"]
 
 

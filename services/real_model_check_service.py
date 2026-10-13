@@ -36,6 +36,7 @@ import diagnostics_report
 import memory_headroom
 from engine_backends.local import strip_ollama_thinking
 from services import diagnostics_gaps_service as gaps
+from services import diagnostics_admin_service as admin_svc
 from services import vram_service
 from services.service_errors import ServiceError
 
@@ -427,12 +428,12 @@ def get_state() -> dict:
 
 def start(confirm: bool = False) -> dict:
     """PC only. 409 while anything else runs (the GPU must be free)."""
-    gaps.guard(confirm)
+    admin_svc.guard(confirm)
     with _LOCK:
         started = background_jobs.start_job(JOB_ID, _job, gpu_touching=True,
                                             description="Real-model check")
         if started:
             _STATE.update(checks=[], finished=False)
     if not started:
-        raise gaps.AdminActionJobsRunning("A real-model check is already running.")
+        raise admin_svc.AdminActionJobsRunning("A real-model check is already running.")
     return {"job_id": JOB_ID, "started": True}

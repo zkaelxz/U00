@@ -507,7 +507,7 @@ class TestAbandonedWorkerBlocksAdminActions:
             runner.run(lambda cb: release.wait(20), 3, "chunk 4")
 
     def test_reset_and_model_delete_are_refused_while_it_lives(self, isolated_db):
-        from services import diagnostics_gaps_service as dgs
+        from services import diagnostics_admin_service as admin_svc
         from services import library_admin_service as las
         from services.service_errors import ServiceError
         release = threading.Event()
@@ -515,9 +515,9 @@ class TestAbandonedWorkerBlocksAdminActions:
         try:
             assert not background_jobs.acquire_exclusive("x")
             with pytest.raises(ServiceError):
-                dgs.reset_library(confirm=True, confirm_text="RESET")
+                admin_svc.reset_library(confirm=True, confirm_text="RESET")
             with pytest.raises(ServiceError):
-                dgs._exclusive_delete(lambda: True, "failed")
+                admin_svc._exclusive_delete(lambda: True, "failed")
         finally:
             release.set()
         assert _wait(lambda: background_jobs.acquire_exclusive("x"))
