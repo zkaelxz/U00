@@ -28,7 +28,7 @@ for (const scheme of ['light', 'dark'] as const) {
     ], next_before_id: null, actions: ['login.success'] } }))
     await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: true } }))
     await page.goto('/#/admin')
-    await expect(page.getByRole('heading', { name: 'People and access', level: 2 })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
     const cards = page.locator('details.section')
     await expect(cards).toHaveCount(3)
     for (let n = 1; n < 3; n++) await cards.nth(n).locator('summary').tap()

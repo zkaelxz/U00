@@ -43,6 +43,8 @@ import {
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
 import { SERIES_HELP } from '../helpText'
+import { NewTitleLink } from './NewTitleLink'
+import { createdFromLinkNote } from './linkFill'
 
 
 
@@ -128,7 +130,7 @@ type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
 function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   draft: CreateDraft | null
   onDraft: (next: CreateDraft) => void
-  onCreated: (id: number, autofill: boolean) => void
+  onCreated: (id: number, autofill: boolean, note: string | null) => void
   onCancel: () => void
   series: Loaded<Awaited<ReturnType<typeof listAllSeries>>>
   presets: Loaded<Awaited<ReturnType<typeof getPresets>>>
@@ -165,7 +167,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         setLastLanguage(form.source_language)
         if (form.media_type) setLastType(form.media_type)
         savePresetStart(d.id, d.preset_defaults)
-        onCreated(d.id, autofill)
+        onCreated(d.id, autofill, d.title_from_link === 'placeholder' ? createdFromLinkNote(d.title_from_link) : null)
       },
       (err: unknown) => { setBusy(false); setError(err) },
     )
@@ -173,12 +175,20 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
 
   return (
     <form onSubmit={submit} className="stack create-form" aria-label="New title">
+      <NewTitleLink
+        form={form}
+        onChange={(values) => setForm({ ...form, ...values })}
+        onSeries={extras.series ? null : (name) => onDraft({ form, extras: { ...extras, series: NEW_SERIES, newSeriesName: name } })}
+      />
       <Field label="English title">
         {/* The attribute (not React's autoFocus) so the dialog's own focusing picks it. */}
         <input value={form.title_en} onChange={set('title_en')} ref={(el) => el?.setAttribute('autofocus', '')} />
       </Field>
       <Field label="Original title">
         <input value={form.title_zh} onChange={set('title_zh')} />
+      </Field>
+      <Field label="Stream / release date" help="Leave empty if unknown.">
+        <input type="date" value={form.release_date ?? ''} onChange={set('release_date')} />
       </Field>
       <div className="field-row">
         <Field label="Source language">
@@ -252,6 +262,8 @@ export default function LibraryPage() {
   const [selected, setSelected] = useState<{ id: number; title: string } | null>(null)
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<CreateDraft | null>(null)
+  // A title named after its link's website: stay here and say so, with the way to rename it.
+  const [createdNote, setCreatedNote] = useState<{ id: number; text: string } | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [items, setItems] = useState<DramaSummary[]>([])
@@ -324,7 +336,6 @@ export default function LibraryPage() {
 
   return (
     <PageShell
-      as="main"
       width="wide"
       title="Library"
       className="library-page"
@@ -356,6 +367,12 @@ export default function LibraryPage() {
         </p>
       )}
 
+      {createdNote && (
+        <p className="banner" role="status">
+          {createdNote.text} <a href={workspaceHref(createdNote.id)}>Open the title</a>{' '}
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCreatedNote(null)}>Dismiss</button>
+        </p>
+      )}
       {getStarted && <GetStarted canCreate={canCreate} onDismiss={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
@@ -406,10 +423,14 @@ export default function LibraryPage() {
           draft={draft}
           onDraft={setDraft}
           onCancel={() => { setDraft(null); setCreating(false) }}
-          onCreated={(id, autofill) => {
+          onCreated={(id, autofill, note) => {
             setDraft(null)
             setCreating(false)
             reload()
+            if (note) {
+              setCreatedNote({ id, text: note })
+              return
+            }
             // A new drama has nothing to review in a sheet: open its workspace
             // (Source has Details and credits).
             window.location.hash = autofill ? autofillHref(id) : workspaceHref(id)

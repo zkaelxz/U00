@@ -16,7 +16,7 @@ test('the drawer opens the page', async ({ page }) => {
   await openMenu(page)
   await navLink(page, 'Make subtitles').click()
   await expect(page).toHaveURL(/#\/make-subtitles$/)
-  await expect(page.getByRole('heading', { name: 'Make subtitles', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Make subtitles', level: 1 })).toBeVisible()
   // Everything is ready for the default translator, so the list stays out of the way until one is not.
   await expect(page.getByRole('region', { name: 'Before you run' })).toHaveCount(0)
   await page.getByRole('region', { name: 'Make subtitles' }).getByLabel('Translator').selectOption('claude')

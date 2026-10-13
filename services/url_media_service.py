@@ -42,7 +42,9 @@ through media_upload_service.install_media, as an upload does: never over
 an existing file (`-2`... while the old one is there), one field-scoped DB
 write as the commit point (audio_filename, [source_video_filename] and,
 only when both titles are empty (re-read just before writing), title_zh),
-then the replaced files move to kept_media/. The link is recorded after
+then the replaced files move to kept_media/. A blank author and release
+date are then filled from the video's own metadata
+(link_details_service.fill_after_download), never over typed text. The link is recorded after
 that like any import's (drama_service.set_source_url_once: cleaned form,
 raw form kept apart, never over a link the title already has).
 Audio-only clears an older source_video_filename and moves that video there too.
@@ -68,7 +70,8 @@ import db
 import storage
 import translate_engines
 import video_export
-from services import drama_service, media_upload_service, settings_service, ytdlp_child
+from services import (drama_service, link_details_service, media_upload_service,
+                      settings_service, ytdlp_child)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_url_service import check_public_url
@@ -389,7 +392,8 @@ def _free_floor() -> int:
 
 def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict = None) -> tuple:
     """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
-    wall-clock cap and a nearly full drive kill, then returns (path, title)."""
+    wall-clock cap and a nearly full drive kill, then returns (path, title,
+    link), link being the video's ytdlp_child.link_fields or None."""
     options = options or {}
     ranged = options.get("part_start") is not None or options.get("part_end") is not None
     cookies = settings_service.get_cookie_settings()
@@ -480,7 +484,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
     if not real.startswith(os.path.realpath(tmp) + os.sep) or not os.path.isfile(real):
         raise RuntimeError(_FAILED)
     title = result.get("title")
-    return real, title if isinstance(title, str) else None
+    return real, title if isinstance(title, str) else None, result.get("link")
 
 
 def _ordinal(n: int) -> str:
@@ -596,9 +600,9 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
         direct_ext = direct_media_ext(url)
         if direct_ext:
-            path, title = _direct_download(job_id, url, tmp, direct_ext), None
+            path, title, link = _direct_download(job_id, url, tmp, direct_ext), None, None
         else:
-            path, title = _download(job_id, url, tmp, audio_only, options)
+            path, title, link = _download(job_id, url, tmp, audio_only, options)
         ext = os.path.splitext(path)[1].lower()
         if audio_only and not direct_ext:
             new_files = {"audio_filename": (path, "source", ".wav")}
@@ -624,8 +628,10 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
         drama_service.set_source_url_once(drama_id, url)
+        filled = link_details_service.fill_after_download(drama_id, link)
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
-                                            "title_filled": "title_zh" in fields})
+                                            "title_filled": "title_zh" in fields,
+                                            "details_filled": filled})
         background_jobs.update_progress(job_id, 1.0, "Downloaded.")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

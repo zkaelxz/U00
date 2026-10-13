@@ -10,12 +10,12 @@ import './sideNav.css'
 export function SideNav({ route, context }: { route: Route; context: NavContext }) {
   return (
     <aside className="app-rail">
-      <h1 className="rail-brand">
+      <p className="rail-brand">
         <a href={routeHref({ name: 'library' })} title="Baihe Studio: Library">
           <span aria-hidden="true" className="rail-brand-mark">B</span>
           <span className="rail-label">Baihe Studio</span>
         </a>
-      </h1>
+      </p>
       <NavGroups route={route} context={context} collapsed />
     </aside>
   )
