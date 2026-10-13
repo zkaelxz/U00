@@ -4,7 +4,7 @@ A short index: one line per package, then every non-test `.py` file in the direc
 name must appear exactly once, in the section of its own folder (`tests/test_file_organization.py` checks that each listed
 name is a real file there and that no module is missing); the hook in `.claude/hooks/file-organization-check.py` warns
 earlier. A new file gets one bullet, in the right group. `test_*.py` lives in `tests/`. The earlier long per-file
-descriptions are kept in `docs/archive/file-organization-full.md`.
+descriptions are kept in `docs/archive/file-organization-full.md` (history: it predates the file splits and the CLI removal).
 
 ## Packages
 
@@ -39,7 +39,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `benchmark.py`
 - `check_setup.py`
 - `core.py` (the `Line` model, line rows and saved-version restore, SRT text; moved names still resolve through it)
-- `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
+- `db/` (package: `__init__.py` keeps the connection and path code, `init_db`, `drama_dir` and `reset_library` and re-exports every submodule's public names, so callers keep `db.<name>`)
   - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
   - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
@@ -750,7 +750,7 @@ Windows installer and boot service, not imported by the app.
 ## Rules of thumb
 
 - UI code goes in `frontend/`; logic lives at the top level, in `services/` or in `sources/` so it stays testable without a UI.
-- Logic the API and the CLI both need goes in `services/`.
+- Logic that more than one caller needs (two routers, a router and a job) goes in `services/`.
 - Nothing writes outside `library/` except exports you explicitly download.
 - Optional dependencies are imported inside functions, never at module top level.
 - Adding a new module in any folder listed here (top level, `services/`, `api/routers/`, `sources/`, `tools/` and so on)? Add it as one bullet to the right group above, in the same PR (a top-level module also gets one sorted line in `expected_files.py`).
