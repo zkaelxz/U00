@@ -1,4 +1,4 @@
-import { PC_ONLY_BODY, type PcMode } from '../../hooks/usePcOnly'
+import { PC_ONLY_BODY, usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { storageSummary } from '../diskUsage/diskUsageModel'
 import { PreviousLibraryCard } from '../diskUsage/PreviousLibrary'
 import { TempCleanup } from '../diskUsage/TempCleanup'
@@ -10,7 +10,9 @@ import { TabCard } from './TabCard'
 
 /** Free space and everything that frees it: the cleanup scan, unused voice clips, Trash, temp files and a previous library kept beside this one. PC only. */
 export function StorageTab({ pc, usage }: { pc: PcMode; usage: DiskUsage }) {
-  if (pc === 'remote') return <p className="muted">{PC_ONLY_BODY}</p>
+  const pending = usePcPendingNote(pc)
+  // Every card here reads the PC's disk on mount: nothing is asked until this is known to be the PC.
+  if (pc !== 'local') return <p className="muted">{pending ?? PC_ONLY_BODY}</p>
   const { scan, rootBytes, trash, clips, loading, done, changed, rescan } = usage
   const summary = storageSummary(rootBytes, scan)
   return (
@@ -31,7 +33,7 @@ export function StorageTab({ pc, usage }: { pc: PcMode; usage: DiskUsage }) {
         </TabCard>
       )}
       <TabCard card="temp"><TempCleanup onCleaned={() => rescan(true)} /></TabCard>
-      {pc === 'local' && <PreviousLibraryCard onChanged={changed} />}
+      <PreviousLibraryCard onChanged={changed} />
     </>
   )
 }

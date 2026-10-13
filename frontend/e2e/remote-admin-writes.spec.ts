@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 
 // A remote (household) admin holds no admin.library: no list of everyone's
-// items to flip and Cancel only on their own jobs (owned_by_me). Every /api
+// items to flip, but Cancel on every job (owner decision 2026-10-12). Every /api
 // call is mocked; any other is aborted and must not happen.
 
 const me = (permissions: string[]) => ({
@@ -37,13 +37,13 @@ async function mock(page: Page, permissions: string[]) {
   return unmocked
 }
 
-test('remote admin: Cancel on their own job only, with a note', async ({ page }) => {
+test('remote admin: Cancel on everyone\'s jobs (owner decision 2026-10-12)', async ({ page }) => {
   await mock(page, ['library.read', 'jobs.cancel', 'admin.users.read'])
   await page.goto('/#/jobs')
   await expect(page.getByTestId('jobs-table')).toContainText('Translate Kae')
   await expect(page.getByRole('button', { name: /Cancel Translate Mine/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toHaveCount(0)
-  await expect(page.getByTestId('remote-admin-jobs-note')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toBeVisible()
+  await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
 })
 
 test('PC admin still gets Cancel', async ({ page }) => {
@@ -51,7 +51,7 @@ test('PC admin still gets Cancel', async ({ page }) => {
   await page.goto('/#/jobs')
   await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Cancel Translate Mine/ })).toBeVisible()
-  await expect(page.getByTestId('remote-admin-jobs-note')).toHaveCount(0)
+  await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
 })
 
 test('remote admin: no per-item sharing switches in Settings, with a note', async ({ page }) => {

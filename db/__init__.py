@@ -4035,6 +4035,7 @@ from db.job_records import (  # noqa: F401
     touch_job_records,
     list_job_records,
     list_job_record_fingerprints,
+    count_active_job_records,
     get_job_record,
     delete_job_record,
     clear_all_job_records,
