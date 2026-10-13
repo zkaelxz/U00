@@ -70,9 +70,12 @@ for backup and restore operations see `runbook.md`.
   bubble edits that bump a page's rev, the legacy full replace),
   `db/media_journal.py` (the media journal of backup imports and restores:
   staging folders, the journal, crash recovery, `claim_new_drama_folder`;
-  `_media_lock` and `STALE_MEDIA_STAGING_SECONDS` stay in `db/__init__.py`)
-  and `db/lines.py` (a drama's lines: `save_lines`, the compare-and-set
-  edits, the per-line tables a sync carries along, the loaders).
+  `_media_lock` and `STALE_MEDIA_STAGING_SECONDS` stay in `db/__init__.py`),
+  `db/lines.py` (a drama's lines: `save_lines`, the compare-and-set
+  edits, the per-line tables a sync carries along, the loaders) and
+  `db/dramas.py` (drama rows: create/update/delete, `get_drama` and the
+  list queries with `_DRAMA_SELECT`, `drama_visible_sql`, library stats and
+  global line search).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
