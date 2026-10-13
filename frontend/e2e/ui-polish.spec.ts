@@ -43,8 +43,10 @@ for (const width of WIDTHS) {
         // Equal padding: the chip's text is centred in its label.
         const box = await checked.boundingBox()
         const text = await checked.evaluate((l) => {
+          // The text node only: the label's radio input is absolutely positioned over the whole label.
+          const node = document.createTreeWalker(l, NodeFilter.SHOW_TEXT).nextNode()!
           const r = document.createRange()
-          r.selectNodeContents(l)
+          r.selectNodeContents(node)
           const t = r.getBoundingClientRect()
           const b = l.getBoundingClientRect()
           return { left: t.left - b.left, right: b.right - t.right }
