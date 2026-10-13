@@ -733,12 +733,13 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .page-shell-body { display: grid; gap: var(--page-gap); align-content: start; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .page-head-text { display: grid; gap: var(--space-1); min-width: 0; }
-.page-title { margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
+.page-title { overflow-wrap: break-word; margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
 .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .stats-usage > summary { color: var(--muted); font-size: var(--text-sm); cursor: pointer; width: fit-content; }
 .stats-usage > p { margin-top: var(--space-1); }
 @media (max-width: 640px) {
-  .page-head-text { flex: 1 1 0; }
+  /* min-content counts whole words here (the title uses break-word, not the page-wide anywhere), so the actions wrap under the title before it breaks inside a word. */
+  .page-head-text { flex: 1 1 0; min-width: min-content; }
   .page-head > .actions { flex: none; }
 }
 .num { font-variant-numeric: tabular-nums; }
@@ -776,7 +777,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .segmented { display: inline-flex; margin: 0; padding: 2px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .segmented label { position: relative; display: inline-flex; }
 .segmented input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-.segmented span { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 4px; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.segmented span { display: inline-flex; align-items: center; white-space: nowrap; padding: 4px 12px; border-radius: 4px; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .segmented input:checked + span { background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-1); }
 .segmented input:focus-visible + span { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 1px; }
 .empty-note { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
