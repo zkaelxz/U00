@@ -59,6 +59,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/style.py` (adaptive style: the translator's edit samples, the learned style profile and its restorable history)
   - `db/translation_versions.py` (complete alternate translations of a drama kept side by side, one active)
   - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
+  - `db/vocab.py` (the Reader's saved click-to-define lookups per drama, and which are queued for the sentence+audio Anki export)
 - `dependency_updates.py` (installed versions against PyPI: update classification, constraints.txt and requirement minimums, known upgrade and install limitations)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
