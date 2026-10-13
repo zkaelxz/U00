@@ -61,6 +61,20 @@ def test_history_newest_first_and_snapshot(isolated_db):
     json.dumps(snap)
 
 
+def test_history_newest_first_after_the_clock_was_set_back(isolated_db):
+    import contextlib
+    did = _drama(isolated_db)
+    lines = _lines(isolated_db, did)
+    isolated_db.save_line_history_snapshot(did, lines, "before the clock change")
+    with contextlib.closing(isolated_db.get_conn()) as conn:
+        conn.execute("UPDATE line_history SET created_at = '2999-01-01' WHERE drama_id = ?",
+                      (did,))
+        conn.commit()
+    isolated_db.save_line_history_snapshot(did, lines, "newest")
+    assert [h["label"] for h in svc.list_line_history(did)] == ["newest",
+                                                                "before the clock change"]
+
+
 def test_history_of_other_drama_not_found(isolated_db):
     a, b = _drama(isolated_db), _drama(isolated_db)
     isolated_db.save_line_history_snapshot(a, _lines(isolated_db, a), "a")
