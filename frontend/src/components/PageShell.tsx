@@ -8,7 +8,7 @@
  *
  * width    narrow, standard or wide. All three are the one --content-max column now, so every page has the same
  *          width and left edge; a page picks one and does not add its own max-width.
- * title    the page heading (h2.page-title). `meta` is the line under it (text, badges or both);
+ * title    the page heading (h1.page-title, the page's one h1: the brand in the header is not a heading). `meta` is the line under it (text, badges or both);
  *          `actions` sits at the header's right; `back` is a breadcrumb or back link above the header.
  * tabs     anything that belongs between the header and the content (a tab bar, a search field).
  * children the content. Direct children are spaced by --page-card-gap, so a page does not add margins.
@@ -19,9 +19,7 @@
 import type { ReactNode } from 'react'
 import { pageShellClass, type PageWidth } from './pageShellWidth'
 
-export function PageShell({ as: Tag = 'section', width, title, meta, actions, back, tabs, className, label, headExtra, children }: {
-  /** `main` for the pages that were the app's main landmark before the shell existed. */
-  as?: 'section' | 'main'
+export function PageShell({ width, title, meta, actions, back, tabs, className, label, headExtra, children }: {
   width: PageWidth
   title: ReactNode
   meta?: ReactNode
@@ -36,11 +34,11 @@ export function PageShell({ as: Tag = 'section', width, title, meta, actions, ba
   children?: ReactNode
 }) {
   return (
-    <Tag className={pageShellClass(width, className)} data-page-shell={width} aria-label={label}>
+    <section className={pageShellClass(width, className)} data-page-shell={width} aria-label={label}>
       {back}
       <header className="page-head" data-page-header>
         <div className="page-head-text">
-          <h2 className="page-title">{title}</h2>
+          <h1 className="page-title">{title}</h1>
           {meta != null && (typeof meta === 'string' ? <p className="page-meta">{meta}</p> : meta)}
           {headExtra}
         </div>
@@ -48,6 +46,6 @@ export function PageShell({ as: Tag = 'section', width, title, meta, actions, ba
       </header>
       {tabs != null && tabs !== false && <div className="page-shell-tabs" data-page-tabs>{tabs}</div>}
       <div className="page-shell-body" data-page-body>{children}</div>
-    </Tag>
+    </section>
   )
 }

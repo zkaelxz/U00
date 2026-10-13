@@ -24,7 +24,7 @@ test('nav, header, empty-state and disabled reasons', async ({ page }) => {
   const s = await mockSources(page)
   await page.goto('/#/sources')
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sources' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('heading', { level: 2, name: 'Sources' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Sources' })).toBeVisible()
   // One level of tabs; the sources summary lives on Manage sources, with one line leading there from Find.
   await expect(page.getByRole('tab')).toHaveText(['Find', 'New chapters', 'Manage sources'])
   await expect(page.getByRole('tab', { name: 'Find' })).toHaveAttribute('aria-selected', 'true')

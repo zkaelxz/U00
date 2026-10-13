@@ -49,6 +49,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/glossary.py` (series and their shared glossary terms and ignore list, the per-series translation memory)
   - `db/line_annotations.py` (per-line annotations a translation run produces: translation notes, consistency-check results, emotion tags)
   - `db/lines.py` (a drama's lines: the id-keyed save, full sync or field-scoped, the compare-and-set edits, the per-line tables a sync carries along, the loaders)
+  - `db/line_history.py` (line history / undo: snapshots of a drama's lines before risky bulk operations, pruned and gzip-packed as they age)
   - `db/library_folder.py` (the library folder on disk: `fsync_dir`, and the start-up check that puts back a library an interrupted restore left renamed aside)
   - `db/media_journal.py` (the media journal for backup imports and restores: staging folders, the journal of drama folders moved in, crash recovery, claiming a new drama's folder)
   - `db/job_records.py` (the job_records mirror of background job status)

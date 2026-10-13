@@ -99,9 +99,13 @@ details.user-menu > summary::after { content: '▾'; color: var(--muted); }
   .header-end > :not(.user-menu) { flex-shrink: 0; }
   /* Title yields first (ellipsis), then the email; the user menu keeps a 44px arrow. */
   .app-header { gap: var(--space-2); }
-  .app-header h1 { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
+  .app-brand { flex: 0 0 auto; font-size: var(--text-md); white-space: nowrap; }
   /* Six 44px controls leave room for about 66px of title: "Studio" stays in the accessible name only. */
-  .app-header h1 .title-rest { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .app-brand .title-rest { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   details.user-menu, details.user-menu > summary { min-width: 44px; }
   details.user-menu > summary { max-width: 100%; }
+}
+@media (max-width: 399px) {
+  .app-brand .rail-brand-mark { display: grid; }
+  .app-brand .brand-word { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }

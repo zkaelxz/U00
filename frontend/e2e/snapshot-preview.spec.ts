@@ -14,7 +14,7 @@ test('previewing a snapshot shows what would change and writes nothing', async (
   await expect(preview).toContainText('#1 Translation: Hello my friend, lovely day → Old greeting')
   await expect(preview).toContainText('#2 Translation: (empty) → Old walk line')
   expect(calls.restores).toBe(0)
-  await list.getByRole('button', { name: 'Restore…' }).click()
+  await list.getByRole('button', { name: /^Restore version:/ }).click()
   await expect(page.getByLabel('Type restore to confirm')).toBeVisible()
   await list.getByRole('button', { name: 'Hide preview' }).click()
   await expect(preview).toHaveCount(0)

@@ -336,7 +336,6 @@ export default function LibraryPage() {
 
   return (
     <PageShell
-      as="main"
       width="wide"
       title="Library"
       className="library-page"

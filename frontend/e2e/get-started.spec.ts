@@ -31,7 +31,7 @@ test('the card opens the Make subtitles page', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('region', { name: 'Get started' }).getByRole('link', { name: 'Make subtitles' }).click()
   await expect(page).toHaveURL(/#\/make-subtitles$/)
-  await expect(page.getByRole('heading', { name: 'Make subtitles', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Make subtitles', level: 1 })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Make subtitles' }).getByLabel('Audio or video file')).toBeVisible()
 })
 
