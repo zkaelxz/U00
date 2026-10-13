@@ -107,6 +107,6 @@ The app is **loopback-only** (`127.0.0.1`) by default. Household members can rea
 
 ## Docs
 
-- [`docs/user-guide.md`](docs/user-guide.md): CLI, dev setup, translation, transcription, dubbing, Reader, Library, troubleshooting, Diagnostics, Benchmark Lab.
+- [`docs/user-guide.md`](docs/user-guide.md): dev setup, translation, transcription, dubbing, Reader, Library, troubleshooting, Diagnostics, Benchmark Lab.
 - [`docs/README.md`](docs/README.md): the docs index. [`docs/STATUS.md`](docs/STATUS.md): current status and what's next. [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md): file map. [`docs/archive/`](docs/archive/): history.
 - [`docs/technical-notes.md`](docs/technical-notes.md): bugs found and fixed. [`CLAUDE.md`](CLAUDE.md): repo layout, tests and rules for contributors.

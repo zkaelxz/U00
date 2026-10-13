@@ -5,22 +5,29 @@ outside the HTTP request, and how the GPU guard, cancel, holds and the Jobs API
 fit around it. The code is the authority: this page cites modules and functions,
 so re-check against them before relying on a detail.
 
-Modules: `background_jobs.py` (the runner), `services/jobs_service.py` (what a client
-sees), `jobs/job_store.py` (every write and close of a `job_records` row), `db/job_records.py`
-(`job_records`) and `db/__init__.py` (`gpu_lock`), `services/shutdown_service.py`,
-`api/background.py`, `services/job_timing_service.py`.
+Modules, after the `background_jobs.py` split (a pure move; callers import the piece they need):
+`background_jobs.py` (progress, results, status, cancel, clearing and the drama-job prefixes),
+`jobs/job_table.py` (the in-memory `_jobs` dict, its lock, change listeners, the mirror and heartbeat),
+`jobs/job_launch.py` (`start_job`, `start_process_job`, the exclusive/maintenance/stopping holds),
+`jobs/job_runner.py` (running a started job, thread or process, and how it ends),
+`jobs/gpu_queue.py` (this process's GPU wait line), `jobs/gpu_slots.py` (the cross-process `gpu_lock` slots),
+`jobs/job_store.py` (every write and close of a `job_records` row), `jobs/job_settings.py`,
+`jobs/user_caps.py`, `jobs/process_worker.py` (what a process job's child calls), plus `job_force_stop.py`
+and `job_process_kill.py`/`job_process_result.py` at the top level. Around them: `services/jobs_service.py`
+(what a client sees), `db/job_records.py` (`job_records`), `services/shutdown_service.py`,
+`api/background.py` and `services/job_timing_service.py`.
 
 One machine, one process owning each job. This is not a distributed queue.
 
 ## The job model
 
-A job is an entry in the module-level `_jobs` dict in `background_jobs.py`, keyed by
+A job is an entry in the module-level `_jobs` dict in `jobs/job_table.py`, keyed by
 job id. Two kinds, recorded as `job["kind"]`:
 
 | Kind | Started with | Runs in | Cancel |
 |---|---|---|---|
-| thread | `start_job(job_id, target, *args, gpu_touching=, description=)` | a daemon thread (`_spawn`) | cooperative: the job must check for it |
-| process | `start_process_job(job_id, target, args=, gpu_touching=, description=, on_done=, on_finish=, kill_whole_tree=, start_method=)` | a `multiprocessing.Process`, watched by a thread in the server (`_process_watcher`) | the watcher kills the process |
+| thread | `job_launch.start_job(job_id, target, *args, gpu_touching=, description=)` | a daemon thread (`job_runner._spawn`) | cooperative: the job must check for it |
+| process | `job_launch.start_process_job(job_id, target, args=, gpu_touching=, description=, on_done=, on_finish=, kill_whole_tree=, start_method=)` | a `multiprocessing.Process`, watched by a thread in the server (`job_runner._process_watcher`) | the watcher kills the process |
 
 Use a process job for work with no safe point to stop at (one opaque model call), so
 cancel can really stop it, and for CUDA work (`start_method="spawn"`: a forked child of
@@ -186,10 +193,10 @@ one member can't stall the shared queue. Starter None (the PC owner, auth off,
 jobs started by jobs, older records) is never capped.
 
 A GPU job is queued instead of started when an earlier GPU job is already waiting
-(`_gpu_queue_waiting_locked`: first come, first served) or no slot is free
-(`_gpu_slot_available_locked`). Three layers:
+(`gpu_queue._gpu_queue_waiting_locked`: first come, first served) or no slot is free
+(`gpu_queue._gpu_slot_available_locked`). Three layers:
 
-1. **In-process FIFO queue.** `_gpu_queue` holds the waiting entries (target, args,
+1. **In-process FIFO queue.** `gpu_queue._gpu_queue` holds the waiting entries (target, args,
    `on_done`/`on_finish`, kind). When any GPU job ends (`_release_gpu_slot` then
    `_promote_next_queued_gpu_job`), the first entry whose starter is under the running
    cap is started if a slot is free. Entries whose
@@ -294,7 +301,7 @@ A worker whose server dies is not left running: a process job started with
 
 ## Holds
 
-Three controls stop new jobs from starting. All are in `background_jobs.py`.
+Three controls stop new jobs from starting. All are in `jobs/job_launch.py`.
 
 | Hold | Taken with | Blocks | Used by |
 |---|---|---|---|
