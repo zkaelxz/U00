@@ -19,16 +19,17 @@ Correctness rules:
 - Refused (409) while any job is running on the drama, so a job's
   field-scoped result can't land on a line whose text just changed shape.
 
-Atomicity gap: the snapshot, the id-set re-check and `save_lines` are three
-separate transactions (db.py has no API to run them in one). Guarded by a
-per-drama lock held across load -> check -> snapshot -> save for every write
-in this module and in the re-segmentation and re-split modules, and by
-re-reading the id set immediately before `save_lines`. Another process
-(e.g. the CLI) can still full-sync between that re-check and the save; a
-failure between snapshot and save leaves only an extra snapshot. Line edits
-(the line PATCH and notes routes) don't take the drama lock either, so an
-edit saved between a write's checks and its save_lines can be overwritten by
-it; an undo's fingerprint check has the same window.
+Atomicity: a per-drama lock is held across load -> check -> snapshot -> save
+for every write in this module and in the re-segmentation and re-split
+modules. Line edits (the line PATCH and notes routes) and other processes
+(the CLI) don't take that lock, so the save itself re-checks, inside its
+transaction, that the drama's lines are still exactly the ones the write
+was computed from (`save_lines(expect_unchanged=...)`) and refuses with
+nothing written if not. A write that removes lines and must not lose a
+note added meanwhile also passes the note ids it saw (`known_note_ids`).
+The snapshot is its own transaction, so a refused or failed save leaves
+only an extra snapshot. An undo's emotion-tag check still runs outside the
+save's transaction.
 
 No FastAPI import: plain dicts in and out. Messages never echo
 line text, keys or paths.
@@ -121,17 +122,17 @@ def lines_fingerprint(lines) -> str:
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _commit(drama_id: int, current, new, label: str) -> int:
-    """Snapshot `current` (fresh from the DB), then full-sync `new`.
+def _commit(drama_id: int, current, new, label: str, known_note_ids=None) -> int:
+    """Snapshot `current` (fresh from the DB), then full-sync `new`, refused
+    (ConflictError, nothing saved) if the lines no longer match `current`
+    or, with `known_note_ids`, a line being removed gained a note.
     Caller holds the drama lock and has already checked expected ids.
     Returns the snapshot's `history_id`, so the caller can offer an undo."""
     history_id = db.save_line_history_snapshot(drama_id, current, label)
-    if db.load_line_ids(drama_id) != {ln.id for ln in current}:
-        raise ConflictError("This title's lines changed while saving -- nothing was changed; "
-                            "reload and try again.")
     for i, ln in enumerate(new):
         ln.idx = i
-    translate_service.save_synced(drama_id, new)
+    translate_service.save_synced(drama_id, new, expect_unchanged=current,
+                                  known_note_ids=known_note_ids)
     return history_id
 
 
@@ -153,21 +154,29 @@ def exclusive_write(drama_id: int):
         yield
 
 
+def note_ids(drama_id: int) -> set:
+    return {n["id"] for n in db.list_translation_notes(drama_id)}
+
+
 def structural_write(drama_id: int, expected_line_ids, label: str, build,
-                     with_words: bool = False):
+                     with_words: bool = False, keep_new_notes: bool = False):
     """load fresh -> check ids -> build(current) -> snapshot -> save, under
     the drama lock. build returns (new_lines, result_line_objects).
-    with_words loads the lines' stored word timings for a build that cuts or joins text."""
+    with_words loads the lines' stored word timings for a build that cuts or joins text.
+    keep_new_notes refuses the save if a line it removes gained a note
+    after the lines were loaded."""
     _require_drama(drama_id)
     expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
     _refuse_if_job_running(drama_id)
     with _drama_lock(drama_id):
+        # Read before the lines, so a note added after either read is unknown.
+        known = note_ids(drama_id) if keep_new_notes else None
         current = db.load_line_objects(drama_id, with_words=with_words)
         _check_expected(current, expected_line_ids)
         # build works on copies so the snapshot sees the untouched lines
         work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
         new_lines, touched = build(work)
-        history_id = _commit(drama_id, current, new_lines, label)
+        history_id = _commit(drama_id, current, new_lines, label, known_note_ids=known)
         handle = undo_handle(drama_id, history_id)
     return {"line_ids": [ln.id for ln in new_lines],
             "lines": [line_dict(ln) for ln in touched], **handle}
@@ -335,8 +344,8 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
         raise NotFoundError(f"No history snapshot {history_id} for title {drama_id}.")
 
     def build(lines):
-        # Checked under the drama lock, but line edits don't take it: one saved
-        # after this check and before the save is still overwritten.
+        # Line edits don't take the drama lock; one saved after this check is
+        # caught by the save's own check (_commit).
         if expected_fingerprint is not None and lines_fingerprint(lines) != expected_fingerprint:
             raise ConflictError("The lines were edited since that change -- restore from "
                                 "Records, Line history instead.")
@@ -348,6 +357,7 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
                                 "saved since -- nothing was changed.",
                                 details={"reason": "notes_on_removed_lines"})
         return core_module.restore_saved_lines(rows, lines), []
-    out = structural_write(drama_id, expected_line_ids, "before restore", build)
+    out = structural_write(drama_id, expected_line_ids, "before restore", build,
+                           keep_new_notes=expected_fingerprint is not None)
     return {"history_id": history_id, "line_ids": out["line_ids"]}
 

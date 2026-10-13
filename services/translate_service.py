@@ -355,7 +355,8 @@ def sync_translation_status(drama_id: int) -> None:
         db.set_status_if(drama_id, "translated", "aligned")
 
 
-def save_synced(drama_id: int, lines) -> None:
-    """Full-sync `lines`, then bring the title status in line with them."""
-    db.save_lines(drama_id, lines)
+def save_synced(drama_id: int, lines, **checks) -> None:
+    """Full-sync `lines`, then bring the title status in line with them.
+    `checks` are db.save_lines' expect_unchanged / known_note_ids."""
+    db.save_lines(drama_id, lines, **checks)
     sync_translation_status(drama_id)

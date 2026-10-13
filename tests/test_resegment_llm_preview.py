@@ -342,3 +342,47 @@ def test_direct_llm_resegmentation_refuses_once_the_monthly_cap_is_used_up(monke
     with pytest.raises(UnsupportedOperationError, match="cap"):
         resegmentation_service.start_resegmentation(did, ids, confirm=True, use_llm=True, engine="claude")
     assert started == []
+
+
+def test_a_long_line_the_preview_leaves_whole_needs_no_confirm(monkeypatch):
+    """Confirm is about what a split loses: a translated line that is long
+    enough to split but that the preview keeps whole loses nothing, so it
+    doesn't make an apply need confirm=true (or lose its translation)."""
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="短", en="short"),
+                        Line(idx=1, start=1.0, end=9.0, zh=LONG, en=""),
+                        Line(idx=2, start=9.0, end=17.0, zh=LONG, en="kept whole")])
+
+    def split_only_the_untranslated_line(lines, language, engine=None, usage_cb=None, **kw):
+        a, b, c = lines
+        cut = len(b.zh) // 3
+        pieces = [b.zh[:cut], b.zh[cut:]]
+        new = [a, Line(idx=1, start=b.start, end=5.0, zh=pieces[0]),
+               Line(idx=2, start=5.0, end=b.end, zh=pieces[1]), c]
+        return new, [(b, pieces)]
+    monkeypatch.setattr(resegment, "resegment_lines", split_only_the_untranslated_line)
+    _wait(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
+    p = resegmentation_service.get_llm_resegment_preview(did)
+    assert p["needs_confirm"] is False
+
+    out = resegmentation_service.start_resegmentation(did, p["source_line_ids"], use_preview=True)
+    assert _wait(out["job_id"])["status"] == "done"
+    rows = db.load_lines(did)
+    assert len(rows) == 4 and rows[3]["en"] == "kept whole"
+
+
+def test_note_racing_the_preview_apply_save_is_kept(monkeypatch):
+    """Line notes don't take the drama lock: one added to a line being split
+    between the apply job's checks and its save must not be deleted with it,
+    even with confirm=true."""
+    from tests.test_restructure_service import _race_a_line_edit
+    did = _seed_unconfirmed()
+    _preview(monkeypatch, did)
+    preview = resegmentation_service._llm_previews[did]
+    long_id = preview["changed"][0]["line_id"]
+    _race_a_line_edit(monkeypatch, did, long_id, note=True)
+    job_launch.start_job("resegment_x", resegmentation_service._apply_llm_preview_job,
+                         "resegment_x", did, preview, True)
+    assert _wait("resegment_x")["status"] == "error"
+    assert [r["id"] for r in db.load_lines(did)] == preview["source_line_ids"]
+    assert [n["line_id"] for n in db.list_translation_notes(did)] == [long_id]
