@@ -344,6 +344,12 @@ from db.model_candidates import (  # noqa: E402,F401
     set_model_candidate_status)
 
 
+# ---------------------------------------------------------------------------
+# Line references by position (line_idx -> lines.id). The line-id rebuild in
+# db/migrations.py reads these as db.<name> so a test can patch them here;
+# db/reading.py and db/line_annotations.py resolve through _line_id_for_idx.
+# ---------------------------------------------------------------------------
+
 _LINE_REF_TABLE_DDL = {
     "translation_notes": """
         CREATE TABLE {name} (
