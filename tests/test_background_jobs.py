@@ -1665,6 +1665,72 @@ class TestHeartbeatRefreshesRunningGpuRows:
             bg.clear_job("hb_cpu")
 
 
+class TestHeartbeatLoopSurvivesAFailedTick:
+    def test_one_raising_tick_does_not_end_the_loop(self, monkeypatch):
+        class Stop(BaseException):
+            pass
+
+        sleeps = []
+
+        def fake_sleep(_seconds):
+            sleeps.append(1)
+            if len(sleeps) == 3:
+                raise Stop
+
+        ticks = []
+
+        def tick():
+            ticks.append(1)
+            if len(ticks) == 1:
+                raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(job_table.time, "sleep", fake_sleep)
+        monkeypatch.setattr(job_table, "_heartbeat_once", tick)
+        with pytest.raises(Stop):
+            job_table._heartbeat_loop()
+        assert len(ticks) == 2        # the tick after the failed one still ran
+
+
+class TestCancelDuringTheFinalStep:
+    def test_a_job_that_finishes_despite_a_cancel_stops_saying_cancelling(self):
+        release = threading.Event()
+        started = threading.Event()
+
+        def work():
+            started.set()
+            release.wait(timeout=5.0)    # finishes without noticing the cancel
+
+        assert job_launch.start_job("cd_done", work)
+        started.wait(timeout=2.0)
+        bg.request_cancel("cd_done")
+        assert db.get_job_record("cd_done")["message"] == bg.CANCELLING_MESSAGE
+        release.set()
+        assert job_runner.wait_for_job_threads(5.0)
+        assert bg.get_status("cd_done")["status"] == "done"
+        assert bg.get_status("cd_done")["message"] == job_runner.FINISHED_MESSAGE
+        assert db.get_job_record("cd_done")["message"] == job_runner.FINISHED_MESSAGE
+        bg.clear_job("cd_done")
+
+
+class TestCancelCheckStateIsPerRun:
+    def test_a_finished_run_leaves_no_throttle_or_logged_once_mark(self, monkeypatch):
+        from jobs import job_store
+
+        def failing(job_id):
+            raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(job_store, "row_cancel_time", failing)
+        release = threading.Event()
+        assert job_launch.start_job("cc_run", lambda: release.wait(5))
+        try:
+            assert bg.is_cancel_requested("cc_run") is False
+            assert "cc_run" in bg._db_cancel_check_failed
+        finally:
+            release.set()
+        assert job_runner.wait_for_job_threads(5.0)
+        assert "cc_run" not in bg._db_cancel_check_failed
+        assert "cc_run" not in bg._last_db_cancel_check
+        bg.clear_job("cc_run")
+
+
 class TestNotifyOnCompletion:
     """Step 23c item 4: an optional desktop notification when a
     background job finishes, gated behind set_notify_on_completion()

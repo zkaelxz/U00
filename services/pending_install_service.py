@@ -8,6 +8,7 @@ PC only (`local_only()`): a household user never sees or cancels a queued
 install.
 """
 
+import copy
 import threading
 import time
 
@@ -51,7 +52,9 @@ def _plan(keys: list, fresh: bool) -> dict:
     with _LOCK:
         if (not fresh and _CACHE["keys"] == sorted(keys)
                 and time.monotonic() - _CACHE["at"] < PLAN_CACHE_SECONDS):
-            return _CACHE["plan"]
+            # A job may have imported a package since the preview, so what is
+            # in use (and so install-now vs restart) is asked again.
+            return install_plan.apply_in_use(copy.deepcopy(_CACHE["plan"]), _jobs_running())
     plan = install_plan.build_plan(keys, jobs_running=_jobs_running())
     with _LOCK:
         _CACHE.update(keys=sorted(keys), plan=plan, at=time.monotonic())

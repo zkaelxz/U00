@@ -309,6 +309,10 @@ def verify_command(python_exe: str) -> list:
     return [python_exe, "-s", "-c", "import " + ", ".join(CORE_IMPORTS)]
 
 
+def pip_check_command(python_exe: str) -> list:
+    return [python_exe, "-s", "-m", "pip", "check"]
+
+
 def _run(cmd, log, env, cwd):
     log.write(f"\n$ {subprocess.list2cmdline(cmd)}\n")
     log.flush()
@@ -357,6 +361,12 @@ def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run,
                 raise PostInstallError(f"{message} Details: {log_dir / LOG_NAME}", code)
         # Plain-words ffmpeg/JS-runtime/CUDA report, for the log only.
         runner([python_exe, "-s", str(app_dir / "check_setup.py")], log, env, app_dir)
+        # The lock goes in with --no-deps over an upgrade, so a package added
+        # through Diagnostics can now be out of step with a core one. Not fatal
+        # (the core imports passed): the log says what to look at.
+        if runner(pip_check_command(python_exe), log, env, app_dir) != 0:
+            log.write("WARNING: pip check found conflicts (listed above); a package added "
+                      "through Diagnostics may need reinstalling there.\n")
         log.write("Install finished OK.\n")
     return 0
 

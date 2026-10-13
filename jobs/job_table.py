@@ -70,7 +70,12 @@ def _heartbeat_once():
 def _heartbeat_loop():
     while True:
         time.sleep(HEARTBEAT_INTERVAL)
-        _heartbeat_once()
+        # One failed tick must not end the thread: it restarts only on the
+        # next status transition, and a job with none would go stale meanwhile.
+        try:
+            _heartbeat_once()
+        except Exception as exc:
+            _warn("job heartbeat tick failed", exc)
 
 
 def _ensure_heartbeat():

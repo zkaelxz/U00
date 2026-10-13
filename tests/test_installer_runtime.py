@@ -496,6 +496,7 @@ class TestRun:
         assert cmds[0][2] == "-c" and "run_module('pip'" in cmds[0][3] and cmds[1][2:4] == ["-m", "pip"]
         assert cmds[2][2] == "-c"
         assert cmds[3][-1].endswith("check_setup.py")
+        assert cmds[4][-3:] == ["-m", "pip", "check"]
 
     def test_a_tampered_wheel_stops_before_pip_runs(self, tmp_path):
         app, wheels, data = self._layout(tmp_path)
@@ -552,6 +553,16 @@ class TestRun:
         def runner(cmd, log, env, cwd):
             return 1 if cmd[-1].endswith("check_setup.py") else 0
         assert postinstall.run(wheels, str(data), python_exe="py", app_dir=app, runner=runner) == 0
+
+    def test_a_pip_check_conflict_is_logged_but_not_fatal(self, tmp_path):
+        app, wheels, data = self._layout(tmp_path)
+
+        def runner(cmd, log, env, cwd):
+            return 1 if cmd[-2:] == ["pip", "check"] else 0
+        assert postinstall.run(wheels, str(data), python_exe="py", app_dir=app, runner=runner,
+                               restrict=lambda *a: False) == 0
+        log = (data / "launcher" / "install.log").read_text(encoding="utf-8")
+        assert "pip check found conflicts" in log and "Install finished OK." in log
 
     def test_main_bad_data_dir(self, tmp_path, capsys):
         assert postinstall.main(["--wheels", str(tmp_path), "--data-dir", "relative"]) == 2

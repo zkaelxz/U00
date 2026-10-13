@@ -359,6 +359,14 @@ _last_db_cancel_check = {}
 _db_cancel_check_failed = set()   # job ids whose check failure was already logged
 
 
+def _forget_cancel_check(job_id: str) -> None:
+    """A finished run's throttle time and logged-once mark must not carry into
+    the next run of the same id, or its failures would never be logged."""
+    with _lock:
+        _last_db_cancel_check.pop(job_id, None)
+        _db_cancel_check_failed.discard(job_id)
+
+
 def _db_cancel_requested(job_id: str) -> bool:
     """A cancel requested from another process (the API host) lives in
     job_records. Checked at most once per _DB_CANCEL_CHECK_INTERVAL seconds

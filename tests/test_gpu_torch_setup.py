@@ -513,3 +513,16 @@ def test_no_kernels_message_on_the_cu126_build_does_not_suggest_it_again():
     devices = [{"index": 0, "name": "Tesla V100", "capability": "7.0", "supported": False}]
     msg = diagnostics_torch.unsupported_gpu_message(devices, "2.11.0+cu126")
     assert msg == "This PyTorch build has no kernels for your GPU Tesla V100 (compute 7.0)."
+
+
+def test_the_module_and_its_embedded_verify_script_compile_without_warnings():
+    # A "\d" in a non-raw string only warns at import, and start.bat shows that
+    # warning to the owner; the script string is compiled again by the child.
+    import warnings
+    path = diagnostics_torch.__file__
+    with open(path, encoding="utf-8") as f:
+        source = f.read()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        compile(source, path, "exec")
+        compile(diagnostics_torch.TORCH_VERIFY_SCRIPT, "<verify script>", "exec")

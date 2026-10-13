@@ -25,7 +25,7 @@ def make_plan(keys, mode="restart", blocked=(), confirm=(), before=None, loaded=
             "changes": [{"name": "numpy", "from": "2.5.3", "to": "2.3.5", "kind": "downgrade"}],
             "loaded": list(loaded), "blocked": list(blocked), "needs_confirm": list(confirm),
             "summary": ["Change numpy 2.5.3 -> 2.3.5 (downgrade)."], "installs": [],
-            "before": before if before is not None else {"numpy": "2.5.3"}, "note": None}
+            "before": before if before is not None else {"numpy": "2.5.3"}, "note": None, "swap": []}
 
 
 @pytest.fixture
@@ -72,7 +72,10 @@ def test_queue_writes_keys_only_and_status_reports_it(client, env, tmp_path):
     assert s["result"] is None and s["applying"] is False and s["problem"] is None
 
 
-def test_a_downgrade_of_something_the_app_needs_is_refused_until_accepted(client, env):
+def test_a_downgrade_of_something_the_app_needs_is_refused_until_accepted(client, env, monkeypatch):
+    # The refused first try caches the plan, so the retry re-checks what is in use.
+    monkeypatch.setattr(svc.install_plan, "_is_windows", lambda: True)
+    monkeypatch.setattr(svc.install_plan, "dist_in_use", lambda name: name == "numpy")
     env["plan"] = make_plan(["paddleocr"], confirm=["numpy 2.5.3 -> 2.3.5 is a downgrade of a package Baihe itself needs."])
     r = queue(client)
     assert r.status_code == 409
@@ -266,3 +269,17 @@ def test_queueing_rechecks_the_install_hold_once_it_has_the_preview_lock(client,
 @pytest.mark.parametrize("bad", ["--pre", "a b", "x" * 81, ""])
 def test_package_keys_are_shape_checked(client, bad):
     assert client.post(f"{BASE}/plan", json={"packages": [bad]}).status_code == 422
+
+
+def test_queue_asks_what_is_in_use_again_instead_of_trusting_the_preview(client, env, monkeypatch):
+    # Previewed while numpy was idle; a job has since imported it.
+    monkeypatch.setattr(svc.install_plan, "_is_windows", lambda: True)
+    inuse = set()
+    monkeypatch.setattr(svc.install_plan, "dist_in_use", lambda name: name in inuse)
+    env["plan"] = make_plan(["paddleocr"], mode="now")
+    assert client.post(f"{BASE}/plan", json={"packages": ["paddleocr"]}).json()["mode"] == "now"
+    inuse.add("numpy")
+    env["calls"] = 0
+    b = queue(client).json()
+    assert env["calls"] == 0                      # the cached dry run is still used
+    assert b["queued"] is True and b["plan"]["loaded"] == ["numpy"]

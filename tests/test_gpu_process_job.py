@@ -266,3 +266,40 @@ def test_timeout_formula_has_a_per_line_term_and_scales_with_audio():
     # than their 200 s of audio suggests.
     assert fn(200.0, 200) - fn(200.0, 1) == 199 * retranscribe_worker._PER_WINDOW_S
     assert fn(200.0, 200) >= 1800 + 200 * 30
+
+
+class _ScriptedChannel:
+    def __init__(self, items):
+        self.items = list(items)
+
+    def get(self, timeout=None):
+        if self.items:
+            return self.items.pop(0)
+        raise queue.Empty
+
+
+class _LiveProc:
+    def is_alive(self):
+        return True
+
+
+def test_a_stage_item_from_the_child_shows_the_stage_and_ends_with_the_run(isolated_db):
+    seen = {}
+    assert job_launch.start_job("stage_job", lambda: None)
+    assert job_runner.wait_for_job_threads(5.0)
+    with background_jobs._lock:
+        background_jobs._jobs["stage_job"]["status"] = "running"
+    channel = _ScriptedChannel([("stage", 0.2, "Loading the model"),
+                                ("item", {"n": 1})])
+
+    def on_item(_item):
+        seen.update(background_jobs.get_status("stage_job"))
+        channel.items.append(("ok", {"done": True}))
+    result = gpu_process_job._await_child("stage_job", _LiveProc(), channel, 0.01,
+                                          time.monotonic() + 30, time.monotonic() + 60, on_item)
+    assert result == {"done": True}
+    # While the stage was loading the job said so and did not claim progress,
+    # which is what stretches the "may be stalled" warning to 15 minutes.
+    assert "Loading the model" in seen["message"]
+    assert seen["can_report_progress"] is False
+    background_jobs.clear_job("stage_job")
