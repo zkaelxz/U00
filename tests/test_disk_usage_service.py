@@ -16,8 +16,12 @@ import background_jobs
 import db
 from jobs import gpu_slots
 from services import auto_backup_service as abs_
+from services import disk_usage_guard as guard
+from services import disk_usage_hold as hold
+from services import disk_usage_measure as measure
 from services import disk_usage_service as dus
 from services import disk_usage_trash_service as dts
+from services import disk_usage_trash_store as store
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
@@ -49,12 +53,12 @@ def tree(isolated_db, monkeypatch):
 def renames(monkeypatch):
     """Every atomic move into or out of Trash, recorded; the move still happens."""
     calls = []
-    real = dus._rename
+    real = store._rename
 
     def spy(src, dst):
         calls.append((src, dst))
         real(src, dst)
-    monkeypatch.setattr(dus, "_rename", spy)
+    monkeypatch.setattr(store, "_rename", spy)
     return calls
 
 
@@ -121,12 +125,14 @@ class TestScan:
             dus.scan("library/dramas/1/link")
 
     def test_partial_when_entry_cap_hit(self, tree, monkeypatch):
+        monkeypatch.setattr(measure, "MAX_ENTRIES", 3)
         monkeypatch.setattr(dus, "MAX_ENTRIES", 3)
         res = dus.scan("")
         assert res["partial"] is True and res["partial_reason"] == "entries"
 
     def test_partial_when_time_cap_hit(self, tree, monkeypatch):
-        monkeypatch.setattr(dus, "MAX_SECONDS", -1.0)
+        monkeypatch.setattr(measure, "MAX_SECONDS", -1.0)
+        monkeypatch.setattr(measure, "_TIME_CHECK_EVERY", 1)
         monkeypatch.setattr(dus, "_TIME_CHECK_EVERY", 1)
         res = dus.scan("library")
         assert res["partial"] is True and res["partial_reason"] == "time"
@@ -177,13 +183,13 @@ class TestProtection:
         assert not _item(dus.scan("library"), "backups")["protected"]
 
     def test_program_folder_is_protected(self, tree, monkeypatch):
-        monkeypatch.setattr(dus, "_program_dir", lambda: os.path.realpath(os.path.join(tree, "prog")))
+        monkeypatch.setattr(guard, "_program_dir", lambda: os.path.realpath(os.path.join(tree, "prog")))
         _write(os.path.join(tree, "prog", "run.py"), 5)
         item = _item(dus.scan(""), "prog")
         assert item["protected"] and "program" in item["protected_reason"].lower()
 
     def test_source_checkout_root_protects_everything_but_data(self, tree, monkeypatch):
-        monkeypatch.setattr(dus, "_program_dir", lambda: os.path.realpath(tree))
+        monkeypatch.setattr(guard, "_program_dir", lambda: os.path.realpath(tree))
         _write(os.path.join(tree, "frontend", "app.tsx"), 5)
         res = dus.scan("")
         assert _item(res, "frontend")["protected"]
@@ -236,10 +242,10 @@ class TestClear:
         size, files = self._seen("library/source_cache")
         res = dus.clear("library/source_cache", confirm=True, expected_size_bytes=size,
                         expected_file_count=files)
-        entry = os.path.join(tree, dus.TRASH_DIRNAME, res["trash_id"])
+        entry = os.path.join(tree, guard.TRASH_DIRNAME, res["trash_id"])
         assert res["moved_bytes"] == 400 and res["name"] == "source_cache"
         assert res["file_count"] == 1 and res["kind"] == "folder"
-        assert dus._TRASH_ID_RE.fullmatch(res["trash_id"])
+        assert store._TRASH_ID_RE.fullmatch(res["trash_id"])
         assert len(renames) == 1 and renames[0][1] == os.path.join(entry, "payload")
         assert not os.path.exists(os.path.join(tree, "library", "source_cache"))
         assert os.path.getsize(os.path.join(entry, "payload", "x.html")) == 400
@@ -259,25 +265,25 @@ class TestClear:
     def test_a_failed_rename_leaves_the_item_and_no_empty_entry(self, tree, monkeypatch):
         def boom(src, dst):
             raise OSError(18, "cross-device " + src)
-        monkeypatch.setattr(dus, "_rename", boom)
+        monkeypatch.setattr(store, "_rename", boom)
         with pytest.raises(ServiceError) as exc:
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
         assert tree not in exc.value.message
         assert os.path.exists(os.path.join(tree, "library", "source_cache", "x.html"))
-        assert os.listdir(os.path.join(tree, dus.TRASH_DIRNAME)) == []
+        assert os.listdir(os.path.join(tree, guard.TRASH_DIRNAME)) == []
 
     def test_another_volume_is_refused_without_copying(self, tree, renames, monkeypatch):
-        monkeypatch.setattr(dus, "_same_volume", lambda a, b: False)
+        monkeypatch.setattr(store, "_same_volume", lambda a, b: False)
         with pytest.raises(ServiceError):
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
         assert renames == [] and os.path.exists(os.path.join(tree, "library", "source_cache"))
 
     def test_a_path_that_would_reach_max_path_in_trash_is_refused(self, tree, renames, monkeypatch):
-        monkeypatch.setattr(dus, "MAX_PATH", len(os.path.join(tree, "library", "source_cache",
-                                                              "x.html")) + 1)
-        monkeypatch.setattr(dus, "_unopenable_name", lambda p, n: False)
+        monkeypatch.setattr(store, "MAX_PATH", len(os.path.join(tree, "library", "source_cache",
+                                                                "x.html")) + 1)
+        monkeypatch.setattr(measure, "_unopenable_name", lambda p, n: False)
         with pytest.raises(ServiceError):
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
@@ -333,7 +339,7 @@ class TestClear:
         outside.mkdir()
         (outside / "f").write_bytes(b"1234")
         target = os.path.join(tree, "library", "source_cache")
-        real_resolve = dus._resolve
+        real_resolve = guard._resolve
         state = {"n": 0}
 
         def swapping(parts):
@@ -345,8 +351,9 @@ class TestClear:
                 os.symlink(str(outside), target, target_is_directory=True)
             return out
         monkeypatch.setattr(dus, "_resolve", swapping)
+        monkeypatch.setattr(store, "_resolve", swapping)
         called = []
-        monkeypatch.setattr(dus, "_rename", lambda a, b: called.append(a))
+        monkeypatch.setattr(store, "_rename", lambda a, b: called.append(a))
         try:
             with pytest.raises((ConflictError, InvalidInputError)):
                 dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
@@ -437,12 +444,12 @@ class TestExclusiveHold:                                   # M1
 
     def test_the_hold_is_taken_during_the_change_and_released_after(self, tree, monkeypatch):
         seen = {}
-        real = dus._rename
+        real = store._rename
 
         def spy(src, dst):
             seen["label"] = background_jobs._exclusive_label
             real(src, dst)
-        monkeypatch.setattr(dus, "_rename", spy)
+        monkeypatch.setattr(store, "_rename", spy)
         self._clear()
         assert seen["label"] == "Disk usage clear"
         assert background_jobs.exclusive_active() is False
@@ -474,10 +481,10 @@ class TestExclusiveHold:                                   # M1
         """The CLI writes no job_records; its GPU steps leave a gpu_lock row."""
         from services import library_admin_service
         monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
-        assert dus._busy_under_hold() is False
+        assert hold._busy_under_hold() is False
         assert gpu_slots.take("cli-test-holder", "CLI transcribe")
         try:
-            assert dus._busy_under_hold() is True
+            assert hold._busy_under_hold() is True
             with pytest.raises(ConflictError):
                 self._clear()
             with pytest.raises(ConflictError):
@@ -485,7 +492,7 @@ class TestExclusiveHold:                                   # M1
         finally:
             gpu_slots.release("cli-test-holder")
         assert renames == [] and background_jobs.exclusive_active() is False
-        assert dus._busy_under_hold() is False
+        assert hold._busy_under_hold() is False
 
     def test_an_unreadable_gpu_lock_table_counts_as_busy(self, tree, monkeypatch):
         from services import library_admin_service
@@ -494,7 +501,7 @@ class TestExclusiveHold:                                   # M1
         def boom():
             raise RuntimeError("locked")
         monkeypatch.setattr(gpu_slots, "status", boom)
-        assert dus._busy_under_hold() is True
+        assert hold._busy_under_hold() is True
 
     def test_a_job_that_appears_after_the_look_stops_the_move(self, tree, renames, monkeypatch):
         from services import library_admin_service
@@ -586,7 +593,7 @@ class TestIncompleteMeasure:                               # M3
             def __exit__(self, *a):
                 return False
         monkeypatch.setattr(os, "scandir", lambda p: It())
-        m = dus._measure("somewhere", ("library", "tmp"), dus._Budget())
+        m = measure._measure("somewhere", ("library", "tmp"), measure._Budget())
         assert m.unreadable is True
 
     def test_iteration_error_marks_incomplete(self, tree, monkeypatch):
@@ -603,10 +610,10 @@ class TestIncompleteMeasure:                               # M3
             def __exit__(self, *a):
                 return False
         monkeypatch.setattr(os, "scandir", lambda p: It())
-        assert dus._measure("somewhere", (), dus._Budget()).unreadable is True
+        assert measure._measure("somewhere", (), measure._Budget()).unreadable is True
 
     def test_a_vanished_file_is_not_an_error(self, tree):
-        assert dus._measure(os.path.join(tree, "nope"), (), dus._Budget()).unreadable is False
+        assert measure._measure(os.path.join(tree, "nope"), (), measure._Budget()).unreadable is False
 
 
 class TestProtectionDepth:                                 # M4
@@ -632,7 +639,7 @@ class TestProtectionDepth:                                 # M4
 class TestScanLimits:                                      # L1
     def test_context_is_built_once_per_scan(self, tree, monkeypatch):
         calls = {"prot": 0, "abs": 0}
-        real_prot, real_get = dus._protected_paths, abs_.get_settings
+        real_prot, real_get = guard._protected_paths, abs_.get_settings
 
         def prot():
             calls["prot"] += 1
@@ -641,7 +648,7 @@ class TestScanLimits:                                      # L1
         def get():
             calls["abs"] += 1
             return real_get()
-        monkeypatch.setattr(dus, "_protected_paths", prot)
+        monkeypatch.setattr(guard, "_protected_paths", prot)
         monkeypatch.setattr(abs_, "get_settings", get)
         for i in range(20):
             _write(os.path.join(tree, "library", "dramas", f"d{i}", "a.bin"), 1)
@@ -659,9 +666,10 @@ class TestScanLimits:                                      # L1
     def test_children_are_not_described_after_the_budget_is_hit(self, tree, monkeypatch):
         for i in range(6):
             _write(os.path.join(tree, "library", "tmp", f"d{i}", "a.bin"), 1)
+        monkeypatch.setattr(measure, "MAX_ENTRIES", 2)
         monkeypatch.setattr(dus, "MAX_ENTRIES", 2)
         described = []
-        real = dus._describe
+        real = measure._describe
         monkeypatch.setattr(dus, "_describe", lambda *a, **k: described.append(1) or real(*a, **k))
         res = dus.scan("library/tmp")
         assert res["partial_reason"] == "entries"
@@ -697,7 +705,7 @@ class TestLinksInside:                                     # L3
 
     def test_reparse_point_attribute_counts_as_a_link(self, tree, monkeypatch):
         st_obj = type("S", (), {"st_mode": 0o040755, "st_size": 0, "st_file_attributes": 0x400})()
-        assert dus._is_link_stat(st_obj)
+        assert guard._is_link_stat(st_obj)
 
 
 class TestIrreplaceableBackups:                            # L4
@@ -726,21 +734,22 @@ class TestIrreplaceableBackups:                            # L4
 
 class TestBroadDataRoot:                                   # L5
     def test_home_folder_as_data_root_is_read_only(self, tree, renames, monkeypatch, tmp_path):
+        monkeypatch.setattr(guard, "_home_dirs", lambda: [os.path.realpath(tree)])
         monkeypatch.setattr(dus, "_home_dirs", lambda: [os.path.realpath(tree)])
         res = dus.scan("library")
         assert res["items"] and all(i["protected"] for i in res["items"])
-        assert dus.ROOT_TOO_BROAD in {i["protected_reason"] for i in res["items"]}
+        assert guard.ROOT_TOO_BROAD in {i["protected_reason"] for i in res["items"]}
         with pytest.raises(InvalidInputError) as exc:
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
-        assert exc.value.message == dus.ROOT_TOO_BROAD
+        assert exc.value.message == guard.ROOT_TOO_BROAD
         with pytest.raises(InvalidInputError):
             dus.move("library/backups/auto", str(tmp_path), confirm=True)
         assert renames == []
 
     def test_drive_root_as_data_root(self, tmp_path):
-        assert dus._root_blocker(os.path.abspath(os.sep)) == dus.ROOT_TOO_BROAD
-        assert dus._root_blocker(str(tmp_path)) is None
+        assert guard._root_blocker(os.path.abspath(os.sep)) == guard.ROOT_TOO_BROAD
+        assert guard._root_blocker(str(tmp_path)) is None
 
 
 class TestSecondReview:
@@ -750,8 +759,8 @@ class TestSecondReview:
     def test_name_ending_in_space_or_dot_is_unreadable(self, tree, renames):
         for name in ("trail ", "dot."):
             _write(os.path.join(tree, "library", "tmp", name, "f.bin"), 3)
-            m = dus._measure(os.path.join(tree, "library", "tmp"), ("library", "tmp"),
-                             dus._Budget())
+            m = measure._measure(os.path.join(tree, "library", "tmp"), ("library", "tmp"),
+                             measure._Budget())
             assert m.unreadable is True
             item = _item(dus.scan("library"), "tmp")
             assert item["complete"] is False and item["protected"] is True
@@ -765,10 +774,10 @@ class TestSecondReview:
     def test_path_of_max_path_length_is_unreadable(self, tree, monkeypatch):
         _write(os.path.join(tree, "library", "tmp", "a.bin"), 3)
         folder = os.path.join(tree, "library", "tmp")
-        assert dus._unopenable_name("x" * 260, "x") and not dus._unopenable_name("x" * 259, "x")
-        assert dus._measure(folder, ("library", "tmp"), dus._Budget()).unreadable is False
-        monkeypatch.setattr(dus, "MAX_PATH", len(os.path.join(folder, "a.bin")))
-        assert dus._measure(folder, ("library", "tmp"), dus._Budget()).unreadable is True
+        assert measure._unopenable_name("x" * 260, "x") and not measure._unopenable_name("x" * 259, "x")
+        assert measure._measure(folder, ("library", "tmp"), measure._Budget()).unreadable is False
+        monkeypatch.setattr(measure, "MAX_PATH", len(os.path.join(folder, "a.bin")))
+        assert measure._measure(folder, ("library", "tmp"), measure._Budget()).unreadable is True
 
     def _fake_scandir(self, monkeypatch, path, name):
         class Entry:
@@ -801,14 +810,14 @@ class TestSecondReview:
         _write(os.path.join(tree, "library", "tmp", "here.bin"), 3)
         self._fake_scandir(monkeypatch, os.path.join(tree, "library", "tmp", "here.bin"),
                            "here.bin")
-        m = dus._measure(os.path.join(tree, "library", "tmp"), ("library", "tmp"), dus._Budget())
+        m = measure._measure(os.path.join(tree, "library", "tmp"), ("library", "tmp"), measure._Budget())
         assert m.unreadable is True
 
     def test_not_found_on_an_entry_confirmed_gone_is_skipped(self, tree, monkeypatch):
         os.makedirs(os.path.join(tree, "library", "tmp"), exist_ok=True)
         self._fake_scandir(monkeypatch, os.path.join(tree, "library", "tmp", "gone.bin"),
                            "gone.bin")
-        m = dus._measure(os.path.join(tree, "library", "tmp"), ("library", "tmp"), dus._Budget())
+        m = measure._measure(os.path.join(tree, "library", "tmp"), ("library", "tmp"), measure._Budget())
         assert m.unreadable is False
 
     def test_not_found_on_scandir_of_an_existing_folder_is_unreadable(self, tree, monkeypatch):
@@ -818,39 +827,40 @@ class TestSecondReview:
         def nf(p):
             raise FileNotFoundError(2, "nf")
         monkeypatch.setattr(os, "scandir", nf)
-        assert dus._measure(folder, ("library", "tmp"), dus._Budget()).unreadable is True
+        assert measure._measure(folder, ("library", "tmp"), measure._Budget()).unreadable is True
 
     # item 4
     def test_data_root_holding_home_or_a_shell_folder_is_refused(self, tmp_path, monkeypatch):
         home = tmp_path / "Users" / "me"
         (home / "Documents" / "Baihe").mkdir(parents=True)
         (home / "Other").mkdir()
+        monkeypatch.setattr(guard, "_home_dirs", lambda: [os.path.realpath(home)])
         monkeypatch.setattr(dus, "_home_dirs", lambda: [os.path.realpath(home)])
         for root in (tmp_path / "Users", tmp_path / "Users" / "me", home / "Documents",
                      home / "Downloads", home / "Desktop"):
-            assert dus._root_blocker(os.path.realpath(root)) == dus.ROOT_TOO_BROAD, root
-        assert dus._root_blocker(os.path.realpath(home / "Documents" / "Baihe")) is None
-        assert dus._root_blocker(os.path.realpath(home / "Other")) is None
+            assert guard._root_blocker(os.path.realpath(root)) == guard.ROOT_TOO_BROAD, root
+        assert guard._root_blocker(os.path.realpath(home / "Documents" / "Baihe")) is None
+        assert guard._root_blocker(os.path.realpath(home / "Other")) is None
 
     def test_top_level_entries_baihe_did_not_create_are_protected(self, tree, renames):
         _write(os.path.join(tree, "Photos", "holiday", "a.jpg"), 50)
         _write(os.path.join(tree, "saved_comics", "ch1.cbz"), 40)
         res = dus.scan("")
         photos = _item(res, "Photos")
-        assert photos["protected"] is True and photos["protected_reason"] == dus.NOT_BAIHE
+        assert photos["protected"] is True and photos["protected_reason"] == guard.NOT_BAIHE
         assert photos["movable"]["supported"] is False
         assert _item(dus.scan("Photos"), "holiday")["protected"] is True
         for rel in ("Photos", "Photos/holiday"):
             with pytest.raises(InvalidInputError):
                 dus.clear(rel, confirm=True, expected_size_bytes=50, expected_file_count=1)
         for name in ("library", "model_cache", "saved_comics"):
-            assert _item(res, name)["protected_reason"] != dus.NOT_BAIHE
+            assert _item(res, name)["protected_reason"] != guard.NOT_BAIHE
         assert renames == []
 
     def test_installer_entries_are_in_the_allow_list(self):
         from installer import service_layout as installer_service
-        assert installer_service.DATA_FOLDER_ENTRIES <= dus._baihe_top_level_names()
-        assert "saved_comics" in dus._baihe_top_level_names()
+        assert installer_service.DATA_FOLDER_ENTRIES <= guard._baihe_top_level_names()
+        assert "saved_comics" in guard._baihe_top_level_names()
 
     # item 5
     def test_source_profiles_and_saved_comics_need_the_irreplaceable_confirm(self, tree, renames):
@@ -858,8 +868,8 @@ class TestSecondReview:
         _write(os.path.join(tree, "saved_comics", "ch1.cbz"), 40)
         prof = _item(dus.scan("library"), "source_profiles")
         comics = _item(dus.scan(""), "saved_comics")
-        assert prof["irreplaceable_note"] == dus.SOURCE_PROFILES_NOTE
-        assert comics["irreplaceable_note"] == dus.SAVED_COMICS_NOTE
+        assert prof["irreplaceable_note"] == measure.SOURCE_PROFILES_NOTE
+        assert comics["irreplaceable_note"] == measure.SAVED_COMICS_NOTE
         assert _item(dus.scan("saved_comics"), "ch1.cbz")["irreplaceable"] is True
         for rel, item in (("library/source_profiles", prof), ("saved_comics", comics)):
             args = dict(confirm=True, expected_size_bytes=item["size_bytes"],
@@ -874,11 +884,12 @@ class TestSecondReview:
 
     def test_save_folder_name_matches_the_save_service(self):
         from services import sources_save_service
-        assert dus.SAVED_COMICS_DIRNAME == sources_save_service.SAVE_DIRNAME
+        assert guard.SAVED_COMICS_DIRNAME == sources_save_service.SAVE_DIRNAME
 
     # item 6
     def test_listing_stops_at_the_budget_before_sorting_everything(self, tree, monkeypatch):
         monkeypatch.setattr(dus, "MAX_ITEMS", 2)
+        monkeypatch.setattr(measure, "MAX_ENTRIES", 6)
         monkeypatch.setattr(dus, "MAX_ENTRIES", 6)
         for i in range(40):
             _write(os.path.join(tree, "library", "tmp", f"f{i:02}.bin"), 1)
@@ -894,13 +905,13 @@ class TestSecondReview:
     def test_an_item_gone_at_the_last_look_is_a_409(self, tree, renames, monkeypatch):
         import shutil
         target = os.path.join(tree, "library", "source_cache")
-        real_resolve, calls = dus._resolve, {"n": 0}
+        real_resolve, calls = guard._resolve, {"n": 0}
 
         def resolve(parts):
             calls["n"] += 1
             return real_resolve(parts) if calls["n"] == 1 else target
 
-        real_busy, busy = dus._busy_under_hold, {"n": 0}
+        real_busy, busy = hold._busy_under_hold, {"n": 0}
 
         def last_look():
             busy["n"] += 1
@@ -908,7 +919,9 @@ class TestSecondReview:
                 shutil.rmtree(target)
             return real_busy()
         monkeypatch.setattr(dus, "_resolve", resolve)
-        monkeypatch.setattr(dus, "_busy_under_hold", last_look)
+        monkeypatch.setattr(store, "_resolve", resolve)
+        monkeypatch.setattr(hold, "_busy_under_hold", last_look)
+        monkeypatch.setattr(store, "_busy_under_hold", last_look)
         with pytest.raises(ConflictError) as exc:
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
@@ -925,7 +938,7 @@ def _trash_one(rel="library/source_cache", size=400, files=1, **kw):
 
 
 def _trash_dir(tree):
-    return os.path.join(tree, dus.TRASH_DIRNAME)
+    return os.path.join(tree, guard.TRASH_DIRNAME)
 
 
 def _abs(path, kw):
@@ -945,24 +958,24 @@ def _empty(**over):
 
 class TestTrashProtection:
     def test_the_trash_folder_is_in_the_baihe_allow_list(self):
-        assert dus.TRASH_DIRNAME in dus._baihe_top_level_names()
+        assert guard.TRASH_DIRNAME in guard._baihe_top_level_names()
 
     def test_installer_allows_the_trash_folder(self):
         from installer import service_layout as installer_service
-        assert dus.TRASH_DIRNAME in installer_service.DATA_FOLDER_ENTRIES
+        assert guard.TRASH_DIRNAME in installer_service.DATA_FOLDER_ENTRIES
 
     def test_trash_root_and_everything_in_it_is_protected_and_cannot_be_cleared_or_moved(
             self, tree, renames, tmp_path):
         done = _trash_one()
         res = dus.scan("")
-        top = _item(res, dus.TRASH_DIRNAME)
-        assert top["protected"] and top["protected_reason"] == dus.TRASH_PROTECTED
+        top = _item(res, guard.TRASH_DIRNAME)
+        assert top["protected"] and top["protected_reason"] == guard.TRASH_PROTECTED
         assert top["movable"]["supported"] is False
-        entry = dus.scan(dus.TRASH_DIRNAME)
+        entry = dus.scan(guard.TRASH_DIRNAME)
         assert _item(entry, done["trash_id"])["protected"]
-        inner = f"{dus.TRASH_DIRNAME}/{done['trash_id']}"
+        inner = f"{guard.TRASH_DIRNAME}/{done['trash_id']}"
         before = len(renames)
-        for rel in (dus.TRASH_DIRNAME, inner, inner + "/payload", inner + "/manifest.json",
+        for rel in (guard.TRASH_DIRNAME, inner, inner + "/payload", inner + "/manifest.json",
                     inner + "/payload/x.html"):
             with pytest.raises(InvalidInputError):
                 dus.clear(rel, confirm=True, expected_size_bytes=0, expected_file_count=0)
@@ -1063,7 +1076,7 @@ class TestTrashRestore:
         done = _trash_one()
         manifest = os.path.join(_trash_dir(tree), done["trash_id"], "manifest.json")
         for original in ("library/library.db", ".env", "../escape", "/etc/x", "C:/x",
-                         f"{dus.TRASH_DIRNAME}/{done['trash_id']}/payload/x", "Photos/a",
+                         f"{guard.TRASH_DIRNAME}/{done['trash_id']}/payload/x", "Photos/a",
                          "library/profiles/a"):
             data = json.load(open(manifest, encoding="utf-8"))
             data["original_path"] = original
@@ -1373,7 +1386,7 @@ class TestTrashHardening:
         manifest = os.path.join(_trash_dir(tree), done["trash_id"], "manifest.json")
         with open(manifest, "w") as fh:
             fh.write("[" * 16000)
-        assert dus._read_manifest(os.path.dirname(manifest)) is None
+        assert store._read_manifest(os.path.dirname(manifest)) is None
         assert dts.trash_list()["items"][0]["original_path_relative"] is None
 
     def test_an_id_collision_never_touches_the_other_entry(self, tree, monkeypatch):
@@ -1381,7 +1394,7 @@ class TestTrashHardening:
         entry = os.path.join(_trash_dir(tree), first["trash_id"])
         before = open(os.path.join(entry, "manifest.json")).read()
         ids = iter([first["trash_id"]] * 3 + ["20260101-000000-aaaaaaaa"] * 20)
-        monkeypatch.setattr(dus, "_new_trash_id", lambda: next(ids))
+        monkeypatch.setattr(store, "_new_trash_id", lambda: next(ids))
         second = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
         assert second["trash_id"] == "20260101-000000-aaaaaaaa"
         assert open(os.path.join(entry, "manifest.json")).read() == before
@@ -1390,7 +1403,7 @@ class TestTrashHardening:
     def test_collisions_on_every_try_fail_and_keep_the_existing_entry(self, tree, monkeypatch):
         first = _trash_one()
         entry = os.path.join(_trash_dir(tree), first["trash_id"])
-        monkeypatch.setattr(dus, "_new_trash_id", lambda: first["trash_id"])
+        monkeypatch.setattr(store, "_new_trash_id", lambda: first["trash_id"])
         with pytest.raises(ServiceError):
             _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
         assert os.path.exists(os.path.join(entry, "manifest.json"))
@@ -1421,7 +1434,7 @@ class TestTrashHardening:
         os.makedirs(src)
         os.makedirs(dst)
         with pytest.raises(OSError):
-            dus._rename_no_overwrite(src, dst, "folder")
+            store._rename_no_overwrite(src, dst, "folder")
         assert os.path.isdir(src) and os.path.isdir(dst)
 
     @pytest.mark.skipif(os.name == "nt", reason="POSIX walk")
@@ -1481,7 +1494,7 @@ class TestTrashHardening:
             self, tree, monkeypatch):
         a = _trash_one()
         b = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
-        monkeypatch.setattr(dus, "MAX_ENTRIES", 1)
+        monkeypatch.setattr(measure, "MAX_ENTRIES", 1)
         res = dts.trash_list()
         assert res["partial"] is True
         unknown = [i for i in res["items"] if i["size_bytes"] is None]
@@ -1496,11 +1509,13 @@ class TestTrashHardening:
         _trash_one()
         trash = _trash_dir(tree)
         walked = []
-        real = dus._measure
-        monkeypatch.setattr(dus, "_measure", lambda p, *a, **k: (walked.append(p), real(p, *a, **k))[1])
+        real = measure._measure
+        spy = lambda p, *a, **k: (walked.append(p), real(p, *a, **k))[1]
+        for user in (dus, measure, store):      # the scan, describe and the Trash payload walk
+            monkeypatch.setattr(user, "_measure", spy)
         res = dus.scan("")
         assert trash not in walked
-        top = _item(res, dus.TRASH_DIRNAME)
+        top = _item(res, guard.TRASH_DIRNAME)
         assert top["size_bytes"] == 400 and top["file_count"] == 1
 
     def test_the_list_reads_nothing_through_a_link(self, tree, tmp_path, monkeypatch):
@@ -1514,7 +1529,7 @@ class TestTrashHardening:
         except (OSError, NotImplementedError):
             pytest.skip("no symlinks here")
         read = []
-        real = dus._read_manifest
+        real = store._read_manifest
         monkeypatch.setattr(dts, "_read_manifest", lambda e: (read.append(e), real(e))[1])
         res = dts.trash_list()
         assert res["item_count"] == 1 and fake not in read
@@ -1664,8 +1679,8 @@ class TestPreviousLibrary:
                        "size_bytes": 700, "file_count": 4, "folder_count": 3, "partial": False}
         res = dus.scan("")
         base = os.path.basename(db.LIBRARY_DIR)
-        assert _item(res, base + ".pre_restore_100")["protected_reason"] == dus.PREVIOUS_LIBRARY
-        assert _item(res, "photos")["protected_reason"] == dus.NOT_BAIHE
+        assert _item(res, base + ".pre_restore_100")["protected_reason"] == guard.PREVIOUS_LIBRARY
+        assert _item(res, "photos")["protected_reason"] == guard.NOT_BAIHE
 
     def test_delete_needs_the_word_and_the_size_shown(self, tree):
         from services import previous_library_service as pls

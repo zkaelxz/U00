@@ -11,6 +11,8 @@ import pytest
 
 import db
 from services import auto_backup_service, disk_usage_service as dus
+from services import disk_usage_guard as guard
+from services import disk_usage_measure as measure
 from services.service_errors import InvalidInputError
 
 
@@ -174,6 +176,7 @@ class TestNoDoubleCountAndGuards:
 
     def test_scan_budget_still_applies_to_linked_folders(self, tree, big, monkeypatch):
         _link(big, os.path.join(tree, "library", "backups", "auto"))
+        monkeypatch.setattr(measure, "MAX_ENTRIES", 5)
         monkeypatch.setattr(dus, "MAX_ENTRIES", 5)
         res = dus.scan("library")
         assert res["partial"] is True
@@ -231,16 +234,16 @@ class TestDeviceNumberUnknown:
     def test_zero_device_is_not_another_volume(self, tmp_path, monkeypatch):
         folder = tmp_path / "plain"
         folder.mkdir()
-        assert dus._on_another_volume(str(folder), self._dir_stat(0)) is False
+        assert measure._on_another_volume(str(folder), self._dir_stat(0)) is False
         monkeypatch.setattr(os, "lstat", lambda p, *a, **k: self._dir_stat(0))
-        assert dus._on_another_volume(str(folder), os.lstat(str(folder))) is False
+        assert measure._on_another_volume(str(folder), os.lstat(str(folder))) is False
 
     def test_different_device_is_another_volume(self, tmp_path, monkeypatch):
         folder = tmp_path / "mounted"
         folder.mkdir()
         monkeypatch.setattr(os, "lstat", lambda p, *a, **k: self._dir_stat(7))
-        assert dus._on_another_volume(str(folder), self._dir_stat(9)) is True
-        assert dus._on_another_volume(str(folder), self._dir_stat(7)) is False
+        assert measure._on_another_volume(str(folder), self._dir_stat(9)) is True
+        assert measure._on_another_volume(str(folder), self._dir_stat(7)) is False
 
     def test_walk_with_zero_entry_devices_finds_no_link(self, tree):
         real_scandir = os.scandir
@@ -309,7 +312,7 @@ class TestNetworkTargets:
     def test_non_local_target_is_skipped_before_any_open(self, tmp_path, monkeypatch, target):
         from services import disk_usage_links as links
         measured, opened = [], []
-        sizes = links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
+        sizes = links.LinkedSizes(str(tmp_path), [], guard._within, lambda *a: measured.append(a))
 
         def readlink(p):
             opened.append(p)
@@ -330,7 +333,7 @@ class TestNetworkTargets:
     def test_link_below_a_symlinked_parent_to_a_share_is_skipped(self, tmp_path, monkeypatch):
         from services import disk_usage_links as links
         measured, opened = [], []
-        sizes = links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
+        sizes = links.LinkedSizes(str(tmp_path), [], guard._within, lambda *a: measured.append(a))
         parent = os.path.join("x", "a")
         monkeypatch.setattr(os.path, "islink", lambda p: p == parent)
 
@@ -350,7 +353,7 @@ class TestNetworkTargets:
 class TestLinkChains:
     def _sizes(self, tmp_path, measured):
         from services import disk_usage_links as links
-        return links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
+        return links.LinkedSizes(str(tmp_path), [], guard._within, lambda *a: measured.append(a))
 
     def _fake(self, monkeypatch, chain):
         def readlink(p):
@@ -407,7 +410,7 @@ class TestLinkBudget:
             measured.append(real)
             return SimpleNamespace(size=100_000, files=2, unreadable=False)
 
-        sizes = links.LinkedSizes(str(root), [], dus._within, measure)
+        sizes = links.LinkedSizes(str(root), [], guard._within, measure)
         folder_link = root / "folder"
         _link(big, folder_link)
         return sizes, measured, str(folder_link), root
@@ -472,8 +475,9 @@ class TestSkippedTargets:
         target = big / which
         _write(str(target / "f.bin"), 1000)
         if which == "program":
-            monkeypatch.setattr(dus, "_program_dir", lambda: os.path.realpath(str(target)))
+            monkeypatch.setattr(guard, "_program_dir", lambda: os.path.realpath(str(target)))
         else:
+            monkeypatch.setattr(guard, "_home_dirs", lambda: [os.path.realpath(str(target))])
             monkeypatch.setattr(dus, "_home_dirs", lambda: [os.path.realpath(str(target))])
         _link(target, os.path.join(tree, "library", "backups", "auto"))
         link = _item(dus.scan("library/backups"), "auto")
@@ -510,7 +514,7 @@ def test_linked_sizes_stop_starting_targets_past_their_time_budget(tmp_path, mon
     measured = []
     root = tmp_path / "root"
     root.mkdir()
-    sizes = links.LinkedSizes(str(root), [], dus._within, lambda *a: measured.append(a))
+    sizes = links.LinkedSizes(str(root), [], guard._within, lambda *a: measured.append(a))
     target = tmp_path / "t"
     target.mkdir()
     monkeypatch.setattr(links, "_local_target", lambda p: str(target))
@@ -535,7 +539,7 @@ def test_nothing_on_a_link_target_is_touched_past_the_deadline(tmp_path, monkeyp
     monkeypatch.setattr(links.os, "stat", lambda p, *a, **k: touched.append(p) or real_stat(p, *a, **k))
     link = root / "folder"
     _link(target, link)
-    sizes = links.LinkedSizes(str(root), [], dus._within, lambda *a: None)
+    sizes = links.LinkedSizes(str(root), [], guard._within, lambda *a: None)
     sizes._deadline = time.monotonic() - 1
     assert sizes.of([str(link)] * 5, SimpleNamespace(hit=False)) == (0, 0, False)
     assert touched == []

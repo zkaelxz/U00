@@ -232,10 +232,14 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `discover_catalog_service.py`
 - `discover_lookup_service.py`
 - `disk_usage_clips_service.py`
+- `disk_usage_guard.py` (path confinement and the protection rules for clear and move)
+- `disk_usage_hold.py` (why clear/move are refused now, and the exclusive library hold around a change)
 - `disk_usage_links.py`
-- `disk_usage_service.py`
+- `disk_usage_measure.py` (the bounded walk and the public record of one item)
+- `disk_usage_service.py` (scan, clear and move)
 - `disk_usage_title_sizes.py` (each title's size split into originals, raw transcripts, line-history snapshots and regenerable files)
 - `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
+- `disk_usage_trash_store.py` (the Trash folder layout, manifests and the rename into it)
 - `temp_cleanup_service.py`
 - `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, never the reverse)
 - `drama_service.py`
