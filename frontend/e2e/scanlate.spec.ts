@@ -112,3 +112,15 @@ test('an empty title shows the upload panel; picking files uploads them', async 
   await expect(panel.getByRole('button', { name: 'Upload pages' })).toBeDisabled()
   expect(s.unmocked).toEqual([])
 })
+
+test('a missing OpenCV switches the run buttons off and says where to install it', async ({ page }) => {
+  const s = await mockScanlate(page, { pageCount: 3, lastPage: 1 })
+  await page.route('**/api/setup/readiness', (r) => r.fulfill({ json: { cv2: false, pytesseract: true, tesseract_program: true, paddle_ocr: true } }))
+  await page.goto('/#/comic/7?page=1')
+  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Translate pages' })
+  await expect(panel.getByTestId('needs-scanlate_opencv')).toContainText('opencv-python')
+  await expect(panel.getByRole('button', { name: 'Translate all pages' })).toBeDisabled()
+  await expect(panel.getByRole('link', { name: 'Open Diagnostics' })).toHaveAttribute('href', /opencv-python/)
+  expect(s.runs).toEqual([])
+})
