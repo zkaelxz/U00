@@ -307,6 +307,27 @@ class TestStopsLeaveNothingBehind:
         assert start.stops == [{}]   # a graceful stop: ffmpeg flushes its last segment
         assert _translator_threads() == []
 
+    def test_stop_translates_every_waiting_chunk_while_the_engine_is_busy(self, job, monkeypatch):
+        stream, start = job
+        hold = {1: threading.Event()}
+        seen, whisper_started = _whisper_by_chunk(monkeypatch, cues_per_chunk=1, block=hold)
+        engine = Gate(held=["c0l0"])
+        stream.add(3)
+        assert start("live_drain", engine)
+        assert engine.entered["c0l0"].wait(PROMPT)
+        assert whisper_started(1).wait(PROMPT)
+        stream.add(1)
+        assert live_pipeline.request_finish("live_drain")
+        hold[1].set()
+        # Chunks 1-3 are now handed over while chunk 0's request is still held.
+        assert _wait(lambda: start.stats and (start.stats[-1]["translate_queue"] == 3
+                                              or start.stats[-1]["translations_skipped"]))
+        engine.open["c0l0"].set()
+        assert _ended("live_drain")
+        assert seen == [0, 1, 2, 3]
+        assert [(c["text"], c["translation"]) for c in _result("live_drain")] == [
+            ("c0l0", "done"), ("c1l0", "done"), ("c2l0", "done"), ("c3l0", "done")]
+
     def test_the_stream_ending_captions_the_final_chunk(self, job, monkeypatch):
         stream, start = job
         seen, _ = _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
