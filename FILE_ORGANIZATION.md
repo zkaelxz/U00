@@ -65,6 +65,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/model_candidates.py` (model re-evaluation: candidate models per capability and the promote/reject decisions recorded for them)
   - `db/schema.py` (the `CREATE TABLE`/`CREATE INDEX` helpers for the library's content tables; `init_db` calls them in order)
   - `db/schema_system.py` (the `CREATE TABLE` helpers for background jobs and app settings, sign-in and sessions, and the Benchmark Lab with model re-evaluation, and the Benchmark Lab column migrations)
+  - `db/migrations.py` (the `_migrate_*` helpers that upgrade an existing library.db: column adds, one-off data fixes, and the GPU-lock, line-id and profiles table rebuilds; `init_db` calls them in order)
 - `dependency_updates.py` (installed versions against PyPI: update classification, constraints.txt and requirement minimums, known upgrade and install limitations)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
