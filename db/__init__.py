@@ -1523,66 +1523,10 @@ def _migrate_off_removed_test_engine(conn):
 # Model re-evaluation candidates and decisions
 # ---------------------------------------------------------------------------
 
-def create_model_candidate(capability: str, engine: str, model: str, note: str = "") -> int:
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute(
-            "INSERT INTO model_candidates (capability, engine, model, note, status, created_at) "
-            "VALUES (?, ?, ?, ?, 'candidate', ?)",
-            (capability, engine, model, note, datetime.datetime.utcnow().isoformat()))
-        conn.commit()
-        return cur.lastrowid
-
-
-def get_model_candidate(candidate_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT * FROM model_candidates WHERE id = ?", (candidate_id,)).fetchone()
-    return dict(row) if row else None
-
-
-def find_model_candidate(capability: str, engine: str, model: str):
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute(
-            "SELECT * FROM model_candidates WHERE capability = ? AND engine = ? AND model IS ?",
-            (capability, engine, model)).fetchone()
-    return dict(row) if row else None
-
-
-def list_model_candidates(capability: str):
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM model_candidates WHERE capability = ? ORDER BY id",
-                            (capability,)).fetchall()
-    return [dict(r) for r in rows]
-
-
-def set_model_candidate_status(candidate_id: int, status: str):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE model_candidates SET status = ? WHERE id = ?", (status, candidate_id))
-        conn.commit()
-
-
-def record_model_decision(candidate_id: int, decision: str, reason: str, scores_json: str) -> int:
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute(
-            "INSERT INTO model_decisions (candidate_id, decision, reason, scores, decided_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (candidate_id, decision, reason, scores_json, datetime.datetime.utcnow().isoformat()))
-        conn.commit()
-        return cur.lastrowid
-
-
-def latest_model_decision(candidate_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT * FROM model_decisions WHERE candidate_id = ? "
-                           "ORDER BY id DESC LIMIT 1", (candidate_id,)).fetchone()
-    return dict(row) if row else None
-
-
-def list_model_decisions(capability: str):
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT d.* FROM model_decisions d JOIN model_candidates c ON d.candidate_id = c.id "
-            "WHERE c.capability = ? ORDER BY d.id DESC", (capability,)).fetchall()
-    return [dict(r) for r in rows]
+from db.model_candidates import (  # noqa: E402,F401
+    create_model_candidate, find_model_candidate, get_model_candidate, latest_model_decision,
+    list_model_candidates, list_model_decisions, record_model_decision,
+    set_model_candidate_status)
 
 
 def _init_benchmark_lab_schema():
@@ -1939,44 +1883,8 @@ from db.comic_pages import (  # noqa: F401
 # to actually work on it)
 # ---------------------------------------------------------------------------
 
-def create_known_title(**fields) -> int:
-    with contextlib.closing(get_conn()) as conn:
-        fields.setdefault("source_name", "manual")
-        fields["created_at"] = datetime.datetime.utcnow().isoformat()
-        cols = ", ".join(fields.keys())
-        placeholders = ", ".join("?" for _ in fields)
-        cur = conn.execute(f"INSERT INTO known_titles ({cols}) VALUES ({placeholders})", list(fields.values()))
-        conn.commit()
-        new_id = cur.lastrowid
-    return new_id
-
-
-def list_known_titles(search: str = "", language: str = "", media_type: str = "", source_name: str = ""):
-    with contextlib.closing(get_conn()) as conn:
-        query = "SELECT * FROM known_titles WHERE 1=1"
-        params = []
-        if search:
-            query += " AND (title_original LIKE ? OR title_en LIKE ? OR tags LIKE ? OR author LIKE ?)"
-            like = f"%{search}%"
-            params += [like, like, like, like]
-        if language:
-            query += " AND language = ?"
-            params.append(language)
-        if media_type:
-            query += " AND media_type = ?"
-            params.append(media_type)
-        if source_name:
-            query += " AND source_name = ?"
-            params.append(source_name)
-        query += " ORDER BY created_at DESC"
-        rows = conn.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
-
-
-def delete_known_title(title_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM known_titles WHERE id = ?", (title_id,))
-        conn.commit()
+from db.known_titles import (  # noqa: E402,F401
+    create_known_title, delete_known_title, list_known_titles)
 
 
 # ---------------------------------------------------------------------------
@@ -2025,63 +1933,8 @@ from db.translation_versions import (  # noqa: E402,F401
 # Universe wiki -- accumulating encyclopedia, spoiler-bounded
 # ---------------------------------------------------------------------------
 
-def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: str = None,
-                       aliases: str = None, attributes: dict = None,
-                       first_seen_line_idx: int = None, known_through_line_idx: int = None):
-    """Adds or updates an encyclopedia entry. known_through_line_idx records
-    how far into the story this entry was built from -- the spoiler boundary,
-    so an entry is never shown to someone who hasn't read that far."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("""
-            INSERT INTO wiki_entries (drama_id, entry_type, name, aliases, description,
-                                       attributes_json, first_seen_line_idx,
-                                       known_through_line_idx, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(drama_id, entry_type, name) DO UPDATE SET
-                aliases = COALESCE(excluded.aliases, wiki_entries.aliases),
-                description = COALESCE(excluded.description, wiki_entries.description),
-                attributes_json = COALESCE(excluded.attributes_json, wiki_entries.attributes_json),
-                first_seen_line_idx = COALESCE(wiki_entries.first_seen_line_idx, excluded.first_seen_line_idx),
-                known_through_line_idx = MAX(COALESCE(excluded.known_through_line_idx, 0),
-                                              COALESCE(wiki_entries.known_through_line_idx, 0)),
-                updated_at = excluded.updated_at
-        """, (drama_id, entry_type, name, aliases, description,
-              json.dumps(attributes, ensure_ascii=False) if attributes else None,
-              first_seen_line_idx, known_through_line_idx,
-              datetime.datetime.utcnow().isoformat()))
-        conn.commit()
-
-
-def list_wiki_entries(drama_id: int, entry_type: str = None, spoiler_limit_line_idx: int = None):
-    """spoiler_limit_line_idx: when set, only returns entries first introduced
-    at or before that line -- so the wiki never reveals something you haven't
-    reached yet."""
-    with contextlib.closing(get_conn()) as conn:
-        q = "SELECT * FROM wiki_entries WHERE drama_id = ?"
-        params = [drama_id]
-        if entry_type:
-            q += " AND entry_type = ?"
-            params.append(entry_type)
-        if spoiler_limit_line_idx is not None:
-            q += " AND (first_seen_line_idx IS NULL OR first_seen_line_idx <= ?)"
-            params.append(spoiler_limit_line_idx)
-        q += " ORDER BY entry_type, name"
-        rows = conn.execute(q, params).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        try:
-            d["attributes"] = json.loads(d["attributes_json"]) if d["attributes_json"] else {}
-        except (json.JSONDecodeError, TypeError):
-            d["attributes"] = {}
-        out.append(d)
-    return out
-
-
-def clear_wiki(drama_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM wiki_entries WHERE drama_id = ?", (drama_id,))
-        conn.commit()
+from db.wiki import (  # noqa: E402,F401
+    clear_wiki, list_wiki_entries, upsert_wiki_entry)
 
 
 # ---------------------------------------------------------------------------

@@ -127,3 +127,33 @@ describe('split dialog cut shading', () => {
     }
   }
 })
+
+// Frost shape: panels share one radius token, controls use the 8px control radius, and the primary button is a flat accent fill.
+describe('frost shape and primary button', () => {
+  const frost = readFileSync(new URL('./frost.css', import.meta.url), 'utf8')
+  const primary = frost.slice(frost.indexOf('.btn.btn-primary,'), frost.indexOf('.btn.btn-ghost'))
+
+  it('defines the panel radius once and frost.css uses it instead of 22px', () => {
+    expect(LIGHT['--radius-panel']).toBe('14px')
+    expect(frost).not.toMatch(/border-radius:\s*22px/)
+  })
+
+  it('has no pill-shaped controls', () => {
+    const controls = frost.slice(frost.indexOf('/* One control shape'), frost.indexOf('/* Fields */'))
+    expect(controls).not.toContain('--radius-pill')
+    expect(frost.slice(frost.indexOf('/* Tabs:'), frost.indexOf('/* Switches */'))).not.toContain('--radius-pill')
+  })
+
+  it('primary is a solid accent with a darker edge, no gradient or glow', () => {
+    expect(primary).toContain('background: var(--accent);')
+    expect(primary).not.toMatch(/gradient|rgba/)
+    expect(primary).toMatch(/border-color:\s*color-mix\(in srgb, var\(--accent\) \d+%, black\)/)
+    expect(primary).toContain('box-shadow: none;')
+  })
+
+  it('primary keeps the polish fix: no background transition, hover darkens with filter', () => {
+    const transition = frost.match(/\n\.btn \{\s*transition:([^;]+);/)?.[1] ?? ''
+    expect(transition).not.toMatch(/background/)
+    expect(frost).toContain('.btn.btn-primary:hover:not(:disabled) { filter: brightness(0.9); }')
+  })
+})
