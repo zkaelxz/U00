@@ -1,6 +1,6 @@
 # Timing, grouping and splitting thresholds: inventory for a "show and adjust" feature
 
-Base checked: `origin/baihe-subtitler` @ `723e6f28`. Read-only survey: no repository file was changed.
+Base checked: `origin/baihe-subtitler` @ `723e6f28`. Read-only survey: no repository file was changed. Every "CLI" mention below (`cli.py`, `cli_translate.py`, `cli_timing.py`, "CLI same") describes the headless command line as it was then; it was removed in #1345, so ignore those clauses.
 
 Legend used in the tables
 - **Used by**: T = transcribe, R = review, Tr = translate, E = export, L = live, D = dub, H = hard-sub OCR. "CLI same" means the CLI reaches the same code through the same service.

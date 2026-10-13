@@ -45,56 +45,40 @@ for backup and restore operations see `runbook.md`.
 - **`reset_library()`** closes this process's connections, removes
   `library.db` and its `-wal`/`-shm`/`-journal`, `dramas/` and `cedict.txt`, and
   re-runs `init_db()`. Callers must have asked for confirmation already.
-- **Domain sections** of the `db` package, in the order they sat in `db.py`:
-  schema and migrations, drama folder and media-import journal helpers,
-  dramas, lines, characters (and speaker merge), series characters, pages and
-  bubbles, known titles, series and glossary, notes/emotions, profiles and
-  progress, versions and snapshots, wiki/style, presets, vocab and usage, GPU
-  lock, app settings, research cache, job records, voice bank, bulk jobs,
-  benchmark, auth storage.
-- **Package files.** `db.py` is now the package `db/`. Domains move out of
-  `db/__init__.py` one at a time into `db/<domain>.py`; `db/__init__.py`
-  re-exports their public names, so callers and `patch("db.<name>")` keep
-  working. A submodule reaches everything else as `db.<name>` (never a
-  relative import or a copy of a path global); `tests/test_split_guards.py`
-  enforces it. Moved so far: `db/benchmark.py` (accuracy benchmark cases and
-  runs, Benchmark Lab sessions and results), `db/auth.py` (auth storage:
-  users, permissions, sessions, audit log, and the ownership and sharing
-  fields of dramas and series), `db/usage.py` (usage and cost log, monthly
-  spend and its reset, re-costing, the standalone translate tool's history),
-  `db/app_settings.py` (app settings, the metadata research cache and
-  results, field provenance), `db/job_records.py` (the job_records mirror),
-  `db/speakers.py` (characters, speaker rename and merge with its undo,
-  series characters and voice links, the voice bank), `db/comic_pages.py`
-  (comic pages and their bubbles for scanlation: page rows, the id-preserving
-  bubble edits that bump a page's rev, the legacy full replace),
-  `db/media_journal.py` (the media journal of backup imports and restores:
-  staging folders, the journal, crash recovery, `claim_new_drama_folder`;
-  `_media_lock` and `STALE_MEDIA_STAGING_SECONDS` stay in `db/__init__.py`),
-  `db/lines.py` (a drama's lines: `save_lines`, the compare-and-set
-  edits, the per-line tables a sync carries along, the loaders),
-  `db/dramas.py` (drama rows: create/update/delete, `get_drama` and the
-  list queries with `_DRAMA_SELECT`, `drama_visible_sql`, library stats,
-  global line search and custom tags),
-  `db/reading.py` (profiles, progress and the Continue shelf, reading
-  history, personal notes), `db/glossary.py` (series rows, glossary
-  terms and their ignore list, the translation memory), `db/style.py`
-  (edit samples, the style profile and its history),
-  `db/line_annotations.py` (translation notes, consistency issues, emotion
-  tags; `_line_id_for_idx` stays in `db/__init__.py`),
-  `db/bulk_jobs.py` (bulk translation jobs and their lines),
-  `db/presets.py` (workspace-configuration presets),
-  `db/line_history.py` (line history snapshots for undo),
-  `db/translation_versions.py` (alternate translation versions),
-  `db/vocab.py` (Reader vocab lookups),
-  `db/wiki.py` (universe wiki entries),
-  `db/known_titles.py` (the known-titles discovery library) and
-  `db/model_candidates.py` (model re-evaluation candidates and decisions).
-  Their tables are still created and migrated by `init_db` in
-  `db/__init__.py`, which calls the `CREATE TABLE` helpers in `db/schema.py`
-  (library content) and `db/schema_system.py` (jobs, sign-in, Benchmark Lab,
-  and the Benchmark Lab column migrations), and the `_migrate_*` helpers in
-  `db/migrations.py`, in the order below.
+- **Package files.** `db.py` became the package `db/`; the split is finished
+  (every file is under 40 KB). `db/__init__.py` keeps the connection and
+  path code (`configure_library_dir`, `get_conn`, `snapshot_database`,
+  `_safe_alter`), `init_db` with the newer-database refusal, the `_LINE_REF_*`
+  constants, `drama_dir` and `reset_library`, and re-exports the public names of
+  every submodule, so callers and `patch("db.<name>")` keep working. A submodule
+  reaches everything else as `db.<name>` (never a relative import or a copy of a
+  path global); `tests/test_split_guards.py` enforces it. The submodules, by
+  domain:
+  - schema and upgrades: `db/schema.py` (`CREATE TABLE`/index helpers for the
+    library content), `db/schema_system.py` (jobs, sign-in, Benchmark Lab and its
+    column migrations), `db/migrations.py` (the `_migrate_*` helpers);
+  - titles and lines: `db/dramas.py` (drama rows, list queries,
+    `drama_visible_sql`, library stats, global line search, custom tags),
+    `db/lines.py` (`save_lines`, the compare-and-set edits, the loaders),
+    `db/line_annotations.py` (translation notes, consistency issues, emotion tags;
+    `_line_id_for_idx` stays in `db/__init__.py`), `db/line_history.py` (undo
+    snapshots), `db/translation_versions.py` (alternate translations),
+    `db/speakers.py` (characters, speaker rename and merge with its undo, series
+    characters, the voice bank), `db/comic_pages.py` (comic pages and bubbles);
+  - series, glossary and style: `db/glossary.py` (series rows, terms, ignore list,
+    translation memory), `db/style.py`, `db/presets.py`, `db/wiki.py` (universe
+    wiki), `db/vocab.py` (Reader lookups), `db/reading.py` (profiles, progress,
+    reading history, personal notes), `db/known_titles.py` (discovery library);
+  - runs and settings: `db/bulk_jobs.py`, `db/job_records.py`,
+    `db/app_settings.py` (settings, research cache, field provenance),
+    `db/usage.py` (usage and cost log), `db/benchmark.py`,
+    `db/model_candidates.py` (model re-evaluation), `db/auth.py` (users,
+    permissions, sessions, audit log, ownership and sharing fields);
+  - files on disk: `db/media_journal.py` (backup import and restore journal, staging
+    folders, crash recovery, `claim_new_drama_folder`; `_media_lock` and
+    `STALE_MEDIA_STAGING_SECONDS` stay in `db/__init__.py`), `db/library_folder.py`
+    (`fsync_dir` and the start-up check that puts back a library an interrupted
+    restore left renamed aside).
 
 ## 2. Schema creation and migrations
 

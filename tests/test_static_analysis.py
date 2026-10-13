@@ -746,29 +746,12 @@ class TestSubprocessTextDecoding:
 
 
 # Smaller files are easier for a small-context model (and a reviewer) to hold
-# in one read. Each entry is the file's size in bytes today; remove an entry
-# when the split of that file lands. A listed file may shrink but never grow.
+# in one read. The oversized-file splits are finished, so no module is over the
+# limit and this stays empty. A file must not be added here: split it instead.
+# If one is ever listed, its entry is the size in bytes and it may shrink but
+# never grow.
 MAX_MODULE_BYTES = 40 * 1024
-OVERSIZED_MODULE_BYTES = {
-    "db/__init__.py": 29629,
-    "diagnostics.py": 109290,
-    "services/transcribe_service.py": 102565,
-    "scanlate.py": 89904,
-    "background_jobs.py": 89431,
-    "bulk_translate.py": 86382,
-    "core.py": 84133,
-    "services/auto_backup_service.py": 83022,
-    "services/disk_usage_service.py": 73715,
-    "services/workspace_job_service.py": 65747,
-    "services/maintenance_assistant_service.py": 61272,
-    "services/library_admin_service.py": 55556,
-    "sources/http.py": 47816,
-    "services/restructure_service.py": 52468,
-    "sources/ai_extract.py": 50796,
-    "services/translate_run_service.py": 45837,
-    "services/diagnostics_gaps_service.py": 44615,
-    "page_fetch.py": 44114,
-}
+OVERSIZED_MODULE_BYTES: dict[str, int] = {}
 
 
 class TestModuleSize:
@@ -803,7 +786,7 @@ class TestModuleSize:
 
     def test_stale_allowlist_entries_are_reported_not_failed(self):
         # A split PR must not need to edit the allowlist, so stale entries
-        # only warn; the final ratchet PR removes them.
+        # only warn; the next cleanup removes them.
         import warnings
         sizes = self._module_sizes()
         stale = sorted(p for p in OVERSIZED_MODULE_BYTES
@@ -856,12 +839,7 @@ _CAPTURE_ALLOWED = {
     "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
     "services/media_peaks_service.py::_decode": "pending: ffmpeg",
     "services/speech_coverage_service.py::_decode_chunk": "pending: ffmpeg",
-    "video_export.py::render_vertical_clip": "pending: ffmpeg",
     "video_export.py::render_preview_clip": "pending: ffmpeg",
-    "video_export.py::burn_subtitles": "pending: ffmpeg",
-    "video_export.py::burn_ass": "pending: ffmpeg",
-    "video_export.py::mux_soft_subtitles": "pending: ffmpeg",
-    "video_export.py::replace_audio_with_dub": "pending: ffmpeg",
     # pending: separate tree-killing runners that should move onto lib.proc (see B8 in docs/local-agent-backlog.md).
     "background_jobs.py::run_cancellable": "pending: own runner",
     "services/lncrawl_service.py::_run_process": "pending: own runner",

@@ -318,11 +318,12 @@ def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
 
 
 def grant_admin_local(email: str) -> dict:
-    """CLI recovery path: creates or activates the user as admin. Admin
-    rights come from the is_admin flag alone (effective_permissions), so
-    only the household-default rows are stored: a later demotion
-    (is_admin=0) leaves no opt-in or admin rights behind. Callers must be
-    local (the CLI touches the DB directly)."""
+    """Behind `python -m api grant-admin`, the recovery path: creates or
+    activates the user as admin. Admin rights come from the is_admin flag
+    alone (effective_permissions), so only the household-default rows are
+    stored: a later demotion (is_admin=0) leaves no opt-in or admin rights
+    behind. Callers must be
+    local (`python -m api` touches the DB directly)."""
     email = _norm_email(email)
     row = db.auth_get_user_by_email(email)
     uid = row["id"] if row else db.auth_create_user(email)

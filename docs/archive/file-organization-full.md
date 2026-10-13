@@ -1,3 +1,5 @@
+> History, not a map: written before the file splits (`db.py`, `background_jobs.py` and others were single modules then) and while `cli.py` existed (removed in #1345). Use `FILE_ORGANIZATION.md` for the current layout.
+
 # File organization
 
 Almost every filename in this project is unique, even across folders —

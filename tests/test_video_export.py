@@ -1,7 +1,7 @@
 """
-tests/test_video_export.py -- Step 6e: vertical/shorts export. ffmpeg is
+tests/test_video_export.py -- ffmpeg is
 never actually run (subprocess.run is monkeypatched, the same pattern
-test_export_formats.py already uses for burn_ass/burn_subtitles) -- these
+test_export_formats.py already uses) -- these
 pin the constructed command and the estimate math, not real video output.
 Whether a rendered clip actually plays and looks right is a manual check
 (per the roadmap's own exit condition), not something a unit test can judge.
@@ -32,80 +32,6 @@ class TestEscapeFilterPath:
         assert ve._escape_filter_path("/tmp/it's.ass") == "/tmp/it'\\\\\\''s.ass"
         wrapped = f"subtitles='{ve._escape_filter_path(chr(39))}'"
         assert wrapped == "subtitles=''\\\\\\'''"
-
-
-class TestRenderVerticalClip:
-    def _capture(self, monkeypatch):
-        cmds = []
-        monkeypatch.setattr(ve.subprocess, "run", lambda cmd, **k: cmds.append(cmd))
-        return cmds
-
-    def test_crops_to_9_16_centered_by_default(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4", start=0.0, end=10.0)
-        vf = cmds[0][cmds[0].index("-vf") + 1]
-        assert vf.startswith("crop=ih*9/16:ih:(iw-ih*9/16)*0.5000:0")
-
-    def test_crop_position_shifts_the_window(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4", crop_position=0.0)
-        vf = cmds[0][cmds[0].index("-vf") + 1]
-        assert "(iw-ih*9/16)*0.0000" in vf
-
-    def test_crop_position_is_clamped_to_0_1(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4", crop_position=5.0)
-        vf = cmds[0][cmds[0].index("-vf") + 1]
-        assert "*1.0000" in vf
-
-    def test_subtitles_are_burned_via_the_ass_file_not_force_style(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        ve.render_vertical_clip("in.mp4", "[ASS content]", "out.mp4")
-        vf = cmds[0][cmds[0].index("-vf") + 1]
-        assert "subtitles=" in vf
-        assert "force_style" not in vf
-
-    def test_start_and_end_become_ss_and_duration(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4", start=30.0, end=45.0)
-        cmd = cmds[0]
-        assert cmd[cmd.index("-ss") + 1] == "30.0"
-        assert cmd[cmd.index("-t") + 1] == "15.0"
-
-    def test_no_end_renders_to_the_end_of_the_source(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4", start=5.0, end=None)
-        assert "-t" not in cmds[0]
-
-    def test_ass_tempfile_is_cleaned_up_even_on_failure(self, monkeypatch, tmp_path):
-        written_paths = []
-        real_mkstemp = ve.tempfile.mkstemp
-
-        def spying_mkstemp(*a, **k):
-            fd, path = real_mkstemp(*a, **k, dir=str(tmp_path))
-            written_paths.append(path)
-            return fd, path
-
-        def failing_run(cmd, **k):
-            raise ve.subprocess.CalledProcessError(1, cmd)
-
-        monkeypatch.setattr(ve.tempfile, "mkstemp", spying_mkstemp)
-        monkeypatch.setattr(ve.subprocess, "run", failing_run)
-        with pytest.raises(ve.subprocess.CalledProcessError):
-            ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4")
-        assert written_paths and not os.path.exists(written_paths[0])
-
-
-class TestFfmpegTimeouts:
-    def test_full_length_exports_pass_a_finite_timeout(self, monkeypatch):
-        seen = []
-        monkeypatch.setattr(ve.subprocess, "run", lambda cmd, **k: seen.append(k.get("timeout")))
-        ve.burn_subtitles("v.mp4", "1\n00:00:00,000 --> 00:00:01,000\nhi\n", "o.mp4")
-        ve.burn_ass("v.mp4", "[Script Info]\n", "o.mp4")
-        ve.mux_soft_subtitles("v.mp4", "1\n00:00:00,000 --> 00:00:01,000\nhi\n", "o.mp4")
-        ve.replace_audio_with_dub("v.mp4", "d.wav", "o.mp4")
-        ve.render_vertical_clip("v.mp4", "[Script Info]\n", "o.mp4", 0.0, 1.0)
-        assert seen == [ve.EXPORT_TIMEOUT_SECONDS] * 5
 
 
 class TestOtherFfmpegTimeouts:
@@ -181,7 +107,10 @@ class TestSoftsubContainer:
         if made.returncode != 0:
             pytest.skip("ffmpeg lacks libvpx/libopus")
         out = str(tmp_path / ("out" + ve.softsub_output_extension(str(src))))
-        ve.mux_soft_subtitles(str(src), "1\n00:00:00,000 --> 00:00:00,900\nhi\n", out)
+        srt = tmp_path / "s.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:00,900\nhi\n", encoding="utf-8")
+        subprocess.run(ve.mux_soft_subtitles_cmd(str(src), str(srt), out),
+                       check=True, capture_output=True, timeout=60)
         assert os.path.getsize(out) > 0
 
 
@@ -371,16 +300,11 @@ class TestBurnInNeverNeedsNvenc:
     def test_no_burn_in_command_names_a_hardware_codec(self, monkeypatch):
         cmds = []
         monkeypatch.setattr(ve.subprocess, "run", lambda cmd, **k: cmds.append(cmd))
-        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4")
         ve.render_preview_clip("in.mp4", "[ASS]", "out.mp4", 0.0, 5.0)
-        ve.burn_subtitles("in.mp4", "1\n00:00:00,000 --> 00:00:01,000\nhi\n", "out.mp4")
-        ve.burn_ass("in.mp4", "[ASS]", "out.mp4")
-        assert len(cmds) == 4
+        assert len(cmds) == 1
         flat = " ".join(" ".join(c) for c in cmds)
         assert "nvenc" not in flat and "cuda" not in flat and "-hwaccel" not in flat
-        # Re-encoding clips ask for libx264; the full burn-ins leave the video
-        # encoder to ffmpeg's default for the container (libx264 for mp4).
-        assert all("libx264" in c for c in cmds[:2])
+        assert "libx264" in cmds[0]
 
 
 class TestStoredMediaIsReadOnlyAsLocalMedia:
@@ -398,12 +322,11 @@ class TestStoredMediaIsReadOnlyAsLocalMedia:
         monkeypatch.setattr(subprocess, "run", run)
         return cmds
 
-    def test_burn_ins_and_clips(self, monkeypatch):
+    def test_preview_clip(self, monkeypatch):
         cmds = self._cmds(monkeypatch)
-        ve.render_vertical_clip("in.mp4", "[ASS]", "out.mp4", start=2.0, end=4.0)
-        ve.burn_subtitles("in.mp4", "1\n00:00:00,000 --> 00:00:01,000\nhi\n", "out.mp4")
-        ve.burn_ass("in.mp4", "[ASS]", "out.mp4")
-        self._assert_local(cmds, 3)
+        ve.render_preview_clip("in.mp4", "[ASS]", "out.mp4", 2.0, 4.0)
+        assert len(cmds) == 1
+        assert cmds[0][2:6] == ve.local_input(), cmds[0]
 
     def test_core_audio_extraction_and_slices(self, monkeypatch):
         import audio_extract
