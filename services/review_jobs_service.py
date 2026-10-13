@@ -37,6 +37,7 @@ import bulk_providers
 import bulk_translate
 import core
 import db
+from lib.safe_paths import plain_file_in
 import translate_engines
 from services import (fixflag_translate, ownership_service, paid_job_service, settings_service,
                       translate_run_service, translate_service, workspace_review_job_service,
@@ -246,7 +247,7 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
             if refusal:
                 raise UnsupportedOperationError(refusal)
         audio = drama.get("audio_filename")
-        audio_path = os.path.join(db.drama_dir(drama["id"]), audio) if audio else None
+        audio_path = plain_file_in(db.drama_dir(drama["id"]), audio)
         args = (lines, audio_path, transcribe_options_service.stored_whisper_size(drama),
                 settings_service.get("use_gpu"), drama.get("source_language") or "zh", eng, name)
         # Settings' defaults, as `cli.py translate` resolves them.

@@ -29,6 +29,7 @@ import threading
 import background_jobs
 from jobs import job_launch
 import db
+from lib.safe_paths import plain_file_in
 import dub_narration
 import storage
 import video_export
@@ -82,9 +83,8 @@ def _start_video_job(drama_id: int, job_id: str, target, *args, description: str
 
 def _source_video(drama: dict, drama_id: int) -> str:
     filename = drama.get("source_video_filename") or ""
-    video_path = os.path.join(db.drama_dir(drama_id), filename) if filename else ""
-    if (not filename or filename != os.path.basename(filename)
-            or not os.path.isfile(video_path)):
+    video_path = plain_file_in(db.drama_dir(drama_id), filename)
+    if not video_path or not os.path.isfile(video_path):
         raise InvalidInputError("No source video uploaded for this title.")
     return video_path
 

@@ -24,6 +24,7 @@ import numpy as np
 import background_jobs
 from jobs import job_launch
 import db
+from lib.safe_paths import plain_file_in
 import raw_transcript
 import vad_segments
 import video_export
@@ -233,7 +234,7 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
         raise InvalidInputError(
             f"min_gap_seconds must be between {MIN_GAP_SECONDS_MIN:g} and {MIN_GAP_SECONDS_MAX:g}.")
     audio_filename = drama.get("audio_filename")
-    audio_path = os.path.join(db.drama_dir(drama_id), audio_filename) if audio_filename else None
+    audio_path = plain_file_in(db.drama_dir(drama_id), audio_filename)
     if not audio_path or not os.path.exists(audio_path):
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if background_jobs.is_running(f"transcribe_{drama_id}"):

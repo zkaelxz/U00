@@ -18,6 +18,7 @@ import shutil
 import background_jobs
 from jobs import job_launch
 import db
+from lib.safe_paths import plain_file_in
 import dub
 import dub_narration
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
@@ -282,7 +283,7 @@ def _missing_separation_dependency(backend: str):
 def _source_audio_path(drama: dict):
     """Path of the drama's stored audio if the file exists, else None."""
     name = drama.get("audio_filename")
-    path = os.path.join(_drama_path(drama["id"]), name) if name else None
+    path = plain_file_in(_drama_path(drama["id"]), name)
     return path if path and os.path.exists(path) else None
 
 

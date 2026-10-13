@@ -56,6 +56,7 @@ import time
 import background_jobs
 from jobs import job_launch
 import db
+from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
 from services import drama_service, settings_service
@@ -189,9 +190,14 @@ def _safe_extension(client_filename) -> str:
     return ext
 
 
+def _file_exists(folder: str, name) -> bool:
+    path = plain_file_in(folder, name)
+    return bool(path and os.path.exists(path))
+
+
 def has_media(drama, drama_id) -> bool:
     ddir = db.drama_dir(drama_id)
-    return any(name and os.path.exists(os.path.join(ddir, name))
+    return any(_file_exists(ddir, name)
                for name in (drama.get("audio_filename"), drama.get("source_video_filename")))
 
 
@@ -676,7 +682,7 @@ def get_media_status(drama_id) -> dict:
     audio = drama.get("audio_filename")
     return {
         "drama_id": drama_id,
-        "has_audio": bool(audio and os.path.exists(os.path.join(db.drama_dir(drama_id), audio))),
+        "has_audio": _file_exists(db.drama_dir(drama_id), audio),
         "has_source_video": bool(drama.get("source_video_filename")),
         "reads_burned_in_subtitles": drama.get("transcript_mode") == "hardsub_ocr",
         "upload_max_mb": max_upload_bytes() // _MB,
