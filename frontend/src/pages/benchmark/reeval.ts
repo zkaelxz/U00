@@ -96,8 +96,9 @@ export const runCandidates = (overview: Pick<ReevalOverview, 'production' | 'can
   openCandidates(overview.candidates).filter((c) => !sameModel(c, overview.production))
 
 /** What an estimate depends on: production, the saved golden set and the open candidates. */
-export function reevalEstimateKey(overview: Pick<ReevalOverview, 'production' | 'settings' | 'candidates'>): string {
+export function reevalEstimateKey(overview: Pick<ReevalOverview, 'production' | 'settings' | 'candidates'>, cases?: number): string {
   return JSON.stringify({
+    n: cases ?? null,
     p: [overview.production.engine, overview.production.model ?? null],
     t: overview.settings.tier ?? null,
     s: overview.settings.set_name ?? null,
@@ -131,6 +132,8 @@ export function runNowState(args: {
   overview: Pick<ReevalOverview, 'production' | 'settings' | 'candidates'>
   estimate: BenchmarkEstimate | null
   estimateFor: string | null
+  /** The saved set's current case count, when the estimate key was made with it. */
+  caseCount?: number
   pcRemote: boolean
   running: boolean
   missingKeys: BenchmarkEngineOption[]
@@ -141,7 +144,7 @@ export function runNowState(args: {
   if (!runCandidates(overview).length) reasons.push('Add a candidate model first.')
   if (running) reasons.push('A benchmark run is already going.')
   for (const e of missingKeys) reasons.push(`${humanize('engine', e.name)} has no key. Set one in Settings.`)
-  if (!estimate || estimateFor !== reevalEstimateKey(overview)) reasons.push('Estimate the cost first.')
+  if (!estimate || estimateFor !== reevalEstimateKey(overview, args.caseCount)) reasons.push('Estimate the cost first.')
   else if (estimate.monthly_refusal) reasons.push(estimate.monthly_refusal)
   else if (estimate.estimate_above_cap) reasons.push("The estimate is more than what's left of this month's cap.")
   return { ok: reasons.length === 0, reasons }

@@ -600,6 +600,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `engine_registry.py` (Engine registry: ENGINES, capability tags, notes, model overrides and get_engine)
 - `fallback.py` (Translate fallback chain)
 - `flag_reasons.py` (Flag keys a line can carry, and the text shown for each)
+- `id_keyed_parse.py` (parses an id-keyed JSON reply into {id: text}, keeping the complete pairs of a cut-off reply)
 - `glossary_check.py` (checks a translated batch against the series glossary: one re-ask on the same engine, then a Review flag)
 - `gemini.py` (Gemini engine, its rate-limit status text and free-tier limits)
 - `llm_tasks.py` (Single-prompt LLM calls for features other than a translation batch)

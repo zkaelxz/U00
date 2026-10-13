@@ -81,6 +81,13 @@ describe('Run now', () => {
     expect(runNowState({ ...base, overview: o, estimate: estimate(), estimateFor: reevalEstimateKey(o) }).ok).toBe(true)
   })
 
+  it('a bigger golden set makes the estimate stale', () => {
+    const o = overview()
+    const key = reevalEstimateKey(o, 5)
+    expect(runNowState({ ...base, overview: o, estimate: estimate(), estimateFor: key, caseCount: 5 }).ok).toBe(true)
+    expect(runNowState({ ...base, overview: o, estimate: estimate(), estimateFor: key, caseCount: 500 }).reasons).toEqual(['Estimate the cost first.'])
+  })
+
   it('a new candidate or a changed golden set makes the estimate stale', () => {
     const o = overview()
     const key = reevalEstimateKey(o)

@@ -1,6 +1,7 @@
 """The per-run translate loop."""
 
 import inspect
+import weakref
 import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard
 from . import glossary_check
@@ -24,6 +25,7 @@ from .shared import (
     is_english_line,
     tagged_line_languages,
     redact_secrets,
+    LLMTaskTimeout,
     TranslationCancelled,
     stops_translate_run,
 )
@@ -107,9 +109,28 @@ def _ids(lines) -> list:
     return [ln.id for ln in lines if getattr(ln, "id", None) is not None]
 
 
+# The usage dict last recorded per engine: a failed attempt that died before
+# the engine reset last_usage still holds the previous call's numbers.
+_recorded_usage = weakref.WeakKeyDictionary()
+
+
+def _record_failed_attempt_usage(engine, record_usage):
+    """Tokens billed by an attempt that then failed (a later request of the same
+    batch hit a 429 or 500, and the retry runs the whole batch again), so the
+    spend and the cap count them. A fallback chain reports these itself."""
+    if hasattr(getattr(engine, "unwrapped_engine", engine), "failed_usage_cb"):
+        return
+    if getattr(engine, "last_usage", None) is not _recorded_usage.get(engine):
+        _record_engine_usage(engine, record_usage)
+
+
 def _record_engine_usage(engine, record_usage):
     if hasattr(engine, "last_usage"):
         u = engine.last_usage
+        try:
+            _recorded_usage[engine] = u
+        except TypeError:
+            pass  # not weak-referenceable: a failed attempt is then recorded as usual
         record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
                      u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
 
@@ -429,10 +450,18 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
             # A batch abandoned on Cancel or at the deadline was still billed, so
             # its usage is logged when the request finally returns.
-            translations = call_with_backoff(
-                lambda: call_batch_bounded(
-                    engine, lambda: engine.translate_batch(sources, chunk_context),
-                    on_late_result=lambda: _record_engine_usage(engine, record_usage)))
+            def attempt():
+                try:
+                    return call_batch_bounded(
+                        engine, lambda: engine.translate_batch(sources, chunk_context),
+                        on_late_result=lambda: _record_engine_usage(engine, record_usage))
+                except (TranslationCancelled, LLMTaskTimeout):
+                    raise  # the late-result hook logs an abandoned request
+                except Exception:
+                    _record_failed_attempt_usage(engine, record_usage)
+                    raise
+
+            translations = call_with_backoff(attempt)
             _record_engine_usage(engine, record_usage)
             return translations
 

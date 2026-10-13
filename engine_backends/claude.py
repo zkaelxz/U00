@@ -3,6 +3,7 @@
 from .prompts import build_batch_user_message, build_claude_system_blocks
 from .shared import (
     ContentModerationBlocked,
+    TruncatedReply,
     make_anthropic_client,
     _add_usage,
     _empty_usage,
@@ -47,7 +48,10 @@ class ClaudeEngine:
             # falling through to the soft-refusal text heuristic.
             if getattr(resp, "stop_reason", None) == "refusal":
                 raise ContentModerationBlocked("claude", "refusal")
-            return "".join(b.text for b in resp.content if b.type == "text").strip()
+            text = "".join(b.text for b in resp.content if b.type == "text").strip()
+            # Cut off at max_tokens: the pairs that finished are kept and only
+            # the missing lines are asked for again.
+            return TruncatedReply(text) if getattr(resp, "stop_reason", None) == "max_tokens" else text
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="claude",

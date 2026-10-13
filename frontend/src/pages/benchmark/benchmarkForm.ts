@@ -223,10 +223,11 @@ export function runRequestBody(sel: RunSelection): BenchmarkRunRequest {
   return body
 }
 
-/** What an estimate depends on (not the label or prompt version): a changed key means estimate again. */
-export function estimateKey(sel: RunSelection): string {
+/** What an estimate depends on (not the label or prompt version): a changed key means estimate again.
+ *  cases: how many cases the selection covers now; importing a bigger set must not leave a small estimate standing. */
+export function estimateKey(sel: RunSelection, cases?: number): string {
   const { stage, configs, tier, set_name, judge } = runRequestBody(sel)
-  return JSON.stringify({ stage, configs, tier: tier ?? null, set_name: set_name ?? null, judge: judge ?? null })
+  return JSON.stringify({ stage, configs, tier: tier ?? null, set_name: set_name ?? null, judge: judge ?? null, cases: cases ?? null })
 }
 
 /** Whisper models for every case language, and those the server does not recommend for some language (with why).
@@ -329,6 +330,8 @@ export function startState(args: {
   maxConfigs: number
   estimate: BenchmarkEstimate | null
   estimateFor: string | null
+  /** The selection's current case count, when the estimate key was made with it. */
+  caseCount?: number
   pcRemote: boolean
   running: boolean
   missingKeys: BenchmarkEngineOption[]
@@ -339,7 +342,7 @@ export function startState(args: {
   if (running) reasons.push('A benchmark run is already going.')
   for (const e of missingKeys) reasons.push(`${humanize('engine', e.name)} has no key. Set one in Settings.`)
   if (judgeOverlap(sel).length && !sel.allowSameJudge) reasons.push(JUDGE_SAME_MODEL_REASON)
-  if (!estimate || estimateFor !== estimateKey(sel)) reasons.push('Estimate the cost of this selection first.')
+  if (!estimate || estimateFor !== estimateKey(sel, args.caseCount)) reasons.push('Estimate the cost of this selection first.')
   else {
     if (estimate.monthly_refusal) reasons.push(estimate.monthly_refusal)
     else if (estimate.estimate_above_cap) reasons.push("The estimate is more than what's left of this month's cap.")

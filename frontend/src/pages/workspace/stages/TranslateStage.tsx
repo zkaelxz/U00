@@ -45,6 +45,7 @@ import {
   applyPresetToForm,
   applyTierToForm,
   buildEstimateParams,
+  estimateKeyFor,
   buildPresetBody,
   buildRunBody,
   bulkAvailable,
@@ -294,7 +295,7 @@ function RunPanel({
   useEffect(() => onForm(f), [onForm, f])
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [estimate, setEstimate] = useState<TranslateRunEstimate | null>(null)
+  const [estimate, setEstimate] = useState<{ key: string; value: TranslateRunEstimate } | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
   // Set while the start request is in flight, so a double click can't send two runs.
   const [starting, setStarting] = useState(false)
@@ -369,10 +370,11 @@ function RunPanel({
     setEstimate(null)
     if (!params) return setProblem('Cost cap must be a number of dollars, 0 or more.')
     setProblem(null)
+    const key = JSON.stringify(params)
     getTranslateEstimate(dramaId, params).then(
       (e) => {
         setEstimateError(null)
-        setEstimate(e)
+        setEstimate({ key, value: e })
       },
       setEstimateError,
     )
@@ -486,7 +488,7 @@ function RunPanel({
         <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
         <GlossaryRetranslateAction inline f={f} busy={busy} onStarted={onStarted} />
         {/* aria-live rather than role=status: the stage already has one status line, and this region must stay mounted to be announced. */}
-        <span aria-live="polite">{estimate && <EstimateView e={estimate} />}</span>
+        <span aria-live="polite">{estimate && estimate.key === estimateKeyFor(f) && <EstimateView e={estimate.value} />}</span>
       </div>
       {f.force && (
         <label className="inline stage-ack">

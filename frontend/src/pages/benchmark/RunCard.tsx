@@ -78,12 +78,12 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
   const judge = st === 'translation' && savedJudge && options.translation_engines.some((e) => e.name === savedJudge.engine) ? savedJudge : null
   const sel: RunSelection = { stage: st, configs, tier: tierValue, setName: setValue, label, promptVersion, judge, allowSameJudge }
   const overlap = judgeOverlap(sel)
-  const key = estimateKey(sel)
+  const caseCount = casesInSelection(sets, st, tierValue, setValue)
+  const key = estimateKey(sel, caseCount)
   const shown = estimate && estimateFor === key ? estimate : null
   const missingKeys = enginesMissingKey(sel, options.translation_engines)
   const problems = selectionProblems(sel, options.max_configs)
-  const start = startState({ sel, maxConfigs: options.max_configs, estimate, estimateFor, pcRemote, running, missingKeys })
-  const caseCount = casesInSelection(sets, st, tierValue, setValue)
+  const start = startState({ sel, maxConfigs: options.max_configs, estimate, estimateFor, caseCount, pcRemote, running, missingKeys })
 
   const error = failure && failure.key === key ? failure.text : null
   const setError = (text: string | null) => setFailure(text ? { key, text } : null)

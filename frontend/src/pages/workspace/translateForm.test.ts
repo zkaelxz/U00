@@ -8,6 +8,7 @@ import {
   applyPresetToForm,
   applyTierToForm,
   buildEstimateParams,
+  estimateKeyFor,
   buildPresetBody,
   buildRunBody,
   bulkAvailable,
@@ -163,6 +164,16 @@ describe('translate form', () => {
     expect(parseCap('0')).toBe(0)
     expect(buildEstimateParams({ ...initialForm(config), cost_cap: 'x' })).toBeNull()
     expect(buildEstimateParams({ ...initialForm(config), engine: 'ollama' })).toMatchObject({ engine: 'ollama', force_retranslate: false })
+  })
+
+  it('an estimate is only for the engine, model and options it was made with', () => {
+    const base = { ...initialForm(config), engine: 'ollama' }
+    const key = estimateKeyFor(base)
+    expect(key).not.toBeNull()
+    expect(estimateKeyFor({ ...base })).toBe(key)
+    expect(estimateKeyFor({ ...base, engine: 'claude' })).not.toBe(key)
+    expect(estimateKeyFor({ ...base, reflect: true })).not.toBe(key)
+    expect(estimateKeyFor({ ...base, cost_cap: 'x' })).toBeNull()
   })
 
   it('describes month spend without implying a zero cap was reached', () => {

@@ -5,6 +5,7 @@ from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
     ContentModerationBlocked,
     FreeTierDailyLimitReached,
+    TruncatedReply,
     _MAX_THROTTLE_WAIT_SECONDS,
     _add_usage,
     _cancellable_sleep,
@@ -203,13 +204,25 @@ class GeminiEngine:
             finish_reason = candidates[0].get("finishReason")
             if finish_reason in ("SAFETY", "PROHIBITED_CONTENT"):
                 raise ContentModerationBlocked("gemini", finish_reason)
-            return candidates[0]["content"]["parts"][0]["text"].strip()
+            parts = (candidates[0].get("content") or {}).get("parts") or []
+            # Every text part, not only the first. An empty STOP/OTHER reply
+            # is not a provider block: it falls through to the ordinary
+            # missing-ids retry.
+            text = "".join(p.get("text", "") for p in parts).strip()
+            if not text and finish_reason in _GEMINI_BLOCK_REASONS:
+                raise ContentModerationBlocked("gemini", finish_reason)
+            return TruncatedReply(text) if finish_reason == "MAX_TOKENS" else text
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="gemini",
                                                 line_languages=context.get("line_languages"),
                                                 sentence_groups=context.get("sentence_groups"))
 
+
+# finishReason values where Gemini withheld the content on policy grounds. An
+# empty reply with any other reason (STOP, OTHER) is a plain empty reply.
+_GEMINI_BLOCK_REASONS = frozenset({
+    "SAFETY", "PROHIBITED_CONTENT", "RECITATION", "BLOCKLIST", "SPII", "IMAGE_SAFETY"})
 
 # Free-tier limits, confirmed against ai.google.dev/gemini-api/docs/rate-limits
 # in September 2026 -- the original "~10 requests/minute on Flash" note
