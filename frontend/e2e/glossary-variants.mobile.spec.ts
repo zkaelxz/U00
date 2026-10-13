@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
 import { gotoTranslate } from './translateTabs'
+import { expectPickedTab } from './tabPicker'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -34,7 +35,7 @@ test('similar spellings and possible names fit a phone', async ({ page }) => {
   }))
   await gotoTranslate(page, 'glossary')
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
+  await expectPickedTab(glossary, 'Glossary', 'Terms')
   await glossary.getByRole('button', { name: 'Find similar spellings of ヤロ' }).click()
   const panel = glossary.getByRole('region', { name: 'Similar spellings of ヤロ' })
   await panel.getByRole('button', { name: 'Add ヤロック as alias' }).click()

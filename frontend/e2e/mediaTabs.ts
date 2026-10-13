@@ -1,12 +1,15 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
+import { expectPickedTab } from './tabPicker'
+
 export type MediaTabName = 'add' | 'transcribe' | 'tools' | 'details' | 'credits'
 export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Transcribe', tools: 'Tools', details: 'Details', credits: 'Credits' }
 
 /** Opens a title's Media stage on one sub-tab through the deep link. */
 export async function gotoMedia(page: Page, tab: MediaTabName, id = 1) {
   await page.goto(`/#/drama/${id}/source?tab=${tab}`)
-  await expect(mediaTab(page, tab)).toHaveAttribute('aria-selected', 'true')
+  // A phone shows the five sections as a picker, not a tab row.
+  await expectPickedTab(page, 'Media sections', new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`))
 }
 
 // A tab with unsaved edits carries "(unsaved changes)" in its name.

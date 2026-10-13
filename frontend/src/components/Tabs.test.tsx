@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { Tabs } from './Tabs'
+import { PICKER_MIN_TABS, TabPicker, Tabs } from './Tabs'
 import { tabButtonId, tabPanelId } from './tabIds'
 
 const tabs = [
@@ -42,5 +42,42 @@ describe('unsaved dot', () => {
     expect(html).toContain('data-testid="tab-unsaved-a"')
     expect(html).toContain('(unsaved changes)')
     expect(html).not.toContain('tab-unsaved-b')
+  })
+})
+
+describe('short labels', () => {
+  const html = renderToStaticMarkup(
+    <Tabs label="T" idPrefix="t" tabs={[{ id: 'a', label: 'Packages and installs', short: 'Packages' }, { id: 'b', label: 'Models' }]} active="a" onSelect={() => {}} />,
+  )
+
+  it('keeps the full label in the accessible name and hides the short one from it', () => {
+    expect(html).toContain('<span class="ui-tab-full">Packages and installs</span>')
+    expect(html).toContain('<span class="ui-tab-short" aria-hidden="true">Packages</span>')
+  })
+
+  it('leaves a tab without a short label as plain text', () => {
+    expect(html).toContain('>Models</button>')
+  })
+})
+
+describe('TabPicker', () => {
+  const six = ['a', 'b', 'c', 'd', 'e', 'f'].map((id, i) => ({ id, label: `Section ${i}`, attention: id === 'b' ? 2 : undefined }))
+  const html = renderToStaticMarkup(<TabPicker label="Settings" idPrefix="s" tabs={six} active="b" onSelect={() => {}} />)
+
+  it('is one closed button naming the current section, with no tablist', () => {
+    expect(PICKER_MIN_TABS).toBe(5)
+    expect(html).toContain('aria-haspopup="listbox"')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('aria-label="Settings: Section 1"')
+    expect(html).not.toContain('role="tablist"')
+    expect(html).not.toContain('role="listbox"')
+  })
+
+  it('still gives every panel a label to point at', () => {
+    for (const t of six) expect(html).toContain(`id="${tabButtonId('s', t.id)}"`)
+  })
+
+  it('shows what needs attention on the current section', () => {
+    expect(html).toContain('2<span class="visually-hidden"> to look at</span>')
   })
 })
