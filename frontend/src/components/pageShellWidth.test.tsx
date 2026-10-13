@@ -26,7 +26,7 @@ describe('PageShell', () => {
     )
     expect(html).toContain('data-page-shell="narrow"')
     expect(html).toContain('aria-label="Settings"')
-    expect(html).toContain('<h2 class="page-title">Settings</h2>')
+    expect(html).toContain('<h1 class="page-title">Settings</h1>')
     expect(html).toContain('<p class="page-meta">Engines</p>')
     expect(html.indexOf('crumbs')).toBeLessThan(html.indexOf('page-head'))
     expect(html.indexOf('page-head')).toBeLessThan(html.indexOf('tabs'))
