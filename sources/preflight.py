@@ -41,6 +41,7 @@ answer below is derived from that same response.
 from dataclasses import dataclass, field
 
 from . import ai_extract as ax
+from . import ai_extract_novel as axn
 from . import detect, front_door, profiles
 from .models import SourceError, TermsProhibited
 
@@ -94,8 +95,8 @@ def _check_novel(result: Preflight, html: str, url: str):
     """The readability half: run the real deterministic tier and judge it
     with the same independent checks an import is judged by."""
     page = ax.PageModel(html, url)
-    data = ax.deterministic_novel(page)
-    ax.validate_novel(data, page)
+    data = axn.deterministic_novel(page)
+    axn.validate_novel(data, page)
     overall = data.get("overall") or {}
     result.confidence = overall.get("bucket") or ""
     result.text_chars = len(data.get("content") or "")

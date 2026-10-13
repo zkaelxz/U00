@@ -34,6 +34,8 @@ from urllib.parse import urljoin, urlsplit
 import db
 
 from . import ai_extract as ax
+from . import ai_extract_comic as axc
+from . import ai_extract_novel as axn
 
 FORMAT_VERSION = 1
 
@@ -327,7 +329,7 @@ def apply_novel_rules(page, rules: dict) -> tuple:
         number = str(int(nums[-1])) if nums else None
     else:
         number = ax.chapter_num_str(chapter_title)
-    data = ax.novel_data(page, body, method="profile", chapter_title=chapter_title or None,
+    data = axn.novel_data(page, body, method="profile", chapter_title=chapter_title or None,
                          chapter_title_id=title_block.id if title_block else None,
                          chapter_number=number, next_url=_resolve_link(page, rules.get("next")),
                          previous_url=_resolve_link(page, rules.get("previous")))
@@ -463,7 +465,7 @@ def apply_comic_rules(candidates, rules: dict) -> tuple:
             continue
         picked.append(c)
     roles = {c.url: "content" for c in picked}
-    ax.dedupe_content(picked, roles, {})
+    axc.dedupe_content(picked, roles, {})
     picked = [c for c in picked if roles[c.url] == "content"]
     if rules.get("order_by") == "filename" and all(ax.file_number(c.url) is not None for c in picked):
         picked.sort(key=lambda c: ax.file_number(c.url))
@@ -477,5 +479,5 @@ def comic_data_from_roles(page, candidates, roles: dict, positions: dict = None,
     """The Review screen's comic corrections (include/exclude, cover/ad/
     content, reorder) as a result -- which images, in which order; the
     images themselves are never touched."""
-    return ax.comic_data(page, candidates, roles, method=method, order=positions or {},
+    return axc.comic_data(page, candidates, roles, method=method, order=positions or {},
                          reasons={u: "marked by you" for u, r in roles.items() if r != "content"})

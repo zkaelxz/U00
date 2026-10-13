@@ -600,7 +600,10 @@ The job store behind `background_jobs.py`.
 Site adapters, the fetch ladder and the source store (`sources.db`).
 
 - `adaptive.py` (the order things are tried in when a pasted URL has no dedicated adapter)
-- `ai_extract.py` (content extraction with an LLM as the *fallback*, plus the independent confidence checks every result goes through)
+- `ai_extract.py` (content extraction with an LLM as the *fallback*: the confidence scoring, page model and LLM call every result goes through)
+- `ai_extract_novel.py` (novel chapters: block/link picks, the deterministic tier and the novel validator)
+- `ai_extract_comic.py` (comic chapters: image candidates, roles, duplicate removal and the comic validator)
+- `ai_extract_media.py` (video/audio/subtitle resources on an unrecognized page)
 - `auth_browser.py` (signed-in browser sessions)
 - `base.py` (the adapter interface)
 - `cache.py` (the configurable raw-content cache)

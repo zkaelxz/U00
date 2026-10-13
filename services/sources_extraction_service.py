@@ -86,7 +86,7 @@ from services.service_errors import (
 )
 from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import JobFailed
-from sources import adaptive, ai_extract, pipeline, profiles
+from sources import adaptive, ai_extract, ai_extract_comic as axc, ai_extract_novel as axn, pipeline, profiles
 from sources import store as src_store
 
 _NO_ENGINE = "Pick an AI engine for the fallback."
@@ -635,7 +635,7 @@ def rerun_novel(drama_id: int, revision: str, content_selector, exclude_selector
     new, why = profiles.apply_novel_rules(rv.page, rules)
     if new is None:
         raise InvalidInputError(scrub(why) or "Those choices found no chapter text.")
-    ai_extract.validate_novel(new, rv.page)
+    axn.validate_novel(new, rv.page)
     if not (new.get("content") or "").strip():
         raise InvalidInputError("Those choices found no chapter text.")
     with _LOCK:
@@ -678,7 +678,7 @@ def rerun_comic(drama_id: int, revision: str, images, principal=None, local: boo
         if role == "content" and page > 0:
             order[url] = page
     new = profiles.comic_data_from_roles(rv.page, rv.candidates, roles, order)
-    ai_extract.validate_comic(new, rv.page, adaptive.measured(rv.candidates))
+    axc.validate_comic(new, rv.page, adaptive.measured(rv.candidates))
     rules = profiles.infer_comic_rules(rv.candidates, new)
     with _LOCK:
         if rv.revision != revision:
