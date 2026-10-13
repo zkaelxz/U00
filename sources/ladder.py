@@ -159,7 +159,7 @@ def authenticated_tier(profile_dir: str, client=None, fetch_with_profile=None):
     def fetch(url):
         fn = fetch_with_profile
         if fn is None:
-            from page_fetch import fetch_with_profile as fn
+            from page_fetch_profile import fetch_with_profile as fn
         return fn(url, profile_dir)
 
     def run(url: str) -> TierOutcome:
@@ -168,7 +168,7 @@ def authenticated_tier(profile_dir: str, client=None, fetch_with_profile=None):
 
 
 def _browser_outcome(url, client, fetch, action) -> TierOutcome:
-    import page_fetch
+    import page_fetch_browser
     try:
         if client is not None:
             html, _text = client.paced(fetch, url, action)
@@ -177,7 +177,7 @@ def _browser_outcome(url, client, fetch, action) -> TierOutcome:
     except ImportError as e:
         return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED],
                            detail=str(e).splitlines()[0], missing=MISSING_PLAYWRIGHT)
-    except page_fetch.BrowserNotFound as e:
+    except page_fetch_browser.BrowserNotFound as e:
         return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED], detail=str(e),
                            missing=MISSING_BROWSER)
     except Exception as e:

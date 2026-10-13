@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import browser_support
-import page_fetch
+import page_fetch_browser
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -268,17 +268,17 @@ def _put_browser(folder):
 def test_page_fetch_launches_from_the_app_folder_when_present(env, monkeypatch, tmp_path):
     _fake_playwright(monkeypatch)
     monkeypatch.setenv(browser_support.BROWSERS_ENV, str(tmp_path / "global-cache"))
-    monkeypatch.setattr(page_fetch, "_system_browser_candidates", lambda: [])
+    monkeypatch.setattr(page_fetch_browser, "_system_browser_candidates", lambda: [])
     _put_browser(env["folder"])
-    assert page_fetch._require_playwright()() == "sync"
+    assert page_fetch_browser._require_playwright()() == "sync"
     assert os.environ[browser_support.BROWSERS_ENV] == str(env["folder"])
-    assert page_fetch.browser_status() == {"found": True, "name": "Playwright Chromium"}
+    assert page_fetch_browser.browser_status() == {"found": True, "name": "Playwright Chromium"}
 
 
 def test_page_fetch_leaves_the_environment_alone_without_an_app_browser(env, monkeypatch, tmp_path):
     _fake_playwright(monkeypatch)
     monkeypatch.setenv(browser_support.BROWSERS_ENV, str(tmp_path / "global-cache"))
-    page_fetch._require_playwright()
+    page_fetch_browser._require_playwright()
     assert os.environ[browser_support.BROWSERS_ENV] == str(tmp_path / "global-cache")
 
 

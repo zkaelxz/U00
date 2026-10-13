@@ -79,7 +79,8 @@ def _scanned_files():
     files = sorted((ROOT / "sources").rglob("*.py"))
     files += sorted((ROOT / "services").glob("sources_*.py"))
     files += sorted((ROOT / "api" / "routers").glob("sources_*.py"))
-    files.append(ROOT / "page_fetch.py")
+    files += [ROOT / f for f in ("page_fetch.py", "page_fetch_browser.py", "page_fetch_guard.py",
+                                 "page_fetch_profile.py")]
     files += [ROOT / f for f in YTDLP_COOKIE_FILES]
     return [f for f in files if f.exists()]
 

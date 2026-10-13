@@ -1,6 +1,6 @@
 """The comic 'no pages' 422 names the real cause: a browser tier that could
 not start comes before the Bilibili sign-in hint."""
-import page_fetch
+import page_fetch_browser
 from services import sources_import_service as imp
 from sources import adaptive, ladder
 from sources.models import AccessTier
@@ -37,7 +37,7 @@ def test_playwright_missing_leads_with_install_steps():
 
 
 def test_browser_not_found_says_chrome_or_edge():
-    err = _error(BILI, raises=page_fetch.BrowserNotFound("no browser"))
+    err = _error(BILI, raises=page_fetch_browser.BrowserNotFound("no browser"))
     assert "no Chrome or Edge" in err["message"] and "Sign in" not in err["message"]
     assert "Capture whole chapter" in err["message"]
 

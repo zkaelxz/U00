@@ -8,6 +8,11 @@ import threading
 import pytest
 
 import page_fetch
+
+import page_fetch_profile
+
+import page_fetch_guard
+
 from lib import url_guard
 from sources import ladder
 from sources.ladder import AccessTier, TierOutcome
@@ -62,13 +67,13 @@ def dns(monkeypatch):
 ])
 def test_guard_aborts_private_allows_public(dns, url, expected):
     route = _Route(url)
-    page_fetch.make_request_guard()(route, route.request)
+    page_fetch_guard.make_request_guard()(route, route.request)
     assert route.result == expected
 
 
 def test_guard_caches_per_host():
     calls = []
-    guard = page_fetch.make_request_guard(resolver=lambda u: calls.append(u))
+    guard = page_fetch_guard.make_request_guard(resolver=lambda u: calls.append(u))
     for path in ("a", "b", "c"):
         r = _Route("https://public.example/" + path)
         guard(r, r.request)
@@ -159,9 +164,9 @@ def test_profile_contexts_are_guarded(tmp_path):
         made.append(c)
         return _PW(), c
 
-    page_fetch.fetch_with_profile("https://public.example/", str(tmp_path / "a"),
+    page_fetch_profile.fetch_with_profile("https://public.example/", str(tmp_path / "a"),
                                   wait_ms=0, launcher=launcher)
-    page_fetch.open_login_window("https://public.example/", str(tmp_path / "b"),
+    page_fetch_profile.open_login_window("https://public.example/", str(tmp_path / "b"),
                                  launcher=launcher)
     assert len(made) == 2 and all(len(c.routes) == 1 for c in made)
 
@@ -274,13 +279,13 @@ def test_real_browser_public_page_still_renders_through_the_proxy(monkeypatch):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     monkeypatch.setattr(url_guard, "resolve_public", lambda url: "127.0.0.1")
     made = []
-    real_proxy = page_fetch._PinningProxy
+    real_proxy = page_fetch_guard._PinningProxy
 
     def recording_proxy():
         px = real_proxy()
         made.append(px)
         return px
-    monkeypatch.setattr(page_fetch, "_PinningProxy", recording_proxy)
+    monkeypatch.setattr(page_fetch_guard, "_PinningProxy", recording_proxy)
     try:
         try:
             html, _ = page_fetch.fetch_rendered("http://127.0.0.1:%d/" % srv.server_port,
@@ -322,7 +327,7 @@ def _read_head(sock):
 
 @pytest.fixture
 def proxy():
-    px = page_fetch._PinningProxy()
+    px = page_fetch_guard._PinningProxy()
     yield px
     px.stop()
 
@@ -392,7 +397,7 @@ def test_connect_tunnels_to_exactly_the_validated_ip(monkeypatch, proxy):
     ("x:65535", ("x", 65535)),
 ])
 def test_connect_target_parsing(target, expected):
-    assert page_fetch._PinningProxy._parse_connect_target(target) == expected
+    assert page_fetch_guard._PinningProxy._parse_connect_target(target) == expected
 
 
 @pytest.mark.parametrize("target", [
@@ -401,7 +406,7 @@ def test_connect_target_parsing(target, expected):
 ])
 def test_connect_target_parsing_rejects_bad_targets(target):
     with pytest.raises(ValueError):
-        page_fetch._PinningProxy._parse_connect_target(target)
+        page_fetch_guard._PinningProxy._parse_connect_target(target)
 
 
 def test_launch_kwargs_carry_secret_bypass_and_webrtc_flags(proxy):
@@ -423,10 +428,10 @@ def test_goto_fails_closed_when_the_proxy_saw_nothing(proxy):
             return object()     # a "response" that never touched the proxy
 
     page = Page()
-    with pytest.raises(page_fetch.ProxyBypassed):
-        page_fetch._goto(page, "https://public.example/", proxy)
+    with pytest.raises(page_fetch_guard.ProxyBypassed):
+        page_fetch_guard._goto(page, "https://public.example/", proxy)
     proxy.proxied = 1
-    page_fetch._goto(page, "https://public.example/", proxy)
+    page_fetch_guard._goto(page, "https://public.example/", proxy)
 
 
 def test_goto_fails_closed_without_a_proxy():
@@ -434,8 +439,8 @@ def test_goto_fails_closed_without_a_proxy():
         def goto(self, url, **kw):
             raise AssertionError("must not navigate without a proxy")
 
-    with pytest.raises(page_fetch.ProxyBypassed):
-        page_fetch._goto(Page(), "https://public.example/", None)
+    with pytest.raises(page_fetch_guard.ProxyBypassed):
+        page_fetch_guard._goto(Page(), "https://public.example/", None)
 
 
 def test_login_window_fails_closed_when_the_first_load_saw_no_proxy_traffic(tmp_path, proxy):
@@ -466,14 +471,14 @@ def test_login_window_fails_closed_when_the_first_load_saw_no_proxy_traffic(tmp_
     ctx = Ctx()
 
     def launcher(profile_dir, headless):
-        page_fetch._PROXIES[id(ctx)] = proxy    # as _launch_persistent does
+        page_fetch_profile._PROXIES[id(ctx)] = proxy    # as _launch_persistent does
         return PW(), ctx
 
-    with pytest.raises(page_fetch.ProxyBypassed):
-        page_fetch.open_login_window("https://public.example/", str(tmp_path / "p"),
+    with pytest.raises(page_fetch_guard.ProxyBypassed):
+        page_fetch_profile.open_login_window("https://public.example/", str(tmp_path / "p"),
                                      launcher=launcher)
     assert not Ctx.waited
-    assert id(ctx) not in page_fetch._PROXIES
+    assert id(ctx) not in page_fetch_profile._PROXIES
 
 
 @pytest.mark.skipif(not _CHROMIUM, reason="no Playwright Chromium installed")
@@ -555,12 +560,12 @@ def test_real_browser_https_goes_through_the_authenticated_connect_tunnel(monkey
         from playwright.sync_api import sync_playwright
         try:
             with sync_playwright() as p:
-                with page_fetch._guarded_chromium(p) as (browser, proxy):
+                with page_fetch_guard._guarded_chromium(p) as (browser, proxy):
                     context = browser.new_context(ignore_https_errors=True,
                                                   service_workers="block")
-                    page_fetch._guard_context(context)
+                    page_fetch_guard._guard_context(context)
                     page = context.new_page()
-                    page_fetch._goto(page, url, proxy, timeout=10000)
+                    page_fetch_guard._goto(page, url, proxy, timeout=10000)
                     html = page.content()
                     tunnelled = proxy.proxied
         except Exception as exc:
