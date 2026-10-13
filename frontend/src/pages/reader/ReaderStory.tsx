@@ -20,6 +20,7 @@ import type {
 } from '../../types/reader'
 import type { TranslateEngine } from '../../types/translate'
 import { ActionError, EditInTranslate } from './ReaderAction'
+import { useStoredState } from '../../hooks/useStoredRun'
 import { useAction } from './useReaderAction'
 import { ENGINE_PICKER_ID, EngineLine, EnginePicker } from './ReaderEngine'
 import { trimHistory } from './readerPrefsStore'
@@ -45,16 +46,20 @@ function Answer({ text }: { text: string | null | undefined }) {
   )
 }
 
+const isAnswer = (v: unknown): v is string | undefined => v === undefined || typeof v === 'string'
+const isObject = <T extends object>(v: unknown): v is T => typeof v === 'object' && v !== null && !Array.isArray(v)
+
 function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boundary: number | undefined; engine: string; paid: boolean }) {
   const [name, setName] = useState('')
   const [phrase, setPhrase] = useState('')
-  const [who, setWho] = useState<string | null | undefined>(undefined)
-  const [explained, setExplained] = useState<string | null | undefined>(undefined)
+  // The last answers are kept per story (cleared at sign-out): they are paid AI calls.
+  const [who, setWho] = useStoredState<string | undefined>(`reader.who.${dramaId}`, undefined, isAnswer)
+  const [explained, setExplained] = useStoredState<string | undefined>(`reader.explain.${dramaId}`, undefined, isAnswer)
   const whoAct = useAction(async () => {
-    setWho((await readerApi.who(dramaId, { name: name.trim(), engine, ...scope(boundary) })).answer)
+    setWho((await readerApi.who(dramaId, { name: name.trim(), engine, ...scope(boundary) })).answer ?? '')
   })
   const explainAct = useAction(async () => {
-    setExplained((await readerApi.explain(dramaId, { phrase: phrase.trim(), engine, ...scope(boundary) })).answer)
+    setExplained((await readerApi.explain(dramaId, { phrase: phrase.trim(), engine, ...scope(boundary) })).answer ?? '')
   })
   const submit = (fn: () => void) => (e: FormEvent) => {
     e.preventDefault()
@@ -87,8 +92,8 @@ function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boun
 }
 
 function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omit<Common, 'engines' | 'onEngine'> & { paid: boolean }) {
-  const [recap, setRecap] = useState<ReaderRecap | null>(null)
-  const [map, setMap] = useState<ReaderRelationshipMap | null>(null)
+  const [recap, setRecap] = useStoredState<ReaderRecap | null>(`reader.recap.${dramaId}`, null, isObject)
+  const [map, setMap] = useStoredState<ReaderRelationshipMap | null>(`reader.map.${dramaId}`, null, isObject)
   const recapAct = useAction(async () => {
     setRecap(await readerApi.recap(dramaId, { page, chapter_size: chapterSize, engine }))
   })
@@ -296,8 +301,10 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
   )
 }
 
+const NO_TURNS: ReaderChatTurn[] = []
+
 function AskSection({ dramaId, engines, engine, paid }: { dramaId: number; engines: TranslateEngine[]; engine: string; paid: boolean }) {
-  const [history, setHistory] = useState<ReaderChatTurn[]>([])
+  const [history, setHistory] = useStoredState<ReaderChatTurn[]>(`reader.ask.${dramaId}`, NO_TURNS, Array.isArray as (v: unknown) => v is ReaderChatTurn[])
   const [question, setQuestion] = useState('')
   const ask = useAction(async (q: string) => {
     const r = await readerApi.ask(dramaId, { question: q, chat_history: trimHistory(history), engine })

@@ -30,6 +30,7 @@ NO_TEXT_SENT = {
     ("GET", "/api/translate-run/dramas/{drama_id}/glossary-affected"),
     ("GET", "/api/live/ollama-check"),
     ("POST", "/api/metadata/dramas/{drama_id}/research"),  # Gemini only
+    ("GET", "/api/metadata/dramas/{drama_id}/research/cached"),  # reads the cache, no model call
 }
 
 
