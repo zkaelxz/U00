@@ -149,11 +149,17 @@ def _has_text(region: dict) -> bool:
 
 
 def _predecessor_context(drama_id: int, page_id: int) -> str:
+    """The stored context of the page before this one in the run's order.
+    Hidden pages are not part of the story, so they are stepped over; a page
+    that is itself hidden (a single-page redo) falls back to the full order."""
+    visible = {p["id"] for p in db.list_pages(drama_id)} & set(
+        comic_chapters_service.run_page_ids(drama_id))
     prev = None
     for p in db.list_pages(drama_id):
         if p["id"] == page_id:
             break
-        prev = p
+        if page_id not in visible or p["id"] in visible:
+            prev = p
     return (prev or {}).get("context_summary") or ""
 
 
@@ -211,14 +217,20 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     return True, new_context
 
 
-def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool) -> bool:
+def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool,
+                          notes: list = ()) -> bool:
     """A redo replaces the page's regions. It must not swap translated
-    regions for nothing (detection found none) or for OCR-only text (the
-    translation failed); the page then keeps what it has."""
+    regions for nothing (detection found none), for OCR-only text (the
+    translation failed), for a page where OCR lost some regions, or for one
+    where no region ended up translated; the page then keeps what it has."""
     if not bubbles:
         return True
-    return not translated_ok and any((b.get("translated_text") or "").strip()
-                                     for b in existing)
+    had_translation = any((b.get("translated_text") or "").strip() for b in existing)
+    if not had_translation:
+        return False
+    if not translated_ok or any(level == "error" for level, *_ in notes):
+        return True
+    return not any((b.get("translated_text") or "").strip() for b in bubbles)
 
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
@@ -254,10 +266,10 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         translated_ok, new_context = _translate(
             bubbles, engine, engine_name, drama, glossary,
             _predecessor_context(drama_id, page_id), drama_id, notes)
-    if existing and _redo_would_lose_work(existing, bubbles, translated_ok):
-        notes.append(("warning", "Redo did not produce a usable result for this page, so its "
-                                 "existing regions were kept unchanged. Try Redo this page "
-                                 "again."))
+    if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
+        notes.append(("warning", "Redo did not produce a complete result for this page (no "
+                                 "regions, OCR or translation incomplete), so its existing "
+                                 "regions were kept unchanged. Try Redo this page again."))
         db.update_page(page_id, run_notes=pages_svc.notes_to_json(notes))
         return "kept"
     new_ids = db.replace_bubbles_if_unchanged(page_id, expected_ids, bubbles,

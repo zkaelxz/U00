@@ -35,10 +35,8 @@ Safety:
     background_jobs.DRAMA_JOB_PREFIXES: translate, transcribe, ...)
     refuses the upload/paste/removal with ConflictError (409), like the
     other drama-scoped file writes (novel_attach_service, delete_service).
-    A Sources chapter import (`source_import_<source>_<series>`,
-    sources/pipeline.py) appends to raw_novel_context.txt but its id names
-    no drama, so raw-novel writes are also refused while ANY source import
-    is running or queued (conservative: it may be for another drama).
+    A Sources chapter import (`sourceimport_<drama_id>`) is one of those
+    per-drama jobs, so it blocks raw-novel writes for its drama the same way.
 
 No FastAPI import: takes a binary file-like object.
 """
@@ -50,7 +48,6 @@ import tempfile
 from typing import Optional
 
 import db
-from jobs import job_store
 import subtitle_parse
 from services import drama_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
@@ -68,9 +65,6 @@ MAX_TEXT_CHARS = 10_000_000
 _BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"),
          (codecs.BOM_UTF16_BE, "utf-16"))
 _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
-_IMPORT_BUSY = ("A Sources chapter import is running and may be adding to the raw novel. "
-                "Wait for it to finish or cancel it.")
-SOURCE_IMPORT_PREFIX = "source_import_"  # sources/pipeline.import_job_id
 
 
 def _require_drama(drama_id: int) -> dict:
@@ -83,19 +77,6 @@ def _require_drama(drama_id: int) -> dict:
 def _require_idle(drama_id: int):
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError(_BUSY)
-
-
-def _source_import_running() -> bool:
-    """Any Sources import job, in this process or (via fresh job_records
-    rows) another one. Its id carries no drama id, so this can't be
-    narrowed to one drama."""
-    return job_store.fresh_active(prefix=SOURCE_IMPORT_PREFIX)
-
-
-def _require_raw_novel_idle(drama_id: int):
-    _require_idle(drama_id)
-    if _source_import_running():
-        raise ConflictError(_IMPORT_BUSY)
 
 
 def _folder(drama_id: int) -> str:
@@ -300,7 +281,7 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
     """Sets or replaces raw_novel_context.txt (.txt/.md/.epub)."""
     drama = _require_drama(drama_id)
     ext = _extension(client_filename, RAW_NOVEL_EXTENSIONS)
-    _require_raw_novel_idle(drama_id)
+    _require_idle(drama_id)
     text, guessed = _read_text(fileobj, ext, drama.get("source_language") or "zh",
                                drama.get("chinese_script") or "simplified")
     return _with_warning(_store_raw_novel(drama_id, text), guessed)
@@ -309,7 +290,7 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
 def save_raw_novel_text(drama_id: int, text) -> dict:
     """Pasted raw novel text; same rules as the upload."""
     _require_drama(drama_id)
-    _require_raw_novel_idle(drama_id)
+    _require_idle(drama_id)
     return _store_raw_novel(drama_id, _pasted_text(text))
 
 

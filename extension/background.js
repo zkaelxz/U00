@@ -46,14 +46,23 @@ function base() {
 // Every request carries the token as a header. Never as a query
 // parameter: a URL reaches logs, history and referrers, and this repo's
 // standing rule is that nothing token-shaped goes into one.
+// Chrome may stop a service worker whose single event runs about five minutes,
+// which would drop the reply port without a word. A bridge call that is still
+// queued behind a long run (or a first model download) is cut off a little
+// earlier and reported honestly: the app keeps working on it.
+const CALL_TIMEOUT_MS = 4.5 * 60 * 1000;
+
 async function call(path, { method = "GET", body = null } = {}) {
   const { token } = await settings();
   if (!token) {
     return { ok: false, error: "No token yet. Open the extension's options and paste the token from Baihe's Settings." };
   }
   let response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
   try {
     response = await fetch(base() + path, {
+      signal: controller.signal,
       method,
       headers: {
         "X-Baihe-Token": token,
@@ -62,6 +71,14 @@ async function call(path, { method = "GET", body = null } = {}) {
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === "AbortError") {
+      return {
+        ok: false,
+        timedOut: true,
+        error: "Baihe is still working on this. Check the drama in Baihe in a few minutes; pages already read are kept.",
+      };
+    }
     // A refused connection is the ordinary "the app isn't running" case,
     // and is worth saying plainly rather than as a network error.
     return {
@@ -75,6 +92,7 @@ async function call(path, { method = "GET", body = null } = {}) {
   } catch (e) {
     payload = null;
   }
+  clearTimeout(timer);
   if (!response.ok) {
     const detail = (payload && payload.error) || `HTTP ${response.status}`;
     return { ok: false, error: detail, status: response.status };

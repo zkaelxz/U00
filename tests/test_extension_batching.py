@@ -36,7 +36,7 @@ HARNESS = textwrap.dedent("""
         return { ok: reply.status === 200, status: reply.status, json: async () => reply.body };
       },
       console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
-      setTimeout, globalThis: null,
+      setTimeout, clearTimeout, AbortController, globalThis: null,
     };
     sandbox.globalThis = sandbox;
     sandbox.importScripts = (name) => vm.runInContext(

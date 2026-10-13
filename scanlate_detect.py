@@ -426,6 +426,10 @@ def detect_panels(image_path: str, min_panel_frac: float = 0.02, image=None):
 _MAX_WEBTOON_SLICES = 200
 
 
+class StripTooLong(ValueError):
+    """A strip that would need more than _MAX_WEBTOON_SLICES slices."""
+
+
 def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int = 100):
     """
     Webtoons are single continuous vertical strips, often 10,000+ pixels
@@ -478,7 +482,7 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
         idx += 1
         if idx >= _MAX_WEBTOON_SLICES:
             # Stopping here would silently drop the rest of the strip.
-            raise ValueError(f"This strip needs more than {_MAX_WEBTOON_SLICES} slices; "
+            raise StripTooLong(f"This strip needs more than {_MAX_WEBTOON_SLICES} slices; "
                              "split it into shorter images before importing it.")
     return slices
 

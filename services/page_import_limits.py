@@ -75,9 +75,16 @@ def is_strip(width: int, height: int) -> bool:
 
 def _slices(png: bytes) -> list:
     """A strip cut at whitespace into PNG pages (Scanlate's own slicer), or
-    [png] when OpenCV isn't installed or the slicer can't read it."""
+    [png] when OpenCV isn't installed or the slicer can't read it. A strip
+    too long to slice, or too big to hold in memory, is rejected instead:
+    the whole strip must not reach the detector, and a cut tail must not be
+    dropped without a word."""
     try:
         import scanlate
+        import scanlate_detect
+    except ImportError:
+        return [png]
+    try:
         with storage.job_workdir("page_import") as tmp:
             # A fixed ASCII name: OpenCV can't open non-ASCII paths on Windows.
             path = os.path.join(tmp, "strip.png")
@@ -88,6 +95,10 @@ def _slices(png: bytes) -> list:
                 with open(p, "rb") as f:
                     out.append(f.read())
             return out or [png]
+    except scanlate_detect.StripTooLong as exc:
+        raise ImageRejected(f"over the slice limit: {exc}") from None
+    except MemoryError:
+        raise ImageRejected("over the memory available to slice this strip") from None
     except Exception:
         return [png]
 
