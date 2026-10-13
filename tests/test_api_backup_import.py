@@ -881,9 +881,9 @@ def _die_without_cleanup(monkeypatch):
 def _restart(monkeypatch):
     monkeypatch.undo()
     # A new process has no running imports, and a dead one holds no locks.
-    for entry in db._active_media_stagings.values():
+    for entry in db.media_journal._active_media_stagings.values():
         db._release_lock(entry["lock"])
-    db._active_media_stagings.clear()
+    db.media_journal._active_media_stagings.clear()
 
 
 def test_commit_failure_removes_only_this_imports_folders(client, monkeypatch):
@@ -982,10 +982,10 @@ def test_a_replacement_folder_with_a_reused_inode_is_kept(client, monkeypatch):
     # marker it must still be kept, never removed.
     (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
     new_b = os.path.join(db.DRAMAS_DIR, str(g + 2))
-    recorded = db._folder_identity(new_b)
+    recorded = db.media_journal._folder_identity(new_b)
     shutil.rmtree(new_b)
     _folder_with(new_b, "theirs.txt", b"theirs")
-    monkeypatch.setattr(db, "_folder_identity", lambda path: recorded)
+    monkeypatch.setattr(db.media_journal, "_folder_identity", lambda path: recorded)
     assert db.recover_media_imports() == {"settled": 0, "failed_ids": [g + 2]}
     assert _read(os.path.join(new_b, "theirs.txt")) == b"theirs"
 
@@ -993,7 +993,7 @@ def test_a_replacement_folder_with_a_reused_inode_is_kept(client, monkeypatch):
 def test_recovery_proves_a_folder_by_its_marker_when_the_inode_changed(client, monkeypatch):
     # FAT/exFAT/SMB: the rename gave the folder another inode number, or none.
     (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
-    monkeypatch.setattr(db, "_folder_identity", lambda path: None)
+    monkeypatch.setattr(db.media_journal, "_folder_identity", lambda path: None)
     assert db.recover_media_imports() == {"settled": 1, "failed_ids": []}
     assert _entries() == sorted([str(a), str(b)])
 
@@ -1003,7 +1003,7 @@ def test_recovery_with_a_changed_inode_and_no_marker_keeps_the_folder(client, mo
     new_a = os.path.join(db.DRAMAS_DIR, str(g + 1))
     os.remove(os.path.join(new_a, db.MEDIA_MARKER))
     for identity in (None, [1, 2]):
-        monkeypatch.setattr(db, "_folder_identity", lambda path, i=identity: i)
+        monkeypatch.setattr(db.media_journal, "_folder_identity", lambda path, i=identity: i)
         assert db.recover_media_imports() == {"settled": 0, "failed_ids": [g + 1]}
         assert _read(os.path.join(new_a, "a.mp3")) == b"media-a.mp3"
     # The next new drama with that id doesn't inherit it: it is renamed aside, kept.
@@ -1015,7 +1015,7 @@ def test_recovery_with_a_changed_inode_and_no_marker_keeps_the_folder(client, mo
 def test_commit_failure_cleans_up_on_a_file_system_without_inode_numbers(client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
-    monkeypatch.setattr(db, "_folder_identity", lambda path: None)
+    monkeypatch.setattr(db.media_journal, "_folder_identity", lambda path: None)
     _fail_commit_after_move(monkeypatch)
     before = _dramas()
     r = _post_import(client, data, [a, b])
@@ -1029,8 +1029,8 @@ def test_commit_failure_renames_back_even_when_nothing_proves_the_folder(client,
     # The failing import itself knows exactly which folders it moved.
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3"})
-    monkeypatch.setattr(db, "_folder_identity", lambda path: None)
-    monkeypatch.setattr(db, "_marker_matches", lambda folder, token: False)
+    monkeypatch.setattr(db.media_journal, "_folder_identity", lambda path: None)
+    monkeypatch.setattr(db.media_journal, "_marker_matches", lambda folder, token: False)
     _fail_commit_after_move(monkeypatch)
     r = _post_import(client, data, [a])
     # Unprovable: kept in place and reported, not deleted.
@@ -1105,7 +1105,7 @@ def test_a_windows_junction_counts_as_a_link():
     import types
     junction = types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_file_attributes=0x400)
     plain = types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_file_attributes=0x10)
-    assert db._is_link(junction) and not db._is_link(plain)
+    assert db.media_journal._is_link(junction) and not db.media_journal._is_link(plain)
 
 
 def test_a_stray_folder_for_a_new_id_is_renamed_aside(client):

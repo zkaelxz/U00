@@ -65,9 +65,12 @@ for backup and restore operations see `runbook.md`.
   `db/app_settings.py` (app settings, the metadata research cache and
   results, field provenance), `db/job_records.py` (the job_records mirror),
   `db/speakers.py` (characters, speaker rename and merge with its undo,
-  series characters and voice links, the voice bank) and `db/comic_pages.py`
+  series characters and voice links, the voice bank), `db/comic_pages.py`
   (comic pages and their bubbles for scanlation: page rows, the id-preserving
-  bubble edits that bump a page's rev, the legacy full replace).
+  bubble edits that bump a page's rev, the legacy full replace) and
+  `db/media_journal.py` (the media journal of backup imports and restores:
+  staging folders, the journal, crash recovery, `claim_new_drama_folder`;
+  `_media_lock` and `STALE_MEDIA_STAGING_SECONDS` stay in `db/__init__.py`).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
