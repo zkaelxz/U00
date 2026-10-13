@@ -10,7 +10,7 @@ run bookkeeping and when the next run is due.
   inside another library's folder). A value the owner already saved is
   kept; the defaults only fill in what was never saved.
 - State (STATE_KEY): when the last run was tried and succeeded and its
-  last error. The due-check reads it; the backup job writes it
+  last error or cancel. The due-check reads it; the backup job writes it
   (auto_backup_service).
 
 Saving settings (and moving the copies with the folder) is
@@ -179,7 +179,10 @@ def is_due(now=None, settings=None, state=None) -> bool:
     state = _get_state() if state is None else state
     now = now or _now()
     attempt = _parse(state.get("last_attempt_at"))
-    if (state.get("last_error") and attempt is not None and attempt <= now
+    cancelled = state.get("last_cancelled_at")
+    stopped = state.get("last_error") or (cancelled is not None
+                                          and cancelled == state.get("last_attempt_at"))
+    if (stopped and attempt is not None and attempt <= now
             and now - attempt < RETRY_AFTER_FAILURE):
         return False
     last = _parse(state.get("last_success_at"))

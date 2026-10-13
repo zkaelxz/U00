@@ -2140,3 +2140,51 @@ def test_restore_keeps_a_titles_release_date(isolated_db):
     _restore(data)
     assert db.get_drama(dated)["release_date"] == "2025-03-04"
     assert db.get_drama(undated)["release_date"] is None
+
+
+def test_restore_disk_check_counts_the_database_rebuild(isolated_db, monkeypatch):
+    """The rebuild writes a scratch copy and a fresh file of each database
+    beside the extracted ones, so those need room too."""
+    called, asked = [], []
+    monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(lbr, "has_disk_room", lambda folder, need: asked.append(need) or False)
+    data = _zip({"library.db": b"x" * 1000, "sources.db": b"s" * 500, "a.bin": b"a" * 100})
+    with pytest.raises(InvalidInputError) as ei:
+        lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
+    assert "disk" in str(ei.value) and not called
+    assert asked == [1600 + 2 * 1500]
+
+
+def test_disk_full_while_rebuilding_is_not_called_a_bad_backup(isolated_db, monkeypatch):
+    a = _new("A")
+    data = _backup_bytes()
+
+    def fill_up(path):
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("PRAGMA max_page_count = 1")
+            conn.execute("CREATE TABLE IF NOT EXISTS filler (x)")
+            conn.execute("CREATE TABLE IF NOT EXISTS filler2 (x)")
+        finally:
+            conn.close()
+    monkeypatch.setattr(db, "migrate_database_file", fill_up)
+    with pytest.raises(InvalidInputError) as ei:
+        _restore(data)
+    assert str(ei.value) == lrs.RESTORE_DISK_FULL
+    assert db.get_drama(a)
+
+
+def test_disk_full_check_works_without_sqlite_full_constants(monkeypatch):
+    """sqlite3.SQLITE_FULL and Error.sqlite_errorcode are Python 3.11+; on
+    3.10 a bad library.db must still be reported as one, not as a crash."""
+    monkeypatch.delattr(sqlite3, "SQLITE_FULL", raising=False)
+    try:
+        raise ValueError(lrs.BAD_LIBRARY_DB) from sqlite3.DatabaseError("file is not a database")
+    except ValueError as e:
+        bad = e
+    assert lrs._ran_out_of_disk(bad) is False
+    full = sqlite3.OperationalError("database or disk is full")
+    full.sqlite_errorcode = 13
+    wrapped = ValueError(lrs.BAD_LIBRARY_DB)
+    wrapped.__context__ = full
+    assert lrs._ran_out_of_disk(wrapped) is True

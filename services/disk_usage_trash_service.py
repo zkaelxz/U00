@@ -31,6 +31,14 @@ from services.service_errors import (ConflictError, InvalidInputError, NotFoundE
 TRASH_WORD = "DELETE"
 
 
+def _empty_plain_folder(path: str) -> bool:
+    try:
+        st = os.lstat(path)
+        return stat.S_ISDIR(st.st_mode) and not _is_link_stat(st) and not os.listdir(path)
+    except OSError:
+        return False
+
+
 def _restore_target(manifest: dict, meas: dict, ctx: _Ctx):
     """(destination path, None) when the payload may go back where it came
     from, else (None, plain reason). The same checks clear makes, on the
@@ -52,7 +60,10 @@ def _restore_target(manifest: dict, meas: dict, ctx: _Ctx):
     if not os.path.isdir(parent):
         return None, "The folder it came from is no longer a folder."
     dest = os.path.join(parent, parts[-1])
-    if os.path.lexists(dest):
+    # Opening a title recreates its empty folder, which must not block
+    # putting the cleared one back.
+    if os.path.lexists(dest) and not (manifest["kind"] == "folder"
+                                      and _empty_plain_folder(dest)):
         return None, "Something with the same name is already in its old place."
     protected, reason = _protection(tuple(parts), dest, meas["flagged"], ctx)
     if protected:
@@ -125,6 +136,8 @@ def trash_restore(trash_id, confirm=False) -> dict:
             raise ConflictError("It can't be put back there from here (another drive, or the "
                                 "path would be too long).", details={"reason": "cannot_restore"})
         try:
+            if os.path.lexists(dest):
+                os.rmdir(dest)  # checked above: an empty folder, never a link
             _rename_no_overwrite(payload, dest, manifest["kind"])
         except OSError:
             raise ConflictError("Couldn't put it back (it may be in use), so nothing was "

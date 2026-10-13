@@ -2405,6 +2405,18 @@ class TestLineHistoryCompression:
         assert self._stored(did)[hid][0] == "blob"
         assert db.get_line_history_snapshot(hid) == [{"zh": "旧"}]
 
+    def test_a_clock_set_back_never_prunes_the_snapshot_just_written(self, isolated_db):
+        did = db.create_drama(title_zh="D")
+        older = self._snapshots(did, 2)
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("UPDATE line_history SET created_at = '2999-01-01' WHERE drama_id = ?",
+                         (did,))
+            conn.commit()
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="新", en="new")]
+        hid = db.save_line_history_snapshot(did, lines, "after the clock", keep_last=2)
+        assert db.get_line_history_snapshot(hid)[0]["zh"] == "新"
+        assert [h["id"] for h in db.list_line_history(did)] == [hid, older[1]]
+
 
 class TestJobRecordCancelAcrossRuns:
     """A cancel aimed at one run must not carry into the run that replaces it."""

@@ -45,12 +45,13 @@ def _newest_first(rows: list) -> list:
 # ---------------------------------------------------------------------------
 
 def list_line_history(drama_id: int) -> list:
-    """Snapshot metadata (id, label, created_at), newest first. No lines
-    payload -- use get_line_history_snapshot for that."""
+    """Snapshot metadata (id, label, created_at), newest first in the order
+    written (db.list_line_history), not by created_at, which a clock set
+    back reorders. No lines payload -- use get_line_history_snapshot for that."""
     _require_drama(drama_id)
     return [{"id": h["id"], "drama_id": h["drama_id"], "label": h["label"],
              "created_at": h["created_at"]}
-            for h in _newest_first(db.list_line_history(drama_id))]
+            for h in db.list_line_history(drama_id)]
 
 
 def get_line_history_snapshot(drama_id: int, history_id: int) -> dict:
