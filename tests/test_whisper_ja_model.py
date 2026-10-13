@@ -15,7 +15,7 @@ import whisper_models as wm
 from lib import ct2_repo
 from lib.errors import InvalidInputError
 from services import benchmark_lab_service as lab
-from services import compare_transcription_service, transcribe_pipeline, transcribe_service
+from services import compare_transcription_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 
 KEY = "ja-1.5b"
 REPO, REVISION = wm.PINNED_CT2_REPOS[KEY]
@@ -186,7 +186,7 @@ class TestCacheAndEstimates:
 
     def test_never_the_default(self):
         assert wm.DEFAULT_WHISPER_SIZE != KEY and wm.WHISPER_LANGUAGE_RULES[KEY].only_for == ("ja",)
-        assert transcribe_service.default_whisper_size() != KEY
+        assert transcribe_options_service.default_whisper_size() != KEY
 
 
 class TestJapaneseOnly:
@@ -199,17 +199,17 @@ class TestJapaneseOnly:
         assert isolated_db.get_drama(zh)["whisper_size"] != KEY
 
     def test_a_saved_choice_falls_back_when_the_language_changes(self):
-        assert transcribe_service.stored_whisper_size(
+        assert transcribe_options_service.stored_whisper_size(
             {"whisper_size": KEY, "source_language": "ja"}) == KEY
         for lang in ("zh", "ko", None):
-            assert transcribe_service.stored_whisper_size(
-                {"whisper_size": KEY, "source_language": lang}) == transcribe_service.default_whisper_size()
+            assert transcribe_options_service.stored_whisper_size(
+                {"whisper_size": KEY, "source_language": lang}) == transcribe_options_service.default_whisper_size()
 
     def test_a_run_naming_another_language_is_refused(self):
         with pytest.raises(InvalidInputError):
-            transcribe_service.check_whisper_size_for_language(KEY, "ko")
-        transcribe_service.check_whisper_size_for_language(KEY, "ja")
-        transcribe_service.check_whisper_size_for_language("large-v3", "ko")
+            transcribe_options_service.check_whisper_size_for_language(KEY, "ko")
+        transcribe_options_service.check_whisper_size_for_language(KEY, "ja")
+        transcribe_options_service.check_whisper_size_for_language("large-v3", "ko")
 
     def test_compare_offers_and_accepts_it_only_for_japanese(self, isolated_db, monkeypatch):
         ja = {"id": 1, "source_language": "ja"}

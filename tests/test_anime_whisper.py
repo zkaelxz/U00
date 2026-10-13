@@ -15,7 +15,7 @@ import asr_backend as ab
 import whisper_models as wm
 from lib.errors import InvalidInputError
 from services import asr_options_service, compare_transcription_service, timing_check_service
-from services import transcribe_pipeline, transcribe_service
+from services import transcribe_pipeline, transcribe_service, transcribe_options_service
 
 GOOD = ["config.json", "model.bin", "tokenizer.json", "vocabulary.json",
         "preprocessor_config.json", "README.md", ".gitattributes"]
@@ -259,7 +259,7 @@ class TestNotASize:
         key = wm.ANIME_WHISPER_KEY
         assert key not in wm.WHISPER_MODELS and key not in wm.PINNED_CT2_REPOS
         assert key not in wm.LIVE_WHISPER_SIZES
-        assert key not in transcribe_service._allowed_whisper_sizes()
+        assert key not in transcribe_options_service._allowed_whisper_sizes()
         assert wm.DEFAULT_WHISPER_SIZE != key
 
     def test_memory_headroom_knows_it(self):
@@ -291,7 +291,7 @@ class TestServerRules:
 
     def test_a_run_for_another_language_is_refused(self):
         with pytest.raises(InvalidInputError, match="Japanese"):
-            transcribe_service._check_run_choices("whisper", "anime_whisper", "whisper_diff", "ko")
+            transcribe_options_service._check_run_choices("whisper", "anime_whisper", "whisper_diff", "ko")
 
     def test_compare_refuses_it_for_other_languages(self):
         assert "Japanese" in compare_transcription_service._backend_problem("anime_whisper", "zh")
@@ -375,7 +375,7 @@ class TestPackageVersions:
         import importlib.metadata as md
         versions = {"faster-whisper": "1.2.1", "huggingface-hub": "0.30.0", package: version}
         monkeypatch.setattr(md, "version", lambda name: versions[name])
-        problem = transcribe_service.anime_whisper_package_problem()
+        problem = transcribe_options_service.anime_whisper_package_problem()
         assert (problem is None) is ok
         if not ok:
             assert package in problem and "Diagnostics" in problem

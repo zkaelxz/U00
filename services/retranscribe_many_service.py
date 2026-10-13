@@ -28,9 +28,9 @@ import db
 import sensitivity_preset as presets
 import source_change
 import storage
-from services import (compare_transcription_service as compare, settings_service,
-                      timing_settings_service, transcribe_pipeline, transcribe_service,
-                      translate_service)
+from services import (compare_transcription_service as compare, settings_service, timing_settings_service,
+                      transcribe_pipeline, transcribe_service, translate_service, retranscribe_line_service,
+                      transcribe_options_service)
 from services.retranscribe_worker import (apply_retranscribe_many_outcome,
                                           retranscribe_many_worker, retranscribe_timeout_s)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -41,7 +41,7 @@ _SNAPSHOT_LABEL = "before re-transcribing lines"
 
 
 def _job_id(drama_id: int) -> str:
-    return transcribe_service.retranscribe_line_job_id(drama_id)
+    return retranscribe_line_service.retranscribe_line_job_id(drama_id)
 
 
 def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str = "",
@@ -73,7 +73,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
     if any(not float(ln.end) > float(ln.start) for ln in picked):
         raise UnsupportedOperationError("A chosen line has no timing window to re-transcribe.")
     prompt = transcribe_service._resolve_initial_prompt(drama_id, initial_prompt, extra_names)
-    for prefix in transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES:
+    for prefix in retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):
             raise ConflictError("Another job is changing this title's lines. "
@@ -84,8 +84,8 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
                for ln in picked]
     bases = {ln.id: {"zh": ln.zh or "", "en": ln.en or "", "start": float(ln.start),
                      "end": float(ln.end), "number": ln.idx + 1} for ln in picked}
-    size = transcribe_service.stored_whisper_size(drama)
-    tuning = transcribe_service._DEFAULT_TUNING
+    size = transcribe_options_service.stored_whisper_size(drama)
+    tuning = transcribe_options_service._DEFAULT_TUNING
     scratch_dir = storage.new_workdir(job_id)
     try:
         started = background_jobs.start_process_job(
@@ -94,7 +94,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
                   drama.get("beam_size") or tuning["beam_size"],
                   drama.get("min_silence_ms") or tuning["min_silence_ms"],
                   timing_settings_service.vad_threshold_for(drama), settings_service.get("use_gpu"), prompt,
-                  transcribe_service.stored_hallucination_silence_sec(drama),
+                  transcribe_options_service.stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
                   presets.normalize(drama.get("sensitivity_preset")),
                   transcribe_pipeline._model_loading_message(

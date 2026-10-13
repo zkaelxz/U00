@@ -208,7 +208,7 @@ def test_refine_option_defaults_off_and_saves(isolated_db):
 def test_run_start_and_validate_refuse_vad_backend_without_faster_whisper(isolated_db, monkeypatch):
     import importlib.util
     import os
-    from services import transcribe_service
+    from services import transcribe_service, transcribe_options_service
     from services.service_errors import DependencyUnavailableError
     did = isolated_db.create_drama(title_en="D", audio_filename="audio.wav",
                                    transcript_mode="whisper", asr_backend_choice="qwen3_asr_vad")
@@ -216,13 +216,13 @@ def test_run_start_and_validate_refuse_vad_backend_without_faster_whisper(isolat
     os.makedirs(ddir, exist_ok=True)
     open(os.path.join(ddir, "audio.wav"), "wb").close()
     real_find_spec = importlib.util.find_spec
-    monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature, language=None: None)
-    monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
+    monkeypatch.setattr(transcribe_options_service, "require_qwen3_packages", lambda feature, language=None: None)
+    monkeypatch.setattr(transcribe_options_service.importlib.util, "find_spec",
                         lambda name, *a: None if name == "faster_whisper" else real_find_spec(name, *a))
     with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
         transcribe_service.start_transcribe_run(did)
     with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
-        transcribe_service.validate_transcribe_options(did)
+        transcribe_options_service.validate_transcribe_options(did)
 
 
 def test_refine_trims_the_previous_line_when_a_fallback_line_would_overlap_it(monkeypatch):

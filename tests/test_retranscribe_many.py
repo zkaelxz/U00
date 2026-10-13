@@ -22,7 +22,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import (auth_service, jobs_service, ownership_service, retranscribe_many_service as svc,
-                      retranscribe_worker, transcribe_service)
+                      retranscribe_worker, retranscribe_line_service)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
@@ -193,7 +193,7 @@ class TestStart:
                 return True
             return fake
         monkeypatch.setattr(background_jobs, "start_process_job", capture("one"))
-        transcribe_service.start_retranscribe_line(did, ids[0])
+        retranscribe_line_service.start_retranscribe_line(did, ids[0])
         monkeypatch.setattr(background_jobs, "start_process_job", capture("many"))
         svc.start_retranscribe_many(did, [ids[0]])
         one_name, one = seen["one"]
@@ -262,7 +262,7 @@ class TestStart:
         with pytest.raises(ConflictError):
             svc.start_retranscribe_many(did, ids)
         with pytest.raises(ConflictError):
-            transcribe_service.start_retranscribe_line(did, ids[0])
+            retranscribe_line_service.start_retranscribe_line(did, ids[0])
 
     def test_another_drama_is_not_blocked(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
@@ -380,14 +380,14 @@ class TestJob:
 
     def test_a_one_line_result_is_not_a_many_line_result(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
-        transcribe_service.start_retranscribe_line(did, ids[0])
+        retranscribe_line_service.start_retranscribe_line(did, ids[0])
         _wait(f"retranscribe_{did}")
-        assert transcribe_service.get_retranscribe_result(did, ids[0])["proposed_zh"] == "新0"
+        assert retranscribe_line_service.get_retranscribe_result(did, ids[0])["proposed_zh"] == "新0"
         with pytest.raises(NotFoundError):
             svc.get_retranscribe_many_result(did)
         _run(did, [ids[1]])
         with pytest.raises(NotFoundError):
-            transcribe_service.get_retranscribe_result(did, ids[0])
+            retranscribe_line_service.get_retranscribe_result(did, ids[0])
 
 
 class TestApply:

@@ -25,7 +25,7 @@ import qwen3_native
 import whisper_models
 import segment_splitting
 from jobs import gpu_slots
-from services import transcribe_pipeline, transcribe_service
+from services import transcribe_options_service, transcribe_pipeline, transcribe_service, transcribe_speed_service
 from services.qwen3_requirements_service import MISSING_QWEN_MESSAGE
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -134,7 +134,7 @@ class TestGetTranscribeConfig:
     def test_a_title_with_no_saved_backend_stays_on_whisper(self, isolated_db, monkeypatch, language):
         # transformers 5.15+, torch and faster-whisper are all present, which
         # a plain Diagnostics install provides; that must not pick Qwen3-ASR.
-        monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
+        monkeypatch.setattr(transcribe_options_service.importlib.util, "find_spec",
                             lambda name, *a: object())
         monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.19.0")
         did = isolated_db.create_drama(title_en="D", source_language=language)
@@ -146,7 +146,7 @@ class TestGetTranscribeConfig:
         assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == "qwen3_asr_long"
 
     def test_a_saved_backend_is_never_replaced_by_the_default(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
+        monkeypatch.setattr(transcribe_options_service.importlib.util, "find_spec",
                             lambda name, *a: object())
         did = isolated_db.create_drama(title_en="D", source_language="zh",
                                        asr_backend_choice="whisper")
@@ -1994,63 +1994,63 @@ class TestSplitPiecesGetOwnSpeaker:
 
 class TestTranscribeSpeedCalibration:
     def test_record_then_read_per_model_and_device(self, isolated_db):
-        assert transcribe_service.measured_transcribe_speed("large-v3", False) is None
-        transcribe_service.record_transcribe_speed("large-v3", False, 600, 300)
-        assert transcribe_service.measured_transcribe_speed("large-v3", False) == 2.0
-        assert transcribe_service.measured_transcribe_speed("large-v3", True) is None
-        assert transcribe_service.measured_transcribe_speed("small", False) is None
+        assert transcribe_speed_service.measured_transcribe_speed("large-v3", False) is None
+        transcribe_speed_service.record_transcribe_speed("large-v3", False, 600, 300)
+        assert transcribe_speed_service.measured_transcribe_speed("large-v3", False) == 2.0
+        assert transcribe_speed_service.measured_transcribe_speed("large-v3", True) is None
+        assert transcribe_speed_service.measured_transcribe_speed("small", False) is None
 
     def test_two_readings_give_their_midpoint(self, isolated_db):
-        transcribe_service.record_transcribe_speed("small", True, 600, 300)   # 2.0
-        transcribe_service.record_transcribe_speed("small", True, 600, 100)   # 6.0
-        assert transcribe_service.measured_transcribe_speed("small", True) == 4.0
+        transcribe_speed_service.record_transcribe_speed("small", True, 600, 300)   # 2.0
+        transcribe_speed_service.record_transcribe_speed("small", True, 600, 100)   # 6.0
+        assert transcribe_speed_service.measured_transcribe_speed("small", True) == 4.0
 
     def test_the_median_of_the_last_five_runs_is_used(self, isolated_db):
         # One slow outlier (a busy PC) doesn't move the estimate; the oldest ages out.
         for work in (600, 300, 300, 3000, 300):   # 1, 2, 2, 0.2, 2 audio s per s
-            transcribe_service.record_transcribe_speed("small", False, 600, work)
-        assert transcribe_service.measured_transcribe_speed("small", False) == 2.0
-        assert transcribe_service.measured_transcribe_runs("small", False) == 5
-        transcribe_service.record_transcribe_speed("small", False, 600, 100)   # 6.0 pushes out the 1.0
-        assert transcribe_service.measured_transcribe_runs("small", False) == 5
-        assert transcribe_service.measured_transcribe_speed("small", False) == 2.0
-        assert [r["speed"] for r in transcribe_service._recorded_runs("small", False)] == [
+            transcribe_speed_service.record_transcribe_speed("small", False, 600, work)
+        assert transcribe_speed_service.measured_transcribe_speed("small", False) == 2.0
+        assert transcribe_speed_service.measured_transcribe_runs("small", False) == 5
+        transcribe_speed_service.record_transcribe_speed("small", False, 600, 100)   # 6.0 pushes out the 1.0
+        assert transcribe_speed_service.measured_transcribe_runs("small", False) == 5
+        assert transcribe_speed_service.measured_transcribe_speed("small", False) == 2.0
+        assert [r["speed"] for r in transcribe_speed_service._recorded_runs("small", False)] == [
             2.0, 2.0, 0.2, 2.0, 6.0]
 
     def test_a_single_value_from_an_older_version_still_counts(self, isolated_db):
         isolated_db.set_app_setting("transcribe_speed", {"base|cpu": 3.0, "tiny|cpu": "bad"})
-        assert transcribe_service.measured_transcribe_speed("base", False) == 3.0
-        assert transcribe_service.measured_transcribe_runs("base", False) == 1
-        assert transcribe_service.measured_transcribe_speed("tiny", False) is None
-        transcribe_service.record_transcribe_speed("base", False, 600, 100)   # 6.0
-        assert transcribe_service.measured_transcribe_speed("base", False) == 4.5
+        assert transcribe_speed_service.measured_transcribe_speed("base", False) == 3.0
+        assert transcribe_speed_service.measured_transcribe_runs("base", False) == 1
+        assert transcribe_speed_service.measured_transcribe_speed("tiny", False) is None
+        transcribe_speed_service.record_transcribe_speed("base", False, 600, 100)   # 6.0
+        assert transcribe_speed_service.measured_transcribe_speed("base", False) == 4.5
 
     def test_stage_seconds_are_kept_per_run_and_summarised_by_median(self, isolated_db):
         for decode, work in ((10, 300), (30, 300), (20, 300)):
-            transcribe_service.record_transcribe_speed(
+            transcribe_speed_service.record_transcribe_speed(
                 "small", False, 600, work,
                 stage_seconds={"decode_vad": decode, "transcribe": work, "bogus": 5, "align": -1})
-        assert transcribe_service.measured_stage_seconds("small", False) == {
+        assert transcribe_speed_service.measured_stage_seconds("small", False) == {
             "decode_vad": 20.0, "transcribe": 300.0}
-        assert transcribe_service.measured_stage_seconds("small", True) == {}
+        assert transcribe_speed_service.measured_stage_seconds("small", True) == {}
 
     def test_diarize_speed_needs_three_runs_and_is_kept_per_device(self, isolated_db):
         for work in (300, 100):                                   # 2.0 and 6.0 audio s per s
-            transcribe_service.record_diarize_speed(False, 600, work)
-        assert transcribe_service.measured_diarize_speed(False) is None
-        assert transcribe_service.measured_diarize_runs(False) == 2
-        transcribe_service.record_diarize_speed(False, 600, 200)  # 3.0
-        assert transcribe_service.measured_diarize_speed(False) == 3.0
-        assert transcribe_service.measured_diarize_speed(True) is None
+            transcribe_speed_service.record_diarize_speed(False, 600, work)
+        assert transcribe_speed_service.measured_diarize_speed(False) is None
+        assert transcribe_speed_service.measured_diarize_runs(False) == 2
+        transcribe_speed_service.record_diarize_speed(False, 600, 200)  # 3.0
+        assert transcribe_speed_service.measured_diarize_speed(False) == 3.0
+        assert transcribe_speed_service.measured_diarize_speed(True) is None
         # It does not mix with a Whisper model's own history.
-        assert transcribe_service.measured_transcribe_speed("small", False) is None
+        assert transcribe_speed_service.measured_transcribe_speed("small", False) is None
 
     def test_old_records_without_diarize_or_stages_still_read(self, isolated_db):
         isolated_db.set_app_setting("transcribe_speed", {
             "base|cpu": 3.0, "small|cpu": {"runs": [{"speed": 2.0}]}})
-        assert transcribe_service.measured_transcribe_speed("base", False) == 3.0
-        assert transcribe_service.measured_stage_seconds("small", False) == {}
-        assert transcribe_service.measured_diarize_speed(False) is None
+        assert transcribe_speed_service.measured_transcribe_speed("base", False) == 3.0
+        assert transcribe_speed_service.measured_stage_seconds("small", False) == {}
+        assert transcribe_speed_service.measured_diarize_speed(False) is None
         did = isolated_db.create_drama(title_en="D")
         cfg = transcribe_service.get_transcribe_config(did)
         assert cfg["measured_stage_seconds"] == {} and cfg["measured_diarize_speed"] is None
@@ -2059,9 +2059,9 @@ class TestTranscribeSpeedCalibration:
     def test_config_reports_stage_medians_and_diarize_speed(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         model = whisper_models.DEFAULT_WHISPER_SIZE
-        transcribe_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
+        transcribe_speed_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
         for work in (300, 300, 300):
-            transcribe_service.record_diarize_speed(False, 600, work)
+            transcribe_speed_service.record_diarize_speed(False, 600, work)
         cfg = transcribe_service.get_transcribe_config(did)
         assert cfg["measured_stage_seconds"] == {"load": 12.0}
         assert cfg["measured_diarize_speed"] == 2.0 and cfg["measured_diarize_runs"] == 3
@@ -2073,31 +2073,31 @@ class TestTranscribeSpeedCalibration:
         (1.0, 1000.0), (1e9, 10.0),                         # outside the speed bounds
     ])
     def test_bad_readings_are_ignored(self, isolated_db, audio, work):
-        transcribe_service.record_transcribe_speed("base", False, audio, work)
-        assert transcribe_service.measured_transcribe_speed("base", False) is None
+        transcribe_speed_service.record_transcribe_speed("base", False, audio, work)
+        assert transcribe_speed_service.measured_transcribe_speed("base", False) is None
 
     def test_bad_stored_values_read_as_none(self, isolated_db):
         for stored in ("fast", {"base|cpu": "x"}, {"base|cpu": -3}, {"base|cpu": True}, [1]):
             isolated_db.set_app_setting("transcribe_speed", stored)
-            assert transcribe_service.measured_transcribe_speed("base", False) is None
+            assert transcribe_speed_service.measured_transcribe_speed("base", False) is None
         # A bad stored blob does not stop the next good reading from being kept.
-        transcribe_service.record_transcribe_speed("base", False, 600, 300)
-        assert transcribe_service.measured_transcribe_speed("base", False) == 2.0
+        transcribe_speed_service.record_transcribe_speed("base", False, 600, 300)
+        assert transcribe_speed_service.measured_transcribe_speed("base", False) == 2.0
 
     def test_a_settings_failure_never_raises(self, isolated_db, monkeypatch):
         def boom(*a, **k):
             raise RuntimeError("db locked")
         monkeypatch.setattr(isolated_db, "get_app_setting", boom)
-        assert transcribe_service.measured_transcribe_speed("base", False) is None
-        transcribe_service.record_transcribe_speed("base", False, 600, 300)
+        assert transcribe_speed_service.measured_transcribe_speed("base", False) is None
+        transcribe_speed_service.record_transcribe_speed("base", False, 600, 300)
 
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         # An unsaved drama's model follows the GPU setting, so each device has its own default.
-        transcribe_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, False, 600, 300)
+        transcribe_speed_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, False, 600, 300)
         assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 2.0
         assert transcribe_service.get_transcribe_config(did)["measured_speed_runs"] == 1
-        transcribe_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, True, 3000, 100)
+        transcribe_speed_service.record_transcribe_speed(whisper_models.DEFAULT_WHISPER_SIZE, True, 3000, 100)
         isolated_db.set_app_setting("use_gpu", True)
         assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 30.0
 
@@ -2120,10 +2120,10 @@ class TestTranscribeSpeedCalibration:
             job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh",
             *TestQwen3Backends._AUDIO_ARGS)
         # 90% of 600 s of audio in 120 s of work.
-        assert transcribe_service.measured_transcribe_speed("medium", False) == pytest.approx(4.5)
+        assert transcribe_speed_service.measured_transcribe_speed("medium", False) == pytest.approx(4.5)
         # The wait for the first percent is decode and VAD; the rest is the Whisper pass.
-        assert transcribe_service.measured_stage_seconds("medium", False)["decode_vad"] == 0.0
-        assert transcribe_service.measured_stage_seconds("medium", False)["transcribe"] == 120.0
+        assert transcribe_speed_service.measured_stage_seconds("medium", False)["decode_vad"] == 0.0
+        assert transcribe_speed_service.measured_stage_seconds("medium", False)["transcribe"] == 120.0
         _clear(job_id)
 
 

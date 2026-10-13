@@ -213,9 +213,9 @@ def for_title_whisper(drama_id: int) -> list:
     """Runs that hear with the title's saved Whisper size and ignore a
     configured local model folder (retranscribe, autotune)."""
     import db
-    from services import transcribe_service
+    from services import transcribe_options_service
     drama = db.get_drama(drama_id)
-    return for_whisper_size(transcribe_service.stored_whisper_size(drama)) if drama else []
+    return for_whisper_size(transcribe_options_service.stored_whisper_size(drama)) if drama else []
 
 
 def for_fix_flagged(drama_id: int) -> list:
@@ -251,11 +251,11 @@ def _backend_needs(backend: str, refine_timing: bool, mixed_languages: bool) -> 
 def for_compare(drama_id: int, whisper_size=None, backend=None) -> list:
     """compare_hear_worker.hear for the candidate start_compare resolves."""
     import db
-    from services import asr_options_service, compare_hear_worker, transcribe_service
+    from services import asr_options_service, compare_hear_worker, transcribe_options_service
     drama = db.get_drama(drama_id)
     if drama is None:
         return []
-    size = whisper_size or transcribe_service.stored_whisper_size(drama)
+    size = whisper_size or transcribe_options_service.stored_whisper_size(drama)
     backend = backend or asr_options_service.stored_asr_backend(drama)
     if backend in compare_hear_worker.VAD_BACKENDS:
         return _backend_needs(backend, False, False)
@@ -271,7 +271,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
     import db
     import qwen3_native
     from ocr import default_hardsub_backend
-    from services import asr_options_service, settings_service, transcribe_pipeline, transcribe_service
+    from services import asr_options_service, settings_service, transcribe_pipeline, transcribe_options_service
     drama = db.get_drama(drama_id)
     if drama is None:
         return []
@@ -291,7 +291,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
         backend = asr_options_service.stored_asr_backend(drama)
         mixed = asr_options_service.get_mixed_languages()
         use_groq = bool(drama.get("use_groq"))
-        size = transcribe_service.stored_whisper_size(drama)
+        size = transcribe_options_service.stored_whisper_size(drama)
         vad_run = mode == "whisper" and backend in transcribe_pipeline.VAD_BACKENDS
         mixed_whisper_run = mixed and mode == "whisper" and backend == "whisper" and not use_groq
         if drama.get("separate_vocals_first"):
