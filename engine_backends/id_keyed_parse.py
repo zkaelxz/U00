@@ -1,0 +1,113 @@
+"""Parsing an id-keyed JSON reply ({"12": "text"}) into {id: text}, including
+the complete pairs of a reply cut off by the output limit. No provider code."""
+
+import json
+import re
+
+
+def parse_id_keyed_json(text: str, expected_ids: list, recover: bool = False) -> dict:
+    """
+    Parses a response expected to be a JSON object mapping each line's
+    id (as a string) to its translation, e.g. {"1": "Hello.", "2": "Hi."}.
+    Returns {id_str: text} for whichever of expected_ids actually came
+    back with an actual string translation -- a missing id (or one
+    whose value isn't a string, e.g. null or a nested list) just isn't
+    a key here, it's the caller's job (request_translations_with_retry)
+    to decide what to do about that, not this function's.
+
+    A plain JSON array (a model ignoring the object-shape instruction) is
+    malformed and returns {}: an array can be short, long or reordered,
+    so matching it to ids by position could put a translation on the
+    wrong line. The retry path re-requests those ids instead.
+
+    recover (for local models, see _recover_id_keyed): take the last object
+    rather than the first, and keep the complete pairs of a cut-off reply.
+    """
+    stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    expected_str = {str(i) for i in expected_ids}
+    if recover:
+        return _recover_id_keyed(stripped, expected_str)
+    found = _first_id_object(stripped, expected_str)
+    # A reply cut off by the output limit has no complete object; its finished
+    # "id": "text" pairs are still good, matched to their line by id.
+    return found or _salvage_pairs(stripped, expected_str)
+
+
+def _id_pairs(data, expected_str: set) -> dict:
+    return {str(k): v for k, v in data.items() if str(k) in expected_str and isinstance(v, str)}
+
+
+def _first_id_object(text: str, expected_str: set) -> dict:
+    """The first JSON object in text that holds any expected id, so prose such
+    as "Lines [1] and [2]:" before the object is skipped. A single-key wrapper
+    ({"translations": {...}}) is opened."""
+    decoder = json.JSONDecoder()
+    i = 0
+    while i < len(text):
+        if text[i] not in "{[":
+            i += 1
+            continue
+        try:
+            value, stop = decoder.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(value, dict):
+            if len(value) == 1:
+                inner = next(iter(value.values()))
+                if isinstance(inner, dict):
+                    value = inner
+            found = _id_pairs(value, expected_str)
+            if found:
+                return found
+        i = stop
+    return {}
+
+
+# One complete "id": "text" pair; the value's closing quote proves it was
+# written to the end, unlike the pair a reply was cut off in.
+_ID_PAIR_RE = re.compile(r'"\s*(\d+)\s*"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _salvage_pairs(text: str, expected_str: set) -> dict:
+    found = {}
+    for m in _ID_PAIR_RE.finditer(text):
+        if m.group(1) not in expected_str:
+            continue
+        try:
+            found[m.group(1)] = json.loads(f'"{m.group(2)}"')
+        except json.JSONDecodeError:
+            continue
+    return found
+
+
+def _recover_id_keyed(text: str, expected_str: set) -> dict:
+    """A weak model may write a draft object before its answer, or run out of
+    output mid-object. The answer is what it wrote last: a cut-off object
+    after the last complete one gives its complete pairs, else the last
+    complete object holding any expected id is used."""
+    decoder = json.JSONDecoder()
+    objects, i, end = [], 0, 0
+    while i < len(text):
+        if text[i] == "{":
+            try:
+                value, stop = decoder.raw_decode(text, i)
+            except json.JSONDecodeError:
+                i += 1
+                continue
+            if isinstance(value, dict):
+                objects.append(value)
+                end = stop
+            i = stop
+            continue
+        i += 1
+    tail = text[end:]
+    if "{" in tail:
+        salvaged = _salvage_pairs(tail[tail.index("{"):], expected_str)
+        if salvaged:
+            return salvaged
+    for data in reversed(objects):
+        found = {str(k): v for k, v in data.items() if str(k) in expected_str and isinstance(v, str)}
+        if found:
+            return found
+    return {}
