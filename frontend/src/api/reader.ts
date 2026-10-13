@@ -67,6 +67,11 @@ export function readerEngines(all: TranslateEngine[]): TranslateEngine[] {
   return all.filter((e) => e.key_configured && !TRANSLATION_ONLY.has(e.name))
 }
 
+// The Reader AI engines that cannot run yet; the picker lists them switched off with the reason.
+export function readerEnginesOff(all: TranslateEngine[]): TranslateEngine[] {
+  return all.filter((e) => !e.key_configured && !TRANSLATION_ONLY.has(e.name))
+}
+
 // The sentence-card deck is fetched rather than linked so the page can read
 // X-Audio-Omitted (no media.stream: text-only deck) and X-Cards-Capped.
 export async function downloadRichDeck(id: number, fetchImpl?: Fetch): Promise<RichDeckDownload> {

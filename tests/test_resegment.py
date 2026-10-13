@@ -362,6 +362,12 @@ class TestResegmentSubprocessWorker:
 
 
 class TestEvenCutReason:
+    @pytest.fixture(autouse=True)
+    def _word_splitter_installed(self, monkeypatch):
+        # These pin the advice for a PC that has the splitter; CI may not.
+        import segment
+        monkeypatch.setattr(segment, "missing_word_segmenters", lambda language: [])
+
     def _preview(self, text):
         import long_line_split
         ln = Line(idx=0, start=0.0, end=10.0, zh=text, id=1)
@@ -371,6 +377,19 @@ class TestEvenCutReason:
     def test_lines_cut_evenly_point_to_use_ai(self):
         reason = self._preview(RUN_ON)
         assert "cut evenly" in reason and "Use AI" in reason
+
+    def test_missing_splitter_names_the_package_not_use_ai(self, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_word_segmenters", lambda language: ["jieba"])
+        reason = self._preview(RUN_ON)
+        assert "jieba" in reason and "Diagnostics" in reason and "Use AI" not in reason
+
+    def test_missing_splitter_names_every_missing_package(self, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_word_segmenters",
+                            lambda language: ["sudachipy", "sudachidict_core"])
+        reason = self._preview(RUN_ON)
+        assert "sudachipy and sudachidict_core" in reason and "aren't installed" in reason
 
     def test_nothing_cut_evenly_gives_no_reason_when_lines_changed(self):
         import long_line_split

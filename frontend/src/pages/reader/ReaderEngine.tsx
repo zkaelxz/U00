@@ -1,4 +1,4 @@
-import { engineShortName } from '../../api/translate'
+import { engineOffReason, engineShortName } from '../../api/translate'
 import { Field } from '../../components/Field'
 import { routeHref } from '../../router'
 import type { TranslateEngine } from '../../types/translate'
@@ -6,19 +6,25 @@ import { AI_ENGINE_LABEL } from '../../helpText'
 
 // The AI engine picker shared by Words and Story tools. The server treats an
 // omitted engine as Claude (paid), so a request always names the chosen one.
-export function EnginePicker({ engines, engine, onChange }: {
+export function EnginePicker({ engines, off = [], engine, onChange }: {
   engines: TranslateEngine[]
+  // Engines that cannot run yet: shown switched off with the reason, so nobody wonders where Ollama went.
+  off?: TranslateEngine[]
   engine: string
   onChange: (name: string) => void
 }) {
   if (engines.length === 0) {
     return (
-      <p className="muted">
-        No AI engine is set up. Add a key in <a href={routeHref({ name: 'settings' })}>Settings</a> or run Ollama.
-      </p>
+      <>
+        <p className="muted">
+          No AI engine is set up. Add a key in <a href={routeHref({ name: 'settings' })}>Settings</a> or run Ollama.
+        </p>
+        <OffEngineHelp off={off} />
+      </>
     )
   }
   return (
+    <>
     <Field label={AI_ENGINE_LABEL} help="Free engines (like Ollama) run locally. Paid engines need an account that may use them.">
       <select value={engine} onChange={(e) => onChange(e.target.value)}>
         {engines.map((e) => (
@@ -26,8 +32,33 @@ export function EnginePicker({ engines, engine, onChange }: {
             {engineShortName(e)} {e.free ? '(free)' : '(paid)'}
           </option>
         ))}
+        {off.map((e) => (
+          <option key={e.name} value={e.name} disabled>
+            {engineShortName(e)} ({engineOffReason(e)})
+          </option>
+        ))}
       </select>
     </Field>
+    <OffEngineHelp off={off} />
+    </>
+  )
+}
+
+// Why the switched-off engines are off, with the way to fix it.
+export function OffEngineHelp({ off }: { off: TranslateEngine[] }) {
+  if (off.length === 0) return null
+  const needsPackage = off.some((e) => e.package_installed === false)
+  const needsKey = off.some((e) => e.package_installed !== false && e.name !== 'ollama')
+  const needsOllama = off.some((e) => e.package_installed !== false && e.name === 'ollama')
+  return (
+    <p className="muted" data-testid="engines-off">
+      {off.map((e) => `${engineShortName(e)} (${engineOffReason(e)})`).join(', ')} can't be used yet.{' '}
+      {needsPackage && <a href={routeHref({ name: 'diagnostics', card: 'packages' })}>Install the package in Diagnostics</a>}
+      {needsPackage && (needsKey || needsOllama) && ' · '}
+      {needsKey && <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>}
+      {needsKey && needsOllama && ' · '}
+      {needsOllama && 'Start Ollama on this PC.'}
+    </p>
   )
 }
 

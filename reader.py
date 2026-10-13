@@ -63,14 +63,16 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     max_width = int(max_width)
 
     rows_html = []
-    missing_segmenter = None
+    missing_segmenters = []
     for ln in lines:
         try:
             segments = segment.segment_and_annotate(ln.zh, source_language)
         except ImportError as e:
             # The word splitter (jieba/pypinyin, sudachipy/pykakasi, kiwipiepy)
             # is an optional install: show the line unsplit rather than no page.
-            missing_segmenter = missing_segmenter or e.name or "a word-splitting package"
+            name = e.name or "a word-splitting package"
+            if name not in missing_segmenters:
+                missing_segmenters.append(name)
             segments = None
         word_spans = [html.escape(ln.zh or "")] if segments is None else []
         for word, reading in segments or ():
@@ -95,11 +97,17 @@ def build_reader_html(lines, source_language: str, definitions: dict,
           <div class="en-text">{en_html}</div>
         </div>""")
 
+    if missing_segmenters:
+        # The failing import names only the first gap; list the rest of what the language needs.
+        for name in segment.missing_reader_packages(source_language):
+            if name not in missing_segmenters:
+                missing_segmenters.append(name)
     defs_json = _json_for_script(definitions)
     segmenter_note = (
         f'<p class="segmenter-note">Word readings and lookups need '
-        f'<code>{html.escape(missing_segmenter)}</code> (see Diagnostics).</p>'
-        if missing_segmenter else "")
+        f'{", ".join(f"<code>{html.escape(m)}</code>" for m in missing_segmenters)}'
+        f' (see Diagnostics).</p>'
+        if missing_segmenters else "")
     t = THEMES.get(theme, THEMES["light"])
     c_bg, c_fg, c_sub = t["bg"], t["fg"], t["sub"]
     c_border, c_hover, c_active, c_rt = t["border"], t["hover"], t["active"], t["rt"]

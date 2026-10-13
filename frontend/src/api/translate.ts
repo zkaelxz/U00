@@ -70,9 +70,12 @@ export function engineShortName(engine: Pick<TranslateEngine, 'name'>): string {
 // (engineNotesHelp) instead of being cut off mid-word.
 export function engineOptionLabel(engine: Pick<TranslateEngine, 'name' | 'key_configured'> & { package_installed?: boolean }): string {
   if (engine.key_configured) return engineShortName(engine)
-  // Say which fix applies: a missing SDK is installed, a local server is started, anything else needs a key.
-  const why = engine.package_installed === false ? 'not installed' : engine.name === 'ollama' ? 'not running' : 'no key'
-  return `${engineShortName(engine)} (${why})`
+  return `${engineShortName(engine)} (${engineOffReason(engine)})`
+}
+
+// Say which fix applies: a missing SDK is installed, a local server is started, anything else needs a key.
+export function engineOffReason(engine: Pick<TranslateEngine, 'name'> & { package_installed?: boolean }): string {
+  return engine.package_installed === false ? 'not installed' : engine.name === 'ollama' ? 'not running' : 'no key'
 }
 
 export function engineNotesHelp(engines: Pick<TranslateEngine, 'name' | 'label'>[]): string {

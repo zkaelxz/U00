@@ -14,7 +14,7 @@
  */
 import { useEffect, useState, type KeyboardEvent } from 'react'
 
-import { translateApi, engineShortName } from '../api/translate'
+import { translateApi, engineOffReason, engineShortName } from '../api/translate'
 import { PageShell } from '../components/PageShell'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
@@ -25,7 +25,8 @@ import { AddTitle } from './discover/AddTitle'
 import { BaihehubPanel } from './discover/BaihehubPanel'
 import { BulkImport } from './discover/BulkImport'
 import { CatalogPanel } from './discover/CatalogPanel'
-import { CATALOGUE_TAB_ENABLED, discoverEngines } from './discover/discoverFormat'
+import { OffEngineHelp } from './reader/ReaderEngine'
+import { CATALOGUE_TAB_ENABLED, discoverEngines, discoverEnginesOff } from './discover/discoverFormat'
 import { FindPanel } from './discover/FindPanel'
 import { NavigationHelp } from './discover/NavigationHelp'
 import './discover/discover.css'
@@ -52,6 +53,7 @@ function savedTab(): TabId {
 export default function DiscoverPage() {
   const pc = usePcOnly()
   const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
+  const [enginesOff, setEnginesOff] = useState<TranslateEngine[]>([])
   const [engine, setEngine] = useState('')
   const [catalogKey, setCatalogKey] = useState(0)
   const [tab, setTab] = useState<TabId>(savedTab)
@@ -79,6 +81,7 @@ export default function DiscoverPage() {
       (all) => {
         const usable = discoverEngines(all)
         setEngines(usable)
+        setEnginesOff(discoverEnginesOff(all))
         setEngine((cur) => cur || (usable.find((e) => e.name === 'claude') ?? usable[0])?.name || '')
       },
       () => setEngines([]),
@@ -99,10 +102,13 @@ export default function DiscoverPage() {
         {engines === null ? (
           <p className="muted">Loading engines…</p>
         ) : engines.length === 0 ? (
-          <p className="muted" data-testid="no-engine">
-            No AI engine is set up. Search links still work; <a href={routeHref({ name: 'settings' })}>add a key in
-            Settings</a> for translation and page reading.
-          </p>
+          <>
+            <p className="muted" data-testid="no-engine">
+              No AI engine is set up. Search links still work; <a href={routeHref({ name: 'settings' })}>add a key in
+              Settings</a> for translation and page reading.
+            </p>
+            <OffEngineHelp off={enginesOff} />
+          </>
         ) : (
           <div className="discover-engine">
             <Field label={AI_ENGINE_LABEL} help="Used for every AI action on this page: translating a search, reading a listing or page.">
@@ -113,8 +119,14 @@ export default function DiscoverPage() {
                     {e.free ? ' (free)' : ''}
                   </option>
                 ))}
+                {enginesOff.map((e) => (
+                  <option key={e.name} value={e.name} disabled>
+                    {engineShortName(e)} ({engineOffReason(e)})
+                  </option>
+                ))}
               </select>
             </Field>
+            <OffEngineHelp off={enginesOff} />
           </div>
         )}
         </>

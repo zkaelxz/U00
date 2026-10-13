@@ -10,6 +10,7 @@ from erroring instead of skipping.
 """
 
 import os
+import sys
 import time
 
 import pytest
@@ -759,18 +760,12 @@ class TestExportEpubEndpoint:
         assert resp.status_code == 422
 
     def test_missing_ebooklib_is_503(self, client, isolated_db, monkeypatch):
-        import builtins
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "epub_io":
-                raise ImportError("simulated missing ebooklib")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", fake_import)
+        # ebooklib is imported inside epub_io.export_epub, so block that package itself.
+        monkeypatch.setitem(sys.modules, "ebooklib", None)
         did = self._novel_drama_with_lines(isolated_db)
         resp = client.get(f"/api/export/dramas/{did}/epub")
         assert resp.status_code == 503
+        assert "ebooklib" in resp.json()["error"]["message"]
 
     def test_epub_download_shape(self, client, isolated_db):
         pytest.importorskip("ebooklib")

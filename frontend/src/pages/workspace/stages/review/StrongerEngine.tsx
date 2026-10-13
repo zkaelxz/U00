@@ -8,7 +8,8 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { useHolds } from '../../../../hooks/useHolds'
 import type { ReviewLine } from '../../../../types/review'
 import type { StrongerLineResult } from '../../../../types/strongerEngine'
-import { formatUsd, resultIsStale, STALE_MESSAGE, tryErrorText, tryLabel, type StrongerOffer } from './strongerEngineLogic'
+import { routeHref } from '../../../../router'
+import { formatUsd, isMissingPackage, resultIsStale, STALE_MESSAGE, tryErrorText, tryLabel, type StrongerOffer } from './strongerEngineLogic'
 import './strongerEngine.css'
 
 interface Props {
@@ -138,7 +139,9 @@ export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
         <div className="banner error-banner" role="alert" data-testid="line-stronger-error">
           <span>
             {errorText}
-            {error instanceof ApiError && error.status === 503 && <> <a href="#/settings">Open Settings</a></>}
+            {error instanceof ApiError && error.status === 503 && (isMissingPackage(error)
+              ? <> <a href={routeHref({ name: 'diagnostics', card: 'packages' })}>Open Diagnostics</a></>
+              : <> <a href="#/settings">Open Settings</a></>)}
           </span>
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setError(null)}>
             Dismiss

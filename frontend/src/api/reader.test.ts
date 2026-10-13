@@ -7,6 +7,7 @@ import {
   pagePath,
   readerApi,
   readerEngines,
+  readerEnginesOff,
   vocabApkgUrl,
   wikiMarkdownUrl,
   TRANSLATION_ONLY,
@@ -130,5 +131,10 @@ describe('reader api', () => {
   it('offers only configured engines that can answer questions', () => {
     const all = [engine('ollama', true), engine('claude', false), engine('fake_mt', true), engine('gemini', false, false)]
     expect(readerEngines(all).map((e) => e.name)).toEqual(['ollama', 'claude'])
+  })
+
+  it('lists engines that cannot run yet so the picker can switch them off', () => {
+    const all = [engine('ollama', true), engine('claude', false, false), engine('deepseek', false, false)]
+    expect(readerEnginesOff(all).map((e) => e.name)).toEqual(['claude', 'deepseek'])
   })
 })

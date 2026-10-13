@@ -31,6 +31,7 @@ type Common = {
   chapterSize: number
   boundary: number | undefined
   engines: TranslateEngine[]
+  enginesOff?: TranslateEngine[]
   engine: string
   onEngine: (name: string) => void
 }
@@ -91,7 +92,7 @@ function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boun
   )
 }
 
-function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omit<Common, 'engines' | 'onEngine'> & { paid: boolean }) {
+function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omit<Common, 'engines' | 'enginesOff' | 'onEngine'> & { paid: boolean }) {
   const [recap, setRecap] = useStoredState<ReaderRecap | null>(`reader.recap.${dramaId}`, null, isObject)
   const [map, setMap] = useStoredState<ReaderRelationshipMap | null>(`reader.map.${dramaId}`, null, isObject)
   const recapAct = useAction(async () => {
@@ -357,7 +358,7 @@ export function StorySection(p: Common & { spoilerFree: boolean }) {
     <>
       <Section title="Story tools" storageKey="reader.story" summary={p.spoilerFree ? 'Spoiler-free' : 'Spoiler-free off'}>
         <div id={ENGINE_PICKER_ID}>
-          <EnginePicker engines={p.engines} engine={p.engine} onChange={p.onEngine} />
+          <EnginePicker engines={p.engines} off={p.enginesOff} engine={p.engine} onChange={p.onEngine} />
         </div>
         {!p.spoilerFree && (
           <p className="muted">Spoiler-free is off: Who is, Explain, relationships and the wiki may use later lines.</p>
