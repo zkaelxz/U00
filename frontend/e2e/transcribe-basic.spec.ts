@@ -68,9 +68,8 @@ test('a Whisper model not recommended for the language is disabled with its reas
 // The config a title's Transcribe form is built from, with the fields the form reads overridden.
 async function mockConfig(page: import('@playwright/test').Page, patch: Record<string, unknown>) {
   // The advisor's wording is the server's (tests/test_asr_advice.py); this pins that the form shows its top note.
-  await page.route('**/api/transcribe/asr-advice', async (route) => {
-    const body = route.request().postDataJSON() as { asr_backend: string }
-    const long = body.asr_backend === 'qwen3_asr_long'
+  await page.route('**/api/transcribe/asr-advice?*', async (route) => {
+    const long = new URL(route.request().url()).searchParams.get('asr_backend') === 'qwen3_asr_long'
     return route.fulfill({ json: { notes: [long
       ? { id: 'qwen_long_audio', severity: 'warn', text: 'Qwen3 ASR on long audio gives no word timings. Use Whisper.', fix: { asr_backend_choice: 'whisper' } }
       : { id: 'recommended', severity: 'tip', text: 'Recommended: Whisper large-v3 with Separate vocals first off.', fix: null }] } })

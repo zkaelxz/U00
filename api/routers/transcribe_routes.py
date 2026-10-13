@@ -19,9 +19,9 @@ and an apply route that writes it only if the line is unchanged since the
 job started.
 """
 
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Path, Request
+from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_at_pc, is_local_request, require_engines_allowed, require_paid_engines,
                       require_permission)
 from api.schemas import (AsrAdvice, AsrAdviceRequest, AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
@@ -61,9 +61,9 @@ def post_transcribe_config(payload: TranscribeConfigUpdate, request: Request,
     return transcribe_service.update_transcribe_config(drama_id, **payload.model_dump())
 
 
-@router.post("/asr-advice", dependencies=[require_permission("library.read")], response_model=AsrAdvice,
+@router.get("/asr-advice", dependencies=[require_permission("library.read")], response_model=AsrAdvice,
              summary="Which models and settings not to combine, for the choices sent")
-def post_asr_advice(payload: AsrAdviceRequest):
+def get_asr_advice(payload: Annotated[AsrAdviceRequest, Query()]):
     return {"notes": transcribe_options_service.asr_advice_for_form(
         payload.language, payload.media_type, payload.asr_backend, payload.whisper_size,
         {"separate_vocals_first": payload.separate_vocals_first, "whisper_fast_mode": payload.whisper_fast_mode,

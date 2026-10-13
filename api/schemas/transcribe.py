@@ -258,19 +258,20 @@ class TranscribeRunRequest(BaseModel):
 
 
 class AsrAdviceRequest(BaseModel):
-    """The choices on the Transcribe form (or a finished run's recorded settings)."""
+    """The choices on the Transcribe form (or a finished run's recorded settings), sent as query
+    parameters: a read-only question, so it is a GET."""
     language: str = Field("", max_length=16)
     media_type: str = Field("", max_length=32)
     asr_backend: str = Field("whisper", max_length=32)
     whisper_size: str = Field("", max_length=32)
-    separate_vocals_first: StrictBool = False
-    whisper_fast_mode: StrictBool = False
-    use_groq: StrictBool = False
-    has_transcript: StrictBool = False
+    separate_vocals_first: bool = False
+    whisper_fast_mode: bool = False
+    use_groq: bool = False
+    has_transcript: bool = False
     alignment_method: str = Field("", max_length=32)
-    use_gpu: Optional[StrictBool] = None
+    use_gpu: Optional[bool] = None
     # False for a run that already finished: what is installed now says nothing about it.
-    check_environment: StrictBool = True
+    check_environment: bool = True
 
 
 class AsrAdviceNote(BaseModel):

@@ -85,8 +85,11 @@ export const getTranscribeConfig = (id: number, f?: Fetch) =>
 export const updateTranscribeConfig = (id: number, update: TranscribeConfigUpdate, f?: Fetch) =>
   postJson<TranscribeConfig>(`/api/transcribe/dramas/${id}/config`, update, f)
 
-export const getAsrAdvice = (req: AsrAdviceRequest, f?: Fetch) =>
-  postJson<{ notes: AsrAdviceNote[] }>('/api/transcribe/asr-advice', req, f).then((r) => r.notes)
+export const getAsrAdvice = (req: AsrAdviceRequest, f?: Fetch) => {
+  const query = new URLSearchParams()
+  for (const [k, v] of Object.entries(req)) if (v !== null) query.set(k, String(v))
+  return getJson<{ notes: AsrAdviceNote[] }>(`/api/transcribe/asr-advice?${query}`, f).then((r) => r.notes)
+}
 
 export const startTranscribe = (id: number, req: TranscribeRunRequest, f?: Fetch) =>
   postJson<JobStarted>(`/api/transcribe/dramas/${id}/run`, req, f)

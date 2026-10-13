@@ -16,8 +16,6 @@ async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: b
     s.unmocked.push(`${route.request().method()} ${route.request().url()}`)
     return route.abort()
   })
-  // A read-only POST the Transcribe form makes on every change; no advice is all these tests need.
-  await page.route(/\/api\/transcribe\/asr-advice$/, (route) => json(route, { notes: [] }))
   if (opts.local !== undefined) {
     await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: opts.local }))
   }

@@ -97,9 +97,9 @@ def test_the_route_returns_notes_and_skips_the_environment_for_a_finished_run(is
     from api.api_config import ApiSettings
     from api.server import create_app
     client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
-    body = {"language": "ja", "asr_backend": "qwen3_asr_long", "whisper_size": "large-v3", "use_groq": True,
-            "check_environment": False}
-    resp = client.post("/api/transcribe/asr-advice", json=body)
+    params = {"language": "ja", "asr_backend": "qwen3_asr_long", "whisper_size": "large-v3", "use_groq": "true",
+              "check_environment": "false"}
+    resp = client.get("/api/transcribe/asr-advice", params=params)
     assert resp.status_code == 200
     ids = [n["id"] for n in resp.json()["notes"]]
     assert "qwen_long_audio" in ids and "groq_no_key" not in ids
