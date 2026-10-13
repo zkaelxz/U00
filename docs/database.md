@@ -93,8 +93,8 @@ for backup and restore operations see `runbook.md`.
   Their tables are still created and migrated by `init_db` in
   `db/__init__.py`, which calls the `CREATE TABLE` helpers in `db/schema.py`
   (library content) and `db/schema_system.py` (jobs, sign-in, Benchmark Lab,
-  and the Benchmark Lab column migrations), and the `_migrate_*` helpers in the
-  order below.
+  and the Benchmark Lab column migrations), and the `_migrate_*` helpers in
+  `db/migrations.py`, in the order below.
 
 ## 2. Schema creation and migrations
 
@@ -107,7 +107,8 @@ and columns earlier ones create):
    They live in `db/schema.py`, except `_create_job_tables` in
    `db/schema_system.py`.
 2. `_migrate_job_records_columns` (the job mirror's added columns), between
-   `_create_core_indexes` and `_create_auth_tables`.
+   `_create_core_indexes` and `_create_auth_tables`. It and every other
+   `_migrate_*` helper below live in `db/migrations.py`.
 3. `_create_auth_tables` (users, permissions, sessions, audit log), in
    `db/schema_system.py`.
 4. `_migrate_*_columns` helpers: for a database created before a column existed,
@@ -118,7 +119,10 @@ and columns earlier ones create):
    `db/schema_system.py`; it also adds the Benchmark Lab columns
    `benchmark_cases.tier`, `set_name`, `origin_drama_id`, `origin_line_id` and
    `benchmark_results.scorer`), `_migrate_gpu_lock_slots`,
-   `_migrate_line_refs_to_ids`, `_migrate_step26e_profiles`.
+   `_migrate_line_refs_to_ids`, `_migrate_step26e_profiles`. The line-ref
+   rebuild reads `_LINE_REF_TABLE_DDL`, `_LINE_REF_TABLE_COLUMNS` and
+   `_LINE_ID_FOR_IDX_SQL` from `db/__init__.py` (as `db.<name>`, so a test can
+   patch them there).
 
 Things to know:
 
