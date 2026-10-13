@@ -8,7 +8,7 @@ Audited 2026-09-30 against `baihe-subtitler` @ f09a592. Scope: the content-sourc
 
 | Area | Finding | Evidence |
 |---|---|---|
-| Signed-in sessions | The person signs in themselves in a visible window on a persistent Chromium profile (`profiles/<source or host>/`). The app never types a password and never reads cookies or storage state; only the rendered page comes back. | `sources/auth_browser.py` module doc and `manual_login`; `page_fetch.fetch_with_profile` / `open_login_window`; `sources/base.py` `login` / `refresh_session` (no credentials in, no session refresh) |
+| Signed-in sessions | The person signs in themselves in a visible window on a persistent Chromium profile (`profiles/<source or host>/`). The app never types a password and never reads cookies or storage state; only the rendered page comes back. | `sources/auth_browser.py` module doc and `manual_login`; `page_fetch_profile.fetch_with_profile` / `open_login_window`; `sources/base.py` `login` / `refresh_session` (no credentials in, no session refresh) |
 | Sign-in routes | `local_only()`. Job results are scrubbed, and a result reaches only a request from this PC. | `api/routers/sources_local_routes.py`; `services/sources_signin_service.py` |
 | Profiles vs backups | Profiles are never in a backup, and a restore keeps the current ones. | `services/library_admin_service._backup_excluded_top_level` → `library_restore_service.restore_kept_names` |
 | Response cookies | `Response.cookies` is read in two places only. `_requests_transport` builds it from each hop's own jar. `mangaz._fetch_ticket` read `virgo!__ticket` and returned it without storing it (the Mangaz adapter was removed after this audit). The per-thread `requests` session jar lives only in memory. | `sources/http_transport.py` |

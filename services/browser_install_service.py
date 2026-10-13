@@ -71,13 +71,13 @@ def _playwright_importable() -> bool:
 
 
 def _system_browser_found() -> bool:
-    import page_fetch
-    return bool(page_fetch.find_system_browser() or page_fetch._explicit_browser())
+    import page_fetch_browser
+    return bool(page_fetch_browser.find_system_browser() or page_fetch_browser._explicit_browser())
 
 
 def _global_chromium_present() -> bool:
-    import page_fetch
-    return page_fetch._bundled_browser_present()
+    import page_fetch_browser
+    return page_fetch_browser._bundled_browser_present()
 
 
 def _free_mb() -> int:
