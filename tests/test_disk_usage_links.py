@@ -10,7 +10,7 @@ import os
 import pytest
 
 import db
-from services import auto_backup_service, disk_usage_service as dus
+from services import auto_backup_settings, disk_usage_service as dus
 from services import disk_usage_guard as guard
 from services import disk_usage_measure as measure
 from services.service_errors import InvalidInputError
@@ -489,21 +489,21 @@ class TestMoveRefusesLinks:
     # Only the automatic-backup folder is movable, so these target it: any
     # other path is refused as unsupported before a link or volume is looked at.
     def test_move_refuses_a_link(self, tree, big, tmp_path):
-        auto = os.path.join(db.LIBRARY_DIR, *auto_backup_service.DEFAULT_SUBDIR)
+        auto = os.path.join(db.LIBRARY_DIR, *auto_backup_settings.DEFAULT_SUBDIR)
         _link(big, auto)
         (tmp_path / "dest").mkdir()
         with pytest.raises(InvalidInputError, match="Links and junctions"):
-            dus.move("/".join(("library", *auto_backup_service.DEFAULT_SUBDIR)),
+            dus.move("/".join(("library", *auto_backup_settings.DEFAULT_SUBDIR)),
                      str(tmp_path / "dest"), confirm=True)
         assert (big / "a.zip").exists()
 
     def test_move_refuses_a_folder_on_another_volume(self, tree, monkeypatch, tmp_path):
-        auto = os.path.join(db.LIBRARY_DIR, *auto_backup_service.DEFAULT_SUBDIR)
+        auto = os.path.join(db.LIBRARY_DIR, *auto_backup_settings.DEFAULT_SUBDIR)
         _write(os.path.join(auto, "copy.zip"), 10)
         _on_another_volume(monkeypatch, auto)
         (tmp_path / "dest").mkdir()
         with pytest.raises(InvalidInputError):
-            dus.move("/".join(("library", *auto_backup_service.DEFAULT_SUBDIR)),
+            dus.move("/".join(("library", *auto_backup_settings.DEFAULT_SUBDIR)),
                      str(tmp_path / "dest"), confirm=True)
         assert os.path.exists(os.path.join(auto, "copy.zip"))
 

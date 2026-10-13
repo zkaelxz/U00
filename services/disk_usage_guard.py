@@ -14,7 +14,7 @@ import stat
 
 import db
 import portable
-from services import auto_backup_service as abs_
+from services import auto_backup_settings as abt_
 from services.service_errors import InvalidInputError, NotFoundError
 
 TRASH_DIRNAME = "baihe_trash"       # installer.service_layout.DATA_FOLDER_ENTRIES holds it too
@@ -177,7 +177,7 @@ def _baihe_top_level_names() -> frozenset:
 def _backup_folder_real():
     """Real path of the automatic-backup folder when it exists, else None."""
     try:
-        current = abs_.folder_path(abs_.get_settings().get("folder", ""))
+        current = abt_.folder_path(abt_.get_settings().get("folder", ""))
         if os.path.exists(current):
             return os.path.realpath(current)
     except Exception:

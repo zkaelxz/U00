@@ -197,11 +197,19 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 
 - `artifact_service.py`
 - `asr_options_service.py`
+- `assistant_backlog_service.py` (the maintenance assistant's backlog items, written only by the user)
+- `assistant_diagnosis_service.py` (one assistant diagnosis run: prompts, input checks, engine build, the tool loop)
 - `assistant_github_service.py`
 - `assistant_pytest_guard.py`
+- `assistant_repo_access.py` (what the assistant may see: redaction, repo path rules, the read-only git runner)
 - `assistant_roles_service.py`
+- `assistant_settings_service.py` (the assistant's settings: Developer Mode, engines, cloud consent, escalation ladder)
+- `assistant_tools_service.py` (the assistant's fixed table of read-only tools and the runner)
 - `auth_service.py`
-- `auto_backup_service.py`
+- `auto_backup_service.py` (automatic backup orchestration: save settings, the backup job, the due-check, delete copies, list dramas in a copy)
+- `auto_backup_settings.py` (the automatic backup's settings, run state and when the next run is due)
+- `auto_backup_copies.py` (the copies in the backup folder: library identity, ownership, rotation, default restore pick, `snapshot_info`)
+- `auto_backup_files.py` (snapshot files: manifest, verification, placing a new copy, reading `library.db` out, moving copies to a new folder)
 - `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
 - `backup_space_check.py` (the automatic backup's free-space check before it writes a copy)
@@ -241,7 +249,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
 - `disk_usage_trash_store.py` (the Trash folder layout, manifests and the rename into it)
 - `temp_cleanup_service.py`
-- `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, never the reverse)
+- `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, `auto_backup_copies` and `auto_backup_files`, never the reverse)
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`
@@ -288,7 +296,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `glossary_flagged_service.py` (one-click redo of the lines flagged for a missing glossary name, with the stronger engine)
 - `lncrawl_service.py`
 - `loaded_models_service.py`
-- `maintenance_assistant_service.py`
+- `maintenance_assistant_service.py` (one assistant turn: ask, escalation, independent review, developer report, changelog)
 - `media_export_service.py`
 - `media_peaks_service.py`
 - `media_playback_service.py`

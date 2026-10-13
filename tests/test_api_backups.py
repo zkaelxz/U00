@@ -28,7 +28,9 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
+from services import auto_backup_copies as abc_
 from services import auto_backup_service as abs_
+from services import auto_backup_settings as abt_
 
 BASE = "/api/backups"
 REMOTE = "https://baihe.example.com"
@@ -85,7 +87,7 @@ def _snap_path():
     """The newest copy in the default folder (a path that never exists when
     there is none)."""
     folder = os.path.join(db.LIBRARY_DIR, "backups", "auto")
-    copies = abs_._list_copies(folder)
+    copies = abc_._list_copies(folder)
     return copies[0]["path"] if copies else os.path.join(folder, "no-copy")
 
 
@@ -162,7 +164,7 @@ def test_every_backup_route_is_local_only(isolated_db, auth):
 
 class TestRemoteRefused:
     def _assert_nothing_changed(self, a, snap):
-        assert abs_.get_settings() == abs_.DEFAULT_SETTINGS
+        assert abt_.get_settings() == abt_.DEFAULT_SETTINGS
         assert _read(_snap_path()) == snap
         assert db.get_drama(a) is None
         assert background_jobs.get_status(abs_.JOB_ID) is None
@@ -316,7 +318,7 @@ class TestLocal:
 
     def test_restore_from_a_named_copy(self, client):
         a, _ = _world()
-        first = abs_.snapshot_info()["copies"][0]["name"]
+        first = abc_.snapshot_info()["copies"][0]["name"]
         r = _clean(client.post(f"{BASE}/snapshot/restore-drama",
                                json={"drama_id": a, "snapshot": first, **RESTORE_OK}))
         assert r.status_code == 200, r.text
@@ -422,14 +424,14 @@ class TestValidation:
     def test_settings_422_unchanged(self, client, body):
         r = _clean(client.post(f"{BASE}/settings", json=body))
         assert r.status_code == 422, (body, r.text)
-        assert abs_.get_settings() == abs_.DEFAULT_SETTINGS
+        assert abt_.get_settings() == abt_.DEFAULT_SETTINGS
 
     def test_settings_folder_inside_library_422(self, client):
         inside = os.path.join(db.LIBRARY_DIR, "dramas")
         os.makedirs(inside, exist_ok=True)
         r = client.post(f"{BASE}/settings", json={"folder": inside})
         assert r.status_code == 422
-        assert abs_.get_settings()["folder"] == ""
+        assert abt_.get_settings()["folder"] == ""
 
     def test_settings_folder_outside_ok_and_echoed(self, client, tmp_path):
         r = client.post(f"{BASE}/settings", json={"folder": str(tmp_path)})
@@ -477,7 +479,7 @@ class TestConflicts:
         _put_job(abs_.JOB_ID)
         r = client.post(f"{BASE}/settings", json={"folder": str(tmp_path)})
         assert r.status_code == 409
-        assert abs_.get_settings()["folder"] == ""
+        assert abt_.get_settings()["folder"] == ""
         assert os.path.exists(_snap_path())
 
     def test_restore_unknown_drama_404(self, client):

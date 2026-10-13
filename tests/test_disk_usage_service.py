@@ -16,6 +16,7 @@ import background_jobs
 import db
 from jobs import gpu_slots
 from services import auto_backup_service as abs_
+from services import auto_backup_settings as abt_
 from services import disk_usage_guard as guard
 from services import disk_usage_hold as hold
 from services import disk_usage_measure as measure
@@ -379,21 +380,21 @@ class TestMove:
         dest.mkdir()
         res = dus.move("library/backups/auto", str(dest), confirm=True)
         assert res["what"] == "backups" and res["name"] == "auto"
-        assert abs_.get_settings()["folder"] == os.path.normpath(str(dest))
+        assert abt_.get_settings()["folder"] == os.path.normpath(str(dest))
         # The item is no longer the active backup folder.
         assert _item(dus.scan("library/backups"), "auto")["movable"]["supported"] is False
 
     def test_failure_leaves_the_original_and_the_setting(self, tree, tmp_path, monkeypatch):
         dest = tmp_path / "newbackups"
         dest.mkdir()
-        before = abs_.get_settings()["folder"]
+        before = abt_.get_settings()["folder"]
 
         def failing(**kw):
             raise ServiceError("The existing backup copies could not be moved.")
         monkeypatch.setattr(abs_, "set_settings", failing)
         with pytest.raises(ServiceError):
             dus.move("library/backups/auto", str(dest), confirm=True)
-        assert abs_.get_settings()["folder"] == before
+        assert abt_.get_settings()["folder"] == before
         assert os.path.exists(os.path.join(tree, "library", "backups", "auto",
                                            "baihe_snapshot-20260101-000000.zip"))
 
@@ -404,10 +405,10 @@ class TestMove:
                 "relative": "somewhere",
                 "missing": str(tmp_path / "nope"),
                 "file": str(_touch(tmp_path / "f.txt"))}[where]
-        before = abs_.get_settings()["folder"]
+        before = abt_.get_settings()["folder"]
         with pytest.raises(InvalidInputError):
             dus.move("library/backups/auto", dest, confirm=True)
-        assert abs_.get_settings()["folder"] == before
+        assert abt_.get_settings()["folder"] == before
 
     def test_destination_symlink_refused(self, tree, tmp_path):
         real = tmp_path / "real"
@@ -639,7 +640,7 @@ class TestProtectionDepth:                                 # M4
 class TestScanLimits:                                      # L1
     def test_context_is_built_once_per_scan(self, tree, monkeypatch):
         calls = {"prot": 0, "abs": 0}
-        real_prot, real_get = guard._protected_paths, abs_.get_settings
+        real_prot, real_get = guard._protected_paths, abt_.get_settings
 
         def prot():
             calls["prot"] += 1
@@ -649,7 +650,7 @@ class TestScanLimits:                                      # L1
             calls["abs"] += 1
             return real_get()
         monkeypatch.setattr(guard, "_protected_paths", prot)
-        monkeypatch.setattr(abs_, "get_settings", get)
+        monkeypatch.setattr(abt_, "get_settings", get)
         for i in range(20):
             _write(os.path.join(tree, "library", "dramas", f"d{i}", "a.bin"), 1)
         dus.scan("library/dramas")
