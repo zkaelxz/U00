@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 // Phone project (390x844, touch): the Menu button and the left drawer that
 // replace the header's nav grid and cogwheel below 1024px.
 
-const menuButton = (page: Page) => page.getByRole('button', { name: 'Menu', exact: true })
+const menuButton = (page: Page) => page.getByRole('button', { name: /^(Menu|More)$/ })
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Main menu' })
 
 async function noSideways(page: Page) {
@@ -111,4 +111,25 @@ test('the stage strip starts right under the one-row header', async ({ page }) =
   const header = (await page.locator('.app-header').boundingBox())!
   expect(header.y + header.height, 'bottom of the header (record in the PR)').toBeLessThanOrEqual(90)
   await noSideways(page)
+})
+
+test('top-level pages get a bottom bar whose More opens the drawer; title pages keep the header Menu and no bar', async ({ page }) => {
+  await page.goto('/#/library')
+  const bar = page.getByRole('navigation', { name: 'Quick' })
+  await expect(bar).toBeVisible()
+  await expect(bar.getByRole('link', { name: 'Library', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(bar.getByRole('link', { name: 'Make', exact: true })).toBeVisible()
+  await expect(bar.getByRole('link', { name: 'Jobs', exact: true })).toBeVisible()
+  // The header no longer carries a hamburger beside the bar.
+  await expect(page.locator('.app-header .menu-btn')).toHaveCount(0)
+  for (const el of await bar.locator('a, button').all()) expect((await el.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+
+  await bar.getByRole('button', { name: 'More' }).tap()
+  await expect(page.getByRole('dialog', { name: 'Main menu' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Main menu' })).toBeHidden()
+
+  await page.goto('/#/drama/3/review')
+  await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Quick' })).toHaveCount(0)
 })

@@ -32,8 +32,9 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
   const box = (await bell.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
-  const menu = (await page.getByRole('button', { name: 'Menu', exact: true }).boundingBox())!
-  expect(Math.abs(menu.y - box.y)).toBeLessThanOrEqual(2) // on the title row, beside the Menu button
+  const title = (await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).boundingBox())!
+  expect(box.y).toBeLessThan(title.y + title.height) // on the title row
+  expect(box.y + box.height).toBeGreaterThan(title.y)
   await noSideways(page)
 
   await bell.tap()

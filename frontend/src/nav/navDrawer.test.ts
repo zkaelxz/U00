@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest'
 import type { SessionState } from '../hooks/useSession'
 import { JobsContext } from '../hooks/useJobs'
 import type { Route } from '../router'
-import { NavDrawer } from './NavDrawer'
+import { MenuButton, NavDrawer } from './NavDrawer'
+import { PhoneBar } from './PhoneBar'
 import { visibleRailGroups, type NavContext } from './navItems'
 import { NavGroups } from './navLinks'
 
@@ -38,13 +39,42 @@ const withJobs = (running: number, node: ReturnType<typeof createElement>) =>
   )
 
 describe('NavDrawer', () => {
-  it('renders a labelled, collapsed Menu button that controls the drawer, with no links until opened', () => {
-    const html = renderToStaticMarkup(createElement(NavDrawer, { route: library, context: ctx }))
-    expect(html).toContain('aria-label="Menu"')
-    expect(html).toContain('aria-expanded="false"')
-    expect(html).toContain('aria-controls="nav-drawer"')
+  it('renders a collapsed Menu button that controls the drawer, and the drawer with no links until opened', () => {
+    const button = renderToStaticMarkup(createElement(MenuButton, { open: false, onOpen: () => {} }))
+    expect(button).toContain('aria-label="Menu"')
+    expect(button).toContain('aria-expanded="false"')
+    expect(button).toContain('aria-controls="nav-drawer"')
+    const html = renderToStaticMarkup(createElement(NavDrawer, { route: library, context: ctx, open: false, onOpenChange: () => {} }))
     expect(html).toContain('<dialog id="nav-drawer"')
     expect(html).not.toContain('<a ')
+  })
+})
+
+describe('PhoneBar', () => {
+  const bar = (running: number, route: Route = library, moreOpen = false, context: NavContext = owner) =>
+    renderToStaticMarkup(withJobs(running, createElement(PhoneBar, { route, context, moreOpen, onMore: () => {} })))
+  // Make subtitles needs admin.library; the bar leaves out what the person may not use.
+  const owner: NavContext = { ...ctx, session: { ...session, me: { ...session.me, permissions: [...session.me.permissions, 'admin.library'] } } as SessionState }
+
+  it('has Library, Make, Jobs in that order and a More button that controls the drawer', () => {
+    const html = bar(0)
+    const labels = [...html.matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
+    expect(labels).toEqual(['Library', 'Make', 'Jobs', 'More'])
+    expect(html).toContain('aria-label="More"')
+    expect(html).toContain('aria-controls="nav-drawer"')
+    expect(bar(0, library, true)).toContain('aria-expanded="true"')
+  })
+
+  it('leaves out an item the person may not use', () => {
+    const labels = [...bar(0, library, false, ctx).matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
+    expect(labels).toEqual(['Library', 'Jobs', 'More'])
+  })
+
+  it('marks only the current page and shows the Jobs badge while jobs run', () => {
+    const html = bar(2, { name: 'jobs' })
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1)
+    expect(html).toContain('data-testid="phone-bar-jobs-count"')
+    expect(bar(0, { name: 'jobs' })).not.toContain('phone-bar-jobs-count')
   })
 })
 

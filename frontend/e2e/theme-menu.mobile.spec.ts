@@ -25,9 +25,8 @@ test('phone header: theme button is 44px, on the title row, and picking sepia wo
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
   const title = (await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).boundingBox())!
-  const menuBtn = (await page.getByRole('button', { name: 'Menu', exact: true }).boundingBox())!
   expect(box.y).toBeLessThan(title.y + title.height)
-  expect(Math.abs(menuBtn.y - box.y)).toBeLessThanOrEqual(2)
+  expect(box.y + box.height).toBeGreaterThan(title.y)
   await noSideways(page)
 
   await btn.tap()

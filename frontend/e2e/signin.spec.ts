@@ -214,14 +214,14 @@ test('/me unavailable: no People and access, and Sign out is still offered', asy
   expect(s.unmocked).toEqual([])
 })
 
-test.describe('below 1024px', () => {
-  test.use({ viewport: { width: 1000, height: 800 } })
+test.describe('below 600px', () => {
+  test.use({ viewport: { width: 500, height: 800 } })
 
 test('signed in: the Menu button replaces the cogwheel and its drawer stays on screen', async ({ page }) => {
   await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
   await expect(page.locator('summary[aria-label="Settings and tools"]')).toHaveCount(0)
-  const menu = page.getByRole('button', { name: 'Menu', exact: true })
+  const menu = page.getByRole('button', { name: /^(Menu|More)$/ })
   await expect(menu).toBeVisible()
   await expect(page.locator('.app-header .header-end .gear-menu')).toHaveCount(0)
   await maybeScreenshot(page, 'desktop-header')
