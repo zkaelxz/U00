@@ -14,8 +14,6 @@
   --active: #ffffff;
   --wash-1: #ffd2b3;
   --wash-2: #a9dcff;
-  --wash-3: #d3e6ff;
-  --wash-4: #e6ddff;
   --tile-base: #ffffff;
   --tile-hi: 46%;
   --tile-lo: 14%;
@@ -33,9 +31,7 @@
     --active: rgba(142, 197, 255, 0.22);
     --wash-1: #5a3a62;
     --wash-2: #1f4f78;
-    --wash-3: #17594f;
-    --wash-4: #3a2f6e;
-    --tile-base: #1c2240;
+        --tile-base: #1c2240;
     --tile-hi: 62%;
     --tile-lo: 24%;
   }
@@ -50,8 +46,6 @@
   --active: rgba(142, 197, 255, 0.22);
   --wash-1: #5a3a62;
   --wash-2: #1f4f78;
-  --wash-3: #17594f;
-  --wash-4: #3a2f6e;
   --tile-base: #1c2240;
   --tile-hi: 62%;
   --tile-lo: 24%;
@@ -64,8 +58,6 @@
   --btn: rgba(255, 255, 255, 0.08);
   --wash-1: #1b1030;
   --wash-2: #07202e;
-  --wash-3: #06241d;
-  --wash-4: #150f2c;
   --tile-base: #121212;
   --tile-hi: 58%;
   --tile-lo: 20%;
@@ -80,25 +72,21 @@
   --active: #fbf5e4;
   --wash-1: #f2c9a0;
   --wash-2: #e6d9a8;
-  --wash-3: #d4e0b4;
-  --wash-4: #ecc9b8;
   --tile-base: #fbf5e4;
   --tile-hi: 44%;
   --tile-lo: 14%;
 }
 
+/* Two off-centre blobs at 60%: the four-corner wash competed with the content, and the corners are where the nav and header sit. */
 body {
   background:
-    radial-gradient(520px 420px at 8% 12%, var(--wash-1), transparent 70%),
-    radial-gradient(620px 520px at 92% 8%, var(--wash-2), transparent 70%),
-    radial-gradient(640px 520px at 70% 100%, var(--wash-3), transparent 70%),
-    radial-gradient(520px 420px at 15% 95%, var(--wash-4), transparent 70%),
+    radial-gradient(640px 520px at 78% 14%, color-mix(in srgb, var(--wash-2) 60%, transparent), transparent 70%),
+    radial-gradient(620px 520px at 18% 82%, color-mix(in srgb, var(--wash-1) 60%, transparent), transparent 70%),
     var(--bg);
   background-attachment: fixed;
 }
 
-/* Panels */
-.card,
+/* Panels. A .card holds one list or form, so it is a top hairline below instead of a box; glass stays on what floats or groups several things. */
 .panel,
 .tools-stack,
 .discover-panel,
@@ -112,11 +100,19 @@ body {
   box-shadow: var(--glass-shadow);
   border-radius: var(--radius-panel);
 }
+/* Same 1px border box as before, with only the top edge drawn, so a card's height does not move (the phone Review toolbar's scroll thresholds depend on page heights). */
+.card {
+  background: none;
+  border: 1px solid transparent;
+  border-top-color: var(--border);
+  border-radius: 0;
+  box-shadow: none;
+}
 /* These two had no border: the edge is a ring that takes no space, so the page keeps its height (the phone Review toolbar's scroll thresholds depend on it). */
 .review-toolbox,
 .review-lines { border: 0; box-shadow: var(--glass-shadow), 0 0 0 1px var(--glass-edge); }
 @supports (backdrop-filter: blur(1px)) {
-  .card, .panel, .tools-stack, .discover-panel, .review-toolbar, .review-toolbox, .review-lines, .drama-card { backdrop-filter: blur(22px) saturate(1.4); }
+  .panel, .tools-stack, .discover-panel, .review-toolbar, .review-toolbox, .review-lines, .drama-card { backdrop-filter: blur(22px) saturate(1.4); }
 }
 
 /* A fold that sits on the page is a panel like the rest; one inside a card, sheet or list is only a row of it. No blur here: backdrop-filter on a fold stops a toggle at its bottom edge from receiving taps on the part of its 44px target that falls below it. */
