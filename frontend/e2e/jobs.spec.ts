@@ -188,7 +188,7 @@ test('Force stop shows only for a job stuck in Cancelling, and needs two presses
   await expect(rows(page)).toHaveCount(2)
   await expect(rows(page).nth(1).getByRole('button', { name: /Force stop/ })).toHaveCount(0)
   const stuck = rows(page).first()
-  await expect(stuck).toContainText('its worker may keep running')
+  await expect(stuck).toContainText('its worker keeps running in the background')
   await stuck.getByRole('button', { name: 'Force stop Translate Signal' }).click()
   expect(log.forceStopped).toEqual([])
   await stuck.getByRole('button', { name: 'Confirm force stop' }).click()

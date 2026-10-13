@@ -72,6 +72,16 @@ def _failed_outcome_error(result, job_id=""):
     return jobs_service.scrub_text(f"{text} {detail}" if detail else text)
 
 
+def _soft_failure_text(result):
+    """The reason text for a job that ended `done` but whose result says it
+    failed (a reason not in FAILED_REASON_MESSAGES keeps the status for
+    the stage panels), else None. Only the notifications read it: the bell
+    and the desktop toast must say Failed where the Jobs list does."""
+    from services import jobs_service
+    outcome, message = jobs_service.derive_outcome("done", None, result)
+    return jobs_service.scrub_text(message) if outcome == "failed" else None
+
+
 def _done_note(result):
     """Short plain note a finished job adds to its bell text, or None."""
     from services import jobs_service
@@ -103,7 +113,11 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                         _jobs[job_id]["message"] = ""
                     else:
                         _jobs[job_id]["progress"] = 1.0
-                        _reason = _done_note(_result)
+                        _reason = _soft_failure_text(_result)
+                        if _reason:
+                            _outcome = "error"
+                        else:
+                            _reason = _done_note(_result)
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
                     _owner = _jobs[job_id].get("owner_user_id")
@@ -521,6 +535,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         reaped = True
         hook_error = None
         _jobs_reason = None
+        _notify_failed = False
         result = outcome[1] if outcome and outcome[0] == "ok" else None
         if outcome and outcome[0] == "ok" and on_done is not None:
             with _lock:
@@ -569,7 +584,9 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 else:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
-                    _jobs_reason = _done_note(result)
+                    _jobs_reason = _soft_failure_text(result)
+                    _notify_failed = bool(_jobs_reason)
+                    _jobs_reason = _jobs_reason or _done_note(result)
                     logger.info(f"job {job_id} finished")
             elif outcome and outcome[0] == "error":
                 _, exc_type, msg = outcome
@@ -593,8 +610,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _final_status = _jobs[job_id]["status"]
             _description = _jobs[job_id].get("description")
             _owner = _jobs[job_id].get("owner_user_id")
-        _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner,
-                             reason=_jobs_reason)
+        _notify_job_finished(_description, "error" if _notify_failed else _final_status,
+                             job_id=job_id, owner_user_id=_owner, reason=_jobs_reason)
     except Exception as exc:
         # A complete message that fails to unpickle, a broken queue or any
         # other watcher failure: without this the job stays "running"

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { JobStageRun } from '../../types/jobs'
-import { formatStageCost, formatStageDuration, runsNote, stageRows, stageTotalLine } from './stageBreakdown'
+import { stageClock, formatStageCost, formatStageDuration, runsNote, stageRows, stageTotalLine } from './stageBreakdown'
 
 const run = (o: Partial<JobStageRun> = {}): JobStageRun => ({
   run_started_at: 1000, running: false, total_seconds: 100, cost_usd: 0, stages: [], ...o,
@@ -59,5 +59,13 @@ describe('stageTotalLine / runsNote', () => {
   it('mentions earlier runs only when there were some', () => {
     expect(runsNote(1)).toBeNull()
     expect(runsNote(3)).toBe('Latest of 3 runs.')
+  })
+})
+
+describe('stageClock', () => {
+  it('shows a stage start as a clock time and ignores a bad value', () => {
+    expect(stageClock(1_700_000_000)).toMatch(/^\d{2}:\d{2}:\d{2}$/)
+    expect(stageClock(Number.NaN)).toBe('')
+    expect(stageRows(run({ stages: [stage('Translate', 5)] }))[0].at).toMatch(/\d{2}:\d{2}:\d{2}/)
   })
 })

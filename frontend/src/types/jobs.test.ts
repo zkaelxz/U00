@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { jobFailed, jobOutcomeDetail, jobOutcomeText, jobSucceeded, offersCancel, queueLine, queuePlace, shownStatus } from './jobs'
+import { cancelHint, cancellingText, jobFailed, jobOutcomeDetail, jobOutcomeText, jobSucceeded, offersCancel, queueLine, queuePlace, shownStatus } from './jobs'
 
 describe('job outcome helpers', () => {
   it('treats a done job with a failed or cancelled outcome as not a success', () => {
@@ -81,5 +81,22 @@ describe('what a person reads for a finished job', () => {
     expect(jobOutcomeDetail({ status: 'done', outcome: 'ok', outcome_message: 'Finished.' })).toBeNull()
     expect(jobOutcomeDetail({ status: 'done', outcome: 'partial', outcome_message: 'Two lines failed.' })).toBe('Finished with problems: Two lines failed.')
     expect(jobOutcomeDetail({ status: 'running', outcome: null })).toBeNull()
+  })
+})
+
+describe('cancel hint table', () => {
+  it('says how fast Cancel works for each kind of job', () => {
+    expect(cancelHint('transcribe_3')).toBe('Cancel: stops at once.')
+    expect(cancelHint('softsub_video_3')).toBe('Cancel: stops at once.')
+    expect(cancelHint('translate_3')).toContain('stops after the current AI request (usually under a minute, up to 5')
+    expect(cancelHint('translate_3')).toContain('still billed')
+    expect(cancelHint('bulk_translate_3')).toBe('Cancel: stops after the current batch.')
+    expect(cancelHint('library_backup')).toBe('Cancel: stops after the current step.')
+    expect(cancelHint(null)).toBe('Cancel: stops after the current step.')
+  })
+
+  it('puts the same wait in the Cancelling text', () => {
+    expect(cancellingText('dub_2')).toBe('Cancelling... Stops at once.')
+    expect(cancellingText('translate_2')).toMatch(/^Cancelling\.\.\. Stops after the current AI request/)
   })
 })

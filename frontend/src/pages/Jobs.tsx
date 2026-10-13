@@ -22,7 +22,7 @@ import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import {
-  CANCEL_RULE_NOTE, FORCE_STOP_HINT, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
+  CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
   shownStatus, type JobQueueSummary, type JobRecord,
 } from '../types/jobs'
 import { formatDuration, isActive, isFinished, jobBaseName, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
@@ -302,7 +302,7 @@ function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps;
   return (
     <div className="jobs-actions">
       {props.cancellable(job) && (
-        <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${name}`} onClick={() => props.onCancel(job.job_id)}>
+        <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${name}`} title={cancelHint(job.job_id)} onClick={() => props.onCancel(job.job_id)}>
           Cancel
         </button>
       )}
@@ -345,7 +345,7 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
           {fields.map(([k, v]) => (<span key={k} className="jobs-field"><dt>{k.replace(/_/g, ' ')}</dt><dd>{String(v)}</dd></span>))}
         </dl>
       )}
-      <JobStagesPanel jobId={job.job_id} />
+      <JobStagesPanel jobId={job.job_id} running={isActive(job.status)} step={detail ? plainJobText(detail) : null} />
       <RunSettings result={job.result} />
     </div>
   )

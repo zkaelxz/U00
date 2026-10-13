@@ -269,6 +269,21 @@ def test_stages_and_spend_are_recorded_for_a_real_job(isolated_db):
     background_jobs.clear_job("stage_job")
 
 
+def test_stage_names_in_the_stages_response_carry_no_url_or_path(isolated_db):
+    from services import jobs_service
+
+    def work():
+        job_timing_service.mark_stage("scrub_job", "Fetch https://example.com/a?token=abc123")
+        job_timing_service.mark_stage("scrub_job", "Read /home/someone/library/audio.wav")
+
+    job_launch.start_job("scrub_job", work, description="Scrub")
+    assert _wait("scrub_job")["status"] == "done"
+    _wait_runs("scrub_job")
+    names = " ".join(s["stage"] for s in jobs_service.get_job_stages("scrub_job")["runs"][0]["stages"])
+    assert "example.com" not in names and "abc123" not in names and "/home/someone" not in names
+    background_jobs.clear_job("scrub_job")
+
+
 def test_a_job_without_stages_gets_one_whole_job_row_even_when_it_fails(isolated_db):
     def boom():
         raise RuntimeError("x")

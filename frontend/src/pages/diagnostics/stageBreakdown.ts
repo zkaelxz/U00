@@ -25,7 +25,13 @@ export function formatStageCost(usd: number): string | null {
   return `$${usd.toFixed(2)}`
 }
 
-type StageRow = { key: string; name: string; duration: string; cost: string | null; share: number }
+type StageRow = { key: string; name: string; at: string; duration: string; cost: string | null; share: number }
+
+/** A stage's start as a clock time in this browser ("14:05:03"), empty for a bad value. */
+export function stageClock(startedAt: number): string {
+  const d = new Date(startedAt * 1000)
+  return Number.isFinite(d.getTime()) ? d.toLocaleTimeString(undefined, { hour12: false }) : ''
+}
 
 /** The run's total length: its own total, or the stages' sum when that is missing. */
 function runSeconds(run: JobStageRun): number {
@@ -44,6 +50,7 @@ export function stageRows(run: JobStageRun): StageRow[] {
     return {
       key: `${i}-${st.stage}`,
       name: st.stage || 'Unnamed stage',
+      at: stageClock(st.started_at),
       duration: formatStageDuration(d),
       cost: formatStageCost(st.cost_usd),
       share: total > 0 ? Math.min(100, Math.round((d / total) * 1000) / 10) : 0,

@@ -654,6 +654,9 @@ def get_job_stages(job_id: str, principal=None) -> dict:
         # earlier runs by other users: show only the run the caller can see.
         started = record.get("started_at") or 0
         runs = [r for r in runs if r["run_started_at"] >= started]
+    for run in runs:
+        for stage in run["stages"]:
+            stage["stage"] = scrub_text(stage["stage"])
     return {"job_id": job_id, "runs": runs}
 
 

@@ -17,7 +17,7 @@ import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { isActive, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from '../pages/diagnosticsFormat'
 import { jobLinks } from '../pages/jobs/jobsFilter'
 import { routeHref, type Route } from '../router'
-import { CANCEL_RULE_NOTE, FORCE_STOP_HINT, offersCancel, offersForceStop, shownStatus, type JobRecord } from '../types/jobs'
+import { CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, offersCancel, offersForceStop, shownStatus, type JobRecord } from '../types/jobs'
 import { Badge } from './Badge'
 import { statusTone } from './labels'
 import { activeCount, badgeText, elapsedText, jobsButtonLabel, menuJobs } from './jobsMenuState'
@@ -142,7 +142,7 @@ export function JobsMenu() {
                       <Badge tone={statusTone(shownStatus(j))}>{jobStatusLabel(j)}</Badge>
                       <span>{elapsedText(j, now)}</span>
                       {cancellable(j) && (
-                        <button type="button" className={buttonClass('secondary', 'sm', 'jobs-cancel')} aria-label={`Cancel ${name}`} onClick={() => void cancel(j.job_id)}>
+                        <button type="button" className={buttonClass('secondary', 'sm', 'jobs-cancel')} aria-label={`Cancel ${name}`} title={cancelHint(j.job_id)} onClick={() => void cancel(j.job_id)}>
                           Cancel
                         </button>
                       )}

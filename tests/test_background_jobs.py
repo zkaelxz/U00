@@ -2662,6 +2662,40 @@ def test_a_process_job_whose_worker_reports_a_failure_ends_as_an_error(monkeypat
     bg.clear_job(job_id)
 
 
+def test_a_done_job_with_an_unlisted_failure_reason_notifies_as_failed(monkeypatch):
+    """The Jobs list reads such a job as Failed (derive_outcome), so the bell
+    and the toast must too, though the stored status stays done for the stage panels."""
+    calls = []
+    monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
+    job_id = "test_thread_soft_failed_timeout"
+    bg.clear_job(job_id)
+    assert job_launch.start_job(job_id, lambda: bg.set_result(job_id, {"failed_reason": "timeout"})) is True
+    _wait(job_id)
+    assert _wait_for_status(job_id, "running")["status"] == "done"
+    _wait_for(lambda: calls)
+    (args, kwargs), = calls
+    assert args[1] == "error" and kwargs["reason"] == "The job did not finish."
+    bg.clear_job(job_id)
+
+
+def test_a_process_job_with_an_unlisted_failure_reason_notifies_as_failed(monkeypatch):
+    _install_fake_process(monkeypatch, run_target_on_start=True)
+    calls = []
+    monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
+
+    def fake_worker(result_queue):
+        result_queue.put(("ok", {"failed_reason": "audio_slice", "detail": "Couldn't cut this line's audio."}))
+
+    job_id = "test_process_soft_failed_slice"
+    bg.clear_job(job_id)
+    job_launch.start_process_job(job_id, fake_worker, args=())
+    assert _wait_for_status(job_id, "running")["status"] == "done"
+    _wait_for(lambda: calls)
+    (args, kwargs), = calls
+    assert args[1] == "error" and "Couldn't cut this line's audio." in kwargs["reason"]
+    bg.clear_job(job_id)
+
+
 @pytest.mark.parametrize("reason", ["no_lines", "no_text", "empty_kept_existing"])
 def test_a_partial_worker_outcome_still_ends_done(reason):
     """Zero lines is "Finished but found no lines" (a partial), not a failure."""

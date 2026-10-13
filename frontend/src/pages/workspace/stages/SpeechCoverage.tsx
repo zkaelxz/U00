@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../../../api/client'
 import { mediaStreamUrl } from '../../../api/media'
 import { cancelJob } from '../../../api/jobs'
+import { cancelHint } from '../../../types/jobs'
 import { getSpeechCoverage, startSpeechCoverage } from '../../../api/speechCoverage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
@@ -131,7 +132,7 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
         {active && status ? (
           <p className="actions" role="status" data-testid="speech-coverage-running">
             <span>{safeDetail(status.message) ?? 'Finding speech…'}</span>
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status} onClick={cancel}>Cancel</button>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status} title={cancelHint(status.job_id)} onClick={cancel}>Cancel</button>
           </p>
         ) : (
           <div className="actions">

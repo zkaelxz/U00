@@ -93,6 +93,19 @@ describe('job wording', () => {
     expect(jobStatusLabel(job({ status: 'running' }))).toBe('Running')
   })
 
+  it('words a pending cancel by the job kind', () => {
+    const cancelling = 'Cancelling... (finishes the current step first)'
+    expect(jobDetail({ job_id: 'dub_2', status: 'running', message: cancelling, error: null })).toBe('Cancelling... Stops at once.')
+    expect(jobDetail({ job_id: 'translate_2', status: 'running', message: cancelling, error: null })).toContain('AI request')
+    expect(jobDetail({ status: 'running', message: cancelling, error: null })).toBe(cancelling)
+  })
+
+  it('names a title job by its title and points pip installs at Diagnostics', () => {
+    expect(jobBaseName({ job_id: 'transcribe_1', description: 'Transcription (drama #1)' })).toBe('Transcription')
+    expect(jobTitledName({ job_id: 'transcribe_1', description: 'Transcription (drama #1)', drama_id: 1 }, new Map([[1, 'Moonlit']]))).toBe('Transcription - Moonlit')
+    expect(plainJobText('Run pip install faster-whisper to use it')).not.toContain('pip install')
+  })
+
   it('reads a job closed by a restart as Interrupted, not Cancelled', () => {
     expect(jobStatusLabel(job({ status: 'cancelled', outcome: 'interrupted' }))).toBe('Interrupted')
     expect(jobStatusLabel(job({ status: 'cancelled', outcome: 'cancelled' }))).toBe('Cancelled')
