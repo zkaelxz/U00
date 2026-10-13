@@ -6,9 +6,9 @@ ASS, pure, no writes), the three flagging actions, EPUB export
 `status`).
 
 Every flagging function writes ONLY the flag/flag_note fields, as a
-compare-and-set (`_save_flags`): a line whose flag, or the text or timing
-the flag was computed from, changed since it was read keeps that edit and
-isn't counted.
+compare-and-set (`save_flags`): a line whose flag, or the text or timing
+the flag was computed from (its own or the next line's), changed since it
+was read keeps that edit and isn't counted.
 Audiobook/burned-in-video export (each its own subprocess dependency,
 ffmpeg) live in services/media_export_service.py.
 
@@ -475,11 +475,14 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     return _export_result(text, report, fps if tidy_timing else None)
 
 
-def _save_flags(drama_id: int, lines, guard_fields) -> set:
+def save_flags(drama_id: int, lines, guard_fields, with_next: bool = False) -> set:
     """Writes flag/flag_note only where the database still holds what was
-    read, flag and `guard_fields` alike; returns the ids left unwritten."""
-    return db.save_lines(drama_id, lines, fields=("flag", "flag_note"),
-                         only_if_unchanged=True, guard_fields=guard_fields)
+    read, flag and `guard_fields` alike -- and, with_next, the next line's
+    `guard_fields` too, for a flag computed from it. `lines` are the whole
+    title in order. Returns the ids left unwritten."""
+    following = {a.id: [b] for a, b in zip(lines, lines[1:])} if with_next else None
+    return db.save_lines(drama_id, lines, fields=("flag", "flag_note"), only_if_unchanged=True,
+                         guard_fields=guard_fields, guard_neighbours=following)
 
 
 def flag_overlapping_lines(drama_id: int) -> dict:
@@ -497,7 +500,7 @@ def flag_overlapping_lines(drama_id: int) -> dict:
         ln.flag = subtitle_formats.OVERLAP_FLAG
         ln.flag_note = subtitle_formats.overlap_note(ln, next_start[ln.idx])
 
-    kept = _save_flags(drama_id, lines, ("start", "end")) if unflagged else set()
+    kept = save_flags(drama_id, lines, ("start", "end"), with_next=True) if unflagged else set()
     return {"flagged_count": sum(1 for ln in unflagged if ln.id not in kept)}
 
 
@@ -514,7 +517,7 @@ def flag_dense_lines(drama_id: int) -> dict:
         lines, mode=subtitle_formats.flagging_mode_of(drama),
         dismissed=reading_speed_dismissal_service.load_dismissed(drama_id))
     if newly_flagged:
-        kept = _save_flags(drama_id, lines, ("en", "start", "end"))
+        kept = save_flags(drama_id, lines, ("en", "start", "end"), with_next=True)
         newly_flagged = sum(1 for ln in unflagged if ln.flag and ln.id not in kept)
     return {"flagged_count": newly_flagged}
 
@@ -569,7 +572,7 @@ def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
         cleared = len(targets)
         if targets or reflagged:
             # The drama lock doesn't keep out single-line edits (they don't take it).
-            kept = _save_flags(drama_id, lines, ("en", "start", "end"))
+            kept = save_flags(drama_id, lines, ("en", "start", "end"), with_next=recheck)
             cleared = sum(1 for ln in targets if ln.id not in kept)
             reflagged = sum(1 for ln in unflagged if ln.flag and ln.id not in kept)
     return {"cleared_count": cleared, "flagged_count": reflagged, "history_id": history_id}
@@ -594,7 +597,7 @@ def run_auto_qc_flagging(drama_id: int) -> dict:
     before = {ln.id: ln.flag for ln in lines}
     result = auto_qc.run_auto_qc(lines, names, banned_terms)
     if result["flagged"] or result["cleared"]:
-        kept = _save_flags(drama_id, lines, ("zh", "en"))
+        kept = save_flags(drama_id, lines, ("zh", "en"))
         for ln in lines:
             if ln.id in kept and ln.flag == auto_qc.AUTO_QC_FLAG:
                 result["flagged"] -= 1

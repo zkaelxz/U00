@@ -369,3 +369,20 @@ def test_a_long_line_the_preview_leaves_whole_needs_no_confirm(monkeypatch):
     assert _wait(out["job_id"])["status"] == "done"
     rows = db.load_lines(did)
     assert len(rows) == 4 and rows[3]["en"] == "kept whole"
+
+
+def test_note_racing_the_preview_apply_save_is_kept(monkeypatch):
+    """Line notes don't take the drama lock: one added to a line being split
+    between the apply job's checks and its save must not be deleted with it,
+    even with confirm=true."""
+    from tests.test_restructure_service import _race_a_line_edit
+    did = _seed_unconfirmed()
+    _preview(monkeypatch, did)
+    preview = resegmentation_service._llm_previews[did]
+    long_id = preview["changed"][0]["line_id"]
+    _race_a_line_edit(monkeypatch, did, long_id, note=True)
+    job_launch.start_job("resegment_x", resegmentation_service._apply_llm_preview_job,
+                         "resegment_x", did, preview, True)
+    assert _wait("resegment_x")["status"] == "error"
+    assert [r["id"] for r in db.load_lines(did)] == preview["source_line_ids"]
+    assert [n["line_id"] for n in db.list_translation_notes(did)] == [long_id]

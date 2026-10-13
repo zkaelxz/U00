@@ -2,13 +2,15 @@
 (source_suspect.py has the rules) and lists them with the line each could merge into.
 
 Computed from the stored lines alone and written as flag/flag_note only, by
-line id, as a compare-and-set: a line whose flag, text or timing changed
-since it was read keeps that edit and isn't counted. A line that
+line id, as a compare-and-set: a line whose flag, or its own or the next
+line's text, timing or speaker, changed since it was read keeps that edit
+and isn't counted. A line that
 already carries another flag keeps it; this check clears only its own flag once
 it no longer applies. Merging goes through the existing restructure merge.
 """
 import core as core_module
 import db
+from services.export_service import save_flags
 from services.service_errors import NotFoundError
 from source_suspect import SUSPECT_FLAG, find_suspects
 
@@ -35,8 +37,7 @@ def check_source_text(drama_id: int) -> dict:
             cleared.append(ln.id)
     kept = set()
     if flagged or cleared:
-        kept = db.save_lines(drama_id, lines, fields=("flag", "flag_note"), only_if_unchanged=True,
-                             guard_fields=("zh", "start", "end", "speaker"))
+        kept = save_flags(drama_id, lines, ("zh", "start", "end", "speaker"), with_next=True)
     return {"flagged_count": sum(1 for i in flagged if i not in kept),
             "cleared_count": sum(1 for i in cleared if i not in kept)}
 

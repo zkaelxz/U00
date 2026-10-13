@@ -103,6 +103,17 @@ class TestMergeAndUndo:
         rows = _rows(did)
         assert [r["id"] for r in rows] == ids and rows[1]["en"] == "typed in the window"
 
+    def test_undo_refused_when_a_note_races_onto_a_line_it_removes(self, monkeypatch):
+        did, ids = _seed([("你好吗", "Hi"), ("b", "B")])
+        out = svc.split_line(did, ids[0], ids, at_char=1, expected_zh="你好吗")
+        new_piece = out["line_ids"][1]
+        _race_a_line_edit(monkeypatch, did, new_piece, note=True)
+        with pytest.raises(ConflictError):
+            svc.restore_version(did, out["history_id"], out["line_ids"],
+                                out["lines_fingerprint"])
+        assert [r["id"] for r in _rows(did)] == out["line_ids"]
+        assert _notes(did) == {"公园": new_piece}
+
     def test_merge_carries_refs_and_snapshots_first(self):
         did, ids = _seed()
         _decorate(did, ids)

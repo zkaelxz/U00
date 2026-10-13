@@ -22,7 +22,7 @@ import translate_engines
 from engine_backends import llm_tasks
 from services import paid_job_service, settings_service, transcribe_options_service, translate_service
 from services.restructure_service import (_check_expected, _commit, _drama_lock, _id_list,
-                                          _refuse_if_job_running, _require_drama)
+                                          _refuse_if_job_running, _require_drama, note_ids)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -360,6 +360,8 @@ def _apply_llm_preview_job(job_id, drama_id, preview, confirm: bool = False):
         background_jobs.set_result(job_id, {"changed": 0})
         return
     with _drama_lock(drama_id):
+        # Read before the lines, so a note added after either read is unknown.
+        known = note_ids(drama_id)
         current = db.load_line_objects(drama_id)
         if _line_fingerprint(current) != state["fingerprint"]:
             raise RuntimeError("This title's lines changed since the preview -- nothing was "
@@ -370,7 +372,7 @@ def _apply_llm_preview_job(job_id, drama_id, preview, confirm: bool = False):
                                "with confirm=true.")
         new_lines = [dataclasses.replace(ln, merged_ids=list(ln.merged_ids))
                      for ln in state["lines"]]
-        _commit(drama_id, current, new_lines, "before re-segment")
+        _commit(drama_id, current, new_lines, "before re-segment", known_note_ids=known)
     with _llm_previews_lock:
         if _llm_previews.get(drama_id) is preview:
             _llm_previews.pop(drama_id, None)   # applied: it can't be applied twice

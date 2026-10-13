@@ -266,6 +266,26 @@ class TestFlagOverlappingLines:
         assert (row["flag"], row["flag_note"]) == ("uncertain_translation", "mine")
 
 
+    def test_the_next_line_moved_while_checking_is_not_flagged(self, isolated_db, monkeypatch):
+        """The overlap is with the NEXT line: moving that one away while the
+        check runs must stop the flag too."""
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        second = isolated_db.load_lines(did)[1]["id"]
+        real = export_service.subtitle_formats.clamp_overlaps
+
+        def user_moves_the_next_line(lines):
+            lines_service.patch_line(did, second, start=3.5, end=5.0)
+            return real(lines)
+        monkeypatch.setattr(export_service.subtitle_formats, "clamp_overlaps",
+                            user_moves_the_next_line)
+        assert export_service.flag_overlapping_lines(did) == {"flagged_count": 0}
+        assert isolated_db.load_lines(did)[0]["flag"] is None
+
+
 class TestFlagDenseLines:
     def test_english_shortened_while_checking_is_not_flagged(self, isolated_db, monkeypatch):
         did = _drama(isolated_db)
@@ -297,7 +317,6 @@ class TestFlagDenseLines:
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             export_service.flag_dense_lines(999999)
-
 
     def test_the_titles_mode_is_honoured(self, isolated_db):
         text = "word " * 20  # 19.8 cps over 5 s: over 17, under 20

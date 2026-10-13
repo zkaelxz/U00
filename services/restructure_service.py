@@ -25,9 +25,11 @@ modules. Line edits (the line PATCH and notes routes) and other processes
 (the CLI) don't take that lock, so the save itself re-checks, inside its
 transaction, that the drama's lines are still exactly the ones the write
 was computed from (`save_lines(expect_unchanged=...)`) and refuses with
-nothing written if not. The snapshot is its own transaction, so a refused
-or failed save leaves only an extra snapshot. An undo's fingerprint check
-still runs outside the save's transaction.
+nothing written if not. A write that removes lines and must not lose a
+note added meanwhile also passes the note ids it saw (`known_note_ids`).
+The snapshot is its own transaction, so a refused or failed save leaves
+only an extra snapshot. An undo's emotion-tag check still runs outside the
+save's transaction.
 
 No FastAPI import: plain dicts in and out. Messages never echo
 line text, keys or paths.
@@ -152,21 +154,29 @@ def exclusive_write(drama_id: int):
         yield
 
 
+def note_ids(drama_id: int) -> set:
+    return {n["id"] for n in db.list_translation_notes(drama_id)}
+
+
 def structural_write(drama_id: int, expected_line_ids, label: str, build,
-                     with_words: bool = False):
+                     with_words: bool = False, keep_new_notes: bool = False):
     """load fresh -> check ids -> build(current) -> snapshot -> save, under
     the drama lock. build returns (new_lines, result_line_objects).
-    with_words loads the lines' stored word timings for a build that cuts or joins text."""
+    with_words loads the lines' stored word timings for a build that cuts or joins text.
+    keep_new_notes refuses the save if a line it removes gained a note
+    after the lines were loaded."""
     _require_drama(drama_id)
     expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
     _refuse_if_job_running(drama_id)
     with _drama_lock(drama_id):
+        # Read before the lines, so a note added after either read is unknown.
+        known = note_ids(drama_id) if keep_new_notes else None
         current = db.load_line_objects(drama_id, with_words=with_words)
         _check_expected(current, expected_line_ids)
         # build works on copies so the snapshot sees the untouched lines
         work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
         new_lines, touched = build(work)
-        history_id = _commit(drama_id, current, new_lines, label)
+        history_id = _commit(drama_id, current, new_lines, label, known_note_ids=known)
         handle = undo_handle(drama_id, history_id)
     return {"line_ids": [ln.id for ln in new_lines],
             "lines": [line_dict(ln) for ln in touched], **handle}
@@ -334,8 +344,8 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
         raise NotFoundError(f"No history snapshot {history_id} for title {drama_id}.")
 
     def build(lines):
-        # Checked under the drama lock, but line edits don't take it: one saved
-        # after this check and before the save is still overwritten.
+        # Line edits don't take the drama lock; one saved after this check is
+        # caught by the save's own check (_commit).
         if expected_fingerprint is not None and lines_fingerprint(lines) != expected_fingerprint:
             raise ConflictError("The lines were edited since that change -- restore from "
                                 "Records, Line history instead.")
@@ -347,6 +357,7 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
                                 "saved since -- nothing was changed.",
                                 details={"reason": "notes_on_removed_lines"})
         return core_module.restore_saved_lines(rows, lines), []
-    out = structural_write(drama_id, expected_line_ids, "before restore", build)
+    out = structural_write(drama_id, expected_line_ids, "before restore", build,
+                           keep_new_notes=expected_fingerprint is not None)
     return {"history_id": history_id, "line_ids": out["line_ids"]}
 
