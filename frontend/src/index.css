@@ -269,6 +269,12 @@ label.field > input, label.field > select { color: var(--text); font-size: var(-
 label.field > textarea { color: var(--text); }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
 .stack { display: grid; gap: var(--space-3); }
+/* A preset or action button next to its short note: natural width, never a grid column of its own. */
+.preset-note-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+.preset-note-row > button { flex: none; }
+/* A button dropped straight into a grid keeps its natural width instead of stretching to the column. */
+.field-row > button, .field-row > .btn, .stack > button, .stack > .btn { justify-self: start; }
+.preset-note-row > .muted { min-width: 0; font-size: var(--text-sm); }
 .actions { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
 
 input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
@@ -285,6 +291,10 @@ textarea {
   background: var(--field-bg);
   color: var(--text);
   transition: border-color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+}
+/* A select is as wide as its longest option, not the page: only text fields stretch. Phones keep it full width for the touch target. */
+@media (min-width: 641px) {
+  select { width: auto; min-width: min(100%, 12rem); }
 }
 textarea { min-height: 0; resize: vertical; font-size: var(--text-edit); line-height: var(--leading); }
 input:focus, select:focus, textarea:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 4px var(--focus); }
@@ -757,22 +767,18 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 
 /* Toolbar: search, scope, filters, view, select */
 .library-list { display: grid; gap: var(--space-3); min-width: 0; }
-.library-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.library-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .toolbar-search { display: flex; gap: var(--space-2); flex: 1 1 18rem; min-width: 0; }
 .toolbar-filters { display: flex; gap: var(--space-2); flex: 0 1 auto; min-width: 0; }
 .toolbar-filters select { width: 11rem; }
-.toolbar-row { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex: 1 1 auto; flex-wrap: wrap; min-width: 0; }
+.toolbar-row { display: flex; align-items: center; gap: var(--space-3); flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
+/* Selects in a toolbar row keep a natural width: the global 100% would make each one a full-width row. */
+.toolbar-row select { width: auto; flex: 0 1 15rem; min-width: 10rem; }
 .toolbar-end { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
 /* More filters: a closed summary sits in the row; open, it becomes its own full-width row below. */
 .library-toolbar .more-filters { margin-bottom: 0; }
 .library-toolbar .more-filters[open] { order: 1; flex-basis: 100%; }
 .list-count { margin: 0; }
-.segmented { display: inline-flex; margin: 0; padding: 2px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
-.segmented label { position: relative; display: inline-flex; }
-.segmented input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-.segmented span { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 4px; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium); }
-.segmented input:checked + span { background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-1); }
-.segmented input:focus-visible + span { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 1px; }
 .empty-note { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .empty-note p { margin: 0; }
 
@@ -832,7 +838,7 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .line-hit-head a { font-weight: var(--weight-bold); }
 
 /* Library tools: rare lists, all folded */
-.tools-stack { display: grid; gap: 0; }
+.tools-stack { display: grid; gap: 0; padding: var(--space-2) var(--space-4); }
 .tools-stack details.section { margin: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: var(--space-2) 0; }
 .tools-group-title { margin: var(--space-4) 0 var(--space-1); font-size: var(--text-sm); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .tools-export { margin-top: var(--page-gap); }
@@ -860,7 +866,6 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   .toolbar-filters { flex: 1 1 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .toolbar-filters select { width: 100%; }
   .toolbar-row { flex-basis: 100%; }
-  .segmented span { min-height: 40px; padding-inline: var(--space-4); }
   .drama-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
   .drama-card-main { padding: var(--space-3); }
   .drama-card-foot { gap: var(--space-3); }

@@ -74,9 +74,11 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 
 /* At rest the dock is icons only: labels stay in the DOM as the accessible names (and each link carries a title). */
 .app-rail:not(:hover, :focus-within) .rail-brand a { justify-content: center; padding: 0; }
-.app-rail:not(:hover, :focus-within) .rail-label,
-.app-rail:not(:hover, :focus-within) .rail-title { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.app-rail:not(:hover, :focus-within) .rail-heading { height: 1px; margin: var(--space-1) var(--space-2) 0; padding: 0; overflow: hidden; background: var(--border); color: transparent; font-size: 0; }
+/* The dock is vertically centred, so any height change on hover moves every icon. Resting rows therefore keep the height of the open ones:
+   a heading keeps its text box (hidden, with a hairline in its place) and the open title stays a row showing only its mark. */
+.app-rail:not(:hover, :focus-within) .rail-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.app-rail:not(:hover, :focus-within) .rail-heading { overflow: hidden; white-space: nowrap; color: transparent; background: linear-gradient(var(--border), var(--border)) center / 100% 1px no-repeat; }
+.app-rail:not(:hover, :focus-within) nav a.rail-title { margin-left: 0; }
 .app-rail:not(:hover, :focus-within) nav a { justify-content: center; padding: 0; }
 .app-rail:not(:hover, :focus-within) .rail-badge { display: none; }
 .rail-brand-mark { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 700; }
