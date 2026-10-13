@@ -15,6 +15,7 @@ pytest.importorskip("multipart")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import ocr
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -220,7 +221,7 @@ def test_ocr_chapter_errors(client, monkeypatch):
 
 def test_ocr_duplicate_job_409(client, monkeypatch):
     did = _drama()
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
     r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"x"))])
     assert r.status_code == 409
     import db

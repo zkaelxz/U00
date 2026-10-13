@@ -34,6 +34,7 @@ import shutil
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import db
 from jobs import job_store
 import storage
@@ -121,7 +122,7 @@ def maintenance(action: str):
     """Held around bulk delete / storage cleanup: refuses (Conflict) while a
     restore holds the library, or a backup/export is reading it, and keeps
     a restore from starting until the operation ends."""
-    if not background_jobs.enter_maintenance():
+    if not job_launch.enter_maintenance():
         raise ConflictError(f"A restore is in progress; {action} is not possible right now.")
     try:
         for job_id, label in ((BACKUP_JOB_ID, "backup"), (AUTO_BACKUP_JOB_ID, "backup"),
@@ -132,13 +133,13 @@ def maintenance(action: str):
                                     f"{action}.")
         yield
     finally:
-        background_jobs.exit_maintenance()
+        job_launch.exit_maintenance()
 
 
 def refuse_during_maintenance(label: str):
     """A backup/export must not read the library while a bulk delete or
     storage cleanup is changing it (_maintenance refuses the reverse)."""
-    if background_jobs.maintenance_active():
+    if job_launch.maintenance_active():
         raise ConflictError(f"Titles are being deleted or storage cleaned; the {label} "
                             f"can start when that finishes.")
 
@@ -329,7 +330,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         except Exception:
             api_keys[engine] = None
     cap = paid_job_service.require_monthly_cap(engine_by_id[d] for d in queued)
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         BULK_TRANSLATE_JOB_ID, wjs.run_bulk_series_translate_job,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,
         default_locale=default_locale,

@@ -26,6 +26,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import background_jobs
+from jobs import job_launch
 import bulk_import
 import db
 import metadata_lookup
@@ -221,7 +222,7 @@ def _start(job_id: str, label: str, target, *args) -> dict:
     with _start_lock:
         if background_jobs.is_running(job_id):
             raise RateLimitedError(_JOB_BUSY.format(label))
-        if not background_jobs.start_job(job_id, target, job_id, *args,
+        if not job_launch.start_job(job_id, target, job_id, *args,
                                          description=label.capitalize()):
             raise RateLimitedError(_JOB_BUSY.format(label))
     return {"job_id": job_id, "started": True}

@@ -191,6 +191,7 @@ def test_run_starts_only_visible_pages_of_the_chapter(drama, monkeypatch):
 
 def test_import_job_records_chapters_in_order(isolated_db, drama, monkeypatch):
     import background_jobs
+    from jobs import job_table
     from sources.models import ChapterInfo
     monkeypatch.setattr(ladder, "check_terms", lambda *a, **k: None)
 
@@ -208,7 +209,7 @@ def test_import_job_records_chapters_in_order(isolated_db, drama, monkeypatch):
     chapters = [ChapterInfo("src", "s", "a", "Chapter 1", url="https://reader.example/a?t=1"),
                 ChapterInfo("src", "s", "b", "Chapter 2", url="https://reader.example/b")]
     job = "chapter_order_test"
-    background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                   "cancel_requested": False, "result": None}
     pipeline.run_import_job(job, "src", chapters, drama, adapter=Adapter())
     background_jobs.clear_job(job)

@@ -141,6 +141,7 @@ def _hold_until_cancelled(job_id: str):
 
 def add_e2e_job_routes(app):
     import background_jobs
+    from jobs import job_launch
     from fastapi import Body
     from lib.errors import ConflictError, InvalidInputError
 
@@ -151,7 +152,7 @@ def add_e2e_job_routes(app):
 
     def hold(job_id: str = Body(...), description: str = Body(...)):
         _check(job_id)
-        if not background_jobs.start_job(job_id, _hold_until_cancelled, job_id,
+        if not job_launch.start_job(job_id, _hold_until_cancelled, job_id,
                                          description=description):
             raise ConflictError("That job is already running.")
         return {"job_id": job_id, "started": True}

@@ -24,6 +24,7 @@ UI-free. Writes are PC-only (the router uses local_only()).
 import importlib.util
 
 import background_jobs
+from jobs import job_launch
 import db
 import qwen3_native
 from services.service_errors import ConflictError, InvalidInputError
@@ -174,7 +175,7 @@ def start_asmr_vad_download() -> dict:
     import asmr_vad
     if asmr_vad.status()["model_downloaded"]:
         raise ConflictError("The ASMR voice detector model is already downloaded.")
-    if not background_jobs.start_job(ASMR_VAD_JOB_ID, _download_job,
+    if not job_launch.start_job(ASMR_VAD_JOB_ID, _download_job,
                                      description="Downloading the ASMR voice detector"):
         raise ConflictError("The ASMR voice detector is already downloading.")
     return {"job_id": ASMR_VAD_JOB_ID, "started": True}

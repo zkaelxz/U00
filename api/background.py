@@ -43,7 +43,7 @@ _started = None
 
 # GPU-queue nudge: background_jobs never re-checks its GPU queue on its own
 # (a job queued behind GPU load Baihe didn't start is re-checked only when
-# another GPU job finishes). The API calls background_jobs.recheck_gpu_queue
+# another GPU job finishes). The API calls job_runner.recheck_gpu_queue
 # on a timer, only while background services are on, and stops it at shutdown. The call is a cheap no-op when nothing is queued.
 GPU_QUEUE_POLL_SECONDS = 20.0
 _gpu_poller = None          # (thread, stop_event) while running
@@ -63,8 +63,8 @@ def start_gpu_queue_poller(interval: float = None) -> bool:
         def loop():
             while not stop.wait(interval):
                 try:
-                    import background_jobs
-                    background_jobs.recheck_gpu_queue()
+                    from jobs import job_runner
+                    job_runner.recheck_gpu_queue()
                 except Exception as exc:
                     _log("GPU queue re-check failed: %s", exc)
                 try:

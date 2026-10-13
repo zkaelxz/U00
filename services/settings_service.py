@@ -14,7 +14,7 @@ import sqlite3
 import threading
 from typing import Optional
 
-import background_jobs
+from jobs import job_settings
 import memory_headroom
 import ollama_unload
 import portable
@@ -199,10 +199,10 @@ def get_settings_overview(env_path: str = None) -> dict:
     from services import media_upload_service  # imports this module at load
     return {
         "engine_keys": key_status(env_path),
-        "gpu_limit_enabled": background_jobs.get_gpu_limit_enabled(),
-        "gpu_max_parallel": background_jobs.get_gpu_max_parallel(),
+        "gpu_limit_enabled": job_settings.get_gpu_limit_enabled(),
+        "gpu_max_parallel": job_settings.get_gpu_max_parallel(),
         "unload_ollama_before_transcribe": ollama_unload.is_enabled(),
-        "notify_on_completion": background_jobs.get_notify_on_completion(),
+        "notify_on_completion": job_settings.get_notify_on_completion(),
         "use_gpu": get("use_gpu"),
         "gemini_free_tier": get("gemini_free_tier"),
         "bulk_auto_resume": get("bulk_auto_resume"),
@@ -226,9 +226,9 @@ _DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provide
 
 # Switches whose owner (a root module) keeps its own storage and setter.
 _WRITABLE_SETTINGS = {
-    "gpu_limit_enabled": background_jobs.set_gpu_limit_enabled,
+    "gpu_limit_enabled": job_settings.set_gpu_limit_enabled,
     "unload_ollama_before_transcribe": ollama_unload.set_enabled,
-    "notify_on_completion": background_jobs.set_notify_on_completion,
+    "notify_on_completion": job_settings.set_notify_on_completion,
 }
 
 
@@ -296,7 +296,7 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
     _check_ordered_pairs(cleaned)
     for key, value in cleaned.items():
         if key == "gpu_max_parallel":
-            background_jobs.set_gpu_max_parallel(value)
+            job_settings.set_gpu_max_parallel(value)
         elif key in _WRITABLE_SETTINGS:
             _WRITABLE_SETTINGS[key](value)
         else:

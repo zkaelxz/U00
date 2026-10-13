@@ -14,6 +14,7 @@ requests = pytest.importorskip("requests")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_runner, job_settings, job_table
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -29,7 +30,7 @@ SECRET_BITS = ("SECRETtoken", "baihe-secret-topic-xyz", "123456789012345678")
 LOCAL = "http://127.0.0.1:8600"
 REMOTE = "https://baihe.example.com"
 PUBLIC_IP = "93.184.216.34"
-_REAL_JOB_HOOK = background_jobs._notify_job_finished
+_REAL_JOB_HOOK = job_settings._notify_job_finished
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def env(tmp_path, monkeypatch, isolated_db):
                                                (settings_service.API_PORT_ENV,), (settings_service.HOUSEHOLD_PORT_ENV,)]:
         for n in names:
             monkeypatch.delenv(n, raising=False)
-    monkeypatch.setattr(background_jobs, "_notify_job_finished", lambda *a, **k: None)
+    monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: None)
     ns.reset_for_tests()
     yield path
     ns.reset_for_tests()
@@ -53,7 +54,7 @@ def env(tmp_path, monkeypatch, isolated_db):
 @pytest.fixture
 def job_hook(env, monkeypatch):
     """The real background_jobs -> notification_service hook."""
-    monkeypatch.setattr(background_jobs, "_notify_job_finished", _REAL_JOB_HOOK)
+    monkeypatch.setattr(job_runner, "_notify_job_finished", _REAL_JOB_HOOK)
 
 
 @pytest.fixture
@@ -561,8 +562,8 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
     def boom():
         raise RuntimeError("real job error")
 
-    background_jobs.start_job("notify_t1", lambda: None, description="Translation (title #1)")
-    background_jobs.start_job("notify_t2", boom, description="Dub generation (title #1)")
+    job_launch.start_job("notify_t1", lambda: None, description="Translation (title #1)")
+    job_launch.start_job("notify_t2", boom, description="Dub generation (title #1)")
     assert both_queued.wait(timeout=30), f"only {seen} were queued"
     assert background_jobs.get_status("notify_t1")["status"] == "done"
     job = background_jobs.get_status("notify_t2")
@@ -580,7 +581,7 @@ def test_a_raising_notifier_never_breaks_the_job(env, job_hook, monkeypatch):
         raise RuntimeError("notifier down")
 
     monkeypatch.setattr(ns, "notify_job_finished", explode)
-    background_jobs.start_job("notify_t3", lambda: None, description="Translation")
+    job_launch.start_job("notify_t3", lambda: None, description="Translation")
     assert _wait("notify_t3")["status"] == "done"
 
 
@@ -779,12 +780,12 @@ def test_in_app_list_follows_job_visibility(env, no_timer, monkeypatch):
     ns.notify_job_finished("Library backup", "done", job_id="library_backup", owner_user_id=8)
     ns.notify_job_finished("Library backup", "error", job_id="library_backup2",
                            owner_user_id=7)
-    background_jobs._jobs["sources_chapter_check"] = {"status": "done", "result": {"new": 2}}
+    job_table._jobs["sources_chapter_check"] = {"status": "done", "result": {"new": 2}}
     try:
         ns.notify_job_finished("Checking tracked series for new chapters", "done",
                                job_id=ns.CHAPTER_CHECK_JOB_ID)
     finally:
-        background_jobs._jobs.pop("sources_chapter_check", None)
+        job_table._jobs.pop("sources_chapter_check", None)
     kid = {"user_id": 7, "is_admin": False, "is_local_owner": False}
     assert [e["kind"] for e in ns.list_recent(kid)] == ["chapters", "job_failed", "job_done"]
     assert len(ns.list_recent(None)) == 5
@@ -792,12 +793,12 @@ def test_in_app_list_follows_job_visibility(env, no_timer, monkeypatch):
 
 
 def _chapter_check(result, status="done"):
-    background_jobs._jobs[ns.CHAPTER_CHECK_JOB_ID] = {"status": status, "result": result}
+    job_table._jobs[ns.CHAPTER_CHECK_JOB_ID] = {"status": status, "result": result}
     try:
         ns.notify_job_finished("Checking tracked series for new chapters", status,
                                job_id=ns.CHAPTER_CHECK_JOB_ID)
     finally:
-        background_jobs._jobs.pop(ns.CHAPTER_CHECK_JOB_ID, None)
+        job_table._jobs.pop(ns.CHAPTER_CHECK_JOB_ID, None)
 
 
 def test_chapter_check_pushes_only_when_it_finds_new_chapters(env, no_timer):

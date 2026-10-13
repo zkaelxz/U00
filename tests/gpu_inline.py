@@ -9,6 +9,7 @@ import shutil
 import tempfile
 
 import background_jobs
+from jobs import job_runner
 
 
 class _Killed(BaseException):
@@ -23,7 +24,7 @@ class _InlineQueue:
         self.result = None
 
     def put(self, item):
-        if background_jobs._apply_progress_item(self.job_id, item):
+        if job_runner._apply_progress_item(self.job_id, item):
             return
         if item[0] == "item":
             if self.on_item is not None:

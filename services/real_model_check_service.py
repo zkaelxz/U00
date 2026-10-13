@@ -31,6 +31,7 @@ import wave
 import requests
 
 import background_jobs
+from jobs import job_launch
 import diagnostics
 import diagnostics_report
 import memory_headroom
@@ -430,7 +431,7 @@ def start(confirm: bool = False) -> dict:
     """PC only. 409 while anything else runs (the GPU must be free)."""
     admin_svc.guard(confirm)
     with _LOCK:
-        started = background_jobs.start_job(JOB_ID, _job, gpu_touching=True,
+        started = job_launch.start_job(JOB_ID, _job, gpu_touching=True,
                                             description="Real-model check")
         if started:
             _STATE.update(checks=[], finished=False)

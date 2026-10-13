@@ -31,6 +31,7 @@ import threading
 import warnings
 
 import background_jobs
+from jobs import job_launch
 import db
 import storage
 from services import comic_view_service
@@ -100,7 +101,7 @@ def start_drama_job(drama_id: int, target, *args, description: str) -> dict:
     with _claims_lock:
         if drama_id in _uploading:
             raise ConflictError(_BUSY_UPLOAD)
-        if not background_jobs.start_job(jid, target, *args, gpu_touching=True,
+        if not job_launch.start_job(jid, target, *args, gpu_touching=True,
                                          description=description):
             raise ConflictError(_BUSY_JOB)
     return {"job_id": jid}

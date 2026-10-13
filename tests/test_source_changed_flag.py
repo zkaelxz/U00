@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_table
 import bulk_poll
 import db
 import resegment
@@ -287,7 +288,7 @@ class TestFixFlagged:
                             lambda: None)
         monkeypatch.setattr(workspace_review_job_service.os.path, "exists", lambda p: True)
         job_id = f"fixflag_{did}"
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                          "error": None, "cancel_requested": False, "result": None}
         workspace_review_job_service.run_fix_flagged_lines_job(
             job_id, did, db.load_line_objects(did), "audio.wav", "small", False, "zh", engine,

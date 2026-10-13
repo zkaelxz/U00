@@ -48,7 +48,8 @@ class TestListJobs:
 def _run_job_with_result(job_id, result):
     import time
     import background_jobs
-    background_jobs.start_job(job_id, lambda: background_jobs.set_result(job_id, result))
+    from jobs import job_launch
+    job_launch.start_job(job_id, lambda: background_jobs.set_result(job_id, result))
     deadline = time.time() + 3
     while (background_jobs.get_status(job_id) or {}).get("status") not in ("done", "error"):
         assert time.time() < deadline
@@ -61,10 +62,11 @@ def test_a_job_cancelled_while_queued_still_lists_as_cancelled(isolated_db):
     listed (latest run per id), not vanish from the Jobs page."""
     import threading
     import background_jobs
+    from jobs import job_launch, job_runner
     release = threading.Event()
-    background_jobs.start_job("transcribe_1", lambda: release.wait(5), gpu_touching=True)
+    job_launch.start_job("transcribe_1", lambda: release.wait(5), gpu_touching=True)
     try:
-        background_jobs.start_job("transcribe_2", lambda: None, gpu_touching=True)
+        job_launch.start_job("transcribe_2", lambda: None, gpu_touching=True)
         assert background_jobs.get_status("transcribe_2")["status"] == "queued"
         assert background_jobs.cancel_queued("transcribe_2") is True
         listed = {j["job_id"]: j for j in jobs_service.list_jobs()}
@@ -72,7 +74,7 @@ def test_a_job_cancelled_while_queued_still_lists_as_cancelled(isolated_db):
         assert listed["transcribe_2"]["outcome"] == "cancelled"
     finally:
         release.set()
-        background_jobs.wait_for_job_threads(5)
+        job_runner.wait_for_job_threads(5)
 
 
 class TestJobResults:
@@ -89,10 +91,10 @@ class TestJobResults:
             assert "downloaded" in text
 
     def test_result_survives_a_restart(self, isolated_db):
-        import background_jobs
+        from jobs import job_table
         _run_job_with_result("translate_2", {"errors": ["batch 1: timeout"], "cap_reached": None,
                                              "lines_replaced": True})
-        background_jobs._jobs.clear()  # the owning process is gone
+        job_table._jobs.clear()  # the owning process is gone
         job = jobs_service.get_job("translate_2")
         assert job["result"]["lines_replaced"] is True
         assert job["result"]["errors"] == ["batch 1: timeout"]
@@ -380,11 +382,11 @@ def test_cancel_reaches_another_processes_run_past_a_finished_one_here(isolated_
     """A member's run of this id finished here; the CLI (another process,
     no starter) now runs it. Cancelling the CLI's run must flag its row,
     not be refused because the finished run here had another starter."""
-    import background_jobs
+    from jobs import job_table
     from jobs import job_store
     job_id = "translate_77"
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {"status": "done", "owner_user_id": 5,
+    with job_table._lock:
+        job_table._jobs[job_id] = {"status": "done", "owner_user_id": 5,
                                          "started_at": 1.0, "finished_at": 2.0}
     try:
         db.save_job_record(job_id, "running", started_at=3.0, owner_user_id=None,
@@ -394,5 +396,5 @@ def test_cancel_reaches_another_processes_run_past_a_finished_one_here(isolated_
         assert db.get_job_record(job_id)["cancel_requested"]
         assert job_store.row_cancel_time(job_id) is not None
     finally:
-        with background_jobs._lock:
-            background_jobs._jobs.pop(job_id, None)
+        with job_table._lock:
+            job_table._jobs.pop(job_id, None)

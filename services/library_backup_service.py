@@ -19,6 +19,7 @@ import time
 import zipfile
 
 import background_jobs
+from jobs import job_launch
 import db
 import storage
 import subtitle_formats
@@ -111,7 +112,7 @@ def start_export_zip(drama_ids=None) -> dict:
                                 details={"results": results} if results is not None else None)
     refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
-    if not background_jobs.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
+    if not job_launch.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
                                      description="Library export"):
         raise ConflictError("A library export is already running.")
     out = {"job_id": EXPORT_JOB_ID, "drama_ids": ids}
@@ -247,7 +248,7 @@ def start_backup() -> dict:
     """Job: full library backup zip (database snapshot + media)."""
     refuse_during_maintenance("backup")
     _refuse_duplicate(BACKUP_JOB_ID, "backup")
-    if not background_jobs.start_job(BACKUP_JOB_ID, _backup_job, BACKUP_JOB_ID,
+    if not job_launch.start_job(BACKUP_JOB_ID, _backup_job, BACKUP_JOB_ID,
                                      description="Library backup"):
         raise ConflictError("A backup is already running.")
     return {"job_id": BACKUP_JOB_ID}
@@ -265,7 +266,7 @@ def start_database_backup() -> dict:
     no media. Fetch it with admin_artifact_path("database")."""
     refuse_during_maintenance("database backup")
     _refuse_duplicate(DATABASE_BACKUP_JOB_ID, "database backup")
-    if not background_jobs.start_job(DATABASE_BACKUP_JOB_ID, _database_backup_job,
+    if not job_launch.start_job(DATABASE_BACKUP_JOB_ID, _database_backup_job,
                                      DATABASE_BACKUP_JOB_ID, description="Database backup"):
         raise ConflictError("A database backup is already running.")
     return {"job_id": DATABASE_BACKUP_JOB_ID}

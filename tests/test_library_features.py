@@ -16,6 +16,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_table
 import story_context as sc
 import storage as stg
 import translate_engines
@@ -480,7 +481,7 @@ class TestBulkSeriesTranslate:
         _fast_poll(lt, monkeypatch)
         job_id = "test_bulk_series"
         background_jobs.clear_job(job_id)
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             job_id, lt.run_bulk_series_translate_job, job_id, drama_ids, kw.pop("api_keys", {}),
             **{"monthly_cap": 50.0, **kw})
         assert started
@@ -500,7 +501,7 @@ class TestBulkSeriesTranslate:
     def test_a_drama_already_running_is_skipped_not_queued(self, isolated_db, monkeypatch):
         d1 = self._drama(isolated_db)
         background_jobs.clear_job(f"translate_{d1}")
-        background_jobs._jobs[f"translate_{d1}"] = {
+        job_table._jobs[f"translate_{d1}"] = {
             "status": "running", "progress": 0.5, "message": "", "error": None,
             "cancel_requested": False, "result": None, "started_at": time.time()}
         status = self._run([d1], monkeypatch)
@@ -566,7 +567,7 @@ class TestBulkSeriesTranslate:
                 return [f"EN:{z}" for z in zh_lines]
 
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: SlowEngine())
-        assert background_jobs.start_job(job_id, lt.run_bulk_series_translate_job, job_id, [d1, d2], {})
+        assert job_launch.start_job(job_id, lt.run_bulk_series_translate_job, job_id, [d1, d2], {})
         _wait_for_job(job_id)
         result = background_jobs.get_status(job_id)["result"]
         assert d2 not in result["translated"]
@@ -599,13 +600,13 @@ class TestBulkSeriesTranslate:
         isolated_db.save_lines(d1, [Line(idx=0, start=0, end=1, zh="句0")])
 
         calls = []
-        real_start_job = background_jobs.start_job
+        real_start_job = job_launch.start_job
 
         def spy(job_id, target, *args, **kwargs):
             if job_id == f"translate_{d1}":
                 calls.append(args)
             return real_start_job(job_id, target, *args, **kwargs)
-        monkeypatch.setattr(background_jobs, "start_job", spy)
+        monkeypatch.setattr(job_launch, "start_job", spy)
 
         self._run([d1], monkeypatch)
         assert calls, "the per-drama translate job was never started"

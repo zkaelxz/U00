@@ -289,7 +289,7 @@ def _started_run_sizes(monkeypatch, did, **sizes):
     def fake_start_job(job_id, fn, *args, **kwargs):
         seen["args"], seen["kwargs"] = args, kwargs
         return True
-    monkeypatch.setattr(svc.background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(svc.job_launch, "start_job", fake_start_job)
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
     patch_setting(monkeypatch, "ollama_num_ctx_override", 0)
     svc.start_translate_run(did, engine_name="ollama", **sizes)

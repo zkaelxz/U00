@@ -37,6 +37,7 @@ import json
 import threading
 
 import background_jobs
+from jobs import job_launch
 import db
 from services import benchmark_lab_service, settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -318,7 +319,7 @@ def run_now(capability: str = "translation", scheduled: bool = False) -> dict:
 def _system_busy() -> bool:
     """Any job running or queued in this process, or a restore / bulk
     maintenance hold: a scheduled run never competes with the user's work."""
-    if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+    if job_launch.exclusive_active() or job_launch.maintenance_active():
         return True
     return any(j.get("status") in ("running", "queued")
                for j in background_jobs.list_all_jobs().values())

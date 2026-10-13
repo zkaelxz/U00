@@ -1,11 +1,12 @@
 """Force stop for a thread job that ignores Cancel (job_force_stop), and the
-nvidia-smi reading that no longer runs under background_jobs._lock (gpu_probe)."""
+nvidia-smi reading that no longer runs under job_table._lock (gpu_probe)."""
 import threading
 import time
 
 import pytest
 
 import background_jobs as bg
+from jobs import job_launch, job_runner, job_table
 import db
 import diagnostics_torch
 import job_force_stop
@@ -36,7 +37,7 @@ class HungJob:
         self.job_id = job_id
         self.gate = threading.Event()
         self.late_writes_done = threading.Event()
-        assert bg.start_job(job_id, self._work, gpu_touching=gpu, description="Hung")
+        assert job_launch.start_job(job_id, self._work, gpu_touching=gpu, description="Hung")
 
     def _work(self):
         self.gate.wait(10)
@@ -54,8 +55,8 @@ class HungJob:
 
 def _cancelling_for(job_id, seconds):
     bg.request_cancel(job_id)
-    with bg._lock:
-        bg._jobs[job_id]["cancel_requested_at"] = time.time() - seconds
+    with job_table._lock:
+        job_table._jobs[job_id]["cancel_requested_at"] = time.time() - seconds
 
 
 def _slot_held(job_id):
@@ -75,8 +76,8 @@ class TestForceStop:
 
     def test_a_stalled_but_not_cancelled_job_is_refused(self, quiet_gpu):
         hung = HungJob("hung_s")
-        with bg._lock:
-            bg._jobs["hung_s"]["progress_at"] = time.time() - bg.JOB_STALL_SECONDS - 5
+        with job_table._lock:
+            job_table._jobs["hung_s"]["progress_at"] = time.time() - bg.JOB_STALL_SECONDS - 5
         with pytest.raises(ConflictError, match="Cancel the job first"):
             job_force_stop.force_stop("hung_s")
         hung.release()
@@ -117,11 +118,11 @@ class TestForceStop:
         conn.commit()
         conn.close()
         assert gpu_slots.holder_count() == 0, "stale rows are ignored without the heartbeat"
-        bg._heartbeat_once()
+        job_table._heartbeat_once()
         assert _slot_held("hung_g"), "the heartbeat keeps the abandoned worker's row live"
 
         second = threading.Event()
-        assert bg.start_job("second_g", second.set, gpu_touching=True) is True
+        assert job_launch.start_job("second_g", second.set, gpu_touching=True) is True
         assert not second.wait(0.3), "gpu_max_parallel=1: must wait for the abandoned worker"
 
         hung.release()
@@ -132,13 +133,13 @@ class TestForceStop:
         hung = HungJob("dub_77")
         _cancelling_for("dub_77", 61)
         job_force_stop.force_stop("dub_77")
-        assert bg.acquire_exclusive("Model cache delete") is False
+        assert job_launch.acquire_exclusive("Model cache delete") is False
         assert bg.any_job_running_for_drama(77) is True
         hung.release()
         assert hung.late_writes_done.wait(3)
         assert _wait_for(lambda: not job_force_stop._live_abandoned("dub_77"))
-        assert bg.acquire_exclusive("Model cache delete") is True
-        bg.release_exclusive()
+        assert job_launch.acquire_exclusive("Model cache delete") is True
+        job_launch.release_exclusive()
 
     def test_the_same_id_cannot_restart_until_the_abandoned_worker_ends(self, quiet_gpu):
         hung = HungJob("hung_3")
@@ -146,15 +147,15 @@ class TestForceStop:
         job_force_stop.force_stop("hung_3")
 
         with pytest.raises(ConflictError, match="still finishing"):
-            bg.start_job("hung_3", lambda: None)
+            job_launch.start_job("hung_3", lambda: None)
         with pytest.raises(ConflictError, match="still finishing"):
-            bg.start_process_job("hung_3", lambda *a: None)
-        assert bg.start_job("another_id", lambda: None) is True   # other ids are unaffected
+            job_launch.start_process_job("hung_3", lambda *a: None)
+        assert job_launch.start_job("another_id", lambda: None) is True   # other ids are unaffected
 
         hung.release()
         assert hung.late_writes_done.wait(3)
         assert _wait_for(lambda: not job_force_stop._live_abandoned("hung_3"))
-        assert bg.start_job("hung_3", lambda: bg.set_result("hung_3", {"fresh": True})) is True
+        assert job_launch.start_job("hung_3", lambda: bg.set_result("hung_3", {"fresh": True})) is True
         assert _wait_for(lambda: (bg.get_status("hung_3") or {}).get("status") == "done")
         assert bg.get_status("hung_3")["result"] == {"fresh": True}
 
@@ -166,9 +167,9 @@ class TestForceStop:
         run = {"status": "running", "kind": "thread", "gpu_touching": True, "message": "",
                "cancel_requested": True, "cancel_requested_at": time.time() - 90,
                "started_at": time.time()}
-        with bg._lock:
-            bg._jobs["dead_1"] = run
-            bg._workers["dead_1"] = (run, dead)
+        with job_table._lock:
+            job_table._jobs["dead_1"] = run
+            job_table._workers["dead_1"] = (run, dead)
 
         result = job_force_stop.force_stop("dead_1")
 
@@ -178,9 +179,9 @@ class TestForceStop:
             job_force_stop.force_stop("dead_1")
 
     def test_a_queued_or_process_job_is_not_force_stoppable(self, quiet_gpu):
-        with bg._lock:
-            bg._jobs["proc_1"] = {"status": "running", "kind": "process", "cancel_requested_at": 1.0}
-            bg._jobs["queued_1"] = {"status": "queued", "kind": "thread", "cancel_requested_at": 1.0}
+        with job_table._lock:
+            job_table._jobs["proc_1"] = {"status": "running", "kind": "process", "cancel_requested_at": 1.0}
+            job_table._jobs["queued_1"] = {"status": "queued", "kind": "thread", "cancel_requested_at": 1.0}
         for job_id in ("proc_1", "queued_1", "missing"):
             with pytest.raises(ConflictError):
                 job_force_stop.force_stop(job_id)
@@ -189,20 +190,20 @@ class TestForceStop:
     def test_an_abandoned_worker_still_counts_against_its_starters_cap(self, quiet_gpu, monkeypatch):
         from jobs import user_caps
         from lib.errors import RateLimitedError
-        monkeypatch.setattr(bg, "_acting_user_id", lambda: 7)
+        monkeypatch.setattr(job_launch, "_acting_user_id", lambda: 7)
         hung = HungJob("hung_cap")
         other = threading.Event()
-        assert bg.start_job("other_cap", other.wait, 10)
+        assert job_launch.start_job("other_cap", other.wait, 10)
         _cancelling_for("hung_cap", 61)
         job_force_stop.force_stop("hung_cap")
         with pytest.raises(RateLimitedError):
-            bg.start_job("third_cap", lambda: None)
+            job_launch.start_job("third_cap", lambda: None)
         hung.release()
         assert _wait_for(lambda: not job_force_stop._live_abandoned("hung_cap"))
-        with bg._lock:
-            assert not user_caps.at_running_cap(bg._jobs, 7)
+        with job_table._lock:
+            assert not user_caps.at_running_cap(job_table._jobs, 7)
         other.set()
-        bg.wait_for_job_threads(5.0)
+        job_runner.wait_for_job_threads(5.0)
 
 
 class TestForceStopService:
@@ -212,8 +213,8 @@ class TestForceStopService:
         _cancelling_for("hung_4", 10)
         assert jobs_service.get_job("hung_4")["can_force_stop"] is False
         _cancelling_for("hung_4", 90)
-        with bg._lock:
-            bg._jobs["hung_4"]["cancel_requested_at"] = time.time() - 90
+        with job_table._lock:
+            job_table._jobs["hung_4"]["cancel_requested_at"] = time.time() - 90
         assert jobs_service.get_job("hung_4")["can_force_stop"] is True
 
         result = jobs_service.force_stop_job("hung_4")
@@ -237,9 +238,9 @@ class TestGpuProbeOutsideTheLock:
             release_probe.wait(20)   # hang guard only; the test releases it
         monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: blocked_probe() or False)
         monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: blocked_probe())
-        bg.start_job("other", lambda: None)
+        job_launch.start_job("other", lambda: None)
         starter = threading.Thread(
-            target=lambda: bg.start_job("gpu_job", lambda: None, gpu_touching=True, description="g"))
+            target=lambda: job_launch.start_job("gpu_job", lambda: None, gpu_touching=True, description="g"))
         starter.start()
         try:
             assert probe_started.wait(10), "the GPU probe never started"
@@ -273,11 +274,11 @@ class TestGpuProbeOutsideTheLock:
         busy = {"value": True}
         monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: busy["value"])
         monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: None)
-        bg.start_job("gpu_a", lambda: None, gpu_touching=True, description="a")
+        job_launch.start_job("gpu_a", lambda: None, gpu_touching=True, description="a")
         assert bg.get_status("gpu_a")["status"] == "queued"
         bg.clear_job("gpu_a")
         busy["value"] = False
-        bg.start_job("gpu_b", lambda: None, gpu_touching=True, description="b")
+        job_launch.start_job("gpu_b", lambda: None, gpu_touching=True, description="b")
         assert _wait_for(lambda: (bg.get_status("gpu_b") or {}).get("status") == "done")
 
     def test_a_reading_is_used_once_and_never_when_old(self, monkeypatch):

@@ -16,7 +16,7 @@ import shutil
 import sqlite3
 import time
 
-import background_jobs
+from jobs import job_launch
 import db
 from services import disk_usage_measure as measure
 from services import disk_usage_trash_service as trash_svc
@@ -141,7 +141,7 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
     (_library_checks_out)."""
     if confirm_text != DELETE_WORD:
         raise InvalidInputError(f'Type {DELETE_WORD} to delete the previous library.')
-    if not background_jobs.acquire_exclusive("Previous library delete"):
+    if not job_launch.acquire_exclusive("Previous library delete"):
         raise ConflictError(BUSY)
     try:
         holder = db.hold_restore_lock(db.LIBRARY_DIR)
@@ -170,7 +170,7 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
         finally:
             db.release_restore_lock(holder)
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     return {"deleted": removed, "freed_bytes": freed}
 
 

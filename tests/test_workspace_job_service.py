@@ -58,7 +58,7 @@ def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode):
     def fake_start(job_id, fn, *args, **kwargs):
         seen.update(args=args, kwargs=kwargs)
         return False
-    monkeypatch.setattr(wjs.background_jobs, "start_job", fake_start)
+    monkeypatch.setattr(wjs.job_launch, "start_job", fake_start)
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     wjs.run_bulk_series_translate_job("bulk_parity", [did], {engine: "k"}, monthly_cap=5.0,
                                       ollama_base_url="http://gpu-box:11434")
@@ -204,7 +204,7 @@ def test_bulk_series_passes_translate_toggles(isolated_db, monkeypatch):
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
     calls = _spy_style_context(monkeypatch)
     monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
-    monkeypatch.setattr(wjs.background_jobs, "start_job", lambda *a, **k: False)
+    monkeypatch.setattr(wjs.job_launch, "start_job", lambda *a, **k: False)
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     wjs.run_bulk_series_translate_job("bulk_toggles", [did], {"claude": "k"}, monthly_cap=50.0,
                                       include_genre_notes=False, default_female_pronouns=True)

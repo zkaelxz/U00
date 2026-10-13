@@ -40,6 +40,7 @@ from typing import Optional
 
 import adaptive_style
 import background_jobs
+from jobs import job_launch
 import line_alignment
 import db
 import en_cleanup
@@ -443,7 +444,7 @@ def start_sensevoice(drama_id: int) -> dict:
     if not lines:
         raise UnsupportedOperationError("This title has no lines yet.")
     job_id = f"{SENSEVOICE_JOB_PREFIX}{drama_id}"
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, workspace_audio_job_service.run_sensevoice_job, job_id, drama_id, lines, audio,
         db.drama_dir(drama_id), settings_service.get("use_gpu"), gpu_touching=True,
         description=f"SenseVoice audio tagging (title #{drama_id})")
@@ -583,7 +584,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
         if background_jobs.count_active_jobs(BURN_PREVIEW_JOB_PREFIX) >= \
                 MAX_CONCURRENT_BURN_PREVIEWS:
             raise ConflictError("Other preview clips are rendering; try again in a moment.")
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             job_id, _run_burn_preview_job, job_id, drama_id, video, ass, start, end, meta,
             description=f"Burned-subtitle preview (title #{drama_id})")
     if not started:

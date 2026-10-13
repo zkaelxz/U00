@@ -16,6 +16,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_table
 import whisper_transcribe
 import translation_guide as tguide
 from api import auth as api_auth
@@ -30,9 +31,9 @@ _PREFIXES = ("autotune_", "novel_glossary_")
 
 
 def _clear_jobs():
-    with background_jobs._lock:
-        for jid in [j for j in background_jobs._jobs if j.startswith(_PREFIXES)]:
-            background_jobs._jobs.pop(jid, None)
+    with job_table._lock:
+        for jid in [j for j in job_table._jobs if j.startswith(_PREFIXES)]:
+            job_table._jobs.pop(jid, None)
 
 
 @pytest.fixture(autouse=True)
@@ -43,8 +44,8 @@ def _no_leftover_jobs():
 
 
 def _put_job(job_id, status="done", result=None, message="", error=None, progress=1.0):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {
+    with job_table._lock:
+        job_table._jobs[job_id] = {
             "status": status, "progress": progress, "message": message, "result": result,
             "error": error, "started_at": time.time(), "finished_at": None}
 
@@ -99,7 +100,7 @@ def fake_engine(monkeypatch):
 @pytest.fixture
 def fake_process_job(monkeypatch):
     started = {}
-    monkeypatch.setattr(background_jobs, "start_process_job",
+    monkeypatch.setattr(job_launch, "start_process_job",
                         lambda job_id, target, args=(), **kw: started.update(
                             job_id=job_id, args=args) or True)
     return started
@@ -154,7 +155,7 @@ class TestAutotuneStart:
 
     def test_duplicate_409(self, client, isolated_db, monkeypatch):
         did = _audio_drama(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: False)
         r = client.post(_at(did), json={})
         assert r.status_code == 409
 
@@ -297,7 +298,7 @@ class TestNovelGlossaryStart:
 
     def test_duplicate_409(self, client, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         assert client.post(_gl(did)).status_code == 409
 
     def test_status_not_resident_is_idle_200(self, client, isolated_db):
@@ -409,7 +410,7 @@ class TestAuthOn:
     @pytest.mark.parametrize("engine", ["claude", "deepseek", "gemini", None])
     def test_household_refused_paid_engine(self, isolated_db, fake_engine, monkeypatch, engine):
         started = []
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
         c = _remote()
         did, _ = _novel_drama(isolated_db, engine=engine)
@@ -420,7 +421,7 @@ class TestAuthOn:
         assert SECRET not in r.text
 
     def test_household_allowed_ollama(self, isolated_db, fake_engine, monkeypatch):
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
         c = _remote()
         did, _ = _novel_drama(isolated_db, engine="ollama")
         r = c.post(_gl(did), headers=_session())
@@ -433,7 +434,7 @@ class TestAuthOn:
         resolved, started = [], []
         monkeypatch.setattr(translate_service, "resolve_api_key",
                             lambda name, *a: resolved.append(name) or SECRET)
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
         real = glossary_service.novel_glossary_engine
 
@@ -447,7 +448,7 @@ class TestAuthOn:
         assert resolved == [] and started == []
 
     def test_service_uses_only_the_checked_engine(self, isolated_db, fake_engine, monkeypatch):
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
         did, _ = _novel_drama(isolated_db, engine="claude")
         with pytest.raises(ConflictError):
             glossary_service.start_novel_glossary_run(did, engine_name="ollama")

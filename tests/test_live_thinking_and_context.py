@@ -13,6 +13,7 @@ from tests.saved_settings import patch_setting
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
+from jobs import job_launch, job_table
 import live_cue_translation as lct
 import translate_engines as te
 from engine_backends import local, thinking
@@ -243,7 +244,7 @@ class TestLiveServiceWiring:
         seen = {}
         monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
         monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("ollama", CapturingEngine()))
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **kw: seen.update(kw) or True)
         live_service.start_session("https://example.com/s", reply_without_thinking=False)
         assert seen["reply_without_thinking"] is False
@@ -288,7 +289,7 @@ class TestStageTimerCleanup:
     def test_clear_stage_cancels_and_forgets_the_timer(self, isolated_db):
         background_jobs.clear_all_jobs()
         gate = threading.Event()
-        background_jobs.start_job("stage_job", lambda: gate.wait(5), description="t")
+        job_launch.start_job("stage_job", lambda: gate.wait(5), description="t")
         try:
             job_stage_service.set_stage("stage_job", "step", slow_after=60, slow_note="slow")
             timer = job_stage_service._timers["stage_job"]
@@ -303,10 +304,10 @@ class TestStageTimerCleanup:
     def test_set_stage_pushes_one_change_event(self, isolated_db, monkeypatch):
         background_jobs.clear_all_jobs()
         gate = threading.Event()
-        background_jobs.start_job("stage_job2", lambda: gate.wait(5), description="t")
+        job_launch.start_job("stage_job2", lambda: gate.wait(5), description="t")
         events = []
-        real = background_jobs._emit_change
-        monkeypatch.setattr(background_jobs, "_emit_change", lambda jid: events.append(jid) or real(jid))
+        real = job_table._emit_change
+        monkeypatch.setattr(job_table, "_emit_change", lambda jid: events.append(jid) or real(jid))
         try:
             job_stage_service.set_stage("stage_job2", "step")
             assert events.count("stage_job2") == 1

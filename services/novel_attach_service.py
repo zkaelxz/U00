@@ -32,6 +32,7 @@ except ImportError:  # Python built without lzma: zipfile raises RuntimeError in
     lzma = None
 
 import background_jobs
+from jobs import job_launch
 import db
 import dub_narration
 import ocr as ocr_module
@@ -372,7 +373,7 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
                 out.write(data)
             paths.append(path)
         job_id = _job_id(drama_id)
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             job_id, _run_ocr_job, job_id, drama_id, stage, paths, backend, mode, language,
             drama.get("chinese_script") or "simplified", tesseract_cmd or None,
             gpu_touching=True,

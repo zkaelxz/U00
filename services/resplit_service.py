@@ -12,6 +12,7 @@ import dataclasses
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import core as core_module
 import db
 import diarize
@@ -271,7 +272,7 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
             "This title has no stored audio, so the lines were split with estimated timing.",
             _resplit_snapshot(lines, plan), cfg)
     job_id = f"{RESPLIT_JOB_PREFIX}{drama_id}"
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, _run_resplit_job, job_id, drama_id, expected_line_ids, confirm, audio_path,
         cfg.language, settings_service.get("use_gpu"), cfg,
         gpu_touching=True, description=f"Re-splitting lines (title #{drama_id})")

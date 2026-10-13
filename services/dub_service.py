@@ -16,6 +16,7 @@ import os
 import shutil
 
 import background_jobs
+from jobs import job_launch
 import db
 import dub
 import dub_narration
@@ -383,7 +384,7 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
                                    separation_backend=separation_backend)
         worker_args = (lines, ddir, clone_map, max_speedup, max_slowdown)
 
-    started = background_jobs.start_process_job(
+    started = job_launch.start_process_job(
         job_id, worker, args=worker_args,
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
         description=f"Dub generation (title #{drama_id})",

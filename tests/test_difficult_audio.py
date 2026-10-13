@@ -10,6 +10,7 @@ import pytest
 
 import audio_preprocess
 import background_jobs
+from jobs import job_launch, process_worker
 import sensitivity_preset
 from services import (difficult_audio_service, run_settings_service, series_defaults_service,
                       timing_settings_service, transcribe_pipeline, transcribe_service,
@@ -36,7 +37,7 @@ def _capture_worker_start(monkeypatch):
         captured.update(k["on_done"].keywords)
         captured["run_settings"] = k["run_settings"]
         return True
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_start_process_job)
     return captured
 
 
@@ -135,7 +136,7 @@ class TestStartRun:
 @pytest.fixture
 def worker(monkeypatch, tmp_path):
     """Runs _transcribe_worker with a fake pipeline; records what it was given."""
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     state = {"levelled": [], "pipeline": [], "scratch": str(tmp_path / "scratch")}
 

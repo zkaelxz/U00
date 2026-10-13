@@ -366,6 +366,7 @@ class TestTranslationIdsAreLineIds:
 
 def test_translate_job_whose_lines_were_replaced_records_no_version(isolated_db, monkeypatch):
     import background_jobs
+    from jobs import job_table
     import translate_engines
     from services.workspace_job_service import run_translate_job
     did = isolated_db.create_drama(title_en="D", status="aligned")
@@ -376,14 +377,14 @@ def test_translate_job_whose_lines_were_replaced_records_no_version(isolated_db,
     monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
                         lambda lines, engine, **kw: (lines, []))
     job_id = "test_replaced_lines"
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     run_translate_job(job_id, did, job_lines, object(), {"id": did}, "", None, False, "en-US",
                       None, "", "claude", "audio_drama")
     assert background_jobs.get_status(job_id)["result"]["lines_replaced"] is True
     assert isolated_db.list_translation_versions(did) == []
     assert isolated_db.get_drama(did)["status"] == "aligned"
-    background_jobs._jobs.pop(job_id, None)
+    job_table._jobs.pop(job_id, None)
 
 
 class TestRestoreSavedLines:

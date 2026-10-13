@@ -31,7 +31,7 @@ STATE_KEYS = {
 # Keys built at run time, matched by (file, argument as written) so a new
 # dynamic key in another file has to be added here with its reason.
 DYNAMIC_KEYS = {
-    ("background_jobs.py", "key"):
+    ("jobs/job_settings.py", "key"):
         "the _setting helper's own read; its callers are checked by test_background_jobs_setting_calls_are_declared",
     ("services/settings_service.py", "settings_schema.BY_KEY[key].store_key"):
         "the schema writer: the store_key of a declared, validated row",
@@ -183,9 +183,9 @@ class TestEveryKeyIsDeclared:
         assert set(DYNAMIC_KEYS) == used_dynamic, "a DYNAMIC_KEYS entry no longer matches a call"
 
     def test_background_jobs_setting_calls_are_declared(self):
-        # The DYNAMIC_KEYS exemption for background_jobs.py covers only the _setting
+        # The DYNAMIC_KEYS exemption for jobs/job_settings.py covers only the _setting
         # helper's body, so every caller must still pass a declared literal key.
-        text = _read("background_jobs.py")
+        text = _read("jobs/job_settings.py")
         keys = [_first_argument(text, m.end() - 1) for m in re.finditer(r"\b_setting\(", text)]
         calls = [k for k in keys if k != "key"]
         assert calls, "no _setting( callers found; the guard is stale"
@@ -251,9 +251,9 @@ class TestWritesAndReadsAgree:
 
     def test_constants_match(self):
         import memory_headroom
-        import background_jobs
+        from jobs import job_settings
         assert schema._KEEP_FREE_GB_MAX == memory_headroom.MAX_KEEP_FREE_GB
-        assert schema.BY_KEY["gpu_max_parallel"].max == background_jobs.GPU_MAX_PARALLEL_LIMIT
+        assert schema.BY_KEY["gpu_max_parallel"].max == job_settings.GPU_MAX_PARALLEL_LIMIT
 
     @pytest.mark.parametrize("name", sorted(
         s.key for s in schema.SETTINGS if s.store_key.startswith("pref.")))
@@ -382,7 +382,7 @@ def test_choice_empty_string_is_kept_only_when_listed():
 # Root modules sit below services and may not import them, so each reads its
 # own rows with db.get_app_setting and lib.settings_schema.coerce.
 ROOT_READERS = {
-    "background_jobs.py": "gpu_limit_enabled, gpu_max_parallel and notify_on_completion gate "
+    "jobs/job_settings.py": "gpu_limit_enabled, gpu_max_parallel and notify_on_completion gate "
                           "job scheduling, below the service layer",
     "ollama_unload.py": "unload_ollama_before_transcribe is read where the GPU is about to be used",
 }

@@ -796,25 +796,27 @@ class TestNewItemsAreStamped:
 class TestJobs:
     def test_job_records_its_starter(self, world):
         import background_jobs
+        from jobs import job_launch
         from api.auth import require_permission
         app = _app()
 
         @app.post("/api/zz-start", dependencies=[require_permission("jobs.start")])
         def start():
-            background_jobs.start_job("zz_owner_probe", lambda: None)
+            job_launch.start_job("zz_owner_probe", lambda: None)
             return {}
         r = _client(app).post("/api/zz-start", headers=world["b"])
         assert r.status_code == 200, r.text
         assert background_jobs.get_status("zz_owner_probe")["owner_user_id"] == world["b_id"]
         assert db.get_job_record("zz_owner_probe")["owner_user_id"] == world["b_id"]
         # Outside a request (Streamlit, the CLI, a job's own thread): the PC.
-        background_jobs.start_job("zz_owner_probe2", lambda: None)
+        job_launch.start_job("zz_owner_probe2", lambda: None)
         assert background_jobs.get_status("zz_owner_probe2")["owner_user_id"] is None
 
     def test_queued_gpu_message_does_not_name_another_users_job(self, world):
         # Review M-1: B's queued job must not reveal A's private drama title.
         import threading
         import background_jobs
+        from jobs import job_launch, job_settings
         from api.auth import require_permission
         app = _app()
         release, started = threading.Event(), threading.Event()
@@ -823,14 +825,14 @@ class TestJobs:
         @app.post("/api/zz-gpu/{who}", dependencies=[require_permission("jobs.start")])
         def start(who: str):
             if who == "a":
-                background_jobs.start_job(a_job, lambda: (started.set(), release.wait(5)),
+                job_launch.start_job(a_job, lambda: (started.set(), release.wait(5)),
                                           gpu_touching=True,
                                           description="Ollama translation (A private)")
             else:
-                background_jobs.start_job(b_job, lambda: None, gpu_touching=True,
+                job_launch.start_job(b_job, lambda: None, gpu_touching=True,
                                           description="Ollama translation (A shared)")
             return {}
-        background_jobs.set_gpu_limit_enabled(True)
+        job_settings.set_gpu_limit_enabled(True)
         client = _client(app)
         try:
             assert client.post("/api/zz-gpu/a", headers=world["a"]).status_code == 200
@@ -980,6 +982,7 @@ class TestJobs:
     def test_title_glossary_cancel_routes_follow_the_job_rule(self, world, kind):
         import threading
         import background_jobs
+        from jobs import job_launch
         from api.auth import require_permission
         from services import glossary_extract_service as extract
         from services import glossary_spelling_service as spelling
@@ -993,7 +996,7 @@ class TestJobs:
         @app.post("/api/zz-run/{did}", dependencies=[require_permission("jobs.start")])
         def start(did: int):
             jid = job_id_of(did)
-            assert background_jobs.start_job(jid, gate.wait, 10)
+            assert job_launch.start_job(jid, gate.wait, 10)
             extract._run_ids[jid] = "r1"
             return {}
         client, household = _client(app), _household()
@@ -1062,6 +1065,7 @@ class TestJobs:
     def test_queue_summary_shows_counts_and_only_the_callers_places(self, world):
         import threading
         import background_jobs
+        from jobs import job_launch, job_settings
         from api.auth import require_permission
         app = _app()
         gates = {}
@@ -1069,10 +1073,10 @@ class TestJobs:
         @app.post("/api/zz-q/{job_id}", dependencies=[require_permission("jobs.start")])
         def start(job_id: str):
             gates[job_id] = threading.Event()
-            background_jobs.start_job(job_id, gates[job_id].wait, 10, gpu_touching=True,
+            job_launch.start_job(job_id, gates[job_id].wait, 10, gpu_touching=True,
                                       description=f"Secret {job_id}")
             return {}
-        background_jobs.set_gpu_limit_enabled(True)
+        job_settings.set_gpu_limit_enabled(True)
         client = _client(app)
         a_run, a_wait = f"transcribe_{world['private']}", f"translate_{world['private']}"
         b1, b2, b3 = "zz_b_one", "zz_b_two", "zz_b_three"

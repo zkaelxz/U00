@@ -14,6 +14,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -298,7 +299,7 @@ def test_url_import_validation(client, env, monkeypatch):
                        json={"url": PAGE, "drama_id": 99999}).status_code == 404
     assert client.post("/api/sources/url/import",
                        json={"url": PAGE, "drama_id": did, "html": "x"}).status_code == 422
-    background_jobs.start_job(f"transcribe_{did}", lambda: time.sleep(0.5))
+    job_launch.start_job(f"transcribe_{did}", lambda: time.sleep(0.5))
     assert client.post("/api/sources/url/import",
                        json={"url": PAGE, "drama_id": did}).status_code == 409
     _wait(f"transcribe_{did}")

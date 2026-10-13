@@ -12,6 +12,7 @@ history snapshot, so undo is the existing history restore.
 import subprocess
 
 import background_jobs
+from jobs import job_launch
 import core as core_module
 import whisper_models
 import db
@@ -61,7 +62,7 @@ def start_retime(drama_id: int, line_ids: list) -> dict:
             raise ConflictError("Another job is changing this title's lines. "
                                 "Try again when it finishes.")
     job_id = retime_job_id(drama_id)
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, run_retime_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
         drama.get("source_language") or "zh", settings_service.get("use_gpu"),
         gpu_touching=True,

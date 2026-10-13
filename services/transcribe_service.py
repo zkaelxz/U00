@@ -33,7 +33,7 @@ A run needs its media already on disk; upload is media_upload_service.
 No FastAPI import: plain functions, plain dicts in, plain
 values out. The one exception to "plain dicts" is start_transcribe_run,
 which starts a real background job. Audio transcription runs in its own
-process (background_jobs.start_process_job, transcribe_pipeline._transcribe_worker) so Cancel
+process (job_launch.start_process_job, transcribe_pipeline._transcribe_worker) so Cancel
 kills a model call that has no cancel point of its own; the parent applies
 the result to the drama in the job's on_done hook, so the worker never
 writes the database. Hardsub OCR, which already stops between frames,
@@ -45,6 +45,7 @@ import os
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import core as core_module
 import whisper_models
 import segment_splitting
@@ -337,7 +338,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         use_gpu, asr_backend_choice, alignment_method, transcript_mode, bool(hf_token),
         min_speakers, max_speakers, timing=timing_settings_service.changed(timing))
     if transcript_mode == "hardsub_ocr":
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             job_id, _run_transcribe_and_apply_job, job_id, drama_id, audio_path, transcript_mode,
             transcript_text, source_language, chinese_script, whisper_size, beam_size,
             min_silence_ms, vad_threshold, bool(drama.get("separate_vocals_first")),
@@ -362,7 +363,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         hold = contextlib.ExitStack()
         hold.enter_context(storage.holding(scratch_dir))
         try:
-            started = background_jobs.start_process_job(
+            started = job_launch.start_process_job(
                 job_id, transcribe_pipeline._transcribe_worker,
                 args=(audio_path, transcript_mode, transcript_text, source_language,
                       chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
@@ -465,7 +466,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
 
 def _apply_on_done(job_id, outcome, **apply_kwargs):
     """on_done for the transcribe process job: its return value is the job's
-    result (background_jobs.start_process_job)."""
+    result (job_launch.start_process_job)."""
     return _apply_transcription(job_id, apply_kwargs.pop("drama_id"), outcome, **apply_kwargs)
 
 
@@ -554,7 +555,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     elif hf_token and diarize_audio_path:
         import diarize as diarize_module
         try:
-            diarize_started = background_jobs.start_process_job(
+            diarize_started = job_launch.start_process_job(
                 f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
                 args=(diarize_audio_path, hf_token, expected_speakers or None,
                       diarization_service.worker_options(min_speakers, max_speakers)),
@@ -574,7 +575,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
             # The stop sets the refusal before it cancels jobs, so a refusal
             # in that gap sees no cancel request yet.
             if not (background_jobs.is_cancel_requested(job_id)
-                    or background_jobs.is_stopping()):
+                    or job_launch.is_stopping()):
                 raise
             raise background_jobs.JobCancelled(job_id) from None
 

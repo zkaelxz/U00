@@ -22,6 +22,7 @@ from typing import Optional
 import numpy as np
 
 import background_jobs
+from jobs import job_launch
 import db
 import raw_transcript
 import vad_segments
@@ -244,7 +245,7 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
     if not db.load_line_ids(drama_id):
         raise UnsupportedOperationError("This title has no lines yet, so there is nothing to check.")
     job_id = speech_coverage_job_id(drama_id)
-    if not background_jobs.start_job(
+    if not job_launch.start_job(
             job_id, _run_job, job_id, drama_id, audio_path, float(min_gap_seconds),
             description=f"Speech coverage check (title #{drama_id})"):
         raise ConflictError("A coverage check is already running for this title.")

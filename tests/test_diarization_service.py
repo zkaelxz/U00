@@ -6,13 +6,14 @@ later FastAPI /api/diarization router and the Streamlit Diarize tab.
 The real scope guarantee this file exists to check: the HF token value
 itself never leaks out of get_diarization_config (only a bool), and
 start_diarization_run never actually spawns a real subprocess/model --
-background_jobs.start_process_job is mocked throughout.
+job_launch.start_process_job is mocked throughout.
 """
 import os
 
 import pytest
 
 import background_jobs
+from jobs import job_launch
 import diarize
 from services import diarization_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
@@ -128,7 +129,7 @@ class TestStartDiarizationRun:
             calls.append({"job_id": job_id, "target": target, "args": args,
                           "gpu_touching": gpu_touching, "description": description})
             return True
-        monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
+        monkeypatch.setattr(job_launch, "start_process_job", fake_start_process_job)
 
         result = diarization_service.start_diarization_run(did, expected_speakers=3)
 
@@ -150,7 +151,7 @@ class TestStartDiarizationRun:
                                    on_done=None, run_settings=None, **launch):
             calls.append(args)
             return True
-        monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
+        monkeypatch.setattr(job_launch, "start_process_job", fake_start_process_job)
 
         diarization_service.start_diarization_run(did)
         assert calls[0][2] is None
@@ -161,7 +162,7 @@ class TestStartDiarizationRun:
         # ignored, reporting a fake success -- now it's a real ConflictError.
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
         did, _ = _drama_with_audio(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda *a, **k: False)
         with pytest.raises(ConflictError):
             diarization_service.start_diarization_run(did)
@@ -216,7 +217,7 @@ class TestApplyDiarizationResult:
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
         did, _ = _drama_with_audio(isolated_db)
         captured = {}
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda *a, **k: captured.update(k) or True)
         applied = []
         monkeypatch.setattr(diarization_service, "apply_diarization_result",
@@ -230,7 +231,7 @@ class TestApplyDiarizationResult:
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
         did, _ = _drama_with_audio(isolated_db)
         captured = {}
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda *a, **k: captured.update(k) or True)
         applied = []
         monkeypatch.setattr(diarization_service, "apply_diarization_result",
@@ -257,7 +258,7 @@ class TestOverwriteManual:
         b.speaker_manual = True
         isolated_db.save_lines(did, [a, b])
         captured = {}
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda *a, **k: captured.update(k) or True)
         return did, captured
 
@@ -376,7 +377,7 @@ class TestRunSettings:
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
         did, _ = _drama_with_audio(isolated_db)
         seen = []
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, **k: seen.append(k["run_settings"]) or False)
         with pytest.raises(ConflictError):
             diarization_service.start_diarization_run(did, expected_speakers=3)

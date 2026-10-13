@@ -211,14 +211,14 @@ def _drama_with_audio(isolated_db):
 
 class TestServiceAndApi:
     def _capture_start(self, monkeypatch):
-        import background_jobs
+        from jobs import job_launch
         calls = []
 
         def fake_start(job_id, target, args=(), gpu_touching=False, description=None,
                        on_done=None, run_settings=None, **launch):
             calls.append({"args": args, "on_done": on_done, "launch": launch})
             return True
-        monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
+        monkeypatch.setattr(job_launch, "start_process_job", fake_start)
         return calls
 
     def test_service_passes_use_gpu_and_range_to_the_worker(self, isolated_db, monkeypatch):
@@ -321,9 +321,9 @@ class TestProgressReporting:
 
 def test_diarize_worker_leaves_the_parents_process_group(monkeypatch):
     import queue
-    import background_jobs
+    from jobs import process_worker
     import diarize
     left = []
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: left.append(True))
     diarize.diarize_subprocess_worker("missing.wav", "hf", None, queue.Queue())
     assert left == [True]

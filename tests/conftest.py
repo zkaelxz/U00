@@ -304,19 +304,20 @@ def _reset_background_jobs_memory():
     the maintenance count and the per-job cancel-check cache. In memory only -- clear_all_jobs() would
     also wipe job_records in whatever library db.LIBRARY_DIR points at."""
     import background_jobs as bg
+    from jobs import gpu_queue, job_launch, job_table
     from jobs import job_store
-    with bg._lock:
-        bg._jobs.clear()
-        bg._gpu_queue.clear()
+    with job_table._lock:
+        job_table._jobs.clear()
+        gpu_queue._gpu_queue.clear()
         bg._last_db_cancel_check.clear()
         bg._db_cancel_check_failed.clear()
         bg.job_force_stop._abandoned.clear()
         job_store._pending.clear()
         job_store._last_write.clear()
-    bg.release_exclusive()
-    bg._stopping = False
-    while bg._maintenance_count:
-        bg.exit_maintenance()
+    job_launch.release_exclusive()
+    job_launch._stopping = False
+    while job_launch._maintenance_count:
+        job_launch.exit_maintenance()
 
 
 @pytest.fixture(autouse=True)
@@ -409,7 +410,7 @@ def _testclient_defaults_to_loopback():
 
 @pytest.fixture(autouse=True)
 def _workers_do_not_leave_the_test_session(request):
-    """Process-job workers call background_jobs.start_own_process_group()
+    """Process-job workers call process_worker.start_own_process_group()
     first. Tests that run one in the pytest process would otherwise start a
     new session for it and a watchdog that can end it; only
     test_background_jobs.py, which exercises that function in real child
@@ -417,14 +418,14 @@ def _workers_do_not_leave_the_test_session(request):
 
     Patched and restored by hand for the reason given on
     _testclient_defaults_to_loopback."""
-    import background_jobs
-    original = background_jobs.start_own_process_group
+    from jobs import process_worker
+    original = process_worker.start_own_process_group
     if not request.module.__name__.endswith("test_background_jobs"):
-        background_jobs.start_own_process_group = lambda: None
+        process_worker.start_own_process_group = lambda: None
     try:
         yield
     finally:
-        background_jobs.start_own_process_group = original
+        process_worker.start_own_process_group = original
 
 
 @pytest.fixture(autouse=True)

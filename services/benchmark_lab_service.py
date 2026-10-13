@@ -49,6 +49,7 @@ import os
 import uuid
 
 import background_jobs
+from jobs import job_launch
 import benchmark
 import db
 import translate_engines
@@ -461,7 +462,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             engines.append(key)
     if _job_active():
         raise ConflictError("A benchmark run is already going.")
-    if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+    if job_launch.exclusive_active() or job_launch.maintenance_active():
         raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
     use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
@@ -481,7 +482,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             "case_filter": case_filter, "arena_group": arena_group, "status": "queued",
             "case_count": len(cases)}))
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
         gpu_touching=stage != "translation" or any(
             translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
@@ -489,7 +490,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     if not started:
         # Nothing ran: leave no rows behind.
         db.delete_benchmark_sessions(session_ids)
-        if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+        if job_launch.exclusive_active() or job_launch.maintenance_active():
             raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
         raise ConflictError("A benchmark run is already going.")
     return {"job_id": JOB_ID, "session_ids": session_ids, "arena_group": arena_group,

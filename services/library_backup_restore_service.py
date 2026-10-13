@@ -21,7 +21,7 @@ import os
 import zipfile
 import zlib
 
-import background_jobs
+from jobs import job_launch, job_runner
 import db
 from engine_backends import echo
 from services import assistant_settings_service, auth_service
@@ -164,7 +164,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     Returns {restored, sessions_revoked, media_kept, previous_library_kept}."""
     from services import auth_service
     require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
-    if not background_jobs.acquire_exclusive("Library restore"):
+    if not job_launch.acquire_exclusive("Library restore"):
         raise ConflictError(_BUSY)
     try:
         if any_job_running():
@@ -177,7 +177,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                 raise ConflictError(_BUSY)
             # A finished job's thread can still be writing to the database
             # that is about to be renamed aside.
-            if not background_jobs.wait_for_job_threads(10.0):
+            if not job_runner.wait_for_job_threads(10.0):
                 raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
@@ -198,5 +198,5 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                                  f"library restored from backup; sessions revoked: {revoked}; "
                                  + lrs.account_counts(outcome))
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     return {"restored": True, "sessions_revoked": revoked, **(outcome or {})}

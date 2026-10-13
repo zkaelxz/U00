@@ -2,6 +2,7 @@
 import json
 
 import background_jobs
+from jobs import job_launch, job_runner, job_table
 from services import jobs_service, run_settings_service
 
 SECRETS = [
@@ -69,9 +70,9 @@ class TestSettingsLiveOnTheJobEntry:
 
     def test_a_later_run_without_settings_never_inherits_the_earlier_ones(self, isolated_db):
         background_jobs.clear_all_jobs()
-        background_jobs.start_job("rs_reuse", lambda: None, run_settings={"beam_size": 5})
+        job_launch.start_job("rs_reuse", lambda: None, run_settings={"beam_size": 5})
         self._wait("rs_reuse")
-        background_jobs.start_job("rs_reuse", lambda: None)
+        job_launch.start_job("rs_reuse", lambda: None)
         self._wait("rs_reuse")
         assert self._stored(isolated_db, "rs_reuse") is None
 
@@ -79,8 +80,8 @@ class TestSettingsLiveOnTheJobEntry:
         import threading
         background_jobs.clear_all_jobs()
         gate = threading.Event()
-        assert background_jobs.start_job("rs_live", gate.wait, run_settings={"beam_size": 5})
-        assert not background_jobs.start_job("rs_live", lambda: None, run_settings={"beam_size": 9})
+        assert job_launch.start_job("rs_live", gate.wait, run_settings={"beam_size": 5})
+        assert not job_launch.start_job("rs_live", lambda: None, run_settings={"beam_size": 9})
         gate.set()
         self._wait("rs_live")
         assert self._stored(isolated_db, "rs_live") == {"run_settings": {"beam_size": 5}}
@@ -89,32 +90,33 @@ class TestSettingsLiveOnTheJobEntry:
         import threading
         background_jobs.clear_all_jobs()
         gate = threading.Event()
-        background_jobs.start_job("rs_first", gate.wait, run_settings={"beam_size": 5})
+        job_launch.start_job("rs_first", gate.wait, run_settings={"beam_size": 5})
         gate.set()
         self._wait("rs_first")
-        background_jobs.start_job("rs_first", gate.wait, run_settings={"beam_size": 7})
+        job_launch.start_job("rs_first", gate.wait, run_settings={"beam_size": 7})
         assert self._stored(isolated_db, "rs_first") == {"run_settings": {"beam_size": 7}}
 
     def test_unsanitised_settings_are_cleaned_on_the_way_in(self, isolated_db):
         background_jobs.clear_all_jobs()
-        background_jobs.start_job("rs_dirty", lambda: None,
+        job_launch.start_job("rs_dirty", lambda: None,
                                   run_settings={"beam_size": 5, "audio_path": "/home/me/a.wav"})
         self._wait("rs_dirty")
         assert self._stored(isolated_db, "rs_dirty") == {"run_settings": {"beam_size": 5}}
 
     def test_a_queued_process_job_keeps_its_settings_when_promoted(self, isolated_db, monkeypatch):
         background_jobs.clear_all_jobs()
-        monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
-        monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a, **k: False)
-        monkeypatch.setattr(background_jobs, "_gpu_queue_waiting_locked", lambda: False)
-        assert background_jobs.start_process_job(
+        monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: True)
+        monkeypatch.setattr(job_launch, "_gpu_slot_available_locked", lambda *a, **k: False)
+        monkeypatch.setattr(job_runner, "_gpu_slot_available_locked", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "_gpu_queue_waiting_locked", lambda: False)
+        assert job_launch.start_process_job(
             "rs_queued", print, gpu_touching=True, run_settings={"beam_size": 5})
         assert self._stored(isolated_db, "rs_queued") == {"run_settings": {"beam_size": 5}}
-        entry = background_jobs._jobs["rs_queued"]
+        entry = job_table._jobs["rs_queued"]
         assert entry["status"] == "queued" and entry["run_settings"] == {"beam_size": 5}
-        proc, _q = background_jobs._register_process_job(
+        proc, _q = job_runner._register_process_job(
             "rs_queued", print, (), True, None, None, run_settings=entry["run_settings"])
-        assert background_jobs._jobs["rs_queued"]["run_settings"] == {"beam_size": 5}
+        assert job_table._jobs["rs_queued"]["run_settings"] == {"beam_size": 5}
         background_jobs.clear_all_jobs()
 
 
@@ -143,7 +145,7 @@ class TestProjection:
 
     def test_job_details_expose_only_the_allow_listed_settings(self, isolated_db):
         import time
-        background_jobs.start_job(
+        job_launch.start_job(
             "rs_job", lambda: background_jobs.set_result("rs_job", {"line_count": 1}),
             run_settings=run_settings_service.build(
                 {"audio_path": "/home/me/a.wav", "beam_size": 5}, asr_backend="whisper",

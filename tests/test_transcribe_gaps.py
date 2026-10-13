@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_table
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -300,8 +301,8 @@ class TestAddGapLines:
 
     def test_refused_while_a_job_runs_on_the_title(self, isolated_db):
         did, ids = _drama(isolated_db)
-        with background_jobs._lock:
-            background_jobs._jobs[f"retranscribe_{did}"] = {
+        with job_table._lock:
+            job_table._jobs[f"retranscribe_{did}"] = {
                 "status": "running", "progress": 0.0, "message": "", "result": None,
                 "error": None, "started_at": 0, "finished_at": None, "cancel_requested": False}
         with pytest.raises(ConflictError):
@@ -320,8 +321,8 @@ class TestAddGapLines:
             with pytest.raises(exc):
                 svc.add_gap_lines(did, args.pop("expected_line_ids"), after_line_id=ids[0],
                                   **args)
-        with background_jobs._lock:
-            background_jobs._jobs[f"retranscribe_{did}"] = {
+        with job_table._lock:
+            job_table._jobs[f"retranscribe_{did}"] = {
                 "status": "running", "progress": 0.0, "message": "", "result": None,
                 "error": None, "started_at": 0, "finished_at": None, "cancel_requested": False}
         with pytest.raises(ConflictError):

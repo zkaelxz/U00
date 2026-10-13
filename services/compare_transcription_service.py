@@ -14,6 +14,7 @@ import threading
 
 import asr_backend
 import background_jobs
+from jobs import job_launch
 import core as core_module
 import whisper_models
 import db
@@ -302,7 +303,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
                        "locale": settings_service.get("default_locale"),
                        "style_note": settings_service.get("default_style_note") or ""}
     tuning = transcribe_options_service._DEFAULT_TUNING
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
         {"whisper_size": size, "backend": backend, "prompt": prompt,
          "language": drama.get("source_language") or "zh",

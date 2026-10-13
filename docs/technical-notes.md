@@ -173,7 +173,7 @@ and the reset button requests cancellation of every running job and
 destructive reset proceeds -- refusing to reset rather than risk
 corruption if a job won't stop in time. (Later replaced: reset now takes
 the exclusive hold, so no new job can start, and then calls
-`background_jobs.wait_for_job_threads`; see `docs/background-jobs.md`.) Verified by reproducing the
+`job_runner.wait_for_job_threads`; see `docs/background-jobs.md`.) Verified by reproducing the
 exact original scenario end to end, including the id-reuse case, and
 confirming no contamination survives.
 

@@ -396,12 +396,12 @@ def _in_own_context(fn):
 
 
 def test_a_thread_job_inherits_the_mark(isolated_db):
-    import background_jobs
+    from jobs import job_launch
     seen = []
 
     def start(offline):
         model_offline.set_offline(offline)
-        background_jobs.start_job(f"offline_probe_{offline}", lambda: seen.append(model_offline.active()))
+        job_launch.start_job(f"offline_probe_{offline}", lambda: seen.append(model_offline.active()))
     for offline in (True, False):
         _in_own_context(lambda: start(offline))
         for _ in range(200):
@@ -415,6 +415,7 @@ def test_a_process_job_runs_with_the_offline_environment(isolated_db, monkeypatc
     """The child sets the libraries' switches in its own environment; its
     on_done (which may start the next stage) runs offline too."""
     import background_jobs as bg
+    from jobs import job_launch
     from tests.test_background_jobs import _install_fake_process, _wait_for_status
     _install_fake_process(monkeypatch, run_target_on_start=True)
     monkeypatch.setattr(os, "environ", dict(os.environ))
@@ -427,7 +428,7 @@ def test_a_process_job_runs_with_the_offline_environment(isolated_db, monkeypatc
 
     def start():
         model_offline.set_offline(True)
-        bg.start_process_job("offline_process_probe", worker, args=(),
+        job_launch.start_process_job("offline_process_probe", worker, args=(),
                              on_done=lambda job_id, result: on_done_offline.append(
                                  model_offline.active()))
     _in_own_context(start)
@@ -439,11 +440,12 @@ def test_a_process_job_runs_with_the_offline_environment(isolated_db, monkeypatc
 
 def test_an_owner_process_job_stays_online(isolated_db, monkeypatch):
     import background_jobs as bg
+    from jobs import job_launch
     from tests.test_background_jobs import _install_fake_process, _wait_for_status
     _install_fake_process(monkeypatch, run_target_on_start=True)
     monkeypatch.setattr(os, "environ", dict(os.environ))
     os.environ.pop("HF_HUB_OFFLINE", None)
-    bg.start_process_job("online_process_probe",
+    job_launch.start_process_job("online_process_probe",
                          lambda q: q.put(("ok", os.environ.get("HF_HUB_OFFLINE"))), args=())
     assert _wait_for_status("online_process_probe", "running")["result"] is None
     bg.clear_job("online_process_probe")

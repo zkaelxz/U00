@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-import background_jobs
+from jobs import job_launch
 from services import autotune_service, transcribe_service
 from services.service_errors import NotFoundError
 
@@ -106,7 +106,7 @@ class TestRunUsesAutoPrompt:
         def fake_process_job(job_id, target, args=(), **k):
             seen["args"] = args
             return True
-        monkeypatch.setattr(background_jobs, "start_process_job", fake_process_job)
+        monkeypatch.setattr(job_launch, "start_process_job", fake_process_job)
         autotune_service.start_autotune_run(did, extra_names="沈清疑")
         assert "苏杉、沈清疑。" in seen["args"]
         autotune_service.start_autotune_run(did, initial_prompt="全替换", extra_names="沈清疑")

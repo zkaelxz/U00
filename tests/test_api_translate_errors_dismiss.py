@@ -10,7 +10,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
+from jobs import job_launch
 import core
 import db
 from api import auth as api_auth
@@ -39,7 +39,7 @@ def client(isolated_db):
 
 
 def test_service_clears_only_the_errors(isolated_db, monkeypatch):
-    monkeypatch.setattr(background_jobs, "start_job",
+    monkeypatch.setattr(job_launch, "start_job",
                         lambda *a, **k: pytest.fail("dismissing must not start a job"))
     did = _drama_with_errors()
     before = [dict(r) for r in db.load_lines(did)]

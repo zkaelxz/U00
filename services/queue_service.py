@@ -603,8 +603,8 @@ def _start_translate(principal, drama: dict) -> str:
 def _export(drama: dict) -> None:
     """Writes the title's English SRT to its subtitle download, the server's
     default when no export choice is saved (the stage's are per browser)."""
-    import background_jobs
-    if not background_jobs.enter_maintenance():
+    from jobs import job_launch
+    if not job_launch.enter_maintenance():
         raise ConflictError("A restore or reset is running, so the export can't run now.")
     try:
         if not any((ln.get("en") or "").strip() for ln in db.load_lines(drama["id"])):
@@ -624,7 +624,7 @@ def _export(drama: dict) -> None:
         artifact_service.set_download_language(
             drama["id"], "subtitle", name, export_service.field_language(drama, "en"))
     finally:
-        background_jobs.exit_maintenance()
+        job_launch.exit_maintenance()
 
 
 def _start_item(item: dict) -> Optional[str]:
@@ -695,8 +695,8 @@ def _finish(item: dict, status: str, reason: str, now: float) -> None:
 def tick(now: float = None) -> None:
     """One pass: fire a due schedule, settle the running item, start the next.
     Safe to call from tests with an injected clock."""
-    import background_jobs
-    if background_jobs.is_stopping():
+    from jobs import job_launch
+    if job_launch.is_stopping():
         return     # the stop cancels jobs; the next start marks the item interrupted
     now = _clock() if now is None else now
     with _lock:
@@ -739,8 +739,8 @@ def _start_next(now: float, deferred=frozenset()) -> None:
     is at their running cap (jobs/user_caps.py) goes back to waiting with a
     reason and the next one is tried, so one member's own jobs never hold up
     the line; the next tick tries it again."""
-    import background_jobs
-    if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+    from jobs import job_launch
+    if job_launch.exclusive_active() or job_launch.maintenance_active():
         return     # a restore or cleanup holds the library: wait rather than skip everything
     with _lock:
         doc = _load(now)
@@ -766,7 +766,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         status = WAITING
     except ServiceError as exc:
         status, reason = SKIPPED, str(exc)
-        if background_jobs.is_stopping():
+        if job_launch.is_stopping():
             status, reason = INTERRUPTED, ""
     except Exception as exc:     # a bug in a start path must not stop the queue
         _log.warning("Queue item %s did not start: %s", claimed["id"],

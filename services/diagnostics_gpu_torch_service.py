@@ -13,6 +13,7 @@ import sys
 import threading
 
 import background_jobs
+from jobs import job_launch
 import diagnostics_torch as gpu_torch
 from lib import proc as proc_run
 from services.diagnostics_gaps_service import _redact, default_project_root
@@ -95,7 +96,7 @@ def check_gpu_torch() -> dict:
     takes a CUDA context (VRAM), so it refuses (409) while a job, restore,
     cleanup or install runs, or while another check does."""
     from services import library_admin_service
-    if (background_jobs.exclusive_active() or background_jobs.maintenance_active()
+    if (job_launch.exclusive_active() or job_launch.maintenance_active()
             or library_admin_service.any_job_running()):
         raise AdminActionJobsRunning(
             "Wait for running jobs (or the install) to finish before checking CUDA.")

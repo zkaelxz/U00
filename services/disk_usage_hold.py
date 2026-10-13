@@ -9,6 +9,7 @@ import contextlib
 import threading
 
 import background_jobs
+from jobs import job_launch
 from jobs import gpu_slots
 from services.service_errors import ConflictError, InvalidInputError
 
@@ -20,8 +21,8 @@ _op_lock = threading.Lock()
 
 def busy_reason():
     """Why clear and move are refused right now, or None."""
-    if (background_jobs.active_job_ids() or background_jobs.maintenance_active()
-            or background_jobs.exclusive_active()):
+    if (background_jobs.active_job_ids() or job_launch.maintenance_active()
+            or job_launch.exclusive_active()):
         return BUSY
     return None
 
@@ -39,7 +40,7 @@ def _busy_under_hold() -> bool:
     GPU lock (its GPU steps); a CLI run of non-GPU steps is not detected.
     Fails closed: an unreadable lock table counts as busy."""
     from services import library_admin_service
-    if (background_jobs.active_job_ids() or background_jobs.maintenance_active()
+    if (background_jobs.active_job_ids() or job_launch.maintenance_active()
             or library_admin_service.any_job_running()):
         return True
     try:
@@ -52,14 +53,14 @@ def _busy_under_hold() -> bool:
 def _exclusive(label: str):
     """The exclusive library hold around inspect -> re-resolve -> change, so no
     job starts in between. ConflictError when it can't be taken."""
-    if not background_jobs.acquire_exclusive(label):
+    if not job_launch.acquire_exclusive(label):
         raise ConflictError(BUSY)
     try:
         if _busy_under_hold():
             raise ConflictError(BUSY)
         yield
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
 
 
 @contextlib.contextmanager

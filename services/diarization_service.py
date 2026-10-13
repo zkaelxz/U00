@@ -15,6 +15,7 @@ import os
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import db
 import diagnostics
 import diarize
@@ -308,7 +309,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     job_id = f"diarize_{drama_id}"
     # start_process_job returns False without starting anything if this job
     # id is already running/queued: report it instead of silently no-opping.
-    started = background_jobs.start_process_job(
+    started = job_launch.start_process_job(
         job_id, diarize.diarize_subprocess_worker,
         args=(audio_path, hf_token, expected_speakers or None,
               worker_options(min_speakers, max_speakers)),

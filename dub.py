@@ -570,7 +570,7 @@ def build_track_subprocess_worker(lines, drama_dir, character_clone_map,
                                   max_speedup, max_slowdown, result_queue,
                                   background_source=None, separation_backend="auto"):
     """Entry point for running build_dub_track() in its own OS process via
-    background_jobs.start_process_job(), so Cancel can actually stop it.
+    job_launch.start_process_job(), so Cancel can actually stop it.
     Confirmed safe to hard-stop: each clip is written to its own file, and
     build_dub_track reuses (rather than re-synthesizes) any clip that
     exists from a prior partial run -- a kill mid-run loses only the
@@ -586,8 +586,8 @@ def build_track_subprocess_worker(lines, drama_dir, character_clone_map,
     background is mixed back under the finished track. A failed/missing
     separation never loses the dub -- the plain track is kept and the result
     carries background_mixed False plus a fixed background_error text."""
-    import background_jobs
-    background_jobs.start_own_process_group()
+    from jobs import process_worker
+    process_worker.start_own_process_group()
     try:
         out_path, errors = build_dub_track(
             lines, drama_dir, character_clone_map,

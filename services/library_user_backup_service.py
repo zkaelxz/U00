@@ -16,6 +16,7 @@ import re
 import zipfile
 
 import background_jobs
+from jobs import job_launch
 import db
 import storage
 from services import auth_service, drama_service
@@ -296,7 +297,7 @@ def start_user_backup(user_id=None) -> dict:
             raise NotFoundError("No such user.")
     refuse_during_maintenance("backup")
     _refuse_duplicate(USER_BACKUP_JOB_ID, "backup")
-    if not background_jobs.start_job(USER_BACKUP_JOB_ID, _user_backup_job, USER_BACKUP_JOB_ID,
+    if not job_launch.start_job(USER_BACKUP_JOB_ID, _user_backup_job, USER_BACKUP_JOB_ID,
                                      user_id, description="Backup of one person's items"):
         raise ConflictError("A backup is already running.")
     return {"job_id": USER_BACKUP_JOB_ID}

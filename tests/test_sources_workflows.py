@@ -493,9 +493,10 @@ class TestChapterImport:
         selected = [c for c in adapter.get_chapters("s1") if c.chapter_id in ("c1", "c3")]
 
         import background_jobs
+        from jobs import job_table
         job = "source_import_test"
         background_jobs.clear_job(job)
-        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                       "cancel_requested": False, "result": None}
         pipeline.run_import_job(job, "fake_comic", selected, drama_id, adapter=adapter)
 
@@ -513,13 +514,14 @@ class TestChapterImport:
 
     def test_cancel_stops_between_requests(self, isolated_db):
         import background_jobs
+        from jobs import job_table
         routes = {f"https://img.fake.invalid/c1/{i}.png": image(600, 900, i) for i in range(2)}
         clock = FakeClock()
         t = ScriptedTransport(routes, clock)
         client = make_client("fake_comic", t, clock, min_delay=1.0, max_delay=1.0)
         adapter = FakeComicSource(client, chapters=[("c1", "第1话")])
         job = "source_import_cancel"
-        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                       "cancel_requested": False, "result": None}
         orig = adapter.download_page
 
@@ -539,6 +541,7 @@ class TestChapterImport:
         """Roadmap 111: the size ceiling runs once the import's own
         temporary rows are released, even when the import is cancelled."""
         import background_jobs
+        from jobs import job_table
         from sources import cache as cache_mod
         calls = []
         monkeypatch.setattr(cache_mod.RawCache, "release", lambda self: calls.append("release"))
@@ -548,7 +551,7 @@ class TestChapterImport:
         t = ScriptedTransport({"https://img.fake.invalid/c1/0.png": image(600, 900, 0)}, clock)
         adapter = FakeComicSource(make_client("fake_comic", t, clock), chapters=[("c1", "第1话")])
         job = "source_import_ceiling"
-        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                       "cancel_requested": True, "result": None}
         drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
         pipeline.run_import_job(job, "fake_comic", adapter.get_chapters("s"), drama_id,
@@ -562,6 +565,7 @@ class TestChapterImport:
         import threading
 
         import background_jobs
+        from jobs import job_table
         from sources import cache as cache_mod
 
         def importer(cid, seed):
@@ -590,7 +594,7 @@ class TestChapterImport:
         drama_a = isolated_db.create_drama(title_zh="a", media_type="manhua")
         drama_b = isolated_db.create_drama(title_zh="b", media_type="manhua")
         for job in ("source_import_a", "source_import_b"):
-            background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+            job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                           "cancel_requested": False, "result": None}
         pipeline.run_import_job("source_import_a", "fake_comic", a.get_chapters("s"), drama_a,
                                 adapter=a)
@@ -630,9 +634,10 @@ class TestChapterImport:
         drama_id = isolated_db.create_drama(title_en="Imported Novel", media_type="novel",
                                             content_mode="novel_narration")
         import background_jobs
+        from jobs import job_table
         job = "source_import_text_test"
         background_jobs.clear_job(job)
-        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                       "cancel_requested": False, "result": None}
         pipeline.run_import_job(job, "52shuku", chapters, drama_id, adapter=adapter)
 
@@ -705,9 +710,10 @@ class TestChapterCommit:
     @pytest.fixture
     def job(self):
         import background_jobs
+        from jobs import job_table
         job = "source_import_commit"
         background_jobs.clear_job(job)
-        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                       "cancel_requested": False, "result": None}
         yield job
         background_jobs.clear_job(job)
@@ -1043,6 +1049,7 @@ class TestTermsOfServiceBlocking:
     @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_multi_chapter_import_is_refused(self, isolated_db):
         import background_jobs
+        from jobs import job_table
         routes = {f"https://img.fake.invalid/c1/{i}.png": image(600, 900, i) for i in range(2)}
         t = ScriptedTransport(routes)
         adapter = FakeComicSource(make_client("fake_comic", t),
@@ -1050,7 +1057,7 @@ class TestTermsOfServiceBlocking:
         self._prohibit("fake_comic")
         drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
         job = "source_import_tos"
-        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                       "cancel_requested": False, "result": None}
         pipeline.run_import_job(job, "fake_comic", adapter.get_chapters("s"), drama_id,
                                 adapter=adapter)

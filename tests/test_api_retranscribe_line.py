@@ -15,6 +15,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_table, process_worker
 import audio_extract
 import whisper_transcribe
 import whisper_models
@@ -31,9 +32,9 @@ _PREFIXES = ("retranscribe_", "transcribe_", "fixflag_", "resegment_", "narratio
 
 
 def _clear_jobs():
-    with background_jobs._lock:
-        for jid in [j for j in background_jobs._jobs if j.startswith(_PREFIXES)]:
-            background_jobs._jobs.pop(jid, None)
+    with job_table._lock:
+        for jid in [j for j in job_table._jobs if j.startswith(_PREFIXES)]:
+            job_table._jobs.pop(jid, None)
 
 
 @pytest.fixture(autouse=True)
@@ -44,8 +45,8 @@ def _no_leftover_jobs():
 
 
 def _put_job(job_id, status="running"):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {
+    with job_table._lock:
+        job_table._jobs[job_id] = {
             "status": status, "progress": 0.0, "message": "", "result": None, "error": None,
             "started_at": time.time(), "finished_at": None, "cancel_requested": False}
 
@@ -84,7 +85,7 @@ def _run_worker_inline(target, args):
 def inline_process_jobs(monkeypatch):
     """Runs start_process_job's worker and on_done/on_finish on a thread job,
     so the fake Whisper below can be patched in (a spawned child could not)."""
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
     # The worker points tempfile at its scratch folder; undone after the test.
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
 
@@ -101,9 +102,9 @@ def inline_process_jobs(monkeypatch):
             finally:
                 if on_finish:
                     on_finish(job_id)
-        return background_jobs.start_job(job_id, body, gpu_touching=gpu_touching,
+        return job_launch.start_job(job_id, body, gpu_touching=gpu_touching,
                                          description=description)
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_start)
 
 
 @pytest.fixture
@@ -139,7 +140,7 @@ def captured(monkeypatch, inline_process_jobs):
                     args=dict(zip(list(inspect.signature(target).parameters), args)),
                     raw_args=args)
         return True
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_start)
     return seen
 
 
@@ -882,7 +883,7 @@ def test_the_timeout_give_up_works_with_a_real_result_channel(tmp_path, monkeypa
     # here that would outlive the test and break the next test's temp directories.
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     monkeypatch.setattr(rw.os, "_exit", lambda code: ended.set())
-    monkeypatch.setattr(rw.background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(rw.process_worker, "start_own_process_group", lambda: None)
     release = threading.Event()
 
     def hang_until_released(*a, **k):

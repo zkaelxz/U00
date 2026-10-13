@@ -8,7 +8,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
+from jobs import job_launch
 import db
 import translate_engines
 from api import auth as api_auth
@@ -51,7 +51,7 @@ def test_service_apply_tier_matches_streamlit(isolated_db):
 
 
 def test_service_apply_tier_starts_nothing(isolated_db, monkeypatch):
-    monkeypatch.setattr(background_jobs, "start_job",
+    monkeypatch.setattr(job_launch, "start_job",
                         lambda *a, **k: pytest.fail("applying a tier must not start a job"))
     did = db.create_drama(title_zh="D")
     translate_preset_service.apply_workflow_tier(did, "release")
@@ -243,7 +243,7 @@ APPLY = "/api/translate-run/dramas/{}/apply-preset"
 
 
 def test_apply_preset_saves_engine_and_returns_form_values(client, isolated_db, monkeypatch):
-    monkeypatch.setattr(background_jobs, "start_job",
+    monkeypatch.setattr(job_launch, "start_job",
                         lambda *a, **k: pytest.fail("applying a preset must not start a job"))
     did = db.create_drama(title_zh="D", translation_engine="fake_mt")
     pid = db.save_preset("Mine", translation_engine="gemini", engine_model="gemini-2.5-pro",

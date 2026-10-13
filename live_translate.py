@@ -564,7 +564,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   reply_without_thinking: bool = True, report_note=None, whisper_clock=None,
                   report_stats=None, term_hints=None, spend_guard=None):
     """
-    The background-thread target (see background_jobs.start_job). Runs
+    The background-thread target (see job_launch.start_job). Runs
     until request_cancel(job_id) is set, live_pipeline.request_finish(job_id)
     is called (Stop pressed once), the time limit passes or the stream itself
     ends, then stops capture and returns -- background_jobs marks the job

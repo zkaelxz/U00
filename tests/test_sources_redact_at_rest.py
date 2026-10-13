@@ -1,6 +1,6 @@
 """Stored (not just displayed) source and job data carries no URL query or token."""
 
-import background_jobs
+from jobs import job_table
 import db
 from services import sources_registry_service as reg
 from sources import health, store
@@ -47,15 +47,15 @@ def test_health_and_mark_checked_redacted(isolated_db):
 
 def test_job_record_mirror_strips_query(isolated_db):
     jid = "job-redact-1"
-    with background_jobs._lock:
-        background_jobs._jobs[jid] = {
+    with job_table._lock:
+        job_table._jobs[jid] = {
             "status": "error", "progress": 0.5, "message": f"Fetching {URL}",
             "error": ERR + " Bearer abcdefghijklmnopqrstuvwxyz123456",
             "description": "d"}
-        background_jobs._mirror_locked(jid)
+        job_table._mirror_locked(jid)
     rec = db.get_job_record(jid)
     blob = f"{rec['message']} {rec['error']}"
     assert "SECRETSIG" not in blob and "abc123secret" not in blob and "?" not in blob
     assert "https://example.com/book/7" in blob
-    with background_jobs._lock:
-        background_jobs._jobs.pop(jid, None)
+    with job_table._lock:
+        job_table._jobs.pop(jid, None)
