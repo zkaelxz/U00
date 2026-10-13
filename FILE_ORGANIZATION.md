@@ -43,6 +43,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
   - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
+  - `db/bulk_jobs.py` (bulk batch-API / off-peak translation jobs: job rows, submitted lines, results by line id)
   - `db/comic_pages.py` (comic pages and their text regions for scanlation and typesetting: page rows, id-preserving bubble edits, the legacy full replace)
   - `db/dramas.py` (library titles: create, update, delete and list a drama, the visibility filter drama queries share, library-wide stats and line search, custom tags)
   - `db/glossary.py` (series and their shared glossary terms and ignore list, the per-series translation memory)

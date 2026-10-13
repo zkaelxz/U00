@@ -5,6 +5,9 @@ import { getJobStages } from '../../api/jobs'
 import type { JobStageTimings } from '../../types/jobs'
 import { NO_STAGE_TIMING, STAGE_TIMING_UNAVAILABLE, runsNote, stageRows, stageTotalLine } from './stageBreakdown'
 
+// The log of a running job re-reads this often; a hidden tab skips the read.
+const STAGE_POLL_MS = 5_000
+
 type Load = { state: 'loading' } | { state: 'error' } | { state: 'ok'; data: JobStageTimings }
 
 /**
@@ -12,15 +15,22 @@ type Load = { state: 'loading' } | { state: 'error' } | { state: 'ok'; data: Job
  * bar for each one's share of the total. Mounted on first open, so it loads
  * once per entry rather than for every row in the list.
  */
-export function JobStagesPanel({ jobId }: { jobId: string }) {
+export function JobStagesPanel({ jobId, running = false, step }: { jobId: string; running?: boolean; step?: string | null }) {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   useEffect(() => {
     const ctl = new AbortController()
-    getJobStages(jobId, withSignal(ctl.signal))
-      .then((data) => setLoad({ state: 'ok', data }))
-      .catch(() => { if (!ctl.signal.aborted) setLoad({ state: 'error' }) })
-    return () => ctl.abort()
-  }, [jobId])
+    const read = () =>
+      getJobStages(jobId, withSignal(ctl.signal))
+        .then((data) => setLoad({ state: 'ok', data }))
+        // A failed refresh keeps the last log on screen; only the first read shows the error.
+        .catch(() => { if (!ctl.signal.aborted) setLoad((cur) => (cur.state === 'ok' ? cur : { state: 'error' })) })
+    void read()
+    const timer = running ? window.setInterval(() => { if (!document.hidden) void read() }, STAGE_POLL_MS) : undefined
+    return () => {
+      ctl.abort()
+      window.clearInterval(timer)
+    }
+  }, [jobId, running])
 
   if (load.state === 'loading') return <p className="muted" aria-live="polite">Loading stage timing…</p>
   if (load.state === 'error') return <p className="muted">{STAGE_TIMING_UNAVAILABLE}</p>
@@ -30,11 +40,13 @@ export function JobStagesPanel({ jobId }: { jobId: string }) {
   const note = runsNote(runs.length)
   return (
     <div className="stage-times">
-      <h4 className="stage-times-title">Time by stage</h4>
-      <ul aria-label="Time by stage">
+      <h4 className="stage-times-title">{running ? 'Steps so far' : 'Time by stage'}</h4>
+      <ul aria-label={running ? 'Steps so far' : 'Time by stage'}>
         {stageRows(run).map((r) => (
           <li key={r.key}>
-            <span className="stage-times-name">{r.name}</span>
+            <span className="stage-times-name">
+              {r.at && <time className="muted stage-times-at">{r.at}</time>} {r.name}
+            </span>
             <span className="stage-times-nums">
               {r.duration}
               {r.cost && <span className="muted"> · {r.cost}</span>}
@@ -45,6 +57,7 @@ export function JobStagesPanel({ jobId }: { jobId: string }) {
           </li>
         ))}
       </ul>
+      {running && step && <p className="muted" aria-live="polite">Now: {step}</p>}
       <p className="stage-times-total">{stageTotalLine(run)}</p>
       {note && <p className="muted">{note}</p>}
     </div>
