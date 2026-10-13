@@ -219,7 +219,7 @@ def test_translate_job_records_provenance_for_translated_lines(isolated_db, monk
         return ls, []
 
     monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
-    monkeypatch.setattr(wjs.bulk_translate, "finish_translation_run", lambda *a, **k: False)
+    monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", lambda *a, **k: False)
     wjs.run_translate_job("translate_x", did, lines, _Engine(), {}, "", "", False, "en-US",
                           [], "", "claude", "default")
     prov = line_provenance_service.get(did, lines[0].id)
@@ -416,7 +416,7 @@ def test_provenance_follows_a_mid_run_engine_fallback(isolated_db, monkeypatch):
         return ls, []
 
     monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
-    monkeypatch.setattr(wjs.bulk_translate, "finish_translation_run", lambda *a, **k: False)
+    monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", lambda *a, **k: False)
     wjs.run_translate_job("translate_f", did, lines, engine, {}, "", "", False, "en-US",
                           [], "", "claude>deepseek", "default")
     assert line_provenance_service.get(did, lines[0].id)["engine"] == "claude"

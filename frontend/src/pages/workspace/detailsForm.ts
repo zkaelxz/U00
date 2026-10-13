@@ -22,6 +22,7 @@ export interface DetailsForm {
   summary: string
   genre: string
   source_url: string
+  release_date: string // '' = unknown, else YYYY-MM-DD
   chapter_count: string // '' = not set
   episode_number: string // '' = not set
   episode_summary: string
@@ -39,7 +40,7 @@ export type DetailsErrors = Partial<Record<keyof DetailsForm, string>>
 
 const TEXT_KEYS = [
   'title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors', 'summary', 'genre', 'source_url',
-  'episode_summary',
+  'episode_summary', 'release_date',
 ] as const
 const COUNT_KEYS = ['chapter_count', 'episode_number'] as const
 const LONG_KEYS: readonly string[] = ['summary', 'episode_summary']
@@ -53,7 +54,8 @@ export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   voice_actors: 'Voice actors',
   summary: 'Summary',
   genre: 'Genre',
-  source_url: 'Source URL',
+  source_url: 'Source link (where you got it)',
+  release_date: 'Stream / release date',
   chapter_count: 'Chapter count',
   episode_number: 'Episode number',
   episode_summary: 'Running episode summary',
@@ -63,6 +65,14 @@ export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   source_language: 'Source language',
   series_id: 'Series',
   new_series_name: 'New series name',
+}
+
+// The date input yields YYYY-MM-DD or ''; the server re-checks it as a real calendar date.
+export function isIsoDate(v: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
+  const [y, m, d] = v.split('-').map(Number)
+  const at = new Date(Date.UTC(y, m - 1, d))
+  return at.getUTCFullYear() === y && at.getUTCMonth() === m - 1 && at.getUTCDate() === d
 }
 
 const normalizeTags = (raw: string): string =>
@@ -83,6 +93,7 @@ export function formFromDrama(d: DramaDetail): DetailsForm {
     summary: d.summary ?? '',
     genre: d.genre ?? '',
     source_url: d.source_url ?? '',
+    release_date: d.release_date ?? '',
     chapter_count: d.chapter_count ? String(d.chapter_count) : '',
     episode_number: d.episode_number ? String(d.episode_number) : '',
     episode_summary: d.episode_summary ?? '',
@@ -109,6 +120,7 @@ export function validateDetails(f: DetailsForm, initial: DetailsForm): DetailsEr
   }
   const url = f.source_url.trim()
   if (f.source_url !== initial.source_url && url && !e.source_url && !/^https?:\/\//i.test(url)) e.source_url = 'Start the link with http:// or https://.'
+  if (f.release_date && !isIsoDate(f.release_date)) e.release_date = 'Enter a date, or leave it empty.'
   for (const k of COUNT_KEYS) {
     const v = f[k].trim()
     if (v && (!/^\d+$/.test(v) || Number(v) > MAX_COUNT)) e[k] = 'Enter a whole number, or leave it empty.'

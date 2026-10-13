@@ -5,6 +5,7 @@ import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { Breadcrumbs } from '../../nav/BreadcrumbNav'
@@ -90,6 +91,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const actions = (
     <div className="ws-actions">
       <SourceLink href={drama?.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
+      {drama && !safeHref(drama.source_url) && (
+        <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
+      )}
       {drama && (
         <ButtonLink
           href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}

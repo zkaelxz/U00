@@ -16,6 +16,7 @@ import re
 import sys
 import tempfile
 
+import dependency_updates
 import diagnostics
 import install_registry
 import pending_install
@@ -58,7 +59,7 @@ def app_required_names(project_root: str = None) -> set:
     _v, _s, requirements = diagnostics._packaging()
     root = project_root or install_registry.ROOT
     names = set()
-    for fname in diagnostics.REQUIREMENTS_FILES:
+    for fname in dependency_updates.REQUIREMENTS_FILES:
         for spec in diagnostics.parse_requirements_file(os.path.join(root, fname)):
             try:
                 names.add(_canon(requirements.Requirement(spec).name))
@@ -234,7 +235,7 @@ def downgrade_risks(argv: list, runner=run_captured, installed: dict = None,
     installed = pending_install.snapshot() if installed is None else installed
     return _risks(_classify(parse_report(report), installed),
                   app_required_names() if required is None else required,
-                  diagnostics.required_min_versions() if mins is None else mins)
+                  dependency_updates.required_min_versions() if mins is None else mins)
 
 
 def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, report=None,
@@ -289,7 +290,7 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
     clash = cv2_clash({n: v for n, v in installed.items() if n not in swap}, changes)
     if clash:
         plan["blocked"].append(clash)
-    mins = diagnostics.required_min_versions() if mins is None else mins
+    mins = dependency_updates.required_min_versions() if mins is None else mins
     required = app_required_names() if required is None else required
     plan["needs_confirm"] = _risks(changes, required, mins)
     replaced = [c for c in changes if c["kind"] != "install"]

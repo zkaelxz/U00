@@ -122,6 +122,11 @@ class TestHttpCallsHaveTimeouts:
             os.path.join(PROJECT_ROOT, "diagnostics.py"))
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
+    def test_dependency_updates(self):
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "dependency_updates.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
     def test_diagnostics_report(self):
         problems = _find_requests_calls_missing_timeout(
             os.path.join(PROJECT_ROOT, "diagnostics_report.py"))

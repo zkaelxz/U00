@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import importlib.metadata
 
+import dependency_updates
 import diagnostics
 import diagnostics_report
 import qwen3_native
@@ -155,9 +156,9 @@ def test_diagnostics_does_not_hold_transformers_back_for_qwen_asrs_pin(monkeypat
     monkeypatch.setattr(importlib.metadata, "distributions", lambda: [
         _fake_dist("qwen-asr", ["transformers==4.57.6"]),
         _fake_dist("other", ["transformers<6"])])
-    required_by = diagnostics.installed_requirements_on()
+    required_by = dependency_updates.installed_requirements_on()
     assert [r for r, _ in required_by["transformers"]] == ["other"]
-    result = diagnostics.classify_update("transformers", "4.57.6", ["4.57.6", "5.15.0"],
+    result = dependency_updates.classify_update("transformers", "4.57.6", ["4.57.6", "5.15.0"],
                                          {}, required_by)
     assert result["status"] == "update" and result["target"] == "5.15.0"
 

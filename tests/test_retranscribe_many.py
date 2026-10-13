@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
-import bulk_translate
+import translation_finish
 import core
 import whisper_models
 import db
@@ -392,7 +392,7 @@ class TestJob:
 class TestApply:
     def test_writes_zh_keeps_english_flags_and_keeps_the_rest(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
-        assert bulk_translate.untranslated_line_count(did) == 0
+        assert translation_finish.untranslated_line_count(did) == 0
         _run(did, ids)
         out = svc.apply_retranscribe_many(did, f"retranscribe_{did}", _items(did, {ids[0], ids[1]}))
         assert out == {"applied": [ids[0], ids[1]], "skipped": [], "untranslated_count": 0}
@@ -458,7 +458,7 @@ class TestApply:
         assert isolated_db.get_drama(did)["status"] == "translated"
         _run(did, ids)
         out = svc.apply_retranscribe_many(did, f"retranscribe_{did}", _items(did, {ids[2]}))
-        assert out["untranslated_count"] == 0 == bulk_translate.untranslated_line_count(did)
+        assert out["untranslated_count"] == 0 == translation_finish.untranslated_line_count(did)
         assert isolated_db.get_drama(did)["status"] == "translated"
 
     def test_a_dubbed_title_keeps_its_status(self, isolated_db, fake_asr):

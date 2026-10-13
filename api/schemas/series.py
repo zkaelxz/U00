@@ -36,6 +36,7 @@ class SeriesTitle(BaseModel):
     media_type: Optional[str] = None
     status: Optional[str] = None
     episode_number: Optional[int] = None
+    release_date: Optional[str] = None
     line_count: int
 
 

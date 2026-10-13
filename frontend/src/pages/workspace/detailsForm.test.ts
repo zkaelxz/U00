@@ -221,3 +221,27 @@ describe('unsavedTabs', () => {
     expect(CREDITS_FIELDS).not.toContain('publication_status')
   })
 })
+
+describe('Stream / release date', () => {
+  const init = formFromDrama({ ...drama, release_date: '2025-03-04' } as DramaDetail)
+
+  it('is loaded as is, and empty for a title with no date', () => {
+    expect(init.release_date).toBe('2025-03-04')
+    expect(formFromDrama(drama).release_date).toBe('')
+  })
+  it('is sent only when changed; empty clears', () => {
+    expect(buildDetailsPayload(init, init).metadata).toEqual({})
+    expect(buildDetailsPayload({ ...init, release_date: '2025-04-05' }, init).metadata).toEqual({ release_date: '2025-04-05' })
+    expect(buildDetailsPayload({ ...init, release_date: '' }, init).metadata).toEqual({ release_date: '' })
+  })
+  it('accepts a real date or nothing, and rejects anything else', () => {
+    expect(validateDetails({ ...init, release_date: '' }, init).release_date).toBeUndefined()
+    expect(validateDetails({ ...init, release_date: '2024-02-29' }, init).release_date).toBeUndefined()
+    for (const bad of ['2025-02-30', '2025-13-01', '20250101', '25-1-1', 'soon']) {
+      expect(validateDetails({ ...init, release_date: bad }, init).release_date).toBeTruthy()
+    }
+  })
+  it('maps a server 422 onto the field', () => {
+    expect(serverFieldErrors(undefined, 'release_date must be empty or a date as YYYY-MM-DD.').release_date).toBeTruthy()
+  })
+})

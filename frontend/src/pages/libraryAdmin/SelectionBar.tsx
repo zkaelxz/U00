@@ -45,7 +45,8 @@ const translateError = (e: unknown): string | null => {
   return null
 }
 
-const PC_ONLY_NOTE = 'Delete and export are PC only.'
+// The household proxy refuses /api/library/admin/* (deploy/caddy), bulk translate included.
+const PC_ONLY_NOTE = 'Bulk translate, delete and export are PC only. To translate from here, use Translate on each title.'
 const NO_EDIT_NOTE = 'Changing status and lists is for the library admin.'
 // PC-only calls (delete, export): a 403 means "not at the main PC".
 const PC_ONLY_ERR = { pcOnly: true, serverText: true } as const
@@ -148,7 +149,7 @@ export function SelectionBar({
   // Reasons sit under their buttons in the phone menu, in the bar's lines on desktop.
   const reason = (show: boolean, id: string, text: string): ReactNode =>
     show ? <p className="muted" id={id}>{text}</p> : null
-  const translateReason = reason(!toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
+  const translateReason = reason(local && !toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
   const exportReason = reason(local && !toExport.length && n > 0, 'export-needs', EXPORT_NEEDS)
   const pcReason = reason(!local, 'pc-only-note', PC_ONLY_NOTE)
   const editReason = reason(!canEdit, 'no-edit-note', NO_EDIT_NOTE)
@@ -178,14 +179,16 @@ export function SelectionBar({
       </>}
       {phone && editReason}
       <div className="bar-group">
-        <button
-          type="button"
-          disabled={!toTranslate.length || translate.active}
-          aria-describedby={!toTranslate.length ? 'translate-needs' : undefined}
-          onClick={startTranslate}
-        >
-          Translate {toTranslate.length}
-        </button>
+        {local && (
+          <button
+            type="button"
+            disabled={!toTranslate.length || translate.active}
+            aria-describedby={!toTranslate.length ? 'translate-needs' : undefined}
+            onClick={startTranslate}
+          >
+            Translate {toTranslate.length}
+          </button>
+        )}
         {phone && translateReason}
         {local && (
           <button
