@@ -87,8 +87,9 @@ for backup and restore operations see `runbook.md`.
   `db/line_history.py` (line history snapshots for undo),
   `db/translation_versions.py` (alternate translation versions),
   `db/vocab.py` (Reader vocab lookups),
-  `db/wiki.py` (universe wiki entries) and
-  `db/known_titles.py` (the known-titles discovery library).
+  `db/wiki.py` (universe wiki entries),
+  `db/known_titles.py` (the known-titles discovery library) and
+  `db/model_candidates.py` (model re-evaluation candidates and decisions).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
