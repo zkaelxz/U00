@@ -928,3 +928,49 @@ def test_other_users_jobs_do_not_push_out_a_viewers_own_events(env, no_timer):
         ns.notify_job_finished("Library backup", "done", job_id=f"library_{i}")
     assert [e["text"] for e in ns.list_recent(kid)] == ["Finished: Discover extract"]
     assert len(ns.list_recent(None)) == ns.RECENT_MAX
+
+
+
+
+
+def _fire_watchdog_then_fail(monkeypatch, exc):
+    import requests
+
+    timers = []
+
+    class _Timer:
+        def __init__(self, interval, fn):
+            self.fn = fn
+            self.daemon = False
+            self.name = ""
+            timers.append(self)
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            pass
+
+    def post(self, *a, **kw):
+        timers[0].fn()   # the deadline fires while the request is in flight
+        raise exc
+
+    monkeypatch.setattr(ns.threading, "Timer", _Timer)
+    monkeypatch.setattr(requests.Session, "post", post)
+
+
+def test_a_reset_after_the_deadline_is_reported_as_the_timeout(monkeypatch):
+    _fire_watchdog_then_fail(monkeypatch, ConnectionResetError("reset"))
+    with pytest.raises(TimeoutError, match="send deadline passed"):
+        ns._pinned_post("http://slow.test:80/t", "127.0.0.1", b"x", {})
+
+
+def test_a_reset_before_the_deadline_stays_a_connection_error(monkeypatch):
+    import requests
+
+    def post(self, *a, **kw):
+        raise ConnectionResetError("reset")
+
+    monkeypatch.setattr(requests.Session, "post", post)
+    with pytest.raises(ConnectionResetError):
+        ns._pinned_post("http://slow.test:80/t", "127.0.0.1", b"x", {})
