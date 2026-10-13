@@ -36,7 +36,8 @@ from api.schemas import (EpisodeSummaryGenerate, EpisodeSummaryGenerated, Episod
 from api.llm_slots import llm_slot
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
                       glossary_retranslate_service, ownership_service, source_change_service,
-                      translate_run_service, translate_thinking_service)
+                      translate_preset_service, translate_run_service,
+                      translate_thinking_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
@@ -283,7 +284,7 @@ def dismiss_translate_errors(request: Request, drama_id: int = Path(ge=1, le=2**
              summary="Apply a workflow tier: saves its engine on the drama, returns the form values",
              responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def apply_workflow_tier(body: WorkflowTierApply, drama_id: int = Path(ge=1, le=2**31 - 1)):
-    return translate_run_service.apply_workflow_tier(drama_id, body.tier)
+    return translate_preset_service.apply_workflow_tier(drama_id, body.tier)
 
 
 @router.post("/dramas/{drama_id}/apply-preset", dependencies=[require_permission("lines.edit")],
@@ -291,7 +292,7 @@ def apply_workflow_tier(body: WorkflowTierApply, drama_id: int = Path(ge=1, le=2
              summary="Apply a saved preset: saves its engine on the drama, returns the form values",
              responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1, le=2**31 - 1)):
-    return translate_run_service.apply_translate_preset(drama_id, body.preset_id)
+    return translate_preset_service.apply_translate_preset(drama_id, body.preset_id)
 
 
 @router.post("/presets", dependencies=[require_permission("admin.library")],
@@ -303,7 +304,7 @@ def save_translate_preset(body: TranslatePresetSave, request: Request):
     if body.overwrite and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing a preset is only allowed at the PC.")
     require_cloud_model_allowed(request, (body.translation_engine, body.engine_model))
-    return translate_run_service.save_translate_preset(
+    return translate_preset_service.save_translate_preset(
         body.name, body.translation_engine, engine_model=body.engine_model,
         style_preset=body.style_preset, locale=body.locale,
         default_female_pronouns=body.default_female_pronouns,

@@ -386,7 +386,7 @@ class TranslateBulkCancelResult(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Apply a workflow tier, save translate settings as a preset
-# (services/translate_run_service.py apply_workflow_tier / save_translate_preset).
+# (services/translate_preset_service.py apply_workflow_tier / save_translate_preset).
 # ---------------------------------------------------------------------------
 WorkflowTierKey = Literal[tuple(_translate_engines.WORKFLOW_TIERS)]
 
