@@ -11,7 +11,7 @@ import db
 from core import Line
 from services import review_extras_service as extras
 from services import lines_service
-from services import restructure_service as svc
+from services import resplit_service, restructure_service as svc
 from services.service_errors import ConflictError
 
 SENT = "我今天早上很早就起床了然后去公园跑步。"
@@ -83,7 +83,7 @@ def test_merge_short_undo_round_trips():
 def test_resplit_undo_round_trips():
     did, ids = _seed([("你好。", ""), (LONG, "x"), ("再见。", "")])
     before = _texts(did)
-    out = svc.resplit_long_lines(did, ids, confirm=True)
+    out = resplit_service.resplit_long_lines(did, ids, confirm=True)
     assert out["split_lines"] == 1 and out["history_id"] and out["lines_fingerprint"]
     assert db.list_line_history(did)[0]["label"] == "before re-split"
     now = [r["id"] for r in db.load_lines(did)]
@@ -93,7 +93,7 @@ def test_resplit_undo_round_trips():
 
 def test_nothing_to_resplit_offers_no_undo():
     did, ids = _seed(ROWS)
-    out = svc.resplit_long_lines(did, ids)
+    out = resplit_service.resplit_long_lines(did, ids)
     assert out["split_lines"] == 0 and "history_id" not in out
 
 
@@ -189,7 +189,7 @@ def test_undo_refused_when_a_split_piece_got_an_emotion():
 
 def test_undo_refused_when_a_resplit_piece_got_a_note():
     did, ids = _seed([("你好。", ""), (LONG, "x"), ("再见。", "")])
-    out = svc.resplit_long_lines(did, ids, confirm=True)
+    out = resplit_service.resplit_long_lines(did, ids, confirm=True)
     piece = _new_piece(did, ids)
     lines_service.add_note(did, piece, "公园", "cultural", "A note on a re-split piece")
     now = [r["id"] for r in db.load_lines(did)]

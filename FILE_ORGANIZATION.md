@@ -325,7 +325,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `reader_service.py`
 - `real_model_check_service.py`
 - `remote_health_service.py`
-- `restructure_service.py`
+- `resegmentation_service.py` (Review re-segmentation: the rules preview, the LLM preview job and the apply job; writes through restructure_service's guard)
+- `resplit_service.py` (Review "Split long lines": the rule-based re-split and its optional forced-aligner job; writes through restructure_service's guard)
+- `restructure_service.py` (add, delete, merge and split lines, version-history restore, and the shared structural-write guard)
 - `retranscribe_line_service.py` (Review's "Re-transcribe" for one line: the job, its in-memory proposal and the compare-and-set apply)
 - `retranscribe_many_service.py` (Review's "Re-transcribe selected": start, read and apply of the many-line re-transcription; shares the one-line job's id)
 - `retranscribe_worker.py` (the spawned workers and result hooks of the one-line and many-line re-transcriptions; the one-line start, read and apply are in retranscribe_line_service)
@@ -370,7 +372,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `source_suspect_service.py` (Review "Check source text": flag/flag_note only, list with the merge target)
 - `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
 - `timing_settings_service.py` (the Settings > Timing and splitting values as runs use them; Developer Mode rows read as defaults while it is off)
-- `resplit_config.py` (what a Review re-split cuts: the sensitivity presets, duration cap and fresh-transcription limits; moved out of restructure_service)
+- `resplit_config.py` (what a Review re-split cuts: the sensitivity presets, duration cap and fresh-transcription limits; moved out of restructure_service; used by resplit_service)
 - `reading_speed_dismissal_service.py` (remembers dismissed reading-speed flags in a sidecar, keyed by line id and English text hash)
 - `transcribe_gap_service.py` (Review's untranscribed gaps: detection from the saved lines, and adding the blank flagged lines that "Transcribe this gap" then re-transcribes)
 - `transcribe_pipeline.py` (the in-process transcription pipeline and its spawn-target worker: separation, model load, VAD, decode, Qwen pass, realign, split; writes no database rows)

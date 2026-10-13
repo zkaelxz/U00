@@ -19,7 +19,7 @@ import word_align
 from core import Line
 from engine_backends import translate_pipeline
 from lib import settings_schema as schema
-from services import (restructure_service, retime_service, run_settings_service,
+from services import (resplit_service, restructure_service, retime_service, run_settings_service,
                       settings_service, speech_coverage_service, timing_settings_service,
                       transcribe_gap_service)
 from services.service_errors import InvalidInputError
@@ -516,15 +516,14 @@ class TestLineSplitting:
     def test_the_resplit_size_cap_is_still_ten_times_the_line_text_cap(self):
         from services import resplit_config
         assert resplit_config.RESPLIT_MAX_CHARS == 10 * restructure_service.MAX_LINE_TEXT_CHARS
-        assert restructure_service.RESPLIT_MAX_CHARS == resplit_config.RESPLIT_MAX_CHARS
 
     def test_the_review_resplit_follows_the_saved_limits(self, developer_mode):
         ln = Line(idx=0, start=0.0, end=6.0, zh="今天天气很好。我们出去走走吧。", id=1)
-        default = restructure_service._Resplit(**timing_settings_service.resplit_limits())
-        assert default == restructure_service._Resplit()
+        default = resplit_service._Resplit(**timing_settings_service.resplit_limits())
+        assert default == resplit_service._Resplit()
         assert [p["text"] for p in default.split(ln)] == [ln.zh]
         settings_service.set_settings({"split_max_seconds": 4})
-        saved = restructure_service._Resplit(**timing_settings_service.resplit_limits())
+        saved = resplit_service._Resplit(**timing_settings_service.resplit_limits())
         assert [p["text"] for p in saved.split(ln)] == ["今天天气很好。", "我们出去走走吧。"]
 
     def test_the_stock_phrase_silence_decides_whether_a_credit_line_is_dropped(self):

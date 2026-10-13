@@ -17,7 +17,7 @@ import whisper_models
 import db
 import resegment
 from core import Line
-from services import drama_service, restructure_service, transcribe_pipeline, transcribe_service
+from services import drama_service, resegmentation_service, restructure_service, transcribe_pipeline, transcribe_service
 from services.service_errors import ConflictError, InvalidInputError
 from tests.http_fakes import StreamedBody
 
@@ -159,13 +159,13 @@ class TestResegmentInvariants:
         did = _reseg_drama()
         before = db.load_line_objects(did)
         ids = [ln.id for ln in before]
-        preview = restructure_service.preview_resegmentation(did)
+        preview = resegmentation_service.preview_resegmentation(did)
         assert preview["needs_confirm"] is True
         with pytest.raises(InvalidInputError):
-            restructure_service.start_resegmentation(did, ids)
+            resegmentation_service.start_resegmentation(did, ids)
         assert _snapshot(did) == [(ln.id, ln.zh, ln.en) for ln in before]
 
-        job = _wait(restructure_service.start_resegmentation(did, ids, confirm=True)["job_id"])
+        job = _wait(resegmentation_service.start_resegmentation(did, ids, confirm=True)["job_id"])
         assert job["status"] == "done", job
         after = db.load_line_objects(did)
         assert [ln.zh for ln in after] == ["你好。", FIRST, SECOND, "再见。"]
@@ -178,30 +178,30 @@ class TestResegmentInvariants:
     def test_untranslated_drama_needs_no_confirmation(self):
         did = _reseg_drama(translated=False)
         ids = [ln.id for ln in db.load_line_objects(did)]
-        assert restructure_service.preview_resegmentation(did)["needs_confirm"] is False
-        job = _wait(restructure_service.start_resegmentation(did, ids)["job_id"])
+        assert resegmentation_service.preview_resegmentation(did)["needs_confirm"] is False
+        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "done", job
 
     def test_preview_reads_the_database_not_a_client_snapshot(self):
         did = _reseg_drama(translated=False)
         _append_line(did)
-        preview = restructure_service.preview_resegmentation(did)
+        preview = resegmentation_service.preview_resegmentation(did)
         assert preview["source_line_ids"] == [ln.id for ln in db.load_line_objects(did)]
 
     def test_apply_refuses_when_lines_changed_since_preview(self):
         did = _reseg_drama(translated=False)
-        seen = restructure_service.preview_resegmentation(did)["source_line_ids"]
+        seen = resegmentation_service.preview_resegmentation(did)["source_line_ids"]
         _append_line(did)
         before = _snapshot(did)
         with pytest.raises(ConflictError):
-            restructure_service.start_resegmentation(did, seen)
+            resegmentation_service.start_resegmentation(did, seen)
         assert _snapshot(did) == before
         assert db.list_line_history(did) == []
 
     def test_apply_succeeds_when_nothing_changed_since_preview(self):
         did = _reseg_drama(translated=False)
-        seen = restructure_service.preview_resegmentation(did)["source_line_ids"]
-        job = _wait(restructure_service.start_resegmentation(did, seen)["job_id"])
+        seen = resegmentation_service.preview_resegmentation(did)["source_line_ids"]
+        job = _wait(resegmentation_service.start_resegmentation(did, seen)["job_id"])
         assert job["status"] == "done", job
         assert len(db.load_line_objects(did)) == 4
 
@@ -218,7 +218,7 @@ class TestResegmentInvariants:
             lines_service.patch_line(did, ids[2], en="user edit during job")
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
-        job = _wait(restructure_service.start_resegmentation(did, ids)["job_id"])
+        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "done", job
         after = db.load_line_objects(did)
         assert (after[-1].id, after[-1].en) == (ids[2], "user edit during job")
