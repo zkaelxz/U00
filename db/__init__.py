@@ -10,14 +10,10 @@ API calls.
 import contextlib
 import os
 import re
-import shutil
 import sqlite3
-import datetime
 import json
 import threading
-import time
 import weakref
-from typing import List
 
 import portable
 
