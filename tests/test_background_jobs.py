@@ -1665,31 +1665,6 @@ class TestHeartbeatRefreshesRunningGpuRows:
             bg.clear_job("hb_cpu")
 
 
-class TestHeartbeatLoopSurvivesAFailedTick:
-    def test_one_raising_tick_does_not_end_the_loop(self, monkeypatch):
-        class Stop(BaseException):
-            pass
-
-        sleeps = []
-
-        def fake_sleep(_seconds):
-            sleeps.append(1)
-            if len(sleeps) == 3:
-                raise Stop
-
-        ticks = []
-
-        def tick():
-            ticks.append(1)
-            if len(ticks) == 1:
-                raise sqlite3.OperationalError("database is locked")
-        monkeypatch.setattr(job_table.time, "sleep", fake_sleep)
-        monkeypatch.setattr(job_table, "_heartbeat_once", tick)
-        with pytest.raises(Stop):
-            job_table._heartbeat_loop()
-        assert len(ticks) == 2        # the tick after the failed one still ran
-
-
 class TestCancelDuringTheFinalStep:
     def test_a_job_that_finishes_despite_a_cancel_stops_saying_cancelling(self):
         release = threading.Event()

@@ -247,6 +247,8 @@ def apply_in_use(plan: dict, jobs_running: bool, windows: bool = None, in_use=No
     """Sets `loaded`, `note` and `mode` of a previewed plan from what is in use
     right now. Also re-run on a cached plan, whose answer goes stale as soon as
     a job imports one of the packages it would replace."""
+    if not plan["available"]:
+        return plan     # no preview: its restart mode and note don't depend on what is in use
     windows = _is_windows() if windows is None else windows
     in_use = dist_in_use if in_use is None else in_use
     names = {c["name"] for c in plan["changes"] if c["kind"] != "install"} | set(plan["swap"])

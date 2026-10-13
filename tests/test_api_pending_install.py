@@ -283,3 +283,18 @@ def test_queue_asks_what_is_in_use_again_instead_of_trusting_the_preview(client,
     b = queue(client).json()
     assert env["calls"] == 0                      # the cached dry run is still used
     assert b["queued"] is True and b["plan"]["loaded"] == ["numpy"]
+
+
+def test_a_no_preview_plan_can_still_be_queued_from_the_cache(client, env, monkeypatch):
+    # The real no-preview shape (Windows): restart, a note, nothing to confirm.
+    monkeypatch.setattr(svc.install_plan, "_is_windows", lambda: True)
+    monkeypatch.setattr(svc.install_plan, "dist_in_use", lambda name: False)
+    env["plan"] = {"keys": ["paddleocr"], "available": False, "mode": "restart", "installs": [],
+                   "changes": [], "loaded": [], "blocked": [], "needs_confirm": [],
+                   "summary": [], "before": {}, "swap": [],
+                   "note": "Couldn't preview what will change: no network. "
+                           "It will install when you restart Baihe."}
+    assert client.post(f"{BASE}/plan", json={"packages": ["paddleocr"]}).json()["mode"] == "restart"
+    b = queue(client).json()
+    assert b["queued"] is True and b["install_now"] is False
+    assert "install when you restart" in b["plan"]["note"]

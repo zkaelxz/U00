@@ -2,6 +2,7 @@
 (the Start-menu shortcut) and installer/postinstall.py (the install step).
 No real server, browser, pip or Windows process calls: those are faked."""
 import hashlib
+import subprocess
 import json
 import os
 import sys
@@ -563,6 +564,19 @@ class TestRun:
                                restrict=lambda *a: False) == 0
         log = (data / "launcher" / "install.log").read_text(encoding="utf-8")
         assert "pip check found conflicts" in log and "Install finished OK." in log
+
+    @pytest.mark.parametrize("error", [subprocess.TimeoutExpired("pip", 1800), OSError("gone")])
+    def test_a_pip_check_that_cannot_run_is_logged_but_not_fatal(self, tmp_path, error):
+        app, wheels, data = self._layout(tmp_path)
+
+        def runner(cmd, log, env, cwd):
+            if cmd[-2:] == ["pip", "check"]:
+                raise error
+            return 0
+        assert postinstall.run(wheels, str(data), python_exe="py", app_dir=app, runner=runner,
+                               restrict=lambda *a: False) == 0
+        log = (data / "launcher" / "install.log").read_text(encoding="utf-8")
+        assert "did not finish" in log and "Install finished OK." in log
 
     def test_main_bad_data_dir(self, tmp_path, capsys):
         assert postinstall.main(["--wheels", str(tmp_path), "--data-dir", "relative"]) == 2

@@ -159,6 +159,9 @@ def _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline, 
             raise ChildFailed(TIMEOUT_MESSAGE)
         if now > worker_deadline and not told_stopping:
             told_stopping = True
+            # A live stage ticker would rewrite the message every few seconds.
+            if stage.get("ticker") is not None:
+                stage.pop("ticker").stop()
             status = background_jobs.get_status(job_id) or {}
             background_jobs.update_progress(job_id, status.get("progress") or 0.0,
                                             STOPPING_MESSAGE)

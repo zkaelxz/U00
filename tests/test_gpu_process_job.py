@@ -303,3 +303,21 @@ def test_a_stage_item_from_the_child_shows_the_stage_and_ends_with_the_run(isola
     assert "Loading the model" in seen["message"]
     assert seen["can_report_progress"] is False
     background_jobs.clear_job("stage_job")
+
+
+def test_the_stopping_message_is_not_overwritten_by_a_running_stage_ticker(isolated_db):
+    assert job_launch.start_job("stop_job", lambda: None)
+    assert job_runner.wait_for_job_threads(5.0)
+    with background_jobs._lock:
+        background_jobs._jobs["stop_job"]["status"] = "running"
+    ticker = background_jobs.stage_ticker("stop_job", "Loading the model", interval=0.02).start()
+    stage = {"ticker": ticker}
+    try:
+        with pytest.raises(gpu_process_job.ChildFailed):
+            gpu_process_job._read_child_items(
+                "stop_job", _LiveProc(), _ScriptedChannel([]), 0.01,
+                time.monotonic() - 1, time.monotonic() + 0.4, None, stage)
+        assert background_jobs.get_status("stop_job")["message"] == gpu_process_job.STOPPING_MESSAGE
+    finally:
+        ticker.stop()
+        background_jobs.clear_job("stop_job")
