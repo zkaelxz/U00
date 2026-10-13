@@ -13,6 +13,7 @@ import threading
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import db
 import long_line_split
 import raw_transcript
@@ -195,12 +196,12 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
     desc = f"Re-segmenting (title #{drama_id})"
     if engine_name == "ollama":
-        started = background_jobs.start_process_job(
+        started = job_launch.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
             description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
     else:
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             job_id, _run_resegment_job, job_id, drama_id, lines, expected_line_ids, language,
             eng, engine_name, segments, script, min_pause, description=desc)
     if not started:
@@ -288,12 +289,12 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
         _llm_previews.pop(drama_id, None)
     desc = f"Re-segmentation preview (title #{drama_id})"
     if engine_name == "ollama":
-        started = background_jobs.start_process_job(
+        started = job_launch.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
             args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
             description=desc, kill_whole_tree=True, start_method="spawn", on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
     else:
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             job_id, _run_llm_preview_job, job_id, drama_id, lines, language, eng, engine_name,
             segments, script, min_pause, description=desc)
     if not started:
@@ -366,7 +367,7 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
     if confirm is not True and _needs_confirm(drama_id, lines, preview["_apply"]["language"]):
         raise InvalidInputError(_CONFIRM_NEEDED)
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, _apply_llm_preview_job, job_id, drama_id, preview, confirm is True,
         description=f"Applying re-segmentation preview (title #{drama_id})")
     if not started:

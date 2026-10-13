@@ -15,6 +15,7 @@ import sys
 import pytest
 
 import background_jobs
+from jobs import job_launch
 from services import diagnostics_service
 
 
@@ -35,7 +36,7 @@ def test_library_writable_is_true_for_a_real_isolated_library(isolated_db):
 
 
 def test_running_jobs_reflects_real_job_state(isolated_db):
-    background_jobs.start_job("diag-svc-test-job", lambda: None, description="test job")
+    job_launch.start_job("diag-svc-test-job", lambda: None, description="test job")
     overview = diagnostics_service.get_diagnostics_overview()
     job_ids = [j["job_id"] for j in overview["running_jobs"]]
     assert "diag-svc-test-job" in job_ids or not background_jobs.is_running("diag-svc-test-job")
@@ -155,23 +156,23 @@ def test_no_gpu_child_runs_while_an_install_holds_the_library(monkeypatch):
     monkeypatch.setattr(diagnostics_torch, "_gpu_status_from_child",
                         lambda: calls.append(1) or {"available": True, "whisper": {},
                                                     "probed": True})
-    assert background_jobs.acquire_exclusive("GPU PyTorch setup")
+    assert job_launch.acquire_exclusive("GPU PyTorch setup")
     try:
         paused = diagnostics_torch.get_gpu_status_isolated()
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     assert paused["available"] is False
     assert paused["message"] == diagnostics_torch.GPU_CHECK_PAUSED_MESSAGE
     assert calls == []
 
     assert diagnostics_torch.get_gpu_status_isolated()["available"] is True
     monkeypatch.setitem(diagnostics_torch._gpu_status_cache, "at", -1e9)
-    assert background_jobs.acquire_exclusive("GPU PyTorch setup")
+    assert job_launch.acquire_exclusive("GPU PyTorch setup")
     try:
         # A stale answer beats none while the install runs.
         assert diagnostics_torch.get_gpu_status_isolated()["available"] is True
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     assert calls == [1]
 
 

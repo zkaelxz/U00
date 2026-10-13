@@ -15,6 +15,7 @@ the run is local ASR.
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch, process_worker
 import line_alignment
 import whisper_transcribe
 import db
@@ -50,11 +51,11 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
-    background_jobs.start_own_process_group()
+    process_worker.start_own_process_group()
     try:
         results = []
         for n, candidate_ms in enumerate(candidates):
-            background_jobs.report_progress(
+            process_worker.report_progress(
                 result_queue, n / len(candidates),
                 f"Testing candidate {n + 1} of {len(candidates)} ({candidate_ms}ms)...")
             segments = whisper_transcribe.transcribe_for_timing(
@@ -109,7 +110,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
             "ignores the minimum silence setting.")
     initial_prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     job_id = autotune_job_id(drama_id)
-    started = background_jobs.start_process_job(
+    started = job_launch.start_process_job(
         job_id, _autotune_all_worker,
         args=(audio_path, stored_whisper_size(drama),
               drama.get("source_language") or "zh", settings_service.get("use_gpu"),

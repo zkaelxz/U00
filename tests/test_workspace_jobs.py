@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 import background_jobs
+from jobs import job_launch, job_runner, job_table
 import translate_engines
 from services.workspace_job_service import run_translate_job
 from services.workspace_audio_job_service import run_transcribe_job, run_hardsub_ocr_job
@@ -123,7 +124,7 @@ class _CapPricedEngine:
 def test_success_stores_segments_and_no_gpu_fallback(monkeypatch):
     job_id = "test_transcribe_ok"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     fake_segments = [{"start": 0.0, "end": 1.0, "text": "hi"}]
@@ -141,7 +142,7 @@ def test_success_stores_segments_and_no_gpu_fallback(monkeypatch):
 def test_gpu_fallback_message_is_captured(monkeypatch):
     job_id = "test_transcribe_gpu_fallback"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     def fake_transcribe(*a, **k):
@@ -160,7 +161,7 @@ def test_gpu_fallback_message_is_captured(monkeypatch):
 def test_progress_cb_is_wired_to_update_progress(monkeypatch):
     job_id = "test_transcribe_progress"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     def fake_transcribe(*a, **k):
@@ -180,7 +181,7 @@ def test_progress_cb_is_wired_to_update_progress(monkeypatch):
 def test_vocal_separation_runs_before_transcription_and_feeds_its_output(monkeypatch, tmp_path):
     job_id = "test_transcribe_vocal_sep"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     audio_path = str(tmp_path / "audio.wav")
 
@@ -214,7 +215,7 @@ def test_vocal_separation_runs_before_transcription_and_feeds_its_output(monkeyp
 def test_vocal_separation_off_by_default_transcribes_the_original_audio(monkeypatch):
     job_id = "test_transcribe_vocal_sep_off"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     seen = {}
 
@@ -237,7 +238,7 @@ def test_groq_transcription_is_used_instead_of_local_whisper_when_enabled(monkey
     difference."""
     job_id = "test_transcribe_groq"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     seen = {}
 
@@ -266,7 +267,7 @@ def test_groq_transcription_is_used_instead_of_local_whisper_when_enabled(monkey
 def test_groq_failure_is_recorded_not_raised(monkeypatch):
     job_id = "test_transcribe_groq_fail"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     def fake_groq(*a, **k):
@@ -289,7 +290,7 @@ def test_groq_failure_is_recorded_not_raised(monkeypatch):
 def test_use_groq_off_by_default_still_uses_local_whisper(monkeypatch):
     job_id = "test_transcribe_groq_off"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     def boom(*a, **k):
@@ -308,7 +309,7 @@ def test_use_groq_off_by_default_still_uses_local_whisper(monkeypatch):
 def test_vocal_separation_failure_is_recorded_not_raised(monkeypatch, tmp_path):
     job_id = "test_transcribe_vocal_sep_fail"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     audio_path = str(tmp_path / "audio.wav")
 
@@ -338,7 +339,7 @@ def test_vocal_separation_cancel_reports_cancelled_and_never_starts_transcriptio
     transcription run anyway."""
     job_id = "test_transcribe_vocal_sep_cancel"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     audio_path = str(tmp_path / "audio.wav")
 
@@ -371,7 +372,7 @@ def test_cancel_right_after_vocal_separation_finishes_stops_before_transcription
     uninterrupted."""
     job_id = "test_transcribe_cancel_after_separation"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     audio_path = str(tmp_path / "audio.wav")
 
@@ -404,7 +405,7 @@ def test_cancel_before_transcription_starts_with_separation_off_also_stops_it(mo
     before Whisper's own checkpoint-free pass began) can be honored."""
     job_id = "test_transcribe_cancel_no_separation"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": True, "result": None}
 
     called = []
@@ -426,7 +427,7 @@ def test_vocal_separation_threads_progress_and_cancel_callbacks_through(monkeypa
     ("no real progress and no mid-run stop")."""
     job_id = "test_transcribe_vocal_sep_wiring"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     audio_path = str(tmp_path / "audio.wav")
 
@@ -469,7 +470,7 @@ def test_cancel_after_transcription_skips_realign_but_keeps_the_transcript(monke
     instead, which is a different scenario from this test's."""
     job_id = "test_transcribe_cancel_after_whisper"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
 
@@ -494,7 +495,7 @@ def test_cancel_after_transcription_skips_realign_but_keeps_the_transcript(monke
 def test_realign_long_segments_runs_after_transcription(monkeypatch):
     job_id = "test_transcribe_realign"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     monkeypatch.setattr("services.workspace_audio_job_service.transcribe_for_timing",
                          lambda *a, **k: [{"start": 0.0, "end": 20.0, "text": "long merged line"}])
@@ -527,7 +528,7 @@ def test_realign_long_segments_runs_after_transcription(monkeypatch):
 def test_realign_off_by_default_leaves_segments_unchanged(monkeypatch):
     job_id = "test_transcribe_realign_off"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
     monkeypatch.setattr("services.workspace_audio_job_service.transcribe_for_timing", lambda *a, **k: fake_segments)
@@ -546,7 +547,7 @@ def test_realign_missing_dependency_keeps_the_transcript_and_reports_the_issue(m
     realignment step is affected."""
     job_id = "test_transcribe_realign_missing_dep"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
     monkeypatch.setattr("services.workspace_audio_job_service.transcribe_for_timing", lambda *a, **k: fake_segments)
@@ -569,7 +570,7 @@ def test_realign_missing_dependency_keeps_the_transcript_and_reports_the_issue(m
 def test_model_download_failure_is_recorded_not_raised(monkeypatch):
     job_id = "test_transcribe_download_fail"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     def fake_transcribe(*a, **k):
@@ -588,7 +589,7 @@ def test_model_download_failure_is_recorded_not_raised(monkeypatch):
 def test_empty_segments_is_recorded_not_raised(monkeypatch):
     job_id = "test_transcribe_empty"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     monkeypatch.setattr("services.workspace_audio_job_service.transcribe_for_timing", lambda *a, **k: [])
@@ -602,7 +603,7 @@ def test_empty_segments_is_recorded_not_raised(monkeypatch):
 
 def test_unexpected_exception_still_propagates(monkeypatch):
     """Anything other than the two known/expected failure modes is a real
-    bug and must still surface as a job error (via background_jobs.start_job's
+    bug and must still surface as a job error (via job_launch.start_job's
     own runner), not be silently swallowed here."""
     job_id = "test_transcribe_unexpected"
     _clear(job_id)
@@ -623,7 +624,7 @@ def test_unexpected_exception_still_propagates(monkeypatch):
 def test_hardsub_ocr_success_stores_segments(monkeypatch):
     job_id = "test_hardsub_ok"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     fake_cues = [{"start": 0.0, "end": 2.0, "text": "你好"}]
@@ -643,7 +644,7 @@ def test_hardsub_ocr_success_stores_segments(monkeypatch):
 def test_hardsub_ocr_progress_cb_is_wired(monkeypatch):
     job_id = "test_hardsub_progress"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     def fake_extract(video_path, language, sample_interval, ocr_backend,
@@ -669,7 +670,7 @@ def test_hardsub_ocr_progress_cb_is_wired(monkeypatch):
 def test_hardsub_ocr_empty_cues_is_recorded_not_raised(monkeypatch):
     job_id = "test_hardsub_empty"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
     pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
@@ -708,7 +709,7 @@ def test_hardsub_ocr_unexpected_exception_still_propagates(monkeypatch):
 def test_flag_job_persists_flags_to_db(isolated_db):
     job_id = "test_flag_persist"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="她昨天来了", en="She came yesterday."),
@@ -731,7 +732,7 @@ def test_flag_job_persists_flags_to_db(isolated_db):
 def test_flag_job_reports_unparsable_entries(isolated_db, monkeypatch):
     job_id = "test_flag_unparsable"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
@@ -747,7 +748,7 @@ def test_flag_job_reports_unparsable_entries(isolated_db, monkeypatch):
 def test_flag_job_progress_cb_is_wired(isolated_db):
     job_id = "test_flag_progress"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
@@ -762,7 +763,7 @@ def test_flag_job_progress_cb_is_wired(isolated_db):
 def test_flag_job_with_nothing_flagged(isolated_db):
     job_id = "test_flag_nothing"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
@@ -779,7 +780,7 @@ def test_flag_job_with_nothing_flagged(isolated_db):
 def test_flag_job_logs_usage_to_the_cost_dashboard(isolated_db):
     job_id = "test_flag_usage"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
@@ -795,7 +796,7 @@ def test_flag_job_logs_usage_to_the_cost_dashboard(isolated_db):
 def test_emotion_job_persists_to_db_and_logs_usage(isolated_db):
     job_id = "test_emotion_persist"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="她昨天来了", en="She came yesterday.")]
@@ -840,7 +841,7 @@ def test_consistency_job_persists_and_logs_usage(isolated_db):
     background job like the others."""
     job_id = "test_consistency_persist"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="沈清疑", en="Shen Qingyi"),
@@ -880,7 +881,7 @@ def test_translation_notes_job_persists_and_logs_usage(isolated_db):
     """Same fix as the consistency job above, for Generate translation notes."""
     job_id = "test_notes_persist"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="画蛇添足", en="Gilding the lily")]
@@ -923,7 +924,7 @@ def test_translation_notes_job_persists_and_logs_usage(isolated_db):
 def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, monkeypatch, tmp_path):
     job_id = "test_fixflag_audio"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0.0, end=1.0, zh="stale transcription", en="stale translation",
@@ -959,7 +960,7 @@ def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, 
 
 def _three_flagged(isolated_db, tmp_path, job_id):
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=i, start=float(i), end=i + 1.0, zh=f"old{i}", en=f"old en{i}",
@@ -1039,7 +1040,7 @@ def test_fix_flagged_job_skips_retranscription_with_no_audio(isolated_db, monkey
     should run, on the line's existing zh text."""
     job_id = "test_fixflag_noaudio"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0.0, end=1.0, zh="画蛇添足", en="old translation",
@@ -1061,7 +1062,7 @@ def test_fix_flagged_job_stops_on_cancel_and_keeps_fixed_lines(isolated_db, monk
     monkeypatch.setattr(fixflag_translate, "BATCH_SIZE", 1)
     job_id = "test_fixflag_cancel"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=i, start=float(i), end=i + 1.0, zh=zh, en="old", flag="mistranslation",
@@ -1071,7 +1072,7 @@ def test_fix_flagged_job_stops_on_cancel_and_keeps_fixed_lines(isolated_db, monk
     class CancelAfterFirst(FakeFixEngine):
         def translate_batch(self, zh_lines, context):
             out = super().translate_batch(zh_lines, context)
-            background_jobs._jobs[job_id]["cancel_requested"] = True
+            job_table._jobs[job_id]["cancel_requested"] = True
             return out
 
     engine = CancelAfterFirst(translations={"一": "one", "二": "two", "三": "three"})
@@ -1089,7 +1090,7 @@ def test_fix_flagged_job_leaves_flag_set_when_translation_fails(isolated_db):
     stays flagged so it isn't mistaken for resolved."""
     job_id = "test_fixflag_fail"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="old",
@@ -1112,7 +1113,7 @@ def test_fix_flagged_job_leaves_flag_set_when_translation_fails(isolated_db):
 def test_fix_flagged_job_ignores_unflagged_lines(isolated_db):
     job_id = "test_fixflag_unflagged"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0.0, end=1.0, zh="没有问题", en="No problem.", flag=None)]
@@ -1139,7 +1140,7 @@ def test_fix_flagged_job_stops_at_the_cost_cap_and_keeps_finished_lines(isolated
     monkeypatch.setattr(fixflag_translate, "BATCH_SIZE", 1)
     job_id = "test_fixflag_cap"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=i, start=float(i), end=i + 1.0, zh=f"句{i}", en="old",
@@ -1169,7 +1170,7 @@ def test_fix_flagged_job_with_no_cap_processes_every_flagged_line(isolated_db, m
     step -- no cap, no stopping partway through."""
     job_id = "test_fixflag_nocap"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=i, start=float(i), end=i + 1.0, zh=f"句{i}", en="old",
@@ -1196,7 +1197,7 @@ def test_fix_flagged_job_keeps_earlier_fixes_when_a_later_line_crashes(isolated_
     monkeypatch.setattr(fixflag_translate, "BATCH_SIZE", 1)
     job_id = "test_fixflag_partial_crash"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [
@@ -1255,7 +1256,7 @@ def test_translate_job_resolves_named_characters_for_the_engine(isolated_db, mon
     speaker's name from the characters table and threads it through."""
     job_id = "test_translate_speakers"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     isolated_db.upsert_character(did, "SPEAKER_00", character_name="Xiaoling")
@@ -1290,14 +1291,14 @@ def test_a_cancelled_translate_run_ends_cancelled_with_its_real_progress(isolate
         return lines, []
     monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
 
-    assert background_jobs.start_job(
+    assert job_launch.start_job(
         job_id, run_translate_job, job_id, did, lines, object(), {"id": did}, "", None, False,
         "en-US", None, "", "claude", "audio_drama")
-    assert background_jobs.wait_for_job_threads(10)
+    assert job_runner.wait_for_job_threads(10)
     job = background_jobs.get_status(job_id)
     assert job["status"] == "cancelled"
     assert job["progress"] == 0.5
-    assert job["message"] == background_jobs.CANCELLED_MESSAGE
+    assert job["message"] == job_runner.CANCELLED_MESSAGE
     assert job["result"]["errors"] == []
     outcome, _message = jobs_service.derive_outcome(
         job["status"], job.get("error"), jobs_service.project_result(job["result"]))
@@ -1308,7 +1309,7 @@ def test_a_cancelled_translate_run_ends_cancelled_with_its_real_progress(isolate
 def test_translate_job_omits_speakers_with_no_name_set(isolated_db, monkeypatch):
     job_id = "test_translate_no_speakers"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     isolated_db.upsert_character(did, "SPEAKER_00")  # no character_name set
@@ -1332,7 +1333,7 @@ def test_translate_job_sends_a_standalone_dramas_per_drama_pronouns(isolated_db,
     they now live on the per-drama characters row and reach the prompt."""
     job_id = "test_translate_standalone_pronouns"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Standalone")
     isolated_db.upsert_character(did, "SPEAKER_00", character_name="Xiaoling", pronouns="they/them")
@@ -1359,7 +1360,7 @@ class TestFreeEngineVersionLabelling:
 
     def _run(self, isolated_db, monkeypatch, job_id, engine, engine_choice):
         _clear(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         did = isolated_db.create_drama(title_en="Test")
         lines = [Line(idx=0, start=0, end=1, zh="你好")]
@@ -1419,7 +1420,7 @@ class TestContextAheadAndBatchSizeSliders:
         character_names tests just above."""
         job_id = "test_translate_context_ahead_batch_size"
         _clear(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         did = isolated_db.create_drama(title_en="Test")
         lines = [Line(idx=0, start=0, end=1, zh="你好")]
@@ -1445,7 +1446,7 @@ class TestSpendingCapJob:
     def test_job_stops_at_the_cap_and_keeps_its_finished_lines(self, isolated_db):
         job_id = "test_translate_cap"
         _clear(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         did = isolated_db.create_drama(title_en="Test")
         # 45 lines -> batches of 20, 20, 5 at $2.00 each; a $3 cap stops after
@@ -1467,7 +1468,7 @@ class TestSpendingCapJob:
     def test_no_cap_reports_no_stop(self, isolated_db):
         job_id = "test_translate_nocap"
         _clear(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         did = isolated_db.create_drama(title_en="Test")
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
@@ -1580,7 +1581,7 @@ def test_fix_flagged_hears_each_line_with_the_titles_saved_decoding(isolated_db,
                         lambda *a, **k: seen.update(k) or [{"start": 0.0, "end": 1.0, "text": "新"}])
     job_id = f"fix_decode_{did}"
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     run_fix_flagged_lines_job(job_id, did, lines, audio_path, "medium", False, "zh",
                               FakeFixEngine(translations={"新": "New"}), "claude")
@@ -1611,7 +1612,7 @@ def test_fix_flagged_cancel_kills_the_whisper_process_within_bounded_time(
     isolated_db.save_lines(did, lines)
     job_id = "fixflag_real_process"
     _clear(job_id)
-    assert background_jobs.start_job(
+    assert job_launch.start_job(
         job_id, run_fix_flagged_lines_job, job_id, did, lines, audio_path, "medium", False, "zh",
         FakeFixEngine(), "claude", gpu_touching=True)
     deadline = time.time() + 60
@@ -1627,6 +1628,6 @@ def test_fix_flagged_cancel_kills_the_whisper_process_within_bounded_time(
     assert background_jobs.get_status(job_id)["status"] == "cancelled"
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
-    background_jobs.wait_for_job_threads(10)
+    job_runner.wait_for_job_threads(10)
     assert isolated_db.load_lines(did)[0]["flag"] == "mistranslation"
     _clear(job_id)

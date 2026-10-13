@@ -111,9 +111,9 @@ def current_gpu_app_settings() -> dict:
     """The two app-level GPU settings, read now so a run can freeze them at
     its start. Falls back to the defaults on any error."""
     try:
-        import background_jobs
-        return {"gpu_max_parallel": background_jobs.get_gpu_max_parallel(),
-                "gpu_limit_enabled": background_jobs.get_gpu_limit_enabled()}
+        from jobs import job_settings
+        return {"gpu_max_parallel": job_settings.get_gpu_max_parallel(),
+                "gpu_limit_enabled": job_settings.get_gpu_limit_enabled()}
     except Exception:
         return {"gpu_max_parallel": 1, "gpu_limit_enabled": True}
 

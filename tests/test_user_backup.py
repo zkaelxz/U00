@@ -14,6 +14,7 @@ import zipfile
 import pytest
 
 import background_jobs
+from jobs import job_launch
 import db
 from services import auth_service
 from services import library_admin_service as las
@@ -397,12 +398,12 @@ def test_pc_owner_backup_keeps_only_unowned_items(isolated_db):
 
 
 def test_user_backup_refused_during_maintenance(isolated_db):
-    assert background_jobs.enter_maintenance()
+    assert job_launch.enter_maintenance()
     try:
         with pytest.raises(las.ConflictError):
             las.start_user_backup(None)
     finally:
-        background_jobs.exit_maintenance()
+        job_launch.exit_maintenance()
     assert background_jobs.list_all_jobs() == {}
 
 

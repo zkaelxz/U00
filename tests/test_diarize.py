@@ -233,7 +233,7 @@ def _final(q):
 
 class TestDiarizeSubprocessWorker:
     """Step 4d: diarize_subprocess_worker() is the entry point
-    background_jobs.start_process_job() runs in its own OS process, so a
+    job_launch.start_process_job() runs in its own OS process, so a
     real mid-run Cancel can terminate it (pyannote's pipeline call has no
     cooperative-cancellation checkpoint of its own). Tested here as a
     plain function call against the same fixture pipeline used

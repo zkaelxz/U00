@@ -9,7 +9,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
+from jobs import job_runner
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -134,7 +134,7 @@ def test_a_second_start_while_one_runs_is_a_conflict(local, monkeypatch):
         assert local.post(BASE + "/cancel").status_code == 200
     finally:
         gate.set()
-        background_jobs.wait_for_job_threads(10)
+        job_runner.wait_for_job_threads(10)
 
 
 def test_a_member_sees_only_their_titles_and_their_own_report(remote):
@@ -188,4 +188,4 @@ def test_cancel_names_only_a_name_check_and_a_member_cannot_stop_anothers(remote
         assert remote.post(BASE + "/cancel", headers=ada, json=theirs).status_code == 200
     finally:
         gate.set()
-        background_jobs.wait_for_job_threads(10)
+        job_runner.wait_for_job_threads(10)

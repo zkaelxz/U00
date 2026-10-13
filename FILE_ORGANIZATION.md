@@ -13,7 +13,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
 | `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
-| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
+| `jobs/` | the job machinery behind `background_jobs.py`: `jobs/job_table.py` holds the in-memory job table and its lock; `jobs/job_launch.py` starts jobs (`start_job`, `start_process_job`) and holds the exclusive/maintenance/stopping refusals; `jobs/job_runner.py` runs them and handles how they end; `jobs/gpu_queue.py` is the in-process GPU wait line; `jobs/job_settings.py` the job settings; `jobs/process_worker.py` what a process-job worker calls in its child; `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `job_table._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
@@ -33,8 +33,8 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `applog.py`
 - `background_jobs.py`
 - `job_force_stop.py` (Force stop for a thread job that ignores Cancel: closes its record, abandons the worker, refuses a rerun while it lives)
-- `gpu_probe.py` (nvidia-smi readings taken before background_jobs' lock, used once by the GPU-slot decision)
-- `job_process_kill.py` (stopping a job's worker process; `background_jobs` re-exports the `kill_tree` wrapper here, which adds the app-log warning on top of `lib/proc_kill.py`)
+- `gpu_probe.py` (nvidia-smi readings taken before the job table's lock, used once by the GPU-slot decision)
+- `job_process_kill.py` (stopping a job's worker process; `background_jobs` and `jobs/job_runner.py` import the `kill_tree` wrapper here, which adds the app-log warning on top of `lib/proc_kill.py`)
 - `job_process_result.py` (the channel a process-job worker sends its result through: a large result travels as a file so a child killed mid-write cannot hang the watcher)
 - `benchmark.py`
 - `check_setup.py`
@@ -591,10 +591,16 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 
 ## jobs/
 
-The job store behind `background_jobs.py`.
+The job machinery behind `background_jobs.py` (progress, results, status, cancel).
 
+- `gpu_queue.py` (this process's wait line for GPU-touching jobs: may a GPU job start now, place in line, freeing a slot)
 - `gpu_slots.py` (the one way any process takes, keeps and frees a GPU slot)
+- `job_launch.py` (starting a job, thread or process, and the exclusive/maintenance/stopping holds that refuse a start)
+- `job_runner.py` (runs a started job and handles how it ends: outcome, GPU slot, promoting the next queued job, dead workers)
+- `job_settings.py` (the Settings-page knobs for background jobs and the completion notice)
 - `job_store.py` (writes and closes the job_records row of every job)
+- `job_table.py` (the in-memory job table, its lock, change listeners and the job_records mirror heartbeat)
+- `process_worker.py` (what a process-job worker calls inside its child: progress, its own process group, exiting when orphaned)
 - `user_caps.py` (how many running and queued jobs one signed-in user may have at once)
 
 ## sources/

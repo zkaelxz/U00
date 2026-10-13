@@ -617,7 +617,7 @@ def test_run_settings_record_the_hint_as_a_boolean_only():
 def _start(monkeypatch, isolated_db, *, hint, backend, names=True):
     from services import transcribe_service
     import importlib.util
-    import background_jobs
+    from jobs import job_table
     monkeypatch.setattr(importlib.util, "find_spec", lambda *a, **k: object())
     monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.19.0")
     sys.path.insert(0, os.path.dirname(__file__))
@@ -629,7 +629,7 @@ def _start(monkeypatch, isolated_db, *, hint, backend, names=True):
         isolated_db.upsert_glossary_term(series, "龙", "dragon")
     captured = _capture_worker_start(monkeypatch)
     transcribe_service.start_transcribe_run(did)
-    background_jobs._jobs.pop(f"transcribe_{did}", None)
+    job_table._jobs.pop(f"transcribe_{did}", None)
     return captured
 
 
@@ -649,12 +649,12 @@ def test_a_run_gets_the_hint_only_when_on_for_a_qwen3_backend_with_names(
 
 def test_the_worker_forwards_the_hint_to_the_pipeline(monkeypatch, tmp_path):
     import queue
-    import background_jobs
+    from jobs import process_worker
     from services import transcribe_pipeline
     seen = {}
     monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline",
                         lambda *a, **k: seen.update(k) or {"failed_reason": "empty"})
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
     q = queue.Queue()
     transcribe_pipeline._transcribe_worker(
         "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
@@ -664,7 +664,7 @@ def test_the_worker_forwards_the_hint_to_the_pipeline(monkeypatch, tmp_path):
 
 
 def test_the_pipeline_passes_the_hint_to_both_qwen3_backends(monkeypatch, isolated_db):
-    import background_jobs
+    from jobs import job_table
     import whisper_models
     monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: object())
     from services import transcribe_pipeline
@@ -688,7 +688,7 @@ def test_the_pipeline_passes_the_hint_to_both_qwen3_backends(monkeypatch, isolat
             transcribe_pipeline._ThreadReporter(job_id), os.path.join(ddir, "audio.wav"), "whisper",
             None, "zh", "simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False,
             None, "", False, choice, "whisper_diff", qwen_prompt="Vocabulary: 龙")
-        background_jobs._jobs.pop(job_id, None)
+        job_table._jobs.pop(job_id, None)
     assert prompts == ["Vocabulary: 龙", "Vocabulary: 龙"]
 
 

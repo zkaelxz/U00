@@ -6,6 +6,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, process_worker
 import core
 import line_alignment
 import whisper_transcribe
@@ -58,7 +59,7 @@ class TestAutotune:
         monkeypatch.setattr(settings_service, "resolve_key",
                             lambda k, *a: SECRET if k == "hf_token" else None)
         captured = {}
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **kw: captured.update(
                                 job_id=job_id, target=target, args=args, kw=kw) or True)
         out = at.start_autotune_run(did, candidates=[300, 1500])
@@ -95,7 +96,7 @@ class TestAutotune:
     def test_start_passes_the_titles_repeat_guard(self, isolated_db, monkeypatch):
         did = _audio_drama(isolated_db, whisper_repeat_guard=1)
         captured = {}
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **kw: captured.update(args=args) or True)
         at.start_autotune_run(did, candidates=[300])
         assert captured["args"][-1] is True
@@ -125,7 +126,7 @@ class TestAutotune:
 
     def test_conflict(self, isolated_db, monkeypatch):
         did = _audio_drama(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
             at.start_autotune_run(did)
 
@@ -334,22 +335,23 @@ class TestNovelGlossary:
 def test_novel_glossary_job_blocks_drama_delete():
     """A running paid glossary extraction must make a drama delete refuse."""
     import background_jobs
+    from jobs import job_table
     from services import glossary_service
 
     assert "novel_glossary_" in background_jobs.DRAMA_JOB_PREFIXES
     job_id = glossary_service.novel_glossary_job_id(987654)
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {"status": "running"}
+    with job_table._lock:
+        job_table._jobs[job_id] = {"status": "running"}
     try:
         assert background_jobs.any_job_running_for_drama(987654)
     finally:
-        with background_jobs._lock:
-            background_jobs._jobs.pop(job_id, None)
+        with job_table._lock:
+            job_table._jobs.pop(job_id, None)
 
 
 def test_autotune_worker_leaves_the_parents_process_group(monkeypatch):
     left = []
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: left.append(True))
     monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda *a, **kw: [])
     at._autotune_all_worker("a", "small", "zh", False, None, "", 5, [300], 0.5, False,
                             "normal", False, _Queue())

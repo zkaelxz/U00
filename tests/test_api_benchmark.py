@@ -21,6 +21,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_table
 import db
 import translate_engines
 from api import auth as api_auth
@@ -348,8 +349,8 @@ class TestRuns:
 
     def test_run_while_another_running_409_no_row(self, isolated_db):
         _case()
-        with background_jobs._lock:
-            background_jobs._jobs[svc.JOB_ID] = {
+        with job_table._lock:
+            job_table._jobs[svc.JOB_ID] = {
                 "status": "running", "progress": 0.0, "message": "", "result": None,
                 "error": None, "started_at": time.time(), "finished_at": None}
         r = _local().post(f"{BASE}/runs", json=RUN_OK)

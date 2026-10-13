@@ -260,7 +260,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 
 ## 5. Job records: the best-effort mirror
 
-`background_jobs._jobs` (in memory) is the authority for jobs the process owns.
+`job_table._jobs` (in memory) is the authority for jobs the process owns.
 `_mirror_locked` copies every status change into `job_records` with
 `db.save_job_record` so another process (a restarted server) can see the
 last known state.

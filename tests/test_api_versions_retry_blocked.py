@@ -16,7 +16,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
+from jobs import job_launch, job_runner
 import db
 import translate_engines
 from api import auth as api_auth
@@ -60,12 +60,12 @@ def _hold_job(job_id):
     job thread on exit: its completion path touches the database, so it must
     not outlive the isolated_db fixture."""
     gate = threading.Event()
-    assert background_jobs.start_job(job_id, lambda: gate.wait(5))
+    assert job_launch.start_job(job_id, lambda: gate.wait(5))
     try:
         yield
     finally:
         gate.set()
-        assert background_jobs.wait_for_job_threads(5, [job_id])
+        assert job_runner.wait_for_job_threads(5, [job_id])
 
 
 # ---------------------------------------------------------------------------

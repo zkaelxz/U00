@@ -103,6 +103,7 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     """The roadmap's exit condition: a stage loads a model, finishes, and
     nothing is left cached."""
     import background_jobs
+    from jobs import job_table
 
     def fake_transcribe(audio_path, whisper_size, **kw):
         whisper_models._whisper_model_cache[(whisper_size, "cuda")] = object()  # what loading does
@@ -113,7 +114,7 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     from services import workspace_audio_job_service
     monkeypatch.setattr(workspace_audio_job_service, "transcribe_for_timing", fake_transcribe)
     job_id = "test_release_after_transcribe"
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     # Repointed from the Workspace tab's run_transcribe_job (a re-export of this).
     workspace_audio_job_service.run_transcribe_job(job_id, "a.wav", "medium", "zh", True, None, None, None, 5, 2000)
@@ -121,7 +122,7 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     assert whisper_models._whisper_model_cache == {}
     assert loaded_models["asr"] == {} and loaded_models["aligner"] == {}
     assert loaded_models["emptied"]
-    background_jobs._jobs.pop(job_id, None)
+    job_table._jobs.pop(job_id, None)
 
 
 GEMMA_TAGS = ["gemma4:12b", "gemma4:26b", "gemma4:31b"]

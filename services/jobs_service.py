@@ -24,15 +24,16 @@ import db
 from services import job_stage_service, ownership_service, run_settings_service
 import diagnostics_report
 import background_jobs
+from jobs import gpu_queue, job_table
 import job_force_stop
 from jobs import job_store
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
 # A queued/running record whose owner has not heartbeated this long (see
-# background_jobs.HEARTBEAT_INTERVAL, far shorter) is treated as owned by a
+# job_table.HEARTBEAT_INTERVAL, far shorter) is treated as owned by a
 # dead process (records-only mirror, no resume).
-STALE_JOB_SECONDS = background_jobs.STALE_JOB_SECONDS
+STALE_JOB_SECONDS = job_table.STALE_JOB_SECONDS
 
 
 # Result projection: only these keys of a job's set_result dict are ever
@@ -727,7 +728,7 @@ def queue_summary(principal=None) -> dict:
     appear, only the counts. A stale row of a dead process counts until
     GET /api/jobs sweeps it, which the Jobs page does on every load."""
     counts = db.count_active_job_records()
-    order = background_jobs.gpu_queue_order()
+    order = gpu_queue.gpu_queue_order()
     rows = ownership_service.job_drama_ownership(principal, [jid for jid, _o in order])
     mine = [{"job_id": jid, "position": n}
             for n, (jid, owner) in enumerate(order, start=1)

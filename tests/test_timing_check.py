@@ -11,6 +11,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_table
 import timing_drift
 from core import Line
 from services import speech_coverage_service, timing_check_service as svc
@@ -116,9 +117,9 @@ def drama(isolated_db):
 @pytest.fixture(autouse=True)
 def _no_leftover_jobs():
     def clear():
-        with background_jobs._lock:
-            for jid in [j for j in background_jobs._jobs if j.startswith("timingchk_")]:
-                background_jobs._jobs.pop(jid, None)
+        with job_table._lock:
+            for jid in [j for j in job_table._jobs if j.startswith("timingchk_")]:
+                job_table._jobs.pop(jid, None)
     clear()
     yield
     clear()
@@ -221,8 +222,8 @@ class TestJob:
         monkeypatch.setattr(speech_coverage_service, "_scan_speech", boom)
         svc.start_timing_check(drama)
         assert _wait(drama)["status"] == "error"
-        with background_jobs._lock:
-            background_jobs._jobs.pop(f"timingchk_{drama}", None)
+        with job_table._lock:
+            job_table._jobs.pop(f"timingchk_{drama}", None)
         fake_speech["total"] = None
         monkeypatch.setattr(speech_coverage_service, "_audio_seconds", lambda path: None)
         svc.start_timing_check(drama)
@@ -237,8 +238,8 @@ class TestDismiss:
         _wait(drama)
         lines_service.dismiss_flag(drama, ids[0])
         assert svc.get_timing_check(drama)["suggestions"] == []
-        with background_jobs._lock:
-            background_jobs._jobs.pop(f"timingchk_{drama}", None)
+        with job_table._lock:
+            job_table._jobs.pop(f"timingchk_{drama}", None)
         svc.start_timing_check(drama)
         _wait(drama)
         assert _lines(isolated_db, drama)[0].flag is None
@@ -312,16 +313,16 @@ class TestStart:
 
     def test_refused_while_transcribing_and_while_running(self, isolated_db, drama, monkeypatch):
         _seed(isolated_db, drama, [Line(idx=0, start=1, end=2, zh="a")])
-        with background_jobs._lock:
-            background_jobs._jobs[f"transcribe_{drama}"] = {"status": "running", "progress": 0.1,
+        with job_table._lock:
+            job_table._jobs[f"transcribe_{drama}"] = {"status": "running", "progress": 0.1,
                                                             "message": "", "started_at": time.time()}
         try:
             with pytest.raises(ConflictError):
                 svc.start_timing_check(drama)
         finally:
-            with background_jobs._lock:
-                background_jobs._jobs.pop(f"transcribe_{drama}", None)
-        monkeypatch.setattr(svc.background_jobs, "start_job", lambda *a, **k: False)
+            with job_table._lock:
+                job_table._jobs.pop(f"transcribe_{drama}", None)
+        monkeypatch.setattr(svc.job_launch, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
             svc.start_timing_check(drama)
 
@@ -346,15 +347,15 @@ class TestAutoRun:
     def test_runs_while_the_transcription_job_is_still_open_and_resets_old_state(self, isolated_db, drama, fake_speech):
         _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
         svc.note_dismissed(drama, 1)
-        with background_jobs._lock:
-            background_jobs._jobs[f"transcribe_{drama}"] = {"status": "running", "progress": 0.9,
+        with job_table._lock:
+            job_table._jobs[f"transcribe_{drama}"] = {"status": "running", "progress": 0.9,
                                                             "message": "", "started_at": time.time()}
         try:
             assert svc.after_run(drama, {"raw_backend": "qwen3_asr_long"}) is True
             _wait(drama)
         finally:
-            with background_jobs._lock:
-                background_jobs._jobs.pop(f"transcribe_{drama}", None)
+            with job_table._lock:
+                job_table._jobs.pop(f"transcribe_{drama}", None)
         assert _lines(isolated_db, drama)[0].flag == FLAG
 
     def test_never_raises(self, isolated_db):
@@ -503,15 +504,15 @@ class TestBlockingAndGeneration:
     def test_refused_while_a_line_changing_job_runs(self, isolated_db, drama, prefix):
         _seed(isolated_db, drama, [Line(idx=0, start=1, end=2, zh="a")])
         key = f"{prefix}{drama}"
-        with background_jobs._lock:
-            background_jobs._jobs[key] = {"status": "queued", "progress": 0.0, "message": "",
+        with job_table._lock:
+            job_table._jobs[key] = {"status": "queued", "progress": 0.0, "message": "",
                                           "started_at": time.time()}
         try:
             with pytest.raises(ConflictError):
                 svc.start_timing_check(drama)
         finally:
-            with background_jobs._lock:
-                background_jobs._jobs.pop(key, None)
+            with job_table._lock:
+                job_table._jobs.pop(key, None)
 
     def test_old_run_cannot_write_after_a_new_transcription(self, isolated_db, drama, fake_speech):
         _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])

@@ -23,6 +23,7 @@ import os
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import novel_text
 import db
 import dub_narration
@@ -106,7 +107,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
         raise MissingKeyError(engine_name)
 
     job_id = f"narration_{drama_id}"
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
         gpu_touching=translate_engines.ollama_touches_local_gpu(engine_name, model),
         description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh))

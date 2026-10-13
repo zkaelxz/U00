@@ -10,7 +10,7 @@ import types
 
 import pytest
 
-import background_jobs
+from jobs import job_launch
 import whisper_transcribe
 import whisper_models
 import raw_transcript
@@ -142,7 +142,7 @@ class TestSavedPerTitle:
             import inspect
             captured.update(dict(zip(inspect.signature(target).parameters, args)))
             return True
-        monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
+        monkeypatch.setattr(job_launch, "start_process_job", fake_start)
         transcribe_service.start_transcribe_run(did)
         assert captured["vad_threshold"] == 0.35 and captured["sensitivity_preset"] == "sensitive"
 

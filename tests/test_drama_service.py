@@ -242,6 +242,7 @@ import os
 import time
 
 import background_jobs
+from jobs import job_table
 from services.service_errors import ConflictError
 
 
@@ -299,7 +300,7 @@ def test_delete_stale_job_record_does_not_block(isolated_db, monkeypatch):
     did, folder = _drama_with_files()
     db.save_job_record(f"transcribe_{did}", "running")
     real = time.time()
-    monkeypatch.setattr(ds.time, "time", lambda: real + background_jobs.STALE_JOB_SECONDS + 60)
+    monkeypatch.setattr(ds.time, "time", lambda: real + job_table.STALE_JOB_SECONDS + 60)
     ds.delete_drama(did, confirm=True, confirm_text="DELETE")
     assert db.get_drama(did) is None
 

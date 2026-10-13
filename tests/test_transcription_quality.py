@@ -278,7 +278,7 @@ class TestSenseVoiceTags:
     def test_surfaced_alongside_text_emotions_never_merged(self, isolated_db, monkeypatch):
         """The roadmap's exit condition: audio tags sit next to the
         text-based ones, and don't change them or what feeds translation."""
-        import background_jobs
+        from jobs import job_table
         import emotion
         import sensevoice_tags as sv
         from core import Line
@@ -295,10 +295,10 @@ class TestSenseVoiceTags:
                                    f"line_{lines[1].id}": "<|zh|><|HAPPY|><|Speech|>"})
         ddir = isolated_db.drama_dir(did)
         job_id = "test_sensevoice_job"
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         run_sensevoice_job(job_id, did, lines, "a.wav", ddir, False)
-        background_jobs._jobs.pop(job_id, None)
+        job_table._jobs.pop(job_id, None)
 
         assert isolated_db.load_emotions(did) == text_before  # untouched
         assert emotion.build_emotion_guidance(isolated_db.load_emotions(did), [0, 1]) == guidance_before

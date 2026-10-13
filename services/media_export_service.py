@@ -27,6 +27,7 @@ import subprocess
 import threading
 
 import background_jobs
+from jobs import job_launch
 import db
 import dub_narration
 import storage
@@ -74,7 +75,7 @@ def _start_video_job(drama_id: int, job_id: str, target, *args, description: str
             job = background_jobs.get_status(f"{prefix}{drama_id}")
             if job and job["status"] in ("running", "queued"):
                 raise ConflictError(f"A video export is already running for title {drama_id}.")
-        if not background_jobs.start_job(job_id, target, *args, description=description):
+        if not job_launch.start_job(job_id, target, *args, description=description):
             raise ConflictError(f"A video export is already running for title {drama_id}.")
     return {"job_id": job_id}
 
@@ -156,7 +157,7 @@ def start_audiobook_export(drama_id: int) -> dict:
     _refuse_duplicate(job_id, "audiobook", drama_id)
     narrate_original = drama.get("narration_language") == "original"
     title = drama.get("title_en") or drama.get("title_zh") or None
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, _audiobook_job, job_id, drama_id, lines, ddir, title, narrate_original,
         export_service.narration_language(drama),
         description=f"Audiobook export (title #{drama_id})")

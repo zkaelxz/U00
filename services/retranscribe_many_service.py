@@ -21,6 +21,7 @@ and the user retranslates or keeps it; clearing the English would lose it.
 import functools
 
 import background_jobs
+from jobs import job_launch
 import translation_finish
 import core as core_module
 import whisper_models
@@ -88,7 +89,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
     tuning = transcribe_options_service._DEFAULT_TUNING
     scratch_dir = storage.new_workdir(job_id)
     try:
-        started = background_jobs.start_process_job(
+        started = job_launch.start_process_job(
             job_id, retranscribe_many_worker,
             args=(audio_path, windows, size,
                   drama.get("beam_size") or tuning["beam_size"],

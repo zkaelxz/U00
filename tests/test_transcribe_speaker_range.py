@@ -8,6 +8,7 @@ import os
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_table
 from services import diarization_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from services.service_errors import InvalidInputError
 
@@ -60,7 +61,7 @@ def test_the_chained_diarization_gets_the_range(isolated_db, monkeypatch):
     did, ddir = _drama(isolated_db)
     job_id = f"transcribe_{did}"
     background_jobs.clear_job(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
@@ -70,7 +71,7 @@ def test_the_chained_diarization_gets_the_range(isolated_db, monkeypatch):
     monkeypatch.setattr(diarization_service, "make_apply_on_done",
                         lambda drama_id, expected=None, **k: on_done_args.append((expected, k)))
     calls = []
-    monkeypatch.setattr(background_jobs, "start_process_job",
+    monkeypatch.setattr(job_launch, "start_process_job",
                         lambda job_id, target, args=(), **k: calls.append(args) or True)
     audio = os.path.join(ddir, "audio.wav")
     transcribe_service._run_transcribe_and_apply_job(

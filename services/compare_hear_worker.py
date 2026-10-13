@@ -7,7 +7,7 @@ import os
 import subprocess
 
 import asr_backend
-import background_jobs
+from jobs import process_worker
 import audio_extract
 import whisper_transcribe
 import whisper_models
@@ -63,7 +63,7 @@ def hear_lines_worker(audio_path, windows, cfg, scratch_dir, result_queue):
     gpu_fallback, fatal = [], {}
     lines = _LineSink(result_queue)
     for n, (line_id, number, start, end, language) in enumerate(windows):
-        background_jobs.report_progress(
+        process_worker.report_progress(
             result_queue, n / len(windows), f"Hearing line {n + 1} of {len(windows)}")
         try:
             try:

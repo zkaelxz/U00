@@ -29,6 +29,7 @@ import zipfile
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner, job_table
 import db
 from services import auto_backup_copies as abc_
 from services import auto_backup_files as abf_
@@ -116,8 +117,8 @@ def _wait_job(job_id=abs_.JOB_ID, timeout=30):
 
 
 def _put_job(job_id, status="running"):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {
+    with job_table._lock:
+        job_table._jobs[job_id] = {
             "status": status, "progress": 0.0, "message": "", "result": None,
             "error": None, "started_at": time.time(), "finished_at": None}
 
@@ -591,20 +592,20 @@ class TestDueCheck:
 
     def test_busy_during_maintenance(self, isolated_db, started):
         _enable()
-        assert background_jobs.enter_maintenance()
+        assert job_launch.enter_maintenance()
         try:
             assert abs_.check_and_run() == "busy"
         finally:
-            background_jobs.exit_maintenance()
+            job_launch.exit_maintenance()
         assert started == []
 
     def test_busy_during_exclusive_restore(self, isolated_db, started):
         _enable()
-        assert background_jobs.acquire_exclusive("Library restore")
+        assert job_launch.acquire_exclusive("Library restore")
         try:
             assert abs_.check_and_run() == "busy"
         finally:
-            background_jobs.release_exclusive()
+            job_launch.release_exclusive()
         assert started == []
 
     def test_start_refused_is_busy(self, isolated_db, monkeypatch):
@@ -698,7 +699,7 @@ class TestApiBackgroundHooks:
             if len(ticks) >= 3:
                 done.set()
             raise RuntimeError("tick failed")
-        monkeypatch.setattr(background_jobs, "recheck_gpu_queue", lambda: None)
+        monkeypatch.setattr(job_runner, "recheck_gpu_queue", lambda: None)
         monkeypatch.setattr(abs_, "periodic_tick", tick)
         monkeypatch.setattr(background, "_gpu_poller", None)
         assert background.start_gpu_queue_poller(interval=0.01)
@@ -889,18 +890,18 @@ class TestSnapshotWrite:
     def test_back_up_now_refused_when_busy(self, isolated_db):
         with pytest.raises(InvalidInputError):
             abs_.start_now(include_media="no")
-        assert background_jobs.enter_maintenance()
+        assert job_launch.enter_maintenance()
         try:
             with pytest.raises(ConflictError):
                 abs_.start_now()
         finally:
-            background_jobs.exit_maintenance()
-        assert background_jobs.acquire_exclusive("Library restore")
+            job_launch.exit_maintenance()
+        assert job_launch.acquire_exclusive("Library restore")
         try:
             with pytest.raises(ConflictError):
                 abs_.start_now()
         finally:
-            background_jobs.release_exclusive()
+            job_launch.release_exclusive()
         _put_job(abs_.JOB_ID)
         with pytest.raises(ConflictError):
             abs_.start_now()
@@ -1840,12 +1841,12 @@ class TestRestoreRoundTrip:
         a = db.create_drama(title_en="A")
         _snap()
         _delete_drama(a)
-        assert background_jobs.acquire_exclusive("Library restore")
+        assert job_launch.acquire_exclusive("Library restore")
         try:
             with pytest.raises(ConflictError):
                 _restore(a)
         finally:
-            background_jobs.release_exclusive()
+            job_launch.release_exclusive()
         assert db.get_drama(a) is None
 
     def test_scheduled_check_busy_while_restore_holds_library(self, isolated_db, monkeypatch):
@@ -3120,7 +3121,7 @@ class TestLeadReviewFollowUps:
         """L2: starting a backup and a folder change are serialized."""
         import threading as _t
         started = []
-        monkeypatch.setattr(abs_.background_jobs, "start_job",
+        monkeypatch.setattr(abs_.job_launch, "start_job",
                             lambda *a, **k: started.append(1) or True)
         abc_._snapshot_lock.acquire()
         try:

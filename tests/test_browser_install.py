@@ -15,6 +15,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_runner
 import browser_support
 import page_fetch
 from api import auth as api_auth
@@ -111,7 +112,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     state["folder"], state["tmp"] = folder, tmp_path
     yield state
     background_jobs.request_cancel(svc.BROWSER_JOB_ID)
-    background_jobs.wait_for_job_threads(10, job_ids=[svc.BROWSER_JOB_ID])
+    job_runner.wait_for_job_threads(10, job_ids=[svc.BROWSER_JOB_ID])
     background_jobs.clear_job(svc.BROWSER_JOB_ID)
 
 

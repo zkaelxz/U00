@@ -14,7 +14,7 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
-import background_jobs
+from jobs import job_launch
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -363,11 +363,11 @@ def test_row_limit(client, monkeypatch):
 def test_refused_during_maintenance_or_running_export(client, monkeypatch):
     a, b, g = _world()
     data = _manual_zip()
-    assert background_jobs.acquire_exclusive("restore")   # a whole-library restore
+    assert job_launch.acquire_exclusive("restore")   # a whole-library restore
     try:
         assert _post_import(client, data, [g]).status_code == 409
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     monkeypatch.setattr(las, "_job_id_running", lambda job_id: job_id == las.EXPORT_JOB_ID)
     assert _post_import(client, data, [g]).status_code == 409
     monkeypatch.undo()
@@ -754,9 +754,9 @@ def test_zip_database_gets_no_unguarded_sql(client):
     assert _post_list(client, data).status_code == 422
     assert _post_import(client, data, [a]).status_code == 422
     assert time.monotonic() - started < 10
-    assert not background_jobs.maintenance_active()
-    assert background_jobs.acquire_exclusive("restore")
-    background_jobs.release_exclusive()
+    assert not job_launch.maintenance_active()
+    assert job_launch.acquire_exclusive("restore")
+    job_launch.release_exclusive()
 
 
 def test_saved_versions_dub_filenames_are_sanitised(client):

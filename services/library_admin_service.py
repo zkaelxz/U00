@@ -45,6 +45,7 @@ import zlib
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch, job_runner
 import db
 from jobs import job_store
 import storage
@@ -145,7 +146,7 @@ def maintenance(action: str):
     """Held around bulk delete / storage cleanup: refuses (Conflict) while a
     restore holds the library, or a backup/export is reading it, and keeps
     a restore from starting until the operation ends."""
-    if not background_jobs.enter_maintenance():
+    if not job_launch.enter_maintenance():
         raise ConflictError(f"A restore is in progress; {action} is not possible right now.")
     try:
         for job_id, label in ((BACKUP_JOB_ID, "backup"), (AUTO_BACKUP_JOB_ID, "backup"),
@@ -156,13 +157,13 @@ def maintenance(action: str):
                                     f"{action}.")
         yield
     finally:
-        background_jobs.exit_maintenance()
+        job_launch.exit_maintenance()
 
 
 def refuse_during_maintenance(label: str):
     """A backup/export must not read the library while a bulk delete or
     storage cleanup is changing it (_maintenance refuses the reverse)."""
-    if background_jobs.maintenance_active():
+    if job_launch.maintenance_active():
         raise ConflictError(f"Titles are being deleted or storage cleaned; the {label} "
                             f"can start when that finishes.")
 
@@ -353,7 +354,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         except Exception:
             api_keys[engine] = None
     cap = paid_job_service.require_monthly_cap(engine_by_id[d] for d in queued)
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         BULK_TRANSLATE_JOB_ID, wjs.run_bulk_series_translate_job,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,
         default_locale=default_locale,
@@ -444,7 +445,7 @@ def start_export_zip(drama_ids=None) -> dict:
                                 details={"results": results} if results is not None else None)
     refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
-    if not background_jobs.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
+    if not job_launch.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
                                      description="Library export"):
         raise ConflictError("A library export is already running.")
     out = {"job_id": EXPORT_JOB_ID, "drama_ids": ids}
@@ -580,7 +581,7 @@ def start_backup() -> dict:
     """Job: full library backup zip (database snapshot + media)."""
     refuse_during_maintenance("backup")
     _refuse_duplicate(BACKUP_JOB_ID, "backup")
-    if not background_jobs.start_job(BACKUP_JOB_ID, _backup_job, BACKUP_JOB_ID,
+    if not job_launch.start_job(BACKUP_JOB_ID, _backup_job, BACKUP_JOB_ID,
                                      description="Library backup"):
         raise ConflictError("A backup is already running.")
     return {"job_id": BACKUP_JOB_ID}
@@ -598,7 +599,7 @@ def start_database_backup() -> dict:
     no media. Fetch it with admin_artifact_path("database")."""
     refuse_during_maintenance("database backup")
     _refuse_duplicate(DATABASE_BACKUP_JOB_ID, "database backup")
-    if not background_jobs.start_job(DATABASE_BACKUP_JOB_ID, _database_backup_job,
+    if not job_launch.start_job(DATABASE_BACKUP_JOB_ID, _database_backup_job,
                                      DATABASE_BACKUP_JOB_ID, description="Database backup"):
         raise ConflictError("A database backup is already running.")
     return {"job_id": DATABASE_BACKUP_JOB_ID}
@@ -874,7 +875,7 @@ def start_user_backup(user_id=None) -> dict:
             raise NotFoundError("No such user.")
     refuse_during_maintenance("backup")
     _refuse_duplicate(USER_BACKUP_JOB_ID, "backup")
-    if not background_jobs.start_job(USER_BACKUP_JOB_ID, _user_backup_job, USER_BACKUP_JOB_ID,
+    if not job_launch.start_job(USER_BACKUP_JOB_ID, _user_backup_job, USER_BACKUP_JOB_ID,
                                      user_id, description="Backup of one person's items"):
         raise ConflictError("A backup is already running.")
     return {"job_id": USER_BACKUP_JOB_ID}
@@ -1022,7 +1023,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     Returns {restored, sessions_revoked, media_kept, previous_library_kept}."""
     from services import auth_service
     require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
-    if not background_jobs.acquire_exclusive("Library restore"):
+    if not job_launch.acquire_exclusive("Library restore"):
         raise ConflictError(_BUSY)
     try:
         if any_job_running():
@@ -1035,7 +1036,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                 raise ConflictError(_BUSY)
             # A finished job's thread can still be writing to the database
             # that is about to be renamed aside.
-            if not background_jobs.wait_for_job_threads(10.0):
+            if not job_runner.wait_for_job_threads(10.0):
                 raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
@@ -1056,7 +1057,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                                  f"library restored from backup; sessions revoked: {revoked}; "
                                  + lrs.account_counts(outcome))
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     return {"restored": True, "sessions_revoked": revoked, **(outcome or {})}
 
 

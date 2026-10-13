@@ -8,6 +8,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, process_worker
 import db
 import resegment
 import translate_engines
@@ -114,7 +115,7 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
         on_done(job_id, {"lines": new_lines, "usage_calls": [(10, 2)],
                          "changed": [(ln.id, ln.idx, ln.zh, p) for ln, p in changed]})
         return True
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_process_job)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_process_job)
     resegmentation_service.start_llm_resegment_preview(did, engine="ollama")
     assert captured["target"] is resegment.resegment_subprocess_worker
     assert captured["kw"]["gpu_touching"] is True
@@ -213,7 +214,7 @@ def test_apply_edit_racing_the_job_writes_nothing(monkeypatch):
     db.save_lines(did, [Line(id=ids[0], idx=0, start=0.0, end=1.0, zh="改", en="short")],
                   fields=("zh",))
     before = _snapshot(did)
-    background_jobs.start_job("resegment_x", resegmentation_service._apply_llm_preview_job, "resegment_x", did,
+    job_launch.start_job("resegment_x", resegmentation_service._apply_llm_preview_job, "resegment_x", did,
                               preview)
     assert _wait("resegment_x")["status"] == "error"
     assert _snapshot(did) == before
@@ -296,7 +297,7 @@ def test_note_racing_the_apply_job_needs_confirm(monkeypatch):
     preview = resegmentation_service._llm_previews[did]
     lines_service.add_note(did, preview["changed"][0]["line_id"], "公园", "cultural", "a park")
     before = _snapshot(did)
-    background_jobs.start_job("resegment_x", resegmentation_service._apply_llm_preview_job, "resegment_x", did,
+    job_launch.start_job("resegment_x", resegmentation_service._apply_llm_preview_job, "resegment_x", did,
                               preview, False)
     job = _wait("resegment_x")
     assert job["status"] == "error" and "confirm=true" in job["error"]
@@ -325,7 +326,7 @@ def test_stale_preview_for_other_lines_is_not_read_back(monkeypatch):
 
 def test_resegment_worker_leaves_the_parents_process_group(monkeypatch):
     left = []
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: left.append(True))
     q = queue.Queue()
     resegment.resegment_subprocess_worker([], "zh", None, None, "simplified", 0.5, q)
     assert left == [True]
@@ -335,7 +336,7 @@ def test_direct_llm_resegmentation_refuses_once_the_monthly_cap_is_used_up(monke
     did = _seed()
     ids = [r["id"] for r in db.load_lines(did)]
     started = []
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: started.append(a) or True)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: started.append(a) or True)
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
     with pytest.raises(UnsupportedOperationError, match="cap"):

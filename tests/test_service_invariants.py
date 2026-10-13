@@ -12,6 +12,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_table
 import core as core_module
 import whisper_models
 import db
@@ -73,7 +74,7 @@ def _transcript_drama():
 
 def _run_job_body(did, ddir, text):
     job_id = f"transcribe_{did}"
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                      "error": None, "cancel_requested": False, "result": None}
     transcribe_service._run_transcribe_and_apply_job(
         job_id, did, os.path.join(ddir, "audio.wav"), "have_transcript", text, "zh",

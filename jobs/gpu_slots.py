@@ -122,11 +122,11 @@ def _vram_room_for_another_gpu_job() -> bool:
     free. No reading (no nvidia-smi, a failed query) is False: without it
     nothing can tell whether a second model fits, so jobs run one at a time.
     No per-job size estimate is used: none is known before a job loads."""
-    import background_jobs
+    from jobs import job_table
     try:
         load = gpu_probe.external_gpu_load()
     except Exception as exc:
-        background_jobs._warn("GPU memory check failed; running GPU jobs one at a time", exc)
+        job_table._warn("GPU memory check failed; running GPU jobs one at a time", exc)
         return False
     free_mb = (load or {}).get("memory_free_mb")
     return free_mb is not None and free_mb >= GPU_PARALLEL_RESERVE_MB
@@ -145,8 +145,8 @@ def acquire(holder: str, description: str = None, *, job_id: str = None,
     then, and free VRAM already counts every application's use.
 
     May raise from the database; callers decide whether that queues/waits."""
-    import background_jobs
-    cap = background_jobs.get_gpu_max_parallel()
+    from jobs import job_settings, job_table
+    cap = job_settings.get_gpu_max_parallel()
     if cap > 1:
         others = holder_count(exclude_holder=holder)
         if others >= cap:
@@ -163,7 +163,7 @@ def acquire(holder: str, description: str = None, *, job_id: str = None,
         except Exception as exc:
             # Fails open on purpose: this check is optional (no nvidia-smi is
             # normal and returns False without raising), the slots remain.
-            background_jobs._warn("external GPU load check failed; ignoring it", exc)
+            job_table._warn("external GPU load check failed; ignoring it", exc)
     return take(holder, description, job_id=job_id)
 
 
@@ -212,7 +212,7 @@ def reap() -> int:
     queue behind a holder that is gone.
 
     Liveness is decided outside a write transaction because get_status takes
-    background_jobs._lock, which take() holds while it opens one. Each delete
+    job_table._lock, which take() holds while it opens one. Each delete
     therefore matches the row as it was read: a slot taken since rewrites
     acquired_at/heartbeat_at, so it survives."""
     now = time.time()

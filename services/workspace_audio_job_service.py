@@ -67,7 +67,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     raising, so the main script can show the same specific, actionable
     messages it always has instead of a generic error+traceback. Anything
     else that goes wrong is a real bug and is left to raise, same as
-    run_translate_job -- background_jobs.start_job's own runner catches
+    run_translate_job -- job_launch.start_job's own runner catches
     that and reports it as a job error.
     """
     if separate_vocals_first:

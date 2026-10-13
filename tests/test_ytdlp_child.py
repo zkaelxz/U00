@@ -9,6 +9,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch
 import db
 import storage
 from services import url_media_service as svc
@@ -132,7 +133,7 @@ def test_download_returns_path_and_title_and_reports_progress(child_env, isolate
 def _run_job(job_id, tmp):
     def target():
         svc._download(job_id, URL, tmp, True)
-    assert background_jobs.start_job(job_id, target, description="test")
+    assert job_launch.start_job(job_id, target, description="test")
     return job_id
 
 

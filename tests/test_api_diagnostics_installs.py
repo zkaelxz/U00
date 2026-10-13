@@ -15,6 +15,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import diagnostics
 import upgrade_check
 from api import auth as api_auth
@@ -380,7 +381,7 @@ def test_upgrade_check_state_only_changes_when_the_job_starts(client, env, monke
     _cache_update()
     svc._UPGRADE_CHECK.update(package="jieba", target="1.0", tail=["a"],
                               last={"ok": True, "verdict": "safe"})
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
     r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                     json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 409

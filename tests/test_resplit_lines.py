@@ -10,6 +10,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch
 import db
 import diarize
 import segment
@@ -223,7 +224,7 @@ def test_job_started_during_alignment_blocks_the_commit(monkeypatch):
     release = threading.Event()
 
     def align(audio, texts, segs, language, use_gpu=False):
-        background_jobs.start_job(f"translate_{did}", lambda: release.wait(30))
+        job_launch.start_job(f"translate_{did}", lambda: release.wait(30))
         return _aligned(texts)
     _fake_aligner(monkeypatch, align)
     try:
@@ -288,7 +289,7 @@ def test_relabel_failure_after_commit_keeps_the_split(monkeypatch):
 def test_refused_while_a_job_runs():
     did, ids = _seed()
     release = threading.Event()
-    background_jobs.start_job(f"translate_{did}", lambda: release.wait(30))
+    job_launch.start_job(f"translate_{did}", lambda: release.wait(30))
     try:
         with pytest.raises(ConflictError):
             resplit_service.resplit_long_lines(did, ids)

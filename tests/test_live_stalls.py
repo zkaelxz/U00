@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
+from jobs import gpu_queue, job_launch, job_runner, job_table
 import whisper_transcribe
 import whisper_models
 import live_audio
@@ -121,7 +122,7 @@ def job(isolated_db, monkeypatch, tmp_path):
 
     def start(job_id, engine, **kw):
         kw.setdefault("overlap_seconds", 0)
-        return background_jobs.start_job(
+        return job_launch.start_job(
             job_id, lt.run_live_job, job_id, "http://example.com/live", out_dir, 10, "zh",
             "small", engine, poll_interval=0.02, report_note=record,
             whisper_clock=clock, **kw)
@@ -129,7 +130,7 @@ def job(isolated_db, monkeypatch, tmp_path):
     start.clock = clock
     start.released = released
     yield Stream(out_dir), start, notes
-    for jid in list(background_jobs._jobs):
+    for jid in list(job_table._jobs):
         background_jobs.request_cancel(jid)
     # Wiping the records first would hide the cancel from a job still looping.
     _wait(lambda: not background_jobs.list_running_jobs(), 3)
@@ -437,7 +438,7 @@ class TestWhisperRunner:
         import db
         release = threading.Event()
         promoted = []
-        monkeypatch.setattr(background_jobs, "_promote_next_queued_gpu_job",
+        monkeypatch.setattr(job_runner, "_promote_next_queued_gpu_job",
                             lambda: promoted.append(gpu_slots.status()[0]))
         runner = live_whisper.WhisperRunner(lambda: False, lambda t, key=None: None,
                                             clock=TickingClock(), poll=0.005, grace=0.05, gpu=True)
@@ -513,22 +514,22 @@ class TestAbandonedWorkerBlocksAdminActions:
         release = threading.Event()
         self._abandon(release)
         try:
-            assert not background_jobs.acquire_exclusive("x")
+            assert not job_launch.acquire_exclusive("x")
             with pytest.raises(ServiceError):
                 dgs.reset_library(confirm=True, confirm_text="RESET")
             with pytest.raises(ServiceError):
                 dgs._exclusive_delete(lambda: True, "failed")
         finally:
             release.set()
-        assert _wait(lambda: background_jobs.acquire_exclusive("x"))
-        background_jobs.release_exclusive()
+        assert _wait(lambda: job_launch.acquire_exclusive("x"))
+        job_launch.release_exclusive()
 
     def test_wait_for_job_threads_waits_for_it(self, isolated_db):
         release = threading.Event()
         self._abandon(release)
-        assert not background_jobs.wait_for_job_threads(0.05)
+        assert not job_runner.wait_for_job_threads(0.05)
         release.set()
-        assert background_jobs.wait_for_job_threads(5.0)
+        assert job_runner.wait_for_job_threads(5.0)
 
     def test_a_failed_thread_start_leaves_nothing_outstanding(self, isolated_db, monkeypatch):
         def refuse(self):
@@ -548,11 +549,11 @@ class TestAbandonedWorkerBlocksAdminActions:
             runner.run(lambda cb: release.wait(20), 3, "chunk 4")
         try:
             assert not live_whisper.gpu_claim_held()
-            with background_jobs._lock:
-                background_jobs._jobs["q2"] = {"status": "queued"}
-                background_jobs._note_gpu_wait_reason_locked("q2")
-                assert background_jobs._jobs["q2"]["gpu_wait_external"] != live_whisper.WAIT_MESSAGE
-                del background_jobs._jobs["q2"]
+            with job_table._lock:
+                job_table._jobs["q2"] = {"status": "queued"}
+                gpu_queue._note_gpu_wait_reason_locked("q2")
+                assert job_table._jobs["q2"]["gpu_wait_external"] != live_whisper.WAIT_MESSAGE
+                del job_table._jobs["q2"]
         finally:
             release.set()
 
@@ -561,12 +562,12 @@ class TestAbandonedWorkerBlocksAdminActions:
         self._abandon(release)
         try:
             job_id = "q1"
-            with background_jobs._lock:
-                background_jobs._jobs[job_id] = {"status": "queued"}
-                background_jobs._note_gpu_wait_reason_locked(job_id)
-                assert background_jobs._jobs[job_id]["gpu_wait_external"] == \
+            with job_table._lock:
+                job_table._jobs[job_id] = {"status": "queued"}
+                gpu_queue._note_gpu_wait_reason_locked(job_id)
+                assert job_table._jobs[job_id]["gpu_wait_external"] == \
                     live_whisper.WAIT_MESSAGE
-                del background_jobs._jobs[job_id]
+                del job_table._jobs[job_id]
         finally:
             release.set()
 

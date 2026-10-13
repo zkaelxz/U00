@@ -11,6 +11,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import db
 import translate_engines
 from api.api_config import ApiSettings
@@ -43,7 +44,7 @@ def _env(isolated_db, monkeypatch):
         seen.append(kw)
         return FakeEngine()
     monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **kw: seen.append(kw) or True)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **kw: seen.append(kw) or True)
     yield seen
     background_jobs.clear_all_jobs()
 

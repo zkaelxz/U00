@@ -24,6 +24,7 @@ another process, `get_job_result` answers 404.
 import threading
 
 import background_jobs
+from jobs import job_launch
 from services import ownership_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
@@ -167,10 +168,10 @@ def enabled_source(name: str):
 
 
 def start_job(job_id: str, target, *args, description: str):
-    # background_jobs.start_job checks for a running or queued entry and
+    # job_launch.start_job checks for a running or queued entry and
     # replaces a finished one under its own lock; clearing the old entry
     # here first could drop another request's run that started in between.
-    if not background_jobs.start_job(job_id, target, *args, description=description):
+    if not job_launch.start_job(job_id, target, *args, description=description):
         raise ConflictError("A request like this is already running.",
                             details={"job_id": job_id})
     return {"job_id": job_id}

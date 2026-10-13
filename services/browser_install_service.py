@@ -20,6 +20,7 @@ import threading
 from collections import deque
 
 import background_jobs
+from jobs import job_launch
 import job_process_kill
 import browser_support
 import diagnostics_report
@@ -126,7 +127,7 @@ def start_install(confirm: bool = False) -> dict:
         if reason.startswith(("Chrome", "Browser support", "A Playwright")):
             raise AlreadyAvailable(reason)
         raise gaps.AdminActionNotPossible(reason)
-    if not background_jobs.start_job(BROWSER_JOB_ID, _install_job,
+    if not job_launch.start_job(BROWSER_JOB_ID, _install_job,
                                      description="Installing browser support"):
         raise gaps.AdminActionJobsRunning(
             "A browser install or a library restore is already running; try again when it ends.")

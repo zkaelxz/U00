@@ -25,6 +25,7 @@ import time
 from typing import Callable, Dict, List, Optional
 
 import background_jobs
+from jobs import job_launch
 import db
 import glossary_phonetic as ph
 from services import glossary_service, ownership_service
@@ -404,7 +405,7 @@ def start_scan(principal) -> dict:
             raise RateLimitedError(f"Wait {wait} seconds before checking again.")
         if background_jobs.count_active_jobs(JOB_PREFIX) >= MAX_CONCURRENT_SCANS:
             raise ConflictError("Two name checks are already running. Try again in a few minutes.")
-        if not background_jobs.start_job(job_id, _run, job_id, visible_to,
+        if not job_launch.start_job(job_id, _run, job_id, visible_to,
                                          description="Name check across titles"):
             raise ConflictError("A name check can't start right now.")
         _last_start[who] = now

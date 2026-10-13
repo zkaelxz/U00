@@ -14,6 +14,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, process_worker
 import translate_engines
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -339,7 +340,7 @@ def test_translate_run_passes_num_ctx_override_and_summary_engine(isolated_db, e
         captured.update(dict(zip(inspect.signature(target).parameters, a)))
         captured.update(k)
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(job_launch, "start_job", fake_start_job)
     built = []
     real_get_engine = translate_engines.get_engine
 
@@ -391,7 +392,7 @@ def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, en
         captured.update(dict(zip(inspect.signature(target).parameters, a)))
         captured.update(k)
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(job_launch, "start_job", fake_start_job)
     real_get_engine = translate_engines.get_engine
     monkeypatch.setattr(translate_engines, "get_engine",
                         lambda *a, **k: real_get_engine("fake", "offline"))
@@ -418,7 +419,7 @@ def test_library_bulk_translate_skips_paid_summary_when_not_allowed(isolated_db,
     def fake_start_job(job_id, target, *a, **k):
         starts.append((target, a, k))
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(job_launch, "start_job", fake_start_job)
     library_admin_service.start_bulk_translate([did], allow_paid_summary=False)
     target, a, k = starts[-1]
     assert k["allow_paid_summary"] is False
@@ -461,7 +462,7 @@ def test_bulk_library_translate_uses_default_locale_and_saved_cap(isolated_db, e
     def fake_start_job(job_id, target, *a, **k):
         captured.update(k)
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(job_launch, "start_job", fake_start_job)
     settings_service.set_settings({"default_locale": "en-AU", "monthly_cap_usd": 5})
     library_admin_service.start_bulk_translate([did])
     assert captured["default_locale"] == "en-AU" and captured["monthly_cap"] == 5.0
@@ -478,7 +479,7 @@ def test_transcribe_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch
     def fake_start_job(job_id, target, *a, **k):
         captured.update(dict(zip(inspect.signature(target).parameters, a)))
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(job_launch, "start_job", fake_start_job)
     transcribe_service.start_transcribe_run(did)
     assert captured["tesseract_cmd"] is None
     settings_service.set_settings({"tesseract_cmd": "/opt/tess/bin/tesseract"})
@@ -511,13 +512,13 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     def fake_start_process_job(job_id, target, args=(), **k):
         captured["call"] = (target, args)
         return True
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_start_process_job)
     transcribe_service.start_transcribe_run(did)
     target, args = captured["call"]
     # Run the worker in this process: keep this process's group and temp dir.
     import queue
     import tempfile
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     result_queue = queue.Queue()
     target(*args, result_queue)
@@ -560,7 +561,7 @@ def test_live_saved_cookies_only_when_asked(isolated_db, env_file, monkeypatch):
     def fake_start_job(job_id, target, *a, **k):
         captured.append(k)
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(job_launch, "start_job", fake_start_job)
     settings_service.set_settings({"cookies_browser": "edge"})
     live_service.start_session("https://example.com/live")
     assert "cookies_browser" not in captured[-1]

@@ -17,6 +17,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import db
 import storage
 import video_export
@@ -889,7 +890,7 @@ def test_a_queued_download_fails_with_the_busy_text_when_its_title_got_a_job(cli
     assert _start(client, b, url=_link(2)).status_code == 200
     # b's own download counts as its job; this stands in for a job that begins after it queued.
     other = threading.Event()
-    background_jobs.start_job(f"translate_{b}", lambda: other.wait(10))
+    job_launch.start_job(f"translate_{b}", lambda: other.wait(10))
     try:
         gate.open()
         st = _wait(f"urlmedia_{b}")

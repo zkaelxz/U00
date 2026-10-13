@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
+from jobs import job_launch
 import bulk_providers as bp
 import bulk_apply
 import bulk_poll
@@ -1869,7 +1870,7 @@ class TestResumeWhileOuterJobIsActive:
         isolated_db.update_bulk_job(bulk_id, status="running")
         release = threading.Event()
         outer = f"bulk_translate_{did}"
-        assert background_jobs.start_job(outer, lambda: release.wait(10))
+        assert job_launch.start_job(outer, lambda: release.wait(10))
         asked = []
         try:
             out = bulk_poll.resume_pending(did, lambda e, m: asked.append((e, m)) or object())

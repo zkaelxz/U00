@@ -9,6 +9,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_runner, job_settings, job_table
 import db
 from jobs import job_store
 from api.api_config import ApiSettings
@@ -22,13 +23,13 @@ def client(isolated_db):
 
 
 def _own(job_id):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {"status": "running", "cancel_requested": False}
+    with job_table._lock:
+        job_table._jobs[job_id] = {"status": "running", "cancel_requested": False}
 
 
 def _disown(job_id):
-    with background_jobs._lock:
-        background_jobs._jobs.pop(job_id, None)
+    with job_table._lock:
+        job_table._jobs.pop(job_id, None)
     background_jobs._last_db_cancel_check.clear()
 
 
@@ -65,7 +66,7 @@ def test_owner_notices_db_flag_throttled(isolated_db, monkeypatch):
         assert not background_jobs.is_cancel_requested("j3")  # throttled
         background_jobs._last_db_cancel_check.clear()
         assert background_jobs.is_cancel_requested("j3")
-        assert background_jobs._jobs["j3"]["cancel_requested"] is True
+        assert job_table._jobs["j3"]["cancel_requested"] is True
     finally:
         _disown("j3")
 
@@ -150,7 +151,7 @@ def test_heartbeat_touches_only_live_owned_jobs(isolated_db):
     _age("hb", 3600)
     _age("other", 3600)
     try:
-        background_jobs._heartbeat_once()
+        job_table._heartbeat_once()
         import time
         assert time.time() - db.get_job_record("hb")["updated_at"] < 60
         assert time.time() - db.get_job_record("other")["updated_at"] > 3000
@@ -162,8 +163,9 @@ _OWNER_SCRIPT = r"""
 import sys, time
 sys.path.insert(0, sys.argv[2])
 import db, background_jobs as bg
+from jobs import job_launch, job_table
 db.configure_library_dir(sys.argv[1])
-bg.HEARTBEAT_INTERVAL = 0.2
+job_table.HEARTBEAT_INTERVAL = 0.2
 bg._DB_CANCEL_CHECK_INTERVAL = 0.1
 
 def work():
@@ -173,7 +175,7 @@ def work():
             raise bg.JobCancelled("live")
         time.sleep(0.05)
 
-bg.start_job("live", work)
+job_launch.start_job("live", work)
 print("started", flush=True)
 while bg.get_status("live")["status"] == "running":
     time.sleep(0.05)
@@ -267,7 +269,7 @@ def test_api_startup_sweeps_dead_owners_records(isolated_db, monkeypatch):
 
 def test_one_staleness_cutoff_everywhere():
     from services import jobs_service
-    assert jobs_service.STALE_JOB_SECONDS == background_jobs.STALE_JOB_SECONDS
+    assert jobs_service.STALE_JOB_SECONDS == job_table.STALE_JOB_SECONDS
 
 
 def test_heartbeat_write_failure_is_logged_redacted(isolated_db, monkeypatch):
@@ -283,7 +285,7 @@ def test_heartbeat_write_failure_is_logged_redacted(isolated_db, monkeypatch):
     monkeypatch.setattr(db, "touch_job_records", boom)
     _own("hb_fail")
     try:
-        background_jobs._heartbeat_once()
+        job_table._heartbeat_once()
     finally:
         _disown("hb_fail")
     assert logged and "heartbeat" in logged[0]
@@ -375,30 +377,30 @@ def test_jobs_mirror_records_their_owner_pid(isolated_db):
     import os
     import threading
     release = threading.Event()
-    assert background_jobs.start_job("pid_rec", lambda: release.wait(5.0))
+    assert job_launch.start_job("pid_rec", lambda: release.wait(5.0))
     try:
         assert db.get_job_record("pid_rec")["owner_pid"] == os.getpid()
     finally:
         release.set()
-        assert background_jobs.wait_for_job_threads(5.0)
+        assert job_runner.wait_for_job_threads(5.0)
         background_jobs.clear_job("pid_rec")
 
 
 def test_cancelling_a_queued_job_through_the_api_ends_it(client, monkeypatch):
     import threading
-    background_jobs.set_gpu_limit_enabled(True)
+    job_settings.set_gpu_limit_enabled(True)
     release = threading.Event()
     ran = []
-    assert background_jobs.start_job("api_q_a", lambda: release.wait(5.0), gpu_touching=True)
+    assert job_launch.start_job("api_q_a", lambda: release.wait(5.0), gpu_touching=True)
     try:
-        assert background_jobs.start_job("api_q_b", lambda: ran.append(1), gpu_touching=True)
+        assert job_launch.start_job("api_q_b", lambda: ran.append(1), gpu_touching=True)
         assert background_jobs.get_status("api_q_b")["status"] == "queued"
         r = client.post("/api/jobs/api_q_b/cancel")
         assert r.status_code == 200 and r.json()["status"] == "cancelled"
         assert client.get("/api/jobs/api_q_b").json()["status"] == "cancelled"
     finally:
         release.set()
-        assert background_jobs.wait_for_job_threads(5.0)
+        assert job_runner.wait_for_job_threads(5.0)
     assert ran == []
     background_jobs.clear_job("api_q_a")
     background_jobs.clear_job("api_q_b")
@@ -413,13 +415,13 @@ def test_a_running_jobs_record_says_cancelling_after_cancel(client):
         if background_jobs.is_cancel_requested("api_c"):
             raise background_jobs.JobCancelled("api_c")
 
-    assert background_jobs.start_job("api_c", work)
+    assert job_launch.start_job("api_c", work)
     try:
         r = client.post("/api/jobs/api_c/cancel")
         assert r.status_code == 200
         assert client.get("/api/jobs/api_c").json()["message"] == background_jobs.CANCELLING_MESSAGE
     finally:
         release.set()
-        assert background_jobs.wait_for_job_threads(5.0)
+        assert job_runner.wait_for_job_threads(5.0)
     assert client.get("/api/jobs/api_c").json()["status"] == "cancelled"
     background_jobs.clear_job("api_c")

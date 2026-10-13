@@ -11,7 +11,7 @@ install.
 import threading
 import time
 
-import background_jobs
+from jobs import job_launch
 import install_plan
 import install_registry
 import pending_install
@@ -70,11 +70,11 @@ def preview(packages) -> dict:
     keys = _keys(packages)
     # The dry-run reads the installed set and the package index; during an
     # install (or a restore) that answer would be wrong and the extra pip a burden.
-    if background_jobs.exclusive_held() or not _PREVIEW_LOCK.acquire(blocking=False):
+    if job_launch.exclusive_held() or not _PREVIEW_LOCK.acquire(blocking=False):
         raise ConflictError("An install, restore or another preview is in progress; "
                             "try again in a moment.")
     try:
-        if background_jobs.exclusive_held():
+        if job_launch.exclusive_held():
             raise ConflictError("An install, restore or another preview is in progress; "
                                 "try again in a moment.")
         return _view(_plan(keys, fresh=True))
@@ -89,11 +89,11 @@ def queue(packages, confirm: bool = False, accept_risk: bool = False) -> dict:
     if confirm is not True:
         raise gaps.AdminActionUnconfirmed("Confirmation required.")
     # A merged queue runs a fresh dry run, so it takes the preview's lock and re-check.
-    if background_jobs.exclusive_held() or not _PREVIEW_LOCK.acquire(blocking=False):
+    if job_launch.exclusive_held() or not _PREVIEW_LOCK.acquire(blocking=False):
         raise ConflictError("An install, restore or another preview is in progress; "
                             "try again in a moment.")
     try:
-        if background_jobs.exclusive_held():
+        if job_launch.exclusive_held():
             raise ConflictError("An install, restore or another preview is in progress; "
                                 "try again in a moment.")
         return _queue(packages, accept_risk)

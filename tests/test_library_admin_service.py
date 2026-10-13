@@ -9,6 +9,7 @@ import zipfile
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner
 import db
 from services import library_admin_service as las
 from services import library_restore_service as lrs
@@ -124,7 +125,7 @@ def test_bulk_delete_real_running_job(isolated_db):
     a = _new()
     import threading
     gate = threading.Event()
-    assert background_jobs.start_job(f"translate_{a}", gate.wait, 5)
+    assert job_launch.start_job(f"translate_{a}", gate.wait, 5)
     try:
         r = las.bulk_delete([a], confirm=True, confirm_text="DELETE")
         assert r["results"][0]["error"] == "job_running"
@@ -142,7 +143,7 @@ def test_bulk_translate_uses_existing_job(isolated_db, monkeypatch):
     def fake_start(job_id, target, *args, **kwargs):
         captured.update(job_id=job_id, target=target, args=args, kwargs=kwargs)
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start)
+    monkeypatch.setattr(job_launch, "start_job", fake_start)
     r = las.start_bulk_translate([a, b])
     assert r == {"job_id": "bulk_series_translate", "queued": [a],
                  "skipped": [{"drama_id": b, "reason": "not_aligned"}]}
@@ -266,7 +267,7 @@ def test_restore_refused_while_job_running(isolated_db, monkeypatch):
     monkeypatch.setattr(lrs, "restore_library_backup", lambda *a: called.append(a))
     import threading
     gate = threading.Event()
-    assert background_jobs.start_job("some_job", gate.wait, 5)
+    assert job_launch.start_job("some_job", gate.wait, 5)
     try:
         with pytest.raises(ConflictError):
             las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
@@ -542,7 +543,7 @@ def test_bad_library_db_refused_nothing_changes(isolated_db, bad_db, tmp_path):
     assert db.LIBRARY_DIR not in str(ei.value)
     assert db.get_drama(a) and db.get_drama(b)
     assert not _leftovers()
-    assert not background_jobs.exclusive_active()
+    assert not job_launch.exclusive_active()
 
 
 def test_backup_restore_restore_no_phantom_job(isolated_db):
@@ -1266,7 +1267,7 @@ def test_restore_rechecks_jobs_before_swap(isolated_db, monkeypatch):
         _restore(data)
     assert db.get_drama(a) and db.get_drama(b)
     assert not _leftovers()
-    assert not background_jobs.exclusive_active()
+    assert not job_launch.exclusive_active()
 
 
 def test_restore_waits_for_finished_job_threads_before_swap(isolated_db, monkeypatch):
@@ -1276,32 +1277,32 @@ def test_restore_waits_for_finished_job_threads_before_swap(isolated_db, monkeyp
     data = _backup_bytes()
     b = _new("B")
     calls = []
-    monkeypatch.setattr(background_jobs, "wait_for_job_threads",
+    monkeypatch.setattr(job_runner, "wait_for_job_threads",
                         lambda timeout: calls.append(timeout) or False)
     with pytest.raises(ConflictError):
         _restore(data)
     assert calls
     assert db.get_drama(b)
     assert not _leftovers()
-    assert not background_jobs.exclusive_active()
+    assert not job_launch.exclusive_active()
 
 
 def test_no_job_or_delete_during_restore(isolated_db):
     a = _new("A")
-    assert background_jobs.acquire_exclusive("test")
+    assert job_launch.acquire_exclusive("test")
     try:
-        assert background_jobs.start_job("x", lambda: None) is False
+        assert job_launch.start_job("x", lambda: None) is False
         with pytest.raises(ConflictError):
             las.start_backup()
         with pytest.raises(ConflictError):
             las.bulk_delete([a], confirm=True, confirm_text="DELETE")
         with pytest.raises(ConflictError):
             las.storage_cleanup("balanced", confirm=True, confirm_text="CLEAN")
-        assert not background_jobs.acquire_exclusive("again")
+        assert not job_launch.acquire_exclusive("again")
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     assert db.get_drama(a)
-    assert background_jobs.start_job("x", lambda: None)
+    assert job_launch.start_job("x", lambda: None)
     _wait("x")
 
 
@@ -1309,7 +1310,7 @@ def test_no_job_or_delete_during_restore(isolated_db):
 def test_delete_and_cleanup_refused_while_archiving(isolated_db, job_id):
     a = _new("A")
     gate = threading.Event()
-    assert background_jobs.start_job(job_id, gate.wait, 5)
+    assert job_launch.start_job(job_id, gate.wait, 5)
     try:
         with pytest.raises(ConflictError):
             las.bulk_delete([a], confirm=True, confirm_text="DELETE")
@@ -1441,7 +1442,7 @@ def test_bulk_translate_engines_and_skip_running(isolated_db, monkeypatch):
                                                      "by_drama": {a: "claude", b: "deepseek"}}
     _fake_running(monkeypatch, b)
     assert las.bulk_translate_engines([a, b, c])["engines"] == ["claude"]
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
     r = las.start_bulk_translate([a, b])
     assert r["queued"] == [a]
     assert {"drama_id": b, "reason": "job_running"} in r["skipped"]
@@ -1586,14 +1587,14 @@ def test_restore_aborts_if_auth_changed_meanwhile(isolated_db, monkeypatch):
 
 
 def test_maintenance_blocks_restore(isolated_db):
-    assert background_jobs.enter_maintenance()
+    assert job_launch.enter_maintenance()
     try:
         with pytest.raises(ConflictError):
             _restore(_zip({"library.db": b"x"}))
     finally:
-        background_jobs.exit_maintenance()
-    assert background_jobs.acquire_exclusive("t")
-    background_jobs.release_exclusive()
+        job_launch.exit_maintenance()
+    assert job_launch.acquire_exclusive("t")
+    job_launch.release_exclusive()
 
 
 def test_restore_audit_actor(isolated_db):
@@ -1610,7 +1611,7 @@ def test_bulk_translate_expected_engines(isolated_db, monkeypatch):
     expected = las.bulk_translate_engines([a, b])["by_drama"]
     db.update_drama(b, translation_engine="deepseek")
     captured = {}
-    monkeypatch.setattr(background_jobs, "start_job",
+    monkeypatch.setattr(job_launch, "start_job",
                         lambda *args, **kw: captured.update(kw) or True)
     r = las.start_bulk_translate([a, b], expected_engines={str(k): v
                                                             for k, v in expected.items()})

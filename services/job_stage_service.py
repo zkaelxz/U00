@@ -10,7 +10,7 @@ slow-step note and the cancel text are applied when the status is read
 import threading
 import time
 
-import background_jobs
+from jobs import job_table
 
 # background_jobs.py is frozen, so it has no public hook for "set a field on a
 # running job and announce it"; this module takes its lock and calls its private
@@ -30,8 +30,8 @@ def set_stage(job_id: str, message: str, cancel_message: str = None,
     status gains slow_note ("{secs}" is the elapsed seconds). A change event
     is pushed at that moment too, since a page that listens instead of
     polling would otherwise not hear about it."""
-    with background_jobs._lock:
-        job = background_jobs._jobs.get(job_id)
+    with job_table._lock:
+        job = job_table._jobs.get(job_id)
         if job is None:
             return
         since = time.time()
@@ -42,17 +42,17 @@ def set_stage(job_id: str, message: str, cancel_message: str = None,
         if not job.get("cancel_requested"):
             job["message"] = message
         # _mirror_locked also pushes the change event.
-        background_jobs._mirror_locked(job_id)
+        job_table._mirror_locked(job_id)
     previous = _timers.pop(job_id, None)
     if previous is not None:
         previous.cancel()
     if slow_after is not None and slow_note:
         def announce():
-            with background_jobs._lock:
-                current = background_jobs._jobs.get(job_id)
+            with job_table._lock:
+                current = job_table._jobs.get(job_id)
                 still_here = bool(current and (current.get("stage") or {}).get("since") == since)
             if still_here:
-                background_jobs._emit_change(job_id)
+                job_table._emit_change(job_id)
         timer = threading.Timer(slow_after + 0.5, announce)
         timer.daemon = True
         _timers[job_id] = timer

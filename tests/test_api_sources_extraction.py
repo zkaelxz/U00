@@ -15,6 +15,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import db
 import translate_engines
 from api import auth as api_auth
@@ -977,7 +978,7 @@ def test_write_pages_stops_between_images_on_cancel(isolated_db):
     from services import sources_extraction_service as svc
     from sources.generic_import import ImageCandidate
     did = db.create_drama(title_en="C", media_type="manhua")
-    background_jobs.start_job("sourceimport_990", lambda: time.sleep(0.3))
+    job_launch.start_job("sourceimport_990", lambda: time.sleep(0.3))
     background_jobs.request_cancel("sourceimport_990")
     items = [(ImageCandidate(f"https://a.example/{i}.png", i), _img("PNG", 10, 10)) for i in range(3)]
     with pytest.raises(background_jobs.JobCancelled):

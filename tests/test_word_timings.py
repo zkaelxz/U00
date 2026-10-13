@@ -9,6 +9,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_table
 import core
 import whisper_models
 import segment_splitting
@@ -601,7 +602,7 @@ def test_transcription_stores_words_with_the_lines_it_creates(monkeypatch):
     os.makedirs(ddir, exist_ok=True)
     open(os.path.join(ddir, "audio.wav"), "wb").close()
     job_id = f"transcribe_{did}"
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: None)

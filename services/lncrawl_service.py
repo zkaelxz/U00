@@ -49,6 +49,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import background_jobs
+from jobs import job_launch
 import db
 from services import drama_service, novel_attach_service, settings_service
 from lib import url_guard
@@ -230,7 +231,7 @@ def start_import(drama_id: int, url, chapters: str = "all", count: Optional[int]
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError("A job is running for this title. Wait for it to finish or cancel it.")
     job_id = job_id_for(drama_id)
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, _run_job, job_id, drama_id, program, url, chapters, count, mode,
         description=f"Import with lightnovel-crawler (title {drama_id})")
     if not started:

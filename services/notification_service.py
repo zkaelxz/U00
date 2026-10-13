@@ -2,7 +2,7 @@
 services/notification_service.py -- push a short "job finished /
 job failed" message to a Discord webhook and/or an ntfy topic.
 
-UI-free. `background_jobs._notify_job_finished` calls
+UI-free. `job_settings._notify_job_finished` calls
 `notify_job_finished(description, status)` right after the desktop toast;
 it never raises and never blocks the job: events are queued and sent from a
 daemon timer thread.

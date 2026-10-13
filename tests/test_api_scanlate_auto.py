@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import background_jobs
+from jobs import job_table
 import db
 import ocr
 import scanlate
@@ -82,8 +83,8 @@ def _wait(job_id, timeout=20):
 
 
 def _put_job(job_id, status="running"):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {
+    with job_table._lock:
+        job_table._jobs[job_id] = {
             "status": status, "progress": 0.0, "message": "", "result": None,
             "error": None, "started_at": time.time(), "finished_at": None}
 
@@ -316,8 +317,8 @@ def test_upload_409_while_job_runs_and_job_409_while_uploading(client):
     did = _drama()
     _put_job(f"scanlate_{did}")
     assert _upload(client, did, [("a.png", _png(), "image/png")]).status_code == 409
-    with background_jobs._lock:
-        background_jobs._jobs.clear()
+    with job_table._lock:
+        job_table._jobs.clear()
     with pages_svc.upload_claim(did):
         with pytest.raises(ConflictError):
             pages_svc.start_drama_job(did, lambda *a: None, description="x")

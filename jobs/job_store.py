@@ -29,13 +29,13 @@ EXIT_FLUSH_SECONDS = 2.0
 # row; a server killed without its exit hook never does, and after a reboot
 # Windows may hand its pid to an unrelated process that looks like it.
 STALE_ALIVE_CEILING_SECONDS = 6 * 3600
-# A write under background_jobs._lock waits no longer than this for another
+# A write under job_table._lock waits no longer than this for another
 # process's write lock: every get_status waits on that lock too.
 UNDER_LOCK_BUSY_SECONDS = 0.5
 SYNC_ERROR_SUFFIX = "Job state could not be saved ({}); showing the in-memory state"
 
 # Job ids whose last write failed, retried by heartbeat_tick. Guarded by
-# background_jobs._lock, like the jobs themselves.
+# job_table._lock, like the jobs themselves.
 _pending = set()
 # job id -> a token unique to its latest write not yet landed (same lock;
 # dropped once it lands, so finished jobs leave nothing behind). A retry
@@ -45,7 +45,7 @@ _last_write = {}
 _tokens = itertools.count()
 # One retry_pending at a time (the heartbeat's and the exit flush's can
 # overlap): two copying the same job write it twice, and the older copy can
-# land after the exit flush has returned. Taken before background_jobs._lock.
+# land after the exit flush has returned. Taken before job_table._lock.
 _retry_lock = threading.Lock()
 _exit_hook_registered = False
 _flushed = False
@@ -74,7 +74,7 @@ def _connect(timeout=None):
 
 
 def _retrying(fn, deadline=None):
-    """Never called under background_jobs._lock: another process (cli.py, a
+    """Never called under job_table._lock: another process (cli.py, a
     second server) can hold the write lock past sqlite's busy timeout, and a
     short backoff saves the write instead of leaving the row behind the job.
     `fn` gets the seconds left before `deadline` (time.monotonic(); None for
@@ -127,14 +127,14 @@ def _result_json(job_id, job):
 
 
 def write_transition(job_id, job) -> bool:
-    """Caller holds background_jobs._lock. Writes `job`'s status-transition
+    """Caller holds job_table._lock. Writes `job`'s status-transition
     fields to its row in one try with a short busy wait (a retry's backoff,
     or sqlite's 5 s wait on another process's lock, would stall every
     get_status); True when the write landed. A failed write never breaks the
     job, and is never silent: the job carries `sync_error` and detail_state
     "unknown" (the API shows them), the failure is logged once, and
     heartbeat_tick retries it outside the lock until it lands."""
-    import background_jobs as bj
+    from jobs import job_table
     if job is None:
         _pending.discard(job_id)
         _last_write.pop(job_id, None)
@@ -148,7 +148,7 @@ def write_transition(job_id, job) -> bool:
     else:
         _landed(job_id, job)
         ok = True
-    bj._emit_change(job_id)
+    job_table._emit_change(job_id)
     return ok
 
 
@@ -173,7 +173,7 @@ def _note_failure(job_id, job, exc):
 
 
 def _store_sync_error(job_id, text, deadline=None):
-    """Never under background_jobs._lock (it can wait out sqlite's busy
+    """Never under job_table._lock (it can wait out sqlite's busy
     timeout). Lands when only the full write failed (a value it could not
     store); with the database down this fails too and the job still
     carries it."""
@@ -205,14 +205,14 @@ def heartbeat_tick():
 
 
 def _heartbeat_tick():
-    import background_jobs as bj
+    from jobs import job_runner, job_table
     import job_force_stop
-    bj.reconcile_dead_workers()
+    job_runner.reconcile_dead_workers()
     job_force_stop.refresh_abandoned_gpu_rows()
-    with bj._lock:
-        live = [j for j, job in bj._jobs.items() if job.get("status") in ACTIVE]
-        running_gpu = [j for j in live if bj._jobs[j]["status"] == "running"
-                       and bj._jobs[j].get("gpu_touching")]
+    with job_table._lock:
+        live = [j for j, job in job_table._jobs.items() if job.get("status") in ACTIVE]
+        running_gpu = [j for j in live if job_table._jobs[j]["status"] == "running"
+                       and job_table._jobs[j].get("gpu_touching")]
     # A job that reports no progress (dub) never refreshes its own row.
     from jobs import gpu_slots
     with contextlib.suppress(Exception):
@@ -240,7 +240,7 @@ def _acquire(lock, deadline) -> bool:
 
 def retry_pending(deadline=None) -> None:
     """Retries every failed write. Each write runs outside
-    background_jobs._lock, so a locked database never stalls get_status,
+    job_table._lock, so a locked database never stalls get_status,
     update_progress or a Jobs poll; the lock is held only to copy the job
     and to apply the outcome. Stops at the first "database is locked" (the
     rest would wait on the same lock) and at `deadline` (time.monotonic())."""
@@ -253,14 +253,14 @@ def retry_pending(deadline=None) -> None:
 
 
 def _retry_pending(deadline):
-    import background_jobs as bj
+    from jobs import job_table
     for _ in range(_WRITE_TRIES):
-        if not _acquire(bj._lock, deadline):
+        if not _acquire(job_table._lock, deadline):
             return
         try:
             batch = []
             for job_id in list(_pending):
-                job = bj._jobs.get(job_id)
+                job = job_table._jobs.get(job_id)
                 if job is None:
                     _pending.discard(job_id)
                     _last_write.pop(job_id, None)
@@ -271,7 +271,7 @@ def _retry_pending(deadline):
                 token = _last_write.setdefault(job_id, next(_tokens))
                 batch.append((job_id, job, token, dict(job), _result_json(job_id, job)))
         finally:
-            bj._lock.release()
+            job_table._lock.release()
         again = False
         for job_id, job, token, copy, result_json in batch:
             if deadline is not None and time.monotonic() >= deadline:
@@ -282,11 +282,11 @@ def _retry_pending(deadline):
                 error = None
             except Exception as exc:
                 error = exc
-            if not _acquire(bj._lock, deadline):
+            if not _acquire(job_table._lock, deadline):
                 return
             sync_error = None
             try:
-                current = bj._jobs.get(job_id)
+                current = job_table._jobs.get(job_id)
                 if current is None:
                     pass   # still owed: settled below, once its row is dropped
                 elif current is not job or _last_write.get(job_id) != token:
@@ -301,33 +301,33 @@ def _retry_pending(deadline):
                     if not _is_lock_error(error):
                         sync_error = job["sync_error"]
             finally:
-                bj._lock.release()
+                job_table._lock.release()
             if current is None:
                 _drop_cleared_row(job_id, copy)
                 # Owed until the row is gone: until then owner_gone must not
                 # read this process's row as an earlier server's to close.
-                if not _acquire(bj._lock, deadline):
+                if not _acquire(job_table._lock, deadline):
                     return
                 try:
-                    if job_id not in bj._jobs:
+                    if job_id not in job_table._jobs:
                         _pending.discard(job_id)
                         _last_write.pop(job_id, None)
                 finally:
-                    bj._lock.release()
+                    job_table._lock.release()
             if sync_error:
                 _store_sync_error(job_id, sync_error, deadline)
-                if not _acquire(bj._lock, deadline):
+                if not _acquire(job_table._lock, deadline):
                     return
                 try:
                     # A transition that landed before the UPDATE above had
                     # its cleared sync_error overwritten by this older one;
                     # a full rewrite puts the row back in step.
-                    if job_id in bj._jobs and _last_write.get(job_id) != token:
+                    if job_id in job_table._jobs and _last_write.get(job_id) != token:
                         _pending.add(job_id)
                         again = True
                 finally:
-                    bj._lock.release()
-            bj._emit_change(job_id)
+                    job_table._lock.release()
+            job_table._emit_change(job_id)
             if error is not None and _is_lock_error(error):
                 return
         if not again:
@@ -351,6 +351,7 @@ def owner_gone(record: dict) -> bool:
     fall back to the heartbeat cutoff. Callers have already checked the job
     isn't live in this process."""
     import background_jobs as bj
+    from jobs import job_table
     pid = record.get("owner_pid")
     if pid is None:
         return False
@@ -358,7 +359,7 @@ def owner_gone(record: dict) -> bool:
         # A write still owed here means the row is this run's, not an
         # earlier server's with the same pid: the retry (or clear_job's
         # delete) settles it, and closing it here would race them.
-        with bj._lock:
+        with job_table._lock:
             return record.get("job_id") not in _pending
     return not bj.owner_process_alive(pid)
 
@@ -432,10 +433,11 @@ def sweep_dead_owners(stale_seconds: float) -> int:
     """Closes every queued/running row that is not live in this process and
     whose owner is gone (close_if_owner_gone) or has not heartbeated for
     `stale_seconds`. Also marks this process's own running jobs whose
-    worker thread is gone (background_jobs.reconcile_dead_workers). Returns
+    worker thread is gone (job_runner.reconcile_dead_workers). Returns
     how many rows it closed."""
     import background_jobs as bj
-    bj.reconcile_dead_workers()
+    from jobs import job_runner
+    job_runner.reconcile_dead_workers()
     cutoff = time.time() - stale_seconds
     closed = 0
     for rec in db.list_job_records():
@@ -460,6 +462,7 @@ def fresh_active(job_ids=None, prefix=None, exclude=None) -> bool:
     to `job_ids` and/or an id `prefix`; `exclude` is one id never counted
     (a job asking about the others)."""
     import background_jobs as bj
+    from jobs import job_table
     wanted = set(job_ids) if job_ids is not None else None
 
     def matches(job_id):
@@ -470,7 +473,7 @@ def fresh_active(job_ids=None, prefix=None, exclude=None) -> bool:
     if any(matches(jid) and job.get("status") in ACTIVE
            for jid, job in bj.list_all_jobs().items()):
         return True
-    cutoff = time.time() - bj.STALE_JOB_SECONDS
+    cutoff = time.time() - job_table.STALE_JOB_SECONDS
     # job_records keeps every job ever run, so a few known ids are cheaper read
     # one by one; a drama's ~50 possible job ids are not.
     records = (filter(None, map(db.get_job_record, sorted(wanted)))
@@ -524,23 +527,23 @@ def flush_at_exit() -> None:
     A hard kill skips it; the next start's sweep (sweep_dead_owners) closes
     those rows instead."""
     global _flushed
-    import background_jobs as bj
+    from jobs import job_table
     import job_force_stop
     _flushed = True
     deadline = time.monotonic() + EXIT_FLUSH_SECONDS
     retry_pending(deadline)
     # A daemon worker can hold the lock while the interpreter exits.
-    if not _acquire(bj._lock, deadline):
+    if not _acquire(job_table._lock, deadline):
         return
     try:
-        active = [j for j, job in bj._jobs.items() if job.get("status") in ACTIVE]
+        active = [j for j, job in job_table._jobs.items() if job.get("status") in ACTIVE]
         # ui:<id> names no instance: only a running job here holds its slot.
-        gpu_holders = {f"ui:{j}" for j in active if bj._jobs[j]["status"] == "running"
-                       and bj._jobs[j].get("gpu_touching")}
+        gpu_holders = {f"ui:{j}" for j in active if job_table._jobs[j]["status"] == "running"
+                       and job_table._jobs[j].get("gpu_touching")}
         gpu_holders |= {f"ui:{j}" for j in list(job_force_stop._abandoned)
                         if job_force_stop.abandoned_alive_locked(j)}
     finally:
-        bj._lock.release()
+        job_table._lock.release()
     if not active and not gpu_holders:
         return
     try:
