@@ -66,7 +66,7 @@ def test_the_registry_offers_both_paddle_packages():
 
 
 def test_a_plan_without_a_preview_still_discloses_the_removal(monkeypatch):
-    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: (None, "offline"))
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: (None, "offline"))
     p = plan_mod.build_plan(["paddleocr"], windows=False,
                             installed={**APP_ENV, "opencv-python": "4.10.0.84"})
     assert p["swap"] == ["opencv-python"] and p["summary"][0].startswith("Remove opencv-python first")

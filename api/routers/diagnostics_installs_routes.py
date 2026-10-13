@@ -13,6 +13,9 @@ services/diagnostics_installs_service.py):
   returns the job id at once (409 while any job, restore, reset, cleanup or
   install runs); the job holds the library exclusively until it ends or is
   cancelled, and puts the earlier packages back if pip fails or is cancelled. The latest state is `admin.diagnostics`.
+- Package upgrade: the same job, plan and refusals as the install, for
+  the `target` the last update check offered (409 when it no longer says
+  so). Its plan route previews exactly that pip command.
 - Deno, the JavaScript runtime yt-dlp needs. Status is
   `admin.diagnostics`; the install is `local_only()` + confirm=true, 409
   while any job, restore, cleanup or install runs. The download URL comes
@@ -37,7 +40,8 @@ from api.diagnostics_install_schemas import (DiagnosticsCudaRuntimeStatus,
                                              DiagnosticsUpgradeCheckRequest,
                                              DiagnosticsUpgradeCheckState)
 from api.schemas import (DiagnosticsDependencyInstallRequest,
-                         DiagnosticsGpuTorchSetupRequest, ErrorResponse)
+                         DiagnosticsGpuTorchSetupRequest, DiagnosticsUpgradePlanRequest,
+                         DiagnosticsUpgradeRequest, ErrorResponse, PendingInstallPlan)
 from services import cuda_runtime_service
 from services import diagnostics_installs_service as svc
 
@@ -63,6 +67,28 @@ def get_dependency_install():
 def post_install(body: DiagnosticsDependencyInstallRequest,
                  package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
     return svc.start_dependency_install(package, confirm=body.confirm,
+                                        accept_risk=body.accept_risk,
+                                        accepted_risks=body.accepted_risks)
+
+
+@router.post("/dependencies/{package}/upgrade/plan", dependencies=[local_only()],
+             response_model=PendingInstallPlan,
+             summary="PC only: preview what upgrading a package to the update check's target "
+                     "would change (pip --dry-run)",
+             responses=_ERRS)
+def post_upgrade_plan(body: DiagnosticsUpgradePlanRequest,
+                      package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
+    return svc.preview_upgrade(package, target=body.target)
+
+
+@router.post("/dependencies/{package}/upgrade", dependencies=[local_only()],
+             response_model=DiagnosticsJobStarted,
+             summary="PC only: upgrade a whitelisted optional package to the update check's "
+                     "target as a background job (confirm=true)",
+             responses=_ERRS)
+def post_upgrade(body: DiagnosticsUpgradeRequest,
+                 package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
+    return svc.start_dependency_upgrade(package, target=body.target, confirm=body.confirm,
                                         accept_risk=body.accept_risk,
                                         accepted_risks=body.accepted_risks)
 
