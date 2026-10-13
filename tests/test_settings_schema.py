@@ -59,7 +59,7 @@ DYNAMIC_KEYS = {
         "title-scoped: the auto-shorten pass for one drama",
     ("services/glossary_name_report_service.py", "_marks_setting(principal)"):
         "glossary.name_marks.<person>: one person's right/wrong/skip marks on the name check",
-    ("services/maintenance_assistant_service.py", "_SETTINGS_PREFIX + key"):
+    ("services/assistant_settings_service.py", "_SETTINGS_PREFIX + key"):
         "assistant.<name>: names are checked against the schema below",
     ("services/assistant_github_service.py", "_SETTINGS_PREFIX + key"):
         "assistant.github.<name>: names are checked against the schema below",
@@ -206,7 +206,7 @@ class TestEveryKeyIsDeclared:
         assert literals and literals <= names, literals - names
 
     @pytest.mark.parametrize("rel,prefix", [
-        ("services/maintenance_assistant_service.py", "assistant."),
+        ("services/assistant_settings_service.py", "assistant."),
         ("services/assistant_github_service.py", "assistant.github."),
     ])
     def test_assistant_keys_are_rows(self, rel, prefix):
