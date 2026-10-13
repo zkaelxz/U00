@@ -604,8 +604,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     check_whisper_size_for_language(whisper_size, source_language)
     beam_size = drama.get("beam_size") or _DEFAULT_TUNING["beam_size"]
     min_silence_ms = drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"]
-    # Difficult audio runs with the Sensitive preset; a threshold the title changed still wins.
-    run_row = presets.difficult_audio_view(drama)
+    # Difficult audio runs with the Sensitive preset (a threshold the title changed still wins),
+    # but only when the app transcribes the audio itself: a supplied transcript or Groq
+    # ignores the option, and the worker says so in the result.
+    run_row = (presets.difficult_audio_view(drama)
+               if transcript_mode == "whisper" and not drama.get("use_groq") else drama)
     vad_threshold = timing_settings_service.vad_threshold_for(run_row)
     preset = presets.normalize(run_row.get("sensitivity_preset"))
     hallucination_silence_sec = stored_hallucination_silence_sec(drama)

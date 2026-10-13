@@ -3,6 +3,7 @@ preset, and a relaxed Whisper skip rule. A title without it must run exactly as 
 import inspect
 import os
 import queue
+import sys
 import tempfile
 
 import pytest
@@ -138,7 +139,7 @@ def worker(monkeypatch, tmp_path):
     state = {"levelled": [], "pipeline": [], "scratch": str(tmp_path / "scratch")}
 
     def fake_level(src, out, cancel=None, **k):
-        state["levelled"].append((src, out, cancel))
+        state["levelled"].append((src, out, cancel, k.get("own_group")))
         with open(out, "wb") as f:
             f.write(b"x")
         return out
@@ -177,7 +178,7 @@ class TestWorker:
 
     def test_the_pipeline_gets_the_levelled_copy_not_the_stored_file(self, worker, tmp_path):
         worker["run"](True, timing={"difficult_no_speech_threshold": 0.9})
-        (src, out, cancel), = worker["levelled"]
+        (src, out, cancel, _group), = worker["levelled"]
         assert src == str(tmp_path / "stored.wav")
         assert os.path.dirname(out) == worker["scratch"] and out != src and callable(cancel)
         audio_path, kwargs, existed = worker["pipeline"][0]
@@ -244,7 +245,7 @@ class TestWhisperKwargs:
         timing = {"a": 1}
         assert difficult_audio_service.mark(timing, {"difficult_audio": 0}) is timing
         assert difficult_audio_service.mark(timing, {"difficult_audio": 1}) == {
-            "a": 1, difficult_audio_service.FLAG: True}
+            "a": 1, difficult_audio_service.FLAG: True, difficult_audio_service.NO_LEVELLING: False}
         assert timing == {"a": 1}
 
 
@@ -278,3 +279,108 @@ class TestPipeline:
         seen = self._run(tmp_path, monkeypatch, timing=timing)
         assert seen["difficult_audio"] is True
         assert (seen["no_speech_threshold"], seen["log_prob_threshold"]) == (0.9, -2.0)
+
+
+# --- the other parts of a run that is not Whisper-on-the-audio -----------------
+
+class TestOtherRuns:
+    @pytest.mark.parametrize("fields", [{"transcript_mode": "have_transcript"}, {"use_groq": 1}])
+    def test_a_run_that_ignores_the_option_keeps_the_normal_detector(self, isolated_db, monkeypatch, fields):
+        monkeypatch.setattr(transcribe_service.settings_service, "resolve_key",
+                            lambda key, env_path=None: "gsk_x" if key == "groq" else None)
+        did = _title(isolated_db, difficult_audio=1, **fields)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did, transcript_text="hello")
+        assert captured["sensitivity_preset"] == "normal" and captured["vad_threshold"] == 0.5
+        # The worker still says it was ignored.
+        assert captured["timing"][difficult_audio_service.FLAG] is True
+
+    def test_separate_vocals_first_keeps_the_separation_input_original(self, worker, isolated_db):
+        timing = difficult_audio_service.mark({}, {"difficult_audio": 1, "separate_vocals_first": 1})
+        items = worker["run"](True, timing=timing)
+        assert worker["levelled"] == []
+        audio_path, kwargs, _ = worker["pipeline"][0]
+        assert difficult_audio_service.whisper_kwargs(kwargs["timing"])      # the other parts still apply
+        assert "Separate vocals first is on" in items[-1][1]["coverage_warning"]
+
+    def test_levelling_runs_in_the_workers_process_group(self, worker):
+        worker["run"](True)
+        assert worker["levelled"][0][3] is False
+
+    def test_a_levelling_failure_never_fails_the_job(self, worker, monkeypatch):
+        def broken(src, out, cancel=None, **k):
+            raise audio_preprocess.AudioLevelingUnavailable("ffmpeg could not be started, so the audio was not levelled.")
+        monkeypatch.setattr(audio_preprocess, "level_audio", broken)
+        items = worker["run"](True)
+        assert items[-1][0] == "ok" and "could not be started" in items[-1][1]["coverage_warning"]
+
+
+# --- killing the job takes the levelling ffmpeg with it ------------------------
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"),
+                    reason="checks the worker's processes through /proc")
+class TestKillingTheJob:
+    def _fake_ffmpeg(self, tmp_path, monkeypatch):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        marker = tmp_path / "ffmpeg.pid"
+        script = bin_dir / "ffmpeg"
+        # exec: the recorded pid is the process ffmpeg would be, with no shell left over.
+        script.write_text(f'#!/bin/sh\necho $$ > "{marker}.tmp"\nmv "{marker}.tmp" "{marker}"\nexec sleep 120\n')
+        script.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+        return marker
+
+    def test_cancel_kills_ffmpeg_and_the_scratch_folder_goes(self, isolated_db, monkeypatch, tmp_path):
+        from tests import test_transcribe_service as tts
+        marker = self._fake_ffmpeg(tmp_path, monkeypatch)
+        did = _title(isolated_db, difficult_audio=1)
+        job_id = f"transcribe_{did}"
+        tts._clear(job_id)
+        monkeypatch.setattr(sys.modules[tts.__name__], "_PARENT_ONLY_PROBE", True)
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_worker", __import__("functools").partial(
+            tts._spawned_worker, ("two_lines", isolated_db.LIBRARY_DIR, None)))
+        made = []
+        real_new = transcribe_service.storage.new_workdir
+        monkeypatch.setattr(transcribe_service.storage, "new_workdir",
+                            lambda job_id=None: made.append(real_new(job_id)) or made[-1])
+
+        transcribe_service.start_transcribe_run(did)
+        assert tts._wait_until(lambda: marker.exists(), timeout=60)
+        ffmpeg_pid = int(marker.read_text())
+        assert not tts._process_gone(ffmpeg_pid)
+
+        background_jobs.request_cancel(job_id)
+        assert tts._wait_finished(job_id, timeout=10)["status"] == "cancelled"
+        assert tts._wait_until(lambda: tts._process_gone(ffmpeg_pid))
+        assert tts._wait_until(lambda: not os.path.exists(made[0]))
+        tts._clear(job_id)
+
+    def test_an_abandoned_levelling_folder_is_swept_at_startup(self, isolated_db):
+        import storage
+        scratch = storage.new_workdir("transcribe_999")
+        copy = os.path.join(scratch, difficult_audio_service.LEVELLED_NAME)
+        open(copy, "wb").write(b"x")
+        old = os.stat(scratch).st_mtime - 2 * 24 * 3600
+        os.utime(scratch, (old, old))
+        assert storage.sweep_library_temp()["removed"] >= 1
+        assert not os.path.exists(scratch)
+
+
+class TestProcOwnGroup:
+    @pytest.mark.skipif(os.name == "nt", reason="process groups are POSIX")
+    def test_the_child_stays_in_the_callers_group_and_is_still_killed_on_timeout(self):
+        import sys as _sys
+        from lib import proc
+        code = "import os,sys;print(os.getpgid(0));sys.stdout.flush();import time;time.sleep(30)"
+        start = __import__("time").monotonic()
+        run = proc.run_captured([_sys.executable, "-c", code], timeout=1.0, own_group=False)
+        assert run.timed_out and __import__("time").monotonic() - start < 10
+        assert int(run.stdout.split()[0]) == os.getpgid(0)
+
+    @pytest.mark.skipif(os.name == "nt", reason="process groups are POSIX")
+    def test_the_default_still_gets_a_group_of_its_own(self):
+        import sys as _sys
+        from lib import proc
+        run = proc.run_captured([_sys.executable, "-c", "import os;print(os.getpgid(0))"], timeout=20)
+        assert int(run.stdout.split()[0]) != os.getpgid(0)

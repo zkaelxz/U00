@@ -779,6 +779,22 @@ class TestDifficultAudioSkipRule:
         self._run(OnlyLogProb, difficult_audio=True)
         assert seen == {"log_prob_threshold": -1.5}
 
+    def test_the_sensitivity_preset_argument_reaches_the_decode_settings(self, monkeypatch):
+        import sensitivity_preset
+        given = []
+        real = sensitivity_preset.decode_kwargs
+        monkeypatch.setattr(sensitivity_preset, "decode_kwargs",
+                            lambda preset, *a, **k: given.append(preset) or real(preset, *a, **k))
+        seen = {}
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([]), None
+        self._run(Model, sensitivity_preset="sensitive", difficult_audio=True)
+        assert given == ["sensitive"]
+        assert "no_repeat_ngram_size" not in seen and "repetition_penalty" not in seen
+
     def test_fast_mode_keeps_the_batched_pipelines_own_rule(self, monkeypatch):
         import sys, types
         seen = {}

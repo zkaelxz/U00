@@ -882,6 +882,44 @@ class TestLevelAudio:
             audio_preprocess.level_audio("a.wav", out)
         assert not os.path.exists(out)
 
+    def test_a_worker_keeps_ffmpeg_in_its_own_process_group(self, ffmpeg, tmp_path):
+        audio_preprocess.level_audio("a.wav", str(tmp_path / "o.wav"), own_group=False)
+        assert ffmpeg[0][2]["own_group"] is False
+        audio_preprocess.level_audio("a.wav", str(tmp_path / "o2.wav"))
+        assert ffmpeg[1][2]["own_group"] is True
+
+    def test_an_ffmpeg_that_cannot_start_is_a_plain_unavailable(self, monkeypatch, tmp_path):
+        from lib import proc
+        out = str(tmp_path / "out.wav")
+        monkeypatch.setattr(audio_preprocess.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+        def fake_run(cmd, timeout, **kw):
+            raise PermissionError(13, "Permission denied: '/usr/bin/ffmpeg'")
+        monkeypatch.setattr(proc, "run_captured", fake_run)
+        with pytest.raises(audio_preprocess.AudioLevelingUnavailable) as caught:
+            audio_preprocess.level_audio("a.wav", out)
+        assert "could not be started" in str(caught.value) and "/usr/bin" not in str(caught.value)
+        assert not os.path.exists(out)
+
+    def test_too_little_disk_space_skips_levelling_before_ffmpeg_runs(self, monkeypatch, tmp_path):
+        import media_inspect
+        from lib import proc
+        monkeypatch.setattr(audio_preprocess.shutil, "which", lambda name: "ffmpeg")
+        monkeypatch.setattr(media_inspect, "run_ffprobe", lambda path, timeout: {"format": {"duration": "7200"}})
+        monkeypatch.setattr(audio_preprocess.shutil, "disk_usage",
+                            lambda path: types.SimpleNamespace(free=100 * 1024 * 1024))
+        monkeypatch.setattr(proc, "run_captured", lambda *a, **k: pytest.fail("ran ffmpeg"))
+        with pytest.raises(audio_preprocess.AudioLevelingUnavailable, match="not enough free disk space"):
+            audio_preprocess.level_audio("a.wav", str(tmp_path / "out.wav"))
+
+    def test_enough_disk_space_for_two_hours_lets_it_run(self, ffmpeg, monkeypatch, tmp_path):
+        import media_inspect
+        monkeypatch.setattr(media_inspect, "run_ffprobe", lambda path, timeout: {"format": {"duration": "7200"}})
+        monkeypatch.setattr(audio_preprocess.shutil, "disk_usage",
+                            lambda path: types.SimpleNamespace(free=3 * 1024 ** 3))
+        out = str(tmp_path / "out.wav")
+        assert audio_preprocess.level_audio("a.wav", out) == out
+
     @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
     def test_real_ffmpeg_lifts_quiet_speech_without_clipping_loud_speech(self, tmp_path):
         import math

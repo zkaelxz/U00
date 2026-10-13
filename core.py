@@ -623,8 +623,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     apply. The hallucination filters below still run on what comes back.
     """
     # Imported here: db.py's import check copies core.py alone into a temp folder.
-    import sensitivity_preset
-    from sensitivity_preset import decode_kwargs
+    from sensitivity_preset import (DIFFICULT_LOG_PROB_THRESHOLD, DIFFICULT_NO_SPEECH_THRESHOLD,
+                                    decode_kwargs)
     model = whisper_models.load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
     kwargs = {
@@ -643,9 +643,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         # Each is passed only to a faster-whisper that knows it, like the one above; the
         # batched pipeline of fast mode is a different method that is not probed here.
         relaxed = {
-            "no_speech_threshold": (sensitivity_preset.DIFFICULT_NO_SPEECH_THRESHOLD
+            "no_speech_threshold": (DIFFICULT_NO_SPEECH_THRESHOLD
                                     if no_speech_threshold is None else no_speech_threshold),
-            "log_prob_threshold": (sensitivity_preset.DIFFICULT_LOG_PROB_THRESHOLD
+            "log_prob_threshold": (DIFFICULT_LOG_PROB_THRESHOLD
                                    if log_prob_threshold is None else log_prob_threshold)}
         kwargs.update({k: float(v) for k, v in relaxed.items() if _accepts_transcribe_kwarg(model, k)})
 

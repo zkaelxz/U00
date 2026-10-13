@@ -633,12 +633,15 @@ faster-whisper. On, a transcription does three things:
 1. **Sensitive detector.** The title runs with the Sensitive preset (`sensitivity_preset.difficult_audio_view`): Whisper's detector threshold drops
    from 0.5 to 0.35 and the repeat penalties go, as for Sensitivity = sensitive. A VAD threshold the title changed still wins. Min silence is not part of
    the preset and is left as the title has it (the 300 ms default is already short; lowering it cuts sentences).
-2. **Levelled temporary copy.** `audio_preprocess.level_audio` runs one ffmpeg call (`lib.proc.run_captured`: own process group, timeout, killed
-   with the job) with `dynaudnorm=f=150:g=5:p=0.9:m=8` into a 16 kHz mono WAV in the job's scratch folder in the library temp folder. The stored audio is never
-   touched; the copy is removed when the worker ends however it ends, and the parent removes the scratch folder too. dynaudnorm levels frame by frame and caps
+2. **Levelled temporary copy.** `audio_preprocess.level_audio` runs one ffmpeg call (`lib.proc.run_captured`, timeout, polled cancel) with
+   `dynaudnorm=f=150:g=5:p=0.9:m=8` into a 16 kHz mono WAV in the job's scratch folder in the library temp folder. The stored audio is never
+   touched. The worker is killed as a whole process group on a cancel, so ffmpeg is started with `own_group=False` to stay in that group
+   (a child in a group of its own would survive the kill; on Windows `taskkill /T` walks the process tree, which covers it either way). The parent removes the
+   scratch folder when the job ends, and the startup sweep removes one a crash left. dynaudnorm levels frame by frame and caps
    the gain at 8x, so a whisper after a scream is lifted within about a second and silence is not pumped into something the detector takes for speech;
    loudnorm was measured on a quiet/loud test tone and also levels, but has no gain cap, works at 192 kHz internally and its accurate mode is a single gain for the
-   whole file. Without ffmpeg, or if it fails, the original is transcribed and the job's coverage warning says so.
+   whole file. The copy needs about 115 MB per hour of audio. If ffmpeg is missing, cannot start or fails, the disk is short of room, or
+   Separate vocals first is on (the separation model should hear the original), the original is transcribed and the job's warning says why. The other two parts still apply.
 3. **Relaxed Whisper skip rule.** `no_speech_threshold` and `log_prob_threshold` are passed to faster-whisper only when it accepts them
    (`core._accepts_transcribe_kwarg`; not in Whisper fast mode, whose batched pipeline is not probed). Whisper drops a stretch whose no-speech probability is above the first number unless its average word confidence is above
    the second; faster-whisper's defaults are 0.6 and -1.0, and the recipe uses 0.8 and -1.5. Both are Developer Mode rows in Settings > Timing and
@@ -654,4 +657,4 @@ Which recipe honours which part:
 | `qwen3_asr_vad`, `qwen3_asr_long`, `anime_whisper` | yes | no (own detector) | no (not Whisper) |
 | Groq, or a supplied transcript | ignored, with a note in the job result | | |
 
-Not covered: re-transcribing selected lines, the fix-flag and compare runs and auto-tune use the title's Sensitivity and defaults as before.
+A supplied transcript or Groq ignores the option, including the detector preset. Not covered: re-transcribing selected lines, the fix-flag and compare runs and auto-tune use the title's Sensitivity and defaults as before.
