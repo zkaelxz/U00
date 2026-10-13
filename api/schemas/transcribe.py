@@ -2,7 +2,7 @@
 diarization, autotune, re-transcribe and live sessions.
 """
 
-from typing import Annotated, Dict, List, Literal, Optional
+from typing import Annotated, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
@@ -18,6 +18,9 @@ __all__ = [
     "TranscribeConfigUpdate",
     "TranscribeRunRequest",
     "TranscribeRunResult",
+    "AsrAdvice",
+    "AsrAdviceNote",
+    "AsrAdviceRequest",
     "LiveSessionStart",
     "LiveSessionStarted",
     "LiveCue",
@@ -252,6 +255,35 @@ class TranscribeRunRequest(BaseModel):
     initial_prompt: str = ""
     extra_names: str = Field("", max_length=1000)
     tesseract_cmd: Optional[str] = None
+
+
+class AsrAdviceRequest(BaseModel):
+    """The choices on the Transcribe form (or a finished run's recorded settings), sent as query
+    parameters: a read-only question, so it is a GET."""
+    language: str = Field("", max_length=16)
+    media_type: str = Field("", max_length=32)
+    asr_backend: str = Field("whisper", max_length=32)
+    whisper_size: str = Field("", max_length=32)
+    separate_vocals_first: bool = False
+    whisper_fast_mode: bool = False
+    use_groq: bool = False
+    has_transcript: bool = False
+    alignment_method: str = Field("", max_length=32)
+    use_gpu: Optional[bool] = None
+    # False for a run that already finished: what is installed now says nothing about it.
+    check_environment: bool = True
+
+
+class AsrAdviceNote(BaseModel):
+    id: str
+    severity: Literal["tip", "warn", "blocked"]
+    text: str
+    # Plain setting changes (config field -> value), or None when the fix is not one.
+    fix: Optional[Dict[str, Union[str, bool]]] = None
+
+
+class AsrAdvice(BaseModel):
+    notes: List[AsrAdviceNote]
 
 
 class TranscribeRunResult(BaseModel):

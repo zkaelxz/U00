@@ -156,6 +156,25 @@ Leave it off unless the background is music alone; the Transcribe stage says so.
 Backend `auto` tries Mel-Band RoFormer (`audio-separator`) first and falls back to
 Demucs. RoFormer was very slow on 4 CPU cores in one timing (see the snapshot).
 
+## Do not combine
+
+The notes the Transcribe form and a finished run's details show, from `services/transcribe_options_service._ADVICE_RULES` (`tests/test_asr_advice.py` keeps this table in step with them).
+
+| Note | Severity | Text |
+|---|---|---|
+| `groq_no_key` | blocked | Groq is on but no Groq key is saved. |
+| `whisper_missing` | blocked | Whisper is not installed, so this run cannot start. |
+| `anime_whisper_language` | blocked | Anime-whisper is for Japanese only. |
+| `ja_model_language` | blocked | This Whisper model is for Japanese only. |
+| `qwen_long_audio` | warn | Qwen3 ASR on long audio gives no word timings, fewer lines and "Timing uncertain · Split evenly" flags. Use Whisper. |
+| `forced_align_needs_transcript` | warn | Qwen3 forced alignment needs a transcript to line up; without one it is not used. |
+| `ja_15b_needs_gpu` | warn | Whisper ja-1.5B needs a GPU and is meant for anime and games. |
+| `weak_whisper_size` | warn | Whisper small and medium read worse than large-v3. |
+| `separate_vocals` | warn | Separate vocals first can drop quiet speech. Use it only if background music makes Whisper invent text, and compare line counts. |
+| `fast_mode` | warn | Fast mode gives fewer, longer lines and a higher error rate. |
+| `anime_whisper_scope` | tip | Anime-whisper is Japanese only, for ASMR and vocalisations, and its licence is non-commercial. |
+| `ja_15b_scope` | tip | Whisper ja-1.5B is meant for anime and games. |
+
 ## Which Whisper model to pick
 
 Default `large-v3`, by the owner's choice: on his streamer comparisons it reads better
