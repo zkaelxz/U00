@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
-import bulk_translate
+import bulk_poll
 import db
 import resegment
 import source_change
@@ -400,7 +400,7 @@ class TestTranslateClears:
         _answer_every_request(engine.client.messages.batches)
         engine.client.messages.batches.status = "ended"
         provider = bulk_providers.make_provider("claude", engine)
-        assert bulk_translate.check_once(bulk_id, provider) == "applied"
+        assert bulk_poll.check_once(bulk_id, provider) == "applied"
         assert [(r["en"], r["flag"]) for r in db.load_lines(did)] == [
             ("EN[第0句]", None), ("EN[第1句]", None)]
 

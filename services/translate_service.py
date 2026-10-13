@@ -13,7 +13,7 @@ import threading
 import types
 from typing import Optional
 
-import bulk_translate
+import translation_finish
 import db
 import translate_engines
 from engine_backends import paid_calls
@@ -334,10 +334,10 @@ def sync_translation_status(drama_id: int) -> None:
     can fill the last blank or open a new one (a line added, an English
     blanked). Only those two statuses move: "dubbed" and "exported" were built
     from the lines as they were."""
-    bulk_translate.mark_translated_if_complete(drama_id)
+    translation_finish.mark_translated_if_complete(drama_id)
     drama = db.get_drama(drama_id)
     if drama and drama.get("status") == "translated" \
-            and bulk_translate.untranslated_line_count(drama_id):
+            and translation_finish.untranslated_line_count(drama_id):
         db.set_status_if(drama_id, "translated", "aligned")
 
 

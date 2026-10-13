@@ -11,7 +11,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 import background_jobs
-import bulk_translate
+import translation_finish
 import cli_translate
 import db
 import subtitle_formats
@@ -355,14 +355,14 @@ class TestOwnLinesOnly:
     def test_edit_after_the_save_gets_no_exact_term_substitution(self, isolated_db, monkeypatch):
         did, sid, rows = _seed([("林晚", "machine")], terms=[LIN])
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="Lynn", enforce_exact=True)
-        real_finish = bulk_translate.finish_translation_run
+        real_finish = translation_finish.finish_translation_run
         edited = []
 
         def finish(drama_id, lines, *a, **kw):
             edited.append(db.update_line_fields_if(drama_id, rows[0]["id"], {"en": "Lynn waves"},
                                                    {"en": "[TEST] 林晚"}))
             return real_finish(drama_id, lines, *a, **kw)
-        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                              engine_name="fake")["job_id"])
@@ -373,7 +373,7 @@ class TestOwnLinesOnly:
             self, isolated_db, monkeypatch):
         did, sid, rows = _seed([("林晚", "machine")], terms=[LIN])
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="Lynn", enforce_exact=True)
-        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        real_finish, real_load = translation_finish.finish_translation_run, db.load_line_objects
         edited = []
 
         def load_then_edit(drama_id, *a, **kw):
@@ -387,7 +387,7 @@ class TestOwnLinesOnly:
         def finish(*a, **kw):
             monkeypatch.setattr(db, "load_line_objects", load_then_edit)
             return real_finish(*a, **kw)
-        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                              engine_name="fake")["job_id"])
@@ -423,7 +423,7 @@ class TestOwnLinesOnly:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)
         monkeypatch.setattr(subtitle_formats, "flag_dense_lines", flag_all)
-        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        real_finish, real_load = translation_finish.finish_translation_run, db.load_line_objects
         edited = []
 
         def load_then_edit(drama_id, *a, **kw):
@@ -438,7 +438,7 @@ class TestOwnLinesOnly:
         def finish(*a, **kw):
             monkeypatch.setattr(db, "load_line_objects", load_then_edit)
             return real_finish(*a, **kw)
-        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                                    engine_name="fake")["job_id"])
@@ -467,7 +467,7 @@ class TestOwnLinesOnly:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)
         monkeypatch.setattr(subtitle_formats, "flag_dense_lines", flag_all)
-        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        real_finish, real_load = translation_finish.finish_translation_run, db.load_line_objects
         edited = []
 
         def load_then_edit(drama_id, *a, **kw):
@@ -479,7 +479,7 @@ class TestOwnLinesOnly:
         def finish(*a, **kw):
             monkeypatch.setattr(db, "load_line_objects", load_then_edit)
             return real_finish(*a, **kw)
-        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                                    engine_name="fake")["job_id"])
@@ -507,7 +507,7 @@ class TestOwnLinesOnly:
             return real_save(drama_id, lines, **kw)
         monkeypatch.setattr(db, "save_lines", spy)
         lines = db.load_line_objects(did)
-        bulk_translate.finish_translation_run(
+        translation_finish.finish_translation_run(
             did, lines, None, "fake", "", [], [],
             enforce_ids={rows[0]["id"]}, flags_needing_recheck=set())
         guarded = [kw for kw in calls if kw.get("only_if_unchanged")
@@ -527,7 +527,7 @@ class TestOwnLinesOnly:
         did, _sid, rows = _seed([("一", "one"), ("二", "two")], series=None)
         lines = db.load_line_objects(did)
         saved = []
-        save_cb, notes_cb, _kept = bulk_translate.own_lines_callbacks(did, lines, saved.extend)
+        save_cb, notes_cb, _kept = translation_finish.own_lines_callbacks(did, lines, saved.extend)
         # A Reflect critique arrives before its batch is saved.
         notes_cb([{"line_idx": ln.idx, "term": "", "note_type": "reflection",
                    "note": f"critique {ln.idx}"} for ln in lines])
