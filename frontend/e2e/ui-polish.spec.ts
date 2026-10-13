@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
+import { pickTab } from './tabPicker'
+
 // Shared-CSS regressions the owner circled: segmented pills, tab bars, flush-left card bodies, selects stretched
 // or overlapping in a table, and hover/dock layout shifts. Runs against the seeded API, at a PC and a phone width.
 
@@ -74,14 +76,20 @@ for (const width of WIDTHS) {
 
     test('Library tools: tab bar and card bodies are not clipped or flush left', async ({ page }) => {
       await page.goto('/#/library-tools')
+      // A phone shows five or more tabs as a picker; wider screens keep the tab row.
       const tabs = page.getByRole('tablist')
-      await expect(tabs).toBeVisible()
-      await expectNoClippedLabels(tabs)
+      const picker = page.locator('.ui-tab-picker-btn').first()
+      await expect(tabs.or(picker).first()).toBeVisible()
+      const asRow = await tabs.isVisible()
+      if (asRow) await expectNoClippedLabels(tabs)
+      else await expectInside(picker, page.locator('body'))
       for (const name of ['Organize', 'Storage', 'Activity']) {
-        await page.getByRole('tab', { name }).click()
-        await expectInside(page.getByRole('tab', { name }), tabs)
-        const bottom = await page.getByRole('tab', { name }).evaluate((t) => getComputedStyle(t).borderBottomWidth)
-        expect(bottom).toBe('0px')
+        await pickTab(page, name)
+        if (asRow) {
+          await expectInside(page.getByRole('tab', { name }), tabs)
+          const bottom = await page.getByRole('tab', { name }).evaluate((t) => getComputedStyle(t).borderBottomWidth)
+          expect(bottom).toBe('0px')
+        }
         if (name === 'Organize') continue
         // First visible text of the panel starts well inside the card edge.
         const panel = page.getByRole('tabpanel').filter({ visible: true })
