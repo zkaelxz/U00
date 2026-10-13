@@ -71,6 +71,8 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     setattr_(torch_svc, "setup_gpu_torch", refuse_torch_setup)
     # The install routes start a job; refuse before one exists.
     setattr_(installs, "start_dependency_install", refuse_pip)
+    setattr_(installs, "start_dependency_upgrade", refuse_pip)
+    setattr_(installs, "preview_upgrade", refuse_pip)      # its plan runs pip --dry-run
     setattr_(installs, "start_gpu_torch_setup", refuse_torch_setup)
     setattr_(packages_svc, "check_package_updates", refuse_network)
     setattr_(torch_svc, "check_gpu_torch", refuse_network)

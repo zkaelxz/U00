@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { applyAutotune, getAutotune, startAutotune } from '../../../api/autotuneGlossary'
 import { ApiError } from '../../../api/client'
 import { cancelJob } from '../../../api/jobs'
+import { cancelHint } from '../../../types/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { Section } from '../../../components/Section'
@@ -143,7 +144,7 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
                 {status.status === 'running' && fromStart && autotuneEta(elapsed, status.message) && ` · ${autotuneEta(elapsed, status.message)}`}
               </span>
             </span>
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status} onClick={cancel}>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status} title={cancelHint(status.job_id)} onClick={cancel}>
               Cancel
             </button>
           </p>

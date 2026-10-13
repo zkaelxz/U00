@@ -477,12 +477,13 @@ def _plan_busy() -> ConflictError:
                          "try again in a moment.")
 
 
-def _require_safe_plan(name: str, accept_risk: bool, accepted_risks):
+def _require_safe_plan(name: str, accept_risk: bool, accepted_risks, specs: list = None,
+                       restart_hint: str = "Queue it for the next start instead."):
     """The client's own preview is advisory: a direct POST must meet the same
     clash, downgrade and in-use checks before pip touches the environment.
     accept_risk covers only the risks the owner was shown (accepted_risks): a
     plan that gained one since the preview asks again."""
-    plan = install_plan.build_plan([name])
+    plan = install_plan.build_plan([name], specs=specs)
     if plan["blocked"]:
         raise admin_svc.AdminActionNotPossible(plan["blocked"][0])
     unseen = [r for r in plan["needs_confirm"] if r not in set(accepted_risks or ())]
@@ -490,8 +491,7 @@ def _require_safe_plan(name: str, accept_risk: bool, accepted_risks):
         raise PlanNeedsConfirm(" ".join(unseen or plan["needs_confirm"])
                                + " Confirm again to go ahead anyway.")
     if plan["mode"] == "restart":
-        raise InstallNeedsRestart(((plan["note"] or "") + " Queue it for the next start "
-                                   "instead.").strip())
+        raise InstallNeedsRestart(((plan["note"] or "") + " " + restart_hint).strip())
 
 
 def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool = False,
@@ -509,6 +509,39 @@ def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool
                                   accept_risk, accepted_risks)
 
 
+# Updates are not queued for the next start: that queue installs registry
+# keys, a no-op for an installed package.
+_UPGRADE_RESTART_HINT = "Restart Baihe and update it before anything uses it."
+
+
+def preview_upgrade(name: str, target: str = None) -> dict:
+    """The plan of exactly the pip command the update runs. 404/409/422 as
+    start_dependency_upgrade's checks."""
+    if name not in packages_svc.installable_packages():
+        raise admin_svc.AdminActionUnknownPackage("Unknown or non-installable package.")
+    specs = packages_svc.upgrade_specs(name, target)
+    with _plan_slot():
+        return pending_install_service._view(install_plan.build_plan(
+            [name], jobs_running=pending_install_service._jobs_running(), specs=specs))
+
+
+def start_dependency_upgrade(name: str, target: str = None, confirm: bool = False,
+                             accept_risk: bool = False, accepted_risks=None) -> dict:
+    """PC only. The update the last "Check for updates" allowed, as the
+    install job: the refusals of start_dependency_install (a read-only
+    install folder, a plan pip refuses, an unaccepted risk, files in use),
+    and on failure or Cancel every package pip moved is put back."""
+    admin_svc.guard(confirm)
+    if name not in packages_svc.installable_packages():
+        raise admin_svc.AdminActionUnknownPackage("Unknown or non-installable package.")
+    specs = packages_svc.upgrade_specs(name, target)
+    _require_writable_site_packages()
+    with _plan_slot():
+        _require_safe_plan(name, accept_risk, accepted_risks, specs=specs,
+                           restart_hint=_UPGRADE_RESTART_HINT)
+        return _start_install_job("upgrade", name, f"Updating {name}", name, specs)
+
+
 def start_cuda_runtime_install(confirm: bool = False) -> dict:
     """PC only. Installs CUDA_RUNTIME_PACKAGES (cuBLAS 12 and cuDNN 9 wheels)
     as one install job, with the refusals of start_dependency_install."""
@@ -521,6 +554,14 @@ def start_cuda_runtime_install(confirm: bool = False) -> dict:
 def _start_planned_install(kind: str, names: tuple, description: str, arg: str,
                            accept_risk: bool, accepted_risks) -> dict:
     _require_writable_site_packages()
+    with _plan_slot():
+        for name in names:
+            _require_safe_plan(name, accept_risk, accepted_risks)
+        return _start_install_job(kind, names[0], description, arg)
+
+
+@contextlib.contextmanager
+def _plan_slot():
     # The plan is only true of the environment it was made against: no
     # second plan, and no install or restore, may move it before the job holds it.
     if job_launch.exclusive_held() or not pending_install_service._PREVIEW_LOCK.acquire(
@@ -529,9 +570,7 @@ def _start_planned_install(kind: str, names: tuple, description: str, arg: str,
     try:
         if job_launch.exclusive_held():
             raise _plan_busy()
-        for name in names:
-            _require_safe_plan(name, accept_risk, accepted_risks)
-        return _start_install_job(kind, names[0], description, arg)
+        yield
     finally:
         pending_install_service._PREVIEW_LOCK.release()
 
@@ -552,11 +591,12 @@ def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
     return _start_install_job("gpu_torch", "torch", f"Setting up PyTorch ({variant})", variant)
 
 
-def _start_install_job(kind: str, package: str, description: str, arg: str) -> dict:
+def _start_install_job(kind: str, package: str, description: str, arg: str,
+                       specs: list = None) -> dict:
     # Started and labelled under one lock, as for the update test: the state
     # names a package only once its job really started.
     with _STATE_LOCK:
-        if not job_launch.start_job(DEPENDENCY_JOB_ID, _dependency_job, kind, arg,
+        if not job_launch.start_job(DEPENDENCY_JOB_ID, _dependency_job, kind, arg, specs,
                                          description=description):
             raise admin_svc.AdminActionJobsRunning(
                 "An install or a library restore is already running; try again when it ends.")
@@ -669,7 +709,9 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     return _redact(" ".join(parts))[:600]
 
 
-def _run_pip_step(kind: str, arg: str) -> dict:
+def _run_pip_step(kind: str, arg: str, specs: list = None) -> dict:
+    if kind == "upgrade":
+        return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
     if kind == "gpu_torch":
         return torch_svc.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
     if kind == "cuda_runtime":
@@ -697,7 +739,7 @@ def _pip_failed(kind: str, result: dict) -> bool:
     return not result["ok"] and not (kind == "gpu_torch" and result.get("verify") is not None)
 
 
-def _dependency_job(kind: str, arg: str):
+def _dependency_job(kind: str, arg: str, specs: list = None):
     with _STATE_LOCK:
         package = _DEPENDENCY["package"]
     failure = {"package": package, "ok": False, "output_tail": [], "hint": None}
@@ -709,7 +751,7 @@ def _dependency_job(kind: str, arg: str):
             # stopping part-way never leaves the environment half-replaced.
             before, skip = pending_install.snapshot(), _non_index_dists()
             try:
-                result = _run_pip_step(kind, arg)
+                result = _run_pip_step(kind, arg, specs)
             except Exception:
                 restore_note = _put_back(kind, before, skip)
                 raise

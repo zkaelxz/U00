@@ -7,7 +7,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStoredRun } from '../../../../hooks/useStoredRun'
-import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
+import { TERMINAL_STATUSES, cancelHint, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeManyResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import {
@@ -166,7 +166,7 @@ export function RetranscribeLines({
             <button type="button" onClick={() => start(selectedIds)} disabled={busy || applying || !!blocked}>
               {busy ? 'Re-transcribing…' : 'Re-transcribe selected'}
             </button>
-            {active && job && offersCancel(job, anyJob) && <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
+            {active && job && offersCancel(job, anyJob) && <button type="button" className={buttonClass('secondary', 'sm')} title={cancelHint(job.job_id)} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
           </div>
           {need ? <NeedsInstall need={need} /> : blocked && !busy && <p className="muted" data-testid="retranscribe-lines-blocked">{blocked}</p>}
           <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />

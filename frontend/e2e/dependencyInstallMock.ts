@@ -26,22 +26,24 @@ export async function mockDependencyInstall(
   opts: { hold?: Promise<void>; onStart?: (r: Request) => void } = {},
 ): Promise<InstallMock> {
   const mock: InstallMock = { started: [], cancelled: [] }
-  let current: { kind: 'package' | 'gpu_torch'; pkg: string } | null = null
+  let current: { kind: 'package' | 'upgrade' | 'gpu_torch'; pkg: string } | null = null
   let held = !!opts.hold
   let cancelRequested = false
   void opts.hold?.then(() => { held = false })
 
-  const start = (kind: 'package' | 'gpu_torch', pkg: string) => (route: { request(): Request; fulfill(o: object): Promise<void> }) => {
+  const start = (kind: 'package' | 'upgrade' | 'gpu_torch', pkg: string) => (route: { request(): Request; fulfill(o: object): Promise<void> }) => {
     mock.started.push(route.request())
     opts.onStart?.(route.request())
     current = { kind, pkg }
     cancelRequested = false
     return route.fulfill({ json: { job_id: 'dependency_install', started: true } })
   }
-  await page.route('**/api/diagnostics/dependencies/*/install', (route) => {
-    const pkg = decodeURIComponent(route.request().url().split('/dependencies/')[1].split('/')[0])
-    return start('package', pkg)(route)
-  })
+  for (const [action, kind] of [['install', 'package'], ['upgrade', 'upgrade']] as const) {
+    await page.route(`**/api/diagnostics/dependencies/*/${action}`, (route) => {
+      const pkg = decodeURIComponent(route.request().url().split('/dependencies/')[1].split('/')[0])
+      return start(kind, pkg)(route)
+    })
+  }
   await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch/setup', (route) => start('gpu_torch', 'torch')(route))
   await page.route((u) => u.pathname === '/api/jobs/dependency_install/cancel', (route) => {
     mock.cancelled.push(route.request())

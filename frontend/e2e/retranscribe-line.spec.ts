@@ -122,9 +122,9 @@ test('progress, then the raw proposal next to the text; "Use this" sends exactly
 })
 
 test('another line\'s run is ignored: no Cancel, no proposal', async ({ page }) => {
-  let got = false
   let polls = 0
-  const started = await mockRun(page, { proposed_zh: '别的', base_zh: '你好' }, () => { got = true })
+  // The finished run belongs to another line, so the server holds nothing for this one (a 404).
+  const started = await mockRun(page, null)
   await page.route('**/api/jobs/retranscribe_3', (route) => {
     if (!started()) return noJob(route)
     polls += 1
@@ -145,7 +145,6 @@ test('another line\'s run is ignored: no Cancel, no proposal', async ({ page }) 
   await expect.poll(() => polls, { timeout: 10_000 }).toBeGreaterThanOrEqual(3)
   await expect(box.getByRole('button', { name: 'Re-transcribe this line' })).toBeEnabled()
   await expect(box.getByTestId('retranscribe-proposal')).toHaveCount(0)
-  expect(got).toBe(false)
 })
 
 test('"Discard" drops the proposal without writing', async ({ page }) => {
