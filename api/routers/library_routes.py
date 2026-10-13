@@ -20,7 +20,7 @@ from api.schemas import (
     LibraryContinueResponse, LibraryDashboard, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
     LibraryRecentResponse, LibraryRename, LibrarySearchResponse, LibrarySeriesResponse,
     LibraryVoice, LibraryVoiceBankResponse)
-from services import library_service
+from services import library_service, novel_files_service
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -44,7 +44,7 @@ def to_detail(drama: dict) -> DramaDetail:
                        # Never the query: a pasted download link can carry a token.
                        source_url=library_service.display_source_url(drama.get("source_url")) or None,
                        has_audio=bool(drama.get("audio_filename")),
-                       has_novel_reference=bool(drama.get("novel_reference_filename")),
+                       has_novel_reference=novel_files_service.has_reference(drama["id"], drama),
                        has_cover_art=bool(drama.get("cover_art_filename")),
                        keep_original=bool(drama.get("keep_original")))
 
