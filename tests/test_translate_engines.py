@@ -2750,11 +2750,16 @@ class TestEstimateReflectModeCost:
         engine = te.ClaudeEngine.__new__(te.ClaudeEngine)
         engine.model = "claude-sonnet-5"
         lines = ["你好世界" * 10] * 5
-        chars = sum(len(z) for z in lines)
-        input_tokens = int(chars / 3.5) + 300
-        output_tokens = int(chars / 2.5)
-        expected_single = te.estimate_cost_for_engine(engine, input_tokens, output_tokens)
+        expected_single = te.estimate_cost_for_engine(engine, *te.estimate_translation_tokens(lines))
         assert te.estimate_reflect_mode_cost(engine, lines) == pytest.approx(expected_single * 3)
+
+    def test_every_batch_adds_the_instructions_again(self):
+        lines = ["你好"] * 100
+        one_request, _ = te.estimate_translation_tokens(lines)
+        five_batches, _ = te.estimate_translation_tokens(lines, batch_size=20)
+        fixed = (one_request - int(sum(len(z) for z in lines) / 3.5))
+        assert five_batches - one_request == 4 * fixed
+        assert fixed > 300  # the measured instruction text, not just the old flat allowance
 
     def test_free_tier_gemini_reflect_estimate_is_zero(self):
         engine = te.GeminiEngine("fake-key", free_tier=True)

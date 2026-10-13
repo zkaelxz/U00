@@ -5,6 +5,7 @@ from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
     ContentModerationBlocked,
     FreeTierDailyLimitReached,
+    TruncatedReply,
     _MAX_THROTTLE_WAIT_SECONDS,
     _add_usage,
     _cancellable_sleep,
@@ -203,7 +204,14 @@ class GeminiEngine:
             finish_reason = candidates[0].get("finishReason")
             if finish_reason in ("SAFETY", "PROHIBITED_CONTENT"):
                 raise ContentModerationBlocked("gemini", finish_reason)
-            return candidates[0]["content"]["parts"][0]["text"].strip()
+            parts = (candidates[0].get("content") or {}).get("parts") or []
+            text = "".join(p.get("text", "") for p in parts).strip()
+            if not text and finish_reason != "MAX_TOKENS":
+                # RECITATION, BLOCKLIST, SPII and the like arrive without
+                # content; treating them as a block keeps the real reason
+                # instead of a bare KeyError.
+                raise ContentModerationBlocked("gemini", finish_reason or "no content returned")
+            return TruncatedReply(text) if finish_reason == "MAX_TOKENS" else text
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="gemini",

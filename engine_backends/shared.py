@@ -129,6 +129,15 @@ def _cancellable_sleep(seconds: float):
         raise TranslationCancelled("cancelled")
 
 
+def _retry_after_seconds(e: Exception) -> float:
+    """The provider's own Retry-After wait in seconds, 0 when absent or not a number."""
+    headers = getattr(getattr(e, "response", None), "headers", None)
+    try:
+        return max(0.0, float(headers.get("retry-after"))) if headers else 0.0
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+
+
 def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_delay: float = 60.0,
                       on_wait=None):
     """Runs fn() with retry logic:
@@ -163,7 +172,10 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
                 # FallbackEngine already retried and tried every engine.
                 raise
             if _is_rate_limit_error(e):
-                delay = min(base_delay * (2 ** attempt), max_delay)
+                if attempt == max_retries - 1:
+                    raise  # a wait before the final raise only delays the error
+                delay = max(min(base_delay * (2 ** attempt), max_delay),
+                            min(_retry_after_seconds(e), max_delay))
                 charge_rate_limit_wait(delay)
                 if on_wait:
                     on_wait(delay, attempt + 2, max_retries)
@@ -547,12 +559,40 @@ def parse_id_keyed_json(text: str, expected_ids: list, recover: bool = False) ->
     expected_str = {str(i) for i in expected_ids}
     if recover:
         return _recover_id_keyed(stripped, expected_str)
-    data = extract_first_json_value(stripped)
-    if data is None:
-        return {}
-    if isinstance(data, dict):
-        return {str(k): v for k, v in data.items()
-                if str(k) in expected_str and isinstance(v, str)}
+    found = _first_id_object(stripped, expected_str)
+    # A reply cut off by the output limit has no complete object; its finished
+    # "id": "text" pairs are still good, matched to their line by id.
+    return found or _salvage_pairs(stripped, expected_str)
+
+
+def _id_pairs(data, expected_str: set) -> dict:
+    return {str(k): v for k, v in data.items() if str(k) in expected_str and isinstance(v, str)}
+
+
+def _first_id_object(text: str, expected_str: set) -> dict:
+    """The first JSON object in text that holds any expected id, so prose such
+    as "Lines [1] and [2]:" before the object is skipped. A single-key wrapper
+    ({"translations": {...}}) is opened."""
+    decoder = json.JSONDecoder()
+    i = 0
+    while i < len(text):
+        if text[i] not in "{[":
+            i += 1
+            continue
+        try:
+            value, stop = decoder.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(value, dict):
+            if len(value) == 1:
+                inner = next(iter(value.values()))
+                if isinstance(inner, dict):
+                    value = inner
+            found = _id_pairs(value, expected_str)
+            if found:
+                return found
+        i = stop
     return {}
 
 
@@ -605,6 +645,17 @@ def _recover_id_keyed(text: str, expected_str: set) -> dict:
     return {}
 
 
+class TruncatedReply(str):
+    """A reply text the provider cut off at its output limit (Claude
+    stop_reason "max_tokens", OpenAI-style finish_reason "length", Gemini
+    finishReason MAX_TOKENS). Behaves as the text; the id-keyed loop reads
+    the type to ask for the lines still missing in smaller batches."""
+
+
+# Halvings of a truncated batch's missing lines before the rest stay blank.
+_MAX_TRUNCATION_SPLITS = 2
+
+
 def _echoed_label(reply: str, line_id, speaker) -> bool:
     """The prompt's own "12. " numbering or "[Name] " prefix copied into the line."""
     if re.match(rf"\s*\[?{line_id}\]?\s*[.:)]\s", reply):
@@ -639,38 +690,57 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     (None if it can). A rejected value counts as missing, so it is asked for
     again; rejected (a dict) ends up holding {id_str: reason} for those still
     rejected at the end."""
-    remaining_ids = list(ids)
     result_map = {}
-    for _attempt in range(max_retries + 1):
-        if not remaining_ids:
-            break
-        batch_text = build_batch_text(remaining_ids)
-        text = (call_model_fn(batch_text, remaining_ids) if recover
-                else call_model_fn(batch_text))
-        # By id, never position: a short, padded or reordered reply would
-        # otherwise shift translations onto the wrong lines.
-        parsed = parse_id_keyed_json(text, remaining_ids, recover=recover)
-        if check_value is not None:
-            for key in list(parsed):
-                reason = check_value(key, parsed[key])
-                if reason:
-                    del parsed[key]
-                    if rejected is not None:
-                        rejected[key] = reason
-                elif rejected is not None:
-                    rejected.pop(key, None)
-        if engine_name and text.strip() and not parsed:
-            # A real structural refusal signal (stop_reason/refusal) is
-            # already checked -- and raises directly -- inside each
-            # engine's own translate_batch, before the text ever reaches
-            # here. Reaching here with non-empty text that parsed to
-            # nothing means no such signal was available, so this is the
-            # lower-confidence, best-effort fallback.
-            soft_reason = _detect_soft_refusal_text(text)
-            if soft_reason:
-                raise ContentModerationBlocked(engine_name, soft_reason)
-        result_map.update(parsed)
-        remaining_ids = [i for i in ids if str(i) not in result_map]
+    retries_left = max_retries
+    # (ids to ask for, halvings so far); a cut-off reply's missing ids go back
+    # as two smaller batches instead of the same oversized one.
+    queue = [(list(ids), 0)]
+    while queue:
+        leftover = []
+        next_queue = []
+        for asked_ids, depth in queue:
+            batch_ids = [i for i in asked_ids if str(i) not in result_map]
+            if not batch_ids:
+                continue
+            batch_text = build_batch_text(batch_ids)
+            text = (call_model_fn(batch_text, batch_ids) if recover
+                    else call_model_fn(batch_text))
+            # By id, never position: a short, padded or reordered reply would
+            # otherwise shift translations onto the wrong lines.
+            parsed = parse_id_keyed_json(text, batch_ids, recover=recover)
+            if check_value is not None:
+                for key in list(parsed):
+                    reason = check_value(key, parsed[key])
+                    if reason:
+                        del parsed[key]
+                        if rejected is not None:
+                            rejected[key] = reason
+                    elif rejected is not None:
+                        rejected.pop(key, None)
+            if engine_name and text.strip() and not parsed:
+                # A real structural refusal signal (stop_reason/refusal) is
+                # already checked -- and raises directly -- inside each
+                # engine's own translate_batch, before the text ever reaches
+                # here. Reaching here with non-empty text that parsed to
+                # nothing means no such signal was available, so this is the
+                # lower-confidence, best-effort fallback.
+                soft_reason = _detect_soft_refusal_text(text)
+                if soft_reason:
+                    raise ContentModerationBlocked(engine_name, soft_reason)
+            result_map.update(parsed)
+            missing = [i for i in batch_ids if str(i) not in result_map]
+            if not missing:
+                continue
+            if (isinstance(text, TruncatedReply) and len(missing) > 1
+                    and depth < _MAX_TRUNCATION_SPLITS):
+                half = (len(missing) + 1) // 2
+                next_queue += [(missing[:half], depth + 1), (missing[half:], depth + 1)]
+            else:
+                leftover += missing
+        queue = next_queue
+        if not queue and leftover and retries_left > 0:
+            retries_left -= 1
+            queue = [(leftover, _MAX_TRUNCATION_SPLITS)]
     return result_map
 
 

@@ -7,6 +7,7 @@ from .thinking import deepseek_extra_body
 from .shared import (
     ContentModerationBlocked,
     SDK_REQUEST_TIMEOUT,
+    TruncatedReply,
     _add_usage,
     _empty_usage,
     make_openai_client,
@@ -57,7 +58,11 @@ class DeepSeekEngine:
                     "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
                     "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
                     "cache_read_tokens": cached or 0})
-            message = resp.choices[0].message
+            if not resp.choices:
+                raise ContentModerationBlocked("deepseek", "no choices returned")
+            choice = resp.choices[0]
+            message = choice.message
+            finish_reason = getattr(choice, "finish_reason", None)
             # The OpenAI-compatible refusal shape -- content is
             # None/empty and a separate `refusal` field explains why,
             # rather than the requested translation. A real, documented
@@ -69,7 +74,10 @@ class DeepSeekEngine:
                 raise ContentModerationBlocked("deepseek", refusal)
             # Reasoning arrives in a separate `reasoning_content` field that is
             # never read; the strip covers a gateway that inlines it as <think>.
-            return strip_ollama_thinking(message.content or "")
+            if not message.content and finish_reason == "content_filter":
+                raise ContentModerationBlocked("deepseek", "content_filter")
+            text = strip_ollama_thinking(message.content or "")
+            return TruncatedReply(text) if finish_reason == "length" else text
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="deepseek",
@@ -132,7 +140,8 @@ class OpenAIEngine:
             raise ContentModerationBlocked("openai", message["refusal"])
         if not content and choices[0].get("finish_reason") == "content_filter":
             raise ContentModerationBlocked("openai", "content_filter")
-        return content.strip()
+        text = content.strip()
+        return TruncatedReply(text) if choices[0].get("finish_reason") == "length" else text
 
     def translate_batch(self, zh_lines, context: dict):
         system_text = build_stable_system_text(context)

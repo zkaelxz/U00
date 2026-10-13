@@ -211,29 +211,38 @@ def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int,
                          cache_read_tokens, cache_write_tokens)
 
 
-def estimate_translation_cost(engine, zh_lines: list) -> float:
+def estimate_translation_cost(engine, zh_lines: list, batch_size: int = None) -> float:
     """Rough pre-run estimate of a normal single-pass translation run,
     from the lines' own character count. For token-billed engines this
     uses a tokenizer-free ~3.5 chars/token heuristic -- an
-    order-of-magnitude estimate, not a precise bill."""
-    return estimate_cost_for_engine(engine, *estimate_translation_tokens(zh_lines))
+    order-of-magnitude estimate, not a precise bill. batch_size: every batch
+    re-sends the instructions, so a run in many batches costs more input
+    than one request carrying all the lines."""
+    return estimate_cost_for_engine(engine, *estimate_translation_tokens(zh_lines, batch_size))
 
 
-def estimate_translation_tokens(zh_lines: list) -> tuple:
-    """(input, output) tokens for one translate request carrying zh_lines."""
+def estimate_translation_tokens(zh_lines: list, batch_size: int = None) -> tuple:
+    """(input, output) tokens for translating zh_lines in batches of
+    batch_size (one request when omitted)."""
+    from .prompts import build_stable_system_text
     chars = sum(len(z) for z in zh_lines)
-    input_tokens = int(chars / 3.5) + 300  # + a rough fixed cost for the instructions block
+    batches = -(-len(zh_lines) // batch_size) if batch_size and zh_lines else 1
+    # The bare instructions are measured; the 300 stands for the framing and
+    # context lines around them. A style guide, glossary or novel excerpt is
+    # not known here, so a run that sets them still costs more than this.
+    per_batch_prompt = int(len(build_stable_system_text({})) / 3.5) + 300
+    input_tokens = int(chars / 3.5) + batches * per_batch_prompt
     output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
     return input_tokens, output_tokens
 
 
-def estimate_reflect_mode_cost(engine, zh_lines: list) -> float:
+def estimate_reflect_mode_cost(engine, zh_lines: list, batch_size: int = None) -> float:
     """Rough pre-run estimate for Reflect mode, shown before the
     user starts it (it costs real money to run and can't be cancelled
     mid-line the way a single bad batch can). Reflect mode is three LLM
     calls instead of translate_batch's one, so this is a normal run's
     estimate times 3."""
-    return estimate_translation_cost(engine, zh_lines) * 3
+    return estimate_translation_cost(engine, zh_lines, batch_size) * 3
 
 
 def resolve_cost_cap(job_cap_usd=None, monthly_cap_usd=None, month_spend_usd: float = 0.0):
