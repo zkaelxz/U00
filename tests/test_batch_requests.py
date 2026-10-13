@@ -66,7 +66,9 @@ class TestSiblingBatchesKeepTheirOwnRetry:
         assert len(calls) <= shared.MAX_REQUESTS_PER_BATCH
 
     def test_the_deadline_covers_the_most_a_batch_can_send(self):
-        assert llm_tasks._BATCH_REQUESTS == shared.MAX_REQUESTS_PER_BATCH >= 8
+        engine = SimpleNamespace(name="claude")
+        assert llm_tasks.batch_deadline_for(engine) >= (
+            shared.MAX_REQUESTS_PER_BATCH * llm_tasks._request_timeout_for(engine))
 
 
 class TestCancelStopsQueuedRequests:

@@ -123,10 +123,7 @@ def bounded_job_calls(job_id: str, cancel_check, deadline: float = None,
         raise background_jobs.JobCancelled(job_id) from None
 
 
-# A translation batch may make several requests (missing ids are asked for
-# again, and a reply cut off at the output limit is re-asked in halves), so its
-# deadline covers the most the id-keyed loop can send, plus the margin.
-_BATCH_REQUESTS = MAX_REQUESTS_PER_BATCH
+_BATCH_REQUESTS = MAX_REQUESTS_PER_BATCH  # the most one batch's retries and halvings send
 
 
 def _request_timeout_for(engine) -> float:
