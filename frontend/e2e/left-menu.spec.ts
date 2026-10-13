@@ -109,13 +109,12 @@ test('the dock shows icons at rest, opens to labelled rows on hover, and swaps f
   await expect(page.getByRole('button', { name: /^(Menu|More)$/ })).toBeVisible()
 })
 
-test('a wide screen at 1280 keeps the form-page column at its 860px preset beside the dock', async ({ page }) => {
+test('a form page at 1280 starts clear of the resting dock and does not scroll sideways', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/#/settings')
-  const main = (await page.locator('.app-main').boundingBox())!
-  expect(main.width).toBeGreaterThan(1150)
+  const dock = (await page.locator('.app-rail').boundingBox())!
   const column = (await page.locator('[data-page-shell]').boundingBox())!
-  expect(column.width).toBeLessThanOrEqual(860)
+  expect(column.x).toBeGreaterThanOrEqual(dock.x + dock.width)
   const scroll = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth])
   expect(scroll[0]).toBeLessThanOrEqual(scroll[1])
 })

@@ -6,9 +6,8 @@
  *     <Card>…</Card>
  *   </PageShell>
  *
- * width    narrow (860px: forms and settings-like pages), standard (1120px: tools and lists) or wide
- *          (the whole app column: dense tables and catalogues). A page picks one of the three; it does
- *          not add its own max-width.
+ * width    narrow, standard or wide. All three are the one --content-max column now, so every page has the same
+ *          width and left edge; a page picks one and does not add its own max-width.
  * title    the page heading (h2.page-title). `meta` is the line under it (text, badges or both);
  *          `actions` sits at the header's right; `back` is a breadcrumb or back link above the header.
  * tabs     anything that belongs between the header and the content (a tab bar, a search field).
