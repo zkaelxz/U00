@@ -16,6 +16,7 @@ from .openai_compat import OpenAIEngine
 from .paid_calls import TranslateRunStopped, current_limits
 from .shared import (
     _backoff_wait_var,
+    MAX_REQUESTS_PER_BATCH,
     _cancel_check_var,
     _id_keyed_batch_request,
     LLMTaskTimeout,
@@ -122,9 +123,10 @@ def bounded_job_calls(job_id: str, cancel_check, deadline: float = None,
         raise background_jobs.JobCancelled(job_id) from None
 
 
-# A translation batch may legitimately make a second request (missing ids are
-# asked for once more), so its deadline is two client timeouts plus the margin.
-_BATCH_REQUESTS = 2
+# A translation batch may make several requests (missing ids are asked for
+# again, and a reply cut off at the output limit is re-asked in halves), so its
+# deadline covers the most the id-keyed loop can send, plus the margin.
+_BATCH_REQUESTS = MAX_REQUESTS_PER_BATCH
 
 
 def _request_timeout_for(engine) -> float:

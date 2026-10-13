@@ -549,6 +549,10 @@ class TruncatedReply(str):
 
 # Halvings of a truncated batch's missing lines before the rest stay blank.
 _MAX_TRUNCATION_SPLITS = 2
+# Most requests one id-keyed batch can make: the original, two halvings (2 + 4)
+# and the whole-batch retry, which after a cut-off is at most two chunks.
+_MAX_RETRY_CHUNKS = 2
+MAX_REQUESTS_PER_BATCH = 1 + 2 + 4 + _MAX_RETRY_CHUNKS
 
 
 def _echoed_label(reply: str, line_id, speaker) -> bool:
@@ -590,19 +594,25 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     # (ids to ask for, halvings so far); a cut-off reply's missing ids go back
     # as two smaller batches instead of the same oversized one.
     queue = [(list(ids), 0)]
+    leftover = []  # ids that came back missing without a cut-off, for the one whole retry
+    smallest_truncated = None
     while queue:
-        leftover = []
         next_queue = []
         for asked_ids, depth in queue:
             batch_ids = [i for i in asked_ids if str(i) not in result_map]
             if not batch_ids:
                 continue
+            # Cancel, or a batch deadline, must stop every queued request.
+            cancelled = _cancel_check_var.get()
+            if cancelled is not None and cancelled():
+                raise TranslationCancelled("cancelled")
             batch_text = build_batch_text(batch_ids)
             text = (call_model_fn(batch_text, batch_ids) if recover
                     else call_model_fn(batch_text))
             # By id, never position: a short, padded or reordered reply would
             # otherwise shift translations onto the wrong lines.
-            parsed = parse_id_keyed_json(text, batch_ids, recover=recover)
+            parsed = parse_id_keyed_json(text, batch_ids, recover=recover,
+                                        truncated=isinstance(text, TruncatedReply))
             if check_value is not None:
                 for key in list(parsed):
                     reason = check_value(key, parsed[key])
@@ -626,16 +636,25 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
             missing = [i for i in batch_ids if str(i) not in result_map]
             if not missing:
                 continue
-            if (isinstance(text, TruncatedReply) and len(missing) > 1
-                    and depth < _MAX_TRUNCATION_SPLITS):
-                half = (len(missing) + 1) // 2
-                next_queue += [(missing[:half], depth + 1), (missing[half:], depth + 1)]
+            if isinstance(text, TruncatedReply):
+                smallest_truncated = min(smallest_truncated or len(batch_ids), len(batch_ids))
+                if len(missing) > 1 and depth < _MAX_TRUNCATION_SPLITS:
+                    half = (len(missing) + 1) // 2
+                    next_queue += [(missing[:half], depth + 1), (missing[half:], depth + 1)]
+                elif len(missing) < len(batch_ids):
+                    leftover += missing  # smaller than the batch that was cut off
+                # Otherwise nothing was gained at this size, and asking again
+                # would bill the same cut-off: the lines stay blank.
             else:
                 leftover += missing
         queue = next_queue
         if not queue and leftover and retries_left > 0:
             retries_left -= 1
-            queue = [(leftover, _MAX_TRUNCATION_SPLITS)]
+            # Once any batch was cut off, a retry is smaller than that batch.
+            size = max(1, smallest_truncated - 1) if smallest_truncated else len(leftover)
+            chunks = [leftover[i:i + size] for i in range(0, len(leftover), size)]
+            queue = [(chunk, _MAX_TRUNCATION_SPLITS) for chunk in chunks[:_MAX_RETRY_CHUNKS]]
+            leftover = []
     return result_map
 
 

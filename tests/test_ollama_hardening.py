@@ -278,9 +278,9 @@ class TestCutOffReply:
         retry = _user_text(fake.bodies[1])
         assert "13." in retry and "11." not in retry and "12." not in retry
 
-    def test_other_engines_keep_the_complete_pairs_of_a_cut_off_reply(self):
+    def test_other_engines_still_lose_a_cut_off_reply(self):
         from engine_backends.shared import parse_id_keyed_json
-        assert parse_id_keyed_json('{"11": "Hello.", "12": "Tha', [11, 12]) == {"11": "Hello."}
+        assert parse_id_keyed_json('{"11": "Hello.", "12": "Tha', [11, 12]) == {}
 
 
 class TestLeakedDraft:

@@ -205,12 +205,12 @@ class GeminiEngine:
             if finish_reason in ("SAFETY", "PROHIBITED_CONTENT"):
                 raise ContentModerationBlocked("gemini", finish_reason)
             parts = (candidates[0].get("content") or {}).get("parts") or []
+            # Every text part, not only the first. An empty STOP/OTHER reply
+            # is not a provider block: it falls through to the ordinary
+            # missing-ids retry.
             text = "".join(p.get("text", "") for p in parts).strip()
-            if not text and finish_reason != "MAX_TOKENS":
-                # RECITATION, BLOCKLIST, SPII and the like arrive without
-                # content; treating them as a block keeps the real reason
-                # instead of a bare KeyError.
-                raise ContentModerationBlocked("gemini", finish_reason or "no content returned")
+            if not text and finish_reason in _GEMINI_BLOCK_REASONS:
+                raise ContentModerationBlocked("gemini", finish_reason)
             return TruncatedReply(text) if finish_reason == "MAX_TOKENS" else text
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
@@ -218,6 +218,11 @@ class GeminiEngine:
                                                 line_languages=context.get("line_languages"),
                                                 sentence_groups=context.get("sentence_groups"))
 
+
+# finishReason values where Gemini withheld the content on policy grounds. An
+# empty reply with any other reason (STOP, OTHER) is a plain empty reply.
+_GEMINI_BLOCK_REASONS = frozenset({
+    "SAFETY", "PROHIBITED_CONTENT", "RECITATION", "BLOCKLIST", "SPII", "IMAGE_SAFETY"})
 
 # Free-tier limits, confirmed against ai.google.dev/gemini-api/docs/rate-limits
 # in September 2026 -- the original "~10 requests/minute on Flash" note

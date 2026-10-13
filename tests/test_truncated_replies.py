@@ -19,14 +19,14 @@ def _ids_asked(numbered):
 
 class TestParseSalvagesCutOffReply:
     def test_complete_pairs_of_a_cut_off_object_are_kept(self):
-        got = shared.parse_id_keyed_json('{"5":"a","6":"b","7":"cut', [5, 6, 7, 8])
+        got = shared.parse_id_keyed_json('{"5":"a","6":"b","7":"cut', [5, 6, 7, 8], truncated=True)
         assert got == {"5": "a", "6": "b"}
 
     def test_a_pair_for_an_unasked_id_is_ignored(self):
-        assert shared.parse_id_keyed_json('{"9":"x","5":"a","6":"b', [5, 6]) == {"5": "a"}
+        assert shared.parse_id_keyed_json('{"9":"x","5":"a","6":"b', [5, 6], truncated=True) == {"5": "a"}
 
     def test_a_value_that_is_not_a_string_is_not_salvaged(self):
-        assert shared.parse_id_keyed_json('{"5":["a"],"6":"b","7":"c', [5, 6, 7]) == {"6": "b"}
+        assert shared.parse_id_keyed_json('{"5":["a"],"6":"b","7":"c', [5, 6, 7], truncated=True) == {"6": "b"}
 
     def test_prose_with_a_bracket_before_the_object(self):
         text = 'Lines [1] and [2]:\n{"5":"a","6":"b"}'
@@ -38,6 +38,36 @@ class TestParseSalvagesCutOffReply:
 
     def test_a_plain_array_still_matches_nothing(self):
         assert shared.parse_id_keyed_json('["a", "b"]', [1, 2]) == {}
+
+
+class TestSalvageNeverKeepsAHalfString:
+    def test_an_unescaped_quote_does_not_shorten_a_value(self):
+        text = '{"12": "She said "wait" and left.", "13": "OK."}'
+        assert shared.parse_id_keyed_json(text, [12, 13]) == {}
+        assert shared.parse_id_keyed_json(text, [12, 13], truncated=True) == {}
+
+    def test_a_cut_off_value_with_a_stray_quote_is_not_kept(self):
+        got = shared.parse_id_keyed_json('{"1":"a","2":"He said "no', [1, 2], truncated=True)
+        assert got == {"1": "a"}
+
+    def test_a_pair_is_kept_only_once_a_comma_follows_it(self):
+        assert shared.parse_id_keyed_json('{"1":"a","2":"b"', [1, 2], truncated=True) == {"1": "a"}
+
+    def test_a_reply_not_marked_cut_off_is_never_salvaged(self):
+        assert shared.parse_id_keyed_json('{"1":"a","2":"b","3":"cu', [1, 2, 3]) == {}
+
+    def test_a_nested_source_echo_never_becomes_the_english(self):
+        text = '{"translation": {"5": "Hi"}, "source": {"5": "原文"}'
+        assert shared.parse_id_keyed_json(text, [5], truncated=True) == {}
+        assert shared.parse_id_keyed_json(text + "}", [5]) == {}
+
+    def test_the_first_value_of_a_repeated_id_wins(self):
+        text = '{"1":"first","1":"second","2":"x'
+        assert shared.parse_id_keyed_json(text, [1, 2], truncated=True) == {"1": "first"}
+
+    def test_a_bulk_result_stays_strict(self):
+        import bulk_apply
+        assert bulk_apply._parse_strict('{"1":"a","2":"b","3":"cu', [1, 2, 3]) == {}
 
 
 class TestRetryAsksOnlyForMissingLines:
@@ -199,3 +229,14 @@ def test_deepseek_length_stop_keeps_complete_pairs(monkeypatch):
     engine.client.chat.completions.create = lambda **kw: SimpleNamespace(
         choices=[replies.pop(0)], usage=None)
     assert engine.translate_batch(["a", "b"], {}) == ["E1", "E2"]
+
+
+def test_gemini_empty_stop_reply_is_retried_not_blocked(gemini_replies):
+    gemini_replies.append(_gemini_body(None, finish="STOP"))
+    gemini_replies.append(_gemini_body(['{"1":"E1"}']))
+    assert _gemini().translate_batch(["a"], {}) == ["E1"]
+
+
+def test_gemini_recitation_with_text_keeps_the_text(gemini_replies):
+    gemini_replies.append(_gemini_body(['{"1":"E1"}'], finish="RECITATION"))
+    assert _gemini().translate_batch(["a"], {}) == ["E1"]
