@@ -3,7 +3,7 @@ services/library_restore_service.py -- restoring a library backup zip:
 validate it, build fresh databases from the app's own schema filled with
 the upload's rows, and swap the result in for the library folder without
 ever destroying the current library if anything fails
-(services/library_admin_service.restore_backup is the caller).
+(services/library_backup_restore_service.restore_backup is the caller).
 """
 
 import logging
