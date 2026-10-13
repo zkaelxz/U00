@@ -14,6 +14,7 @@ No HTTP types: the refusals are ServiceError subclasses the API maps by type.
 import time
 
 import background_jobs
+from jobs import job_launch, job_runner
 import db
 import diagnostics
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
@@ -64,7 +65,7 @@ def guard(confirm: bool):
     if confirm is not True:
         raise AdminActionUnconfirmed("Confirmation required.")
     from services import library_admin_service
-    if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+    if job_launch.exclusive_active() or job_launch.maintenance_active():
         raise AdminActionJobsRunning(
             "A library restore, reset or cleanup is in progress; try again when it ends.")
     if library_admin_service.any_job_running():
@@ -83,7 +84,7 @@ def _under_install_hold(fn):
     reset, cleanup or second install can start in this API process
     mid-install (409 if the hold can't be taken). Jobs in another process
     are re-checked under the hold, as reset_library does."""
-    if not background_jobs.acquire_exclusive("Dependency install"):
+    if not job_launch.acquire_exclusive("Dependency install"):
         raise AdminActionJobsRunning(
             "A job, restore, cleanup or another install is in progress; try again when it ends.")
     try:
@@ -93,7 +94,7 @@ def _under_install_hold(fn):
                 "A background job is running or queued; wait for it to finish.")
         return fn()
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
 
 
 def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
@@ -108,7 +109,7 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
     guard(confirm)
     # Hold the library exclusively for the reset, as a restore does, so no
     # job can start mid-reset (start_job refuses while the hold is taken).
-    if not background_jobs.acquire_exclusive("Library reset"):
+    if not job_launch.acquire_exclusive("Library reset"):
         raise AdminActionJobsRunning(
             "A job, restore or cleanup is in progress; try again when it ends.")
     try:
@@ -118,7 +119,7 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
                 "A background job is running or queued; wait for it to finish.")
         # A finished job's thread can still be writing to the database it
         # is about to delete and recreate.
-        if not background_jobs.wait_for_job_threads(10.0):
+        if not job_runner.wait_for_job_threads(10.0):
             raise AdminActionJobsRunning(
                 "A background job is still finishing; try again in a moment.")
         from services import previous_library_service
@@ -131,7 +132,7 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
         previous_library_service.after_reset(kept, ok=True)
         background_jobs.clear_all_jobs()
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     return {"ok": True, "reset_at": time.time()}
 
 
@@ -143,7 +144,7 @@ def _exclusive_delete(delete, failed: str):
     """Runs a model-cache delete while holding the library exclusively (as
     _run_pip does), so no job can start and load the model mid-delete; jobs
     in another process are re-checked under the hold."""
-    if not background_jobs.acquire_exclusive("Model cache delete"):
+    if not job_launch.acquire_exclusive("Model cache delete"):
         raise AdminActionJobsRunning(
             "A job, restore, cleanup or install is in progress; try again when it ends.")
     try:
@@ -154,7 +155,7 @@ def _exclusive_delete(delete, failed: str):
         if not delete():
             raise ServiceError(failed)
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
 
 
 def delete_hf_revision(revision: str, confirm: bool = False) -> dict:

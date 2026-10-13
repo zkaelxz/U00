@@ -9,6 +9,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner
 import live_pipeline
 import live_translate
 from services import live_service, translate_service
@@ -33,7 +34,7 @@ class FakeProc:
 def live(monkeypatch, isolated_db):
     background_jobs.clear_all_jobs()
     live_service._sessions.clear()
-    monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: False)
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: False)
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: PUBLIC)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "sk-test")
     monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: "http://media")
@@ -263,8 +264,9 @@ def test_status_names_the_stage_and_what_a_stop_does(live, monkeypatch):
 
 
 def test_dir_removed_on_cancel_while_queued(live, monkeypatch):
-    monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
-    monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: True)
+    monkeypatch.setattr(job_launch, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_runner, "_gpu_slot_available_locked", lambda *a: False)
     sid = _start(use_gpu=True)
     out_dir = live_service._sessions[sid]["dir"]
     assert background_jobs.get_status(sid)["status"] == "queued"
@@ -313,7 +315,7 @@ def test_stale_chunks_never_processed(live, monkeypatch, tmp_path):
     monkeypatch.setattr(live_translate.subprocess, "Popen", lambda *a, **k: FakeProc())
     monkeypatch.setattr(live_translate.live_fetch.StreamPump, "start", lambda self: self)
     monkeypatch.setattr(live_translate, "start_segment_capture", _REAL_CAPTURE)
-    background_jobs.start_job("live_stale", live_translate.run_live_job, "live_stale", "u",
+    job_launch.start_job("live_stale", live_translate.run_live_job, "live_stale", "u",
                               str(tmp_path), 10, "zh", "tiny", object(), poll_interval=0.01,
                               overlap_seconds=0, max_seconds=0.2)
     assert _wait(lambda: background_jobs.get_status("live_stale")["status"] != "running")
@@ -473,14 +475,14 @@ def test_url_guard_is_the_one_policy(live, monkeypatch):
 def test_reap_keeps_a_session_that_is_still_starting(live, monkeypatch):
     """L3: between the reservation and start_job there is no job record;
     a concurrent _reap must not remove that session's directory."""
-    real_start = background_jobs.start_job
+    real_start = job_launch.start_job
     seen = {}
 
     def start_after_reap(job_id, *a, **k):
         live_service._reap()                       # another request's reap, mid-start
         seen["dir"] = live_service._sessions[job_id].get("dir")
         return real_start(job_id, *a, **k)
-    monkeypatch.setattr(background_jobs, "start_job", start_after_reap)
+    monkeypatch.setattr(job_launch, "start_job", start_after_reap)
     sid = _start()
     assert seen["dir"] and _wait(lambda: "out_dir" in live)
     assert "starting" not in live_service._sessions[sid]
@@ -489,8 +491,9 @@ def test_reap_keeps_a_session_that_is_still_starting(live, monkeypatch):
 def test_reap_removes_the_dir_of_a_session_cancelled_while_queued(live, monkeypatch):
     """A queued job cancelled elsewhere (jobs page, shutdown) keeps its
     'cancelled' record, so only its status says the folder is orphaned."""
-    monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
-    monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: True)
+    monkeypatch.setattr(job_launch, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_runner, "_gpu_slot_available_locked", lambda *a: False)
     sid = _start(use_gpu=True)
     out_dir = live_service._sessions[sid]["dir"]
     assert background_jobs.cancel_queued(sid)
@@ -500,8 +503,9 @@ def test_reap_removes_the_dir_of_a_session_cancelled_while_queued(live, monkeypa
 
 
 def test_reap_keeps_the_dir_of_a_queued_session(live, monkeypatch):
-    monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
-    monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: True)
+    monkeypatch.setattr(job_launch, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_runner, "_gpu_slot_available_locked", lambda *a: False)
     sid = _start(use_gpu=True)
     live_service._reap()
     assert os.path.isdir(live_service._sessions[sid]["dir"])
@@ -630,14 +634,14 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
 
 def test_session_folder_is_held_until_the_job_is_registered(live, monkeypatch):
     import storage
-    real_start = background_jobs.start_job
+    real_start = job_launch.start_job
     swept = {}
 
     def start_after_a_clean_now(*a, **kw):
         swept["removed"] = storage.sweep_library_temp(max_age=0)["removed"]
         return real_start(*a, **kw)
 
-    monkeypatch.setattr(background_jobs, "start_job", start_after_a_clean_now)
+    monkeypatch.setattr(job_launch, "start_job", start_after_a_clean_now)
     sid = _start()
     assert swept["removed"] == 0
     assert os.path.isdir(live_service._sessions[sid]["dir"])

@@ -13,6 +13,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch
 import db
 from jobs import gpu_slots
 from services import auto_backup_service as abs_
@@ -330,7 +331,7 @@ class TestClear:
         assert dus.scan("")["busy_reason"]
 
     def test_refused_during_maintenance(self, tree, renames, monkeypatch):
-        monkeypatch.setattr(background_jobs, "maintenance_active", lambda: True)
+        monkeypatch.setattr(job_launch, "maintenance_active", lambda: True)
         with pytest.raises(ConflictError):
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
@@ -448,26 +449,26 @@ class TestExclusiveHold:                                   # M1
         real = store._rename
 
         def spy(src, dst):
-            seen["label"] = background_jobs._exclusive_label
+            seen["label"] = job_launch._exclusive_label
             real(src, dst)
         monkeypatch.setattr(store, "_rename", spy)
         self._clear()
         assert seen["label"] == "Disk usage clear"
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
 
     def test_released_when_it_fails(self, tree, renames, monkeypatch):
         with pytest.raises(ConflictError):
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=1,
                       expected_file_count=1)
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
 
     def test_someone_else_holding_it_refuses(self, tree, renames):
-        assert background_jobs.acquire_exclusive("Restore")
+        assert job_launch.acquire_exclusive("Restore")
         try:
             with pytest.raises(ConflictError):
                 self._clear()
         finally:
-            background_jobs.release_exclusive()
+            job_launch.release_exclusive()
         assert renames == []
 
     def test_a_job_in_another_process_is_seen_under_the_hold(self, tree, renames, monkeypatch):
@@ -475,7 +476,7 @@ class TestExclusiveHold:                                   # M1
         monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
         with pytest.raises(ConflictError):
             self._clear()
-        assert renames == [] and background_jobs.exclusive_active() is False
+        assert renames == [] and job_launch.exclusive_active() is False
 
     def test_a_cli_run_holding_the_gpu_lock_is_seen_under_the_hold(self, tree, renames,
                                                                     monkeypatch):
@@ -492,7 +493,7 @@ class TestExclusiveHold:                                   # M1
                 dus.move("library/backups/auto", str(tree), confirm=True)
         finally:
             gpu_slots.release("cli-test-holder")
-        assert renames == [] and background_jobs.exclusive_active() is False
+        assert renames == [] and job_launch.exclusive_active() is False
         assert hold._busy_under_hold() is False
 
     def test_an_unreadable_gpu_lock_table_counts_as_busy(self, tree, monkeypatch):
@@ -510,14 +511,14 @@ class TestExclusiveHold:                                   # M1
         monkeypatch.setattr(library_admin_service, "any_job_running", lambda: next(answers, True))
         with pytest.raises(ConflictError):
             self._clear()
-        assert renames == [] and background_jobs.exclusive_active() is False
+        assert renames == [] and job_launch.exclusive_active() is False
 
     def test_move_takes_the_hold_and_rechecks_other_processes(self, tree, tmp_path, monkeypatch):
         from services import library_admin_service
         monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
         with pytest.raises(ConflictError):
             dus.move("library/backups/auto", str(tmp_path), confirm=True)
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
 
     def test_move_inspects_under_the_hold_and_releases_it_before_the_setting_call(
             self, tree, tmp_path, monkeypatch):
@@ -525,11 +526,11 @@ class TestExclusiveHold:                                   # M1
         real_inspect, real_set = dus._inspect_for_change, abs_.set_settings
 
         def inspect(*a, **k):
-            labels.append(background_jobs._exclusive_label)
+            labels.append(job_launch._exclusive_label)
             return real_inspect(*a, **k)
 
         def set_settings(**kw):
-            labels.append(background_jobs._exclusive_label)
+            labels.append(job_launch._exclusive_label)
             return real_set(**kw)
         monkeypatch.setattr(dus, "_inspect_for_change", inspect)
         monkeypatch.setattr(abs_, "set_settings", set_settings)
@@ -537,15 +538,15 @@ class TestExclusiveHold:                                   # M1
         dest.mkdir()
         dus.move("library/backups/auto", str(dest), confirm=True)
         assert labels == ["Disk usage move", None]
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
 
     def test_move_is_refused_while_someone_else_holds_the_library(self, tree, tmp_path):
-        assert background_jobs.acquire_exclusive("Restore")
+        assert job_launch.acquire_exclusive("Restore")
         try:
             with pytest.raises(ConflictError):
                 dus.move("library/backups/auto", str(tmp_path), confirm=True)
         finally:
-            background_jobs.release_exclusive()
+            job_launch.release_exclusive()
 
 
 class TestIncompleteMeasure:                               # M3
@@ -927,7 +928,7 @@ class TestSecondReview:
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
         assert exc.value.details["reason"] == "changed"
-        assert renames == [] and background_jobs.exclusive_active() is False
+        assert renames == [] and job_launch.exclusive_active() is False
 
 
 # --------------------------------------------------------------------------
@@ -1071,7 +1072,7 @@ class TestTrashRestore:
             dts.trash_restore(done["trash_id"], confirm=True)
         assert "running" in exc.value.message
         assert not os.path.exists(os.path.join(tree, "library", "source_cache"))
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
 
     def test_a_tampered_manifest_cannot_aim_at_a_protected_or_outside_place(self, tree):
         done = _trash_one()
@@ -1115,7 +1116,7 @@ class TestTrashPurge:
         assert res == {"freed_bytes": 400, "file_count": 1}
         assert os.listdir(_trash_dir(tree)) == []
         assert os.path.exists(os.path.join(tree, "library", "dramas", "2", "audio.mp3"))
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
 
     @pytest.mark.parametrize("word", ["delete", "Delete", "DELETE ", " DELETE", "", "DELETED", None])
     def test_the_typed_word_must_be_exact(self, tree, word):
@@ -1177,7 +1178,7 @@ class TestTrashPurge:
         with pytest.raises(ConflictError):
             dts.trash_empty("DELETE", 1, 400)
         assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
 
     def test_a_symlink_inside_a_trashed_folder_is_unlinked_and_its_target_untouched(
             self, tree, tmp_path):
@@ -1278,7 +1279,7 @@ class TestTrashPurge:
             self._purge(done["trash_id"], 2)
         assert tree not in exc.value.message and "b.bin" not in exc.value.message
         assert os.path.exists(os.path.join(entry, "payload", "b.bin"))
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
         # Its record went first, so a half-deleted payload can't be restored.
         item = dts.trash_list()["items"][0]
         assert item["restorable"] is False and item["original_path_relative"] is None

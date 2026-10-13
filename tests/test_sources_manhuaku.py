@@ -270,13 +270,14 @@ class TestChapterImportKeepsEveryPageKind:
 
     def test_skipped_images_are_reported_in_the_job_result(self, isolated_db):
         import background_jobs
+        from jobs import job_table
         from sources import pipeline
         a, t = _adapter(self._routes(), rendered_fetch=self._rendered)
         chapter = ChapterInfo("manhuaku", "test-slug", "ch1", "第1话",
                               f"{BASE}/chapter/ch1.html")
         drama_id = isolated_db.create_drama(title_zh="测试", media_type="manhua")
         job = "source_import_manhuaku_skipped"
-        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                       "cancel_requested": False, "result": None}
         pipeline.run_import_job(job, "manhuaku", [chapter], drama_id, adapter=a)
         result = background_jobs.get_status(job)["result"]

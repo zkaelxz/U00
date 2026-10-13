@@ -33,7 +33,7 @@ LOG_TAIL_DEFAULT = 50
 LOG_TAIL_MAX = 200
 
 
-# job_id prefixes this app actually uses (see background_jobs.start_job
+# job_id prefixes this app actually uses (see job_launch.start_job
 # call sites) -- everything before the last "_<drama_id>" segment.
 _JOB_LABELS = {
     "translate": "Translating",

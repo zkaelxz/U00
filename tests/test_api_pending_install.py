@@ -218,22 +218,22 @@ def test_accepting_a_risk_is_required_against_the_merged_plan(client, env, monke
 
 
 def test_a_preview_is_refused_while_the_install_hold_is_taken(client, env):
-    import background_jobs
-    assert background_jobs.acquire_exclusive("Dependency install")
+    from jobs import job_launch
+    assert job_launch.acquire_exclusive("Dependency install")
     try:
         r = client.post(f"{BASE}/plan", json={"packages": ["paddleocr"]})
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     assert r.status_code == 409 and env["calls"] == 0
 
 
 def test_queueing_is_refused_while_the_install_hold_is_taken(client, env, tmp_path):
-    import background_jobs
-    assert background_jobs.acquire_exclusive("Dependency install")
+    from jobs import job_launch
+    assert job_launch.acquire_exclusive("Dependency install")
     try:
         r = queue(client)
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     assert r.status_code == 409 and env["calls"] == 0
     assert not (tmp_path / "pending_install" / "pending.json").exists()
 
@@ -258,7 +258,7 @@ def test_queueing_is_refused_while_a_preview_runs(client, env, tmp_path):
 def test_queueing_rechecks_the_install_hold_once_it_has_the_preview_lock(client, env, monkeypatch,
                                                                        tmp_path):
     held = iter([False, True])
-    monkeypatch.setattr(svc.background_jobs, "exclusive_held", lambda: next(held, True))
+    monkeypatch.setattr(svc.job_launch, "exclusive_held", lambda: next(held, True))
     assert queue(client).status_code == 409
     assert env["calls"] == 0 and not (tmp_path / "pending_install" / "pending.json").exists()
 

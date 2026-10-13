@@ -48,6 +48,7 @@ import zipfile
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
+from jobs import job_launch
 import cuda_runtime_path
 import job_process_kill
 from jobs import job_store
@@ -200,7 +201,7 @@ def start_deno_install(confirm: bool = False) -> dict:
     if not _use_winget() and _deno_download_url() is None:
         raise admin_svc.AdminActionNotPossible(
             "There is no Deno download for this system here; install Deno yourself.")
-    if not background_jobs.start_job(DENO_JOB_ID, _deno_job, description="Installing Deno"):
+    if not job_launch.start_job(DENO_JOB_ID, _deno_job, description="Installing Deno"):
         raise admin_svc.AdminActionJobsRunning(
             "A Deno install or a library restore is already running; try again when it ends.")
     return {"job_id": DENO_JOB_ID, "started": True}
@@ -522,11 +523,11 @@ def _start_planned_install(kind: str, names: tuple, description: str, arg: str,
     _require_writable_site_packages()
     # The plan is only true of the environment it was made against: no
     # second plan, and no install or restore, may move it before the job holds it.
-    if background_jobs.exclusive_held() or not pending_install_service._PREVIEW_LOCK.acquire(
+    if job_launch.exclusive_held() or not pending_install_service._PREVIEW_LOCK.acquire(
             blocking=False):
         raise _plan_busy()
     try:
-        if background_jobs.exclusive_held():
+        if job_launch.exclusive_held():
             raise _plan_busy()
         for name in names:
             _require_safe_plan(name, accept_risk, accepted_risks)
@@ -555,7 +556,7 @@ def _start_install_job(kind: str, package: str, description: str, arg: str) -> d
     # Started and labelled under one lock, as for the update test: the state
     # names a package only once its job really started.
     with _STATE_LOCK:
-        if not background_jobs.start_job(DEPENDENCY_JOB_ID, _dependency_job, kind, arg,
+        if not job_launch.start_job(DEPENDENCY_JOB_ID, _dependency_job, kind, arg,
                                          description=description):
             raise admin_svc.AdminActionJobsRunning(
                 "An install or a library restore is already running; try again when it ends.")
@@ -575,7 +576,7 @@ def _job_hold(job_id: str):
     """The library, exclusively, for the life of the install job: nothing
     else can start (409) until the install ends or is cancelled, and the
     hold is released on every exit."""
-    if not background_jobs.acquire_exclusive("Dependency install", ignore_job_id=job_id):
+    if not job_launch.acquire_exclusive("Dependency install", ignore_job_id=job_id):
         raise admin_svc.AdminActionJobsRunning(
             "A job, restore, cleanup or another install is in progress; try again when it ends.")
     try:
@@ -584,7 +585,7 @@ def _job_hold(job_id: str):
                 "A background job is running or queued; wait for it to finish.")
         yield
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
 
 
 def _store_dependency_result(result: dict, status: str):
@@ -773,7 +774,7 @@ def start_upgrade_check(name: str, target: str = None, confirm: bool = False) ->
     # once its job really started, and the job's own writes (tail, result)
     # wait for this lock, so a second request can't relabel the first run.
     with _STATE_LOCK:
-        if not background_jobs.start_job(UPGRADE_CHECK_JOB_ID, _upgrade_check_job, name, dist,
+        if not job_launch.start_job(UPGRADE_CHECK_JOB_ID, _upgrade_check_job, name, dist,
                                          version, description=f"Testing {name} {version}"):
             raise admin_svc.AdminActionJobsRunning(
                 "An update test or a library restore is already running; try again when it ends.")

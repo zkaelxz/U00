@@ -9,6 +9,7 @@ import types
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_table
 import db
 import page_fetch
 import page_fetch_profile
@@ -403,17 +404,17 @@ def test_clean_now_removes_everything_and_reports_counts_only(isolated_db):
 
 def test_clean_now_refuses_while_a_job_runs(isolated_db):
     keep = _make(os.path.join(storage.temp_root(), "job_1~x"), age=10)
-    with background_jobs._lock:
-        background_jobs._jobs["job_1"] = {"status": "running"}
+    with job_table._lock:
+        job_table._jobs["job_1"] = {"status": "running"}
     try:
         with pytest.raises(ConflictError):
             temp_cleanup_service.clean_now()
     finally:
-        with background_jobs._lock:
-            background_jobs._jobs.pop("job_1", None)
+        with job_table._lock:
+            job_table._jobs.pop("job_1", None)
     assert os.path.isdir(keep)
-    assert background_jobs.acquire_exclusive("probe")   # the hold was released
-    background_jobs.release_exclusive()
+    assert job_launch.acquire_exclusive("probe")   # the hold was released
+    job_launch.release_exclusive()
 
 
 def test_clean_now_refuses_while_the_gpu_lock_is_held(isolated_db, monkeypatch):

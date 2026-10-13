@@ -8,6 +8,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch
 from services import (live_follow_poller as poller, live_follow_service as svc, live_service,
                       notification_service)
 from sources import live_follow_store
@@ -238,7 +239,7 @@ def test_one_check_at_a_time(env):
 
 def test_no_check_during_the_clean_stop(env, monkeypatch):
     fid = _follow()
-    monkeypatch.setattr(background_jobs, "is_stopping", lambda: True)
+    monkeypatch.setattr(job_launch, "is_stopping", lambda: True)
     assert poller.check_one(fid, now=NOW) == "stopping"
     assert poller.run_due_once(now=NOW) == 0
     assert live_follow_store.get(fid)["last_checked_at"] is None
@@ -246,11 +247,11 @@ def test_no_check_during_the_clean_stop(env, monkeypatch):
 
 def test_no_check_while_a_restore_holds_the_library(env):
     fid = _follow()
-    assert background_jobs.acquire_exclusive("restore")
+    assert job_launch.acquire_exclusive("restore")
     try:
         assert poller.check_one(fid, now=NOW) == "held"
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     assert live_follow_store.get(fid)["last_checked_at"] is None
     assert poller.check_one(fid, now=NOW) == "checked"
 
@@ -258,11 +259,11 @@ def test_no_check_while_a_restore_holds_the_library(env):
 def test_a_running_check_holds_off_a_restore(env):
     fid = _follow()
     held = []
-    env["answers"][fid] = lambda: held.append(background_jobs.acquire_exclusive("restore")) \
+    env["answers"][fid] = lambda: held.append(job_launch.acquire_exclusive("restore")) \
         or NOT_LIVE
     _check(fid)
     assert held == [False]
-    assert not background_jobs.maintenance_active()
+    assert not job_launch.maintenance_active()
 
 
 def test_a_deleted_follow_is_skipped(env):
@@ -440,7 +441,7 @@ def test_a_check_that_cannot_run_counts_as_a_failure(env):
     env["answers"][fid] = OSError("proxy did not start")
     row = _check(fid)
     assert (row["last_state"], row["last_status"], row["poll_minutes"]) == ("error", poller.FAILED, 120)
-    assert not background_jobs.maintenance_active() and not poller._poll_lock.locked()
+    assert not job_launch.maintenance_active() and not poller._poll_lock.locked()
 
 
 def test_an_upcoming_error_without_details_is_not_a_failure(env):
@@ -552,7 +553,7 @@ def test_a_manual_check_waits_for_a_running_one(env, monkeypatch):
 
 def test_no_manual_check_during_the_clean_stop(env, monkeypatch):
     fid = _follow(auto_check=False)
-    monkeypatch.setattr(background_jobs, "is_stopping", lambda: True)
+    monkeypatch.setattr(job_launch, "is_stopping", lambda: True)
     assert poller.request_check(fid) is False
     assert poller._worker is None
 

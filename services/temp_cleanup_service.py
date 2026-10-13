@@ -9,6 +9,7 @@ as running, or a live holder of the cross-process GPU lock (all a CLI run
 leaves). Returns counts and megabytes only, never a path.
 """
 import background_jobs
+from jobs import job_launch
 import storage
 from jobs import gpu_slots
 from services import library_admin_service
@@ -18,7 +19,7 @@ BUSY = "Finish or cancel the running jobs first, then clean temp files."
 
 
 def _busy() -> bool:
-    if (background_jobs.active_job_ids() or background_jobs.maintenance_active()
+    if (background_jobs.active_job_ids() or job_launch.maintenance_active()
             or library_admin_service.any_job_running()):
         return True
     try:
@@ -30,13 +31,13 @@ def _busy() -> bool:
 def clean_now() -> dict:
     """{"removed": entries removed, "freed_mb": size freed}. 409 while busy."""
     # The exclusive hold keeps a job from starting between the check and the sweep.
-    if not background_jobs.acquire_exclusive("cleaning temp files"):
+    if not job_launch.acquire_exclusive("cleaning temp files"):
         raise ConflictError(BUSY)
     try:
         if _busy():
             raise ConflictError(BUSY)
         result = storage.sweep_library_temp(max_age=0, measure=True)
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     return {"removed": result["removed"],
             "freed_mb": round(result["freed_bytes"] / (1024 * 1024), 1)}

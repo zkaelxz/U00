@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_table
 import storage
 import video_export
 from api.api_config import ApiSettings
@@ -59,11 +60,11 @@ def fake_ffmpeg(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def clean_jobs():
-    with background_jobs._lock:
-        background_jobs._jobs.clear()
+    with job_table._lock:
+        job_table._jobs.clear()
     yield
-    with background_jobs._lock:
-        background_jobs._jobs.clear()
+    with job_table._lock:
+        job_table._jobs.clear()
 
 
 @pytest.fixture
@@ -150,8 +151,8 @@ def test_audiobook_ffmpeg_missing_503(client, drama, isolated_db, monkeypatch):
 
 def test_audiobook_duplicate_409(client, drama, isolated_db):
     _touch(isolated_db, drama, "narration_track.wav")
-    with background_jobs._lock:
-        background_jobs._jobs[f"audiobook_{drama}"] = {"status": "running"}
+    with job_table._lock:
+        job_table._jobs[f"audiobook_{drama}"] = {"status": "running"}
     assert client.post(f"/api/export/dramas/{drama}/audiobook").status_code == 409
 
 
@@ -257,8 +258,8 @@ def test_burned_video_ffmpeg_missing_503(client, drama, isolated_db, monkeypatch
 
 def test_burned_video_duplicate_409(client, drama, isolated_db):
     _add_video(isolated_db, drama)
-    with background_jobs._lock:
-        background_jobs._jobs[f"burned_video_{drama}"] = {"status": "queued"}
+    with job_table._lock:
+        job_table._jobs[f"burned_video_{drama}"] = {"status": "queued"}
     assert client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 409
 
 
@@ -375,8 +376,8 @@ def test_newer_softsub_export_removes_the_older_one_of_another_container(
     assert _wait(f"softsub_video_{drama}")["status"] == "done"
     kind_dir = os.path.dirname(artifact_service.get_artifact(drama, "softsub_video")["path"])
     assert os.listdir(kind_dir).count(f"softsub_video_{drama}.mp4") == 1
-    with background_jobs._lock:
-        background_jobs._jobs.clear()
+    with job_table._lock:
+        job_table._jobs.clear()
     r = client.post(f"/api/export/dramas/{drama}/softsub-video", json={"subtitle_format": "ass"})
     assert r.status_code == 200
     assert _wait(f"softsub_video_{drama}")["status"] == "done"
@@ -410,8 +411,8 @@ def test_softsub_guards(client, drama, isolated_db, monkeypatch):
 def test_video_jobs_one_at_a_time(client, drama, isolated_db, running):
     _add_video(isolated_db, drama)
     _touch(isolated_db, drama, "dub_track.wav")
-    with background_jobs._lock:
-        background_jobs._jobs[f"{running}{drama}"] = {"status": "running"}
+    with job_table._lock:
+        job_table._jobs[f"{running}{drama}"] = {"status": "running"}
     for path in ("softsub-video", "dubbed-video", "burned-video"):
         assert client.post(f"/api/export/dramas/{drama}/{path}").status_code == 409, path
 
@@ -602,13 +603,13 @@ def test_concurrent_video_starts_only_one_wins(client, drama, isolated_db, monke
 def test_dubbed_refused_while_dub_job_runs(client, drama, isolated_db, fake_ffmpeg, status):
     _add_video(isolated_db, drama)
     _touch(isolated_db, drama, "dub_track.wav")
-    with background_jobs._lock:
-        background_jobs._jobs[f"dub_{drama}"] = {"status": status}
+    with job_table._lock:
+        job_table._jobs[f"dub_{drama}"] = {"status": status}
     r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 409 and "dub" in _error(r)["message"]
     assert background_jobs.get_status(f"dubbed_video_{drama}") is None
-    with background_jobs._lock:
-        background_jobs._jobs[f"dub_{drama}"] = {"status": "done"}
+    with job_table._lock:
+        job_table._jobs[f"dub_{drama}"] = {"status": "done"}
     assert client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 200
     assert _wait(f"dubbed_video_{drama}")["status"] == "done"
 

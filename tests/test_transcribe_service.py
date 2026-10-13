@@ -19,6 +19,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner, job_settings, job_table, process_worker
 import core as core_module
 import whisper_transcribe
 import qwen3_native
@@ -73,13 +74,13 @@ def _capture_worker_start(monkeypatch, started=True):
         captured.update(k["on_done"].keywords)
         captured.update(job_id=job_id, target=target, start_kwargs=k)
         return started
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_start_process_job)
     return captured
 
 
 def _seed_running_job(job_id):
     _clear(job_id)
-    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
 
@@ -317,7 +318,7 @@ class TestStartTranscribeRun:
             names = list(inspect.signature(target).parameters)
             captured.update(dict(zip(names, a)))
             return True
-        monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+        monkeypatch.setattr(job_launch, "start_job", fake_start_job)
 
         result = transcribe_service.start_transcribe_run(did)
 
@@ -341,7 +342,7 @@ class TestStartTranscribeRun:
             names = list(inspect.signature(target).parameters)
             captured.update(dict(zip(names, a)))
             return True
-        monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+        monkeypatch.setattr(job_launch, "start_job", fake_start_job)
 
         transcribe_service.start_transcribe_run(did, run_diarize=True)
 
@@ -358,7 +359,7 @@ class TestStartTranscribeRun:
             names = list(inspect.signature(target).parameters)
             captured.update(dict(zip(names, a)))
             return True
-        monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+        monkeypatch.setattr(job_launch, "start_job", fake_start_job)
 
         transcribe_service.start_transcribe_run(did, run_diarize=True)
 
@@ -657,7 +658,7 @@ class TestRunTranscribeAndApplyJob:
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         job_id = f"transcribe_{did}"
         _seed_running_job(job_id)
-        background_jobs._jobs[job_id]["cancel_requested"] = True
+        job_table._jobs[job_id]["cancel_requested"] = True
 
         transcribe_service._run_transcribe_and_apply_job(
             job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
@@ -692,7 +693,7 @@ class TestRunTranscribeAndApplyJob:
         from services import settings_service
         patch_setting(monkeypatch, "use_gpu", True)
         diarize_calls = []
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **k: diarize_calls.append(
                                 (job_id, args)) or True)
 
@@ -737,7 +738,7 @@ class TestRunTranscribeAndApplyJob:
 
         def edit_everything_mid_run(*a, **k):
             isolated_db.update_drama(did, beam_size=99, min_silence_ms=9999)
-            background_jobs.set_gpu_max_parallel(4)
+            job_settings.set_gpu_max_parallel(4)
             return [{"start": 0.0, "end": 1.0, "text": "new"}]
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", edit_everything_mid_run)
 
@@ -756,7 +757,7 @@ class TestRunTranscribeAndApplyJob:
 
     def test_start_freezes_the_gpu_app_settings_for_the_apply_step(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        background_jobs.set_gpu_max_parallel(3)
+        job_settings.set_gpu_max_parallel(3)
         captured = _capture_worker_start(monkeypatch)
 
         transcribe_service.start_transcribe_run(did)
@@ -951,7 +952,7 @@ class TestRunTranscribeAndApplyJob:
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
         seen = []
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **k: seen.append(args) or True)
 
         transcribe_service._run_transcribe_and_apply_job(
@@ -1094,7 +1095,7 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
         seen = []
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **k: seen.append(args) or True)
         audio_path = os.path.join(ddir, "audio.wav")
 
@@ -1124,12 +1125,12 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
             seen["launch"] = k
             if stopping:
                 # The stop refuses new jobs before it cancels existing ones.
-                background_jobs._stopping = True
+                job_launch._stopping = True
             if cancel:
                 # The clean stop cancels every job, after the lines were saved.
-                background_jobs._jobs[job_id]["cancel_requested"] = True
+                job_table._jobs[job_id]["cancel_requested"] = True
             raise ConflictError("Baihe is stopping, so no new job can start.")
-        monkeypatch.setattr(background_jobs, "start_process_job", refuse)
+        monkeypatch.setattr(job_launch, "start_process_job", refuse)
         try:
             transcribe_service._run_transcribe_and_apply_job(
                 job_id, did, None, "hardsub_ocr", None, "zh", "simplified",
@@ -1177,7 +1178,7 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
         seen = []
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **k: seen.append(args) or True)
 
         transcribe_service._run_transcribe_and_apply_job(
@@ -1685,8 +1686,9 @@ class TestTranscribeProcessJob:
         self._use_spawned_fakes(monkeypatch, isolated_db, "two_lines")
         messages = []
         real_update = background_jobs.update_progress
-        monkeypatch.setattr(background_jobs, "update_progress",
-                            lambda j, f, m="": (messages.append((f, m)), real_update(j, f, m)))
+        for module in (background_jobs, job_runner):
+            monkeypatch.setattr(module, "update_progress",
+                                lambda j, f, m="": (messages.append((f, m)), real_update(j, f, m)))
         scratch = self._track_scratch(monkeypatch)
 
         transcribe_service.start_transcribe_run(did)
@@ -1751,7 +1753,7 @@ class TestTranscribeProcessJob:
 
         assert status["status"] == "cancelled"
         assert time.monotonic() - started < 5
-        assert status["message"] == background_jobs.CANCELLED_MESSAGE
+        assert status["message"] == job_runner.CANCELLED_MESSAGE
         assert _wait_until(lambda: _process_gone(info["worker"]) and _process_gone(info["helper"]))
         assert _wait_until(lambda: not os.path.exists(info["temp"]))
         assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧的"]
@@ -1769,7 +1771,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
                         lambda key, env_path=None: "gsk_env_key" if key == "groq" else None)
     monkeypatch.setattr(whisper_transcribe, "transcribe_with_groq",
                         lambda path, lang, key, progress_cb=None: seen.append(key) or [])
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     result_queue = queue.Queue()
     transcribe_pipeline._transcribe_worker(
@@ -1801,7 +1803,7 @@ def test_the_run_uses_the_pause_saved_when_it_started(isolated_db, monkeypatch, 
                         lambda path, lang, key, progress_cb=None: segments)
     monkeypatch.setattr(segment_splitting, "split_long_segments",
                         lambda segs, **kw: seen.append(kw) or segs)
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     result_queue = queue.Queue()
     import inspect
@@ -1855,7 +1857,7 @@ class TestMoveIntoPlace:
 
 def test_the_workers_stage_checks_end_it_once_its_parent_is_gone(monkeypatch):
     exits = []
-    monkeypatch.setattr(background_jobs, "exit_if_parent_gone", lambda: exits.append(True))
+    monkeypatch.setattr(process_worker, "exit_if_parent_gone", lambda: exits.append(True))
     rep = transcribe_pipeline._ProcessReporter(None)
     assert rep.cancelled() is False
     rep.raise_if_cancelled()
@@ -1923,7 +1925,7 @@ class TestCancelReachesWhisper:
         _seed_running_job(job_id)
 
         def whisper(*a, **k):
-            background_jobs._jobs[job_id]["cancel_requested"] = True
+            job_table._jobs[job_id]["cancel_requested"] = True
             return [{"start": 0.0, "end": 1.0, "text": "新的"}]
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", whisper)
 
@@ -1945,7 +1947,7 @@ class TestCancelReachesWhisper:
             for i in range(100):
                 seen.append(i)
                 if i == 3:
-                    background_jobs._jobs[job_id]["cancel_requested"] = True
+                    job_table._jobs[job_id]["cancel_requested"] = True
                 progress_cb(i / 100)
             return [{"start": 0.0, "end": 1.0, "text": "新的"}]
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", whisper)
@@ -2151,7 +2153,7 @@ class TestMissingPackageOutcome:
         monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", boom)
         job_id = "transcribe_missing_pkg"
         background_jobs.clear_job(job_id)
-        background_jobs.start_job(
+        job_launch.start_job(
             job_id, transcribe_service._run_transcribe_and_apply_job, job_id, 1, "a.wav",
             "hardsub_ocr", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto", False,
             False, False, None, None, None)
@@ -2203,7 +2205,7 @@ class TestRunSettings:
         monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
         seen = []
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **k: seen.append(k) or True)
         transcribe_service._run_transcribe_and_apply_job(
             job_id, did, None, "hardsub_ocr", None, "zh", "simplified",

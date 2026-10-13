@@ -12,6 +12,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -296,7 +297,7 @@ def test_cancel_mid_run_and_delete_refused(client, fakes):
 def test_job_result_accepts_only_our_ids(client, fakes):
     idle = client.get("/api/sources/jobs/sourceimport_1/result")
     assert idle.status_code == 200 and idle.json()["status"] == "idle"
-    background_jobs.start_job("sourceimport_x", lambda: None)
+    job_launch.start_job("sourceimport_x", lambda: None)
     _wait("sourceimport_x")
     assert client.get("/api/sources/jobs/sourceimport_x/result").status_code == 404
     background_jobs.clear_job("sourceimport_x")
@@ -404,7 +405,7 @@ def test_chapter_check_auto_import_skips_a_busy_drama(client, fakes, monkeypatch
     store.set_setting("auto_queue_new_chapters", True)
     monkeypatch.setattr(registry, "is_enabled", lambda name: True)
     hold = threading.Event()
-    assert background_jobs.start_job(f"sourceimport_{did}", lambda: hold.wait(5))
+    assert job_launch.start_job(f"sourceimport_{did}", lambda: hold.wait(5))
     try:
         summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["alpha"]())
         assert summary["new"] == 2 and summary["queued"] == []

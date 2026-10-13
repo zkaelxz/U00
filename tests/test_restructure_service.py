@@ -7,6 +7,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch
 import db
 import resegment
 from core import Line
@@ -284,7 +285,7 @@ class TestResegment:
 
     def test_duplicate_start_409(self, monkeypatch):
         did, ids = _seed([("a", ""), (LONG, "")])
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
             resegmentation_service.start_resegmentation(did, ids)
 

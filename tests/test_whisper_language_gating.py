@@ -69,7 +69,7 @@ class TestServerRefuses:
                                        audio_filename="a.wav")
         with open(os.path.join(isolated_db.drama_dir(did), "a.wav"), "wb") as f:
             f.write(b"x")
-        monkeypatch.setattr(transcribe_service.background_jobs, "start_job",
+        monkeypatch.setattr(transcribe_service.job_launch, "start_job",
                             lambda *a, **k: pytest.fail("a job was started"), raising=False)
         with pytest.raises(InvalidInputError, match=wm.WHISPER_LANGUAGE_RULES[model].reason[:30]):
             transcribe_service.start_transcribe_run(did, source_language=language, transcript_text="hello")

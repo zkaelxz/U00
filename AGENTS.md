@@ -51,7 +51,7 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
   top-level and picklable: Windows starts them in a fresh interpreter. Every process job starts with spawn,
   its own process group (`start_own_process_group()` first in the worker) and `kill_whole_tree=True`, so a bad
   worker fails on Linux CI too. See `docs/background-jobs.md`.
-- `background_jobs`: the `_jobs` dict under `_lock` is the authority. Never start a thread or process while holding `_lock`.
+- `background_jobs`: the `_jobs` dict under `_lock` (both in `jobs/job_table.py`) is the authority. Never start a thread or process while holding `_lock`.
 - Tests patch the module that uses a name, not a front door that re-exports it.
 
 ## Splitting files
@@ -78,7 +78,7 @@ the folder named in the header, comma separated; a trailing `/` is a folder and
 `*` a glob. `n/a` means there is none. Root modules sit at the repo top level.
 
 Big files, use `python tools/repo_map.py <name>` (then `--part N`), never open them
-whole: `db`, `background_jobs`, `diagnostics`, `core`, plus every file listed in
+whole: `db`, `diagnostics`, `core`, plus every file listed in
 `OVERSIZED_MODULE_BYTES` in `tests/test_static_analysis.py` (e.g. `scanlate`,
 `services/transcribe_service`).
 
@@ -95,7 +95,7 @@ whole: `db`, `background_jobs`, `diagnostics`, `core`, plus every file listed in
 | Sources / adapters | Sources.tsx, sources/, Discover.tsx | source_routes.py, sources_*_routes.py | source_service.py, sources_*_service.py | sources/ (adapters in sources/adapters/), page_fetch.py | `sources.db` via sources/store.py | test_sources_*.py, test_api_sources_*.py, test_source_service.py | sources*.spec.ts, source-*.spec.ts | adding-source.md, content-sources.md |
 | Benchmark lab | Benchmark.tsx, benchmark/ | benchmark_routes.py, model_reeval_routes.py, model_registry_routes.py | benchmark_lab_service.py, model_reeval_service.py, model_registry_service.py | benchmark.py, asr_benchmark.py | benchmark_*, model_candidates, model_decisions | test_benchmark_lab.py, test_benchmark.py, test_model_reeval.py, test_api_benchmark.py | lab-*.spec.ts, bench-sections.spec.ts | database.md |
 | Diagnostics / installs | Diagnostics.tsx, diagnostics/ | diagnostics_routes.py, diagnostics_installs_routes.py, diagnostics_gaps_routes.py | diagnostics_service.py, diagnostics_installs_service.py, diagnostics_gaps_service.py, diagnostics_admin_service.py, diagnostics_packages_service.py, diagnostics_gpu_torch_service.py | diagnostics.py, diagnostics_torch.py, upgrade_check.py, install_plan.py, pending_install.py, check_setup.py | n/a | test_diagnostics_service.py, test_api_diagnostics_installs.py, test_install_presets.py, test_install_plan.py, test_upgrade_check.py | diagnostics*.spec.ts | runbook.md |
-| Jobs | Jobs.tsx, jobs/, workspace/JobPill.tsx | jobs_routes.py, job_stage_routes.py, events_routes.py | jobs_service.py, job_checkpoint_service.py, job_timing_service.py, gpu_process_job.py, ytdlp_child.py | background_jobs.py, job_process_result.py, lib/cancellable_lock.py | job_records, gpu_lock, job_checkpoints | test_background_jobs.py, test_jobs_service.py, test_api_job_cancel.py, test_gpu_process_job.py, test_job_process_result.py | jobs*.spec.ts, job-reattach.spec.ts | background-jobs.md |
+| Jobs | Jobs.tsx, jobs/, workspace/JobPill.tsx | jobs_routes.py, job_stage_routes.py, events_routes.py | jobs_service.py, job_checkpoint_service.py, job_timing_service.py, gpu_process_job.py, ytdlp_child.py | background_jobs.py, jobs/, job_process_result.py, lib/cancellable_lock.py | job_records, gpu_lock, job_checkpoints | test_background_jobs.py, test_jobs_service.py, test_api_job_cancel.py, test_gpu_process_job.py, test_job_process_result.py | jobs*.spec.ts, job-reattach.spec.ts | background-jobs.md |
 | Settings / backups | Settings.tsx, settings/, libraryAdmin/ | settings_routes.py, backup_routes.py, library_admin_routes.py | settings_service.py, auto_backup_service.py, auto_backup_settings.py, auto_backup_copies.py, auto_backup_files.py, drama_restore_service.py, backup_import_service.py | storage.py, lib/settings_schema.py | app_settings | test_settings_service.py, test_auto_backup_service.py, test_api_backups.py, test_user_backup.py | settings*.spec.ts, backups.spec.ts | database.md, runbook.md |
 | Auth / permissions | Login.tsx, Admin.tsx, settings/ExtensionDevicesCard.tsx | auth_routes.py, admin_users_routes.py, sharing_routes.py, device_token_routes.py | auth_service.py, oidc_service.py, ownership_service.py, device_token_service.py | api/auth.py, action_tiers.py, device_tokens.py | users, user_permissions, auth_sessions, audit_log, extension_device_tokens | test_api_permissions.py, test_auth_service.py, test_auth_login.py, test_api_admin_users.py, test_device_tokens.py | signin.spec.ts, admin-audit-users.spec.ts, extension-devices*.spec.ts | route-permissions.md, remote-access-decision.md |
 | Installer / updates | Settings.tsx, settings/AppUpdatesCard.tsx | update_routes.py | update_service.py | installer/ (service.py is big), portable.py | n/a | test_installer_service.py, test_installer_iss.py, test_update_service.py | app-updates.spec.ts | windows-installer-design.md, RELEASE.md |

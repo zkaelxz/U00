@@ -32,6 +32,7 @@ import os
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import bulk_providers
 import bulk_translate
 import core
@@ -98,7 +99,7 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
 
     def submit():
         return submit_bulk_review(bulk_kind, drama_id, engine, engine_name, **submit_kwargs)[0]
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, translate_run_service.run_bulk_translate_job, job_id, engine, engine_name, submit,
         translate_run_service.month_cap_usd() or None,
         description=f"Bulk {_KINDS[kind][1]} (title #{drama_id})")
@@ -154,7 +155,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         if engine_name == "ollama" else None)
     args, kwargs = make_args(drama, lines, engine, engine_name)
     kwargs.setdefault("gpu_touching", translate_engines.ollama_touches_local_gpu(engine_name, model))
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, runner, job_id, drama_id, *args,
         description=f"{label.capitalize()} (title #{drama_id})", **kwargs)
     if not started:

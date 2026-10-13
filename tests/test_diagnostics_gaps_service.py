@@ -8,6 +8,7 @@ import pytest
 
 import applog
 import background_jobs
+from jobs import job_launch, job_runner
 import db
 import diagnostics
 import diagnostics_torch
@@ -360,14 +361,14 @@ def test_pip_holds_the_library_exclusively(monkeypatch):
     seen = {}
 
     def fake(cmd, timeout, **_kw):
-        seen["exclusive"] = background_jobs.exclusive_active()
-        seen["job_started"] = background_jobs.start_job("l7_probe", lambda: None)
-        seen["maintenance"] = background_jobs.enter_maintenance()
+        seen["exclusive"] = job_launch.exclusive_active()
+        seen["job_started"] = job_launch.start_job("l7_probe", lambda: None)
+        seen["maintenance"] = job_launch.enter_maintenance()
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(packages_svc, "stream_tree", fake)
     assert packages_svc.install_dependency("pydub", confirm=True)["ok"] is True
     assert seen == {"exclusive": True, "job_started": False, "maintenance": False}
-    assert background_jobs.exclusive_active() is False
+    assert job_launch.exclusive_active() is False
     background_jobs.clear_job("l7_probe")
 
 
@@ -375,7 +376,7 @@ def test_pip_refused_while_another_hold_is_active(monkeypatch):
     _no_jobs(monkeypatch)
     _fake_pip(monkeypatch)
     # a hold taken between _guard and the acquire (e.g. a restore) -> 409
-    monkeypatch.setattr(background_jobs, "acquire_exclusive", lambda label: False)
+    monkeypatch.setattr(job_launch, "acquire_exclusive", lambda label: False)
     with pytest.raises(admin_svc.AdminActionJobsRunning):
         packages_svc.install_dependency("pydub", confirm=True)
 
@@ -389,7 +390,7 @@ def test_pip_releases_the_hold_when_it_fails(monkeypatch):
     monkeypatch.setattr(packages_svc, "stream_tree", boom)
     with pytest.raises(OSError):
         packages_svc.install_dependency("pydub", confirm=True)
-    assert background_jobs.exclusive_active() is False
+    assert job_launch.exclusive_active() is False
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
@@ -434,20 +435,20 @@ def test_admin_refuses_during_exclusive_hold_or_maintenance(monkeypatch):
     _no_jobs(monkeypatch)
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
     monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
-    assert background_jobs.acquire_exclusive("Library restore")
+    assert job_launch.acquire_exclusive("Library restore")
     try:
         for call in (lambda: admin_svc.reset_library(confirm=True, confirm_text="RESET"),
                      lambda: packages_svc.install_dependency("pydub", confirm=True)):
             with pytest.raises(admin_svc.AdminActionJobsRunning):
                 call()
     finally:
-        background_jobs.release_exclusive()
-    assert background_jobs.enter_maintenance()
+        job_launch.release_exclusive()
+    assert job_launch.enter_maintenance()
     try:
         with pytest.raises(admin_svc.AdminActionJobsRunning):
             admin_svc.reset_library(confirm=True, confirm_text="RESET")
     finally:
-        background_jobs.exit_maintenance()
+        job_launch.exit_maintenance()
 
 
 def test_reset_holds_the_library_exclusively(monkeypatch):
@@ -455,12 +456,12 @@ def test_reset_holds_the_library_exclusively(monkeypatch):
     seen = {}
 
     def fake_reset():
-        seen["exclusive"] = background_jobs.exclusive_active()
-        seen["started"] = background_jobs.start_job("m3_probe", lambda: None)
+        seen["exclusive"] = job_launch.exclusive_active()
+        seen["started"] = job_launch.start_job("m3_probe", lambda: None)
     monkeypatch.setattr(db, "reset_library", fake_reset)
     assert admin_svc.reset_library(confirm=True, confirm_text="RESET")["ok"] is True
     assert seen == {"exclusive": True, "started": False}
-    assert background_jobs.exclusive_active() is False
+    assert job_launch.exclusive_active() is False
     background_jobs.clear_job("m3_probe")
 
 
@@ -477,16 +478,16 @@ def test_reset_waits_for_a_finished_jobs_thread_to_exit(isolated_db, monkeypatch
         release.wait(10)
         order.append("job thread done with the database")
 
-    real_wait = background_jobs.wait_for_job_threads
+    real_wait = job_runner.wait_for_job_threads
 
     def spy_wait(timeout):
         waiting.set()
         return real_wait(timeout)
 
-    monkeypatch.setattr(background_jobs, "_notify_job_finished", blocked_notify)
-    monkeypatch.setattr(background_jobs, "wait_for_job_threads", spy_wait)
+    monkeypatch.setattr(job_runner, "_notify_job_finished", blocked_notify)
+    monkeypatch.setattr(job_runner, "wait_for_job_threads", spy_wait)
     monkeypatch.setattr(db, "reset_library", lambda: order.append("reset"))
-    assert background_jobs.start_job("translate_1", lambda: None)
+    assert job_launch.start_job("translate_1", lambda: None)
     assert in_tail.wait(10)
     assert background_jobs.get_status("translate_1")["status"] == "done"
 
@@ -543,7 +544,7 @@ def test_reset_changes_nothing_when_the_copy_cannot_be_kept(isolated_db, monkeyp
         admin_svc.reset_library(confirm=True, confirm_text="RESET")
     assert isolated_db.get_drama(did)["title_en"] == "Kept"
     assert _kept_copies() == []
-    assert background_jobs.exclusive_active() is False
+    assert job_launch.exclusive_active() is False
 
 
 def test_a_failed_reset_puts_the_media_back_and_keeps_the_older_copy(isolated_db, monkeypatch):
@@ -601,7 +602,7 @@ def test_reset_releases_the_hold_when_it_fails(monkeypatch):
     monkeypatch.setattr(db, "reset_library", boom)
     with pytest.raises(OSError):
         admin_svc.reset_library(confirm=True, confirm_text="RESET")
-    assert background_jobs.exclusive_active() is False
+    assert job_launch.exclusive_active() is False
 
 
 def _pipe_holder_script(marker, child_sleeps):
@@ -671,7 +672,7 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
     try:
         out = packages_svc.install_dependency("pydub", confirm=True)
         assert out["ok"] is False
-        assert background_jobs.exclusive_active() is False
+        assert job_launch.exclusive_active() is False
     finally:
         _kill_pid_from(marker)
 
@@ -683,7 +684,7 @@ def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
     monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     with pytest.raises(admin_svc.AdminActionJobsRunning):
         packages_svc.install_dependency("pydub", confirm=True)
-    assert background_jobs.exclusive_active() is False
+    assert job_launch.exclusive_active() is False
 
 
 # --- transformers (Qwen3-ASR's runtime) installs as plain pip; no qwen-asr special case ---

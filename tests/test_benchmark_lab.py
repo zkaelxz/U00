@@ -14,6 +14,7 @@ import pytest
 
 import benchmark
 import background_jobs
+from jobs import job_launch, job_table
 import db
 import translate_engines
 from services import benchmark_lab_service as svc
@@ -582,14 +583,14 @@ class TestReviewFixes:
 
     def test_delete_refused_during_run(self, isolated_db):
         c = svc.create_case("c", "你好", "Hello")
-        with background_jobs._lock:
-            background_jobs._jobs[svc.JOB_ID] = {"status": "running"}
+        with job_table._lock:
+            job_table._jobs[svc.JOB_ID] = {"status": "running"}
         try:
             with pytest.raises(ConflictError):
                 svc.delete_case(c["id"])
         finally:
-            with background_jobs._lock:
-                background_jobs._jobs.pop(svc.JOB_ID, None)
+            with job_table._lock:
+                job_table._jobs.pop(svc.JOB_ID, None)
 
     def test_regression_readd_keeps_earlier_results(self, isolated_db):
         import core
@@ -606,14 +607,14 @@ class TestReviewFixes:
 class TestLeadReviewFixes:
     def test_exclusive_operation_is_named_and_leaves_no_rows(self, isolated_db, monkeypatch):
         svc.create_case("c", "你好", "Hello")
-        monkeypatch.setattr(background_jobs, "exclusive_active", lambda: True)
+        monkeypatch.setattr(job_launch, "exclusive_active", lambda: True)
         with pytest.raises(ConflictError, match="restore or cleanup"):
             svc.start_run("translation", [{"engine": "fake"}])
         assert db.list_benchmark_sessions() == []
 
     def test_start_job_refusal_leaves_no_rows(self, isolated_db, monkeypatch):
         svc.create_case("c", "你好", "Hello")
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
             svc.start_run("translation", [{"engine": "fake"}])
         assert db.list_benchmark_sessions() == []

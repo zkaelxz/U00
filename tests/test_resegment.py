@@ -289,7 +289,7 @@ class TestSavingOnlyClearsChangedLines:
 
 class TestResegmentSubprocessWorker:
     """Step 4e: resegment_subprocess_worker() is the entry point
-    background_jobs.start_process_job() runs in its own OS process for
+    job_launch.start_process_job() runs in its own OS process for
     the local-Ollama LLM pass, so a real mid-run Cancel can terminate it.
     Confirmed the lowest-risk of the three Step 4e cases to hard-stop:
     resegment_lines is a pure in-memory computation with no DB/file write

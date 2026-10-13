@@ -32,6 +32,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import bulk_providers
 import bulk_poll
 import bulk_reflect
@@ -527,7 +528,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                                  style_note or "", locale, style_preset, context_window,
                                  context_window_ahead, batch_size, force_retranslate,
                                  job_cost_cap_usd, series_id, thinking)
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             job_id, run_bulk_translate_job, job_id, engines[0], engine_name, submit,
             monthly_cap or None,
             description=f"Bulk {'Reflect ' if reflect else ''}translation (title #{drama_id})",
@@ -543,7 +544,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     summary_skip_reason = ("" if summary_engine is not None
                            else episode_summary_service.no_engine_reason(allow_paid_summary))
 
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, workspace_job_service.run_translate_job,
         job_id, drama_id, lines, engine, drama, style_note or "",
         novel_reference, force_retranslate, locale, glossary_terms,
@@ -663,7 +664,7 @@ def resume_interrupted_at_startup() -> dict:
                                               "applying"))
         if not pending:
             return out
-        if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+        if job_launch.exclusive_active() or job_launch.maintenance_active():
             out["skipped"] = len(pending)
             _notify_bulk_resume_skipped("the library is busy with a restore or maintenance")
             return out

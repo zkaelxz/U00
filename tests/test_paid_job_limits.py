@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner
 import bulk_providers
 import bulk_poll
 import bulk_translate
@@ -88,8 +89,8 @@ def _drama():
 
 
 def _run_job(job_id, target, *args):
-    assert background_jobs.start_job(job_id, target, job_id, *args)
-    assert background_jobs.wait_for_job_threads(30, [job_id])
+    assert job_launch.start_job(job_id, target, job_id, *args)
+    assert job_runner.wait_for_job_threads(30, [job_id])
     return background_jobs.get_status(job_id)
 
 
@@ -325,7 +326,7 @@ class TestUnattendedNeedsACap:
         db.save_lines(did, _lines(2, translated=False))
         monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: FakeClaude())
         started, results = [], {}
-        monkeypatch.setattr(wjs.background_jobs, "start_job", lambda *a, **k: started.append(a) or False)
+        monkeypatch.setattr(wjs.job_launch, "start_job", lambda *a, **k: started.append(a) or False)
         monkeypatch.setattr(wjs.background_jobs, "set_result", lambda j, r: results.update(r))
         wjs.run_bulk_series_translate_job("series_t", [did], {"claude": "k"}, monthly_cap=0)
         assert results["skipped_cap"] == [did] and started == []
@@ -344,7 +345,7 @@ class TestUnattendedNeedsACap:
             seen.append(job_id)
             background_jobs.set_result(job_id, {"errors": [{"error": "boom"}]})
             return True
-        monkeypatch.setattr(wjs.background_jobs, "start_job", fake_start)
+        monkeypatch.setattr(wjs.job_launch, "start_job", fake_start)
         monkeypatch.setattr(wjs.background_jobs, "get_status",
                             lambda j: {"status": "done", "result": {"errors": [{"error": "boom"}]}}
                             if j in seen else None)
@@ -662,7 +663,7 @@ class TestSummaryNeedsACapUnattended:
         monkeypatch.setattr(wjs.translate_engines, "get_engine",
                             lambda *a, **k: SimpleNamespace(model="m", supports_reference=True))
         seen = []
-        monkeypatch.setattr(wjs.background_jobs, "start_job",
+        monkeypatch.setattr(wjs.job_launch, "start_job",
                             lambda job_id, target, *a, **kw: seen.append(kw) or False)
         wjs.run_bulk_series_translate_job("series_sum", [did], {}, monthly_cap=0)
         assert seen and seen[0]["summary_engine"] is None

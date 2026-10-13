@@ -382,8 +382,9 @@ class TestStaleChunkGuard:
 
     def _setup(self, monkeypatch, job_id, chunks):
         import background_jobs
+        from jobs import job_table
         background_jobs.clear_job(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
 
@@ -549,8 +550,9 @@ class TestRunLiveJobContextCarrying:
 
     def test_each_chunks_own_tail_is_carried_into_the_next_chunks_call(self, monkeypatch, job_id="test_live_carry"):
         import background_jobs
+        from jobs import job_table
         background_jobs.clear_job(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
 
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
@@ -776,6 +778,7 @@ class TestOverlapDedupAgainstRealAudio:
 
     def _run(self, monkeypatch, tmp_path, job_id, chunks, overlap_seconds=2):
         import background_jobs
+        from jobs import job_table
         import whisper_transcribe
         out_dir = tmp_path / "chunks"
         out_dir.mkdir()
@@ -785,7 +788,7 @@ class TestOverlapDedupAgainstRealAudio:
         (out_dir / f"chunk_{len(chunks):05d}.wav").write_bytes(b"")
 
         background_jobs.clear_job(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
 
@@ -867,6 +870,7 @@ class TestOverlapTailTextWindow:
 
     def _run(self, monkeypatch, tmp_path, chunk0_cues, overlap_seconds=2):
         import background_jobs
+        from jobs import job_table
         job_id = "test_overlap_tail_window"
         out_dir = tmp_path / "chunks"
         out_dir.mkdir()
@@ -875,7 +879,7 @@ class TestOverlapTailTextWindow:
         (out_dir / "chunk_00002.wav").write_bytes(b"")
 
         background_jobs.clear_job(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
 
@@ -983,8 +987,9 @@ class TestCaptureEndings:
 
     def _run(self, monkeypatch, capture, job_id):
         import background_jobs
+        from jobs import job_table
         background_jobs.clear_job(job_id)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: capture)

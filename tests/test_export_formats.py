@@ -329,7 +329,7 @@ class TestReadingSpeed:
             assert isolated_db.load_lines(did)[0]["flag"] == expected, mode
 
     def test_translate_job_puts_dense_lines_in_the_review_queue(self, isolated_db, monkeypatch):
-        import background_jobs
+        from jobs import job_table
         import translate_engines
         from services.workspace_job_service import run_translate_job
         did = isolated_db.create_drama(title_en="D")
@@ -344,11 +344,11 @@ class TestReadingSpeed:
             return lines, []
         monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
         job_id = "test_cps_translate"
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
         run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                           None, "", "claude", "audio_drama")
-        background_jobs._jobs.pop(job_id, None)
+        job_table._jobs.pop(job_id, None)
         rows = isolated_db.load_lines(did)
         assert rows[0]["flag"] == sf.READING_SPEED_FLAG and rows[1]["flag"] is None
 

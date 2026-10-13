@@ -2,7 +2,7 @@
 it with id-keyed matching, and the saved setting reaching the app's run."""
 import pytest
 
-import background_jobs
+from jobs import job_table
 import translate_engines as te
 from core import Line
 from engine_backends.translate_pipeline import plan_batches
@@ -154,12 +154,12 @@ class TestSceneAwareSetting:
         monkeypatch.setattr(te, "translate_lines_with_engine", fake_translate)
 
         job_id = "test_plan_batches_parity"
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False,
                                           "result": None}
         run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                           None, "", "claude", "audio_drama")
-        background_jobs._jobs.pop(job_id, None)
+        job_table._jobs.pop(job_id, None)
         return seen[0]
 
     def test_default_is_on(self, isolated_db, monkeypatch):

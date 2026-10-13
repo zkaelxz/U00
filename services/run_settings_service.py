@@ -1,7 +1,7 @@
 """The settings a job run used, shown in the Jobs page Details panel.
 
 Job args are never exposed (they hold paths, keys and URLs). A job instead
-passes an allow-listed view of its settings to background_jobs.start_job,
+passes an allow-listed view of its settings to job_launch.start_job,
 which keeps it on the job's own entry (so it can never attach to another
 run); jobs_service.project_result_json merges it into the stored result as
 "run_settings" when the job's record is written, and project_result

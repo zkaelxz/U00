@@ -9,6 +9,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_table
 import db
 import translate_engines
 from services import benchmark_lab_service as lab
@@ -221,13 +222,13 @@ class TestReviewFixes:
         svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="g")
         _enabled_days_ago(31)
-        with background_jobs._lock:
-            background_jobs._jobs[lab.JOB_ID] = {"status": "running"}
+        with job_table._lock:
+            job_table._jobs[lab.JOB_ID] = {"status": "running"}
         try:
             assert svc.run_if_due() is False
         finally:
-            with background_jobs._lock:
-                background_jobs._jobs.pop(lab.JOB_ID, None)
+            with job_table._lock:
+                job_table._jobs.pop(lab.JOB_ID, None)
         assert svc.report()["error"] is None
         assert svc.is_due() is True
 
@@ -351,19 +352,19 @@ class TestSpendAndBusyGuards:
         _enabled_days_ago(31)
         monkeypatch.setattr(svc, "estimate_run", lambda capability="translation": pytest.fail("estimated"))
         if busy in ("running", "queued"):
-            with background_jobs._lock:
-                background_jobs._jobs["transcribe_other"] = {"status": busy}
+            with job_table._lock:
+                job_table._jobs["transcribe_other"] = {"status": busy}
         elif busy == "exclusive":
-            assert background_jobs.acquire_exclusive("restore")
+            assert job_launch.acquire_exclusive("restore")
         else:
-            assert background_jobs.enter_maintenance()
+            assert job_launch.enter_maintenance()
         try:
             assert svc.run_if_due() is False
         finally:
-            with background_jobs._lock:
-                background_jobs._jobs.pop("transcribe_other", None)
-            background_jobs.release_exclusive()
-            background_jobs.exit_maintenance()
+            with job_table._lock:
+                job_table._jobs.pop("transcribe_other", None)
+            job_launch.release_exclusive()
+            job_launch.exit_maintenance()
         assert db.get_app_setting(svc._LAST_ATTEMPT_KEY) is None
         assert svc.report()["error"] is None and svc.is_due() is True
 

@@ -10,6 +10,7 @@ import types
 import pytest
 
 import background_jobs
+from jobs import gpu_queue, job_launch, job_runner
 import debug_view
 import translate_engines
 import translation_guide as tguide
@@ -258,7 +259,7 @@ def test_stages_and_spend_are_recorded_for_a_real_job(isolated_db):
         isolated_db.log_usage(did, "claude", "m", "translate", 10, 10, 0.25)
         isolated_db.log_usage(did, "claude", "m", "translate", 10, 10, 0.5)
 
-    background_jobs.start_job("stage_job", work, description="Stages")
+    job_launch.start_job("stage_job", work, description="Stages")
     assert _wait("stage_job")["status"] == "done"
     run = _wait_runs("stage_job")[0]
     assert [s["stage"] for s in run["stages"]] == ["Transcribe", "Translate"]
@@ -272,7 +273,7 @@ def test_a_job_without_stages_gets_one_whole_job_row_even_when_it_fails(isolated
     def boom():
         raise RuntimeError("x")
 
-    background_jobs.start_job("plain_job", boom, description="Plain")
+    job_launch.start_job("plain_job", boom, description="Plain")
     assert _wait("plain_job")["status"] == "error"
     run = _wait_runs("plain_job")[0]
     assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]
@@ -316,17 +317,18 @@ def test_stages_route_follows_job_visibility(isolated_db):
 # --- GPU queue position (item 6) -----------------------------------------------
 
 def test_queued_gpu_jobs_show_their_place_in_line(isolated_db, monkeypatch):
-    monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
-    monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: True)
+    monkeypatch.setattr(job_launch, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_runner, "_gpu_slot_available_locked", lambda *a: False)
     ids = ["q_a", "q_b", "q_c"]
     try:
         for j in ids:
-            assert background_jobs.start_job(j, lambda: None, gpu_touching=True, description=j)
+            assert job_launch.start_job(j, lambda: None, gpu_touching=True, description=j)
         messages = [background_jobs.get_status(j)["message"] for j in ids]
-        assert messages[0] == background_jobs.GPU_WAIT_MESSAGE
+        assert messages[0] == gpu_queue.GPU_WAIT_MESSAGE
         assert messages[1].endswith("number 2 in line") and messages[2].endswith("number 3 in line")
         assert background_jobs.cancel_queued("q_a")
-        assert background_jobs.get_status("q_b")["message"] == background_jobs.GPU_WAIT_MESSAGE
+        assert background_jobs.get_status("q_b")["message"] == gpu_queue.GPU_WAIT_MESSAGE
         assert background_jobs.get_status("q_c")["message"].endswith("number 2 in line")
     finally:
         for j in ids:
@@ -436,7 +438,7 @@ def test_an_old_runs_finish_does_not_close_a_new_run_of_the_same_job(isolated_db
 
 
 def test_process_jobs_get_timing_too(isolated_db):
-    background_jobs.start_process_job("proc_timing", _proc_ok, description="Proc")
+    job_launch.start_process_job("proc_timing", _proc_ok, description="Proc")
     assert _wait("proc_timing")["status"] == "done"
     run = _wait_runs("proc_timing")[0]
     assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]

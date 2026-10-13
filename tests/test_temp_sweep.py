@@ -7,7 +7,7 @@ import zipfile
 
 import pytest
 
-import background_jobs
+from jobs import job_table
 import db
 import storage
 from services import library_backup_service as lbs
@@ -33,14 +33,14 @@ def test_old_entries_removed_fresh_kept(isolated_db):
 def test_running_job_entry_kept(isolated_db):
     mine = storage.new_workdir("urlmedia_7")
     _age(mine, 3 * 86400)
-    with background_jobs._lock:
-        background_jobs._jobs["urlmedia_7"] = {"status": "queued"}
+    with job_table._lock:
+        job_table._jobs["urlmedia_7"] = {"status": "queued"}
     try:
         assert storage.sweep_stale_temp() == 0
         assert os.path.isdir(mine)
     finally:
-        with background_jobs._lock:
-            background_jobs._jobs.pop("urlmedia_7", None)
+        with job_table._lock:
+            job_table._jobs.pop("urlmedia_7", None)
     assert storage.sweep_stale_temp() == 1
 
 

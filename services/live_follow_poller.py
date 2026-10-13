@@ -36,6 +36,7 @@ import threading
 import time
 
 import background_jobs
+from jobs import job_launch
 import storage
 from services import live_follow_service as follows
 from services import notification_service
@@ -113,7 +114,7 @@ def _spawn(target, name) -> threading.Thread:
 
 
 def _halted(stop=None) -> bool:
-    return background_jobs.is_stopping() or _stop.is_set() or (stop is not None and stop.is_set())
+    return job_launch.is_stopping() or _stop.is_set() or (stop is not None and stop.is_set())
 
 
 # --- manual checks -----------------------------------------------------------
@@ -246,7 +247,7 @@ def check_one(follow_id, now=None, manual=False) -> str:
     if not _poll_lock.acquire(blocking=False):
         return "busy"
     try:
-        if not background_jobs.enter_maintenance():
+        if not job_launch.enter_maintenance():
             return "held"
         try:
             row = follow_store.get(follow_id)
@@ -272,7 +273,7 @@ def check_one(follow_id, now=None, manual=False) -> str:
         finally:
             with _state_lock:
                 _current.clear()
-            background_jobs.exit_maintenance()
+            job_launch.exit_maintenance()
     finally:
         _poll_lock.release()
     return "checked"

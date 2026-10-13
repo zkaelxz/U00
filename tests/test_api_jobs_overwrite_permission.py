@@ -14,6 +14,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import db
 import translate_engines
 from api import auth as api_auth
@@ -41,8 +42,8 @@ class FakeEngine:
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
-    monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: True)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
+    monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: True)
     monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "hf-token")
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a, **k: "k")
     yield

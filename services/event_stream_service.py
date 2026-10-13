@@ -195,9 +195,9 @@ def _on_notification() -> None:
 def _ensure_hooks() -> None:
     """Idempotent (both registries ignore a listener already added), so
     it is simply called on every open."""
-    import background_jobs
+    from jobs import job_table
     from services import notification_service
-    background_jobs.add_change_listener(_on_job_change)
+    job_table.add_change_listener(_on_job_change)
     notification_service.add_listener(_on_notification)
 
 

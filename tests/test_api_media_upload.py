@@ -15,6 +15,7 @@ pytest.importorskip("multipart")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -161,7 +162,7 @@ def test_video_extract_cancel_is_cancelled_and_keeps_the_upload(client, isolated
 
 def test_run_cancellable_timeout_kills_process(isolated_db):
     import sys
-    background_jobs.start_job("t_timeout", lambda: None)
+    job_launch.start_job("t_timeout", lambda: None)
     t0 = time.time()
     with pytest.raises(subprocess.TimeoutExpired):
         background_jobs.run_cancellable("t_timeout", [sys.executable, "-c", "import time; time.sleep(30)"],
@@ -599,7 +600,7 @@ def test_start_job_raising_keeps_the_upload(client, isolated_db, monkeypatch):
 
     def broken(*a, **kw):
         raise RuntimeError("thread limit")
-    monkeypatch.setattr(background_jobs, "start_job", broken)
+    monkeypatch.setattr(job_launch, "start_job", broken)
     did = db.create_drama(title_en="D")
     assert _up(client, did, "a.mp4", b"vid").status_code == 500
     assert list(_kept(did).values()) == [b"vid"]

@@ -12,6 +12,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import db
 import dependency_updates
 import diagnostics
@@ -198,7 +199,7 @@ def test_install_runs_as_a_job_and_upgrade_stays_synchronous(client, fakes):
     b = _install_result(client)
     assert b["kind"] == "package" and b["package"] == "pydub"
     assert b["result"]["ok"] is True and b["result"]["package"] == "pydub"
-    assert b["job"]["status"] == "done" and not background_jobs.exclusive_active()
+    assert b["job"]["status"] == "done" and not job_launch.exclusive_active()
     r = client.post("/api/diagnostics/dependencies/pydub/upgrade", json={"confirm": True})
     b = _clean(r)
     assert r.status_code == 200 and b["ok"] is True and b["package"] == "pydub"

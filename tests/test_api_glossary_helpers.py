@@ -16,6 +16,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_table
 import core
 import translation_guide as tguide
 from api import auth as api_auth
@@ -32,9 +33,9 @@ _PREFIXES = ("lines_glossary_", "novel_glossary_")
 
 
 def _clear_jobs():
-    with background_jobs._lock:
-        for jid in [j for j in background_jobs._jobs if j.startswith(_PREFIXES)]:
-            background_jobs._jobs.pop(jid, None)
+    with job_table._lock:
+        for jid in [j for j in job_table._jobs if j.startswith(_PREFIXES)]:
+            job_table._jobs.pop(jid, None)
 
 
 @pytest.fixture(autouse=True)
@@ -45,8 +46,8 @@ def _no_leftover_jobs():
 
 
 def _put_job(job_id, status="done", result=None, message="", error=None, progress=1.0):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {
+    with job_table._lock:
+        job_table._jobs[job_id] = {
             "status": status, "progress": progress, "message": message, "result": result,
             "error": error, "started_at": time.time(), "finished_at": None,
             "cancel_requested": False}
@@ -215,7 +216,7 @@ class TestLinesGlossaryService:
     def test_monthly_cap_used_up_refuses_paid_not_free(self, isolated_db, monkeypatch,
                                                        fake_engine):
         started = []
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
         monkeypatch.setattr(settings_service, "resolve_key",
                             lambda k, *a: "5" if k == "monthly_cap_usd" else None)
@@ -231,7 +232,7 @@ class TestLinesGlossaryService:
                                                                  fake_engine):
         import os
         started = []
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
         monkeypatch.setattr(settings_service, "resolve_key",
                             lambda k, *a: "5" if k == "monthly_cap_usd" else None)
@@ -251,7 +252,7 @@ class TestLinesGlossaryService:
 
     def test_duplicate_run_conflict(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _lines_drama(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
             gs.start_lines_glossary_run(did)
 
@@ -425,7 +426,7 @@ class TestLinesGlossaryRoutes:
         r = client.post(_gl(empty))
         assert r.status_code == 400 and _error(r)["code"] == "unsupported_operation"
         did, _ = _lines_drama(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         assert client.post(_gl(did)).status_code == 409
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
         assert client.post(_gl(did)).status_code == 503
@@ -579,7 +580,7 @@ class TestAuthOn:
     @pytest.mark.parametrize("engine", ["claude", "deepseek", "gemini", None])
     def test_household_refused_paid_engine(self, isolated_db, fake_engine, monkeypatch, engine):
         started = []
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
         c = _remote()
         did, _ = _lines_drama(isolated_db, engine=engine)
@@ -590,7 +591,7 @@ class TestAuthOn:
         assert SECRET not in r.text
 
     def test_household_allowed_ollama(self, isolated_db, fake_engine, monkeypatch):
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
         did, _ = _lines_drama(isolated_db, engine="ollama")
         r = _remote().post(_gl(did), headers=_session())
         assert r.status_code == 200, r.text
@@ -600,7 +601,7 @@ class TestAuthOn:
         resolved, started = [], []
         monkeypatch.setattr(translate_service, "resolve_api_key",
                             lambda name, *a: resolved.append(name) or SECRET)
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
         real = gs.lines_glossary_engine
 

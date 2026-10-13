@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 
-import background_jobs
+from jobs import job_launch
 import dependency_updates
 import diagnostics
 from lib.proc import run_captured
@@ -161,7 +161,7 @@ def get_gpu_status_isolated() -> dict:
         if at is None or time.monotonic() - at > ttl:
             # A child importing torch while GPU PyTorch setup replaces its
             # files can lock them (WinError 5) or read a half-written install.
-            if background_jobs.exclusive_active():
+            if job_launch.exclusive_active():
                 value = value if at is not None else _gpu_status_unavailable(
                     GPU_CHECK_PAUSED_MESSAGE)
             else:

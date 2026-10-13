@@ -17,6 +17,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_table
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -130,10 +131,10 @@ def test_headers_ready_and_heartbeat(isolated_db):
 def test_job_progress_and_notification_pushed(isolated_db):
     def fire():
         _job_row("translate_5", progress=0.25, message="batch 1")
-        background_jobs._emit_change("translate_5")
+        job_table._emit_change("translate_5")
         time.sleep(0.1)
         _job_row("translate_5", status="done", progress=1.0, message="batch 2")
-        background_jobs._emit_change("translate_5")
+        job_table._emit_change("translate_5")
         ns.notify_job_finished("Translation", "done", job_id="translate_5")
     _after_open(fire)
     r = _local(create_app(ApiSettings(auth_mode="off"))).get("/api/events")
@@ -157,7 +158,7 @@ def test_in_process_progress_overlay(isolated_db, monkeypatch):
     """job_records is written on status changes only; a running job's
     progress comes from background_jobs' memory (GET and events alike)."""
     _job_row("dub_3", progress=0.0, message="")
-    monkeypatch.setitem(background_jobs._jobs, "dub_3",
+    monkeypatch.setitem(job_table._jobs, "dub_3",
                         {"status": "running", "progress": 0.6, "message": "line 6 of 10"})
     job = jobs_service.get_job("dub_3")
     assert job["progress"] == 0.6 and job["message"] == "line 6 of 10"
@@ -177,7 +178,7 @@ def test_job_from_another_process_found_by_the_sweep(isolated_db):
 def test_topics_filter_and_bad_topics(isolated_db):
     def fire():
         _job_row("translate_1")
-        background_jobs._emit_change("translate_1")
+        job_table._emit_change("translate_1")
     _after_open(fire)
     c = _local(create_app(ApiSettings(auth_mode="off")))
     events = _parse(c.get("/api/events?topics=notifications").text)
@@ -189,10 +190,10 @@ def test_topics_filter_and_bad_topics(isolated_db):
 def test_listener_failure_never_breaks_a_job(isolated_db):
     def boom(_job_id):
         raise RuntimeError("listener broke")
-    background_jobs.add_change_listener(boom)
+    job_table.add_change_listener(boom)
     try:
         done = threading.Event()
-        assert background_jobs.start_job("evtest_1", lambda: (
+        assert job_launch.start_job("evtest_1", lambda: (
             background_jobs.update_progress("evtest_1", 0.5, "half"), done.set()))
         assert done.wait(5)
         for _ in range(100):
@@ -202,7 +203,7 @@ def test_listener_failure_never_breaks_a_job(isolated_db):
             time.sleep(0.02)
         assert status == "done"
     finally:
-        background_jobs.remove_change_listener(boom)
+        job_table.remove_change_listener(boom)
         background_jobs.clear_job("evtest_1")
 
 
@@ -276,7 +277,7 @@ def test_live_event_carries_status_not_cues(isolated_db, monkeypatch):
     sid = "live_" + "a" * 32
     monkeypatch.setitem(live_service._sessions, sid, {"dir": None, "engine": "google",
                                                       "owner_user_id": 7})
-    monkeypatch.setitem(background_jobs._jobs, sid, {
+    monkeypatch.setitem(job_table._jobs, sid, {
         "status": "running", "progress": 0.0, "message": "Capturing",
         "result": [{"start": 0, "end": 2, "text": "你好", "translated": "Hello"}]})
     sub = ev.Subscription("local", ("live",))
@@ -324,7 +325,7 @@ def test_other_users_job_and_private_drama_never_streamed(world):
         _job_row(hidden[1], owner=a_id)
         _job_row(shown, owner=a_id)
         for j in hidden + [shown]:
-            background_jobs._emit_change(j)
+            job_table._emit_change(j)
         ns.notify_job_finished("Translation (drama #%d)" % world["private"], "done",
                                job_id=hidden[0], owner_user_id=a_id)
         ns.notify_job_finished("Library backup", "done", job_id=hidden[1], owner_user_id=a_id)
@@ -346,7 +347,7 @@ def test_owner_sees_their_own_private_job(world):
 
     def fire():
         _job_row(job, owner=world["a"]["user_id"])
-        background_jobs._emit_change(job)
+        job_table._emit_change(job)
     _after_open(fire)
     r = _remote(create_app(ApiSettings(auth_mode="on"))).get("/api/events",
                                                              headers=_cookie(world["a"]))
@@ -360,7 +361,7 @@ def test_revoked_session_ends_the_stream(world, monkeypatch):
     def fire():
         auth_service.revoke_session(world["b"]["session_id"])
         _job_row(job)
-        background_jobs._emit_change(job)
+        job_table._emit_change(job)
     # The revoke itself wakes the stream (request_recheck), so it can end
     # before fire() finishes: wait for it, or it writes into the next test's DB.
     t = _after_open(fire)
@@ -415,7 +416,7 @@ def test_session_rechecked_at_most_every_few_seconds(world, monkeypatch):
     def fire():
         for i in range(20):
             _job_row(job, progress=i / 20)
-            background_jobs._emit_change(job)
+            job_table._emit_change(job)
             time.sleep(0.03)
     _after_open(fire)
     r = _remote(create_app(ApiSettings(auth_mode="on"))).get("/api/events",
@@ -428,7 +429,7 @@ def test_a_failing_batch_becomes_a_resync(isolated_db, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("database is locked")
     monkeypatch.setattr(ev, "build_events", boom)
-    _after_open(lambda: background_jobs._emit_change("translate_1"))
+    _after_open(lambda: job_table._emit_change("translate_1"))
     r = _local(create_app(ApiSettings(auth_mode="off"))).get("/api/events")
     events = _parse(r.text)
     assert ("resync", {"topics": list(ev.TOPICS)}) in events

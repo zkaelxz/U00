@@ -18,6 +18,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_runner, job_table
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -63,8 +64,8 @@ def _error(resp):
 
 
 def _put_job(job_id, status="running"):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {
+    with job_table._lock:
+        job_table._jobs[job_id] = {
             "status": status, "progress": 0.0, "message": "", "result": None,
             "error": None, "started_at": time.time(), "finished_at": None}
 
@@ -191,7 +192,7 @@ class TestBulkTranslate:
         def fake_start(job_id, target, *args, **kwargs):
             captured.update(job_id=job_id, args=args, kwargs=kwargs)
             return True
-        monkeypatch.setattr(background_jobs, "start_job", fake_start)
+        monkeypatch.setattr(job_launch, "start_job", fake_start)
         monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
         r = _clean(client.post(f"{BASE}/bulk/translate", json={"drama_ids": [a, b, c]}))
         assert r.status_code == 200, r.text
@@ -596,7 +597,7 @@ class TestAuthOn:
 
     def test_household_no_paid_engine_403_on_claude(self, isolated_db, monkeypatch):
         started = []
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
         c = _remote_app()
         a = _new("A")                                   # default engine: claude
@@ -613,7 +614,7 @@ class TestAuthOn:
         assert len(started) == 1
 
     def test_household_with_paid_engine_allowed(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
         monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
         c = _remote_app()
         a = _new("A")
@@ -668,17 +669,17 @@ class TestMaintenanceBlocksArchiving:
                                            ("/backup/user", {})])
     def test_409_during_delete_or_cleanup(self, client, path, body):
         _new("A", "translated", translated=True)
-        assert background_jobs.enter_maintenance()
+        assert job_launch.enter_maintenance()
         try:
             r = client.post(BASE + path, json=body)
             assert r.status_code == 409, r.text
             assert background_jobs.list_all_jobs() == {}
         finally:
-            background_jobs.exit_maintenance()
-        assert not background_jobs.maintenance_active()
+            job_launch.exit_maintenance()
+        assert not job_launch.maintenance_active()
         assert client.post(BASE + path, json=body).status_code == 200
         # The job it started writes under the test's library; let it finish first.
-        assert background_jobs.wait_for_job_threads(10.0)
+        assert job_runner.wait_for_job_threads(10.0)
 
 
 class TestBulkTranslateDoesNotAdopt:
@@ -692,7 +693,7 @@ class TestBulkTranslateDoesNotAdopt:
         def racing_start(job_id, *a, **k):
             _put_job(job_id)          # someone else's run started first
             return False
-        monkeypatch.setattr(background_jobs, "start_job", racing_start)
+        monkeypatch.setattr(job_launch, "start_job", racing_start)
         monkeypatch.setattr(background_jobs, "request_cancel", lambda j: cancels.append(j))
         monkeypatch.setattr(background_jobs, "cancel_queued", lambda j: cancels.append(j))
         _put_job("bulk_test")

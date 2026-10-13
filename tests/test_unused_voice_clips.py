@@ -15,7 +15,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
+from jobs import job_table
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -126,7 +126,7 @@ def test_running_job_hides_title_and_refuses_removal(c, job_id):
     path = _clip(did, f"clone_ref_{HEX}.wav")
     _, clips = _ids(c)
     cid = clips[0]["id"]
-    background_jobs._jobs[job_id.format(d=did)] = {"status": "running"}
+    job_table._jobs[job_id.format(d=did)] = {"status": "running"}
     try:
         body, clips = _ids(c)
         assert clips == [] and body["titles_in_use"] == 1
@@ -135,7 +135,7 @@ def test_running_job_hides_title_and_refuses_removal(c, job_id):
         assert r.status_code == 409
         assert os.path.exists(path)
     finally:
-        background_jobs._jobs.pop(job_id.format(d=did), None)
+        job_table._jobs.pop(job_id.format(d=did), None)
 
 
 def test_job_record_from_another_process_skips_the_clip(c):

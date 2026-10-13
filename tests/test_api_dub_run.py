@@ -12,6 +12,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import dub
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -35,7 +36,7 @@ def started(monkeypatch):
         calls.append(dict(job_id=job_id, target=target, args=args, gpu=gpu_touching,
                           on_done=on_done, launch=launch))
         return True
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_start)
     return calls
 
 
@@ -86,7 +87,7 @@ def test_on_done_applies_field_scoped(client, isolated_db, started):
 
 def test_duplicate_409(client, isolated_db, started, monkeypatch):
     did = _seed(isolated_db)
-    monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: False)
+    monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: False)
     r = client.post(f"/api/dub/dramas/{did}/run", json={})
     assert r.status_code == 409
 

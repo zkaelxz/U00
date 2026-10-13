@@ -11,6 +11,7 @@ pytest.importorskip("multipart")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_table
 from api.api_config import ApiSettings
 from api.server import create_app
 from tests.test_transcribe_service import _capture_worker_start
@@ -104,7 +105,7 @@ def test_video_upload_and_transcribe_one_job(client, monkeypatch):
     def fake_run(drama_id, **opts):
         calls.update(opts, drama_id=drama_id,
                      audio=db.get_drama(drama_id)["audio_filename"])
-        background_jobs.start_job(f"transcribe_{drama_id}", lambda: None)
+        job_launch.start_job(f"transcribe_{drama_id}", lambda: None)
         return {"job_id": f"transcribe_{drama_id}"}
     monkeypatch.setattr(transcribe_service, "start_transcribe_run", fake_run)
     r = client.post(f"/api/media/dramas/{did}/upload-and-transcribe",
@@ -180,8 +181,8 @@ def test_cancel_while_transcribe_child_queued_is_cancelled(client, monkeypatch, 
     background_jobs.clear_job(tid)  # ids repeat across isolated_db tests
 
     def queued_run(drama_id, **opts):
-        with background_jobs._lock:
-            background_jobs._jobs[tid] = {"status": "queued", "progress": 0.0, "message": "Waiting",
+        with job_table._lock:
+            job_table._jobs[tid] = {"status": "queued", "progress": 0.0, "message": "Waiting",
                                           "error": None, "started_at": time.time(),
                                           "finished_at": None, "cancel_requested": False,
                                           "result": None, "gpu_touching": True,
@@ -208,7 +209,7 @@ def test_cancel_while_transcribe_child_running_is_cancelled(client, monkeypatch,
         raise background_jobs.JobCancelled(tid)
 
     def running_run(drama_id, **opts):
-        background_jobs.start_job(tid, child)
+        job_launch.start_job(tid, child)
         return {"job_id": tid}
     monkeypatch.setattr(transcribe_service, "start_transcribe_run", running_run)
     job_id = _video_post(client, did).json()["job_id"]
@@ -269,7 +270,7 @@ def test_video_chained_job_passes_through_child_failed_reason(client, monkeypatc
         background_jobs.set_result(tid, {"failed_reason": "empty"})
 
     def run(drama_id, **opts):
-        background_jobs.start_job(tid, child)
+        job_launch.start_job(tid, child)
         return {"job_id": tid}
     monkeypatch.setattr(transcribe_service, "start_transcribe_run", run)
     job = _wait_status(_video_post(client, did).json()["job_id"])
@@ -306,7 +307,7 @@ def test_upload_passes_the_speaker_range(client, monkeypatch):
 def test_upload_refuses_a_bad_speaker_range_and_stores_nothing(client, monkeypatch):
     import db
     did = _drama()
-    monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: True)
+    monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: True)
     r = _post(client, did, {"run_diarize": "true", "min_speakers": "5", "max_speakers": "2"})
     assert r.status_code == 422, r.text
     assert not db.get_drama(did).get("audio_filename")

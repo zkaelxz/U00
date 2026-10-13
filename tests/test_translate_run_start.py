@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_runner, job_table
 import db
 import translate_engines
 from api.server import create_app
@@ -76,7 +77,7 @@ def test_english_typed_while_the_run_works_is_kept(isolated_db, monkeypatch):
 
 def test_refused_force_start_takes_no_undo_point(isolated_db, monkeypatch):
     did = _seed([("你好", "old")])
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
     with pytest.raises(ConflictError):
         svc.start_translate_run(did, engine_name="fake", force_retranslate=True)
     assert db.list_line_history(did) == []
@@ -144,7 +145,7 @@ def test_errors(isolated_db, monkeypatch):
 
 def test_duplicate_start_conflicts(isolated_db):
     did = _seed([("你好", "")])
-    background_jobs.start_job(f"translate_{did}", lambda: time.sleep(0.5))
+    job_launch.start_job(f"translate_{did}", lambda: time.sleep(0.5))
     with pytest.raises(ConflictError):
         svc.start_translate_run(did, engine_name="fake")
 
@@ -245,7 +246,7 @@ def test_batch_size_over_the_cap_is_refused_with_a_clear_message(isolated_db):
         svc.start_translate_run(did, engine_name="fake", batch_size=200)
     job_id = svc.start_translate_run(did, engine_name="fake", batch_size=60)["job_id"]
     # The job thread must not outlive isolated_db's library folder.
-    assert background_jobs.wait_for_job_threads(5, [job_id])
+    assert job_runner.wait_for_job_threads(5, [job_id])
 
 
 def test_empty_engine_reply_finishes_with_errors(isolated_db, monkeypatch):
@@ -282,12 +283,12 @@ def test_run_settings_name_the_engine_and_show_the_resolved_toggle_defaults(isol
 def test_a_refused_second_start_does_not_change_the_live_jobs_settings(isolated_db):
     did = _seed([("你好", ""), ("再见", "")])
     job_id = f"translate_{did}"
-    background_jobs._jobs[job_id] = {
+    job_table._jobs[job_id] = {
         "status": "running", "progress": 0.0, "message": "", "error": None,
         "cancel_requested": False, "result": None, "run_settings": {"batch_size": 3}}
     with pytest.raises(ConflictError):
         svc.start_translate_run(did, engine_name="fake", batch_size=7)
-    assert background_jobs._jobs[job_id]["run_settings"] == {"batch_size": 3}
+    assert job_table._jobs[job_id]["run_settings"] == {"batch_size": 3}
 
 
 def test_a_new_run_shows_its_own_settings_not_the_previous_runs(isolated_db):

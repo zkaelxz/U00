@@ -291,7 +291,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
 
 def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *rest):
     """Entry point for running diarize() in its own OS process,
-    via background_jobs.start_process_job() -- pyannote's pipeline(...)
+    via job_launch.start_process_job() -- pyannote's pipeline(...)
     call is one opaque call with no cooperative-cancellation checkpoint
     of its own (unlike every other job type in this app, which checks
     is_cancel_requested() between discrete units of work), so a genuine
@@ -314,8 +314,8 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     result_queue = rest[-1]
     options = rest[0] if len(rest) > 1 and isinstance(rest[0], dict) else {}
     try:
-        import background_jobs
-        background_jobs.start_own_process_group()
+        from jobs import process_worker
+        process_worker.start_own_process_group()
         run_info = {}
         started = time.monotonic()
         segments, model, embeddings = diarize(
@@ -323,7 +323,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
             return_model=True, return_embeddings=True,
             use_gpu=bool(options.get("use_gpu")), min_speakers=options.get("min_speakers"),
             max_speakers=options.get("max_speakers"), run_info=run_info,
-            on_progress=lambda frac, message: background_jobs.report_progress(
+            on_progress=lambda frac, message: process_worker.report_progress(
                 result_queue, frac, message))
         result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings,
                                  "device": run_info.get("device", "cpu"),

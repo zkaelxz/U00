@@ -1,4 +1,4 @@
-"""gpu_probe.py -- nvidia-smi readings taken before background_jobs._lock.
+"""gpu_probe.py -- nvidia-smi readings taken before job_table._lock.
 
 Each nvidia-smi run can take up to 5 s. Read under that lock, it stalled every
 get_status / update_progress / is_cancel_requested behind it. Callers call

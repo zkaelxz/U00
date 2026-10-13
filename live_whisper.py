@@ -18,6 +18,7 @@ import time
 import traceback
 
 import background_jobs
+from jobs import job_runner
 import ollama_unload
 
 # A chunk should take well under its own length; this is generous so a busy GPU
@@ -153,7 +154,7 @@ def _worker_ended(entry: dict) -> None:
                 _log("warning", f"Live: could not release the GPU claim: {_redacted(exc)}")
     if held:
         try:
-            background_jobs._promote_next_queued_gpu_job()
+            job_runner._promote_next_queued_gpu_job()
         except Exception as exc:
             _log("warning", f"Live: could not promote the next GPU job: {_redacted(exc)}")
 

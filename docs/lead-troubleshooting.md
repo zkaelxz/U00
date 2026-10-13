@@ -90,7 +90,7 @@ still happened: open a root-cause session with the failing output attached.
 ### 5. One-try-under-lock looked fixed and was not (#1058)
 
 **Symptom.** The Opus review of the jobs store rewrite flagged SQL retries
-under `background_jobs._lock`; the fix session moved retries out, and the
+under `job_table._lock`; the fix session moved retries out, and the
 docstring now says "outside the lock". A later read showed one write with a
 5 s busy wait still under the lock.
 

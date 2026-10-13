@@ -418,7 +418,7 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
 def resegment_subprocess_worker(lines, language, engine, segments, chinese_script, min_pause,
                                 result_queue):
     """Entry point for running resegment_lines() in its own OS
-    process via background_jobs.start_process_job(), so Cancel can
+    process via job_launch.start_process_job(), so Cancel can
     actually stop it. Confirmed the lowest-risk of the three
     cases to hard-stop: resegment_lines is a pure in-memory computation
     -- no DB write, no file write, anywhere in it. Its result only ever
@@ -429,8 +429,8 @@ def resegment_subprocess_worker(lines, language, engine, segments, chinese_scrip
     connection in the real caller) -- each call's (input, output) token
     counts are collected here instead and hand back for the caller to
     log once the job completes."""
-    import background_jobs
-    background_jobs.start_own_process_group()
+    from jobs import process_worker
+    process_worker.start_own_process_group()
     usage_calls = []
     try:
         new_lines, changed = resegment_lines(

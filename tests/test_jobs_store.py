@@ -16,6 +16,7 @@ import time
 import pytest
 
 import background_jobs as bg
+from jobs import job_launch, job_runner, job_settings, job_table
 import db
 from jobs import job_store
 
@@ -32,7 +33,7 @@ def _wait_for(predicate, timeout=5.0):
 
 
 def _finish(*job_ids):
-    assert bg.wait_for_job_threads(5.0)
+    assert job_runner.wait_for_job_threads(5.0)
     for job_id in job_ids:
         bg.clear_job(job_id)
 
@@ -71,7 +72,7 @@ def writes(isolated_db, monkeypatch):
 class TestEveryTransitionIsWrittenOnce:
     def test_running_then_done(self, writes):
         release = threading.Event()
-        assert bg.start_job("st_done", lambda: release.wait(5.0), description="Store test")
+        assert job_launch.start_job("st_done", lambda: release.wait(5.0), description="Store test")
         _assert_row_matches_job("st_done")
         row = db.get_job_record("st_done")
         assert (row["kind"], row["owner_instance"], row["detail_state"]) == (
@@ -93,7 +94,7 @@ class TestEveryTransitionIsWrittenOnce:
             heard.set()
             stop.wait(5.0)
             raise bg.JobCancelled("st_cancel")
-        assert bg.start_job("st_cancel", work)
+        assert job_launch.start_job("st_cancel", work)
         bg.request_cancel("st_cancel")
         assert heard.wait(5.0)
         _assert_row_matches_job("st_cancel")
@@ -110,11 +111,11 @@ class TestEveryTransitionIsWrittenOnce:
         bg.clear_job("st_cancel")
 
     def test_queued_then_cancelled(self, writes):
-        bg.set_gpu_limit_enabled(True)
+        job_settings.set_gpu_limit_enabled(True)
         release = threading.Event()
         try:
-            assert bg.start_job("st_gpu_a", lambda: release.wait(5.0), gpu_touching=True)
-            assert bg.start_job("st_gpu_b", lambda: None, gpu_touching=True)
+            assert job_launch.start_job("st_gpu_a", lambda: release.wait(5.0), gpu_touching=True)
+            assert job_launch.start_job("st_gpu_b", lambda: None, gpu_touching=True)
             assert bg.get_status("st_gpu_b")["status"] == "queued"
             _assert_row_matches_job("st_gpu_b")
             bg.request_cancel("st_gpu_b")
@@ -148,7 +149,7 @@ class TestAFailedWriteIsVisibleAndRetried:
                 raise sqlite3.OperationalError("disk I/O error, key sk-ant-SECRET1234567890abcdef")
             return real(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", fail_final)
-        assert bg.start_job("st_fail", lambda: None)
+        assert job_launch.start_job("st_fail", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_fail")["status"] == "done")
         _finish()
         job = bg.get_status("st_fail")
@@ -163,7 +164,7 @@ class TestAFailedWriteIsVisibleAndRetried:
         assert "st_fail" in job_store._pending
 
         monkeypatch.setattr(db, "save_job_record", real)
-        bg._heartbeat_once()
+        job_table._heartbeat_once()
         job = bg.get_status("st_fail")
         assert "sync_error" not in job and "detail_state" not in job
         assert "st_fail" not in job_store._pending
@@ -185,16 +186,16 @@ class TestAFailedWriteIsVisibleAndRetried:
         def boom(*a, **k):
             raise sqlite3.OperationalError("disk I/O error sk-ant-SECRET1234567890abcdef")
         monkeypatch.setattr(db, "save_job_record", boom)
-        assert bg.start_job("st_log", lambda: None)
+        assert job_launch.start_job("st_log", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_log")["status"] == "done")
         _finish()
-        with bg._lock:
-            job_store.write_transition("st_log", bg._jobs["st_log"])
+        with job_table._lock:
+            job_store.write_transition("st_log", job_table._jobs["st_log"])
         mine = [m for m in logged if "st_log" in m and "could not save" in m]
         assert len(mine) == 1
         assert "SECRET1234567890" not in mine[0]
         bg.clear_job("st_log")
-        bg._heartbeat_once()   # a cleared job's retry is dropped, never written
+        job_table._heartbeat_once()   # a cleared job's retry is dropped, never written
         assert "st_log" not in job_store._pending
         assert db.get_job_record("st_log") is None
 
@@ -208,12 +209,12 @@ class TestAFailedWriteIsVisibleAndRetried:
                 raise sqlite3.OperationalError("database is locked")
             return real(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", locked_once)
-        assert bg.start_job("st_locked", lambda: None)
+        assert job_launch.start_job("st_locked", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_locked")["status"] == "done")
         _finish()
-        # One try under background_jobs._lock; the retry runs outside it.
+        # One try under job_table._lock; the retry runs outside it.
         assert failed == [1] and "st_locked" in job_store._pending
-        bg._heartbeat_once()
+        job_table._heartbeat_once()
         assert "sync_error" not in bg.get_status("st_locked")
         assert db.get_job_record("st_locked")["status"] == "done"
         assert "st_locked" not in job_store._pending
@@ -225,7 +226,7 @@ class TestAWriteUnderTheJobsLockNeverWaitsLong:
     def test_a_database_held_by_another_connection_fails_fast(
             self, isolated_db, monkeypatch, failure):
         release = threading.Event()
-        assert bg.start_job("st_held", lambda: release.wait(10.0))
+        assert job_launch.start_job("st_held", lambda: release.wait(10.0))
         if failure == "disk":
             # A non-lock failure must not follow up with its own write under
             # the lock: that write would wait out the holder below.
@@ -245,8 +246,8 @@ class TestAWriteUnderTheJobsLockNeverWaitsLong:
         try:
             assert holding.wait(5.0)
             t0 = time.monotonic()
-            with bg._lock:
-                ok = job_store.write_transition("st_held", bg._jobs["st_held"])
+            with job_table._lock:
+                ok = job_store.write_transition("st_held", job_table._jobs["st_held"])
             assert time.monotonic() - t0 < 2.0
             assert ok is False
             assert bg.get_status("st_held")["sync_error"]
@@ -257,7 +258,7 @@ class TestAWriteUnderTheJobsLockNeverWaitsLong:
             monkeypatch.undo()
             release.set()
             _finish()
-        bg._heartbeat_once()
+        job_table._heartbeat_once()
         assert "st_held" not in job_store._pending
         bg.clear_job("st_held")
 
@@ -270,7 +271,7 @@ class TestRowsOfGoneOwners:
         try:
             db.save_job_record("st_other", "running", owner_pid=other.pid)
             _set_row("st_other", owner_instance="another-server")
-            assert job_store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 1
+            assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS) == 1
             assert db.get_job_record("st_other")["status"] == "running"
         finally:
             other.kill()
@@ -289,7 +290,7 @@ class TestRowsOfGoneOwners:
             for job_id, pid in (("st_paused", other.pid), ("st_dead", gone.pid)):
                 db.save_job_record(job_id, "running", owner_pid=pid)
                 _set_row(job_id, owner_instance="another-server", updated_at=time.time() - 3600)
-            cutoff = time.time() - bg.STALE_JOB_SECONDS
+            cutoff = time.time() - job_table.STALE_JOB_SECONDS
             assert job_store.close_stale("st_paused", cutoff) is False
             assert db.get_job_record("st_paused")["status"] == "running"
             assert job_store.close_stale("st_dead", cutoff) is True
@@ -305,13 +306,13 @@ class TestRowsOfGoneOwners:
         other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
         try:
             ages = {"st_reused": job_store.STALE_ALIVE_CEILING_SECONDS + 60,
-                    "st_napping": bg.STALE_JOB_SECONDS + 60}
+                    "st_napping": job_table.STALE_JOB_SECONDS + 60}
             for job_id, age in ages.items():
                 db.save_job_record(job_id, "running", owner_pid=other.pid)
                 _set_row(job_id, owner_instance="another-server", updated_at=time.time() - age)
             assert jobs_service.is_stale(db.get_job_record("st_reused")) is True
             assert jobs_service.is_stale(db.get_job_record("st_napping")) is False
-            cutoff = time.time() - bg.STALE_JOB_SECONDS
+            cutoff = time.time() - job_table.STALE_JOB_SECONDS
             assert job_store.close_stale("st_napping", cutoff) is False
             assert job_store.close_stale("st_reused", cutoff) is True
         finally:
@@ -325,14 +326,14 @@ class TestRowsOfGoneOwners:
         is this process's to write, not an earlier server's to close."""
         db.save_job_record("st_owed", "running", owner_pid=os.getpid())
         _set_row("st_owed", owner_instance=job_store.INSTANCE_ID)
-        with bg._lock:
+        with job_table._lock:
             job_store._pending.add("st_owed")
         try:
             assert job_store.owner_gone(db.get_job_record("st_owed")) is False
-            assert job_store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 0
+            assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS) == 0
             assert db.get_job_record("st_owed")["status"] == "running"
         finally:
-            with bg._lock:
+            with job_table._lock:
                 job_store._pending.discard("st_owed")
         assert job_store.close_if_owner_gone(db.get_job_record("st_owed")) is True
 
@@ -373,7 +374,7 @@ class TestRowsOfGoneOwners:
         _set_row("st_mid", owner_instance="an-earlier-server")
         seen = db.get_job_record("st_mid")
         sweeps = []
-        # owner_gone waits on background_jobs._lock, which start_job holds
+        # owner_gone waits on job_table._lock, which start_job holds
         # for the whole write; another process's sweep has no such lock, so
         # only the single transaction can keep its UPDATE out from between.
         monkeypatch.setattr(job_store, "owner_gone", lambda record: True)
@@ -397,7 +398,7 @@ class TestRowsOfGoneOwners:
         monkeypatch.setattr(job_store, "_connect",
                             lambda timeout=None: SweepBeforeOwnerUpdate(real_connect(timeout)))
         release = threading.Event()
-        assert bg.start_job("st_mid", lambda: release.wait(5.0))
+        assert job_launch.start_job("st_mid", lambda: release.wait(5.0))
         try:
             sweeps[0].join(10)
             assert sweeps[1:] == [False]
@@ -409,16 +410,16 @@ class TestRowsOfGoneOwners:
 
     def test_the_requesters_cancel_time_stands_and_the_owner_adopts_it(self, isolated_db):
         release = threading.Event()
-        assert bg.start_job("st_adopt", lambda: release.wait(5.0))
+        assert job_launch.start_job("st_adopt", lambda: release.wait(5.0))
         try:
             asked = time.time() - 30
             _set_row("st_adopt", cancel_requested=1, cancel_requested_at=asked)
             bg._last_db_cancel_check.clear()
             assert bg.is_cancel_requested("st_adopt")
             assert bg.get_status("st_adopt")["cancel_requested_at"] == pytest.approx(asked)
-            with bg._lock:
-                bg._jobs["st_adopt"]["cancel_requested_at"] = time.time()
-                job_store.write_transition("st_adopt", bg._jobs["st_adopt"])
+            with job_table._lock:
+                job_table._jobs["st_adopt"]["cancel_requested_at"] = time.time()
+                job_store.write_transition("st_adopt", job_table._jobs["st_adopt"])
             assert db.get_job_record("st_adopt")["cancel_requested_at"] == pytest.approx(asked)
         finally:
             release.set()
@@ -434,7 +435,7 @@ class TestRetriesNeverHoldTheJobsLock:
                 raise sqlite3.OperationalError("disk I/O error")
             return real(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", fail_final)
-        assert bg.start_job("st_slow", lambda: None)
+        assert job_launch.start_job("st_slow", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_slow")["status"] == "done")
         _finish()
         assert "st_slow" in job_store._pending
@@ -447,7 +448,7 @@ class TestRetriesNeverHoldTheJobsLock:
                 raise sqlite3.OperationalError("database is locked")
             return real(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", locked_for_2s)
-        beat = threading.Thread(target=bg._heartbeat_once)
+        beat = threading.Thread(target=job_table._heartbeat_once)
         beat.start()
         assert _wait_for(lambda: blocked)
         worst = 0.0
@@ -465,8 +466,8 @@ class TestRetriesNeverHoldTheJobsLock:
     def test_a_retry_that_raced_a_new_transition_is_written_again(self, isolated_db, monkeypatch):
         real = db.save_job_record
         release = threading.Event()
-        assert bg.start_job("st_race2", lambda: release.wait(5.0))
-        with bg._lock:
+        assert job_launch.start_job("st_race2", lambda: release.wait(5.0))
+        with job_table._lock:
             job_store._pending.add("st_race2")
         moved = []
 
@@ -474,9 +475,9 @@ class TestRetriesNeverHoldTheJobsLock:
             real(job_id, *a, **k)
             if not moved:
                 moved.append(1)
-                with bg._lock:   # what a progress message change does
-                    bg._jobs["st_race2"]["message"] = "newer"
-                    job_store.write_transition("st_race2", bg._jobs["st_race2"])
+                with job_table._lock:   # what a progress message change does
+                    job_table._jobs["st_race2"]["message"] = "newer"
+                    job_store.write_transition("st_race2", job_table._jobs["st_race2"])
                 real(job_id, *a, **k)   # the older copy lands last
         monkeypatch.setattr(db, "save_job_record", transition_meanwhile)
         try:
@@ -492,8 +493,8 @@ class TestRetriesNeverHoldTheJobsLock:
         would write an older copy that can land after the first returned."""
         real = job_store._write_row
         release = threading.Event()
-        assert bg.start_job("st_two", lambda: release.wait(5.0))
-        with bg._lock:
+        assert job_launch.start_job("st_two", lambda: release.wait(5.0))
+        with job_table._lock:
             job_store._pending.add("st_two")
         inside, active, overlapped = threading.Event(), [], []
 
@@ -533,16 +534,16 @@ class TestRetriesNeverHoldTheJobsLock:
 
         def store_after_a_transition(job_id, text, deadline=None):
             failing[0] = False
-            with bg._lock:   # lands before the older sync_error is stored
-                bg._jobs["st_stale"]["message"] = "newer"
-                assert job_store.write_transition("st_stale", bg._jobs["st_stale"])
+            with job_table._lock:   # lands before the older sync_error is stored
+                job_table._jobs["st_stale"]["message"] = "newer"
+                assert job_store.write_transition("st_stale", job_table._jobs["st_stale"])
             real_store(job_id, text, deadline)
         release = threading.Event()
-        assert bg.start_job("st_stale", lambda: release.wait(5.0))
+        assert job_launch.start_job("st_stale", lambda: release.wait(5.0))
         monkeypatch.setattr(db, "save_job_record", disk_error_once)
         monkeypatch.setattr(job_store, "_store_sync_error", store_after_a_transition)
         try:
-            with bg._lock:
+            with job_table._lock:
                 job_store._pending.add("st_stale")
             job_store.retry_pending()
             row = db.get_job_record("st_stale")
@@ -560,7 +561,7 @@ class TestRetriesNeverHoldTheJobsLock:
                 raise sqlite3.OperationalError("disk I/O error")
             return real(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", fail_final)
-        assert bg.start_job("st_gone", lambda: None)
+        assert job_launch.start_job("st_gone", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_gone")["status"] == "done")
         _finish("st_gone")
         assert "st_gone" in job_store._pending and "st_gone" in job_store._last_write
@@ -577,18 +578,18 @@ class TestRetriesNeverHoldTheJobsLock:
                 raise sqlite3.OperationalError("disk I/O error")
             return real_save(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", fail_final)
-        assert bg.start_job("st_mid_clear", lambda: None)
+        assert job_launch.start_job("st_mid_clear", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_mid_clear")["status"] == "done")
         _finish()
 
         def cleared_while_writing(job_id, *a, **k):
             real_save(job_id, *a, **k)
-            with bg._lock:   # clear_job's in-memory part
+            with job_table._lock:   # clear_job's in-memory part
                 bg._clear_job_locked(job_id)
         owed_while_dropping = []
 
         def drop(job_id, copy):
-            with bg._lock:
+            with job_table._lock:
                 owed_while_dropping.append(job_id in job_store._pending)
             real_drop(job_id, copy)
         monkeypatch.setattr(db, "save_job_record", cleared_while_writing)
@@ -602,15 +603,15 @@ class TestRetriesNeverHoldTheJobsLock:
     def test_one_failed_beat_does_not_raise_out_of_the_heartbeat(self, isolated_db, monkeypatch):
         def boom():
             raise RuntimeError("reconcile failed")
-        monkeypatch.setattr(bg, "reconcile_dead_workers", boom)
-        bg._heartbeat_once()
+        monkeypatch.setattr(job_runner, "reconcile_dead_workers", boom)
+        job_table._heartbeat_once()
 
 
 class TestExitFlush:
     def test_a_running_row_is_closed_as_interrupted_and_its_gpu_slot_freed(self, isolated_db):
-        bg.set_gpu_limit_enabled(True)
+        job_settings.set_gpu_limit_enabled(True)
         release = threading.Event()
-        assert bg.start_job("st_exit", lambda: release.wait(5.0), gpu_touching=True)
+        assert job_launch.start_job("st_exit", lambda: release.wait(5.0), gpu_touching=True)
         try:
             assert "ui:st_exit" in _gpu_holders()
             job_store.flush_at_exit()
@@ -623,10 +624,10 @@ class TestExitFlush:
             _finish("st_exit")
 
     def test_a_queued_gpu_jobs_slot_name_is_left_alone(self, isolated_db):
-        bg.set_gpu_limit_enabled(True)
+        job_settings.set_gpu_limit_enabled(True)
         release = threading.Event()
-        assert bg.start_job("st_ex_a", lambda: release.wait(5.0), gpu_touching=True)
-        assert bg.start_job("st_ex_b", lambda: None, gpu_touching=True)
+        assert job_launch.start_job("st_ex_a", lambda: release.wait(5.0), gpu_touching=True)
+        assert job_launch.start_job("st_ex_b", lambda: None, gpu_touching=True)
         try:
             assert bg.get_status("st_ex_b")["status"] == "queued"
             with contextlib.closing(db.get_conn()) as conn:   # another process's job
@@ -649,11 +650,11 @@ class TestExitFlush:
                 raise sqlite3.OperationalError("disk I/O error")
             return real(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", fail_final)
-        assert bg.start_job("st_ex_pending", lambda: None)
+        assert job_launch.start_job("st_ex_pending", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_ex_pending")["status"] == "done")
         _finish()
         release = threading.Event()
-        assert bg.start_job("st_ex_live", lambda: release.wait(5.0))
+        assert job_launch.start_job("st_ex_live", lambda: release.wait(5.0))
 
         class Locked:
             """Waits out its busy timeout (sqlite's 5 s unless set), then fails."""
@@ -695,7 +696,7 @@ class TestExitFlush:
                 raise sqlite3.OperationalError("disk I/O error")
             return real(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", fail_final)
-        assert bg.start_job("st_exit_pending", lambda: None)
+        assert job_launch.start_job("st_exit_pending", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_exit_pending")["status"] == "done")
         _finish()
         monkeypatch.setattr(db, "save_job_record", real)
@@ -713,7 +714,7 @@ class TestExitFlush:
                 raise sqlite3.OperationalError("disk I/O error")
             return real(job_id, *a, **k)
         monkeypatch.setattr(db, "save_job_record", save)
-        assert bg.start_job("st_exit_race", lambda: None)
+        assert job_launch.start_job("st_exit_race", lambda: None)
         assert _wait_for(lambda: bg.get_status("st_exit_race")["status"] == "done")
         _finish()
         assert "st_exit_race" in job_store._pending
@@ -746,11 +747,11 @@ class TestExitFlush:
 _OWNER_SCRIPT = r"""
 import os, sys, threading
 sys.path.insert(0, sys.argv[2])
-import db, background_jobs as bg
-from jobs import job_store
+import db
+from jobs import job_launch, job_store
 db.configure_library_dir(sys.argv[1])
 job_store.register_exit_flush()   # as the server's lifespan does
-bg.start_job("st_owner", lambda: threading.Event().wait(60))
+job_launch.start_job("st_owner", lambda: threading.Event().wait(60))
 assert db.get_job_record("st_owner")["status"] == "running"
 if sys.argv[3] == "kill":
     os._exit(1)   # what SIGKILL or a crash leaves: no atexit
@@ -767,7 +768,7 @@ def test_an_exited_server_leaves_no_running_row(isolated_db, how):
     row = db.get_job_record("st_owner")
     if how == "kill":
         assert row["status"] == "running"
-        assert job_store.sweep_dead_owners(bg.STALE_JOB_SECONDS) == 1
+        assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS) == 1
         row = db.get_job_record("st_owner")
     assert (row["status"], row["detail_state"], row["error"]) == (
         "cancelled", "interrupted", bg.INTERRUPTED_MESSAGE)
@@ -871,9 +872,9 @@ class TestFreshActive:
         db.save_job_record("source_import_x", "queued")
         db.save_job_record("translate_3", "done")
         real = time.time()
-        monkeypatch.setattr(time, "time", lambda: real + bg.STALE_JOB_SECONDS - 60)
+        monkeypatch.setattr(time, "time", lambda: real + job_table.STALE_JOB_SECONDS - 60)
         assert job_store.fresh_active(prefix="source_import_") is True
         assert job_store.fresh_active(job_ids={"translate_3"}) is False
-        monkeypatch.setattr(time, "time", lambda: real + bg.STALE_JOB_SECONDS + 60)
+        monkeypatch.setattr(time, "time", lambda: real + job_table.STALE_JOB_SECONDS + 60)
         assert job_store.fresh_active(prefix="source_import_") is False
         assert job_store.fresh_active() is False

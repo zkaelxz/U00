@@ -6,6 +6,7 @@ import time
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import bulk_poll
 import db
 from api.server import create_app
@@ -96,11 +97,11 @@ def test_nothing_starts_while_a_restore_holds_the_library(isolated_db, monkeypat
     did = _setup(monkeypatch)
     bid = _pending_batch(did)
     settings_service.set_settings({"bulk_auto_resume": True})
-    assert background_jobs.acquire_exclusive("restore")
+    assert job_launch.acquire_exclusive("restore")
     try:
         assert svc.resume_interrupted_at_startup()["resumed"] == 0
     finally:
-        background_jobs.release_exclusive()
+        job_launch.release_exclusive()
     assert not background_jobs.is_running(bulk_poll.poll_job_id(bid))
     assert db.get_bulk_job(bid)["status"] == "submitted"
 

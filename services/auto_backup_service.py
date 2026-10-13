@@ -31,6 +31,7 @@ import threading
 import time
 
 import background_jobs
+from jobs import job_launch
 import db
 from db import fsync_dir as _fsync_dir
 from services import backup_space_check as space
@@ -221,7 +222,7 @@ def _start(include_media: bool) -> bool:
     # Under _snapshot_lock so a folder change can't slip between its
     # running-job check and its save (see set_settings).
     with _snapshot_lock:
-        return background_jobs.start_job(JOB_ID, _backup_job, JOB_ID, include_media,
+        return job_launch.start_job(JOB_ID, _backup_job, JOB_ID, include_media,
                                          description="Automatic backup")
 
 
@@ -236,7 +237,7 @@ def start_now(replace: bool = False, include_media=None) -> dict:
     elif not isinstance(include_media, bool):
         raise InvalidInputError("include_media must be true or false.")
     las.refuse_during_maintenance("backup")
-    if background_jobs.exclusive_active():
+    if job_launch.exclusive_active():
         raise ConflictError("A restore is in progress; the backup can start when it finishes.")
     if job_running():
         raise ConflictError("A backup is already running.")
@@ -256,7 +257,7 @@ def check_and_run(now=None) -> str:
             return "disabled"
         if not is_due(now=now, settings=settings):
             return "not_due"
-        if (background_jobs.maintenance_active() or background_jobs.exclusive_active()
+        if (job_launch.maintenance_active() or job_launch.exclusive_active()
                 or las.any_job_running()):
             return "busy"
         return "started" if _start(settings["include_media"]) else "busy"

@@ -54,6 +54,7 @@ import threading
 import time
 
 import background_jobs
+from jobs import job_launch
 import db
 import video_export
 from lib import settings_schema
@@ -541,7 +542,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
             return result
         job_id = f"{EXTRACT_JOB_PREFIX}{drama_id}"
         try:
-            started = background_jobs.start_job(
+            started = job_launch.start_job(
                 job_id, _extract_audio_job, job_id, drama_id, ext, staged, transcribe_options,
                 description=f"Audio extraction (title #{drama_id})")
         except BaseException:

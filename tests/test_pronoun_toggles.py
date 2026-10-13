@@ -124,7 +124,7 @@ def test_library_bulk_translate_without_toggles_reuses_each_titles_choice(isolat
                  translation_engine="claude")
     wjs = workspace_job_service
     monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
-    monkeypatch.setattr(wjs.background_jobs, "start_job", lambda *a, **k: False)
+    monkeypatch.setattr(wjs.job_launch, "start_job", lambda *a, **k: False)
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     wjs.run_bulk_series_translate_job("bulk_toggles", [did], {"claude": "k"},
                                       monthly_cap=50.0, include_genre_notes=None,
@@ -187,7 +187,7 @@ def test_library_bulk_translate_rows_carry_their_own_run_settings(isolated_db, m
     monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     seen = []
-    monkeypatch.setattr(wjs.background_jobs, "start_job",
+    monkeypatch.setattr(wjs.job_launch, "start_job",
                         lambda job_id, *a, **k: seen.append((job_id, k["run_settings"])) or False)
     wjs.run_bulk_series_translate_job("bulk_rs", [did], {"claude": "k"}, monthly_cap=50.0)
     assert seen[0][0] == f"translate_{did}"

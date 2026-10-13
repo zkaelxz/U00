@@ -63,6 +63,7 @@ from urllib.parse import urljoin, urlsplit
 
 import applog
 import background_jobs
+from jobs import job_launch
 import db
 import storage
 import translate_engines
@@ -695,7 +696,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
             background_jobs.clear_job(job_id)
             _enqueue(job_id)
             try:
-                started = background_jobs.start_job(
+                started = job_launch.start_job(
                     job_id, _download_job, job_id, drama_id, url, audio_only,
                     confirm_replace_audio, options, description=f"URL download (title #{drama_id})")
             except BaseException:

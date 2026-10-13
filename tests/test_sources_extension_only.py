@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_runner
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -42,7 +43,7 @@ def client(isolated_db, monkeypatch):
     # Clearing a record does not stop its thread; a thread still running here
     # writes into the next test's library, and the autouse fixture otherwise
     # joins it for up to 5 s per test.
-    assert background_jobs.wait_for_job_threads(10.0, set(ids))
+    assert job_runner.wait_for_job_threads(10.0, set(ids))
     for jid in ids:
         background_jobs.clear_job(jid)
 

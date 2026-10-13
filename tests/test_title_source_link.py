@@ -11,6 +11,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 import background_jobs
+from jobs import job_table
 import comic_chapters
 import db
 from services import drama_service
@@ -49,7 +50,7 @@ class ComicSource(SourceAdapter):
 def job():
     name = "source_import_link"
     background_jobs.clear_job(name)
-    background_jobs._jobs[name] = {"status": "running", "progress": 0.0, "message": "",
+    job_table._jobs[name] = {"status": "running", "progress": 0.0, "message": "",
                                    "cancel_requested": False, "result": None}
     yield name
     background_jobs.clear_job(name)

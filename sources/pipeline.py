@@ -25,6 +25,7 @@ import threading
 import time
 
 import background_jobs
+from jobs import job_launch
 import comic_chapters
 import db
 
@@ -603,7 +604,7 @@ def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=
     if skip_ids is None:
         skip_ids = store.imported_chapter_ids(source, series_id, drama_id)
     job_id = import_job_id(drama_id)
-    return background_jobs.start_job(
+    return job_launch.start_job(
         job_id, run_import_job, job_id, source, chapters, drama_id, skip_ids=skip_ids,
         series_url=series_url,
         description=f"Import {len(chapters)} chapter(s) from {source}")

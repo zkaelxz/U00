@@ -6,6 +6,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner
 import whisper_transcribe
 import live_cue_feed
 import live_translate as lt
@@ -108,7 +109,7 @@ def test_ids_run_on_across_chunks_and_a_mid_chunk_result_holds_the_earlier_chunk
     # with chunk 1 settled and chunk 2 pending must exist whatever the thread scheduling.
     gate = threading.Event()
     engine = FakeEngine(hold_prefix="00001", gate=gate)
-    assert background_jobs.start_job("live_ids", lt.run_live_job, "live_ids", "http://example.com/live",
+    assert job_launch.start_job("live_ids", lt.run_live_job, "live_ids", "http://example.com/live",
                                      str(out_dir), 10, "zh", "small", engine,
                                      poll_interval=0.05, overlap_seconds=0)
 
@@ -123,7 +124,7 @@ def test_ids_run_on_across_chunks_and_a_mid_chunk_result_holds_the_earlier_chunk
                                           and all(c["translation"] == "done" for c in published[-1])):
         time.sleep(0.02)
     background_jobs.request_cancel("live_ids")
-    background_jobs.wait_for_job_threads(5, ["live_ids"])
+    job_runner.wait_for_job_threads(5, ["live_ids"])
 
     final = published[-1]
     assert [c["id"] for c in final] == [0, 1, 2, 3]

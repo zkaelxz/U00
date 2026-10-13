@@ -9,7 +9,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
+from jobs import job_settings
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import settings_service, transcribe_service
@@ -39,15 +39,15 @@ class TestService:
     def test_backed_by_background_jobs_and_readers(self, isolated_db):
         settings_service.set_settings({"gpu_limit_enabled": False, "notify_on_completion": True,
                                        "use_gpu": True, "gemini_free_tier": True})
-        assert background_jobs.get_gpu_limit_enabled() is False
-        assert background_jobs.get_notify_on_completion() is True
+        assert job_settings.get_gpu_limit_enabled() is False
+        assert job_settings.get_notify_on_completion() is True
         assert settings_service.get("use_gpu") is True
         assert settings_service.get("gemini_free_tier") is True
 
     def test_gpu_max_parallel_defaults_to_one_and_is_clamped(self, isolated_db):
         assert settings_service.get_settings_overview()["gpu_max_parallel"] == 1
         assert settings_service.set_settings({"gpu_max_parallel": 3})["gpu_max_parallel"] == 3
-        assert background_jobs.get_gpu_max_parallel() == 3
+        assert job_settings.get_gpu_max_parallel() == 3
         assert settings_service.set_settings({"gpu_max_parallel": 99})["gpu_max_parallel"] == 4
         assert settings_service.set_settings({"gpu_max_parallel": 0})["gpu_max_parallel"] == 1
 

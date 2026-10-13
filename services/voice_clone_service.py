@@ -59,6 +59,7 @@ import threading
 import uuid
 
 import background_jobs
+from jobs import job_launch
 import db
 from jobs import job_store
 import dub
@@ -414,7 +415,7 @@ def start_extract_candidates(drama_id: int, speaker_label, max_candidates: int =
     if shutil.which("ffmpeg") is None:
         raise DependencyUnavailableError(_NO_FFMPEG)
     job_id = f"{JOB_PREFIX}{drama_id}"
-    started = background_jobs.start_job(
+    started = job_launch.start_job(
         job_id, _extract_job, job_id, drama_id, speaker_label, max_candidates,
         description=f"Reference clip extraction (title #{drama_id})")
     if not started:

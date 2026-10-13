@@ -10,6 +10,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner
 import whisper_models
 from lib import ct2_repo
 import diagnostics
@@ -58,7 +59,7 @@ def _wait_finished(job_id, timeout=20.0):
         if job and job["status"] in ("done", "error", "cancelled"):
             # The status is set before the notification and cleanup run; a thread still
             # unwinding after the test would reach the real library once the fixtures end.
-            assert background_jobs.wait_for_job_threads(10)
+            assert job_runner.wait_for_job_threads(10)
             return job
         time.sleep(0.02)
     raise AssertionError("job did not finish")
@@ -82,7 +83,7 @@ def drama(isolated_db):
 
 def _run(did, audio, hf_token=None, **kwargs):
     job_id = f"transcribe_{did}"
-    assert background_jobs.start_job(
+    assert job_launch.start_job(
         job_id, transcribe_service._run_transcribe_and_apply_job, job_id, did, audio, "whisper",
         None, "zh", "simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False,
         None, hf_token, None, description=f"Transcription (title #{did})", **kwargs)
@@ -165,7 +166,7 @@ class TestSpeakerDetectionSkipped:
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
         self.started = []
-        monkeypatch.setattr(background_jobs, "start_process_job",
+        monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **k: self.started.append(job_id) or True)
         self.monkeypatch = monkeypatch
 
@@ -176,7 +177,7 @@ class TestSpeakerDetectionSkipped:
 
     def _bell(self, job):
         return notification_service.build_message(
-            job["description"], job["status"], reason=transcribe_service.background_jobs._done_note(job["result"]))
+            job["description"], job["status"], reason=job_runner._done_note(job["result"]))
 
     def test_no_token_says_so_in_outcome_and_bell(self, drama):
         self._installed(True)
@@ -242,7 +243,7 @@ class TestCoverageAfterAFailedRerun:
         did, audio = drama
         from core import Line
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="old")])
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
         assert speech_coverage_service.start_speech_coverage(did) == {
             "job_id": speech_coverage_service.speech_coverage_job_id(did)}
 
@@ -255,7 +256,7 @@ class TestModelDownloadWordingPerJobKind:
         ("comparetx_1", "A model could not be downloaded."),
         ("something_1", "A model could not be downloaded.")])
     def test_wording(self, job_id, start):
-        text = background_jobs._failed_outcome_error(
+        text = job_runner._failed_outcome_error(
             {"failed_reason": "model_download", "detail": "Not downloading the 'x' model."}, job_id)
         assert text == f"{start} Not downloading the 'x' model."
 

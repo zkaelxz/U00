@@ -12,8 +12,8 @@ from lib import proc_kill
 
 def _warn_via_jobs(what, exc):
     # Imported late: background_jobs imports this module at load time.
-    import background_jobs
-    background_jobs._warn(what, exc)
+    from jobs import job_table
+    job_table._warn(what, exc)
 
 
 def _stop_process(proc):
@@ -67,16 +67,16 @@ def reap_worker(proc, kill_whole_tree):
     from a second thread, which CPython does not support: the thread whose
     waitpid loses to the other's gets ECHILD, which Popen.poll reports as
     "still alive", so a worker that exited the instant it reported read as
-    lingering. kill_tree is looked up on background_jobs, where tests patch
+    lingering. kill_tree is looked up on jobs/job_runner, where tests patch
     it."""
-    import background_jobs
+    from jobs import job_runner
     try:
         proc.join(timeout=WORKER_EXIT_GRACE_S)
         if kill_whole_tree and os.name != "nt":
             _kill_worker_group(proc)
         if kill_whole_tree:
             if proc.is_alive():
-                background_jobs.kill_tree(proc)
+                job_runner.kill_tree(proc)
                 proc.join(timeout=WORKER_EXIT_GRACE_S)
         elif proc.is_alive():
             _stop_process(proc)

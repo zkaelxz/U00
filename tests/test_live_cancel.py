@@ -21,6 +21,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
+from jobs import job_launch, job_table
 import live_translate as lt
 from services import job_stage_service
 from engine_backends import local
@@ -86,7 +87,7 @@ def silent_ollama(monkeypatch):
 def jobs(isolated_db):
     background_jobs.clear_all_jobs()
     yield
-    for jid in list(background_jobs._jobs):
+    for jid in list(job_table._jobs):
         background_jobs.request_cancel(jid)
     background_jobs.clear_all_jobs()
 
@@ -143,7 +144,7 @@ class FakeProc:
 
 
 def _start(job_id, out_dir, engine, **kw):
-    return background_jobs.start_job(
+    return job_launch.start_job(
         job_id, lt.run_live_job, job_id, "http://example.com/live", out_dir, 10, "zh", "small",
         engine, poll_interval=0.05, overlap_seconds=0,
         report_stage=functools.partial(job_stage_service.set_stage, job_id), **kw)
@@ -180,7 +181,7 @@ class TestBlockedOllamaTranslation:
             ("你好", "", "cancelled")]
 
     def test_a_long_wait_on_ollama_is_said_plainly(self, jobs, monkeypatch):
-        background_jobs._jobs["j"] = {"status": "running", "message": "", "progress": 0.0,
+        job_table._jobs["j"] = {"status": "running", "message": "", "progress": 0.0,
                                       "cancel_requested": False, "result": None}
         now = [1000.0]
         monkeypatch.setattr(job_stage_service.time, "time", lambda: now[0])
@@ -197,10 +198,10 @@ class TestBlockedOllamaTranslation:
 
 
     def test_the_slow_note_is_pushed_without_a_poll(self, jobs):
-        background_jobs._jobs["j2"] = {"status": "running", "message": "", "progress": 0.0,
+        job_table._jobs["j2"] = {"status": "running", "message": "", "progress": 0.0,
                                        "cancel_requested": False, "result": None}
         events = []
-        background_jobs.add_change_listener(events.append)
+        job_table.add_change_listener(events.append)
         try:
             job_stage_service.set_stage("j2", "Chunk 1: translating", slow_after=0.05,
                                       slow_note="Still waiting on Ollama after {secs} s.")
@@ -208,7 +209,7 @@ class TestBlockedOllamaTranslation:
             assert _wait(lambda: len(events) > seen)
             assert "Still waiting on Ollama" in _shown("j2")
         finally:
-            background_jobs.remove_change_listener(events.append)
+            job_table.remove_change_listener(events.append)
 
 
 class TestWhisperIsAbandonedOnCancel:

@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-import background_jobs
+from jobs import job_table
 import raw_transcript
 from core import Line
 from services import speech_coverage_service as svc
@@ -78,9 +78,9 @@ def drama(isolated_db):
 @pytest.fixture(autouse=True)
 def _no_leftover_jobs():
     def clear():
-        with background_jobs._lock:
-            for jid in [j for j in background_jobs._jobs if j.startswith("speechcov_")]:
-                background_jobs._jobs.pop(jid, None)
+        with job_table._lock:
+            for jid in [j for j in job_table._jobs if j.startswith("speechcov_")]:
+                job_table._jobs.pop(jid, None)
     clear()
     yield
     clear()
@@ -190,16 +190,16 @@ class TestStartRefusals:
                 svc.start_speech_coverage(drama, min_gap_seconds=bad)
 
     def test_refused_while_transcribing_and_while_running(self, isolated_db, drama, monkeypatch):
-        with background_jobs._lock:
-            background_jobs._jobs[f"transcribe_{drama}"] = {"status": "running", "progress": 0.1,
+        with job_table._lock:
+            job_table._jobs[f"transcribe_{drama}"] = {"status": "running", "progress": 0.1,
                                                             "message": "", "started_at": time.time()}
         try:
             with pytest.raises(ConflictError):
                 svc.start_speech_coverage(drama)
         finally:
-            with background_jobs._lock:
-                background_jobs._jobs.pop(f"transcribe_{drama}", None)
-        monkeypatch.setattr(svc.background_jobs, "start_job", lambda *a, **k: False)
+            with job_table._lock:
+                job_table._jobs.pop(f"transcribe_{drama}", None)
+        monkeypatch.setattr(svc.job_launch, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
             svc.start_speech_coverage(drama)
 

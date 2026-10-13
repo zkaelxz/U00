@@ -23,6 +23,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_table
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -113,8 +114,8 @@ def _wait_job(timeout=30):
 
 
 def _put_job(job_id, status="running"):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {
+    with job_table._lock:
+        job_table._jobs[job_id] = {
             "status": status, "progress": 0.0, "message": "", "result": None,
             "error": None, "started_at": time.time(), "finished_at": None}
 
@@ -462,11 +463,11 @@ class TestConflicts:
         assert client.post(f"{BASE}/now", json={}).status_code == 409
 
     def test_now_409_during_maintenance(self, client):
-        assert background_jobs.enter_maintenance()
+        assert job_launch.enter_maintenance()
         try:
             assert client.post(f"{BASE}/now", json={}).status_code == 409
         finally:
-            background_jobs.exit_maintenance()
+            job_launch.exit_maintenance()
 
     def test_delete_409_while_backup_runs(self, client):
         _world()

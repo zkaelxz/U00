@@ -20,6 +20,7 @@ pytest.importorskip("httpx")  # TestClient's transport
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 from services import diarization_service
@@ -345,16 +346,17 @@ class TestJobsEndpoint:
     def test_running_job_without_recent_progress_is_flagged_stalled(self, client, isolated_db):
         import time
         import background_jobs
+        from jobs import job_table
         isolated_db.save_job_record("stall1", status="running", progress=0.2, message="Transcribing")
         old = time.time() - background_jobs.JOB_STALL_SECONDS - 60
-        background_jobs._jobs["stall1"] = {
+        job_table._jobs["stall1"] = {
             "status": "running", "progress": 0.2, "message": "Transcribing", "error": None,
             "started_at": old, "progress_at": old, "cancel_requested": False, "result": None}
         try:
             body = client.get("/api/jobs/stall1").json()
             assert body["status"] == "running" and body["stalled"] is True
             assert "may be stalled" in body["message"]
-            background_jobs._jobs["stall1"]["progress_at"] = time.time()
+            job_table._jobs["stall1"]["progress_at"] = time.time()
             body = client.get("/api/jobs/stall1").json()
             assert body["stalled"] is False and "stalled" not in body["message"]
         finally:
@@ -697,8 +699,8 @@ class TestDiarizationEndpoints:
             isolated_db.save_job_record(job_id, status="running", description=description)
             return True
 
-        import background_jobs
-        monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
+        from jobs import job_launch
+        monkeypatch.setattr(job_launch, "start_process_job", fake_start_process_job)
 
         resp = client.post(f"/api/diarization/dramas/{did}/run")
         assert resp.status_code == 200
@@ -937,7 +939,7 @@ class TestTranscribeConfigEndpoints:
         os.makedirs(ddir, exist_ok=True)
         open(os.path.join(ddir, "audio.wav"), "wb").close()
         isolated_db.update_drama(did, audio_filename="audio.wav")
-        monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: False)
 
         resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert resp.status_code == 409

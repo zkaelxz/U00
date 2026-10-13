@@ -26,6 +26,7 @@ import threading
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import db
 import timing_drift
 from services import speech_coverage_service
@@ -294,7 +295,7 @@ def start_timing_check(drama_id: int, after_transcription: bool = False) -> dict
     conservative = (drama.get("content_mode") or "") == "streamer_vod"
     with _state_lock:
         generation = _generation.get(drama_id, 0)
-    if not background_jobs.start_job(
+    if not job_launch.start_job(
             job_id, _run_job, job_id, drama_id, audio_path, conservative, generation,
             description=f"Timing check (title #{drama_id})"):
         raise ConflictError("A timing check is already running for this title.")

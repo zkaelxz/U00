@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_runner, job_table
 import audio_extract
 import whisper_transcribe
 import whisper_models
@@ -229,7 +230,8 @@ class TestRun:
             if message == "Line 1 of 3":
                 background_jobs.request_cancel(job_id)
             return real_progress(jid, frac, message)
-        monkeypatch.setattr(background_jobs, "update_progress", cancel_after_first_line)
+        for module in (background_jobs, job_runner):
+            monkeypatch.setattr(module, "update_progress", cancel_after_first_line)
         _run(did)
         res = svc.get_compare_result(did)
         assert len(res["proposals"]) == 1 and res["partial"] is True
@@ -296,8 +298,8 @@ class TestRun:
 
     def test_one_job_per_title(self):
         did, _ = _drama(2)
-        with background_jobs._lock:
-            background_jobs._jobs[svc.compare_job_id(did)] = {
+        with job_table._lock:
+            job_table._jobs[svc.compare_job_id(did)] = {
                 "status": "running", "progress": 0.0, "message": "", "result": None,
                 "error": None, "started_at": time.time(), "finished_at": None,
                 "cancel_requested": False}
@@ -306,8 +308,8 @@ class TestRun:
 
     def test_refused_while_another_job_changes_lines(self):
         did, _ = _drama(2)
-        with background_jobs._lock:
-            background_jobs._jobs[f"resegment_{did}"] = {
+        with job_table._lock:
+            job_table._jobs[f"resegment_{did}"] = {
                 "status": "queued", "progress": 0.0, "message": "", "result": None,
                 "error": None, "started_at": time.time(), "finished_at": None,
                 "cancel_requested": False}

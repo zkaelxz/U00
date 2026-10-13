@@ -305,8 +305,9 @@ class TestEndToEnd:
         drama_id = isolated_db.create_drama(title_zh="测试漫画", media_type="manhua")
 
         import background_jobs
+        from jobs import job_table
         job = "source_import_manhuagui_17332"
-        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
                                       "cancel_requested": False, "result": None}
         pipeline.run_import_job(job, "manhuagui", [chapter], drama_id, adapter=a)
         result = background_jobs.get_status(job)["result"]

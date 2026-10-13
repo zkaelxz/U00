@@ -19,7 +19,7 @@ import zipfile
 
 import pytest
 
-import background_jobs
+from jobs import job_launch
 import db
 from services import auto_backup_copies as abc_
 from services import auto_backup_files as abf_
@@ -697,17 +697,17 @@ class TestForeignBadFiles:
 @contextlib.contextmanager
 def _held(kind):
     if kind == "restore":
-        assert background_jobs.acquire_exclusive("Library restore")
+        assert job_launch.acquire_exclusive("Library restore")
         try:
             yield
         finally:
-            background_jobs.release_exclusive()
+            job_launch.release_exclusive()
     else:
-        assert background_jobs.enter_maintenance()
+        assert job_launch.enter_maintenance()
         try:
             yield
         finally:
-            background_jobs.exit_maintenance()
+            job_launch.exit_maintenance()
 
 
 class TestRefusedWhileLibraryHeld:
@@ -728,10 +728,10 @@ class TestRefusedWhileLibraryHeld:
             assert abs_.set_settings(enabled=True)["enabled"] is True
         assert _files() == [name] and _files(str(dest)) == []
         assert abt_.get_settings()["folder"] == ""
-        assert not background_jobs.maintenance_active()
+        assert not job_launch.maintenance_active()
         abs_.set_settings(folder=str(dest))
         assert _files(str(dest)) == [name]
-        assert not background_jobs.maintenance_active()
+        assert not job_launch.maintenance_active()
 
 
 # --------------------------------------------------------------------------

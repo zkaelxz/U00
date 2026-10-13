@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import core
 import whisper_models
 import db
@@ -120,7 +121,7 @@ class TestStart:
                                          "comparetx_"])
     def test_refused_while_a_lines_job_runs(self, prefix):
         did, ids = _drama()
-        background_jobs.start_job(f"{prefix}{did}", lambda: time.sleep(0.5))
+        job_launch.start_job(f"{prefix}{did}", lambda: time.sleep(0.5))
         with pytest.raises(ConflictError):
             svc.start_retime(did, ids)
         background_jobs.clear_all_jobs()

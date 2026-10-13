@@ -302,20 +302,20 @@ def test_clean_temp_refused_without_confirm_true(tree, body):
 
 
 def test_clean_temp_returns_counts_only_and_409_while_a_job_runs(tree):
-    import background_jobs
+    from jobs import job_table
     import storage
     leftover = os.path.join(storage.temp_root(), "gone~1")
     _write(os.path.join(leftover, "f.bin"), 1024)
     c = _local(_app())
-    with background_jobs._lock:
-        background_jobs._jobs["busy_1"] = {"status": "running"}
+    with job_table._lock:
+        job_table._jobs["busy_1"] = {"status": "running"}
     try:
         r = c.post(f"{BASE}/clean-temp", json={"confirm": True})
         assert r.status_code == 409 and r.json()["error"]["message"]
         assert os.path.isdir(leftover)
     finally:
-        with background_jobs._lock:
-            background_jobs._jobs.pop("busy_1", None)
+        with job_table._lock:
+            job_table._jobs.pop("busy_1", None)
     r = c.post(f"{BASE}/clean-temp", json={"confirm": True})
     assert r.status_code == 200
     assert r.json() == {"removed": 1, "freed_mb": 0.0}

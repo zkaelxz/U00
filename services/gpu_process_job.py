@@ -18,6 +18,7 @@ import threading
 import time
 
 import background_jobs
+from jobs import job_runner, process_worker
 import cuda_runtime_path
 import job_process_kill
 import job_process_result
@@ -53,7 +54,7 @@ def run_worker(body, timeout_s, scratch_dir, result_queue, args=(), on_timeout=N
     wait is bounded because a parent that stopped reading would block it
     forever; the channel keeps every message under the pipe's atomic write
     size so a cut-off flush cannot leave a half message."""
-    background_jobs.start_own_process_group()
+    process_worker.start_own_process_group()
     # A child inherits os.environ (PATH) but not the parent's add_dll_directory
     # entries, so the search path is rebuilt here before CTranslate2 is first used.
     cuda_runtime_path.ensure_cuda_runtime_on_path()
@@ -159,11 +160,11 @@ def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_it
             if drain_until is None:
                 drain_until = time.monotonic() + EXIT_DRAIN_GRACE_S
             elif time.monotonic() > drain_until:
-                raise ChildFailed(background_jobs.WORKER_LOST_MESSAGE)
+                raise ChildFailed(job_runner.WORKER_LOST_MESSAGE)
             continue
         except OSError:
             raise ChildFailed(job_process_result.RESULT_FILE_ERROR) from None
-        if background_jobs._apply_progress_item(job_id, item):
+        if job_runner._apply_progress_item(job_id, item):
             continue
         if item and item[0] == "item":
             if on_item is not None:
@@ -178,4 +179,4 @@ def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_it
             return item[1]
         if item and item[0] == "error":
             raise ChildFailed(item[2])
-        raise ChildFailed(background_jobs.WORKER_LOST_MESSAGE)
+        raise ChildFailed(job_runner.WORKER_LOST_MESSAGE)

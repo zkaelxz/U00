@@ -13,6 +13,7 @@ import os
 import subprocess
 
 import background_jobs
+from jobs import process_worker
 import audio_extract
 import whisper_transcribe
 import db
@@ -60,7 +61,7 @@ def hear_flagged_worker(audio_path, windows, settings, scratch_dir, result_queue
     a line that fails keeps going. Writes nothing to the database."""
     slice_path = os.path.join(scratch_dir, "line.wav")
     for n, (idx, start, end) in enumerate(windows):
-        background_jobs.report_progress(
+        process_worker.report_progress(
             result_queue, n / len(windows), f"Hearing flagged line {n + 1} of {len(windows)}")
         try:
             audio_extract.extract_audio_slice(audio_path, start, end, slice_path)

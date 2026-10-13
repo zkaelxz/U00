@@ -1,7 +1,7 @@
 """Live translation with a chosen title's glossary and language packs."""
 import pytest
 
-import background_jobs
+from jobs import job_launch
 import db
 import live_cue_translation as lct
 import translate_engines as te
@@ -127,7 +127,7 @@ def test_start_session_passes_hints_and_refuses_before_building_an_engine(isolat
     built = []
     monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
     monkeypatch.setattr(live_service, "_build_engine", lambda e, m: built.append(1) or ("ollama", Engine()))
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **kw: seen.update(kw) or True)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **kw: seen.update(kw) or True)
     with pytest.raises(NotFoundError):
         live_service.start_session("https://example.com/s", glossary_drama_id=424242, principal=OWNER)
     assert built == []
@@ -203,7 +203,7 @@ def test_start_session_takes_a_series_and_refuses_both(isolated_db, monkeypatch)
     seen = {}
     monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
     monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("ollama", Engine()))
-    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **kw: seen.update(kw) or True)
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **kw: seen.update(kw) or True)
     did, sid = _title()
     with pytest.raises(live_service.InvalidInputError):
         live_service.start_session("https://example.com/s", glossary_drama_id=did, series_id=sid,

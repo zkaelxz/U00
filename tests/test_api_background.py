@@ -95,14 +95,14 @@ def _until(cond, timeout=5.0):
 def test_gpu_queue_poller_only_with_background_services_and_stops(fakes, monkeypatch):
     import time
 
-    import background_jobs
+    from jobs import job_runner
     calls = []
 
     def recheck():
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("one failure must not stop the loop")
-    monkeypatch.setattr(background_jobs, "recheck_gpu_queue", recheck)
+    monkeypatch.setattr(job_runner, "recheck_gpu_queue", recheck)
     monkeypatch.setattr(background, "GPU_QUEUE_POLL_SECONDS", 0.01)
     with TestClient(create_app(ApiSettings())):
         time.sleep(0.1)

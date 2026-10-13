@@ -8,6 +8,7 @@ import threading
 import time
 
 import background_jobs
+from jobs import job_launch, job_table
 from bulk_apply import (apply_bulk_results, apply_consistency_results, apply_emotion_results,
                         apply_flag_results, apply_notes_results)
 from bulk_providers import (BulkAuthError, PollGuard, is_deepseek_offpeak,
@@ -32,7 +33,7 @@ def _polled_by_outer_job(job: dict) -> bool:
     kind = job.get("kind") or "translate"
     kind = {"reflect": "translate", "translation_notes": "notes"}.get(kind, kind)
     outer_id = f"bulk_{kind}_{job['drama_id']}"
-    with background_jobs._lock:
+    with job_table._lock:
         # Force-stopped workers may still bill.
         return (background_jobs.is_running(outer_id)
                 or job_force_stop.abandoned_alive_locked(outer_id))
@@ -273,7 +274,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
 def start_poller(bulk_job_id: int, provider=None, engine=None, monthly_cap_usd: float = None) -> bool:
     """Starts (or leaves running) the background poller for one job."""
     job_id = poll_job_id(bulk_job_id)
-    return background_jobs.start_job(job_id, run_bulk_poller, job_id, bulk_job_id,
+    return job_launch.start_job(job_id, run_bulk_poller, job_id, bulk_job_id,
                                      provider=provider, engine=engine,
                                      monthly_cap_usd=monthly_cap_usd,
                                      description=f"Bulk translation #{bulk_job_id}")

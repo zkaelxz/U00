@@ -11,6 +11,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_table
 import core
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -31,9 +32,9 @@ class _Engine:
 @pytest.fixture(autouse=True)
 def _clean_jobs():
     def clear():
-        with background_jobs._lock:
-            for j in [j for j in background_jobs._jobs if j.startswith("spelling_suggest_")]:
-                background_jobs._jobs.pop(j)
+        with job_table._lock:
+            for j in [j for j in job_table._jobs if j.startswith("spelling_suggest_")]:
+                job_table._jobs.pop(j)
     clear()
     yield
     clear()

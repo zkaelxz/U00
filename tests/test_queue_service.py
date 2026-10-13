@@ -8,6 +8,7 @@ import threading
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner
 import db
 import translate_engines
 from core import Line
@@ -54,7 +55,7 @@ class FakeJobs:
         with self.lock:
             self.concurrent.append(len([j for j in background_jobs.active_job_ids()
                                         if j.startswith(("transcribe_", "translate_"))]))
-        if not background_jobs.start_job(job_id, body, description="fake",
+        if not job_launch.start_job(job_id, body, description="fake",
                                          gpu_touching=self.gpu):
             raise ConflictError("busy")
         self.started.append(job_id)
@@ -69,7 +70,7 @@ class FakeJobs:
 
     def finish(self, job_id):
         self.gates.setdefault(job_id, threading.Event()).set()
-        assert background_jobs.wait_for_job_threads(WAIT, job_ids=[job_id])
+        assert job_runner.wait_for_job_threads(WAIT, job_ids=[job_id])
 
 
 @pytest.fixture
@@ -78,7 +79,7 @@ def jobs(isolated_db, monkeypatch):
     yield fake
     for gate in list(fake.gates.values()):
         gate.set()
-    background_jobs.wait_for_job_threads(WAIT)
+    job_runner.wait_for_job_threads(WAIT)
 
 
 def _items():
@@ -446,12 +447,12 @@ def test_a_restore_or_cleanup_hold_makes_the_queue_wait_not_skip(jobs):
     did = _drama()
     q.add_item(None, did, "transcribe", True, at_pc=True)
     q.start(None)
-    assert background_jobs.enter_maintenance()
+    assert job_launch.enter_maintenance()
     try:
         q.tick()
         assert _items()[0]["status"] == "waiting" and jobs.started == []
     finally:
-        background_jobs.exit_maintenance()
+        job_launch.exit_maintenance()
     q.tick()
     assert jobs.started == [f"transcribe_{did}"]
 

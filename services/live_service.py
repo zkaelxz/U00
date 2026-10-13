@@ -33,6 +33,7 @@ import uuid
 from typing import Optional
 
 import background_jobs
+from jobs import job_launch
 import db
 import live_cue_feed
 import live_pipeline
@@ -438,7 +439,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "segment_seconds": segment_seconds,
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             session_id, _make_target(session_id),
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,

@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
+from jobs import job_launch, job_table
 import whisper_transcribe
 import live_pipeline
 import live_translate as lt
@@ -95,14 +96,14 @@ def job(isolated_db, monkeypatch, tmp_path):
     def start(job_id, engine, **kw):
         kw.setdefault("overlap_seconds", 0)
         kw.setdefault("poll_interval", 0.02)
-        return background_jobs.start_job(
+        return job_launch.start_job(
             job_id, lt.run_live_job, job_id, "http://example.com/live", out_dir, 10, "zh",
             "small", engine, report_note=lambda text, key=None: notes.append(text),
             report_stats=lambda numbers: stats.append(dict(numbers)), **kw)
 
     start.proc, start.stops, start.published, start.stats, start.notes = proc, stops, published, stats, notes
     yield Stream(out_dir), start
-    for jid in list(background_jobs._jobs):
+    for jid in list(job_table._jobs):
         lt.bump_generation(jid)
         background_jobs.request_cancel(jid)
     _wait(lambda: not background_jobs.list_running_jobs(), 5)

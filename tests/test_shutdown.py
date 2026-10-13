@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import page_fetch_profile
 import page_fetch_browser
 import page_server
@@ -222,19 +223,19 @@ class TestCleanShutdown:
         from services.service_errors import ConflictError
         self._record(monkeypatch, active=())
         ran = threading.Event()
-        assert background_jobs.start_job("before", ran.set) is True
+        assert job_launch.start_job("before", ran.set) is True
         assert ran.wait(5)
         # Refused before the cancel takes its snapshot of active jobs, so a
         # start racing the stop is either cancelled or refused, never missed.
         seen = []
         monkeypatch.setattr(background_jobs, "active_job_ids",
-                            lambda: seen.append(background_jobs._stopping) or [])
+                            lambda: seen.append(job_launch._stopping) or [])
         shutdown_service.clean_shutdown(timeout=0)
         assert seen == [True]
         with pytest.raises(ConflictError, match="Baihe is stopping"):
-            background_jobs.start_job("after", lambda: None)
+            job_launch.start_job("after", lambda: None)
         with pytest.raises(ConflictError, match="Baihe is stopping"):
-            background_jobs.start_process_job("after_proc", print)
+            job_launch.start_process_job("after_proc", print)
         assert background_jobs.get_status("after") is None
         assert background_jobs.get_status("after_proc") is None
 
@@ -245,7 +246,7 @@ class TestCleanShutdown:
                             lambda **kw: type("T", (), {"start": lambda self: None})())
         shutdown_service.request_shutdown()
         with pytest.raises(ConflictError):
-            background_jobs.start_job("after", lambda: None)
+            job_launch.start_job("after", lambda: None)
 
 
 class TestStoppableServices:

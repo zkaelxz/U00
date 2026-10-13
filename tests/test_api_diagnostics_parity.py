@@ -102,19 +102,19 @@ class TestModelCacheDelete:
         assert r.status_code == 409 and cache == []
 
     def test_holds_the_library_while_deleting(self, client, cache, monkeypatch):
-        import background_jobs
+        from jobs import job_launch
         seen = []
         monkeypatch.setattr(diagnostics, "delete_hf_cache_revision",
-                            lambda v, *a, **k: seen.append(background_jobs.exclusive_active()) or True)
+                            lambda v, *a, **k: seen.append(job_launch.exclusive_active()) or True)
         r = client.post(f"/api/diagnostics/model-cache/hf/{REV}/delete", json={"confirm": True})
         assert r.status_code == 200 and seen == [True]
-        assert not background_jobs.exclusive_active()          # released afterwards
-        assert background_jobs.acquire_exclusive("test hold")
+        assert not job_launch.exclusive_active()          # released afterwards
+        assert job_launch.acquire_exclusive("test hold")
         try:
             r = client.post(f"/api/diagnostics/model-cache/hf/{REV}/delete", json={"confirm": True})
             assert r.status_code == 409 and cache == []
         finally:
-            background_jobs.release_exclusive()
+            job_launch.release_exclusive()
 
     def test_failed_delete_is_reported(self, client, cache, monkeypatch):
         monkeypatch.setattr(diagnostics, "delete_hf_cache_revision", lambda *a, **k: False)

@@ -7,6 +7,7 @@ import pytest
 
 import audio_preprocess
 import background_jobs
+from jobs import job_launch, process_worker
 import dub
 import dub_narration
 from core import Line
@@ -26,7 +27,7 @@ def started(monkeypatch):
                    **launch):
         calls.append(dict(target=target, args=args, launch=launch))
         return True
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_start)
     return calls
 
 
@@ -219,7 +220,7 @@ def test_narration_runs_spawned_and_is_killed_as_a_tree(isolated_db, started):
 def test_dub_workers_leave_the_parents_process_group(monkeypatch, tmp_path):
     import queue
     left = []
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: left.append(True))
     dub.build_track_subprocess_worker([], str(tmp_path), {}, 1.3, 0.9, queue.Queue())
     dub_narration.build_narration_subprocess_worker([], str(tmp_path), {}, queue.Queue())
     assert left == [True, True]

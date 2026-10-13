@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import background_jobs
+from jobs import job_launch
 import db
 from api import auth as api_auth
 from api.api_config import (ApiSettings, check_bind_safety, check_household_bind_safety,
@@ -776,7 +777,7 @@ def test_job_started_on_one_app_is_seen_and_cancelled_on_the_other(isolated_db, 
             time.sleep(0.01)
 
     def start(drama_id, **_kw):
-        assert background_jobs.start_job(job_id, work, job_id)
+        assert job_launch.start_job(job_id, work, job_id)
         return {"job_id": job_id}
     monkeypatch.setattr(narration_service, "start_narration_run", start)
     s = _admin_session()

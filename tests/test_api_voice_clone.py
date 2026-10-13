@@ -18,6 +18,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_table
 import db
 import media_inspect
 import video_export
@@ -218,7 +219,7 @@ class TestClipInUseByJob:
         did = _drama()
         _upload(client, did)
         rel = _char(did, "A")["ref_audio_filename"]
-        background_jobs._jobs[f"{prefix}{did}"] = {"status": status}
+        job_table._jobs[f"{prefix}{did}"] = {"status": status}
         r = _upload(client, did, name="new.wav")
         assert r.status_code == 409, r.text
         assert "job is running" in _error(r)["message"]
@@ -248,18 +249,18 @@ class TestClipInUseByJob:
         db.save_job_record(f"narration_{did}", "running")
         real = time.time()
         monkeypatch.setattr(time, "time",
-                            lambda: real + background_jobs.STALE_JOB_SECONDS - 60)
+                            lambda: real + job_table.STALE_JOB_SECONDS - 60)
         assert vcs._clip_reading_job_active(did) is True
         monkeypatch.setattr(time, "time",
-                            lambda: real + background_jobs.STALE_JOB_SECONDS + 60)
+                            lambda: real + job_table.STALE_JOB_SECONDS + 60)
         assert vcs._clip_reading_job_active(did) is False
 
     def test_other_drama_or_unrelated_job_does_not_block(self, client, isolated_db, tools):
         did = _drama()
         other = _drama()
-        background_jobs._jobs[f"dub_{other}"] = {"status": "running"}
-        background_jobs._jobs[f"voiceref_{did}"] = {"status": "running"}
-        background_jobs._jobs[f"translate_{did}"] = {"status": "running"}
+        job_table._jobs[f"dub_{other}"] = {"status": "running"}
+        job_table._jobs[f"voiceref_{did}"] = {"status": "running"}
+        job_table._jobs[f"translate_{did}"] = {"status": "running"}
         assert _upload(client, did).status_code == 200
         assert client.post(f"{BASE}/{did}/reference-clip/remove",
                            json={"speaker_label": "A", "confirm": True}).status_code == 200
@@ -381,7 +382,7 @@ class TestExtract:
         noaudio = _drama(audio=False)
         assert client.post(f"{BASE}/{noaudio}/reference-clips/extract",
                            json={"speaker_label": "A"}).status_code == 422
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         assert client.post(url, json={"speaker_label": "A"}).status_code == 409
         monkeypatch.setattr(vcs.shutil, "which", lambda name: None)
         assert client.post(url, json={"speaker_label": "A"}).status_code == 503
@@ -620,7 +621,7 @@ class TestAuthOn:
         url = f"{BASE}/{did}/reference-clips/candidates/{{}}/choose"
         assert client.post(url.format(first), headers=LOCAL_HDR).status_code == 200
         old = os.path.join(db.drama_dir(did), _char(did, "A")["ref_audio_filename"])
-        background_jobs._jobs[f"{prefix}{did}"] = {"status": "running"}
+        job_table._jobs[f"{prefix}{did}"] = {"status": "running"}
         assert client.post(url.format(second), headers=LOCAL_HDR).status_code == 200
         assert os.path.isfile(old)
         assert _char(did, "A")["ref_audio_filename"] == f"voice_refs/clone_pick_{second}.wav"

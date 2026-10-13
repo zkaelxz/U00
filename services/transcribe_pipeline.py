@@ -19,6 +19,7 @@ from typing import Optional
 
 import asr_backend
 import background_jobs
+from jobs import process_worker
 import core as core_module
 import whisper_models
 import long_line_split
@@ -165,7 +166,7 @@ class _ThreadReporter:
 
 class _ProcessStage:
     """stage_ticker's start/stop/with shape inside the worker process: the
-    parent's watcher runs the real ticker (background_jobs.report_stage)."""
+    parent's watcher runs the real ticker (report_stage)."""
 
     def __init__(self, result_queue, message, frac):
         self._queue, self._message, self._frac = result_queue, message, frac
@@ -174,14 +175,14 @@ class _ProcessStage:
     def start(self):
         if not self._open:
             self._open = True
-            background_jobs.report_stage(self._queue, self._message, self._frac)
+            process_worker.report_stage(self._queue, self._message, self._frac)
         return self
 
     def stop(self):
         """Idempotent."""
         if self._open:
             self._open = False
-            background_jobs.report_stage(self._queue, "", self._frac)
+            process_worker.report_stage(self._queue, "", self._frac)
 
     def __enter__(self):
         return self.start()
@@ -196,7 +197,7 @@ class _ProcessReporter:
     parent through the result queue. A cancel kills the process, so there is
     nothing to check here; the parent re-checks before applying anything.
     Every report and stage-boundary check ends the worker if its parent has
-    died (background_jobs.exit_if_parent_gone)."""
+    died (exit_if_parent_gone)."""
 
     job_id = None
 
@@ -204,17 +205,17 @@ class _ProcessReporter:
         self._queue = result_queue
 
     def progress(self, frac, message=""):
-        background_jobs.report_progress(self._queue, frac, message)
+        process_worker.report_progress(self._queue, frac, message)
 
     def stage(self, message, frac=0.0):
         return _ProcessStage(self._queue, message, frac)
 
     def cancelled(self) -> bool:
-        background_jobs.exit_if_parent_gone()
+        process_worker.exit_if_parent_gone()
         return False
 
     def raise_if_cancelled(self):
-        background_jobs.exit_if_parent_gone()
+        process_worker.exit_if_parent_gone()
 
 
 def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_language,
@@ -240,7 +241,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
     truncated file there (the library writes straight to the final path and
     skips a file that exists), and loading it fails on the next run until
     that file is deleted."""
-    background_jobs.start_own_process_group()
+    process_worker.start_own_process_group()
     try:
         os.makedirs(scratch_dir, exist_ok=True)
         tempfile.tempdir = scratch_dir

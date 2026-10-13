@@ -298,7 +298,7 @@ def _job_owner(job_id):
 
 
 def test_reused_job_id_takes_the_new_runs_owner(people):
-    """background_jobs.start_job reuses ids like translate_<drama>: a new run
+    """job_launch.start_job reuses ids like translate_<drama>: a new run
     after a finished one belongs to whoever started it, not the first owner."""
     db.save_job_record("translate_1", "running", owner_user_id=people["a_id"])
     db.save_job_record("translate_1", "done")

@@ -15,6 +15,7 @@ import threading
 import time
 
 import background_jobs
+from jobs import job_launch
 import db
 from translate_engines import redact_for_storage
 
@@ -218,7 +219,7 @@ def check_due(now: float = None) -> bool:
 
 
 def start_check_now(scheduled: bool = False, allow_browser: bool = True) -> bool:
-    return background_jobs.start_job(CHECK_JOB_ID, run_check_cycle, CHECK_JOB_ID,
+    return job_launch.start_job(CHECK_JOB_ID, run_check_cycle, CHECK_JOB_ID,
                                      scheduled=scheduled, allow_browser=allow_browser,
                                      description="Checking tracked series for new chapters")
 

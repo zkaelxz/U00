@@ -11,6 +11,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_launch, job_runner
 import storage
 from services import gpu_process_job, retranscribe_worker
 
@@ -123,8 +124,8 @@ def test_past_its_budget_the_job_says_it_is_waiting_for_the_worker(
             gpu_process_job.run_in_child("gpujob_stop", hang_body, (marker,), timeout_s=1)
         except gpu_process_job.ChildFailed as exc:
             outcome.append(str(exc))
-    assert background_jobs.start_job("gpujob_stop", job, description="Stuck")
-    assert background_jobs.wait_for_job_threads(60)
+    assert job_launch.start_job("gpujob_stop", job, description="Stuck")
+    assert job_runner.wait_for_job_threads(60)
     assert outcome == [gpu_process_job.TIMEOUT_MESSAGE]
     assert messages == [gpu_process_job.STOPPING_MESSAGE]
     background_jobs.clear_job("gpujob_stop")
@@ -141,11 +142,11 @@ def test_cancel_kills_the_worker_and_keeps_the_items_already_sent(isolated_db, t
                 on_item=items.append)
         except background_jobs.JobCancelled:
             outcome.append("cancelled")
-    assert background_jobs.start_job("gpujob_cancel", job, description="Hanging")
+    assert job_launch.start_job("gpujob_cancel", job, description="Hanging")
     wait_until(lambda: os.path.exists(marker) and len(items) == 2, "worker never got going")
     pid = int(open(marker).read())
     background_jobs.request_cancel("gpujob_cancel")
-    background_jobs.wait_for_job_threads(30)
+    job_runner.wait_for_job_threads(30)
     assert outcome == ["cancelled"] and items == [{"n": 1}, {"n": 2}]
     wait_until(lambda: pid_gone(pid), "Cancel did not kill the worker", 10)
     assert not scratch_dirs("gpujob_cancel")
@@ -187,7 +188,7 @@ def test_a_child_that_exits_with_nothing_is_lost_after_the_grace(isolated_db, mo
     with pytest.raises(gpu_process_job.ChildFailed) as err:
         gpu_process_job._await_child(
             "gpujob_lost", _FakeProc(now), _LateChannel(None, 0), 0.1, now + 30, now + 30, None)
-    assert str(err.value) == background_jobs.WORKER_LOST_MESSAGE
+    assert str(err.value) == job_runner.WORKER_LOST_MESSAGE
     assert time.monotonic() - now >= 0.3
 
 
@@ -240,7 +241,7 @@ def test_give_up_ends_the_process_even_if_the_queue_flush_blocks(monkeypatch, tm
     # run_worker points tempfile at the job's scratch folder for good.
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     monkeypatch.setattr(gpu_process_job, "FLUSH_TIMEOUT_S", 0.2)
-    monkeypatch.setattr(gpu_process_job.background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(gpu_process_job.process_worker, "start_own_process_group", lambda: None)
     monkeypatch.setattr(gpu_process_job.os, "_exit", lambda code: exited.append(code))
 
     def body(scratch_dir, result_queue):

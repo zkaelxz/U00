@@ -11,6 +11,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch
 import db
 import live_translate
 from api import auth as api_auth
@@ -36,7 +37,7 @@ def _wait(cond, timeout=5.0):
 def fake_live(monkeypatch, isolated_db):
     background_jobs.clear_all_jobs()
     live_service._sessions.clear()
-    monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: False)
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: False)
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: PUBLIC)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: SECRET)
     seen = {}

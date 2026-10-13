@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_table
 import dub_narration
 from api.server import ApiSettings, create_app
 from services import narration_service, settings_service
@@ -63,14 +64,14 @@ class TestStart:
     def test_starts_job(self, isolated_db, key, monkeypatch):
         did = _drama(isolated_db)
         calls = []
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda job_id, target, *a, **k: calls.append((job_id, a)) or True)
         assert narration_service.start_narration_run(did) == {"job_id": f"narration_{did}"}
         assert calls[0][1][3:] == ("claude", "sk-secret", None)
 
     def test_duplicate_conflict(self, isolated_db, key, monkeypatch):
         did = _drama(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
             narration_service.start_narration_run(did)
 
@@ -120,7 +121,7 @@ class TestJob:
             raise RuntimeError("bad key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789")
         monkeypatch.setattr(translate_engines, "tag_speakers_by_id", boom)
         job_id = f"narration_{did}"
-        assert background_jobs.start_job(
+        assert job_launch.start_job(
             job_id, narration_service._run_narration_job, job_id, did, NOVEL, "claude", "k", None)
         import time
         for _ in range(100):
@@ -147,10 +148,10 @@ class TestApi:
         no_src = _drama(isolated_db, novel=None)
         assert client.post(f"/api/narration/dramas/{no_src}/run", json={}).status_code == 422
         did = _drama(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
         r = client.post(f"/api/narration/dramas/{did}/run", json={})
         assert r.status_code == 200 and r.json() == {"job_id": f"narration_{did}"}
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 409
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
         assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 503
@@ -189,16 +190,16 @@ class TestNarrationCancel:
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
 
         def tag(chunks, engine, known, **k):
-            background_jobs._jobs[job_id]["cancel_requested"] = True
+            job_table._jobs[job_id]["cancel_requested"] = True
             return {i: "Ann" for i in chunks}   # an engine that finished anyway
         monkeypatch.setattr(translate_engines, "tag_speakers_by_id", tag)
-        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                          "error": None, "cancel_requested": False, "result": None}
         try:
             with pytest.raises(background_jobs.JobCancelled):
                 narration_service._run_narration_job(job_id, did, NOVEL, "claude", "k", None)
         finally:
-            background_jobs._jobs.pop(job_id, None)
+            job_table._jobs.pop(job_id, None)
         assert [ln.zh for ln in isolated_db.load_line_objects(did)] == ["旧"]
         assert isolated_db.get_drama(did)["status"] != "aligned"
 
@@ -208,7 +209,7 @@ class TestGpuSlot:
         did = _drama(isolated_db)
         seen = {}
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "k")
-        monkeypatch.setattr(background_jobs, "start_job",
+        monkeypatch.setattr(job_launch, "start_job",
                             lambda job_id, target, *a, **k: seen.update(k) or True)
         narration_service.start_narration_run(did, engine, model)
         return seen

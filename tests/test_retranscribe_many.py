@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_launch, job_table, process_worker
 import translation_finish
 import audio_extract
 import whisper_transcribe
@@ -33,17 +34,17 @@ _PREFIXES = ("retranscribe_", "transcribe_", "fixflag_", "resegment_", "narratio
 @pytest.fixture(autouse=True)
 def _no_leftover_jobs():
     def clear():
-        with background_jobs._lock:
-            for jid in [j for j in background_jobs._jobs if j.startswith(_PREFIXES)]:
-                background_jobs._jobs.pop(jid, None)
+        with job_table._lock:
+            for jid in [j for j in job_table._jobs if j.startswith(_PREFIXES)]:
+                job_table._jobs.pop(jid, None)
     clear()
     yield
     clear()
 
 
 def _put_job(job_id, status="running"):
-    with background_jobs._lock:
-        background_jobs._jobs[job_id] = {
+    with job_table._lock:
+        job_table._jobs[job_id] = {
             "status": status, "progress": 0.0, "message": "", "result": None, "error": None,
             "started_at": time.time(), "finished_at": None, "cancel_requested": False}
 
@@ -78,7 +79,7 @@ def _run_worker_inline(target, args):
 def inline_process_jobs(monkeypatch):
     """Runs start_process_job's worker and on_done/on_finish on a thread job,
     so the fake Whisper can be patched in (a spawned child could not)."""
-    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(process_worker, "start_own_process_group", lambda: None)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     calls = {"started": 0}
 
@@ -99,9 +100,9 @@ def inline_process_jobs(monkeypatch):
             finally:
                 if on_finish:
                     on_finish(job_id)
-        return background_jobs.start_job(job_id, body, gpu_touching=gpu_touching,
+        return job_launch.start_job(job_id, body, gpu_touching=gpu_touching,
                                          description=description)
-    monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
+    monkeypatch.setattr(job_launch, "start_process_job", fake_start)
     return calls
 
 
@@ -192,9 +193,9 @@ class TestStart:
                 seen[tag] = (target.__name__, args)
                 return True
             return fake
-        monkeypatch.setattr(background_jobs, "start_process_job", capture("one"))
+        monkeypatch.setattr(job_launch, "start_process_job", capture("one"))
         retranscribe_line_service.start_retranscribe_line(did, ids[0])
-        monkeypatch.setattr(background_jobs, "start_process_job", capture("many"))
+        monkeypatch.setattr(job_launch, "start_process_job", capture("many"))
         svc.start_retranscribe_many(did, [ids[0]])
         one_name, one = seen["one"]
         many_name, many = seen["many"]
@@ -274,7 +275,7 @@ class TestStart:
     def test_real_start_refusal_removes_the_scratch_folder(self, isolated_db, monkeypatch):
         import storage
         did, ids = _drama(isolated_db)
-        monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: False)
+        monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: False)
         before = set(os.listdir(storage.temp_root()))
         with pytest.raises(ConflictError):
             svc.start_retranscribe_many(did, ids)
@@ -638,9 +639,9 @@ class TestRoutes:
             assert client.post(_path(did), json=bad).status_code == 422, bad
         _put_job(f"transcribe_{did}")
         assert client.post(_path(did), json={"line_ids": ids}).status_code == 409
-        _wait_clear = [j for j in list(background_jobs._jobs) if j.startswith("transcribe_")]
+        _wait_clear = [j for j in list(job_table._jobs) if j.startswith("transcribe_")]
         for j in _wait_clear:
-            background_jobs._jobs.pop(j, None)
+            job_table._jobs.pop(j, None)
         no_audio, no_ids = _drama(isolated_db, audio=False)
         assert client.post(_path(no_audio), json={"line_ids": no_ids}).status_code == 400
         apply_body = {"job_id": f"retranscribe_{did}", "items": [

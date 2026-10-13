@@ -8,7 +8,7 @@ only what it needs."""
 import os
 import subprocess
 
-import background_jobs
+from jobs import process_worker
 import audio_extract
 import whisper_transcribe
 import whisper_models
@@ -95,7 +95,7 @@ def _hear_one_line(audio_path, start, end, source_language, whisper_size, beam_s
                    hallucination_silence_sec, repeat_guard, preset, loading_message,
                    scratch_dir, result_queue):
     slice_path = os.path.join(scratch_dir, "line.wav")
-    background_jobs.report_progress(result_queue, 0.1, loading_message)
+    process_worker.report_progress(result_queue, 0.1, loading_message)
     gpu_fallback = []
     heard = hear_window(
         audio_path, start, end, source_language, slice_path, whisper_size, gpu_fallback,
@@ -168,7 +168,7 @@ def _hear_many_lines(audio_path, windows, whisper_size, beam_size, min_silence_m
                      vad_threshold, use_gpu, initial_prompt, hallucination_silence_sec,
                      repeat_guard, preset, loading_message, scratch_dir, result_queue):
     slice_path = os.path.join(scratch_dir, "line.wav")
-    background_jobs.report_progress(result_queue, 0.02, loading_message)
+    process_worker.report_progress(result_queue, 0.02, loading_message)
     gpu_fallback = []
     heard_lines = []
     for n, (line_id, start, end, language) in enumerate(windows):
@@ -187,7 +187,7 @@ def _hear_many_lines(audio_path, windows, whisper_size, beam_size, min_silence_m
         else:
             text = " ".join((s.get("text") or "").strip() for s in heard["segments"]).strip()
             heard_lines.append({"line_id": line_id, "text": text})
-        background_jobs.report_progress(
+        process_worker.report_progress(
             result_queue, 0.05 + 0.95 * (n + 1) / len(windows),
             f"Heard line {n + 1} of {len(windows)}")
     outcome = {"lines": heard_lines, **ollama_unload.take_notice_result()}

@@ -60,7 +60,7 @@ cancel, so Force stop is judged from the moment the user asked),
 `interrupted`, `lost` worker; a Force stop is told by its message) and `sync_error`. None of these
 reach a client (`jobs_service._redact`).
 
-- **No swallowed writes.** A transition write runs under `background_jobs._lock`, so
+- **No swallowed writes.** A transition write runs under `job_table._lock`, so
   it gets one try. One that fails never breaks the job: the job gets `sync_error`
   (redacted) and `detail_state = "unknown"`, the failure is logged once, and
   `job_store.heartbeat_tick` retries it until it lands. A retry writes a copy of the job
@@ -481,7 +481,7 @@ A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and
 - Do not hold `_lock` while doing slow work (database, files, `join`, hooks); `on_done`
   and `on_finish` run outside it.
 - A final status does not mean the thread is done (see Threads that outlive the status).
-- In tests, wait for job threads before asserting (`background_jobs.wait_for_job_threads`,
+- In tests, wait for job threads before asserting (`job_runner.wait_for_job_threads`,
   or poll the status). Tests are mocked: no network, GPU or real models.
 - Poll a background process with `kill -0 <pid>` (PowerShell: `Get-Process -Id <pid> -ErrorAction SilentlyContinue`). Never use `pgrep -f <pattern>` when
   the pattern also appears in your own command line: it matches itself and never ends

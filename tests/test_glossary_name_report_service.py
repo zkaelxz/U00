@@ -7,6 +7,7 @@ import time
 import pytest
 
 import background_jobs
+from jobs import job_runner
 import db
 from core import Line
 from services import glossary_name_report_service as report
@@ -247,7 +248,7 @@ def test_export_with_nothing_to_report(isolated_db):
 # --- the background job -------------------------------------------------------------------
 
 def _wait(job_id):
-    assert background_jobs.wait_for_job_threads(10, [job_id])
+    assert job_runner.wait_for_job_threads(10, [job_id])
 
 
 def test_a_started_scan_is_read_back_by_the_person_who_started_it_only(isolated_db):

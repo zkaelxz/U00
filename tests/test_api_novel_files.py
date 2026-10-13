@@ -16,6 +16,7 @@ pytest.importorskip("multipart")
 from fastapi.testclient import TestClient
 
 import background_jobs
+from jobs import job_table
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -343,10 +344,10 @@ def test_a_stale_source_import_record_does_not_block_raw_novel(isolated_db, monk
     db.save_job_record("translate_1", "running")
     real = time.time()
     monkeypatch.setattr(time, "time",
-                        lambda: real + background_jobs.STALE_JOB_SECONDS - 60)
+                        lambda: real + job_table.STALE_JOB_SECONDS - 60)
     assert svc._source_import_running() is True
     monkeypatch.setattr(time, "time",
-                        lambda: real + background_jobs.STALE_JOB_SECONDS + 60)
+                        lambda: real + job_table.STALE_JOB_SECONDS + 60)
     assert svc._source_import_running() is False
 
 

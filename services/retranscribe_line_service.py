@@ -8,6 +8,7 @@ Whisper settings and automatic prompt.
 """
 import functools
 import background_jobs
+from jobs import job_launch
 import whisper_models
 import db
 import sensitivity_preset as presets
@@ -91,7 +92,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     scratch_dir = storage.new_workdir(job_id)
     window = float(line.end) - float(line.start)
     try:
-        started = background_jobs.start_process_job(
+        started = job_launch.start_process_job(
             job_id, _retranscribe_worker,
             args=(audio_path, float(line.start), float(line.end),
                   line.lang or drama.get("source_language") or "zh",

@@ -17,6 +17,7 @@ import time
 import adaptive_style
 import db
 import background_jobs
+from jobs import job_launch
 import translate_engines
 import translation_guide as tguide
 from engine_backends.run_limits import FailureStreak
@@ -374,7 +375,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         # start_job returns False when someone else's translate_<id> run
         # started since the check above: skip it rather than adopt (and
         # possibly cancel) that run below.
-        started = background_jobs.start_job(
+        started = job_launch.start_job(
             per_job_id, run_translate_job,
             per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
             default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,

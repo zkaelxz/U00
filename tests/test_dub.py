@@ -500,7 +500,7 @@ class TestExtractReferenceClips:
 
 class TestBuildTrackSubprocessWorker:
     """Step 4e: build_track_subprocess_worker() is the entry point
-    background_jobs.start_process_job() runs in its own OS process, so a
+    job_launch.start_process_job() runs in its own OS process, so a
     real mid-run Cancel can terminate it. Confirmed safe to hard-stop:
     each line's clip writes to its own file, and both build_dub_track and
     build_narration_track already reuse (rather than re-synthesize) any
