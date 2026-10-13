@@ -2,9 +2,9 @@
 // ("#/diagnostics?card=ports") and the page finds the tab from this table.
 export type DiagnosticsTab = 'setup' | 'packages' | 'models' | 'system'
 
-export const DIAGNOSTICS_TABS: { id: DiagnosticsTab; label: string }[] = [
+export const DIAGNOSTICS_TABS: { id: DiagnosticsTab; label: string; short?: string }[] = [
   { id: 'setup', label: 'Setup' },
-  { id: 'packages', label: 'Packages and installs' },
+  { id: 'packages', label: 'Packages and installs', short: 'Packages' },
   { id: 'models', label: 'Models' },
   { id: 'system', label: 'System' },
 ]

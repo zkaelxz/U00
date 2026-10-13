@@ -57,6 +57,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/reading.py` (profiles and what each has read: resume points, reading history, personal notes per drama)
   - `db/speakers.py` (characters and speakers: speaker rename and merge with its undo, series characters and voice links, the voice bank)
   - `db/style.py` (adaptive style: the translator's edit samples, the learned style profile and its restorable history)
+  - `db/translation_versions.py` (complete alternate translations of a drama kept side by side, one active)
   - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
 - `dependency_updates.py` (installed versions against PyPI: update classification, constraints.txt and requirement minimums, known upgrade and install limitations)
 - `diagnostics.py`

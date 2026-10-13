@@ -43,6 +43,7 @@ import { seedPageTabFolds } from '../components/sectionStorage'
 import { BackupTab } from './libraryTools/BackupTab'
 import { StorageTab } from './libraryTools/StorageTab'
 import { TabCard } from './libraryTools/TabCard'
+import { LinkCheckCard } from './libraryTools/LinkCheckCard'
 import { CARDS, LIBRARY_TOOLS_TABS, cardStorageKey, cardsOf, isLibraryToolsTab, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
@@ -336,6 +337,12 @@ export default function LibraryToolsPage() {
           <div className="tools-export">
             <h3 className="tools-group-title">Export</h3>
             <ExportBlock exportable={exportableCount(stats.data?.by_status)} job={exporter} />
+          </div>
+        )}
+        {pc !== 'remote' && (
+          <div className="tools-export">
+            <h3 className="tools-group-title">Check old titles from links</h3>
+            <LinkCheckCard pc={pc} />
           </div>
         )}
           </>

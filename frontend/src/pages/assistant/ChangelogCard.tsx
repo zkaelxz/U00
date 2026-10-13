@@ -6,16 +6,29 @@ import { Section } from '../../components/Section'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { ChangelogResponse } from '../../types/assistant'
+import { useStoredState } from '../../hooks/useStoredRun'
 import { CopyButton } from './CopyButton'
 import { MODE_OFF_TEXT, assistantErrorText, plural } from './assistantFormat'
+
+// The form and the last summary, kept in this browser (cleared at sign-out).
+interface SavedChangelog {
+  from: string
+  to: string
+  result: ChangelogResponse | null
+}
+const NO_CHANGELOG: SavedChangelog = { from: '', to: 'HEAD', result: null }
+const isSavedChangelog = (v: unknown): v is SavedChangelog =>
+  typeof v === 'object' && v !== null && typeof (v as SavedChangelog).from === 'string' && typeof (v as SavedChangelog).to === 'string'
 
 type Props = { engine: string; model: string; onModeOff: () => void }
 
 export function ChangelogCard({ engine, model, onModeOff }: Props) {
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('HEAD')
+  const [saved, setSaved] = useStoredState<SavedChangelog>('assistant.changelog', NO_CHANGELOG, isSavedChangelog)
+  const { from, to, result } = saved
+  const setFrom = (v: string) => setSaved((s) => ({ ...s, from: v }))
+  const setTo = (v: string) => setSaved((s) => ({ ...s, to: v }))
+  const setResult = (r: ChangelogResponse | null) => setSaved((s) => ({ ...s, result: r }))
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<ChangelogResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const run = () => {

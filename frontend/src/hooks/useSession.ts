@@ -18,6 +18,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 
 import { logout as apiLogout, me as apiMe, type AuthMe } from '../api/auth'
 import { ApiError, onUnauthorized } from '../api/client'
+import { clearStoredRuns } from './useStoredRun'
 
 export type SessionState =
   | { status: 'loading' }
@@ -152,6 +153,7 @@ export async function signOut(doLogout: () => Promise<unknown> = () => apiLogout
     // Already signed out on the server: that is the result we wanted.
     if (!(e instanceof ApiError && e.status === 401)) throw e
   }
+  clearStoredRuns()
   markSignedOut()
 }
 

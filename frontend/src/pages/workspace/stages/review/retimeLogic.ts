@@ -30,3 +30,5 @@ export function startShift(p: { start: number; new_start: number }): string {
   const d = p.new_start - p.start
   return `${d > 0 ? '+' : d < 0 ? '−' : ''}${Math.abs(d).toFixed(2)} s`
 }
+
+export const retimeJobId = (dramaId: number) => `retime_${dramaId}`
