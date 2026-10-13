@@ -21,6 +21,7 @@ class TestExtractAudioSlice:
         assert cmd.index("-ss") < cmd.index("-i")
         assert cmd[cmd.index("-t") + 1] == "3.5"
         assert "-to" not in cmd
+        assert cmd[cmd.index("-i") - 1] != "-ss"
 
     def test_failure_text_has_no_paths(self, monkeypatch):
         def boom(cmd, **kw):

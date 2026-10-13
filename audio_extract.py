@@ -61,7 +61,7 @@ def extract_audio_slice(audio_path: str, start: float, end: float, out_path: str
     start = max(start, 0.0)
     # -ss before -i seeks in the input; after it ffmpeg decodes everything up to
     # `start` for every slice, which grows quadratically over a long file.
-    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-ss", str(start), "-i", audio_path,
+    cmd = ["ffmpeg", "-y", "-ss", str(start), *video_export.local_input(), "-i", audio_path,
            "-t", str(max(end - start, 0.0)),
            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_path]
     _run_ffmpeg(cmd, timeout)
