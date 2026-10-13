@@ -6,11 +6,12 @@ import { applyRetime, getCompareOptions, getRetimeResult, startRetime } from '..
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useStoredRun } from '../../../../hooks/useStoredRun'
 import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { RetimeProposal, RetimeResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { formatTime } from './reviewLogic'
-import { retimeOutcome, retimeSelectedProblem, startShift } from './retimeLogic'
+import { retimeJobId, retimeOutcome, retimeSelectedProblem, startShift } from './retimeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
 
 // Lets the Qwen3 forced aligner propose new start/end times for the ticked
@@ -35,8 +36,19 @@ export function RetimeLines({
   const [error, setError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
   const [applying, setApplying] = useState(false)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [result, setResult] = useState<RetimeResult | null>(null)
+  // Proposals not applied before the page was left are still on the server, and a run left going keeps going.
+  useStoredRun({
+    dramaId,
+    kind: 'retime-lines',
+    jobIds: [retimeJobId(dramaId)],
+    adopt: adoptJob,
+    fetchResult: (id) => getRetimeResult(id),
+    onResult: (r) => setResult((cur) => cur ?? r),
+    onError: setError,
+    draftShape: {},
+  })
   const [failure, setFailure] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   // Advisory: if the options cannot be read, the server's own refusal shows on start.

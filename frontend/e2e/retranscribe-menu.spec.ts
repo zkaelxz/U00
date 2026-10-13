@@ -27,6 +27,8 @@ test('lands on the re-transcribe button and does not start a job', async ({ page
   await mockAudio(page, true)
   let started = false
   await page.route('**/api/transcribe/dramas/3/lines/*/retranscribe', (route) => {
+    // A GET only looks for a finished proposal (the editor does that when it opens); a POST starts the job.
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No finished re-transcription for this line.' } } })
     started = true
     return route.abort()
   })

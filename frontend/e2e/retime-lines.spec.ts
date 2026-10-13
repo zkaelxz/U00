@@ -57,3 +57,22 @@ test('more than 200 ticked: the action is off and says why', async ({ page }) =>
   await expect(retimeAction(page)).toBeDisabled()
   await expect(page.getByTestId('selection-bar')).toContainText('240 lines ticked; re-timing takes up to 200 at a time')
 })
+
+test('the proposals are still there after leaving Review and coming back', async ({ page }) => {
+  seedLines(50)
+  const seen = await mockRetime(page)
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  for (const n of [2, 5, 9]) await tickBox(page, n).check()
+  await retimeAction(page).click()
+  const panel = page.getByTestId('retime-lines')
+  await panel.getByRole('button', { name: 'Re-time ticked lines' }).click()
+  await expect(panel.getByTestId('retime-row')).toHaveCount(2)
+
+  await page.goto('/#/library')
+  await expect(page.getByRole('heading', { name: 'Library' }).first()).toBeVisible()
+  await page.goto('/#/drama/3/review')
+
+  await expect(page.getByTestId('retime-lines').getByTestId('retime-row')).toHaveCount(2)
+  expect(seen.runs).toHaveLength(1)
+})

@@ -18,6 +18,10 @@ export const getResearchProvenance = (id: number, f: Fetch = fetch) =>
 export const researchMetadata = (id: number, req: ResearchRequest, f: Fetch = fetch) =>
   postJson<ResearchResult>(`${base(id)}/research`, req, f)
 
+// The earlier identical lookup from the server's cache (404 = none); never runs a search.
+export const getCachedResearch = (id: number, mode: string, model: string, f: Fetch = fetch) =>
+  getJson<ResearchResult>(`${base(id)}/research/cached?mode=${encodeURIComponent(mode)}&model=${encodeURIComponent(model)}`, f)
+
 // The server takes values from the stored result; only the choices are sent,
 // with the drama's values the user was shown (a 409 if they changed since).
 export const applyResearch = (

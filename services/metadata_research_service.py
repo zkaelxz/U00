@@ -338,6 +338,25 @@ def _response(drama_id: int, drama: dict, key: str, result: dict, cached: bool) 
             "budget": budget_status()}
 
 
+def cached_research(drama_id: int, mode: str = "quick", model: Optional[str] = None) -> dict:
+    """The result an earlier identical lookup left in the cache, shaped like
+    `research`, so a page left and reopened shows it again without spending a
+    search. NotFoundError when there is none (never looked up, or the title,
+    mode or model changed since). Never calls Gemini."""
+    drama = require_drama(drama_id)
+    if mode not in MODES:
+        raise InvalidInputError("Unknown research mode.", details={"allowed": list(MODES)})
+    model = model or DEFAULT_MODEL
+    if model not in MODELS:
+        raise InvalidInputError("That model cannot run grounded research.",
+                                details={"allowed": list(MODELS)})
+    key = _cache_key(_entity(drama, mode), mode, model)
+    cached = db.get_research_cache(key)
+    if not cached:
+        raise NotFoundError("No earlier lookup for this title with these settings.")
+    return _response(drama_id, drama, key, cached, cached=True)
+
+
 def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
     if settings_service.get("gemini_free_tier"):
         return 0.0

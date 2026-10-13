@@ -33,17 +33,22 @@ export async function mockRetime(page: Page, { hold = false } = {}): Promise<Ret
     const resp = await r.fetch()
     await r.fulfill({ response: resp, json: { ...(await resp.json()), aligner_reason: null } })
   })
+  // Like the server, no job and no result exist until a run has been started.
+  let started = false
+  const none = { status: 404, json: { error: { code: 'not_found', message: 'None.' } } }
   let polls = 0
   await page.route(`${base}/run`, (r) => {
     seen.runs.push(r.request().postDataJSON())
+    started = true
     return r.fulfill({ json: { job_id: 'retime_3', drama_id: 3, line_count: 3 } })
   })
   await page.route('**/api/jobs/retime_3', (r) => {
+    if (!started) return r.fulfill(none)
     polls += 1
     return r.fulfill({ json: held || polls < 2 ? job('running') : job('done', { outcome: 'ok', result: { line_count: 3, candidate_count: 2 } }) })
   })
   await page.route(`${base}/result`, (r) =>
-    r.fulfill({ json: { job_id: 'retime_3', proposals: RETIME_PROPOSALS, line_count: 3, partial: false, device: 'CPU',
+    r.fulfill(!started ? none : { json: { job_id: 'retime_3', proposals: RETIME_PROPOSALS, line_count: 3, partial: false, device: 'CPU',
       device_notice: 'Re-timing with the Qwen3 aligner ran on the CPU because the GPU couldn’t be used. This was slower than on the GPU.',
       errors: ['line 9: no text to align, skipped'] } }))
   await page.route(`${base}/apply`, (r) => {

@@ -45,6 +45,14 @@ def research(payload: ResearchRequest, request: Request, drama_id: int = Path(ge
             refresh=payload.refresh)
 
 
+@router.get("/dramas/{drama_id}/research/cached", dependencies=[require_permission("library.read")],
+            response_model=ResearchResult,
+            summary="The earlier lookup's result for these settings, from the cache (no search is run)",
+            responses=_ERRS)
+def cached_research(drama_id: int = Path(ge=1), mode: str = "quick", model: str | None = None):
+    return metadata_research_service.cached_research(drama_id, mode=mode, model=model)
+
+
 @router.post("/dramas/{drama_id}/research/apply", dependencies=[require_permission("admin.library")],
              response_model=ResearchApplied,
              summary="Keep, replace or save-both each researched field (per-field provenance)",

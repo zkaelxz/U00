@@ -13,6 +13,7 @@ import { Section } from '../../components/Section'
 import { Sheet } from '../../components/Sheet'
 import { buttonClass } from '../../components/uiClasses'
 import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, ChatTurn, GithubStatus, SuggestedBacklogItem } from '../../types/assistant'
+import { useStoredState } from '../../hooks/useStoredRun'
 import { CloudConsent } from './CloudConsent'
 import { CopyButton } from './CopyButton'
 import { DeliverPr } from './DeliverPr'
@@ -57,13 +58,18 @@ type Props = {
 }
 
 export function ChatCard({ settings, engine, model, onEngine, onModel, onSettings, onModeOff, onAddToBacklog, github = null }: Props) {
-  const [exchanges, setExchanges] = useState<Exchange[]>([])
+  // The conversation is kept in this browser (cleared at sign-out) so leaving the page doesn't lose
+  // an answer that took a minute to get.
+  const [exchanges, setExchanges] = useStoredState<Exchange[]>(CHAT_KEY, NO_EXCHANGES, isExchangeList, {
+    maxChars: CHAT_MAX_CHARS,
+    revive: reviveExchanges,
+  })
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   // The escalation the user is being asked to confirm, and the open developer report.
   const [offer, setOffer] = useState<Offer | null>(null)
   const [reportFor, setReportFor] = useState<number | null>(null)
-  const nextId = useRef(1)
+  const nextId = useRef(Math.max(0, ...exchanges.map((x) => x.id)) + 1)
   const askAbort = useRef<AbortController | null>(null)
 
   // A model that never answers must not outlive the page.
@@ -223,6 +229,16 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
 }
 
 type Offer = { plan: EscalationPlan; engine: string }
+
+const CHAT_KEY = 'assistant.chat'
+const CHAT_MAX_CHARS = 300_000
+const NO_EXCHANGES: Exchange[] = []
+const isExchangeList = (v: unknown): v is Exchange[] =>
+  Array.isArray(v) && v.every((x) => typeof x === 'object' && x !== null && typeof (x as Exchange).id === 'number' && typeof (x as Exchange).question === 'string')
+
+// A question still waiting when the page closed has no answer coming back to this page.
+const reviveExchanges = (xs: Exchange[]): Exchange[] =>
+  xs.map((x) => (x.response || x.error || x.cancelled ? x : { ...x, cancelled: true }))
 
 function TurnActions({ next, onEscalate, onReport }: { next: string | null; onEscalate: (next: string) => void; onReport: () => void }) {
   return (

@@ -4,20 +4,42 @@
 import { useState } from 'react'
 
 import { deliverGithubPr, previewGithubPr } from '../../api/assistantGithub'
+import { useStoredState } from '../../hooks/useStoredRun'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { GithubDelivered, GithubPreview, GithubStatus } from '../../types/assistant'
 import { CHANGE_LABEL, defaultPrTitle, githubErrorText, githubNotReadyReason, githubReady } from './githubFormat'
 
+interface SavedDelivery {
+  title: string | null
+  body: string
+  done: GithubDelivered | null
+}
+const NO_DELIVERY: SavedDelivery = { title: null, body: '', done: null }
+const isSavedDelivery = (v: unknown): v is SavedDelivery =>
+  typeof v === 'object' && v !== null && typeof (v as SavedDelivery).body === 'string'
+
+// A short stable key for the patch text (not a security hash).
+function patchKey(patch: string): string {
+  let h = 5381
+  for (let i = 0; i < patch.length; i++) h = ((h << 5) + h + patch.charCodeAt(i)) | 0
+  return `${(h >>> 0).toString(36)}.${patch.length}`
+}
+
 type Props = { patch: string; question: string; github: GithubStatus | null }
 
 export function DeliverPr({ patch, question, github }: Props) {
   const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState(() => defaultPrTitle(question))
-  const [body, setBody] = useState('')
+  // Per fix: the opened pull request is remembered so a chat reopened later doesn't offer to open it again.
+  const [saved, setSaved] = useStoredState<SavedDelivery>(`assistant.pr.${patchKey(patch)}`, NO_DELIVERY, isSavedDelivery)
+  const title = saved.title ?? defaultPrTitle(question)
+  const body = saved.body
+  const done = saved.done
+  const setTitle = (v: string) => setSaved((s) => ({ ...s, title: v }))
+  const setBody = (v: string) => setSaved((s) => ({ ...s, body: v }))
+  const setDone = (d: GithubDelivered) => setSaved((s) => ({ ...s, done: d }))
   const [preview, setPreview] = useState<GithubPreview | null>(null)
-  const [done, setDone] = useState<GithubDelivered | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

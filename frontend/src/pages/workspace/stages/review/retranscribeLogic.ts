@@ -48,3 +48,6 @@ export function retranscribeOutcome(job: Pick<JobRecord, 'status' | 'outcome' | 
   if (reason === 'audio_slice') return { kind: 'none', text: "This line's audio could not be cut." }
   return { kind: 'none', text: 'Re-transcribing failed. The line was not changed.' }
 }
+
+// One id per drama, shared by the one-line and the many-line re-transcription.
+export const retranscribeJobId = (dramaId: number) => `retranscribe_${dramaId}`

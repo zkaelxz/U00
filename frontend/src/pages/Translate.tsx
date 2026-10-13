@@ -21,6 +21,7 @@ import { buttonClass } from '../components/uiClasses'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { useStoredState } from '../hooks/useStoredRun'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
 import {
   HISTORY_LIMIT,
@@ -41,6 +42,9 @@ import {
 import './translate.css'
 import type { TranslateEngine, TranslateEstimate, TranslateHistoryEntry } from '../types/translate'
 
+const TEXT_KEEP_CHARS = 60_000
+const isText = (v: unknown): v is string => typeof v === 'string'
+
 export default function TranslatePage() {
   const [engines, setEngines] = useState<TranslateEngine[]>([])
   const [defaultEngine, setDefaultEngine] = useState<string | null>(null)
@@ -50,7 +54,9 @@ export default function TranslatePage() {
   const [modelPref, setModelPref] = usePersistedState('translate.model', '')
   const [directionPref, setDirectionPref] = usePersistedState('translate.direction', 'to_english')
   const [otherPref, setOtherPref] = usePersistedState('translate.language', 'zh')
-  const [text, setText] = useState('')
+  // The text typed or loaded is kept in this browser (cleared at sign-out): a long paste is easy to lose.
+  // Finished translations are already in the history list.
+  const [text, setText] = useStoredState('translate.text', '', isText, { maxChars: TEXT_KEEP_CHARS })
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [loading, setLoading] = useState(false)

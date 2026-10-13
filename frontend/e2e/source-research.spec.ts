@@ -96,3 +96,38 @@ test('a failed provenance read does not block research', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Research online' })).toBeEnabled()
   await expect(page.getByText('Where saved details came from')).toHaveCount(0)
 })
+
+test('a lookup comes back with its form after leaving the page, without a new search', async ({ page }) => {
+  let searches = 0
+  let cachedMode = ''
+  let ran = false
+  await page.route('**/api/metadata/research/budget', (route) => route.fulfill({ json: budget }))
+  await page.route('**/api/metadata/dramas/1/research', (route) => {
+    searches += 1
+    ran = true
+    return route.fulfill({ json: result })
+  })
+  // What the server's cache holds: nothing until a lookup ran, then that lookup's result.
+  await page.route('**/api/metadata/dramas/1/research/cached**', (route) => {
+    cachedMode = new URL(route.request().url()).searchParams.get('mode') ?? ''
+    return ran
+      ? route.fulfill({ json: { ...result, cached: true } })
+      : route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No earlier lookup.' } } })
+  })
+  await page.goto('/#/drama/1/source')
+  await openFillIn(page, 'Research online')
+  await page.locator('select:has(option[value="deep"])').selectOption('deep')
+  await page.getByRole('button', { name: 'Research online' }).click()
+  await expect(page.getByRole('list', { name: 'Researched metadata' })).toContainText('Researched Title')
+
+  await page.goto('/#/library')
+  await expect(page.getByRole('heading', { name: 'Library' }).first()).toBeVisible()
+  await page.goto('/#/drama/1/source')
+  await openFillIn(page, 'Research online')
+
+  await expect(page.getByRole('list', { name: 'Researched metadata' })).toContainText('Researched Title')
+  await expect(page.getByTestId('research-when')).toContainText('no search used')
+  await expect(page.locator('select:has(option[value="deep"])')).toHaveValue('deep')
+  expect(cachedMode).toBe('deep')
+  expect(searches).toBe(1)
+})

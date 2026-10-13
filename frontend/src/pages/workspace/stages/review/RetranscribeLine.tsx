@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { cancelJob } from '../../../../api/jobs'
+import { cancelJob, getJob } from '../../../../api/jobs'
 import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import {
   applyRetranscribeLine,
@@ -10,9 +10,10 @@ import {
 } from '../../../../api/workspace'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useStoredRun } from '../../../../hooks/useStoredRun'
 import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeApplyResult, RetranscribeResult } from '../../../../types/workspace'
-import { canRetranscribe, jobIsForLine, retranscribeOutcome } from './retranscribeLogic'
+import { canRetranscribe, jobIsForLine, retranscribeJobId, retranscribeOutcome } from './retranscribeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
 import { NeedsInstall } from '../../../readiness/NeedsInstall'
 import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
@@ -50,9 +51,23 @@ export function RetranscribeLine({
   const [starting, setStarting] = useState(false)
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [proposal, setProposal] = useState<RetranscribeResult | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
+  // The proposal (or the run still going) for this line is still on the server after the page was left.
+  useStoredRun({
+    dramaId,
+    kind: `retranscribe-line-${lineId}`,
+    jobIds: [retranscribeJobId(dramaId)],
+    // The id is shared with the many-line run; only a record that names this line is ours.
+    adopt: (id) => void getJob(id).then((j) => j.result?.line_id === lineId && adoptJob(id), () => undefined),
+    fetchResult: (id) => getRetranscribeResult(id, lineId),
+    onResult: (r) => {
+      if (r.line_id === lineId) setProposal((cur) => cur ?? r)
+    },
+    onError: setError,
+    draftShape: {},
+  })
   const startRef = useRef<HTMLButtonElement>(null)
 
   // The button only exists once the config fetch says audio is available.

@@ -110,6 +110,24 @@ def test_repeat_lookup_is_cached_and_does_not_respend(setup):
     assert len(fake.calls) == 2
 
 
+def test_cached_research_shows_an_earlier_lookup_without_a_search(setup):
+    drama, fake = setup
+    with pytest.raises(NotFoundError):
+        mrs.cached_research(drama)
+    assert fake.calls == []  # a read never searches
+    first = mrs.research(drama)
+    again = mrs.cached_research(drama)
+    assert len(fake.calls) == 1 and again["cached"] is True and again["cost_usd"] == 0.0
+    assert [f["field"] for f in again["fields"]] == [f["field"] for f in first["fields"]]
+    assert again["budget"]["used_today"] == 1
+    # a different mode is a different lookup, and a cached id still applies
+    with pytest.raises(NotFoundError):
+        mrs.cached_research(drama, mode="deep")
+    assert db.get_research_result(again["research_id"], drama) is not None
+    with pytest.raises(InvalidInputError):
+        mrs.cached_research(drama, mode="nope")
+
+
 def test_budget_counter_increments_and_resets_daily(setup, monkeypatch):
     drama, _ = setup
     assert mrs.budget_status()["free_remaining"] == mrs.GROUNDED_FREE_RPD
