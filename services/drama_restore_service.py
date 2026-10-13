@@ -27,6 +27,7 @@ from db import fsync_dir as _fsync_dir
 from lib import gzip_text
 from services import delete_service
 from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
 from services import library_restore_service as lrs
 from services import library_restore_sql
 from services.auto_backup_copies import _BAD_SNAPSHOT, _pick_copy, _read_manifest, _snapshot_lock
@@ -366,7 +367,7 @@ def stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
                if i.filename.replace("\\", "/").startswith(prefix) and not i.is_dir()]
     if not members:
         return None
-    if len(members) > las.RESTORE_MAX_MEMBERS or any(
+    if len(members) > lbr.RESTORE_MAX_MEMBERS or any(
             i.file_size > _MAX_MEMBER_BYTES for i in members):
         raise InvalidInputError("The title's files in the snapshot look corrupted or unsafe "
                                 "to extract.")
@@ -452,7 +453,7 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
         with _snapshot_lock:
             copy = _pick_copy(snapshot)[0]
             path = copy["path"]
-            las.validate_backup_file(path, check_disk=False, check_limits=False)
+            lbr.validate_backup_file(path, check_disk=False, check_limits=False)
             try:
                 with zipfile.ZipFile(path) as zf:
                     manifest = _read_manifest(zf)
