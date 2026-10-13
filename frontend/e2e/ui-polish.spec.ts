@@ -140,15 +140,16 @@ for (const width of WIDTHS) {
 test.describe('hover never repaints or reflows', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('primary buttons keep their gradient on hover and do not animate background', async ({ page }) => {
+  test('primary buttons are a flat fill that does not repaint or animate background on hover', async ({ page }) => {
     await page.goto('/#/jobs')
     const start = page.getByRole('button', { name: 'Start queue now' })
     await expect(start).toBeVisible()
-    const rest = await start.evaluate((b) => getComputedStyle(b).backgroundImage)
+    const rest = await start.evaluate((b) => ({ image: getComputedStyle(b).backgroundImage, colour: getComputedStyle(b).backgroundColor }))
     await start.hover()
-    const hover = await start.evaluate((b) => ({ image: getComputedStyle(b).backgroundImage, transition: getComputedStyle(b).transitionProperty }))
-    expect(rest).toContain('gradient')
-    expect(hover.image).toBe(rest)
+    const hover = await start.evaluate((b) => ({ image: getComputedStyle(b).backgroundImage, colour: getComputedStyle(b).backgroundColor, transition: getComputedStyle(b).transitionProperty }))
+    expect(rest.image).toBe('none')
+    expect(hover.image).toBe('none')
+    expect(hover.colour).toBe(rest.colour)
     expect(hover.transition).not.toMatch(/background|all/)
   })
 
