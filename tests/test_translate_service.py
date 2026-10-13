@@ -40,7 +40,7 @@ def test_list_engines_reports_booleans(tmp_path):
 def test_list_engines_keyless_engines_report_configured(tmp_path, monkeypatch):
     env_path = _write_env(tmp_path, "")
     monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: True)
-    engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
+    engines = {e["name"]: e for e in translate_service.list_engines(env_path, probe_ollama=True)}
     assert engines["fake"]["key_configured"] is True
     assert engines["fake_mt"]["key_configured"] is True
     assert engines["ollama"]["key_configured"] is True
@@ -49,16 +49,16 @@ def test_list_engines_keyless_engines_report_configured(tmp_path, monkeypatch):
 def test_list_engines_ollama_that_does_not_answer_is_not_usable(tmp_path, monkeypatch):
     env_path = _write_env(tmp_path, "")
     monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: False)
-    engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
+    engines = {e["name"]: e for e in translate_service.list_engines(env_path, probe_ollama=True)}
     assert engines["ollama"]["key_configured"] is False
     # A keyless engine does not depend on a package: only its server.
     assert engines["ollama"]["package_installed"] is True
 
 
-def test_list_engines_can_skip_the_ollama_probe(tmp_path, monkeypatch):
+def test_list_engines_makes_no_network_call_by_default(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda *a, **k: seen.append(1) or False)
-    engines = {e["name"]: e for e in translate_service.list_engines(_write_env(tmp_path, ""), probe_ollama=False)}
+    engines = {e["name"]: e for e in translate_service.list_engines(_write_env(tmp_path, ""))}
     assert seen == [] and engines["ollama"]["key_configured"] is True
 
 

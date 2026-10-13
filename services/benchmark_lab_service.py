@@ -341,7 +341,7 @@ def check_config(stage: str, cfg) -> dict:
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be text.")
     if stage == "translation":
-        entry = next((e for e in translate_service.list_engines(probe_ollama=False) if e["name"] == engine), None)
+        entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
         if entry is None:
             raise InvalidInputError("Unknown translate engine.")
         if model is not None:
