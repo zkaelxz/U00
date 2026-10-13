@@ -6,12 +6,15 @@ video, the job_id of the background audio extraction.
 """
 
 import os
+import threading
 from typing import Optional
 
+import anyio
 from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from api.auth import local_only, require_permission
+from api.error_handlers import error_body
 from api.llm_slots import caller_key
 from pydantic import ValidationError
 
@@ -104,13 +107,66 @@ def post_download_url(body: MediaUrlDownloadRequest, drama_id: int = Path(ge=1))
         body.part_start, body.part_end, body.exact_cuts)
 
 
-def _play(drama_id: int, kind: str) -> FileResponse:
+# Each open stream holds a connection and a file read, so one signed-in user
+# (or a stolen account) can't hold the household listener with them. The PC
+# owner and auth off (no user id) aren't capped.
+MAX_STREAMS_PER_USER = 3
+_streams_lock = threading.Lock()
+_open_streams = {}   # user id -> responses being sent
+
+
+class _CappedFileResponse(FileResponse):
+    """Takes the user's stream slot when sending starts and frees it when
+    sending ends, so a response that is never sent can't leak one. A client
+    that hangs up (a seek drops the old request) frees it at once: uvicorn
+    drops writes after a disconnect, so the send would otherwise go on reading
+    the file to its end."""
+
+    def __init__(self, *args, user_id=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user_id = user_id
+
+    async def __call__(self, scope, receive, send):
+        if self.user_id is None:
+            return await super().__call__(scope, receive, send)
+        with _streams_lock:
+            busy = _open_streams.get(self.user_id, 0) >= MAX_STREAMS_PER_USER
+            if not busy:
+                _open_streams[self.user_id] = _open_streams.get(self.user_id, 0) + 1
+        if busy:
+            refused = JSONResponse(status_code=429, content=error_body(
+                "rate_limited", f"You already have {MAX_STREAMS_PER_USER} media streams open. "
+                                "Close one, then try again."))
+            return await refused(scope, receive, send)
+        try:
+            async with anyio.create_task_group() as tasks:
+                async def stop_on_hang_up():
+                    while (await receive())["type"] != "http.disconnect":
+                        pass
+                    tasks.cancel_scope.cancel()
+
+                tasks.start_soon(stop_on_hang_up)
+                await super().__call__(scope, receive, send)
+                tasks.cancel_scope.cancel()
+        finally:
+            with _streams_lock:
+                left = _open_streams.get(self.user_id, 1) - 1
+                if left > 0:
+                    _open_streams[self.user_id] = left
+                else:
+                    _open_streams.pop(self.user_id, None)
+
+
+def _play(request: Request, drama_id: int, kind: str) -> FileResponse:
     path, ctype = media_playback_service.resolve_media(drama_id, kind)
     # FileResponse streams in chunks and implements Range (206/416), If-Range
     # and HEAD (starlette>=0.39). The download name is generic, never the stored one.
     name = f"drama_{drama_id}_{kind}{os.path.splitext(path)[1].lower()}"
-    return FileResponse(path, media_type=ctype, filename=name, content_disposition_type="inline",
-                        headers={"X-Content-Type-Options": "nosniff"})
+    principal = getattr(request.state, "principal", None) or {}
+    return _CappedFileResponse(path, media_type=ctype, filename=name,
+                               content_disposition_type="inline",
+                               headers={"X-Content-Type-Options": "nosniff"},
+                               user_id=principal.get("user_id"))
 
 
 _STREAM = [require_permission("media.stream")]
@@ -120,9 +176,10 @@ _STREAM = [require_permission("media.stream")]
 @router.get("/dramas/{drama_id}/audio", dependencies=_STREAM,
             summary="Stream a drama's audio with HTTP Range support",
             responses={200: {"content": {"audio/*": {}}}, 206: {"content": {"audio/*": {}}},
-                       404: {"model": ErrorResponse}, 416: {"description": "Range not satisfiable"}})
-def get_audio(drama_id: int = Path(ge=1)):
-    return _play(drama_id, "audio")
+                       404: {"model": ErrorResponse}, 416: {"description": "Range not satisfiable"},
+                       429: {"model": ErrorResponse}})
+def get_audio(request: Request, drama_id: int = Path(ge=1)):
+    return _play(request, drama_id, "audio")
 
 
 @router.get("/dramas/{drama_id}/peaks", dependencies=_STREAM, response_model=MediaPeaks,
@@ -140,6 +197,7 @@ def get_peaks(request: Request, drama_id: int = Path(ge=1), start: float = Query
 @router.get("/dramas/{drama_id}/video", dependencies=_STREAM,
             summary="Stream a drama's source video with HTTP Range support",
             responses={200: {"content": {"video/*": {}}}, 206: {"content": {"video/*": {}}},
-                       404: {"model": ErrorResponse}, 416: {"description": "Range not satisfiable"}})
-def get_video(drama_id: int = Path(ge=1)):
-    return _play(drama_id, "video")
+                       404: {"model": ErrorResponse}, 416: {"description": "Range not satisfiable"},
+                       429: {"model": ErrorResponse}})
+def get_video(request: Request, drama_id: int = Path(ge=1)):
+    return _play(request, drama_id, "video")

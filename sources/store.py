@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS tracked_series (
     last_checked REAL,
     last_check_error TEXT,
     linked_by_user_id INTEGER,
+    save_cbz_by_user_id INTEGER,
     PRIMARY KEY (source, series_id)
 );
 CREATE TABLE IF NOT EXISTS known_chapters (
@@ -231,6 +232,12 @@ CREATE TABLE IF NOT EXISTS followed_channels (
     notified_state TEXT NOT NULL DEFAULT '',
     started_stream_id TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
+);
+-- Who saved each CBZ series folder; a folder with no row is the PC owner's.
+CREATE TABLE IF NOT EXISTS saved_series_owners (
+    source_dir TEXT NOT NULL,
+    series_dir TEXT NOT NULL,
+    owner_user_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
@@ -401,7 +408,8 @@ def connect() -> sqlite3.Connection:
 _ADDED_COLUMNS = (("tracked_series", "linked_by_user_id", "INTEGER"),
                   ("tracked_series", "save_cbz", "INTEGER NOT NULL DEFAULT 0"),
                   ("tracked_series", "save_pending", "TEXT NOT NULL DEFAULT '[]'"),
-                  ("import_retry", "text_offset", "INTEGER"))
+                  ("import_retry", "text_offset", "INTEGER"),
+                  ("tracked_series", "save_cbz_by_user_id", "INTEGER"))
 
 
 def _add_missing_columns(conn) -> None:
@@ -655,14 +663,15 @@ def set_tracked_drama(source: str, series_id: str, drama_id,
         return cur.rowcount > 0
 
 
-def set_tracked_save(source: str, series_id: str, on: bool) -> bool:
+def set_tracked_save(source: str, series_id: str, on: bool, by_user_id: int = None) -> bool:
     """Whether the chapter check saves a tracked series' new chapters as
-    CBZ files. Turning it off drops the chapters waiting for a retry.
-    Touches nothing else; False if not tracked."""
+    CBZ files, saved as `by_user_id`'s. Turning it off drops the chapters
+    waiting for a retry. Touches nothing else; False if not tracked."""
     with connect() as conn:
-        cur = conn.execute("UPDATE tracked_series SET save_cbz=?, save_pending=CASE WHEN ? THEN "
-                           "save_pending ELSE '[]' END WHERE source=? AND series_id=?",
-                           (1 if on else 0, 1 if on else 0, source, series_id))
+        cur = conn.execute("UPDATE tracked_series SET save_cbz=?, save_cbz_by_user_id=?, "
+                           "save_pending=CASE WHEN ? THEN save_pending ELSE '[]' END "
+                           "WHERE source=? AND series_id=?",
+                           (1 if on else 0, by_user_id, 1 if on else 0, source, series_id))
         return cur.rowcount > 0
 
 

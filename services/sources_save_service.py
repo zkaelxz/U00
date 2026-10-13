@@ -48,7 +48,7 @@ from services.sources_import_service import parse_chapter_ids
 from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import (SAVE_JOB_ID, enabled_source, error_view,
                                              JobFailed, clean_series_id, start_job)
-from sources import chapter_order, ladder, registry
+from sources import chapter_order, ladder, registry, store
 from sources.http import Cancelled
 from sources.models import ChallengeDetected, FailureReason, SourceError, TermsProhibited
 
@@ -148,6 +148,27 @@ def series_folder_name(series_title, series_id) -> str:
     return f"{safe_name(series_title, 'series')} [{safe_name(series_id, 'id')}]"
 
 
+def record_saved_by(source_dir: str, series_dir: str, owner_user_id) -> None:
+    """Notes that a signed-in user saved into this series folder, so the
+    reader shows it to them (saved_comics_service). The PC owner (None)
+    needs no row: they see every folder."""
+    if owner_user_id is None:
+        return
+    with store.connect() as conn:
+        conn.execute("INSERT INTO saved_series_owners(source_dir, series_dir, owner_user_id) "
+                     "SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM saved_series_owners "
+                     "WHERE source_dir=? AND series_dir=? AND owner_user_id=?)",
+                     (source_dir, series_dir, owner_user_id) * 2)
+
+
+def series_saved_by(owner_user_id) -> set:
+    """(source folder, series folder) names this user saved into."""
+    with store.connect() as conn:
+        return {(r["source_dir"], r["series_dir"]) for r in conn.execute(
+            "SELECT source_dir, series_dir FROM saved_series_owners WHERE owner_user_id = ?",
+            (owner_user_id,))}
+
+
 def chapter_path(root: str, source_label: str, series_title: str, series_id, number: int,
                  chapter_title: str) -> str:
     folder = os.path.join(root, safe_name(source_label, "source"),
@@ -239,14 +260,16 @@ def _save_result(chapters: list, cancelled: bool, handoff) -> dict:
 
 
 def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: str = None,
-                         progress=None):
+                         progress=None, owner_user_id=None):
     """Saves the chapters of one series whose ids are in `chapter_ids`.
     Returns (rows, cancelled): one outcome row per id (reading order, then
     ids the list doesn't have as "not_found"). `progress(fraction, message)`
     is told as it goes. Errors before any chapter (terms, the chapter list,
     a cancel) raise; a chapter's own error is its row. A browser check, the
     terms or a cancel stop the run: the chapters after it are
-    "not_attempted", and a browser check's row carries `handoff`."""
+    "not_attempted", and a browser check's row carries `handoff`.
+    `owner_user_id` is who the series is saved for (None: the PC owner);
+    they get to read it once one of their chapters is saved or found saved."""
     root = root or save_root()
     progress = progress or (lambda fraction, message: None)
     ladder.check_terms(name, adapter.capabilities())
@@ -263,13 +286,23 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
     wanted = [ch for ch in by_id.values() if str(ch.chapter_id) in requested]
     label = adapter.display_name or name
     rows, total = [], len(wanted)
-    stopped = cancelled = False
+    stopped = cancelled = recorded = False
+
+    def mark_saved(path):
+        nonlocal recorded
+        if not recorded:
+            folder = os.path.dirname(path)
+            record_saved_by(os.path.basename(os.path.dirname(folder)), os.path.basename(folder),
+                            owner_user_id)
+            recorded = True
+
     for i, ch in enumerate(wanted, start=1):
         number = numbers[str(ch.chapter_id)]
         try:
             path = chapter_path(root, label, series_title, series_id, number, ch.title or ch.chapter_id)
             if os.path.exists(path) and _has_images(path):
                 rows.append(_row(ch, "skipped"))
+                mark_saved(path)
                 continue
             ladder.check_terms(name, adapter.capabilities())
             progress((i - 1) / total, f"Chapter {i} / {total} -- loading pages")
@@ -293,6 +326,7 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
             write_cbz(path, images, series_title, ch.title or ch.chapter_id, number, language,
                       note=f"{label} series {series_id}")
             rows.append(_row(ch, "saved", pages=len(images)))
+            mark_saved(path)
         except ChallengeDetected as e:
             rows.append(_row(ch, "failed", error=scrub(str(e)),
                              handoff={"reason": e.reason.value, "handoff": True,
@@ -321,7 +355,8 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
     return rows, cancelled
 
 
-def _chapter_save_job(job_id: str, name: str, series_id: str, chapter_ids: list, root: str = None):
+def _chapter_save_job(job_id: str, name: str, series_id: str, chapter_ids: list,
+                      owner_user_id=None, root: str = None):
     cancel_check = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
     adapter = registry.get_adapter(name, cancel_check=cancel_check)
     background_jobs.update_progress(job_id, 0.01, "Loading the chapter list...")
@@ -331,7 +366,7 @@ def _chapter_save_job(job_id: str, name: str, series_id: str, chapter_ids: list,
 
     try:
         rows, cancelled = save_series_chapters(adapter, name, series_id, chapter_ids, root,
-                                               progress)
+                                               progress, owner_user_id=owner_user_id)
     except Cancelled:
         background_jobs.set_result(job_id, _save_result(
             [{"chapter_id": c, "title": "", "outcome": "not_attempted", "error": _NOT_ATTEMPTED}
@@ -345,9 +380,10 @@ def _chapter_save_job(job_id: str, name: str, series_id: str, chapter_ids: list,
     background_jobs.set_result(job_id, _save_result(rows, cancelled, handoff))
 
 
-def start_chapter_save(name, series_id, chapter_ids) -> dict:
-    """Starts `sources_save`. 404 unknown source; 400 source off or not a
-    comic source; 422 bad ids; 409 while another save runs."""
+def start_chapter_save(name, series_id, chapter_ids, principal=None) -> dict:
+    """Starts `sources_save`, saving for `principal` (the reader shows a
+    member only what they saved). 404 unknown source; 400 source off or not
+    a comic source; 422 bad ids; 409 while another save runs."""
     name = str(name or "")
     cls = enabled_source(name)
     series_id = clean_series_id(series_id)
@@ -357,4 +393,5 @@ def start_chapter_save(name, series_id, chapter_ids) -> dict:
         raise UnsupportedOperationError("Only comic sources can save chapters as CBZ files.",
                                         details={"reason": "NOT_SUPPORTED"})
     return start_job(SAVE_JOB_ID, _chapter_save_job, SAVE_JOB_ID, name, series_id, ids,
+                     (principal or {}).get("user_id"),
                   description=f"Save {len(ids)} chapter(s) from {name} as CBZ")

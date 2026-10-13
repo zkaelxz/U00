@@ -186,6 +186,25 @@ class TestForceStop:
                 job_force_stop.force_stop(job_id)
 
 
+    def test_an_abandoned_worker_still_counts_against_its_starters_cap(self, quiet_gpu, monkeypatch):
+        from jobs import user_caps
+        from lib.errors import RateLimitedError
+        monkeypatch.setattr(bg, "_acting_user_id", lambda: 7)
+        hung = HungJob("hung_cap")
+        other = threading.Event()
+        assert bg.start_job("other_cap", other.wait, 10)
+        _cancelling_for("hung_cap", 61)
+        job_force_stop.force_stop("hung_cap")
+        with pytest.raises(RateLimitedError):
+            bg.start_job("third_cap", lambda: None)
+        hung.release()
+        assert _wait_for(lambda: not job_force_stop._live_abandoned("hung_cap"))
+        with bg._lock:
+            assert not user_caps.at_running_cap(bg._jobs, 7)
+        other.set()
+        bg.wait_for_job_threads(5.0)
+
+
 class TestForceStopService:
     def test_record_offers_it_only_after_a_minute_of_cancelling(self, quiet_gpu):
         hung = HungJob("hung_4")

@@ -99,6 +99,7 @@ def set_tracked_save(source: str, series_id: str, save_cbz: bool, principal=None
     if not cls().supports("get_pages"):
         raise UnsupportedOperationError("Only comic sources can save chapters as CBZ files.",
                                         details={"reason": "NOT_SUPPORTED"})
-    if not store.set_tracked_save(source, series_id, bool(save_cbz)):
+    if not store.set_tracked_save(source, series_id, bool(save_cbz),
+                                  by_user_id=(principal or {}).get("user_id")):
         raise NotFoundError("That series isn't tracked.")
     return list_tracked(principal)

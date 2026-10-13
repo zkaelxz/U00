@@ -141,11 +141,12 @@ describe('SelectionBar', () => {
     expect(bar('remote', [d(2, 'translated')], false, exporter)).not.toContain('Download')
   })
 
-  it('remote: no Delete or Export, a muted note instead', () => {
-    const out = bar('remote', [d(1)])
+  it('remote: no bulk Translate, Delete or Export, a muted note instead', () => {
+    const out = bar('remote', [d(1, 'aligned')])
     expect(out).not.toContain('Delete…')
     expect(out).not.toContain('Export .zip')
-    expect(out).toContain('Delete and export are PC only.')
+    expect(out).not.toContain('Translate 1')
+    expect(out).toContain('Bulk translate, delete and export are PC only. To translate from here, use Translate on each title.')
   })
 
   it('phone: count, an Actions menu and Done', () => {

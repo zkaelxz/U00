@@ -84,6 +84,15 @@ class TestRename:
                    json={"name": "other"})
         assert r.status_code == 409
 
+    def test_a_hidden_series_name_answers_exactly_like_a_visible_one(self, world):
+        c = _remote(_app())
+        url = f"/api/series/{world['saga']}/rename"
+        visible = c.post(url, headers=world["a"], json={"name": "Other"})
+        hidden = c.post(url, headers=world["a"], json={"name": "Secret"})
+        assert visible.status_code == hidden.status_code == 409
+        assert visible.content == hidden.content
+        assert b"Other" not in visible.content
+
     def test_other_users_private_series_is_404(self, world):
         c = _remote(_app())
         r = c.post(f"/api/series/{world['secret']}/rename", headers=world["a"],

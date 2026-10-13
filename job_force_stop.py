@@ -66,6 +66,16 @@ def abandoned_gpu_count_locked(exclude_job_id=None) -> int:
                and getattr(_abandoned[jid], "baihe_abandoned_gpu", False))
 
 
+def abandoned_owned_by_locked(owner_user_id) -> int:
+    """Caller holds background_jobs._lock. Live abandoned workers this user
+    started, for the per-user running cap (jobs/user_caps.py); the calling
+    thread is skipped for the same reason as above."""
+    me = threading.current_thread()
+    return sum(1 for jid in list(_abandoned)
+               if _live_abandoned(jid) is not None and _abandoned[jid] is not me
+               and getattr(_abandoned[jid], "baihe_abandoned_owner", None) == owner_user_id)
+
+
 def refresh_abandoned_gpu_rows() -> None:
     """The abandoned worker no longer reports progress, so without this its
     `ui:<id>` row would age past gpu_slots.GPU_LOCK_STALE_SECONDS and another
@@ -128,6 +138,7 @@ def force_stop(job_id: str) -> dict:
         if alive:
             worker.baihe_abandoned = True
             worker.baihe_abandoned_gpu = bool(job.get("gpu_touching"))
+            worker.baihe_abandoned_owner = job.get("owner_user_id")
             _abandoned[job_id] = worker
         job["status"] = "cancelled"
         job["message"] = FORCE_STOPPED_MESSAGE

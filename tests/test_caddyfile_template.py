@@ -32,7 +32,8 @@ DECISION_DOC = ROOT / "docs" / "route-permissions.md"
 UPSTREAM = "127.0.0.1:{$BAIHE_API_HOUSEHOLD_PORT}"
 SITE = "{$BAIHE_DOMAIN}"
 # Household-permission routes the proxy refuses on purpose: bulk translate is
-# only reachable from the Library admin page, which the proxy blocks as a whole.
+# under /api/library/admin/*, which the proxy blocks as a whole, and the Library
+# selection bar offers it only at the PC (members translate title by title).
 BLOCKED_ON_PURPOSE = {("POST", "/api/library/admin/bulk/translate")}
 
 
@@ -374,15 +375,36 @@ def test_site_top_level_directives_pinned():
         "respond", "respond", "respond", "respond", "rate_limit", "reverse_proxy"]
 
 
-def test_sign_in_is_rate_limited():
+def test_sign_in_is_rate_limited(routes):
     (route,) = _directive(_site(), "route")
     (limit,) = _directive(route, "rate_limit")
     zones = [z for z in limit["children"] if z["tokens"][0] == "zone"]
     paths = {p for z in zones for n in _walk(z) if n["tokens"][0] == "path"
              for p in n["tokens"][1:]}
-    assert {"/api/auth/login", "/api/auth/callback", "/api/auth/handoff"} <= paths
+    assert paths == {"/api/auth/login", "/api/auth/callback"}
+    # A limit on a path the app doesn't serve guards nothing.
+    assert paths <= {p for p, _methods, _decls in routes}
     for z in zones:
         assert _directive(z, "key")[0]["tokens"][1] == "{remote_host}"
+
+
+def test_the_generated_config_keeps_admin_off_and_the_pc_only_refusals():
+    from installer import service_config
+    text = service_config.render_caddyfile(TEMPLATE.read_text(encoding="utf-8"),
+                                           "baihe.example.com", 8610, "C:/caddy/logs")
+    tree = _parse(text)
+    assert ["admin", "off"] in [c["tokens"] for n in tree["children"] if not n["tokens"]
+                                for c in n["children"]]
+    (site,) = [n for n in tree["children"] if n["tokens"]]
+    (route,) = _directive(site, "route")
+    assert [c["tokens"] for c in _directive(route, "respond")] == [
+        ["respond", UNCLEAN, "400"], ["respond", "@pc_only", "404"],
+        ["respond", "@pc_only_post", "404"], ["respond", "@pc_only_delete", "404"]]
+    named = {c["tokens"][0]: _conditions(c) for c in site["children"]
+             if c["tokens"][0] in ("@pc_only", "@pc_only_post", "@pc_only_delete")}
+    for method, path in (("GET", "/api/library/admin/storage"), ("POST", "/api/system/shutdown"),
+                         ("POST", "/api/media/dramas/7/upload"), ("DELETE", "/api/dramas/7")):
+        assert any(_matches(m, method, path) for m in named.values()), f"{method} {path}"
 
 
 def _filter_rules(log):

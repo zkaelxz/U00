@@ -330,3 +330,89 @@ def test_image_ext_reads_the_signature():
     assert saves.image_ext(b"\x00\x00\x00\x1cftypavif") == ".avif"
     for bad in (b"<!DOCTYPE html>", b"", b"RIFF\x00\x00\x00\x00WAVE", None):
         assert saves.image_ext(bad) == ""
+
+
+# ---------------------------------------------------------------------------
+# Who sees a saved series
+# ---------------------------------------------------------------------------
+
+MEMBER_A = {"user_id": 1, "is_admin": False, "is_local_owner": False}
+MEMBER_B = {"user_id": 2, "is_admin": False, "is_local_owner": False}
+PC_OWNER = {"user_id": None, "is_admin": True, "is_local_owner": True}
+REMOTE_ADMIN = {"user_id": 3, "is_admin": True, "is_local_owner": False}
+PC_ADMIN = {**REMOTE_ADMIN, "admin_override": True}
+
+
+def test_a_member_sees_and_reads_only_the_series_they_saved(fakes, root):
+    from services.service_errors import NotFoundError
+    _library(root)    # "Test Camp": saved before saves were recorded
+    for series in ("A Series", "B Series"):
+        _cbz(os.path.join(root, "MangaK", series, "0001 One.cbz"), ["001.png"])
+    saves.record_saved_by("MangaK", "A Series", 1)
+    saves.record_saved_by("MangaK", "B Series", 2)
+    saves.record_saved_by("MangaK", "B Series", 2)
+
+    def names(principal):
+        return {s["series"] for s in library.list_series(principal)}
+    assert names(MEMBER_A) == {"A Series"}
+    assert names(MEMBER_B) == {"B Series"}
+    assert names(REMOTE_ADMIN) == set()
+    assert names(PC_OWNER) == names(PC_ADMIN) == names(None) == {
+        "Test Camp", "A Series", "B Series"}
+
+    for series, chapter in (("B Series", "0001 One"), ("Test Camp", "0001 Chapter 1")):
+        for read in (lambda: library.list_chapters(MEMBER_A, "MangaK", series),
+                     lambda: library.chapter_pages(MEMBER_A, "MangaK", series, chapter),
+                     lambda: library.page_image(MEMBER_A, "MangaK", series, chapter, 1)):
+            with pytest.raises(NotFoundError) as err:
+                read()
+            assert err.value.message == "No such saved series."   # as if it weren't there
+        assert library.page_image(PC_OWNER, "MangaK", series, chapter, 1)[1] == "image/png"
+    assert library.page_image(MEMBER_A, "MangaK", "A Series", "0001 One", 1)[1] == "image/png"
+    assert [c["chapter"] for c in library.list_chapters(MEMBER_A, "MangaK", "A Series")[
+        "chapters"]] == ["0001 One"]
+
+
+def test_a_save_records_who_it_was_for_once_a_chapter_is_there(fakes, root, monkeypatch):
+    fakes["comicx"] = _make("comicx", comic=True,
+                            fail={"c2": SourceError("site down", FailureReason.SERVER_ERROR)})
+    folder = ("Comicx", "Series T [s1]")
+    saves.save_series_chapters(fakes["comicx"](), "comicx", "s1", ["c2"], root=root,
+                               owner_user_id=7)
+    assert saves.series_saved_by(7) == set()       # nothing was saved
+    saves.save_series_chapters(fakes["comicx"](), "comicx", "s1", ["c1"], root=root,
+                               owner_user_id=5)
+    assert saves.series_saved_by(5) == {folder}
+    # Asking for a chapter someone else already saved counts too.
+    rows, _ = saves.save_series_chapters(fakes["comicx"](), "comicx", "s1", ["c1"], root=root,
+                                         owner_user_id=6)
+    assert rows[0]["outcome"] == "skipped" and saves.series_saved_by(6) == {folder}
+    saves.save_series_chapters(fakes["comicx"](), "comicx", "s1", ["c10"], root=root)
+    with store.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM saved_series_owners").fetchone()[0] == 2
+
+
+def test_the_chapter_check_saves_for_whoever_turned_saving_on(fakes, root, monkeypatch):
+    fakes["comicx"] = _make("comicx", comic=True)
+    monkeypatch.setattr(registry, "is_enabled", lambda name: True)
+    _track("comicx")
+    store.set_tracked_save("comicx", "s1", True, by_user_id=4)
+    chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    assert saves.series_saved_by(4) == {("Comicx", "Series T [s1]")}
+    assert {s["series"] for s in library.list_series(
+        {"user_id": 4, "is_admin": False, "is_local_owner": False})} == {"Series T [s1]"}
+
+
+def test_an_old_sources_db_gains_the_saved_by_column_and_table(fakes):
+    import sqlite3
+    store.connect().close()
+    with sqlite3.connect(store.db_path()) as conn:
+        conn.execute("DROP TABLE saved_series_owners")
+        conn.execute("ALTER TABLE tracked_series DROP COLUMN save_cbz_by_user_id")
+    store._initialised.clear()   # the next process start: migrations run again
+    for _ in range(2):
+        with store.connect() as conn:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(tracked_series)")]
+        assert cols.count("save_cbz_by_user_id") == 1
+    saves.record_saved_by("Site", "S", 9)
+    assert saves.series_saved_by(9) == {("Site", "S")}

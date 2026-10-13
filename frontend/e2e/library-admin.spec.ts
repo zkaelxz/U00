@@ -179,7 +179,8 @@ test.describe('Backup and Storage tabs (mocked)', () => {
     await expect(bar.getByTestId('selected-count')).toHaveText('1 selected')
     await expect(bar.getByRole('button', { name: 'Delete…' })).toHaveCount(0)
     await expect(bar.getByRole('button', { name: /Export \.zip/ })).toHaveCount(0)
-    await expect(bar).toContainText('Delete and export are PC only.')
+    await expect(bar.getByRole('button', { name: /^Translate \d/ })).toHaveCount(0)
+    await expect(bar).toContainText('Bulk translate, delete and export are PC only. To translate from here, use Translate on each title.')
     // The details sheet shows the note where its delete button would be.
     await page.getByRole('button', { name: 'Done selecting' }).click()
     await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)

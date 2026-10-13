@@ -37,6 +37,7 @@ class FakeJobs:
         self.concurrent = []
         self.lock = threading.Lock()
         self.any_started = threading.Event()
+        self.gpu = False
         monkeypatch.setattr(transcribe_service, "start_transcribe_run", self._transcribe)
         monkeypatch.setattr(translate_run_service, "start_translate_run", self._translate)
         monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
@@ -53,7 +54,8 @@ class FakeJobs:
         with self.lock:
             self.concurrent.append(len([j for j in background_jobs.active_job_ids()
                                         if j.startswith(("transcribe_", "translate_"))]))
-        if not background_jobs.start_job(job_id, body, description="fake"):
+        if not background_jobs.start_job(job_id, body, description="fake",
+                                         gpu_touching=self.gpu):
             raise ConflictError("busy")
         self.started.append(job_id)
         self.any_started.set()
@@ -501,3 +503,60 @@ def test_translate_passes_the_settings_default_locale_and_style_note(jobs, monke
     q.start(None)
     q.tick()
     assert seen["locale"] == "en-GB" and seen["style_note"] == "Keep honorifics."
+
+
+def _member_running_two_jobs(jobs):
+    """A member who owns a title and already runs as many jobs as the cap
+    allows, started directly (not from the queue)."""
+    from jobs import user_caps
+    from services import ownership_service
+    member = auth_service.add_user("m@example.com")
+    auth_service.grant_permission(member["id"], "jobs.start")
+    principal = {"user_id": member["id"], "is_admin": False, "permissions": ["jobs.start"]}
+    token = ownership_service.bind_request()
+    ownership_service.note_acting_principal(principal)
+    try:
+        for n in range(user_caps.MAX_RUNNING_JOBS_PER_USER):
+            jobs._start(f"direct_{n}")
+    finally:
+        ownership_service.unbind_request(token)
+    return principal
+
+
+@pytest.mark.parametrize("gpu", [False, True])
+def test_a_member_at_the_running_cap_never_holds_up_the_queue(jobs, gpu):
+    principal = _member_running_two_jobs(jobs)
+    jobs.gpu = gpu     # the item's job; the member's own two stay CPU jobs, both running
+    theirs = _drama("Theirs", owner_user_id=principal["user_id"], is_private=1)
+    owners = _drama("Owner's")
+    q.add_item(principal, theirs, "transcribe", False, at_pc=True)
+    q.add_item(None, owners, "transcribe", True, at_pc=True)
+    q.start(None)
+
+    q.tick()
+    first, second = _items()
+    assert first["status"] == "waiting" and "other jobs" in first["reason"]
+    assert second["status"] == "running"
+    assert f"transcribe_{theirs}" not in jobs.started
+    assert background_jobs.get_status(f"transcribe_{theirs}") is None   # never queued
+
+    jobs.finish("direct_0")
+    jobs.finish(f"transcribe_{owners}")
+    q.tick()
+    q.tick()
+    assert _items()[0]["status"] == "running" and _items()[0]["reason"] is None
+    assert f"transcribe_{theirs}" in jobs.started
+    assert q.get_queue(None)["state"] == "running"
+
+
+def test_a_deferred_item_alone_keeps_the_queue_running(jobs):
+    principal = _member_running_two_jobs(jobs)
+    theirs = _drama("Theirs", owner_user_id=principal["user_id"], is_private=1)
+    q.add_item(principal, theirs, "transcribe", False, at_pc=True)
+    q.start(None)
+    q.tick()
+    assert _items()[0]["status"] == "waiting"
+    assert q.get_queue(None)["state"] == "running"
+    jobs.finish("direct_1")
+    q.tick()
+    assert _items()[0]["status"] == "running"

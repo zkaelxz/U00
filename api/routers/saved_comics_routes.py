@@ -7,14 +7,15 @@ services/saved_comics_service.py (the library).
 - GET  /folder          local_only    where saves go (a path on this PC)
 - POST /folder          local_only    pick it ("" = the default)
 - POST /folder/open     local_only    open it in the PC's file manager
-- GET  /series          library.read  every saved series
+- GET  /series          library.read  every saved series the caller may see
 - GET  /chapters        library.read  one series' chapters
 - GET  /pages           library.read  one chapter's pages, prev/next chapter
 - GET  /page            media.stream  one page image
 
 Series and chapters are named by source, series and chapter names (query
 parameters), never by a path; the service refuses anything that isn't one
-existing name under the save folder.
+existing name under the save folder. A member sees only the series they
+saved (services/saved_comics_service.py).
 """
 
 from typing import List
@@ -57,23 +58,23 @@ def post_open_folder():
 
 @router.get("/series", dependencies=[require_permission("library.read")],
             response_model=List[SavedSeries], summary="Every series with chapters saved as CBZ")
-def get_series():
-    return library.list_series()
+def get_series(request: Request):
+    return library.list_series(request.state.principal)
 
 
 @router.get("/chapters", dependencies=[require_permission("library.read")],
             response_model=SavedChapterList, summary="One saved series' chapters", responses=_ERRS)
-def get_chapters(source: str = Query(**_NAME), series: str = Query(**_NAME)):
-    return library.list_chapters(source, series)
+def get_chapters(request: Request, source: str = Query(**_NAME), series: str = Query(**_NAME)):
+    return library.list_chapters(request.state.principal, source, series)
 
 
 @router.get("/pages", dependencies=[require_permission("library.read")],
             response_model=SavedChapterPages,
             summary="One saved chapter's pages (sizes) and the chapters around it",
             responses=_ERRS)
-def get_pages(source: str = Query(**_NAME), series: str = Query(**_NAME),
+def get_pages(request: Request, source: str = Query(**_NAME), series: str = Query(**_NAME),
               chapter: str = Query(**_NAME)):
-    return library.chapter_pages(source, series, chapter)
+    return library.chapter_pages(request.state.principal, source, series, chapter)
 
 
 @router.get("/page", dependencies=[require_permission("media.stream")],
@@ -82,7 +83,8 @@ def get_pages(source: str = Query(**_NAME), series: str = Query(**_NAME),
                        **_ERRS})
 def get_page(request: Request, source: str = Query(**_NAME), series: str = Query(**_NAME),
              chapter: str = Query(**_NAME), page: int = Query(ge=1, le=library.MAX_PAGES)):
-    data, media_type, mtime = library.page_image(source, series, chapter, page)
+    data, media_type, mtime = library.page_image(request.state.principal, source, series,
+                                                 chapter, page)
     etag = f'"{int(mtime * 1000):x}-{page}"'
     headers = {"ETag": etag, "Cache-Control": "private, no-cache",
                "X-Content-Type-Options": "nosniff"}
