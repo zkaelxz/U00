@@ -20,7 +20,7 @@ import { buttonClass } from '../components/uiClasses'
 import { useHolds } from '../hooks/useHolds'
 import { useLoad } from '../hooks/useLoad'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
+import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, usePcOnly, usePcPendingNote, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { DataFolderPanel } from './diskUsage/DiskUsageSection'
@@ -238,8 +238,10 @@ export default function LibraryToolsPage() {
   useEffect(() => {
     if (route.name === 'library-tools' && route.tab) selectTab(route.tab)
   }, [route, selectTab])
-  // The disk scan walks the data folder, so it waits until a tab that shows it is opened.
-  const usage = useDiskUsage(pc !== 'remote' && (tab === 'storage' || tab === 'data'))
+  // The disk scan walks the data folder, so it waits until a tab that shows it is opened, on the PC:
+  // away from it (or before /api/meta says which) nothing is asked.
+  const usage = useDiskUsage(pc === 'local' && (tab === 'storage' || tab === 'data'))
+  const pcPending = usePcPendingNote(pc)
   const panel = (id: LibraryToolsTab, children: ReactNode) => (
     <div key={id} id={tabPanelId('library-tools', id)} role="tabpanel" aria-labelledby={tabButtonId('library-tools', id)} className="tools-panel" hidden={tab !== id}>
       {children}
@@ -389,7 +391,7 @@ export default function LibraryToolsPage() {
         ))}
         {panel('backup', <BackupTab pc={pc} />)}
         {panel('storage', <StorageTab pc={pc} usage={usage} />)}
-        {panel('data', pc === 'remote' ? <p className="muted">{PC_ONLY_BODY}</p> : <DataFolderPanel usage={usage} />)}
+        {panel('data', pc === 'local' ? <DataFolderPanel usage={usage} /> : <p className="muted">{pcPending ?? PC_ONLY_BODY}</p>)}
       </section>
     </PageShell>
   )
