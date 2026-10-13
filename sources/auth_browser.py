@@ -65,7 +65,7 @@ def has_profile(url: str, source: str = None) -> bool:
 def forget(url: str, source: str = None) -> bool:
     """Deletes this source's saved browser profile (sign-in included).
     Later imports go back to the ordinary, signed-out tiers."""
-    from page_fetch import ProfileBusy, profile_lock
+    from page_fetch_profile import ProfileBusy, profile_lock
     d = profile_dir(url, source)
     lock = profile_lock(d)
     if not lock.acquire(blocking=False):
@@ -99,8 +99,8 @@ def manual_login(url: str, source: str = None, default=None, launcher=None,
                  fetch_with_profile=None) -> LoginCheck:
     """Item 2's flow, end to end. Blocks until the person closes the
     window. Raises TermsProhibited (nothing opened) for a restricted
-    source; page_fetch.ProfileBusy if the profile is already open."""
-    from page_fetch import open_login_window
+    source; page_fetch_profile.ProfileBusy if the profile is already open."""
+    from page_fetch_profile import open_login_window
     source = source or source_for(url)
     default = default if default is not None else _default(source)
     ladder.check_terms(source, default, url=url)
@@ -116,7 +116,7 @@ def verify(url: str, source: str = None, default=None, launcher=None,
     default = default if default is not None else _default(source)
     ladder.check_terms(source, default, url=url)
     if fetch_with_profile is None:
-        from page_fetch import fetch_with_profile as _fetch
+        from page_fetch_profile import fetch_with_profile as _fetch
 
         def fetch_with_profile(u, d):
             return _fetch(u, d, launcher=launcher)

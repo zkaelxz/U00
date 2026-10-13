@@ -65,7 +65,7 @@ Could NOT be verified this pass, recorded honestly rather than guessed:
     (paid or VIP) was available this pass. get_audio_url() falls back,
     when the person has signed in through `sources/auth_browser.py`'s
     persistent browser profile, to reading the same `getsound` URL
-    through that profile (`page_fetch.fetch_with_profile`) on the
+    through that profile (`page_fetch_profile.fetch_with_profile`) on the
     assumption its rendered `page.content()` still contains the raw JSON
     body (Chromium typically wraps a JSON response in a bare `<pre>`).
     Whether a real purchased/VIP session actually changes `getsound`'s
@@ -198,7 +198,7 @@ class MissEvanSource(SourceAdapter):
         else:
             fn = self._rendered_fetch
             if fn is None:
-                from page_fetch import fetch_with_profile
+                from page_fetch_profile import fetch_with_profile
                 profile_dir = auth_browser.profile_dir(self.login_url, self.name)
                 fn = lambda u: fetch_with_profile(u, profile_dir)
 

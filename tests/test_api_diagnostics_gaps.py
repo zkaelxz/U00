@@ -128,9 +128,9 @@ def client(fakes):
 def test_setup_checks_report_the_playwright_package(client, monkeypatch, installed):
     # Through the real check_browser so a dropped key can't hide behind a fake.
     import browser_support
-    import page_fetch
+    import page_fetch_browser
     monkeypatch.setattr(diagnostics, "check_browser", _real_check_browser)
-    monkeypatch.setattr(page_fetch, "browser_status", lambda: {"found": True, "name": "Chrome"})
+    monkeypatch.setattr(page_fetch_browser, "browser_status", lambda: {"found": True, "name": "Chrome"})
     monkeypatch.setattr(browser_support, "package_installed", lambda: installed)
     b = _clean(client.get("/api/diagnostics/setup-checks"))
     assert b["browser"]["package"] is installed

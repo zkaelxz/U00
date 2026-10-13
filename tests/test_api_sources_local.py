@@ -280,7 +280,7 @@ def test_signin_job_result_is_scrubbed_and_pc_only(fakes, monkeypatch):
 
 
 def test_signin_errors_map(client, fakes):
-    from page_fetch import ProfileBusy
+    from page_fetch_profile import ProfileBusy
 
     def busy(self, url="", launcher=None):
         raise ProfileBusy(f"busy at {db.LIBRARY_DIR}/browser_profiles/alpha")
@@ -314,7 +314,7 @@ def test_forget_signin(client, fakes):
 
 
 def test_forget_signin_while_open_is_409(client, fakes):
-    from page_fetch import profile_lock
+    from page_fetch_profile import profile_lock
     fakes["alpha"] = _make("alpha", auth=True, login_url=f"{SITE}/login")
     d = auth_browser.profile_dir("", "alpha")
     os.makedirs(d)

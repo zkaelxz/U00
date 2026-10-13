@@ -174,7 +174,10 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `known_sites.py`
 - `metadata_lookup.py`
 - `navigator.py`
-- `page_fetch.py`
+- `page_fetch.py` (static and browser-rendered page fetches, shell detection, `smart_fetch`)
+- `page_fetch_browser.py` (which browser program to launch, the Playwright check and the shutdown flag)
+- `page_fetch_guard.py` (the pinning proxy, request guard and fail-closed `_goto` that keep fetch browsers off private addresses)
+- `page_fetch_profile.py` (persistent sign-in profiles: signed-in reads and the visible sign-in window)
 - `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches)
 - `page_capture_checks.py` (blank-page probe, re-capture lookup and fixed failure messages for the extension bridge)
 - `page_server.py`

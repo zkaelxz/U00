@@ -11,7 +11,7 @@ import pytest
 import background_jobs
 import db
 import ocr
-import page_fetch
+import page_fetch_profile
 import resegment
 import translate_engines
 from core import Line
@@ -172,15 +172,15 @@ class TestSigninDeadline:
         class Ctx:
             def wait_for_event(self, name, timeout):
                 raise TimeoutError
-        monkeypatch.setattr(page_fetch, "_playwright_timeout_error", lambda: TimeoutError)
-        monkeypatch.setattr(page_fetch, "LOGIN_MAX_WAIT_SECONDS", 0.05)
-        with pytest.raises(page_fetch.LoginWindowTimeout):
-            page_fetch._wait_for_close(Ctx())
+        monkeypatch.setattr(page_fetch_profile, "_playwright_timeout_error", lambda: TimeoutError)
+        monkeypatch.setattr(page_fetch_profile, "LOGIN_MAX_WAIT_SECONDS", 0.05)
+        with pytest.raises(page_fetch_profile.LoginWindowTimeout):
+            page_fetch_profile._wait_for_close(Ctx())
 
     def test_job_fails_with_a_plain_reason(self, monkeypatch):
         class Adapter:
             def login(self, url):
-                raise page_fetch.LoginWindowTimeout("raw")
+                raise page_fetch_profile.LoginWindowTimeout("raw")
         monkeypatch.setattr(signin.registry, "get_adapter", lambda name: Adapter())
         results = {}
         monkeypatch.setattr(background_jobs, "set_result",

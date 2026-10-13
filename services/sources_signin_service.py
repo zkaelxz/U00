@@ -23,7 +23,7 @@ error; `library.read`), and a tier test's outcome is saved in the source's
 capability record (GET /api/sources/{name}). Text is scrubbed either way.
 - `sources_signin_<name>`: `adapter.login(url)` opens a visible window and
   waits until the person closes it, giving up after
-  page_fetch.LOGIN_MAX_WAIT_SECONDS; it cannot be cancelled from the API. Then the page is read
+  page_fetch_profile.LOGIN_MAX_WAIT_SECONDS; it cannot be cancelled from the API. Then the page is read
   through the profile to confirm the content is visible.
 - `sources_tiertest_<name>`: `ladder.test_tier` for one tier, which updates
   only that tier's line in the source's capability record.
@@ -87,7 +87,8 @@ def _site_url(cls, adapter, url) -> str:
 
 
 def _job_error(e) -> dict:
-    from page_fetch import LoginWindowTimeout, ProfileBusy, ProxyBypassed
+    from page_fetch_guard import ProxyBypassed
+    from page_fetch_profile import LoginWindowTimeout, ProfileBusy
     if isinstance(e, ProfileBusy):
         return {"status": 409, "code": ConflictError.code, "message": scrub(str(e)),
                 "details": {"reason": "PROFILE_BUSY"}}
@@ -156,7 +157,7 @@ def start_signin(name: str, url: str = "") -> dict:
 def forget_signin(name: str, confirm: bool) -> dict:
     """{source, forgotten, has_saved_signin}. 422 without confirm=true, 409
     while the profile is open (a sign-in window or an import using it)."""
-    from page_fetch import ProfileBusy
+    from page_fetch_profile import ProfileBusy
     name = str(name or "")
     cls = require_source(name)
     if confirm is not True:

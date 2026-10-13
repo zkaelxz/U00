@@ -17,7 +17,7 @@ import textwrap
 
 import pytest
 
-import page_fetch
+import page_fetch_profile
 from sources import (adaptive, ai_extract, ai_extract_comic as axc, ai_extract_media as axm,
                      ai_extract_novel as axn, auth_browser, front_door, generic_import, ladder,
                      registry, site_terms, store)
@@ -139,7 +139,7 @@ class FakeLauncher:
         self.contexts.append(ctx)
         # Stands in for _launch_persistent's pinning proxy (B-28): _goto fails
         # closed without one. It reports traffic, as a real proxied load would.
-        page_fetch._PROXIES[id(ctx)] = _FakeProxy()
+        page_fetch_profile._PROXIES[id(ctx)] = _FakeProxy()
         return FakePlaywright(), ctx
 
     @property
@@ -166,7 +166,7 @@ def fake_browser(monkeypatch):
 
     def install(site, person=signs_in):
         launcher = FakeLauncher(site, person)
-        monkeypatch.setattr(page_fetch, "_launch_persistent", launcher)
+        monkeypatch.setattr(page_fetch_profile, "_launch_persistent", launcher)
         holder["l"] = launcher
         return launcher
     return install
@@ -214,7 +214,7 @@ class TestPersistentProfiles:
         fake_browser(gated(novel_page))
         assert auth_browser.manual_login(self.URL).ok
         fresh = fake_browser(gated(novel_page), person=None)
-        html, text = page_fetch.fetch_with_profile(self.URL, auth_browser.profile_dir(self.URL))
+        html, text = page_fetch_profile.fetch_with_profile(self.URL, auth_browser.profile_dir(self.URL))
         assert "第一章" in text and not fresh.headed
 
     def test_login_window_waits_for_the_person_with_no_timeout(self, isolated_db, fake_browser):
@@ -223,7 +223,7 @@ class TestPersistentProfiles:
         launcher = fake_browser(gated(comic_page))
         auth_browser.manual_login(self.URL)
         headed = next(c for c in launcher.contexts if not c.headless)
-        assert headed.waits == [("close", page_fetch.LOGIN_POLL_MS)]
+        assert headed.waits == [("close", page_fetch_profile.LOGIN_POLL_MS)]
         assert headed.visits == [self.URL]
 
     def test_closing_the_window_without_signing_in_is_reported_plainly(self, isolated_db,
@@ -252,9 +252,9 @@ class TestPersistentProfiles:
 
     def test_a_busy_profile_is_refused_not_opened_twice(self, isolated_db, fake_browser):
         fake_browser(gated(comic_page))
-        lock = page_fetch.profile_lock(auth_browser.profile_dir(self.URL))
+        lock = page_fetch_profile.profile_lock(auth_browser.profile_dir(self.URL))
         with lock:
-            with pytest.raises(page_fetch.ProfileBusy):
+            with pytest.raises(page_fetch_profile.ProfileBusy):
                 auth_browser.manual_login(self.URL)
 
 
@@ -593,16 +593,16 @@ class TestPromptNeverCarriesSession:
             imported = _imports(_tree(mod))
             assert not any("translate_engines" in i or "ai_extract" in i or "adaptive" in i
                            for i in imported)
-        for fn in (page_fetch.fetch_with_profile, page_fetch.open_login_window,
-                   page_fetch._launch_persistent):
+        for fn in (page_fetch_profile.fetch_with_profile, page_fetch_profile.open_login_window,
+                   page_fetch_profile._launch_persistent):
             assert "call_llm_json" not in _identifiers(_tree(fn))
 
     def test_the_app_never_reads_session_data_at_all(self):
         """The cookies stay inside Chromium's profile: no code path in the
         session layer reads, copies or injects them."""
         forbidden = {"cookies", "add_cookies", "storage_state", "clear_cookies"}
-        for obj in (auth_browser, page_fetch.fetch_with_profile, page_fetch.open_login_window,
-                    page_fetch._launch_persistent, page_fetch._shut, ladder.authenticated_tier,
+        for obj in (auth_browser, page_fetch_profile.fetch_with_profile, page_fetch_profile.open_login_window,
+                    page_fetch_profile._launch_persistent, page_fetch_profile._shut, ladder.authenticated_tier,
                     ladder._browser_outcome):
             assert not (_identifiers(_tree(obj)) & forbidden), obj
 
