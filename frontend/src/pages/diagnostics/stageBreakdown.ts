@@ -73,3 +73,26 @@ export function runsNote(count: number): string | null {
 
 export const NO_STAGE_TIMING = 'No stage timing recorded for this job.'
 export const STAGE_TIMING_UNAVAILABLE = 'Stage timing unavailable.'
+
+// Names for the stages a transcription run records (stage_seconds in its result); a stage the run
+// did not record is left out, never filled in.
+const RECORDED_STAGE_NAMES: Array<[string, string]> = [
+  ['separate', 'Vocal separation'],
+  ['load', 'Loading the speech model'],
+  ['decode_vad', 'Decoding audio and finding speech'],
+  ['transcribe', 'Speech recognition'],
+  ['align', 'Alignment and splitting'],
+]
+
+/** Rows for the stages a finished transcription recorded, in run order; [] when it recorded none. */
+export function recordedStageRows(result: Record<string, unknown> | null | undefined): Array<{ key: string; name: string; duration: string; share: number }> {
+  const raw = result?.stage_seconds
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  const seconds = raw as Record<string, unknown>
+  const known = RECORDED_STAGE_NAMES.flatMap(([key, name]) => {
+    const v = seconds[key]
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? [{ key, name, v }] : []
+  })
+  const total = known.reduce((a, r) => a + r.v, 0)
+  return known.map((r) => ({ key: r.key, name: r.name, duration: formatStageDuration(r.v), share: total > 0 ? Math.round((r.v / total) * 1000) / 10 : 0 }))
+}

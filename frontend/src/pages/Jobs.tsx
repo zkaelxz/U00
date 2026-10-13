@@ -345,7 +345,7 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
           {fields.map(([k, v]) => (<span key={k} className="jobs-field"><dt>{k.replace(/_/g, ' ')}</dt><dd>{String(v)}</dd></span>))}
         </dl>
       )}
-      <JobStagesPanel jobId={job.job_id} running={isActive(job.status)} step={detail ? plainJobText(detail) : null} />
+      <JobStagesPanel jobId={job.job_id} running={isActive(job.status)} step={detail ? plainJobText(detail) : null} result={job.result} />
       <RunSettings result={job.result} />
     </div>
   )

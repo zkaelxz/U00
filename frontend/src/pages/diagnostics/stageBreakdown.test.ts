@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { JobStageRun } from '../../types/jobs'
-import { stageClock, formatStageCost, formatStageDuration, runsNote, stageRows, stageTotalLine } from './stageBreakdown'
+import { stageClock, formatStageCost, formatStageDuration, recordedStageRows, runsNote, stageRows, stageTotalLine } from './stageBreakdown'
 
 const run = (o: Partial<JobStageRun> = {}): JobStageRun => ({
   run_started_at: 1000, running: false, total_seconds: 100, cost_usd: 0, stages: [], ...o,
@@ -67,5 +67,19 @@ describe('stageClock', () => {
     expect(stageClock(1_700_000_000)).toMatch(/^\d{2}:\d{2}:\d{2}$/)
     expect(stageClock(Number.NaN)).toBe('')
     expect(stageRows(run({ stages: [stage('Translate', 5)] }))[0].at).toMatch(/\d{2}:\d{2}:\d{2}/)
+  })
+})
+
+describe('recordedStageRows', () => {
+  it('lists only the stages the run recorded, in run order, with their seconds', () => {
+    const rows = recordedStageRows({ stage_seconds: { transcribe: 80, separate: 20, align: 'x', C: 5 } })
+    expect(rows.map((r) => [r.name, r.duration])).toEqual([['Vocal separation', '20 s'], ['Speech recognition', '1 min 20 s']])
+    expect(rows.map((r) => r.share)).toEqual([20, 80])
+  })
+
+  it('invents nothing when there are none', () => {
+    for (const result of [null, {}, { stage_seconds: {} }, { stage_seconds: [1] }, { stage_seconds: { diarize: 9 } }]) {
+      expect(recordedStageRows(result)).toEqual([])
+    }
   })
 })

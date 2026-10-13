@@ -227,6 +227,19 @@ def _reproject_bulk(bulk):
     return out
 
 
+# The stages a transcription run records (transcribe_pipeline); anything else is dropped.
+_TRANSCRIBE_STAGE_KEYS = ("separate", "load", "decode_vad", "transcribe", "align")
+
+
+def _project_stage_seconds(raw) -> dict:
+    """The recorded seconds of a transcription run's known stages, nothing else."""
+    if not isinstance(raw, dict):
+        return {}
+    return {k: round(float(raw[k]), 2) for k in _TRANSCRIBE_STAGE_KEYS
+            if isinstance(raw.get(k), (int, float)) and not isinstance(raw.get(k), bool)
+            and raw[k] >= 0 and raw[k] == raw[k]}
+
+
 def _is_bulk_result(result) -> bool:
     return isinstance(result, dict) and "translated" in result and "skipped_running" in result
 
@@ -247,6 +260,9 @@ def project_result(result):
     run_settings = run_settings_service.sanitise(result.get("run_settings"))
     if run_settings:
         out["run_settings"] = run_settings
+    stage_seconds = _project_stage_seconds(result.get("stage_seconds"))
+    if stage_seconds:
+        out["stage_seconds"] = stage_seconds
     for key in RESULT_ALLOWED_KEYS:
         if key not in result or (key == "errors" and "bulk" in out):
             continue

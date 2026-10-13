@@ -14,6 +14,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { AsrAdviceLine } from './AsrAdviceLine'
 import { usePersistedState } from '../../../hooks/usePersistedState'
 import { useReadiness } from '../../../hooks/useReadiness'
 import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
@@ -62,7 +63,7 @@ import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBloc
 import { withoutUntouchedBackend } from './transcribeBackendField'
 import { measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
-import { advisorNote, replacementModel, runLine, whisperOnlyControlReason } from './transcribeRun'
+import { replacementModel, runLine, whisperOnlyControlReason } from './transcribeRun'
 import './source.css'
 
 // The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
@@ -597,8 +598,15 @@ export default function TranscribeStage({
           </p>
         )}
         {turboWarning && !backendNotUsed && <p className="muted" role="note">{turboWarning}</p>}
-        {cf && !haveTranscript && (
-          <p className="muted" role="note" data-testid="transcribe-advisor">{advisorNote(cf.asr_backend_choice, cf.separate_vocals_first)}</p>
+        {cf && (
+          <AsrAdviceLine
+            request={{
+              language, media_type: drama.media_type ?? '', asr_backend: cf.asr_backend_choice, whisper_size: cf.whisper_size,
+              separate_vocals_first: cf.separate_vocals_first, whisper_fast_mode: cf.whisper_fast_mode, use_groq: cf.use_groq,
+              has_transcript: haveTranscript, alignment_method: cf.alignment_method, use_gpu: useGpu, check_environment: true,
+            }}
+            onApply={(fix) => Object.entries(fix).forEach(([k, v]) => setC(k as keyof ConfigForm, v as never))}
+          />
         )}
         {(switchedNotice ?? config?.whisper_size_notice) && (
           <p className="muted" role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
