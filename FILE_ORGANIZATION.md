@@ -206,7 +206,10 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `assistant_settings_service.py` (the assistant's settings: Developer Mode, engines, cloud consent, escalation ladder)
 - `assistant_tools_service.py` (the assistant's fixed table of read-only tools and the runner)
 - `auth_service.py`
-- `auto_backup_service.py`
+- `auto_backup_service.py` (automatic backup orchestration: save settings, the backup job, the due-check, delete copies, list dramas in a copy)
+- `auto_backup_settings.py` (the automatic backup's settings, run state and when the next run is due)
+- `auto_backup_copies.py` (the copies in the backup folder: library identity, ownership, rotation, default restore pick, `snapshot_info`)
+- `auto_backup_files.py` (snapshot files: manifest, verification, placing a new copy, reading `library.db` out, moving copies to a new folder)
 - `autotune_service.py` (the "Auto-tune" speech-splitting sensitivity process job: start, status, apply a measured candidate)
 - `backup_import_service.py`
 - `backup_space_check.py` (the automatic backup's free-space check before it writes a copy)
@@ -242,7 +245,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `disk_usage_title_sizes.py` (each title's size split into originals, raw transcripts, line-history snapshots and regenerable files)
 - `disk_usage_trash_service.py` (Trash list, Restore, purge and empty)
 - `temp_cleanup_service.py`
-- `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, never the reverse)
+- `drama_restore_service.py` (copy one drama out of a backup file: single-drama restore and the row copy the import reuses; imports from `auto_backup_service`, `auto_backup_copies` and `auto_backup_files`, never the reverse)
 - `drama_service.py`
 - `dub_service.py`
 - `egress_proxy.py`

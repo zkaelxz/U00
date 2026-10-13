@@ -35,6 +35,7 @@ from api.backup_schemas import (
     RestoreDramaDone, RestoreDramaRequest, SnapshotDramaList, SnapshotInfo)
 from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.schemas import ErrorResponse
+from services import auto_backup_copies as abc_
 from services import auto_backup_service as abs_
 from services import backup_import_service as bis
 from services import drama_restore_service as drs
@@ -75,7 +76,7 @@ def post_now(body: BackupNowRequest = None):
             summary="The copies (newest first) and the newest copy's date, size and kind "
                     "(exists=false when there is none)")
 def get_snapshot():
-    return abs_.snapshot_info()
+    return abc_.snapshot_info()
 
 
 @router.get("/snapshot/dramas", dependencies=[local_only()], response_model=SnapshotDramaList,

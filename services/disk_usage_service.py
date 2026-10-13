@@ -72,6 +72,7 @@ import portable
 import storage
 from jobs import gpu_slots
 from services import auto_backup_service as abs_
+from services import auto_backup_settings as abt_
 from services import disk_usage_links
 from services import disk_usage_title_sizes
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -285,7 +286,7 @@ def _baihe_top_level_names() -> frozenset:
 def _backup_folder_real():
     """Real path of the automatic-backup folder when it exists, else None."""
     try:
-        current = abs_.folder_path(abs_.get_settings().get("folder", ""))
+        current = abt_.folder_path(abt_.get_settings().get("folder", ""))
         if os.path.exists(current):
             return os.path.realpath(current)
     except Exception:

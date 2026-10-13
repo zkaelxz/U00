@@ -16,6 +16,7 @@ import resegment
 import translate_engines
 from core import Line
 from services import auto_backup_service as abs_
+from services import auto_backup_settings as abt_
 from services import benchmark_lab_service as bench
 from services import novel_attach_service as novel
 from services import restructure_service as restructure
@@ -148,10 +149,10 @@ class TestAutoBackup:
         _cancel_after(monkeypatch, 3)
         with pytest.raises(background_jobs.JobCancelled):
             abs_._backup_job(abs_.JOB_ID, True)
-        assert os.listdir(abs_._target_dir(create=False)) == []
+        assert os.listdir(abt_._target_dir(create=False)) == []
 
     def test_cancel_keeps_an_older_good_backup(self, isolated_db, monkeypatch):
-        target = abs_._target_dir(create=True)
+        target = abt_._target_dir(create=True)
         good = os.path.join(target, "baihe_snapshot-20240101-000000.zip")
         with open(good, "wb") as fh:
             fh.write(b"older good backup")

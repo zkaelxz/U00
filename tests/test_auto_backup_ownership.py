@@ -21,11 +21,21 @@ import pytest
 
 import background_jobs
 import db
+from services import auto_backup_copies as abc_
+from services import auto_backup_files as abf_
 from services import auto_backup_service as abs_
+from services import auto_backup_settings as abt_
 from services import drama_restore_service as drs
 from services import library_admin_service as las
 from services import library_restore_service as lrs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+
+
+def _patch_now(monkeypatch, fn):
+    for mod in (abs_, abt_, abc_, abf_):
+        monkeypatch.setattr(mod, "_now", fn)
+
+
 
 UTC = datetime.timezone.utc
 _DROP = object()
@@ -46,19 +56,19 @@ def _default_dir():
 def _run_at(monkeypatch, when):
     """One real backup run with _now faked to `when`; returns the new copy's
     file name."""
-    monkeypatch.setattr(abs_, "_now", lambda: when)
+    _patch_now(monkeypatch, lambda: when)
     abs_._backup_job(abs_.JOB_ID, False)
     return _name(when)
 
 
 def _identity():
-    return db.get_app_setting(abs_.IDENTITY_KEY, None)
+    return db.get_app_setting(abc_.IDENTITY_KEY, None)
 
 
 def _become(identity):
     """Switches this test library to another library's identity (its id and
     sequence), the way a second PC sharing the backup folder would be."""
-    db.set_app_setting(abs_.IDENTITY_KEY, identity)
+    db.set_app_setting(abc_.IDENTITY_KEY, identity)
 
 
 def _manifest(path):
@@ -120,7 +130,7 @@ class TestIdentity:
         first = _run_at(monkeypatch, _at(2))
         ident = _identity()
         assert len(ident["library_id"]) == 32 and ident["sequence"] == 1
-        assert ident["created_at"] == abs_._iso(_at(2))
+        assert ident["created_at"] == abt_._iso(_at(2))
         assert ident["written"] == [[1, first]]
         second = _run_at(monkeypatch, _at(3))
         assert _identity() == {"library_id": ident["library_id"], "sequence": 2,
@@ -131,16 +141,16 @@ class TestIdentity:
             assert m["library_id"] == ident["library_id"] and m["sequence"] == seq
 
     def test_two_libraries_get_different_ids(self, isolated_db):
-        a = abs_._identity()[0]
-        db.set_app_setting(abs_.IDENTITY_KEY, None)
-        assert abs_._identity()[0] != a
+        a = abc_._identity()[0]
+        db.set_app_setting(abc_.IDENTITY_KEY, None)
+        assert abc_._identity()[0] != a
 
     @pytest.mark.parametrize("stored", ["junk", {"library_id": "../x", "sequence": 3},
                                         {"library_id": 5}, [1, 2]])
     def test_invalid_stored_identity_is_replaced(self, isolated_db, stored):
-        db.set_app_setting(abs_.IDENTITY_KEY, stored)
-        library_id, seq = abs_._identity()
-        assert abs_._LIBRARY_ID_RE.fullmatch(library_id) and seq == 0
+        db.set_app_setting(abc_.IDENTITY_KEY, stored)
+        library_id, seq = abc_._identity()
+        assert abc_._LIBRARY_ID_RE.fullmatch(library_id) and seq == 0
         assert _identity()["library_id"] == library_id
 
     def test_sequence_never_reuses_a_number_in_the_folder(self, isolated_db, monkeypatch):
@@ -189,7 +199,7 @@ class TestSharedFolder:
         assert present == (present & written["A"]) | (present & written["B"])
         # as library B sees it: A's copies are listed, unmanaged, slotless
         _become(libs["B"])
-        info = abs_.snapshot_info()
+        info = abc_.snapshot_info()
         for c in info["copies"]:
             assert c["managed"] is (c["name"] in written["B"]), c
             if c["name"] in written["A"]:
@@ -257,7 +267,7 @@ class TestUnmanagedNeverRotated:
         for day in range(1, 29):
             _run_at(monkeypatch, _at(day))
         assert set(legacy) <= set(_files(str(tmp_path)))
-        info = abs_.snapshot_info()
+        info = abc_.snapshot_info()
         for c in info["copies"]:
             if c["name"] in legacy:
                 assert c["managed"] is False and c["kept_as"] is None
@@ -271,8 +281,8 @@ class TestUnmanagedNeverRotated:
         for name in legacy:
             _make_legacy(os.path.join(_default_dir(), name))
         # as if this library's id was made after the older app wrote them
-        _become({**_identity(), "created_at": abs_._iso(_at(3, hour=4))})
-        assert all(c["managed"] for c in abs_.snapshot_info()["copies"])
+        _become({**_identity(), "created_at": abt_._iso(_at(3, hour=4))})
+        assert all(c["managed"] for c in abc_.snapshot_info()["copies"])
         for day in (9, 16, 23, 24):
             _run_at(monkeypatch, _at(day))
         assert not set(legacy) & set(_files())
@@ -304,19 +314,19 @@ class TestUnmanagedNeverRotated:
         for day in (9, 16, 23, 24, 30):
             _run_at(monkeypatch, _at(day))
         assert _read(os.path.join(_default_dir(), odd)) == data
-        [entry] = [c for c in abs_.snapshot_info()["copies"] if c["name"] == odd]
+        [entry] = [c for c in abc_.snapshot_info()["copies"] if c["name"] == odd]
         assert entry["managed"] is False and entry["kept_as"] is None
 
     def test_copy_that_cannot_be_opened_is_never_deleted(self, isolated_db, monkeypatch):
         db.create_drama(title_en="A")
         old = os.path.join(_default_dir(), _run_at(monkeypatch, _at(2)))
-        real = abs_.zipfile.ZipFile
+        real = abc_.zipfile.ZipFile
 
         def locked(file, *a, **k):
             if isinstance(file, str) and os.path.abspath(file) == old:
                 raise PermissionError(13, "in use")
             return real(file, *a, **k)
-        monkeypatch.setattr(abs_.zipfile, "ZipFile", locked)
+        monkeypatch.setattr(abc_.zipfile, "ZipFile", locked)
         for day in (9, 16, 23, 30):
             _run_at(monkeypatch, _at(day))
         assert os.path.isfile(old)
@@ -333,11 +343,11 @@ class TestDefaultPick:
     def test_file_times_are_ignored(self, isolated_db, monkeypatch):
         db.create_drama(title_en="A")
         names = [_run_at(monkeypatch, _at(d)) for d in (2, 3, 4)]
-        monkeypatch.setattr(abs_, "_now", lambda: _at(4, hour=6))
+        _patch_now(monkeypatch, lambda: _at(4, hour=6))
         for name, ts in zip(names, (4e9, 1e9, 2e9)):     # newest copy gets the oldest mtime
             os.utime(os.path.join(_default_dir(), name), (ts, ts))
         assert abs_.list_snapshot_dramas()["name"] == names[-1]
-        assert abs_.snapshot_info()["default_copy"] == names[-1]
+        assert abc_.snapshot_info()["default_copy"] == names[-1]
 
     def test_clock_set_back_uses_the_sequence_not_created_at(self, isolated_db, monkeypatch):
         """The clock went back a few hours between two runs: the later run
@@ -347,10 +357,10 @@ class TestDefaultPick:
         db.update_drama(a, title_en="After")
         second = _run_at(monkeypatch, _at(10, hour=9))
         assert second < first                       # listed after the older copy
-        info = abs_.snapshot_info()
+        info = abc_.snapshot_info()
         assert info["copies"][0]["name"] == first
         assert info["default_copy"] == second and info["choose_copy"] is False
-        assert info["created_at"] == abs_._iso(_at(10, hour=9))
+        assert info["created_at"] == abt_._iso(_at(10, hour=9))
         db.delete_drama(a)
         res = _restore(a)
         assert res["snapshot"] == second and db.get_drama(a)["title_en"] == "After"
@@ -364,7 +374,7 @@ class TestDefaultPick:
         _rewrite_manifest(os.path.join(_default_dir(), one), sequence=2)
         cands = _choose(abs_.list_snapshot_dramas)
         assert {c["name"]: c["sequence"] for c in cands} == {one: 2, two: 2}
-        assert abs_.snapshot_info()["choose_copy"] is True
+        assert abc_.snapshot_info()["choose_copy"] is True
 
     def test_sequence_and_dates_far_apart_asks(self, isolated_db, monkeypatch):
         db.create_drama(title_en="A")
@@ -420,7 +430,7 @@ class TestDefaultPick:
         db.delete_drama(a)
         _choose(lambda: _restore(a))
         assert db.get_drama(a) is None
-        info = abs_.snapshot_info()
+        info = abc_.snapshot_info()
         assert info["choose_copy"] is True and info["copies"][0]["managed"] is False
         res = _restore(a, snapshot=theirs)
         assert res["snapshot"] == theirs and db.get_drama(a)["title_en"] == "Theirs"
@@ -455,14 +465,14 @@ class TestWholeLibraryRestore:
         _become({"library_id": "b" * 32, "sequence": 2})
         other_librarys_backup = _library_zip(tmp_path)
         with contextlib.closing(db.get_conn()) as conn:
-            conn.execute("DELETE FROM app_settings WHERE key = ?", (abs_.IDENTITY_KEY,))
+            conn.execute("DELETE FROM app_settings WHERE key = ?", (abc_.IDENTITY_KEY,))
             conn.commit()
         lrs.restore_library_backup(other_librarys_backup, db.LIBRARY_DIR)
         assert _identity() is None
-        assert abs_._identity()[0] != "b" * 32
+        assert abc_._identity()[0] != "b" * 32
 
     def test_kept_key_is_the_identity_key(self):
-        assert abs_.IDENTITY_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
+        assert abc_.IDENTITY_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
 
 
 # --------------------------------------------------------------------------
@@ -502,7 +512,7 @@ class TestClones:
         # B wrote last: to A, B's newer copy (numbered above A's counter)
         # makes the newest copy unclear, and it isn't A's to delete
         _become(clones["A"])
-        info = abs_.snapshot_info()
+        info = abc_.snapshot_info()
         assert info["choose_copy"] is True
         managed = {c["name"] for c in info["copies"] if c["managed"]}
         assert not managed & written["B"]
@@ -534,7 +544,7 @@ class TestClones:
         files = set(_files())
         assert early[1] not in files and early[0] in files
         assert set(later) <= files
-        info = abs_.snapshot_info()
+        info = abc_.snapshot_info()
         assert not any(c["managed"] for c in info["copies"] if c["name"] in later)
         assert info["choose_copy"] is False
 
@@ -548,7 +558,7 @@ class TestClones:
         with open(os.path.join(_default_dir(), mine), "rb") as src, \
                 open(os.path.join(_default_dir(), twin), "wb") as dst:
             dst.write(src.read())
-        entries = {c["name"]: c for c in abs_.snapshot_info()["copies"]}
+        entries = {c["name"]: c for c in abc_.snapshot_info()["copies"]}
         assert entries[mine]["managed"] is True and entries[twin]["managed"] is False
         for day in (9, 16, 23, 24, 30):
             _run_at(monkeypatch, _at(day))
@@ -568,20 +578,20 @@ class TestLegacyAdoptionAndForeignFolders:
         old = _run_at(monkeypatch, _at(2))
         _rewrite_manifest(os.path.join(_default_dir(), old), library_id=_DROP,
                           sequence=_DROP, created_at=created_at)
-        _become({**_identity(), "created_at": abs_._iso(_at(9))})
+        _become({**_identity(), "created_at": abt_._iso(_at(9))})
         for day in (9, 16, 23, 24, 30):
             _run_at(monkeypatch, _at(day))
         assert old in _files()
 
     def test_identity_records_when_it_was_made(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(abs_, "_now", lambda: _at(7))
-        abs_._identity()
-        assert _identity()["created_at"] == abs_._iso(_at(7))
+        _patch_now(monkeypatch, lambda: _at(7))
+        abc_._identity()
+        assert _identity()["created_at"] == abt_._iso(_at(7))
         # an identity stored without it gets one, keeping id and number
         _become({"library_id": "a" * 32, "sequence": 3})
-        monkeypatch.setattr(abs_, "_now", lambda: _at(8))
-        assert abs_._identity() == ("a" * 32, 3)
-        assert _identity()["created_at"] == abs_._iso(_at(8))
+        _patch_now(monkeypatch, lambda: _at(8))
+        assert abc_._identity() == ("a" * 32, 3)
+        assert _identity()["created_at"] == abt_._iso(_at(8))
 
     @pytest.mark.parametrize("sub", [(), ("backups", "auto"), ("somewhere", "deeper")])
     def test_folder_inside_another_library_is_refused(self, isolated_db, tmp_path, sub):
@@ -592,7 +602,7 @@ class TestLegacyAdoptionAndForeignFolders:
         folder.mkdir(parents=True, exist_ok=True)
         with pytest.raises(InvalidInputError):
             abs_.set_settings(folder=str(folder))
-        assert abs_.get_settings()["folder"] == ""
+        assert abt_.get_settings()["folder"] == ""
 
     def test_own_backups_folder_is_still_allowed(self, isolated_db):
         inside = os.path.join(db.LIBRARY_DIR, "backups", "mine")
@@ -624,7 +634,7 @@ class TestForeignBadFiles:
         _unsupported_compression(str(path))
         with zipfile.ZipFile(path) as zf, pytest.raises(NotImplementedError):
             zf.read("manifest.json")
-        assert abs_._read_copy(str(path)) == (abs_._DAMAGED, None)
+        assert abc_._read_copy(str(path)) == (abc_._DAMAGED, None)
 
     @pytest.mark.parametrize("created_at", ["0001-01-01T00:00:00+14:00",
                                             "9999-12-31T23:59:59-14:00",
@@ -634,7 +644,7 @@ class TestForeignBadFiles:
         mine = _run_at(monkeypatch, _at(2))
         top = _run_at(monkeypatch, _at(3))
         _rewrite_manifest(os.path.join(_default_dir(), top), created_at=created_at)
-        info = abs_.snapshot_info()
+        info = abc_.snapshot_info()
         assert {c["name"] for c in info["copies"]} == {mine, top}
         abs_.list_snapshot_dramas(mine)
         abs_.list_snapshot_dramas(top)
@@ -661,7 +671,7 @@ class TestForeignBadFiles:
         _unsupported_compression(str(src / bad_codec))
         bad_date = "baihe_snapshot-20261399-250000.zip"     # not a real date
         (src / bad_date).write_bytes(_read(str(src / mine)))
-        info = abs_.snapshot_info()
+        info = abc_.snapshot_info()
         by_name = {c["name"]: c for c in info["copies"]}
         assert set(by_name) == {mine, bad_codec, bad_date}
         assert by_name[bad_codec]["readable"] is False
@@ -717,7 +727,7 @@ class TestRefusedWhileLibraryHeld:
             # other settings still save
             assert abs_.set_settings(enabled=True)["enabled"] is True
         assert _files() == [name] and _files(str(dest)) == []
-        assert abs_.get_settings()["folder"] == ""
+        assert abt_.get_settings()["folder"] == ""
         assert not background_jobs.maintenance_active()
         abs_.set_settings(folder=str(dest))
         assert _files(str(dest)) == [name]

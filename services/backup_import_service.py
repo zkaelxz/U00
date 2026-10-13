@@ -42,6 +42,7 @@ import zipfile
 
 import db
 import storage
+from services import auto_backup_files as abf_
 from services import auto_backup_service as abs_
 from services import drama_restore_service as drs
 from services import library_admin_service as las
@@ -105,7 +106,7 @@ def _save_upload(stream, dest: str):
 def _open_db(path: str, time_limit: float = None):
     """Read-only connection whose statements are interrupted (an
     sqlite3.OperationalError) once `time_limit` seconds have passed."""
-    conn = sqlite3.connect(abs_.ro_uri(path), uri=True)
+    conn = sqlite3.connect(abf_.ro_uri(path), uri=True)
     conn.execute("PRAGMA trusted_schema = OFF")
     deadline = time.monotonic() + (_READ_TIME_LIMIT_S if time_limit is None else time_limit)
     conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 1000)
@@ -161,7 +162,7 @@ class _Backup:
             try:
                 with zipfile.ZipFile(upload) as zf:
                     # No SQL runs on it until _check_db's guarded connection.
-                    self.db_path = abs_.extract_db(zf, tmp, _MAX_DB_BYTES, check=False)
+                    self.db_path = abf_.extract_db(zf, tmp, _MAX_DB_BYTES, check=False)
             except (OSError, zipfile.BadZipFile, KeyError):
                 raise InvalidInputError(_BAD_FILE) from None
             self.zip_path = upload

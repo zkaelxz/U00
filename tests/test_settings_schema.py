@@ -112,8 +112,15 @@ def _resolve_constant(rel, name, modules, seen=()):
     """The string literal a module-level `NAME = ...` ends up as, or None."""
     if (rel, name) in seen:
         return None
-    match = re.search(rf"^{re.escape(name)}\s*=\s*(.+)$", _read(rel), re.M)
+    text = _read(rel)
+    match = re.search(rf"^{re.escape(name)}\s*=\s*(.+)$", text, re.M)
     if not match:
+        # Imported from the module that owns it (a split-out constant).
+        for imp in re.finditer(r"^from ([\w.]+) import (\([^)]*\)|.+)$", text, re.M):
+            if name in re.findall(r"\w+", imp.group(2)):
+                owner = imp.group(1).replace(".", "/") + ".py"
+                if os.path.exists(os.path.join(ROOT, owner)):
+                    return _resolve_constant(owner, name, modules, seen + ((rel, name),))
         return None
     return _resolve_expression(rel, match.group(1).strip(), modules, seen + ((rel, name),))
 
@@ -388,7 +395,7 @@ ROOT_READERS = {
 OTHER_READERS = {
     "engine_backends/pricing.py": "below services: cannot import settings_service",
     "services/asr_options_service.py": "settings_service imports it for the voice detector choices",
-    "services/auto_backup_service.py": "normalises its own settings document",
+    "services/auto_backup_settings.py": "normalises its own settings document",
     "services/extension_service.py": "normalises the extension engine document",
     "services/metadata_research_service.py": "reads its budget document",
     "services/model_registry_service.py": "reads its cached provider check and extension engine",
