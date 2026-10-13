@@ -74,6 +74,10 @@ class TestBudgetStopIsFinal:
                 at_stop.append(engine.calls)
                 raise
         monkeypatch.setattr(run_limits.RateLimitWaitBudget, "charge", spy)
+        # A rate-limited call no longer sleeps (or charges) after its final attempt, so the
+        # default budget outlasts the three-failures-in-a-row stop; a small one still tests the stop.
+        monkeypatch.setattr("engine_backends.translate_pipeline.RateLimitWaitBudget",
+                            lambda: run_limits.RateLimitWaitBudget(100.0))
         out, errors = te.translate_lines_with_engine(
             _lines(30), engine, {}, batch_size=1, reflect=True, check_replies=False)
         assert at_stop, "the budget never stopped the run"
