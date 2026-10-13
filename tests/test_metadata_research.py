@@ -120,12 +120,46 @@ def test_cached_research_shows_an_earlier_lookup_without_a_search(setup):
     assert len(fake.calls) == 1 and again["cached"] is True and again["cost_usd"] == 0.0
     assert [f["field"] for f in again["fields"]] == [f["field"] for f in first["fields"]]
     assert again["budget"]["used_today"] == 1
-    # a different mode is a different lookup, and a cached id still applies
+    # a different mode is a different lookup
     with pytest.raises(NotFoundError):
         mrs.cached_research(drama, mode="deep")
-    assert db.get_research_result(again["research_id"], drama) is not None
     with pytest.raises(InvalidInputError):
         mrs.cached_research(drama, mode="nope")
+
+
+def _snapshot_count():
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM metadata_research_results").fetchone()[0]
+
+
+def test_cached_reads_write_no_snapshot_and_apply_still_works(setup):
+    drama, _ = setup
+    first = mrs.research(drama)
+    before = _snapshot_count()
+    for _ in range(5):
+        again = mrs.cached_research(drama)
+        assert again["research_id"] is None
+    assert _snapshot_count() == before
+    out = mrs.apply_research(drama, None, {"director": "replace"}, seen={"director": None},
+                             mode=again["mode"], model=again["model"],
+                             retrieved_at=again["retrieved_at"])
+    assert out["replaced"] == ["director"]
+    assert _snapshot_count() == before + 1
+    assert first["retrieved_at"] == again["retrieved_at"]
+
+
+def test_apply_of_a_cached_read_refuses_a_refreshed_lookup(setup):
+    drama, _ = setup
+    mrs.research(drama)
+    shown = mrs.cached_research(drama)
+    mrs.research(drama, refresh=True)  # another tab looked it up again
+    with pytest.raises(ConflictError):
+        mrs.apply_research(drama, None, {"director": "replace"}, seen={"director": None},
+                           mode=shown["mode"], model=shown["model"],
+                           retrieved_at=shown["retrieved_at"])
+    with pytest.raises(InvalidInputError):
+        mrs.apply_research(drama, None, {"director": "replace"}, seen={"director": None})
 
 
 def test_budget_counter_increments_and_resets_daily(setup, monkeypatch):
@@ -495,6 +529,20 @@ def test_routes_round_trip(client, setup):
     assert a.json()["drama"]["director"] == "Jane Doe"
     p = client.get(f"/api/metadata/dramas/{drama}/provenance")
     assert p.status_code == 200 and p.json()["fields"][0]["field"] == "director"
+
+
+def test_routes_cached_read_then_apply_without_a_stored_id(client, setup):
+    drama, _ = setup
+    client.post(f"/api/metadata/dramas/{drama}/research", json={"mode": "quick"})
+    before = _snapshot_count()
+    shown = client.get(f"/api/metadata/dramas/{drama}/research/cached").json()
+    assert shown["research_id"] is None and _snapshot_count() == before
+    a = client.post(f"/api/metadata/dramas/{drama}/research/apply",
+                    json={"lookup_mode": shown["mode"], "lookup_model": shown["model"],
+                          "retrieved_at": shown["retrieved_at"], "choices": {"director": "replace"},
+                          "seen": {"director": None}})
+    assert a.status_code == 200, a.text
+    assert a.json()["drama"]["director"] == "Jane Doe"
 
 
 def test_routes_errors(client, setup):

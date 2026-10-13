@@ -20,6 +20,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { useReadiness } from '../../hooks/useReadiness'
+import { useStageDraft } from '../../hooks/useStageDraft'
 import type { JobRecord } from '../../types/jobs'
 import type {
   ScanlateConfig,
@@ -61,26 +62,35 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
   { value: 'ml', label: 'ML model (downloads once)' },
 ]
 
+// The form is remembered per title, so leaving the page does not reset the engine, detector and scope.
+const SCANLATE_DRAFT = { engine: '', detector: 'auto' as string, slice: true, scope: 'all' as string }
+
 export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, onJob }: Props) {
   const pc = usePcOnly()
   const { readiness } = useReadiness()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
   const [notes, setNotes] = useState<ScanlatePageNotes[]>([])
   const [error, setError] = useState<unknown>(null)
-  const [engine, setEngine] = useState('')
-  const [detector, setDetector] = useState<ScanlateDetectBackend>('auto')
+  const { draft, save: saveDraft } = useStageDraft(dramaId, 'scanlate', SCANLATE_DRAFT)
+  const draftRef = useRef(draft)
+  const [engine, setEngine] = useState(draft.engine ?? '')
+  const [detector, setDetector] = useState<ScanlateDetectBackend>(
+    DETECTORS.find((d) => d.value === draft.detector)?.value ?? 'auto',
+  )
   const [files, setFiles] = useState<File[]>([])
-  const [slice, setSlice] = useState(true)
+  const [slice, setSlice] = useState(draft.slice ?? true)
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
-  const [scope, setScope] = useState<'chapter' | 'all'>('all')
+  const [scope, setScope] = useState<'chapter' | 'all'>(draft.scope === 'chapter' ? 'chapter' : 'all')
   const [exported, setExported] = useState<ScanlateExportFormat[]>([])
   const [jobKind, setJobKind] = useState<'run' | 'export' | null>(null)
   const [loadKey, setLoadKey] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
   const [jobId, setJobId, runKey] = useJobRun()
   const pendingExport = useRef<ScanlateExportFormat[]>([])
+
+  useEffect(() => saveDraft({ engine, detector, slice, scope }), [saveDraft, engine, detector, slice, scope])
 
   const reload = useCallback(() => setLoadKey((n) => n + 1), [])
   const onDone = useCallback(
@@ -104,8 +114,9 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
       (c) => {
         if (cancelled) return
         setConfig(c)
-        setEngine((e) => e || defaultEngine(c))
-        setSlice((s) => (loadKey === 0 ? c.upload_limits.slice_strips_default : s))
+        // A remembered engine that is no longer usable falls back to the default.
+        setEngine((e) => (e && usableEngines(c).some((u) => u.name === e) ? e : defaultEngine(c)))
+        setSlice((s) => (loadKey === 0 ? (draftRef.current.slice ?? c.upload_limits.slice_strips_default) : s))
       },
       (e) => !cancelled && setError(e),
     )
