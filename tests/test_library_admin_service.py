@@ -2172,3 +2172,19 @@ def test_disk_full_while_rebuilding_is_not_called_a_bad_backup(isolated_db, monk
         _restore(data)
     assert str(ei.value) == lrs.RESTORE_DISK_FULL
     assert db.get_drama(a)
+
+
+def test_disk_full_check_works_without_sqlite_full_constants(monkeypatch):
+    """sqlite3.SQLITE_FULL and Error.sqlite_errorcode are Python 3.11+; on
+    3.10 a bad library.db must still be reported as one, not as a crash."""
+    monkeypatch.delattr(sqlite3, "SQLITE_FULL", raising=False)
+    try:
+        raise ValueError(lrs.BAD_LIBRARY_DB) from sqlite3.DatabaseError("file is not a database")
+    except ValueError as e:
+        bad = e
+    assert lrs._ran_out_of_disk(bad) is False
+    full = sqlite3.OperationalError("database or disk is full")
+    full.sqlite_errorcode = 13
+    wrapped = ValueError(lrs.BAD_LIBRARY_DB)
+    wrapped.__context__ = full
+    assert lrs._ran_out_of_disk(wrapped) is True

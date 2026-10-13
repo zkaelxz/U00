@@ -489,7 +489,8 @@ class TestFolderSetting:
 @pytest.fixture
 def started(monkeypatch):
     calls = []
-    monkeypatch.setattr(abs_, "_start", lambda include_media: calls.append(include_media) or True)
+    monkeypatch.setattr(abs_, "_start",
+                        lambda include_media, scheduled=False: calls.append(include_media) or True)
     return calls
 
 
@@ -547,21 +548,46 @@ class TestDueCheck:
         assert abs_.check_and_run(now=attempt + datetime.timedelta(hours=23)) == "not_due"
         assert abs_.check_and_run(now=attempt + datetime.timedelta(days=1)) == "started"
 
-    def test_cancelled_run_waits_a_day_like_a_failed_one(self, isolated_db, started,
-                                                         monkeypatch):
-        _enable(frequency="daily")
-
+    def _cancelled_run(self, monkeypatch, scheduled):
         def cancel(*a, **k):
             raise background_jobs.JobCancelled(abs_.JOB_ID)
         monkeypatch.setattr(lbs, "write_backup_zip", cancel)
         with pytest.raises(background_jobs.JobCancelled):
-            abs_._backup_job(abs_.JOB_ID, False)
+            abs_._backup_job(abs_.JOB_ID, False, scheduled)
+        return datetime.datetime.fromisoformat(abt_._get_state()["last_attempt_at"])
+
+    def test_cancelled_run_waits_a_day_like_a_failed_one(self, isolated_db, started,
+                                                         monkeypatch):
+        _enable(frequency="daily")
+        self._cancelled_run(monkeypatch, scheduled=True)
         state = abt_._get_state()
         assert not state.get("last_error")
         attempt = datetime.datetime.fromisoformat(state["last_attempt_at"])
         assert abs_.check_and_run(now=attempt + datetime.timedelta(hours=1)) == "not_due"
         assert started == []
         assert abs_.check_and_run(now=attempt + datetime.timedelta(days=1)) == "started"
+
+    def test_cancelled_back_up_now_does_not_hold_off_the_schedule(self, isolated_db, started,
+                                                                  monkeypatch):
+        _enable(frequency="daily")
+        attempt = self._cancelled_run(monkeypatch, scheduled=False)
+        assert abs_.check_and_run(now=attempt + datetime.timedelta(hours=1)) == "started"
+
+    def test_run_stopped_by_closing_baihe_does_not_hold_off_the_schedule(
+            self, isolated_db, started, monkeypatch):
+        _enable(frequency="daily")
+        monkeypatch.setattr(job_launch, "_stopping", True)
+        attempt = self._cancelled_run(monkeypatch, scheduled=True)
+        monkeypatch.setattr(job_launch, "_stopping", False)
+        assert abs_.check_and_run(now=attempt + datetime.timedelta(hours=1)) == "started"
+
+    def test_the_due_check_starts_a_scheduled_run(self, isolated_db, monkeypatch):
+        _enable(frequency="daily")
+        calls = []
+        monkeypatch.setattr(job_launch, "start_job",
+                            lambda job_id, target, *args, **k: calls.append(args) or True)
+        assert abs_.check_and_run() == "started"
+        assert calls == [(abs_.JOB_ID, abt_.get_settings()["include_media"], True)]
 
     def test_future_last_success_is_due(self, isolated_db, started, monkeypatch):
         """A last run dated in the future (the clock ran ahead, then was
@@ -628,7 +654,7 @@ class TestDueCheck:
 
     def test_start_refused_is_busy(self, isolated_db, monkeypatch):
         _enable()
-        monkeypatch.setattr(abs_, "_start", lambda include_media: False)
+        monkeypatch.setattr(abs_, "_start", lambda include_media, scheduled=False: False)
         assert abs_.check_and_run() == "busy"
 
     def test_never_raises(self, isolated_db, monkeypatch):
@@ -1887,7 +1913,7 @@ class TestRestoreRoundTrip:
                     pass
             return real(*args, **kw)
         monkeypatch.setattr(drs, "_restore_from", spy)
-        monkeypatch.setattr(abs_, "_start", lambda media: pytest.fail("backup started"))
+        monkeypatch.setattr(abs_, "_start", lambda *a, **k: pytest.fail("backup started"))
         _restore(a)
         assert seen == ["busy"]
 

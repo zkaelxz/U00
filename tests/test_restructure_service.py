@@ -299,7 +299,8 @@ class TestResegment:
         assert [r["id"] for r in rows] == ids and rows[1]["en"] == "typed meanwhile"
         assert not db.list_line_history(did)
 
-    def test_apply_refuses_a_split_that_now_loses_a_note(self, monkeypatch):
+    @pytest.mark.parametrize("confirm", [False, True])
+    def test_apply_refuses_a_split_that_now_loses_a_note(self, monkeypatch, confirm):
         did, ids = _seed([("a", ""), (LONG, "")])
         real = resegment.resegment_lines
 
@@ -308,7 +309,8 @@ class TestResegment:
                                              "note": "n"}])
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
-        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        job = _wait(resegmentation_service.start_resegmentation(did, ids,
+                                                                confirm=confirm)["job_id"])
         assert job["status"] == "error"
         assert [r["id"] for r in _rows(did)] == ids and _notes(did)["t"] == ids[1]
 

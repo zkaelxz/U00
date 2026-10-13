@@ -144,7 +144,7 @@ class _LowSpace(Exception):
     pass
 
 
-def _backup_job(job_id, include_media: bool):
+def _backup_job(job_id, include_media: bool, scheduled: bool = False):
     now = _now()
     started = _iso(now)
     _update_state(last_attempt_at=started)
@@ -200,9 +200,11 @@ def _backup_job(job_id, include_media: bool):
                             type(exc).__name__)
     except background_jobs.JobCancelled:
         # A cancel is not a failure: no error is recorded, and the finally
-        # below removes the partial archive. The scheduled check backs off
-        # as after a failure, or a cancelled long run would restart hourly.
-        _update_state(last_cancelled_at=started)
+        # below removes the partial archive. A scheduled run the user
+        # cancelled backs off as after a failure, or a long one would restart
+        # hourly; one stopped by closing Baihe, or a "Back up now", doesn't.
+        if scheduled and not job_launch.is_stopping():
+            _update_state(last_cancelled_at=started)
         raise
     except Exception as exc:
         error = space.LOW_SPACE if isinstance(exc, _LowSpace) else _FAILED
@@ -220,11 +222,11 @@ def _backup_job(job_id, include_media: bool):
     background_jobs.update_progress(job_id, 1.0, "Backup ready.")
 
 
-def _start(include_media: bool) -> bool:
+def _start(include_media: bool, scheduled: bool = False) -> bool:
     # Under _snapshot_lock so a folder change can't slip between its
     # running-job check and its save (see set_settings).
     with _snapshot_lock:
-        return job_launch.start_job(JOB_ID, _backup_job, JOB_ID, include_media,
+        return job_launch.start_job(JOB_ID, _backup_job, JOB_ID, include_media, scheduled,
                                          description="Automatic backup")
 
 
@@ -262,7 +264,7 @@ def check_and_run(now=None) -> str:
         if (job_launch.maintenance_active() or job_launch.exclusive_active()
                 or las.any_job_running()):
             return "busy"
-        return "started" if _start(settings["include_media"]) else "busy"
+        return "started" if _start(settings["include_media"], scheduled=True) else "busy"
     except Exception as exc:
         log.warning("Automatic backup check failed: %s", type(exc).__name__)
         with contextlib.suppress(Exception):

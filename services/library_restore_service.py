@@ -92,9 +92,10 @@ def _ran_out_of_disk(exc) -> bool:
     `raise ... from None` keeps in __context__."""
     import errno
     import sqlite3
+    # Both the constant and sqlite_errorcode are Python 3.11+; 13 is SQLite's own code.
+    full = getattr(sqlite3, "SQLITE_FULL", 13)
     while exc is not None:
-        if isinstance(exc, sqlite3.Error) and getattr(exc, "sqlite_errorcode", None) == \
-                sqlite3.SQLITE_FULL:
+        if isinstance(exc, sqlite3.Error) and getattr(exc, "sqlite_errorcode", None) == full:
             return True
         if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
             return True
