@@ -4,7 +4,7 @@ permanent deletes (purge one entry, empty the Trash) of the data-folder disk
 usage feature. UI-free; raises services/service_errors.
 
 The rename into Trash, the manifests and the entry measuring stay in
-services/disk_usage_service.py, which the scan and clear also use; this module
+services/disk_usage_trash_store.py, which the scan and clear also use; this module
 only reads them and holds the library for the change. Purge and empty are the
 ONLY permanent deletes in the feature: they touch only <data>/baihe_trash/<id>
 (id matched by a strict pattern, real path checked, no link at the root or at
@@ -16,15 +16,19 @@ original files" so the delete confirmation can name the pin.
 import os
 import stat
 
-from services.disk_usage_service import (TRASH_DELETE_FAILED, TRASH_MANIFEST, TRASH_PAYLOAD,
-                                         TRASH_WORD, _Budget, _changing, _Ctx, _drop_entry_shell,
-                                         _entry_path, _is_link_stat, _measure_payload, _norm,
-                                         _protection, _read_manifest, _rename_no_overwrite,
-                                         _require_confirm, _resolve, _same_volume, _too_deep,
-                                         _trash_entries, _trash_root, _within, busy_reason)
 from services import keep_original_service
+from services.disk_usage_guard import (_Ctx, _is_link_stat, _norm, _protection, _resolve,
+                                       _within)
+from services.disk_usage_hold import _changing, _require_confirm, busy_reason
+from services.disk_usage_measure import _Budget
+from services.disk_usage_trash_store import (TRASH_DELETE_FAILED, TRASH_MANIFEST, TRASH_PAYLOAD,
+                                             _drop_entry_shell, _entry_path, _measure_payload,
+                                             _read_manifest, _rename_no_overwrite, _same_volume,
+                                             _too_deep, _trash_entries, _trash_root)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
+
+TRASH_WORD = "DELETE"
 
 
 def _restore_target(manifest: dict, meas: dict, ctx: _Ctx):

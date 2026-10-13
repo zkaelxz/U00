@@ -7,7 +7,7 @@ line-history snapshots take in the database.
 Kinds, by file (the first that matches wins; everything else is left out of
 all four, so they need not add up to the folder's size):
 - regenerable: what the storage scan presets may remove (the same rule as
-  the item's own `regenerable` label, disk_usage_service._regenerable);
+  the item's own `regenerable` label, disk_usage_measure._regenerable);
 - raw transcripts: the raw_transcript run files, plain or compressed;
 - originals: the media and novel files the title's row names, the raw novel
   text, the replaced media kept in kept_media/ and the page scans in pages/.
@@ -28,6 +28,8 @@ import time
 
 import db
 import raw_transcript
+from services import disk_usage_guard as guard
+from services import disk_usage_measure as measure
 from services import keep_original_service
 from services.delete_service import RAW_NOVEL_FILENAME
 from services.media_upload_service import KEPT_DIRNAME
@@ -70,12 +72,12 @@ class _Limit:
         return self.left >= 0 and time.monotonic() <= self.deadline
 
 
-def _kind(du, title_parts: tuple, rel: tuple, names: set, kept: set):
+def _kind(title_parts: tuple, rel: tuple, names: set, kept: set):
     if os.path.join(*rel) in kept:
         return ("raw_transcript_bytes" if len(rel) == 1 and raw_transcript.is_run_name(rel[0])
                 else "originals_bytes")
-    if du._regenerable(title_parts + rel, False) or (
-            len(rel) > 1 and du._regenerable(title_parts + rel[:1], True)):
+    if measure._regenerable(title_parts + rel, False) or (
+            len(rel) > 1 and measure._regenerable(title_parts + rel[:1], True)):
         return "regenerable_bytes"
     if len(rel) == 1 and raw_transcript.is_run_name(rel[0]):
         return "raw_transcript_bytes"
@@ -85,7 +87,7 @@ def _kind(du, title_parts: tuple, rel: tuple, names: set, kept: set):
     return None
 
 
-def _measure(du, path: str, title_parts: tuple, names: set, kept: set, limit: _Limit) -> dict:
+def _measure(path: str, title_parts: tuple, names: set, kept: set, limit: _Limit) -> dict:
     sizes = {"originals_bytes": 0, "raw_transcript_bytes": 0, "regenerable_bytes": 0}
     complete = True
     try:
@@ -111,13 +113,13 @@ def _measure(du, path: str, title_parts: tuple, names: set, kept: set, limit: _L
                     complete = False
                     continue
                 is_dir = stat.S_ISDIR(st.st_mode)
-                if du._is_link_stat(st) or (is_dir and du._device_differs(st, root_dev)):
+                if guard._is_link_stat(st) or (is_dir and measure._device_differs(st, root_dev)):
                     continue
                 sub = rel + (entry.name,)
                 if is_dir:
                     stack.append((entry.path, sub))
                     continue
-                kind = _kind(du, title_parts, sub, names, kept)
+                kind = _kind(title_parts, sub, names, kept)
                 if kind:
                     sizes[kind] += st.st_size
     return {**sizes, "complete": complete}
@@ -126,7 +128,6 @@ def _measure(du, path: str, title_parts: tuple, names: set, kept: set, limit: _L
 def annotate(parts, folder: str, items: list) -> None:
     """Adds `title_sizes` to each title folder in `items` when `parts` is
     library/dramas; leaves every other listing as it is."""
-    from services import disk_usage_service as du    # it imports this module
     lib_name = os.path.basename(db.LIBRARY_DIR).lower()
     if [p.lower() for p in parts] != [lib_name, "dramas"]:
         return
@@ -143,6 +144,6 @@ def annotate(parts, folder: str, items: list) -> None:
         names = {row[c] for c in _NAME_COLUMNS if row.get(c)}
         kept = ({os.path.normpath(p) for p in keep_original_service.kept_paths(did, row)}
                 if keep_original_service.is_pinned(row) else set())
-        sizes = _measure(du, os.path.join(folder, item["name"]), tuple(parts) + (item["name"],),
+        sizes = _measure(os.path.join(folder, item["name"]), tuple(parts) + (item["name"],),
                          names, kept, limit)
         item["title_sizes"] = {**sizes, "history_bytes": history.get(did, 0)}

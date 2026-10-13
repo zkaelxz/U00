@@ -247,8 +247,8 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 - *Atomic writes.* `core.atomic_write(path, data)` writes a temp file in the same
   folder and `os.replace`s it, so a crash never leaves a truncated file. Backups
   are written to a hidden partial file, verified, flushed and linked into place
-  (`auto_backup_service._place_copy`, `lib.link_new.link_new`); the Trash uses one same-volume
-  rename (`disk_usage_service._rename`). New drama media goes through a staging
+  (`auto_backup_files._place_copy`, `lib.link_new.link_new`); the Trash uses one same-volume
+  rename (`disk_usage_trash_store._rename`). New drama media goes through a staging
   folder with a journal (`db.new_media_staging`, `move_staged_folder`,
   `recover_media_imports`) so a crash between the database insert and the folder
   move does not leave an orphan or adopt a stranger's folder:
@@ -395,7 +395,7 @@ Inside `dramas/<id>/`: source audio/video and `audio.wav`, `transcript.txt`,
 (per-line TTS), `voice_refs/` (clone samples), `pages/` (comic scans and
 typeset output). `drama_dir(id)` creates the folder on demand.
 
-**Regenerable vs irreplaceable** (`services/disk_usage_service.py`, with the
+**Regenerable vs irreplaceable** (`services/disk_usage_measure.py`, with the
 categories in `storage.CLEANABLE_CATEGORIES`):
 
 | Regenerable (rebuilt by the app or re-downloaded) | Irreplaceable (cannot be recreated inside Baihe) |

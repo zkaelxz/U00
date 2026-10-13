@@ -97,3 +97,19 @@ test('no tab shows more than its first card open by default', async ({ page }) =
     expect(await open.count(), `${name}: open cards`).toBeLessThanOrEqual(1)
   }
 })
+
+test('from 1400px the tools sit beside the lines as a sticky inspector; below that they stay underneath', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/#/drama/3/review')
+  await expect(tablist(page)).toBeVisible()
+  const lines = (await page.locator('.review-editor').boundingBox())!
+  const tools = (await page.locator('.review-ai').boundingBox())!
+  expect(tools.x).toBeGreaterThanOrEqual(lines.x + lines.width)
+  expect(await page.locator('.review-ai').evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const lines2 = (await page.locator('.review-editor').boundingBox())!
+  const tools2 = (await page.locator('.review-ai').boundingBox())!
+  expect(tools2.y).toBeGreaterThanOrEqual(lines2.y + lines2.height - 1)
+})
