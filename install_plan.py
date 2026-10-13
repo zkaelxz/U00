@@ -267,9 +267,12 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
         plan["blocked"].append("pip says these packages can't be installed together with what "
                                "you have, so nothing was changed.")
         return plan
+    # Only a plain install runs the OpenCV swap (_install_commands); an update
+    # runs `specs` alone, so its clash check must see the real installed set.
+    def swap_for(installed_now):
+        return [] if specs is not None else install_registry.cv2_swap_names(keys, installed_now)
     if report is None:
-        swap = install_registry.cv2_swap_names(
-            keys, pending_install.snapshot() if installed is None else installed)
+        swap = swap_for(pending_install.snapshot() if installed is None else installed)
         plan["swap"] = swap
         if swap:
             plan["summary"].append(_swap_line(swap))
@@ -284,7 +287,7 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
     changes = _classify(parse_report(report), installed)
     plan.update(available=True, changes=changes, summary=_summary(changes),
                 installs=[c for c in changes if c["kind"] == "install"])
-    swap = install_registry.cv2_swap_names(keys, installed)
+    swap = swap_for(installed)
     plan["swap"] = swap
     if swap:
         plan["summary"].insert(0, _swap_line(swap))

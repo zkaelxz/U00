@@ -206,7 +206,8 @@ def upgrade_specs(name: str, target: str = None) -> list:
 def upgrade_dependency(name: str, specs: list, job_id: str = None) -> dict:
     """Runs the update as the install job `job_id`, which already holds the
     library and passed the start checks (see
-    diagnostics_installs_service.start_dependency_upgrade)."""
+    diagnostics_installs_service.start_dependency_upgrade). `specs` goes to
+    pip verbatim, so it must come from upgrade_specs, never from a request."""
     def cmds(_n):
         args = [*specs, *dependency_updates.constraints_pip_args(default_project_root())]
         return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]

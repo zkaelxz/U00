@@ -511,6 +511,23 @@ def test_upgrade_refuses_a_read_only_install_folder_before_anything_runs(env, mo
     assert background_jobs.get_status(JOB) is None
 
 
+def test_upgrade_never_assumes_the_install_only_opencv_swap(env, monkeypatch):
+    """An update runs no `pip uninstall opencv-python` first, so contrib
+    arriving next to the plain build is a clash, not a planned swap."""
+    _no_update_check(monkeypatch)
+    monkeypatch.setattr(pending_install, "snapshot",
+                        lambda: {"paddleocr": "3.0.0", "opencv-python": "4.10.0"})
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (_report(
+        ("paddleocr", "3.2.0"), ("opencv-contrib-python", "4.10.0")), None))
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    plan = svc.preview_upgrade("paddleocr")
+    assert plan["blocked"] and "two OpenCV packages" in plan["blocked"][0]
+    assert not any("Remove opencv-python" in line for line in plan["summary"])
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="two OpenCV packages"):
+        svc.start_dependency_upgrade("paddleocr", confirm=True)
+    assert background_jobs.get_status(JOB) is None
+
+
 def test_a_failed_upgrade_puts_the_earlier_packages_back(env, monkeypatch, restore):
     _no_update_check(monkeypatch)
     restore["env"]["jieba"] = "0.42"
