@@ -1,4 +1,5 @@
-import { expect, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { expectPickedTab, pickTab } from './tabPicker'
 
 import { showTranslateCard, translatePanel, type TranslateTabName } from './translateTabs'
 
@@ -10,9 +11,10 @@ export type GlossaryTabName = 'Terms' | 'Find terms' | 'Names' | 'Packs' | 'Inst
 export async function glossaryTab(page: Page, name: GlossaryTabName) {
   // On the Translate stage the whole panel sits on the stage's Glossary tab.
   await showTranslateCard(page, 'Glossary')
-  const tab = page.getByRole('region', { name: 'Glossary' }).getByRole('tab', { name: new RegExp(`^${name}( \\d|$)`) })
-  await tab.click()
-  await expect(tab).toHaveAttribute('aria-selected', 'true')
+  const region = page.getByRole('region', { name: 'Glossary' })
+  const tabName = new RegExp(`^${name}( \\d|$)`)
+  await pickTab(region, tabName, 'Glossary')
+  await expectPickedTab(region, 'Glossary', tabName)
 }
 
 export const GLOSSARY_TAB_NAMES: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Re-translate']

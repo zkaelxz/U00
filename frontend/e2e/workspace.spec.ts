@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
-import { mediaTab } from './mediaTabs'
+import { selectMediaTab } from './mediaTabs'
 import { openTranscribeOptions, openAdvanced, enableDeveloperMode, transcribeCard } from './sourceHelpers'
 
 // Offline paths only: the run/job endpoints are mocked, so nothing is
@@ -266,7 +266,7 @@ test('after upload-and-transcribe the next run transcribes the stored audio inst
   expect(uploads).toEqual(['true'])
 
   // The picked file and the replace tick are spent: the next run uses the stored audio.
-  await mediaTab(page, 'add').click()
+  await selectMediaTab(page, 'add')
   await expect(box).not.toBeChecked()
   await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeDisabled()
   await openTranscribeOptions(page)

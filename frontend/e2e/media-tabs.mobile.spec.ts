@@ -2,15 +2,21 @@ import { expect, test } from '@playwright/test'
 
 import { enableDeveloperMode } from './sourceHelpers'
 import { expectRowInputsAligned } from './voiceDetectorLayout'
-import { expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds } from './mediaTabs'
+import { expectNoSidewaysScroll, gotoMedia, mediaPanel, openAllFolds } from './mediaTabs'
+import { pickTab } from './tabPicker'
 
 // Phone (390x844): the tab row, the segmented controls and every sub-tab stay inside the screen.
 
-test('the sub-tab row fits the screen with every tab reachable', async ({ page }) => {
+test('the five sub-tabs are a picker that fits the screen with every section reachable', async ({ page }) => {
   await page.goto('/#/drama/1/source')
-  const row = page.getByRole('tablist', { name: 'Media sections' })
-  await expect(row).toBeVisible()
-  for (const name of ['Add media', 'Transcribe', 'Tools', 'Details']) await expect(row.getByRole('tab', { name, exact: true })).toBeVisible()
+  await expect(page.getByRole('tablist', { name: 'Media sections' })).toHaveCount(0)
+  const picker = page.getByRole('button', { name: /^Media sections: / })
+  await expect(picker).toBeVisible()
+  expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  await picker.click()
+  const options = page.locator('.ui-tab-picker-list').getByRole('option')
+  await expect(options).toHaveText(['Add media', 'Transcribe', 'Tools', 'Details', 'Credits'])
+  for (const option of await options.all()) expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   await expectNoSidewaysScroll(page, 'Media tab')
 })
 
@@ -51,6 +57,6 @@ test('the advanced options stack in one column and keep each input under its lab
   await openAllFolds(advanced)
   await expect(advanced.getByLabel('Pause that can split a long line', { exact: true })).toBeVisible()
   await expectRowInputsAligned(advanced)
-  await mediaTab(page, 'transcribe').click()
+  await pickTab(page, 'Transcribe', 'Media sections')
   await expectNoSidewaysScroll(page, 'Transcribe')
 })

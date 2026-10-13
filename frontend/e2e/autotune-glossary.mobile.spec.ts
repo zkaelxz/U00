@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
-import { mediaTab } from './mediaTabs'
+import { selectMediaTab } from './mediaTabs'
 import { showTranslateCard } from './translateTabs'
 
 // Phone project (390x844, touch): the auto-tune results, glossary-from-novel
@@ -45,7 +45,7 @@ async function openSection(page: Page, title: string) {
   await showTranslateCard(page, title)
   await openFoldFor(page, title)
   // Auto-tune and the Advanced options folds are on the Tools tab.
-  if (title === 'Auto-tune min silence') await mediaTab(page, 'tools').click()
+  if (title === 'Auto-tune min silence') await selectMediaTab(page, 'tools')
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }

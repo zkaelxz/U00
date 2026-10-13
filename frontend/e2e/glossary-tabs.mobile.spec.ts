@@ -32,8 +32,12 @@ for (const scheme of ['light', 'dark'] as const) {
       }))
       expect(scroll, `${name} scrolls sideways`).toBeLessThanOrEqual(client)
     }
-    for (const tab of await page.getByRole('region', { name: 'Glossary' }).getByRole('tab').all()) {
-      expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    // The six sections are a picker: its button and every option are full-height targets.
+    const glossary = page.getByRole('region', { name: 'Glossary' })
+    expect((await glossary.locator('.ui-tab-picker-btn').boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    await glossary.locator('.ui-tab-picker-btn').click()
+    for (const option of await glossary.locator('.ui-tab-picker-list').getByRole('option').all()) {
+      expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     }
   })
 }

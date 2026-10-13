@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { mediaPanel, mediaTab } from './mediaTabs'
+import { mediaPanel, selectMediaTab } from './mediaTabs'
 import { mockTranscription } from './transcriptionMissingMocks'
 import { openTranscribeOptions, enableDeveloperMode, transcribeCard, openAdvanced } from './sourceHelpers'
 
@@ -121,7 +121,7 @@ test('the language and Whisper model are on Transcribe; the options are on Tools
   await expect(card.getByLabel('Beam size', { exact: true })).toHaveCount(0)
   await expect(card.getByRole('heading', { name: 'Transcribe' })).toHaveCount(0)
   await shot(page, 'transcribe-folded-desktop')
-  await mediaTab(page, 'tools').click()
+  await selectMediaTab(page, 'tools')
   const tools = mediaPanel(page, 'tools')
   // Options never saved: the Switches fold opens by itself and the others stay closed until opened.
   await expect(tools.getByRole('switch', { name: 'Use Groq' })).toBeVisible()

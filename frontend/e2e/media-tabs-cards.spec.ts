@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { gotoMedia, mediaPanel, mediaTab, topCards } from './mediaTabs'
+import { gotoMedia, mediaPanel, mediaTab, topCards, selectMediaTab } from './mediaTabs'
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 
 // The cards inside each Media sub-tab: the one-open-card fold rule, the Switches card, the prompt fold, and
@@ -185,7 +185,7 @@ test.describe('prompt fold', () => {
     await page.reload()
     const again = await openAdvanced(page)
     await expect(again.getByLabel('Extra names to expect', { exact: true })).toHaveValue('沈清疑、云隐宗')
-    await mediaTab(page, 'transcribe').click()
+    await selectMediaTab(page, 'transcribe')
     const transcript = page.getByLabel('Transcript text', { exact: true })
     if (await transcript.count()) await transcript.fill('line one')
     await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
@@ -227,7 +227,7 @@ test.describe('Details and Credits share one draft', () => {
     await expect(details.getByLabel('Author', { exact: true })).toHaveCount(0)
     await expect(details.getByLabel('Genre', { exact: true })).toHaveCount(0)
     await expect(details.getByRole('button', { name: 'Save details' })).toBeVisible()
-    await mediaTab(page, 'credits').click()
+    await selectMediaTab(page, 'credits')
     const credits = mediaPanel(page, 'credits')
     for (const l of ['Author', 'Studio', 'Director', 'Voice actors', 'Genre']) await expect(credits.getByLabel(l, { exact: true }), l).toBeVisible()
     await expect(credits.getByLabel('Summary', { exact: true })).toHaveCount(0)
@@ -249,15 +249,15 @@ test.describe('Details and Credits share one draft', () => {
     await expect(page.getByTestId('tab-unsaved-details')).toBeVisible()
     await expect(page.getByTestId('tab-unsaved-credits')).toHaveCount(0)
 
-    await mediaTab(page, 'credits').click()
+    await selectMediaTab(page, 'credits')
     await mediaPanel(page, 'credits').getByLabel('Genre', { exact: true }).fill('xianxia')
     await expect(page.getByTestId('tab-unsaved-credits')).toBeVisible()
     await expect(page.getByTestId('tab-unsaved-details')).toBeVisible()
 
     // Back on Details the draft is still there, with no discard prompt.
-    await mediaTab(page, 'details').click()
+    await selectMediaTab(page, 'details')
     await expect(mediaPanel(page, 'details').getByLabel('Summary', { exact: true })).toHaveValue('A new summary')
-    await mediaTab(page, 'credits').click()
+    await selectMediaTab(page, 'credits')
     await expect(mediaPanel(page, 'credits').getByLabel('Genre', { exact: true })).toHaveValue('xianxia')
 
     // Saving from Credits saves the whole form.
@@ -277,7 +277,7 @@ test.describe('Details and Credits share one draft', () => {
     })
     await gotoMedia(page, 'credits')
     await mediaPanel(page, 'credits').getByLabel('Studio', { exact: true }).fill('A studio')
-    await mediaTab(page, 'details').click()
+    await selectMediaTab(page, 'details')
     await mediaPanel(page, 'details').getByRole('button', { name: 'Save details' }).click()
     await expect.poll(() => sent.length).toBe(1)
     expect(sent[0]).toMatchObject({ studio: 'A studio' })
@@ -286,7 +286,7 @@ test.describe('Details and Credits share one draft', () => {
   test('an error on the other tab brings that tab forward', async ({ page }) => {
     await gotoMedia(page, 'details')
     await mediaPanel(page, 'details').getByLabel('Episode number', { exact: true }).fill('abc')
-    await mediaTab(page, 'credits').click()
+    await selectMediaTab(page, 'credits')
     await mediaPanel(page, 'credits').getByLabel('Genre', { exact: true }).fill('x')
     await mediaPanel(page, 'credits').getByRole('button', { name: 'Save credits' }).click()
     await expect(mediaTab(page, 'details')).toHaveAttribute('aria-selected', 'true')

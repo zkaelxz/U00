@@ -3,6 +3,7 @@ import { hitHeight, installHitArea } from './hitArea'
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 import { openFold } from './foldHelpers'
 import { translateTab } from './translateTabs'
+import { pickTab } from './tabPicker'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -89,7 +90,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
 
   await translateTab(page, 'glossary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await glossary.getByRole('tab', { name: /^Find terms/ }).click()
+  await pickTab(glossary, /^Find terms/, 'Glossary')
   await glossary.getByText('Import or export').click()
   await expectTall(glossary.getByRole('button', { name: 'Import', exact: true }))
   await expectTall(glossary.getByRole('link', { name: 'Download glossary as CSV' }))

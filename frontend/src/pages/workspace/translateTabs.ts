@@ -5,11 +5,11 @@ import type { DramaFocus } from '../../router'
 /** The sub-tabs of the Translate stage. */
 export type TranslateTab = 'translate' | 'glossary' | 'characters' | 'novel'
 
-export const TRANSLATE_TABS: { id: TranslateTab; label: string }[] = [
+export const TRANSLATE_TABS: { id: TranslateTab; label: string; short?: string }[] = [
   { id: 'translate', label: 'Translate' },
   { id: 'glossary', label: 'Glossary' },
   { id: 'characters', label: 'Characters' },
-  { id: 'novel', label: 'Reference novel' },
+  { id: 'novel', label: 'Reference novel', short: 'Novel' },
 ]
 
 export const isTranslateTab = (v: unknown): v is TranslateTab => TRANSLATE_TABS.some((t) => t.id === v)

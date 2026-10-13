@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { openFold } from './foldHelpers'
 import { mockDiskUsage } from './diskUsageMocks'
 import { installHitArea } from './hitArea'
+import { expectPickedTab, pickTab } from './tabPicker'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -87,16 +88,15 @@ test('the two-step confirm and the move form fit the phone', async ({ page }) =>
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-move-phone.png`, fullPage: true })
 })
 
-test('the tab bar scrolls inside itself; the page does not scroll sideways on any tab', async ({ page }) => {
+test('the five sections are a picker; the page does not scroll sideways on any section', async ({ page }) => {
   await mockDiskUsage(page)
   await page.goto('/#/library-tools')
-  const bar = page.getByRole('tablist', { name: 'Library tools' })
-  await expect(bar.getByRole('tab')).toHaveCount(5)
+  await expect(page.getByRole('tablist', { name: 'Library tools' })).toHaveCount(0)
   for (const name of ['Organize', 'Activity', 'Backup', 'Storage', 'Data folder']) {
-    await bar.getByRole('tab', { name }).tap()
-    await expect(bar.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
+    await pickTab(page, name, 'Library tools')
+    await expectPickedTab(page, 'Library tools', name)
     await noSideways(page)
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/tab-${name.toLowerCase().replace(/\W+/g, '-')}-phone.png`, fullPage: true })
   }
-  expect(await shortTargets(page, '.ui-tab')).toEqual([])
+  expect(await shortTargets(page, '.ui-tab-picker-btn')).toEqual([])
 })

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 import { expectRowInputsAligned } from './voiceDetectorLayout'
-import { expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds } from './mediaTabs'
+import { expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds, selectMediaTab } from './mediaTabs'
 
 // The Media stage is one screen per sub-tab. Seeded titles: 1 audio drama, 2 novel, 3 video drama.
 
@@ -27,11 +27,11 @@ test('a novel title hides Transcribe and Tools', async ({ page }) => {
 test('the last sub-tab is remembered per title', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   await expect(mediaTab(page, 'add')).toHaveAttribute('aria-selected', 'true')
-  await mediaTab(page, 'tools').click()
+  await selectMediaTab(page, 'tools')
   // Another title has its own tab; coming back reads the remembered one, with no ?tab= in the address.
   await page.goto('/#/drama/3/source')
   await expect(mediaTab(page, 'add')).toHaveAttribute('aria-selected', 'true')
-  await mediaTab(page, 'details').click()
+  await selectMediaTab(page, 'details')
   await page.goto('/#/drama/1/source')
   await expect(mediaTab(page, 'tools')).toHaveAttribute('aria-selected', 'true')
   await page.goto('/#/drama/3/source')
@@ -40,7 +40,7 @@ test('the last sub-tab is remembered per title', async ({ page }) => {
 
 test('the address follows the tab, so a reload stays on it', async ({ page }) => {
   await page.goto('/#/drama/1/source?tab=transcribe')
-  await mediaTab(page, 'tools').click()
+  await selectMediaTab(page, 'tools')
   await expect(page).toHaveURL(/#\/drama\/1\/source\?tab=tools$/)
   await page.reload()
   await expect(mediaTab(page, 'tools')).toHaveAttribute('aria-selected', 'true')
@@ -73,7 +73,7 @@ test('Transcribe holds the run form and Tools holds the rest', async ({ page }) 
   await expect(run.getByText('Detect speakers after transcribing')).toBeVisible()
   await expect(run.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(run.getByRole('region', { name: 'Advanced options' })).toHaveCount(0)
-  await mediaTab(page, 'tools').click()
+  await selectMediaTab(page, 'tools')
   const tools = mediaPanel(page, 'tools')
   await expect(tools.getByRole('region', { name: 'Advanced options' })).toBeVisible()
   await expect(tools.locator('.section-title', { hasText: /^Auto-tune min silence$/ })).toBeVisible()

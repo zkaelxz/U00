@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 import { hitHeight, installHitArea } from './hitArea'
+import { expectPickedTab, pickTab } from './tabPicker'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -36,26 +37,23 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
 })
 
 for (const width of [360, 390]) {
-  test(`phone ${width}: the six tabs are 44px buttons that wrap between words, and search spans the width`, async ({ page }) => {
+  test(`phone ${width}: the six sections are one 48px picker, and search spans the width`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/settings')
-    const tabs = page.getByRole('tab')
-    await expect(tabs).toHaveCount(6)
-    const list = await page.getByRole('tablist').boundingBox()
-    for (const t of await tabs.all()) {
-      const b = (await t.boundingBox())!
-      expect(b.height).toBeGreaterThanOrEqual(44)
-      // All six are on screen: a row that wraps instead of scrolling hides none of them.
-      expect(b.x).toBeGreaterThanOrEqual(list!.x - 1)
-      expect(b.x + b.width).toBeLessThanOrEqual(list!.x + list!.width + 1)
-      // A label breaks between words, never inside one: it is no wider than its own content.
-      expect(await t.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
-    }
-    const search = await page.getByRole('searchbox', { name: 'Search settings' }).boundingBox()
-    expect(Math.abs(search!.width - list!.width)).toBeLessThan(2)
-    expect(await page.evaluate(() => { const l = document.querySelector('[role=tablist]')!; return l.scrollWidth <= l.clientWidth + 1 })).toBe(true)
-    await page.getByRole('tab', { name: 'System', exact: true }).click()
-    await expect(page.getByRole('tab', { name: 'System', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tablist')).toHaveCount(0)
+    const picker = page.getByRole('button', { name: /^Settings: / })
+    await expect(picker).toBeVisible()
+    const button = (await picker.boundingBox())!
+    expect(button.height).toBeGreaterThanOrEqual(44)
+    const search = (await page.getByRole('searchbox', { name: 'Search settings' }).boundingBox())!
+    expect(Math.abs(search.width - button.width)).toBeLessThan(2)
+    await picker.click()
+    const options = page.locator('.ui-tab-picker-list').getByRole('option')
+    await expect(options).toHaveCount(6)
+    for (const option of await options.all()) expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    await pickTab(page, 'System', 'Settings')
+    await expectPickedTab(page, 'Settings', 'System')
+    await expect(page.locator('.ui-tab-picker-list')).toHaveCount(0) // choosing closes the list
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }

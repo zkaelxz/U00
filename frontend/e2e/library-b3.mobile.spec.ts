@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
+import { pickTab } from './tabPicker'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -33,7 +34,7 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   const open = tools.getByRole('link', { name: 'Open Second' })
   await expect(open).toBeVisible()
   expect((await hitHeight(open))).toBeGreaterThanOrEqual(44)
-  await page.getByRole('tab', { name: 'Activity' }).click()
+  await pickTab(page, 'Activity', 'Library tools')
   const cost = tools.getByRole('region', { name: 'Cost by title' }).getByRole('link').first()
   expect((await hitHeight(cost))).toBeGreaterThanOrEqual(44)
   await expectNoHorizontalOverflow(page)

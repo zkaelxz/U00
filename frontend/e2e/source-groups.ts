@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { mediaTab } from './mediaTabs'
+import { selectMediaTab } from './mediaTabs'
 
 // Opens a Source stage group Section if it is closed (its state is remembered,
 // so a plain click could just as well collapse it).
@@ -11,12 +11,12 @@ export async function openGroup(page: Page, title: string) {
 
 // Details live on their own Media sub-tab: edit details, credits, cover and Fill in details.
 export async function openDetailsTab(page: Page) {
-  await mediaTab(page, 'details').click()
+  await selectMediaTab(page, 'details')
 }
 
 // The Credits tab (author, studio, cover, Fill in details), with the cover and romanized credits card opened on request.
 export async function openCreditsTab(page: Page, coverCard = false) {
-  await mediaTab(page, 'credits').click()
+  await selectMediaTab(page, 'credits')
   if (!coverCard) return
   const card = page.locator('details.section', { has: page.locator('summary > .section-title', { hasText: /^Cover and romanized credits$/ }) })
   if ((await card.getAttribute('open')) === null) await card.locator(':scope > summary').click()
