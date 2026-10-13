@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+import bulk_poll
 import bulk_providers
 import bulk_translate
 import db
@@ -229,6 +230,6 @@ def test_tab_glue_uses_the_service(monkeypatch):
     did = _seed()
     prov = _provider(monkeypatch, lambda r: "[]")
     started = []
-    monkeypatch.setattr(bulk_translate, "start_poller", lambda *a, **k: started.append(a) or True)
+    monkeypatch.setattr(bulk_poll, "start_poller", lambda *a, **k: started.append(a) or True)
     bulk_id, p = svc.submit_bulk_review("translation_notes", did, FakeEngine(), "claude")
     assert p is prov and db.get_bulk_job(bulk_id)["kind"] == "translation_notes"
