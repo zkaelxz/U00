@@ -104,11 +104,11 @@ def no_asr(monkeypatch):
     # through core_module, patched above -- so it was dropped for the
     # Streamlit retirement.)
     # Migration Slice 2: run_transcribe_job/run_fix_flagged_lines_job now
-    # live in services/workspace_job_service.py and resolve this name from
+    # live in services/workspace_audio_job_service.py and resolve this name from
     # their own module globals -- patching it there too is what actually
     # covers that path now.
-    from services import workspace_job_service
-    monkeypatch.setattr(workspace_job_service, "transcribe_for_timing", boom)
+    from services import workspace_audio_job_service
+    monkeypatch.setattr(workspace_audio_job_service, "transcribe_for_timing", boom)
 
 
 @pytest.fixture

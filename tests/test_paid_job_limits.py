@@ -23,6 +23,7 @@ from services import (benchmark_judge_service, benchmark_lab_service, live_follo
                       paid_job_service, review_jobs_service, settings_service,
                       translate_run_service, translate_service)
 from services import workspace_job_service as wjs
+from services import workspace_review_job_service as wrjs
 from services.service_errors import UnsupportedOperationError
 
 THREE_FAILED = "Stopped: 3 requests failed in a row"
@@ -209,7 +210,7 @@ class TestReviewJobsStop:
     """Each loop is run through its real job runner; a failing engine costs
     three failed requests (two attempts each), not one per batch."""
 
-    @pytest.mark.parametrize("runner,batch", [(wjs.run_flag_job, 30), (wjs.run_consistency_job, 60)])
+    @pytest.mark.parametrize("runner,batch", [(wrjs.run_flag_job, 30), (wrjs.run_consistency_job, 60)])
     def test_three_failed_requests_stop_a_loop_that_skips_failed_batches(self, runner, batch):
         did, engine = _drama(), FakeClaude(fail=True)
         status = _run_job("review_t", runner, did, _lines(batch * 5), engine, "claude")
@@ -221,7 +222,7 @@ class TestReviewJobsStop:
         ("run_emotion_job", (False, "claude")), ("run_translation_notes_job", ("claude",))])
     def test_a_loop_that_gives_up_on_its_first_failure_sends_no_more(self, name, args):
         did, engine = _drama(), FakeClaude(fail=True)
-        status = _run_job("first_fail", getattr(wjs, name), did, _lines(200), engine, *args)
+        status = _run_job("first_fail", getattr(wrjs, name), did, _lines(200), engine, *args)
         assert status["status"] == "error" and engine.requests == 2
 
     @pytest.mark.parametrize("name,args,field", [
@@ -231,19 +232,19 @@ class TestReviewJobsStop:
                                                                        monkeypatch):
         monkeypatch.setattr(paid_calls, "RateLimitWaitBudget", lambda: run_limits.RateLimitWaitBudget(3.0))
         did, engine = _drama(), FakeClaude(rate=True)
-        status = _run_job("rate_t", getattr(wjs, name), did, _lines(200), engine, *args)
+        status = _run_job("rate_t", getattr(wrjs, name), did, _lines(200), engine, *args)
         assert status["status"] == "done" and field in status["result"]
         assert status["result"]["stopped"].startswith("Stopped: the provider keeps rate-limiting")
         monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 1.0)
         db.log_usage(None, "claude", engine.model, "earlier", 1, 1, 5.0)
         engine.requests = 0
-        status = _run_job("cap_t", getattr(wjs, name), did, _lines(200), engine, *args)
+        status = _run_job("cap_t", getattr(wrjs, name), did, _lines(200), engine, *args)
         assert status["result"]["stopped"] == CAP_REACHED and engine.requests == 0
 
     def test_a_rate_limited_engine_stops_the_flag_pass_by_its_wait_budget(self, monkeypatch):
         monkeypatch.setattr(paid_calls, "RateLimitWaitBudget", lambda: run_limits.RateLimitWaitBudget(3.0))
         did, engine = _drama(), FakeClaude(rate=True)
-        status = _run_job("flag_rate", wjs.run_flag_job, did, _lines(150), engine, "claude")
+        status = _run_job("flag_rate", wrjs.run_flag_job, did, _lines(150), engine, "claude")
         assert status["result"]["stopped"].startswith("Stopped: the provider keeps rate-limiting")
         assert engine.requests <= 3
 
@@ -251,7 +252,7 @@ class TestReviewJobsStop:
         did, engine = _drama(), FakeClaude()
         monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 1.0)
         db.log_usage(None, "claude", engine.model, "earlier", 1, 1, 5.0)
-        status = _run_job("flag_cap", wjs.run_flag_job, did, _lines(90), engine, "claude")
+        status = _run_job("flag_cap", wrjs.run_flag_job, did, _lines(90), engine, "claude")
         assert status["result"]["stopped"] == CAP_REACHED
         assert engine.requests == 0
 
@@ -267,13 +268,13 @@ class TestReviewJobsStop:
                 engine.fail = True
             return first(**kw)
         engine.client.messages.create = flaky
-        status = _run_job("flag_partial", wjs.run_flag_job, did, lines, engine, "claude")
+        status = _run_job("flag_partial", wrjs.run_flag_job, did, lines, engine, "claude")
         assert status["status"] == "done"
         assert any(r["flag"] for r in db.load_lines(did))
 
     def test_a_clean_run_has_no_stopped_field(self):
         did, engine = _drama(), FakeClaude()
-        status = _run_job("flag_ok", wjs.run_flag_job, did, _lines(30), engine, "claude")
+        status = _run_job("flag_ok", wrjs.run_flag_job, did, _lines(30), engine, "claude")
         assert "stopped" not in status["result"]
 
 
@@ -646,7 +647,7 @@ class TestStopReachesTheUser:
     def test_a_stopped_consistency_check_keeps_the_issues_saved_before(self):
         did, engine = _drama(), FakeClaude(fail=True)
         db.save_consistency_issues(did, [{"term": "X", "variants": ["a", "b"], "note": ""}])
-        status = _run_job("cons_keep", wjs.run_consistency_job, did, _lines(300), engine, "claude")
+        status = _run_job("cons_keep", wrjs.run_consistency_job, did, _lines(300), engine, "claude")
         assert status["result"]["stopped"] == THREE_FAILED
         assert status["result"]["failed_batches"] == status["result"]["total_batches"] == 5
         assert len(db.load_consistency_issues(did)) == 1

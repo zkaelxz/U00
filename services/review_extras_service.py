@@ -15,7 +15,7 @@ UI-free (inventory rows R46, R37, R35, R03):
   every translate path (API run, CLI, line AI) skips a paused profile the
   same way. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
   meanwhile is kept, and a reset/re-learn made meanwhile makes it a 409.
-- SenseVoice audio tags (R35): `workspace_job_service.run_sensevoice_job` as a
+- SenseVoice audio tags (R35): `workspace_audio_job_service.run_sensevoice_job` as a
   `sensevoice_<id>` job (funasr optional; 503 when missing), and the
   `sensevoice_tags.side_by_side` rows.
 - Burned-subtitle preview clip (R03): `video_export.render_preview_clip`
@@ -47,7 +47,8 @@ import sensevoice_tags
 import subtitle_formats
 import translate_engines
 from services import (export_service, media_playback_service, ownership_service,
-                      restructure_service, settings_service, translate_run_service, translate_service, workspace_job_service)
+                      restructure_service, settings_service, translate_run_service, translate_service,
+                      workspace_audio_job_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -443,7 +444,7 @@ def start_sensevoice(drama_id: int) -> dict:
         raise UnsupportedOperationError("This title has no lines yet.")
     job_id = f"{SENSEVOICE_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
-        job_id, workspace_job_service.run_sensevoice_job, job_id, drama_id, lines, audio,
+        job_id, workspace_audio_job_service.run_sensevoice_job, job_id, drama_id, lines, audio,
         db.drama_dir(drama_id), settings_service.get("use_gpu"), gpu_touching=True,
         description=f"SenseVoice audio tagging (title #{drama_id})")
     if not started:

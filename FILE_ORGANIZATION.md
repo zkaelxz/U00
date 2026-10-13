@@ -390,7 +390,9 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `vram_service.py`
 - `web_search_service.py`
 - `workflow_service.py`
-- `workspace_job_service.py`
+- `workspace_audio_job_service.py` (Whisper transcription, hard-sub OCR and SenseVoice tag jobs)
+- `workspace_job_service.py` (translate and bulk series translate jobs, and the style context they share)
+- `workspace_review_job_service.py` (emotion, flag, consistency, notes and fix-flagged LLM review jobs)
 - `ytdlp_child.py` (one yt-dlp download in a killable child process, for `url_media_service`)
 
 ## api/

@@ -1,10 +1,14 @@
 """
-services/workspace_job_service.py -- the background-job runner functions
-behind the Workspace and Library actions.
+services/workspace_job_service.py -- the translation job runners behind the
+Workspace and Library actions: one drama's translate run, the bulk
+series translate queue, and the style context both share with the review
+jobs, the CLI and the Live path.
 
 They are safe to run in a background thread because they touch only plain
 Python objects, `background_jobs` for progress/result reporting, and the
-database -- never any UI state.
+database -- never any UI state. The transcription and audio-tag jobs live
+in `workspace_audio_job_service`, the LLM review jobs in
+`workspace_review_job_service`.
 """
 
 import os
@@ -13,33 +17,15 @@ import time
 import adaptive_style
 import db
 import background_jobs
-import ollama_unload
 import translate_engines
 import translation_guide as tguide
 from engine_backends.run_limits import FailureStreak
 import translation_finish
 import emotion
 import core as core_module
-import whisper_transcribe
-import whisper_models
-from whisper_transcribe import transcribe_for_timing
-from services import (fixflag_transcribe, fixflag_translate, job_timing_service,
-                      language_pack_service, line_provenance_service, paid_job_service,
+from services import (job_timing_service, language_pack_service, line_provenance_service,
                       run_settings_service, settings_service, timing_settings_service,
                       vdb_names_service)
-
-
-CONSISTENCY_BATCH_SIZE = 60
-
-
-def _id_by_idx(lines):
-    """{line idx: permanent line id} as of when a job copied the lines, so
-    a result keyed by position lands on the right line even if the user
-    merged or split lines while the job ran. None if any line has no id
-    yet (then db resolves positions against the lines as they are now)."""
-    if any(getattr(ln, "id", None) is None for ln in lines):
-        return None
-    return {ln.idx: ln.id for ln in lines}
 
 
 def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):
@@ -241,402 +227,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         raise background_jobs.JobCancelled(job_id)
 
 
-def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
-                        local_model_path, hf_token, initial_prompt, beam_size,
-                        min_silence_duration_ms, vad_threshold=0.5, separate_vocals_first=False,
-                        realign_long_segments=False, chinese_script="simplified", fast_mode=False,
-                        separation_backend="auto", use_groq=False, groq_api_key=None):
-    """
-    Runs just the Whisper speech-recognition pass in a background thread,
-    same reasoning as run_translate_job above: this is the step that
-    dominates wall-clock time on a long-form file (3+ hours), so it's the
-    one worth reporting progress on and not blocking the rest of the app
-    for. The Qwen3-ASR text override, alignment, and diarization that can
-    follow it are not part of this function (services/transcribe_service
-    runs the full pipeline).
-
-    separate_vocals_first: runs audio_preprocess.separate_vocals() on
-    audio_path before transcribing, writing the vocals-only result
-    alongside the original audio (as "vocals.wav" in the same folder) and
-    transcribing THAT instead -- for content with a music bed under the
-    dialogue, which Whisper otherwise has to fight through. Adds real
-    processing time (a full Demucs pass over the whole file); a missing
-    Demucs install or a separation failure is recorded the same way as a
-    Whisper model-download failure below, not raised, since it's an
-    expected/common outcome (an optional dependency the person hasn't
-    installed) rather than a bug.
-
-    use_groq: sends audio_path to Groq's hosted cloud Whisper
-    API (core.transcribe_with_groq) instead of running local Whisper at
-    all. whisper_size/beam_size/vad_threshold/fast_mode have no effect
-    on this path -- Groq's own hosted model and its own VAD produce
-    segments directly. A failure here (bad key, network, rate limit) is
-    recorded via failed_reason="groq", the same "expected outcome, not a
-    bug" treatment as a local model-download failure below.
-
-    realign_long_segments: EXPERIMENTAL, off by default -- runs
-    word_align.realign_oversized_segments() on the transcript afterward,
-    splitting any oversized VAD-merged segment back into multiple
-    correctly-timed lines using real word-level alignment (see
-    word_align.py's own docstring for why MMS, and the real documented
-    CJK failure mode it fails soft against). A missing torchaudio/uroman
-    install is recorded the same way as a missing Demucs install above;
-    a per-line alignment problem is NOT surfaced here at all, since
-    word_align.py already degrades those individually and silently back
-    to their original timing rather than raising.
-
-    Model-download failure and "no audio detected" are expected, common
-    outcomes here (a flaky connection, a silent/corrupt file), not bugs --
-    both are recorded via a "failed_reason" on the result instead of
-    raising, so the main script can show the same specific, actionable
-    messages it always has instead of a generic error+traceback. Anything
-    else that goes wrong is a real bug and is left to raise, same as
-    run_translate_job -- background_jobs.start_job's own runner catches
-    that and reports it as a job error.
-    """
-    if separate_vocals_first:
-        import audio_preprocess
-        background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
-        vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
-        try:
-            audio_path = audio_preprocess.separate_vocals(
-                audio_path, vocals_path, backend=separation_backend,
-                progress_cb=lambda frac: background_jobs.update_progress(
-                    job_id, frac, f"Removing background music... {frac * 100:.0f}%"),
-                cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id))
-        except audio_preprocess.VocalSeparationCancelled:
-            background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
-            return
-        except audio_preprocess.VocalSeparationError as exc:
-            background_jobs.set_result(job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
-            return
-
-    # separate_vocals()'s own cancel_check_cb only fires between
-    # its internal chunks, so a cancel requested right at its tail (or,
-    # when separation is off/skipped, a cancel requested before this
-    # point is even reached) fell through this checkpoint-free gap and
-    # let the expensive Whisper pass start anyway, uninterrupted, on
-    # short files where separation has few or no chunk boundaries.
-    if background_jobs.is_cancel_requested(job_id):
-        background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
-        return
-
-    gpu_fallback_msg = []
-    if use_groq:
-        background_jobs.update_progress(job_id, 0.0, "Transcribing via Groq's cloud API...")
-        try:
-            segments = whisper_transcribe.transcribe_with_groq(
-                audio_path, language, groq_api_key,
-                progress_cb=lambda frac: background_jobs.update_progress(
-                    job_id, frac, f"Transcribing via Groq's cloud API... {frac * 100:.0f}%"))
-        except whisper_transcribe.GroqTranscriptionError as exc:
-            background_jobs.set_result(job_id, {"failed_reason": "groq", "detail": str(exc)})
-            return
-    else:
-        try:
-            segments = transcribe_for_timing(
-                audio_path, whisper_size, language=language, use_gpu=use_gpu,
-                local_model_path=local_model_path, hf_token=hf_token,
-                initial_prompt=initial_prompt, beam_size=beam_size,
-                min_silence_duration_ms=min_silence_duration_ms, vad_threshold=vad_threshold,
-                on_gpu_fallback=lambda exc: gpu_fallback_msg.append(whisper_models.short_reason(exc)),
-                progress_cb=lambda frac: background_jobs.update_progress(
-                    job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
-                fast_mode=fast_mode)
-        except whisper_models.ModelDownloadError as exc:
-            background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
-            return
-
-    if not segments:
-        background_jobs.set_result(job_id, {"failed_reason": "empty"})
-        return
-
-    # Whisper's own pass has no cancel checkpoint of its own yet -- this is the next point a
-    # cancel requested mid-transcription can actually be honored. The
-    # expensive work is already done by here, so a cancel caught this
-    # late just skips the optional realign step rather than discarding
-    # the transcript -- never lose already-done work over a cancel, same
-    # rule this app follows for an optional add-on failing outright.
-    word_align_error = None
-    if realign_long_segments and not background_jobs.is_cancel_requested(job_id):
-        import word_align
-        background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
-        try:
-            segments = word_align.realign_oversized_segments(
-                segments, audio_path, language, chinese_script=chinese_script,
-                progress_cb=lambda done, total: background_jobs.update_progress(
-                    job_id, 1.0, f"Splitting long merged lines: {done} of {total}"),
-                cancel_check=lambda: background_jobs.is_cancel_requested(job_id))
-        except word_align.WordAlignError as exc:
-            # A missing dependency here must never cost the transcription
-            # itself (the expensive part, already done) -- proceed with
-            # the unmodified segments and just report the issue, the same
-            # "never lose already-done work over an optional add-on
-            # failing" rule this app follows everywhere else.
-            word_align_error = str(exc)
-
-    whisper_models.release_gpu_models()  # transcription stage done
-    result = {
-        "segments": segments,
-        "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
-        "word_align_error": word_align_error,
-        **ollama_unload.take_notice_result(),
-    }
-    if gpu_fallback_msg:
-        result["device_notice"] = whisper_models.gpu_fallback_notice("Transcription", gpu_fallback_msg[0])
-    background_jobs.set_result(job_id, result)
-
-
-def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backend,
-                         chinese_script="simplified", tesseract_cmd=None):
-    """
-    Runs hardsub_ocr's sample-frames -> auto-detect-caption-band -> OCR ->
-    dedupe pipeline in a background thread. Same reasoning as
-    run_transcribe_job above: OCR-ing every sampled frame of a long video
-    is slow, and it needs to report real progress and not block the rest
-    of the app while it runs. The result already carries real per-cue
-    timing from the OCR pass itself, so unlike a raw Whisper transcript it
-    needs no separate alignment step -- the polling code on the other end
-    builds Lines directly from it, the same way Whisper's own
-    speech-to-text override (rather than an aligned user transcript) does.
-    """
-    import hardsub_ocr
-    cues = hardsub_ocr.extract_hardsub_subtitles(
-        video_path, language=language, sample_interval=sample_interval,
-        ocr_backend=ocr_backend, chinese_script=chinese_script, tesseract_cmd=tesseract_cmd,
-        job_id=job_id, cancel_check=lambda: _raise_if_cancelled(job_id),
-        progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
-    if not cues:
-        background_jobs.set_result(job_id, {"failed_reason": "empty"})
-        return
-    background_jobs.set_result(job_id, {"segments": cues})
-
-
-def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choice):
-    """
-    Runs emotion.detect_emotions in a background thread, same reasoning as
-    the jobs above: a full stream's worth of lines is enough LLM batches
-    that a static spinner looks stuck, and there's no reason to freeze the
-    rest of the app for it. Unlike translation this has no db.save_lines
-    step -- detect_emotions only returns a result, it doesn't mutate
-    anything -- so the result is just handed back whole.
-
-    Persists to the database (db.save_emotions), not just the ephemeral
-    job-status dict -- this is a whole-drama LLM batch job, same scale as
-    translation itself, and losing its result to a page refresh (session
-    state doesn't survive one) meant re-running it and re-paying for it.
-    """
-    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice, "emotion_detect") as limits:
-        emap = emotion.detect_emotions(
-            lines, engine, use_audio_cues=use_audio_cues,
-            progress_cb=lambda frac: background_jobs.update_progress(
-                job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-            cancel_check=lambda: _raise_if_cancelled(job_id))
-    _raise_if_cancelled(job_id)
-    db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
-    background_jobs.set_result(job_id, {"emotions": emap, **paid_job_service.stop_fields(limits)})
-
-
-def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
-    """SenseVoice audio emotion/event tags per line, in the background --
-    stored in their own file (sensevoice_tags.AUDIO_TAGS_FILE), never
-    merged into the text-based emotions that feed translation."""
-    import sensevoice_tags
-    try:
-        tags = sensevoice_tags.tag_lines(
-            audio_path, lines, use_gpu=use_gpu,
-            cancel_check=lambda: _raise_if_cancelled(job_id),
-            progress_cb=lambda frac: background_jobs.update_progress(
-                job_id, frac, f"Listening for emotion and sounds... {frac * 100:.0f}%"))
-    finally:
-        whisper_models.release_gpu_models()
-    sensevoice_tags.save_audio_tags(drama_dir, tags)
-    background_jobs.set_result(job_id, {"tagged": len(tags)})
-
-
 def _raise_if_cancelled(job_id):
     """Stops a review job between LLM batches once cancel is requested."""
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
-
-
-def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
-    """
-    Runs flag_uncertain_lines in a background thread -- same reasoning as
-    the jobs above. Unlike emotion detection, the result IS persisted (via
-    db.save_lines): the whole point of a review queue is coming back to it
-    later, potentially after closing the app, not just within this
-    session.
-
-    Compare-and-set: each line's flag/flag_note is written by one
-    conditional UPDATE keyed on the value the job started with
-    (db.update_lines_fields_if_many), so a line the user changed while the
-    job ran -- even between the job's last read and its write -- keeps the
-    user's value; the job's result for that line is dropped.
-    """
-    started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
-    stats = {}
-    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice, "flag_review") as limits:
-        translate_engines.flag_uncertain_lines(
-            lines, engine, source_language=lang, stats=stats,
-            progress_cb=lambda frac: background_jobs.update_progress(
-                job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-            cancel_check=lambda: _raise_if_cancelled(job_id))
-    _raise_if_cancelled(job_id)
-    items = []
-    for ln in lines:
-        if ln.id is None:
-            continue
-        before = started_with[ln.id]
-        if (ln.flag or "", ln.flag_note or "") != before:
-            items.append((ln.id, {"flag": ln.flag or None, "flag_note": ln.flag_note or ""},
-                          {"flag": before[0], "flag_note": before[1]}))
-    db.update_lines_fields_if_many(drama_id, items)
-    # Counted from the saved rows, so flags the user set or cleared by hand
-    # while the job ran are reflected (read-only; nothing is written here).
-    saved = {r["id"]: bool(r["flag"]) for r in db.load_lines(drama_id)}
-    flagged = sum(saved.get(ln.id, False) if ln.id is not None else bool(ln.flag)
-                  for ln in lines)
-    background_jobs.set_result(job_id, {"flagged_count": flagged, **stats,
-                                        **paid_job_service.stop_fields(limits)})
-
-
-def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
-    """
-    Runs check_consistency_llm in a background thread. Backgrounding it,
-    same as Review queue and Emotion detection, is what lets it run at the same time as those instead of forcing them
-    to queue up one after another.
-    """
-    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
-                                    "consistency_check") as limits:
-        issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
-            lines, engine, batch_size=CONSISTENCY_BATCH_SIZE, source_language=lang,
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-            cancel_check=lambda: _raise_if_cancelled(job_id))
-    _raise_if_cancelled(job_id)
-    if limits.stop_reason:
-        # Batches never sent count as failed, and a partial result must not
-        # replace (or wipe) the issues an earlier run saved.
-        wanted = -(-sum(1 for ln in lines if ln.en.strip()) // CONSISTENCY_BATCH_SIZE)
-        # (the batch it stopped at was counted but never sent)
-        failed_batches = wanted - (total_batches - failed_batches - 1)
-        total_batches = wanted
-    if issues or not limits.stop_reason:
-        db.save_consistency_issues(drama_id, issues)
-    background_jobs.set_result(job_id, {
-        "issue_count": len(issues),
-        "failed_batches": failed_batches,
-        "total_batches": total_batches,
-        **paid_job_service.stop_fields(limits),
-    })
-
-
-def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
-    """
-    Runs generate_translation_notes_llm in a background thread -- same
-    reasoning as run_consistency_job above.
-    """
-    with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
-                                    "translation_notes") as limits:
-        found_notes = tguide.generate_translation_notes_llm(
-            lines, engine,
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-            cancel_check=lambda: _raise_if_cancelled(job_id))
-    _raise_if_cancelled(job_id)
-    if found_notes:
-        db.save_translation_notes(drama_id, found_notes, id_by_idx=_id_by_idx(lines))
-    background_jobs.set_result(job_id, {"note_count": len(found_notes),
-                                        **paid_job_service.stop_fields(limits)})
-
-
-def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
-                               source_language, engine, engine_choice, cost_cap_usd=None,
-                               locale="en-US", include_genre_notes=None,
-                               default_female_pronouns=None, style_note=""):
-    """
-    Bulk version of the single-line 🔧 tools in Review & edit: for every
-    currently-flagged line, re-transcribes its own timing window from the
-    original audio (skipped if there's no audio -- novel-narration has
-    none to re-transcribe) and re-translates the result, clearing the
-    flag on whichever lines that actually changed something for (a reply
-    identical to the current English leaves the line flagged). Uses
-    whatever Whisper model size and translation engine/model are
-    currently selected in Workspace (3. Recognition accuracy / 5.
-    Translation) -- the same ones "Transcribe" and "Translate all lines"
-    themselves would use, not a separate hidden choice.
-
-    cost_cap_usd: same cap "Translate all lines" enforces (the tighter of
-    the per-job and monthly caps, resolved before the job starts) -- stop
-    cleanly once this run's real logged spend reaches it, leaving whatever
-    is still flagged untouched. This loop checks the cap so it can't spend without
-    limit regardless of a configured monthly cap.
-
-    Each re-translation gets the same context a translate run uses
-    (glossary, style guidelines, locale, the line's character name).
-    """
-    flagged, timing_skipped = fixflag_translate.split_timing_flags(
-        [ln for ln in lines if ln.flag])
-    drama = db.get_drama(drama_id) or {}
-    style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
-    glossary_terms, style_guidelines, character_names = build_run_style_context(
-        drama_id, drama, lines, style_preset, with_emotions=False,
-        include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns)
-    base_context = translate_engines.build_translation_context(
-        engine, drama, style_note=style_note or "", locale=locale,
-        glossary_terms=glossary_terms, style_guidelines=style_guidelines)
-    base_context["source_language"] = source_language
-    outcome = {"fixed": 0, "unchanged": 0, "cap_reached": None}
-    # Per-line failures are recorded and the line stays flagged, and the
-    # fixes made so far are saved in the `finally`, so a later failure (or the
-    # cost-cap stop, which is expected) can't erase them.
-    errors = []
-    # Lines heard before a timeout are fixed and saved; after a Cancel their
-    # text is saved but not translated (no paid calls), so they stay flagged.
-    total_flagged = len(flagged)
-    heard_entries, cancelled, hearing_error = [], False, None
-    if flagged and audio_path and os.path.exists(audio_path):
-        heard_entries, cancelled, hearing_error = fixflag_transcribe.hear_flagged(
-            job_id, flagged, audio_path, fixflag_transcribe.hearing_settings(
-                drama_id, drama, whisper_size, source_language, use_gpu))
-        if hearing_error:
-            errors.append(hearing_error)
-    heard_by_idx = {entry["idx"]: entry for entry in heard_entries}
-    if cancelled or hearing_error:
-        flagged = [ln for ln in flagged if ln.idx in heard_by_idx]
-    try:
-        with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
-                                        "fix_flagged_line") as limits:
-            outcome = fixflag_translate.fix_lines(
-                flagged, engine=engine, engine_choice=engine_choice, drama_id=drama_id,
-                base_context=base_context, character_names=character_names,
-                source_language=source_language, heard_by_idx=heard_by_idx,
-                translate=not cancelled, cost_cap_usd=cost_cap_usd, errors=errors, all_lines=lines,
-                check_cancel=lambda: None if cancelled else _raise_if_cancelled(job_id),
-                on_progress=lambda done, total: background_jobs.update_progress(
-                    job_id, done / max(total, 1), f"Fixing flagged lines... {done}/{total}"))
-    finally:
-        if audio_path and os.path.exists(audio_path):
-            whisper_models.release_gpu_models()  # re-transcription stage done
-        kept = fixflag_transcribe.save_fixed(drama_id, lines)
-    if cancelled:
-        raise background_jobs.JobCancelled(job_id)
-    background_jobs.set_result(job_id, {
-        "fixed_count": outcome["fixed"], "total_flagged": total_flagged, "errors": errors[:20],
-        "cap_reached": outcome["cap_reached"], **paid_job_service.stop_fields(limits),
-        **({"timing_skipped_count": timing_skipped} if timing_skipped else {}),
-        **({"unchanged_count": outcome["unchanged"]} if outcome["unchanged"] else {}), **kept})
 
 
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
@@ -850,3 +444,4 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     results["cancelled"] = background_jobs.is_cancel_requested(job_id)
     background_jobs.update_progress(job_id, 1.0, "Done")
     background_jobs.set_result(job_id, results)
+
