@@ -131,6 +131,7 @@ def main():
 
     import page_server
     import scanlate
+    import scanlate_translate
     import translate_engines
 
     calls = []
@@ -153,7 +154,7 @@ def main():
         return "ctx"
 
     scanlate.detect_and_ocr_page = fake_detect
-    scanlate.translate_page_bubbles = fake_translate
+    scanlate_translate.translate_page_bubbles = fake_translate
     # The fake key-free engine from the test suite: it needs no network or
     # key, so the text-mode checks below genuinely run standalone_translate
     # rather than a mock of it. Standing in for get_engine skips the

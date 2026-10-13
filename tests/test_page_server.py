@@ -142,8 +142,9 @@ def fake_pipeline(monkeypatch):
         return "context after this page"
 
     import scanlate
+    import scanlate_translate
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect_and_ocr_page)
-    monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_page_bubbles)
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate_page_bubbles)
     return calls
 
 
@@ -363,7 +364,7 @@ class TestTranslatingAPage:
 
     def test_translation_runs_outside_the_pipeline_lock(self, token, fake_pipeline,
                                                         isolated_db, monkeypatch):
-        import scanlate
+        import scanlate_translate
         import translate_engines
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: object())
         held_during = []
@@ -371,7 +372,7 @@ class TestTranslatingAPage:
         def translate(bubbles, engine, drama_meta, **kwargs):
             held_during.append(page_server.PIPELINE_LOCK.locked())
             return "context"
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate)
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
         page_server.set_translation_config(engine="claude", api_key="test-key")
         handler = _post(token, {"images": [{"data": _b64(_png_bytes()),
                                             "content_type": "image/png"}], "store": False})
@@ -381,7 +382,7 @@ class TestTranslatingAPage:
     def test_a_reused_page_is_translated_outside_the_pipeline_lock(self, token, fake_pipeline,
                                                                    isolated_db, monkeypatch):
         import db
-        import scanlate
+        import scanlate_translate
         import translate_engines
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: object())
         page_server.set_translation_config(engine="claude", api_key="test-key")
@@ -390,14 +391,14 @@ class TestTranslatingAPage:
                 "drama_id": drama_id, "store": True, "filter_pages": False}
         # The fake engine's translation is dropped so the second send has
         # an untranslated stored page to fill.
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", lambda *a, **kw: "ctx")
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", lambda *a, **kw: "ctx")
         assert _post(token, body, path="/pages").status == 200
         held_during = []
 
         def translate(bubbles, engine, drama_meta, **kwargs):
             held_during.append(page_server.PIPELINE_LOCK.locked())
             return "ctx"
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate)
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
         assert _post(token, body, path="/pages").status == 200
         assert held_during == [False]
 
@@ -405,13 +406,13 @@ class TestTranslatingAPage:
                                                          isolated_db, monkeypatch):
         """A translation failure must not throw away real OCR text -- the
         same choice the Scanlate tab makes."""
-        import scanlate
+        import scanlate_translate
         import translate_engines
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: object())
 
         def boom(*a, **kw):
             raise ValueError("the engine returned nothing")
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", boom)
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", boom)
         page_server.set_translation_config(engine="claude", api_key="test-key")
         handler = _post(token, {"images": [{"data": _b64(_png_bytes()),
                                             "content_type": "image/png"}], "store": False})
@@ -1011,14 +1012,14 @@ class TestRecapturingKeepsSavedWork:
     def test_a_corrected_translation_survives_a_recapture(
             self, token, fake_pipeline, isolated_db, monkeypatch, engine):
         import db
-        import scanlate
+        import scanlate_translate
         drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
         if engine == "unset":
             monkeypatch.setattr(page_server, "_build_engine", lambda config: None)
         elif engine == "fails":
             def boom(*a, **kw):
                 raise RuntimeError("engine down")
-            monkeypatch.setattr(scanlate, "translate_page_bubbles", boom)
+            monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", boom)
         reads = len(fake_pipeline["detect"])
         second = _post(token, body).payload
         assert len(fake_pipeline["detect"]) == reads
@@ -1061,12 +1062,12 @@ class TestRecapturingKeepsSavedWork:
     def test_a_failing_engine_on_a_recapture_leaves_every_bubble_as_it_was(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
-        import scanlate
+        import scanlate_translate
         page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
 
         def boom(*a, **kw):
             raise RuntimeError("engine down")
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", boom)
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", boom)
         second = _post(token, body).payload
         assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
         assert second["pages"][0]["notes"][0][0] == "warning"
@@ -1074,7 +1075,7 @@ class TestRecapturingKeepsSavedWork:
     def test_a_translation_typed_during_the_llm_call_is_not_overwritten(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
-        import scanlate
+        import scanlate_translate
         page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
         gap_id = db.load_bubbles(page["id"])[1]["id"]
         rev = db.get_page(page["id"])["rev"]
@@ -1084,7 +1085,7 @@ class TestRecapturingKeepsSavedWork:
             for b in bubbles:
                 b["translated_text"] = "the translation"
             return "ctx"
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_while_someone_types)
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate_while_someone_types)
         second = _post(token, body).payload
         assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == [
             "my correction", "typed meanwhile"]
@@ -1103,7 +1104,7 @@ class TestRecapturingKeepsSavedWork:
     def test_an_empty_reused_page_written_to_meanwhile_is_left_alone(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
-        import scanlate
+        import scanlate_translate
         drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
         db.save_bubbles(page["id"], [])
 
@@ -1117,7 +1118,7 @@ class TestRecapturingKeepsSavedWork:
             for b in bubbles:
                 b["translated_text"] = "mine"
             return "ctx"
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate_while_a_job_saves)
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate_while_a_job_saves)
         second = _post(token, body).payload
         assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["job's"]
         assert second["failed"] == []
@@ -1179,7 +1180,7 @@ class TestConcurrentCapturesOfOneTitle:
         return db.create_drama(title_en="Chapter", media_type="comic")
 
     def _blocking_translate(self, monkeypatch):
-        import scanlate
+        import scanlate_translate
         state = {"calls": [], "entered": threading.Event(), "release": threading.Event()}
 
         def translate(bubbles, engine, drama_meta, **kwargs):
@@ -1191,7 +1192,7 @@ class TestConcurrentCapturesOfOneTitle:
             for b in bubbles:
                 b["translated_text"] = "the translation"
             return f"context after call {n}"
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate)
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
         return state
 
     def _in_thread(self, token, body):
@@ -1435,8 +1436,8 @@ class TestConcurrentCapturesOfOneTitle:
         assert page_turns._contexts[key] == "context of the page being translated"
 
     def test_titles_kept_in_memory_are_capped_and_keyed_by_a_hash(self, monkeypatch):
-        import scanlate
-        monkeypatch.setattr(scanlate, "translate_page_bubbles",
+        import scanlate_translate
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles",
                             lambda *a, **kw: "context")
 
         def capture(url):
@@ -1471,7 +1472,7 @@ class TestConcurrentCapturesOfOneTitle:
 
     def test_context_follows_the_page_finished_last_not_page_order(
             self, token, fake_pipeline, isolated_db, monkeypatch):
-        import scanlate
+        import scanlate_translate
         drama_id = self._drama(monkeypatch)
         n = {"calls": 0}
 
@@ -1479,7 +1480,7 @@ class TestConcurrentCapturesOfOneTitle:
             n["calls"] += 1
             fake_pipeline["translate"].append({"kwargs": kwargs})
             return f"context after call {n['calls']}"
-        monkeypatch.setattr(scanlate, "translate_page_bubbles", translate)
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
         for i in (1, 0):
             _post(token, {"images": [_distinct_page(i)], "drama_id": drama_id, "store": True})
         # Page 0 was captured after page 1, so it reads page 1's context.
