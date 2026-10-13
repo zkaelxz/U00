@@ -894,3 +894,10 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   .source-link { position: relative; }
   .source-link::after { content: ''; position: absolute; inset: -12px -6px; }
 }
+
+/* Library "Group by": one collapsible header per group. */
+.title-group { margin-block: var(--space-4); }
+.title-group-head { display: flex; align-items: center; gap: var(--space-3); margin: 0 0 var(--space-3); font-size: var(--text-md); }
+.title-group-toggle { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.title-group-name { font-weight: 600; }
+.title-group-link { margin-left: auto; white-space: nowrap; }

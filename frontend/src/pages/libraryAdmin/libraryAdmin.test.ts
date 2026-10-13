@@ -10,7 +10,7 @@ import { SelectionBar } from './SelectionBar'
 import {
   MAX_SELECTION, TRANSLATE_NEEDS, anyJobActive, describeBulkResult, describeClean, describeDeleteResult,
   describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
-  pruneSelection, selectAllVisible, toggleId, translatableIds,
+  pruneSelection, selectAllVisible, toggleId, translatableIds, allSelected, selectIds, visibleTitles,
 } from './libraryAdmin'
 
 const d = (id: number, status = 'aligned', title = `T${id}`) =>
@@ -141,11 +141,12 @@ describe('SelectionBar', () => {
     expect(bar('remote', [d(2, 'translated')], false, exporter)).not.toContain('Download')
   })
 
-  it('remote: no Delete or Export, a muted note instead', () => {
-    const out = bar('remote', [d(1)])
+  it('remote: no bulk Translate, Delete or Export, a muted note instead', () => {
+    const out = bar('remote', [d(1, 'aligned')])
     expect(out).not.toContain('Delete…')
     expect(out).not.toContain('Export .zip')
-    expect(out).toContain('Delete and export are PC only.')
+    expect(out).not.toContain('Translate 1')
+    expect(out).toContain('Bulk translate, delete and export are PC only. To translate from here, use Translate on each title.')
   })
 
   it('phone: count, an Actions menu and Done', () => {
@@ -182,5 +183,46 @@ describe('CleanupBlock', () => {
   it('starts with a dry-run scan', () => {
     const out = renderToStaticMarkup(createElement(CleanupBlock))
     for (const text of ['Cleanup preset', '>Scan</button>', 'Scan first.']) expect(out).toContain(text)
+  })
+})
+
+
+describe('selection in a grouped Library', () => {
+  const groups = [
+    { key: 'series:1', label: 'Alpha', items: [d(1), d(2)] },
+    { key: 'series:2', label: 'Saga', items: [d(3), d(4)] },
+    { key: 'series:none', label: 'No series', items: [d(5)] },
+  ]
+
+  it('lists only the titles of expanded groups, in display order', () => {
+    expect(visibleTitles(groups, new Set()).map((x) => x.id)).toEqual([1, 2, 3, 4, 5])
+    expect(visibleTitles(groups, new Set(['series:2'])).map((x) => x.id)).toEqual([1, 2, 5])
+  })
+  it('an ungrouped list is never collapsed', () => {
+    expect(visibleTitles([{ key: 'all', label: '', items: [d(1)] }], new Set(['all'])).map((x) => x.id)).toEqual([1])
+  })
+  it('select all never picks a title hidden in a collapsed group', () => {
+    const visible = visibleTitles(groups, new Set(['series:2']))
+    expect([...selectAllVisible(visible).ids]).toEqual([1, 2, 5])
+  })
+  it('a group selects only its own rows, and a second press clears just them', () => {
+    const picked = selectIds(new Set([5]), [d(1), d(2)])
+    expect([...picked].sort()).toEqual([1, 2, 5])
+    expect(allSelected(picked, [d(1), d(2)])).toBe(true)
+    expect(allSelected(picked, [d(3), d(4)])).toBe(false)
+    expect([...selectIds(picked, [d(1), d(2)])]).toEqual([5])
+  })
+  it('the cap follows display order', () => {
+    const many = Array.from({ length: 501 }, (_, i) => d(i + 1))
+    const picked = selectIds(new Set(), many)
+    expect(picked.size).toBe(MAX_SELECTION)
+    expect(picked.has(500)).toBe(true)
+    expect(picked.has(501)).toBe(false)
+    expect(allSelected(picked, many)).toBe(true)
+  })
+  it('collapsing after selecting drops the hidden ids, so the count matches what is shown', () => {
+    const picked = new Set([1, 3, 4])
+    const visible = visibleTitles(groups, new Set(['series:2']))
+    expect([...pruneSelection(picked, visible)]).toEqual([1])
   })
 })

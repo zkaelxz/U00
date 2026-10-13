@@ -12,7 +12,8 @@ import pytest
 
 import background_jobs
 import bulk_providers
-import bulk_translate as bt
+import bulk_poll
+import bulk_translate
 import db
 import translate_engines as te
 from core import Line
@@ -377,7 +378,7 @@ class TestBulkPoller:
     def test_a_poller_that_cannot_reach_the_provider_gives_up_with_a_plain_reason(self):
         _did, bulk_id = _bulk_job()
         provider = _DownProvider()
-        bt.run_bulk_poller("poll_t", bulk_id, provider=provider, interval=0, sleep=lambda s: None)
+        bulk_poll.run_bulk_poller("poll_t", bulk_id, provider=provider, interval=0, sleep=lambda s: None)
         assert provider.polls == bulk_providers.POLL_FAILURE_LIMIT == 15  # about a quarter hour
         job = db.get_bulk_job(bulk_id)
         assert job["status"] == "submitted"  # still recoverable: Check now picks it up
@@ -400,7 +401,7 @@ class TestBulkPoller:
             def poll(self, batch_id):
                 Pending.polls += 1
                 return "pending"
-        bt.run_bulk_poller("poll_old", bulk_id, provider=Pending(), interval=0, sleep=lambda s: None)
+        bulk_poll.run_bulk_poller("poll_old", bulk_id, provider=Pending(), interval=0, sleep=lambda s: None)
         job = db.get_bulk_job(bulk_id)
         assert Pending.polls == 1 and job["status"] == "failed" and "expired" in job["last_error"]
 
@@ -414,8 +415,8 @@ class TestBulkPoller:
             seen.append(bulk_job_id)
             db.update_bulk_job(bulk_job_id, status="applied")
             return "applied"
-        monkeypatch.setattr(bt, "check_once", check_once)
-        bt.run_bulk_poller("poll_weekend", bulk_id, provider=_DownProvider(), interval=0,
+        monkeypatch.setattr(bulk_poll, "check_once", check_once)
+        bulk_poll.run_bulk_poller("poll_weekend", bulk_id, provider=_DownProvider(), interval=0,
                            sleep=lambda s: None)
         assert seen == [bulk_id] and db.get_bulk_job(bulk_id)["status"] == "applied"
 
@@ -454,7 +455,7 @@ class TestOffPeakWindow:
         did = db.create_drama(title_zh="D", status="aligned")
         db.save_lines(did, _lines(n, translated=False))
         lines = db.load_line_objects(did)
-        return did, bt.schedule_offpeak_translation(
+        return did, bulk_translate.schedule_offpeak_translation(
             did, lines, "deepseek", "deepseek-v4-flash", {"style_preset": "audio_drama", "batch_size": 1},
             now=self.PEAK)
 
@@ -462,7 +463,7 @@ class TestOffPeakWindow:
         did, bulk_id = self._schedule()
         window = {"open": True}
         engine = _OffPeakEngine(lambda: window.update(open=False))
-        summary = bt.run_scheduled_job(bulk_id, engine, window_open=lambda: window["open"])
+        summary = bulk_poll.run_scheduled_job(bulk_id, engine, window_open=lambda: window["open"])
         assert engine.seen == ["第0句"] and summary["window_closed"] is True
         assert [r["en"] for r in db.load_lines(did)] == ["DS[第0句]", "", ""]
 
@@ -474,7 +475,7 @@ class TestOffPeakWindow:
             window["open"] = False
             threading.Event().wait(1.0)  # long enough for an in-flight cancel to be noticed
         engine = _OffPeakEngine(flip)
-        summary = bt.run_scheduled_job(bulk_id, engine, window_open=lambda: window["open"])
+        summary = bulk_poll.run_scheduled_job(bulk_id, engine, window_open=lambda: window["open"])
         assert [r["en"] for r in db.load_lines(did)] == ["DS[第0句]", "", ""]
         assert engine.seen == ["第0句"] and summary["window_closed"] is True
 
@@ -497,7 +498,7 @@ class TestOffPeakWindow:
     def test_a_run_that_finishes_inside_the_window_reports_it_open(self):
         _did, bulk_id = self._schedule(2)
         engine = _OffPeakEngine(lambda: None)
-        summary = bt.run_scheduled_job(bulk_id, engine, window_open=lambda: True)
+        summary = bulk_poll.run_scheduled_job(bulk_id, engine, window_open=lambda: True)
         assert summary["window_closed"] is False and len(engine.seen) == 2
 
     def test_a_closed_window_sends_the_job_back_to_waiting_for_the_next_one(self):
@@ -512,7 +513,7 @@ class TestOffPeakWindow:
             raise StopWaiting
 
         with pytest.raises(StopWaiting):
-            bt.run_bulk_poller("poll_win", bulk_id, engine=engine, sleep=sleep,
+            bulk_poll.run_bulk_poller("poll_win", bulk_id, engine=engine, sleep=sleep,
                                now_fn=lambda: clock["now"], monthly_cap_usd=50.0)
         job = db.get_bulk_job(bulk_id)
         assert job["status"] == "scheduled"
@@ -523,7 +524,7 @@ class TestOffPeakWindow:
     def test_a_scheduled_run_is_refused_when_the_cap_was_removed_after_scheduling(self):
         did, bulk_id = self._schedule()
         engine = _OffPeakEngine(lambda: None)
-        bt.run_bulk_poller("poll_nocap", bulk_id, engine=engine, sleep=lambda s: None,
+        bulk_poll.run_bulk_poller("poll_nocap", bulk_id, engine=engine, sleep=lambda s: None,
                            now_fn=lambda: self.OFFPEAK)
         job = db.get_bulk_job(bulk_id)
         assert job["status"] == "failed" and "spending cap" in job["last_error"]

@@ -6,7 +6,7 @@ import time
 from fastapi.testclient import TestClient
 
 import background_jobs
-import bulk_translate as bt
+import bulk_poll
 import db
 from api.server import create_app
 from services import notification_service, settings_service
@@ -24,7 +24,7 @@ def _pending_batch(did, status="submitted", engine="claude"):
 def _wait_idle(bulk_ids, timeout=10.0):
     end = time.time() + timeout
     while time.time() < end:
-        if not any(background_jobs.is_running(bt.poll_job_id(b)) for b in bulk_ids):
+        if not any(background_jobs.is_running(bulk_poll.poll_job_id(b)) for b in bulk_ids):
             return
         time.sleep(0.02)
     raise AssertionError("pollers did not stop")
@@ -46,13 +46,13 @@ def test_off_by_default_touches_nothing(isolated_db, monkeypatch):
     did = _setup(monkeypatch)
     bid = _pending_batch(did)
     calls = []
-    monkeypatch.setattr(bt, "resume_pending", lambda *a, **k: calls.append(a) or {})
+    monkeypatch.setattr(bulk_poll, "resume_pending", lambda *a, **k: calls.append(a) or {})
     assert settings_service.get("bulk_auto_resume") is False
     assert settings_service.get_settings_overview()["bulk_auto_resume"] is False
     assert svc.resume_interrupted_at_startup() == {"enabled": False, "resumed": 0, "skipped": 0}
     assert calls == []
     assert db.get_bulk_job(bid)["status"] == "submitted"
-    assert not background_jobs.is_running(bt.poll_job_id(bid))
+    assert not background_jobs.is_running(bulk_poll.poll_job_id(bid))
 
 
 def test_on_resumes_only_interrupted_batches(isolated_db, monkeypatch):
@@ -62,12 +62,12 @@ def test_on_resumes_only_interrupted_batches(isolated_db, monkeypatch):
     gone = _pending_batch(did, status="cancelled")
     settings_service.set_settings({"bulk_auto_resume": True})
     assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 1, "skipped": 0}
-    assert background_jobs.is_running(bt.poll_job_id(live))
-    bt.cancel_bulk_job(live)
+    assert background_jobs.is_running(bulk_poll.poll_job_id(live))
+    bulk_poll.cancel_bulk_job(live)
     _wait_idle([live])
     assert db.get_bulk_job(done)["status"] == "applied"
     assert db.get_bulk_job(gone)["status"] == "cancelled"
-    assert not background_jobs.is_running(bt.poll_job_id(done))
+    assert not background_jobs.is_running(bulk_poll.poll_job_id(done))
 
 
 def test_missing_key_is_skipped_and_noted(isolated_db, monkeypatch):
@@ -76,7 +76,7 @@ def test_missing_key_is_skipped_and_noted(isolated_db, monkeypatch):
     bid = _pending_batch(did)
     settings_service.set_settings({"bulk_auto_resume": True})
     assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 0, "skipped": 1}
-    assert not background_jobs.is_running(bt.poll_job_id(bid))
+    assert not background_jobs.is_running(bulk_poll.poll_job_id(bid))
     assert db.get_bulk_job(bid)["status"] == "submitted"
     assert any("no API key" in t for t in _notes())
 
@@ -88,7 +88,7 @@ def test_used_up_spending_cap_is_skipped_and_noted(isolated_db, monkeypatch):
     monkeypatch.setattr(svc, "month_cap_usd", lambda: 5.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 9.0)
     assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 0, "skipped": 1}
-    assert not background_jobs.is_running(bt.poll_job_id(bid))
+    assert not background_jobs.is_running(bulk_poll.poll_job_id(bid))
     assert any("spending cap" in t for t in _notes())
 
 
@@ -101,7 +101,7 @@ def test_nothing_starts_while_a_restore_holds_the_library(isolated_db, monkeypat
         assert svc.resume_interrupted_at_startup()["resumed"] == 0
     finally:
         background_jobs.release_exclusive()
-    assert not background_jobs.is_running(bt.poll_job_id(bid))
+    assert not background_jobs.is_running(bulk_poll.poll_job_id(bid))
     assert db.get_bulk_job(bid)["status"] == "submitted"
 
 
@@ -120,7 +120,7 @@ def test_startup_error_is_swallowed_and_logged_redacted(isolated_db, monkeypatch
 
     def boom(*a, **k):
         raise RuntimeError(f"failed with key {secret}")
-    monkeypatch.setattr(bt, "resume_pending", boom)
+    monkeypatch.setattr(bulk_poll, "resume_pending", boom)
     assert svc.resume_interrupted_at_startup()["resumed"] == 0
     assert logged and secret not in logged[0]
 
@@ -165,9 +165,9 @@ def test_a_job_whose_package_is_missing_is_skipped_but_others_still_resume(isola
     ok = _pending_batch(did, engine="gemini")
     settings_service.set_settings({"bulk_auto_resume": True})
     assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 1, "skipped": 1}
-    assert background_jobs.is_running(bt.poll_job_id(ok))
-    assert not background_jobs.is_running(bt.poll_job_id(broken))
+    assert background_jobs.is_running(bulk_poll.poll_job_id(ok))
+    assert not background_jobs.is_running(bulk_poll.poll_job_id(broken))
     assert db.get_bulk_job(broken)["status"] == "submitted"
     assert any("package is not installed" in t for t in _notes())
-    bt.cancel_bulk_job(ok)
+    bulk_poll.cancel_bulk_job(ok)
     _wait_idle([ok])

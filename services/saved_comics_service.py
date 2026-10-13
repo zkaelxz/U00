@@ -9,6 +9,12 @@ Each name must be one plain path component that exists under the save
 folder, and the resolved file must still be inside it (a link pointing
 elsewhere is refused), so a request can't reach any other file.
 
+Who sees a series: the PC owner and admins at the PC (admin_override) see
+every one; anyone else only those they saved (sources_save_service.
+record_saved_by), so a folder saved at the PC or before saves were recorded
+is the PC owner's. Another user's series reads as missing (404), as a
+private title does. A principal of None means auth off: every series.
+
 Pages are a CBZ's image members (jpg/png/webp/gif/avif), in natural name
 order, skipping folders such as `__MACOSX`. A member over MAX_PAGE_BYTES, or
 a CBZ with more than MAX_PAGES images, is refused rather than read. Page
@@ -54,15 +60,32 @@ def _inside(root: str, path: str) -> bool:
         return False
 
 
-def _series_dir(root: str, source: str, series: str) -> str:
+def _sees_every_series(principal) -> bool:
+    # ownership_service's write rule (_may_override): on the household
+    # listener api.auth clears admin_override, so a remote admin sees only
+    # their own saves.
+    if principal is None or principal.get("is_local_owner"):
+        return True
+    return bool(principal.get("is_admin") and principal.get("admin_override"))
+
+
+def _visible(principal):
+    """None (every series) or the (source, series) names `principal` saved."""
+    return None if _sees_every_series(principal) else saves.series_saved_by(principal.get("user_id"))
+
+
+def _series_dir(principal, root: str, source: str, series: str) -> str:
     path = os.path.join(root, _component(source, "source"), _component(series, "series"))
-    if not os.path.isdir(path) or not _inside(root, path):
+    visible = _visible(principal)
+    if (not os.path.isdir(path) or not _inside(root, path)
+            or (visible is not None and (source, series) not in visible)):
         raise NotFoundError("No such saved series.")
     return path
 
 
-def _chapter_file(root: str, source: str, series: str, chapter: str) -> str:
-    path = os.path.join(_series_dir(root, source, series), _component(chapter, "chapter") + ".cbz")
+def _chapter_file(principal, root: str, source: str, series: str, chapter: str) -> str:
+    path = os.path.join(_series_dir(principal, root, source, series),
+                        _component(chapter, "chapter") + ".cbz")
     if not os.path.isfile(path) or not _inside(root, path):
         raise NotFoundError("No such saved chapter.")
     return path
@@ -92,13 +115,16 @@ def _chapter_view(stem: str) -> dict:
             "number": int(m.group(1)) if m else None}
 
 
-def list_series() -> list:
-    """Every saved series: source and series names, chapter count and when
-    a chapter was last added."""
+def list_series(principal) -> list:
+    """Every saved series `principal` may see: source and series names,
+    chapter count and when a chapter was last added."""
     root = saves.save_root()
+    visible = _visible(principal)
     out = []
     for source in _dirs(root):
         for series in _dirs(os.path.join(root, source)):
+            if visible is not None and (source, series) not in visible:
+                continue
             folder = os.path.join(root, source, series)
             chapters = _chapters_in(folder)
             if not chapters:
@@ -112,9 +138,9 @@ def list_series() -> list:
     return out
 
 
-def list_chapters(source, series) -> dict:
+def list_chapters(principal, source, series) -> dict:
     root = saves.save_root()
-    folder = _series_dir(root, source, series)
+    folder = _series_dir(principal, root, source, series)
     return {"source": source, "series": series,
             "chapters": [_chapter_view(c) for c in _chapters_in(folder)]}
 
@@ -155,11 +181,11 @@ def _sizes(path: str, zf: zipfile.ZipFile, members: list) -> list:
     return sizes
 
 
-def chapter_pages(source, series, chapter) -> dict:
+def chapter_pages(principal, source, series, chapter) -> dict:
     """The chapter's pages (1-based, with sizes when readable) and the
     chapters before and after it in the series, for paging between them."""
     root = saves.save_root()
-    path = _chapter_file(root, source, series, chapter)
+    path = _chapter_file(principal, root, source, series, chapter)
     with _open(path) as zf:
         members = _image_members(zf)
         sizes = _sizes(path, zf, members)
@@ -172,10 +198,10 @@ def chapter_pages(source, series, chapter) -> dict:
             "next_chapter": stems[i + 1] if 0 <= i < len(stems) - 1 else None}
 
 
-def page_image(source, series, chapter, page: int):
+def page_image(principal, source, series, chapter, page: int):
     """(bytes, media type, mtime) of one page, 1-based."""
     root = saves.save_root()
-    path = _chapter_file(root, source, series, chapter)
+    path = _chapter_file(principal, root, source, series, chapter)
     with _open(path) as zf:
         members = _image_members(zf)
         if not isinstance(page, int) or not 1 <= page <= len(members):

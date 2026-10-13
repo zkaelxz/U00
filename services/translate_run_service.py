@@ -36,7 +36,10 @@ from typing import Optional
 
 import background_jobs
 import bulk_providers
+import bulk_poll
+import bulk_reflect
 import bulk_translate
+import translation_finish
 import core
 import db
 import translate_engines
@@ -144,7 +147,7 @@ def get_translate_config(drama_id: int) -> dict:
         "series_instructions": drama.get("series_instructions"),
         "has_novel_reference": has_novel,
         "line_count": len(lines),
-        "untranslated_count": bulk_translate.untranslated_line_count(drama_id),
+        "untranslated_count": translation_finish.untranslated_line_count(drama_id),
         "last_translate_errors": _parse_errors(drama.get("last_translate_errors")),
         "previous_episode_summary_present": bool(drama.get("previous_episode_summary")),
         "monthly_cap_usd": monthly_cap,
@@ -591,7 +594,7 @@ _NEXT_REFLECT_STAGE = {"faithful": "reflect", "reflect": "expressive"}
 
 def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=None):
     """Background job: submit, then poll inside this job until the batch is
-    applied (bulk_translate.run_bulk_poller; results applied by line id).
+    applied (bulk_poll.run_bulk_poller; results applied by line id).
     A bulk Reflect pipeline's later stages are submitted by bulk_translate
     as each prior stage applies; this follows each one in turn. Cancelling
     this job cancels the pending bulk job (at the provider when it can)."""
@@ -600,18 +603,18 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
     first_id = current = submit()
     provider = bulk_providers.make_provider(engine_name, engine)
     while True:
-        bulk_translate.run_bulk_poller(job_id, current, provider=provider, engine=engine,
-                                       interval=bulk_translate.POLL_INTERVAL_SECONDS,
+        bulk_poll.run_bulk_poller(job_id, current, provider=provider, engine=engine,
+                                       interval=bulk_poll.POLL_INTERVAL_SECONDS,
                                        monthly_cap_usd=monthly_cap_usd)
         job = db.get_bulk_job(current) or {}
         if background_jobs.is_cancel_requested(job_id):
             if job.get("status") in db.BULK_PENDING_STATUSES + ("running",):
-                bulk_translate.cancel_bulk_job(current, provider)
+                bulk_poll.cancel_bulk_job(current, provider)
                 job = db.get_bulk_job(current) or {}
             break
         nxt_stage = (_NEXT_REFLECT_STAGE.get(job.get("stage"))
                      if job.get("kind") == "reflect" and job.get("status") == "applied" else None)
-        nxt = (bulk_translate.sibling_stage_job(job["pipeline_id"], nxt_stage, skip_failed=True)
+        nxt = (bulk_reflect.sibling_stage_job(job["pipeline_id"], nxt_stage, skip_failed=True)
                if nxt_stage else None)
         if not nxt:
             break
@@ -631,9 +634,9 @@ def _bulk_engine_factory(engine_name, model):
 
 def resume_bulk_translations(drama_id: int) -> dict:
     """After a restart: starts a poller for each of this drama's pending
-    bulk jobs (bulk_translate.resume_pending), with engines built from server-side keys only."""
+    bulk jobs (bulk_poll.resume_pending), with engines built from server-side keys only."""
     require_drama(drama_id)
-    out = bulk_translate.resume_pending(drama_id, _bulk_engine_factory, month_cap_usd() or None)
+    out = bulk_poll.resume_pending(drama_id, _bulk_engine_factory, month_cap_usd() or None)
     return {"drama_id": drama_id,
             "jobs": [{"bulk_job_id": k, "state": v} for k, v in sorted(out.items())]}
 
@@ -683,7 +686,7 @@ def resume_interrupted_at_startup() -> dict:
             return engine
         cap = month_cap_usd() or None
         for drama_id in sorted({j["drama_id"] for j in pending}):
-            for state in bulk_translate.resume_pending(drama_id, factory, cap).values():
+            for state in bulk_poll.resume_pending(drama_id, factory, cap).values():
                 if state == "polling":
                     out["resumed"] += 1
                 elif state == "needs_key":
@@ -719,7 +722,7 @@ def list_bulk_translations(drama_id: int) -> dict:
 def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
     """Cancel: stops polling, marks the job cancelled and
     asks the provider to cancel when a server-side key exists (best effort,
-    same as bulk_translate.cancel_bulk_job)."""
+    same as bulk_poll.cancel_bulk_job)."""
     require_drama(drama_id)
     job = db.get_bulk_job(bulk_job_id)
     if not job or job["drama_id"] != drama_id:
@@ -735,7 +738,7 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
         # Still cancel here: the batch keeps running at the provider, which the note says.
         engine, package_missing = None, True
     provider = bulk_providers.make_provider(job["engine"], engine) if engine else None
-    note = bulk_translate.cancel_bulk_job(bulk_job_id, provider)
+    note = bulk_poll.cancel_bulk_job(bulk_job_id, provider)
     if package_missing:
         note += (" The Python package for this engine is not installed, so the batch was not "
                  "cancelled at the provider; cancel it in the provider's console.")

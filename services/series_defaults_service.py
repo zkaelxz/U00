@@ -18,10 +18,12 @@ Only the keys in SETTINGS are ever stored or written: they become SQL
 column names in db.update_drama / db.apply_series_settings. No secret is a
 setting: engine keys stay in Settings. A title setting whose own write needs
 engines.paid (use_groq, translate_thinking) is never a default: defaults are
-set with lines.edit and copied to every title. translation_engine is one,
-because every run gates the engine it uses (api.auth.require_engines_allowed). Values are checked with the same
-rules as a title's own (transcribe_service.check_transcribe_fields, the
-engine registry); the checks that depend on a title's language run per
+set with lines.edit and copied to every title. translation_engine is a
+default even so: choosing an engine spends nothing, and every run checks the
+engine it actually uses (api.auth.require_engines_allowed; a missing engine
+counts as paid), so a paid default can't be run without engines.paid. Values
+are checked with the same rules as a title's own
+(transcribe_service.check_transcribe_fields, the engine registry); the checks that depend on a title's language run per
 title, and a default that doesn't suit a title's language is skipped there.
 
 Ownership: reading needs the series to be visible, writing and applying

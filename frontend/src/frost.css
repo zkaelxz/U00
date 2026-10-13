@@ -109,6 +109,9 @@ body {
   box-shadow: var(--glass-shadow);
   border-radius: 22px;
 }
+/* These two had no border: the edge is a ring that takes no space, so the page keeps its height (the phone Review toolbar's scroll thresholds depend on it). */
+.review-toolbox,
+.review-lines { border: 0; box-shadow: var(--glass-shadow), 0 0 0 1px var(--glass-edge); }
 @supports (backdrop-filter: blur(1px)) {
   .card, .review-toolbar, .review-toolbox, .review-lines, .drama-card { backdrop-filter: blur(22px) saturate(1.4); }
 }
@@ -175,16 +178,16 @@ fieldset.segmented {
   max-width: 100%;
   overflow: hidden;
 }
-/* On phones the tray adds no height: the Review toolbar collapses on scroll and hides these tabs, and its two scroll thresholds
-   (LinesPanel.tsx) only hold when that layout shift stays small. The ring is drawn inset instead of as a border and padding. */
-@media (max-width: 640px) {
-  .stage-tabs { border: 0; padding: 0; box-shadow: inset 0 0 0 1px var(--btn-edge); }
-}
 .stage-tabs a { border: 0; border-radius: var(--radius-pill); flex: 1 1 auto; min-width: 0; justify-content: center; text-align: center; white-space: nowrap; }
 .stage-tabs a[aria-current='page'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 .ui-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: 22px; background: var(--glass); }
 .ui-tab { border: 0; border-radius: var(--radius-pill); box-shadow: none; background: transparent; }
 .ui-tab[aria-selected='true'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
+/* On phones the tray adds no height: the Review toolbar collapses on scroll and hides these tabs, and its two scroll thresholds
+   (LinesPanel.tsx) only hold when that layout shift stays small. The ring is drawn inset instead of as a border and padding. */
+@media (max-width: 640px) {
+  .stage-tabs, .ui-tabs { border: 0; padding: 0; box-shadow: inset 0 0 0 1px var(--btn-edge); }
+}
 
 /* Switches */
 .toggle { border: 1px solid var(--btn-edge); }
@@ -206,7 +209,8 @@ fieldset.segmented {
 .workspace .ws-strip {
   /* workspace.css loads after this file and gives the strip a solid page colour, hence the extra class. */
   background: transparent;
-  border-bottom: 0;
+  /* Transparent, not removed: the header's exact height matters to the phone Review toolbar's scroll-collapse thresholds. */
+  border-bottom-color: transparent;
   isolation: isolate;
 }
 .app-header::before,
