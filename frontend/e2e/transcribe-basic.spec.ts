@@ -67,6 +67,14 @@ test('a Whisper model not recommended for the language is disabled with its reas
 
 // The config a title's Transcribe form is built from, with the fields the form reads overridden.
 async function mockConfig(page: import('@playwright/test').Page, patch: Record<string, unknown>) {
+  // The advisor's wording is the server's (tests/test_asr_advice.py); this pins that the form shows its top note.
+  await page.route('**/api/transcribe/asr-advice', async (route) => {
+    const body = route.request().postDataJSON() as { asr_backend: string }
+    const long = body.asr_backend === 'qwen3_asr_long'
+    return route.fulfill({ json: { notes: [long
+      ? { id: 'qwen_long_audio', severity: 'warn', text: 'Qwen3 ASR on long audio gives no word timings. Use Whisper.', fix: { asr_backend_choice: 'whisper' } }
+      : { id: 'recommended', severity: 'tip', text: 'Recommended: Whisper large-v3 with Separate vocals first off.', fix: null }] } })
+  })
   await page.route('**/api/transcribe/dramas/1/config', async (route) => {
     const resp = await route.fetch()
     const cfg = await resp.json()
@@ -88,6 +96,20 @@ test('with Whisper the model is pickable, only large-v3 and turbo are listed, an
   await expect(model.locator('option')).toHaveText(['large-v3 (default)', 'large-v3-turbo (faster)'])
   await expect(card.getByTestId('run-line')).toContainText('This run will use: Whisper · Whisper large-v3 · GPU')
   await expect(card.getByTestId('transcribe-advisor')).toContainText('Whisper large-v3 with Separate vocals first off')
+  await expect(card.getByTestId('transcribe-advisor').getByRole('button')).toHaveCount(0)
+})
+
+test('Use recommended in the advisor line switches the backend to Whisper', async ({ page }) => {
+  await mockConfig(page, {
+    transcript_mode: 'whisper', asr_backend_choice: 'qwen3_asr_long', whisper_size: 'large-v3', use_groq: false,
+    selectable_whisper_sizes: ['large-v3', 'large-v3-turbo'], gpu_runtime: { status: 'ok', reason: null },
+  })
+  await page.goto('/#/drama/1/source')
+  await openTranscribeOptions(page)
+  const card = transcribeCard(page)
+  await card.getByTestId('transcribe-advisor').getByRole('button', { name: 'Use recommended' }).click()
+  await expect(card.getByTestId('run-line')).toContainText('Whisper · Whisper large-v3')
+  await expect(card.getByTestId('transcribe-advisor')).toContainText('Recommended: Whisper large-v3')
 })
 
 test('a saved hidden size is shown as an older choice with a one-click switch, and is not changed until clicked', async ({ page }) => {
@@ -121,7 +143,7 @@ test('with Qwen3 ASR on long audio the Whisper model and Whisper-only switches a
   await expect(card.getByTestId('whisper-not-used')).toContainText('Qwen3-ASR 1.7B')
   await expect(card.getByTestId('run-line')).toContainText('Qwen3 ASR on long windows · Qwen3-ASR 1.7B')
   await expect(card.getByTestId('run-line')).not.toContainText('large-v3')
-  await expect(card.getByTestId('transcribe-advisor')).toContainText('timing uncertain')
+  await expect(card.getByTestId('transcribe-advisor')).toContainText('Use Whisper')
 
   const advanced = await openAdvanced(page)
   for (const name of ['Whisper fast mode', 'Whisper repeat guard']) {

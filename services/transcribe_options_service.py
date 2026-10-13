@@ -293,3 +293,102 @@ def whisper_size_notice(drama: dict):
     if not problem:
         return None
     return f"This title was saved with {size}. {problem} It now uses {default_whisper_size()}."
+
+
+# --- Advisor: which models and switches not to combine -----------------------
+# One table, read by the Transcribe form, the Jobs details of a finished run and
+# the "Do not combine" table in docs/asr-experiments.md (a test keeps them in sync).
+_SEVERITY_ORDER = {"blocked": 0, "warn": 1, "tip": 2}
+_WHISPER_FREE = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
+_LONG_AUDIO_QWEN = ("qwen3_asr_vad", "qwen3_asr_long")
+_WEAK_WHISPER_SIZES = ("small", "medium")
+_RECOMMENDED = "Recommended: Whisper large-v3 with Separate vocals first off."
+
+
+def _runs_whisper(c) -> bool:
+    return c["backend"] not in _WHISPER_FREE
+
+
+_ADVICE_RULES = (
+    # (id, severity, applies(ctx), text, fix: settings to change or None)
+    ("groq_no_key", "blocked",
+     lambda c: c["use_groq"] and c["backend"] == "whisper" and c["token"] is False,
+     "Groq is on but no Groq key is saved.",
+     lambda c: {"use_groq": False} if c["packages"].get("faster_whisper", True) else None),
+    ("whisper_missing", "blocked",
+     lambda c: _runs_whisper(c) and not c["use_groq"] and c["packages"].get("faster_whisper") is False,
+     "Whisper is not installed, so this run cannot start.", lambda c: None),
+    ("anime_whisper_language", "blocked",
+     lambda c: c["backend"] == "anime_whisper" and c["language"] not in ("", "ja"),
+     "Anime-whisper is for Japanese only.", lambda c: {"asr_backend_choice": "whisper"}),
+    ("ja_model_language", "blocked",
+     lambda c: c["model"] in ("ja-1.5b", "kotoba-v2") and _runs_whisper(c) and c["language"] not in ("", "ja"),
+     "This Whisper model is for Japanese only.", lambda c: {"whisper_size": "large-v3"}),
+    ("qwen_long_audio", "warn",
+     lambda c: c["backend"] in _LONG_AUDIO_QWEN,
+     "Qwen3 ASR on long audio gives no word timings, fewer lines and \"Timing uncertain · Split evenly\" flags. Use Whisper.",
+     lambda c: {"asr_backend_choice": "whisper"}),
+    ("forced_align_needs_transcript", "warn",
+     lambda c: c["alignment_method"] == "qwen3_forced_align" and not c["has_transcript"],
+     "Qwen3 forced alignment needs a transcript to line up; without one it is not used.",
+     lambda c: None),
+    ("ja_15b_needs_gpu", "warn",
+     lambda c: c["model"] == "ja-1.5b" and _runs_whisper(c) and not c["use_groq"] and c["gpu_on"] is False,
+     "Whisper ja-1.5B needs a GPU and is meant for anime and games.", lambda c: {"whisper_size": "large-v3"}),
+    ("weak_whisper_size", "warn",
+     lambda c: c["model"] in _WEAK_WHISPER_SIZES and _runs_whisper(c) and not c["use_groq"],
+     "Whisper small and medium read worse than large-v3.", lambda c: {"whisper_size": "large-v3"}),
+    ("separate_vocals", "warn",
+     lambda c: c["separate_vocals_first"],
+     "Separate vocals first can drop quiet speech. Use it only if background music makes Whisper invent text, and compare line counts.",
+     lambda c: {"separate_vocals_first": False}),
+    ("fast_mode", "warn",
+     lambda c: c["whisper_fast_mode"] and _runs_whisper(c),
+     "Fast mode gives fewer, longer lines and a higher error rate.",
+     lambda c: {"whisper_fast_mode": False}),
+    ("anime_whisper_scope", "tip",
+     lambda c: c["backend"] == "anime_whisper" and c["language"] in ("", "ja"),
+     "Anime-whisper is Japanese only, for ASMR and vocalisations, and its licence is non-commercial.",
+     lambda c: None),
+    ("ja_15b_scope", "tip",
+     lambda c: c["model"] == "ja-1.5b" and _runs_whisper(c) and not c["use_groq"] and c["gpu_on"] is not False
+     and c["language"] in ("", "ja"),
+     "Whisper ja-1.5B is meant for anime and games.", lambda c: None),
+)
+ADVICE_RULE_IDS = tuple(rule[0] for rule in _ADVICE_RULES)
+
+
+def asr_advice(language: str, media_type: str, backend: str, model: str, switches: dict,
+               gpu_on: Optional[bool], packages: Optional[dict] = None, token: Optional[bool] = None) -> list:
+    """The ordered notes for one combination of transcription choices:
+    [{"id", "severity": blocked|warn|tip, "text", "fix"}], blocked first. `fix` is a dict of
+    plain setting changes (keys as in the transcribe config) or None when the fix is not one.
+    `packages` maps a package to installed (faster_whisper) and `token` is whether a Groq key
+    is saved; None skips the notes that need them, as when describing a run that already
+    finished. `media_type` is accepted for callers that know it; no rule needs it yet."""
+    ctx = {
+        "language": language or "", "media_type": media_type or "", "backend": backend or "whisper",
+        "model": model or "", "gpu_on": gpu_on, "packages": packages or {}, "token": token,
+        "use_groq": bool(switches.get("use_groq")),
+        "separate_vocals_first": bool(switches.get("separate_vocals_first")),
+        "whisper_fast_mode": bool(switches.get("whisper_fast_mode")),
+        "has_transcript": bool(switches.get("has_transcript")),
+        "alignment_method": switches.get("alignment_method") or "",
+    }
+    notes = [{"id": rule_id, "severity": severity, "text": text, "fix": fix(ctx)}
+             for rule_id, severity, applies, text, fix in _ADVICE_RULES if applies(ctx)]
+    notes.sort(key=lambda n: _SEVERITY_ORDER[n["severity"]])
+    if not notes and ctx["backend"] == "whisper" and ctx["model"] in ("", "large-v3"):
+        notes.append({"id": "recommended", "severity": "tip", "text": _RECOMMENDED, "fix": None})
+    return notes
+
+
+def asr_advice_for_form(language: str, media_type: str, backend: str, model: str, switches: dict,
+                        gpu_on: Optional[bool], check_environment: bool) -> list:
+    """asr_advice for the form's current choices; `check_environment` adds what this PC has
+    installed and whether a Groq key is saved (false for a run that already finished)."""
+    packages = token = None
+    if check_environment:
+        packages = {"faster_whisper": diagnostics.check_dependency("faster_whisper")}
+        token = bool(settings_service.resolve_key("groq"))
+    return asr_advice(language, media_type, backend, model, switches, gpu_on, packages, token)

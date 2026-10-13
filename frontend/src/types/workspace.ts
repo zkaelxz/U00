@@ -557,3 +557,26 @@ export interface RetimeApplyRequest {
 export interface RetimeApplyResult extends CompareApplyResult {
   overlapping: number[]
 }
+
+export interface AsrAdviceRequest {
+  language: string
+  media_type: string
+  asr_backend: string
+  whisper_size: string
+  separate_vocals_first: boolean
+  whisper_fast_mode: boolean
+  use_groq: boolean
+  has_transcript: boolean
+  alignment_method: string
+  use_gpu: boolean | null
+  /** False for a run that already finished: what is installed now says nothing about it. */
+  check_environment: boolean
+}
+
+export interface AsrAdviceNote {
+  id: string
+  severity: 'tip' | 'warn' | 'blocked'
+  text: string
+  /** Plain setting changes (config field to value), or null when the fix is not one. */
+  fix: Record<string, string | boolean> | null
+}

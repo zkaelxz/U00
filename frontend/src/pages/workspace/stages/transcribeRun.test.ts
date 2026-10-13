@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { advisorNote, runLine, whisperNotUsedReason, whisperOnlyControlReason } from './transcribeRun'
+import { runLine, whisperNotUsedReason, whisperOnlyControlReason } from './transcribeRun'
 
 const base = { backend: 'whisper', whisperSize: 'large-v3', useGroq: false, useGpu: true, gpuRuntime: 'ok' }
 
@@ -50,18 +50,5 @@ describe('Whisper-only controls', () => {
     expect(whisperOnlyControlReason('anime_whisper', 'repeat_guard')).toBeNull()
     expect(whisperOnlyControlReason('anime_whisper', 'fast_mode')).toBe('Not used with Anime-whisper')
     expect(whisperOnlyControlReason('qwen3_asr_long', 'repeat_guard')).toBe('Not used with Qwen3 ASR')
-  })
-})
-
-describe('advisor note', () => {
-  it('recommends large-v3 with separation off, with the evidence when separation is on', () => {
-    expect(advisorNote('whisper', false)).toContain('Whisper large-v3')
-    expect(advisorNote('whisper', false)).not.toContain('142')
-    expect(advisorNote('whisper', true)).toContain('142 lines against 184')
-  })
-
-  it('warns about Qwen3 on long audio', () => {
-    expect(advisorNote('qwen3_asr_long', false)).toContain('timing uncertain')
-    expect(advisorNote('whisper', false)).not.toContain('timing uncertain')
   })
 })

@@ -591,6 +591,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
 
     return {
         "line_count": len(lines),
+        "stage_seconds": outcome["stage_seconds"],
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
         "device_notice": (
             whisper_models.gpu_fallback_notice(outcome.get("gpu_fallback_task", "Transcription"),

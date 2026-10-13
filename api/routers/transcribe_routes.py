@@ -24,7 +24,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Request
 from api.auth import (is_at_pc, is_local_request, require_engines_allowed, require_paid_engines,
                       require_permission)
-from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
+from api.schemas import (AsrAdvice, AsrAdviceRequest, AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
                          AutotuneStatus, CompareApplyRequest, CompareApplyResult,
                          CompareEstimate, CompareEstimateRequest, CompareOptions,
                          CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse,
@@ -36,7 +36,7 @@ from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunRe
                          RetranscribeManyRequest, RetranscribeManyResult, RetranscribeManyStarted,
                          SpeechCoverageRunResult, SpeechCoverageStatus, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeGaps, TranscribeRunRequest, TranscribeRunResult)
-from services import (autotune_service, compare_transcription_service, model_readiness_service,
+from services import (autotune_service, transcribe_options_service, compare_transcription_service, model_readiness_service,
                       retime_service, retranscribe_many_service, speech_coverage_service,
                       transcribe_gap_service, transcribe_service, retranscribe_line_service)
 from services.service_errors import ForbiddenError
@@ -59,6 +59,17 @@ def post_transcribe_config(payload: TranscribeConfigUpdate, request: Request,
     if payload.use_groq:
         require_paid_engines(request)   # Groq cloud on the owner's key
     return transcribe_service.update_transcribe_config(drama_id, **payload.model_dump())
+
+
+@router.post("/asr-advice", dependencies=[require_permission("library.read")], response_model=AsrAdvice,
+             summary="Which models and settings not to combine, for the choices sent")
+def post_asr_advice(payload: AsrAdviceRequest):
+    return {"notes": transcribe_options_service.asr_advice_for_form(
+        payload.language, payload.media_type, payload.asr_backend, payload.whisper_size,
+        {"separate_vocals_first": payload.separate_vocals_first, "whisper_fast_mode": payload.whisper_fast_mode,
+         "use_groq": payload.use_groq, "has_transcript": payload.has_transcript,
+         "alignment_method": payload.alignment_method},
+        payload.use_gpu, payload.check_environment)}
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranscribeRunResult,

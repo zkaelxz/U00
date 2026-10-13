@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { engineThatRan, RunSettings, runSettingRows } from './RunSettings'
+import { adviceRequestFromRun, engineThatRan, RunSettings, runSettingRows } from './RunSettings'
 
 describe('RunSettings', () => {
   it('lists each setting with toggles as on/off', () => {
@@ -39,5 +39,17 @@ describe('RunSettings', () => {
     expect(engineThatRan({ run_settings: { asr_backend: 'qwen3_asr', whisper_size: 'large-v3' } })).toBeNull()
     expect(engineThatRan({ run_settings: { asr_backend: 'qwen3_asr_long', transcript_mode: 'have_transcript' } })).toBeNull()
     expect(engineThatRan({ line_count: 3 })).toBeNull()
+  })
+})
+
+describe('adviceRequestFromRun', () => {
+  it('asks about the combination a transcription run recorded, without checking this PC', () => {
+    const req = adviceRequestFromRun({ run_settings: { asr_backend: 'qwen3_asr_long', whisper_size: 'large-v3', source_language: 'ja', separate_vocals_first: true, use_gpu: false, transcript_mode: 'whisper' } })
+    expect(req).toMatchObject({ asr_backend: 'qwen3_asr_long', language: 'ja', separate_vocals_first: true, use_gpu: false, has_transcript: false, check_environment: false })
+  })
+
+  it('is null for a job that is not a transcription', () => {
+    expect(adviceRequestFromRun({ run_settings: { engine: 'claude' } })).toBeNull()
+    expect(adviceRequestFromRun(null)).toBeNull()
   })
 })
