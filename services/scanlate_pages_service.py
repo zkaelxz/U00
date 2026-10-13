@@ -114,10 +114,11 @@ _PATH_RE = re.compile(r"(?<![\w.:/\\])(?:[A-Za-z]:[\\/]|\\\\|/)[^\s'\"<>()]+")
 
 
 def clean_note(text) -> str:
-    """Redacts anything key-like and replaces absolute paths, so a note is
+    """Redacts anything key-like and replaces absolute paths and URL queries, so a note is
     safe to store and return (spec §4 secrets and paths)."""
-    from translate_engines import redact_secrets
-    text = redact_secrets(str(text or ""))
+    from translate_engines import redact_secrets, strip_url_queries
+    # Hugging Face downloads redirect to signed CDN URLs whose query is a credential.
+    text = strip_url_queries(redact_secrets(str(text or "")))
     text = _WIN_PATH_RE.sub("<path>", text)                  # these two allow spaces in folders
     text = _POSIX_SPACED_RE.sub("<path>", text)
     text = _PATH_RE.sub("<path>", text).replace("**", "")

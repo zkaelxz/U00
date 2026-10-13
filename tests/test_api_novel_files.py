@@ -3,6 +3,7 @@ B1 #3/#4): the English novel reference and the raw original-language
 novel. Isolated library, tiny in-test files, no network or models."""
 
 import io
+import time
 import json
 import os
 import zipfile
@@ -314,41 +315,27 @@ def test_paste_refused_while_job_runs(client, monkeypatch):
     assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 409
 
 
-def test_raw_novel_writes_refused_during_any_source_import(client, monkeypatch):
+def test_raw_novel_writes_refused_during_this_titles_source_import(client):
     did = _drama()
-    monkeypatch.setattr(background_jobs, "list_all_jobs",
-                        lambda: {"source_import_demo_42": {"status": "running"}})
-    assert _up(client, _raw(did), b"x").status_code == 409
-    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 409
-    # an import never writes the reference, so that stays allowed
-    assert client.post(_ref(did) + "/text", json={"text": "x"}).status_code == 200
-    monkeypatch.setattr(background_jobs, "list_all_jobs",
-                        lambda: {"source_import_demo_42": {"status": "done"}})
-    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 200
+    job = {"status": "running", "progress": 0.0, "message": "", "result": None,
+           "error": None, "started_at": time.time(), "finished_at": None}
+    with job_table._lock:
+        job_table._jobs[f"sourceimport_{did}"] = job
+    try:
+        assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 409
+        job["status"] = "done"
+        assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 200
+    finally:
+        with job_table._lock:
+            job_table._jobs.pop(f"sourceimport_{did}", None)
 
 
-def test_source_import_in_another_process_blocks_raw_novel(client):
+def test_source_import_in_another_process_blocks_this_titles_raw_novel(client):
     did = _drama()
-    db.save_job_record("source_import_demo_7", "running")
+    db.save_job_record(f"sourceimport_{did}", "running")
     assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 409
-    db.save_job_record("source_import_demo_7", "done")
+    db.save_job_record(f"sourceimport_{did}", "done")
     assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 200
-
-
-def test_a_stale_source_import_record_does_not_block_raw_novel(isolated_db, monkeypatch):
-    """A row nobody has heartbeated for STALE_JOB_SECONDS was left by a dead
-    process; a row inside the window, or one of an unrelated job, is judged
-    on its own."""
-    import time
-    db.save_job_record("source_import_demo_7", "running")
-    db.save_job_record("translate_1", "running")
-    real = time.time()
-    monkeypatch.setattr(time, "time",
-                        lambda: real + job_table.STALE_JOB_SECONDS - 60)
-    assert svc._source_import_running() is True
-    monkeypatch.setattr(time, "time",
-                        lambda: real + job_table.STALE_JOB_SECONDS + 60)
-    assert svc._source_import_running() is False
 
 
 def test_paste_routes_are_pc_only(isolated_db):

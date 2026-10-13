@@ -172,6 +172,14 @@ def test_page_detail_keyed_by_id_and_scoped(client):
                                "notes": [{"level": "warning", "message": "m"}]}]
 
 
+def test_clean_note_drops_url_queries():
+    note = pages_svc.clean_note("Could not download for url: "
+                                "https://cdn.example.com/a/config.json?token=abc123&x=1 (403)")
+    assert "https://cdn.example.com/a/config.json" in note
+    assert "token" not in note and "abc123" not in note
+    assert "(403)" in note
+
+
 def test_clean_note_strips_keys_and_paths():
     note = pages_svc.clean_note(
         "boom sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123 at /home/kae/library/dramas/1/x.png "
@@ -271,6 +279,21 @@ def test_tall_strip_sliced_by_default_and_optional(client):
     n = len(db.list_pages(did))
     r = _upload(client, did, [("strip.png", strip, "image/png")], slice_strips=False)
     assert r.json()["added"] == 1 and len(db.list_pages(did)) == n + 1
+
+
+def test_a_strip_over_the_slice_cap_is_rejected_not_left_whole(monkeypatch):
+    import scanlate_detect
+    monkeypatch.setattr(scanlate_detect, "_MAX_WEBTOON_SLICES", 2)
+    with pytest.raises(limits.ImageRejected, match="slice limit"):
+        limits.prepare_page(_png(200, 6000))
+
+
+def test_a_memory_error_while_slicing_is_not_swallowed(monkeypatch):
+    def boom(*a, **k):
+        raise MemoryError
+    monkeypatch.setattr(scanlate, "slice_webtoon_to_files", boom)
+    with pytest.raises(limits.ImageRejected, match="memory"):
+        limits.prepare_page(_png(200, 2400))
 
 
 def test_pdf_import(client, monkeypatch):
@@ -506,6 +529,17 @@ def test_context_from_predecessor_and_usage_logged(client, fake_detect, monkeypa
     assert [tuple(r) for r in rows] == [("scanlate_translate", 100)]
 
 
+def test_context_skips_a_hidden_page(client, isolated_db):
+    did = _drama()
+    p1, p2, p3 = _page(did, 0), _page(did, 1), _page(did, 2)
+    db.update_page(p1, context_summary="FROM-VISIBLE-PAGE")
+    db.update_page(p2, context_summary="FROM-HIDDEN-PAGE")
+    import comic_chapters
+    comic_chapters.set_hidden(did, [db.get_page(p2)["filename"]], True)
+    assert run_svc._predecessor_context(did, p3) == "FROM-VISIBLE-PAGE"
+    assert run_svc._predecessor_context(did, p2) == "FROM-VISIBLE-PAGE"
+
+
 def test_failed_redo_keeps_the_translated_regions(client, fake_detect, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -530,6 +564,110 @@ def test_redo_that_detects_nothing_keeps_the_regions(client, monkeypatch):
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
     _run(client, did, mode="page", page_id=pid, engine="fake")
     _wait(f"scanlate_{did}")
+    assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
+
+
+def test_redo_with_partial_ocr_failure_keeps_the_page(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(1, translated_text="good one"),
+                          _region(50, translated_text="good two")])
+    before = [b["id"] for b in db.load_bubbles(pid)]
+
+    def detect(image_path, lang, page_id=None, **kw):
+        # one region read, one lost to an OCR error
+        return [_region(5, "你好"), _region(50, "")], [
+            ("error", "OCR failed on 1 of 2 regions. Check that the OCR backend is installed.")]
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    _run(client, did, mode="page", page_id=pid, engine="fake")
+    st = _wait(f"scanlate_{did}")
+    assert "kept unchanged" in st["message"]
+    rows = db.load_bubbles(pid)
+    assert [b["id"] for b in rows] == before
+    assert [b["translated_text"] for b in rows] == ["good one", "good two"]
+    assert "OCR" in db.get_page(pid)["run_notes"]
+
+
+def test_redo_where_nothing_gets_translated_keeps_the_page(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(1, translated_text="good")])
+    # only an SFX region has text, so nothing is sent for translation
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page",
+                        lambda *a, **k: ([_region(5, "砰", kind="sfx")], []))
+    _run(client, did, mode="page", page_id=pid, engine="fake")
+    st = _wait(f"scanlate_{did}")
+    assert "kept unchanged" in st["message"]
+    assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
+
+
+def test_redo_keeps_the_page_when_one_chunk_of_a_dense_page_is_rejected(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    old = [_region(i, text=f"旧{i}", translated_text=f"good {i}") for i in range(45)]
+    db.save_bubbles(pid, old)
+    before = [(b["id"], b["translated_text"]) for b in db.load_bubbles(pid)]
+    new = [_region(i, text=f"新{i}") for i in range(45)]
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (new, []))
+    replies = iter([
+        json.dumps({"translations": {str(i): f"new {i}" for i in range(40)},
+                    "context_summary": "s"}),
+        "not json"])                                    # the second chunk (5 regions)
+    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: next(replies))
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    _run(client, did, mode="page", page_id=pid, engine="claude")
+    st = _wait(f"scanlate_{did}")
+    assert "kept unchanged" in st["message"]
+    assert [(b["id"], b["translated_text"]) for b in db.load_bubbles(pid)] == before
+    assert "weren't translated" in db.get_page(pid)["run_notes"]
+
+
+def test_a_partly_translated_first_run_still_saves_what_was_translated(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    new = [_region(i, text=f"新{i}") for i in range(45)]
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (new, []))
+    replies = iter([json.dumps({"translations": {str(i): f"new {i}" for i in range(40)},
+                                "context_summary": "s"}), "not json"])
+    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: next(replies))
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    _run(client, did, mode="page", page_id=pid, engine="claude")
+    _wait(f"scanlate_{did}")
+    done = [b for b in db.load_bubbles(pid) if b["translated_text"]]
+    assert len(done) == 40 and "weren't translated" in db.get_page(pid)["run_notes"]
+
+
+def test_redo_with_ocr_error_keeps_hand_corrected_source_text(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(1, text="手改", translated_text=""),
+                          _region(50, text="另一个", translated_text="")])
+    before = [(b["id"], b["source_text"]) for b in db.load_bubbles(pid)]
+    paid = []
+    monkeypatch.setattr(translate_engines, "call_llm_json",
+                        lambda *a, **k: paid.append(1) or "{}")
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (
+        [_region(5, "你好"), _region(50, "")], [("error", "OCR failed on 1 of 2 regions.")]))
+    _run(client, did, mode="page", page_id=pid, engine="fake")
+    st = _wait(f"scanlate_{did}")
+    assert "kept unchanged" in st["message"]
+    assert [(b["id"], b["source_text"]) for b in db.load_bubbles(pid)] == before
+    assert paid == []
+
+
+def test_a_redo_that_will_be_thrown_away_is_not_translated_or_billed(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(1, translated_text="good")])
+    paid = []
+    monkeypatch.setattr(translate_engines, "call_llm_json",
+                        lambda *a, **k: paid.append(1) or "{}")
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (
+        [_region(5, "你好"), _region(50, "")], [("error", "OCR failed on 1 of 2 regions.")]))
+    _run(client, did, mode="page", page_id=pid, engine="claude")
+    _wait(f"scanlate_{did}")
+    assert paid == []
     assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
 
 

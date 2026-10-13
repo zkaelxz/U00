@@ -33,10 +33,15 @@ HARNESS = textwrap.dedent("""
         const body = JSON.parse(init.body);
         requests.push({ path, keys: body.images.map((i) => i.key) });
         const reply = scenario.reply(requests.length, body);
+        if (reply.abort) {
+          const aborted = new Error("aborted");
+          aborted.name = "AbortError";
+          throw aborted;
+        }
         return { ok: reply.status === 200, status: reply.status, json: async () => reply.body };
       },
       console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
-      setTimeout, globalThis: null,
+      setTimeout, clearTimeout, AbortController, globalThis: null,
     };
     sandbox.globalThis = sandbox;
     sandbox.importScripts = (name) => vm.runInContext(
@@ -132,3 +137,19 @@ def test_a_byte_closed_batch_takes_the_short_tail_instead_of_leaving_it_alone():
     got = run(3, ECHO, cap=12, size=10 * 1024 * 1024)
     sizes = [len(r["keys"]) for r in got["requests"]]
     assert sizes == [3]
+
+
+def test_a_timed_out_batch_stops_the_chapter_instead_of_overlapping_the_next():
+    # The app keeps working on a batch the extension gave up on; sending the
+    # next one would run two at once and interleave the stored pages.
+    reply = """(n, body) => n === 2
+        ? { abort: true }
+        : { status: 200, body: { pages: body.images.map((i) => ({ key: i.key, regions: [] })),
+              skipped: [], failed: [], received: body.images.length, stored: body.images.length } }"""
+    got = run(30, reply, cap=10)
+    assert len(got["requests"]) == 2
+    data = got["result"]["data"]
+    assert data["received"] == 10 and data["stored"] == 10
+    assert [f["key"] for f in data["failed"]] == [f"k{i}" for i in range(10, 30)]
+    assert "still working" in data["failed"][0]["error"]
+    assert "still working" in data["stopped"]["message"] and "later" in data["stopped"]["message"]

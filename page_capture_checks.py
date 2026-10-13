@@ -201,3 +201,15 @@ def select_page_images(images, page_url: str):
     return ([images[c.order] for c in kept],
             [(images[c.order], c.reject_reason) for c in rejected
              if c.order not in kept_set])
+
+
+def sniff_image(data: bytes):
+    """(extension, None) from the bytes themselves, or (None, (status, reason)).
+    The client's claimed type is only a hint; the pixel cap is read from the
+    header so a huge image is refused before anything decodes it."""
+    from services import page_import_limits
+    try:
+        return page_import_limits.image_extension(data), None
+    except page_import_limits.ImageRejected as exc:
+        reason = str(exc)
+        return None, (413 if reason.startswith("over the") else 415, reason)

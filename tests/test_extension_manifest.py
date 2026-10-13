@@ -307,3 +307,15 @@ class TestThePopupSaysWherePagesWent:
             assert f'id="{element_id}"' in html
         assert 'aria-live="polite"' in html
         assert "width: 340px" in html
+
+
+def test_bridge_calls_are_cut_off_before_the_service_worker_is_stopped():
+    """Chrome may stop a worker whose event runs ~5 minutes; call() must time
+    out first and say the app is still working (the repo has no browser here,
+    so this reads the source like its neighbours)."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "extension" / "background.js").read_text(
+        encoding="utf-8")
+    assert "new AbortController()" in src and "signal: controller.signal" in src
+    assert "CALL_TIMEOUT_MS = 4.5 * 60 * 1000" in src
+    assert "timedOut: true" in src
