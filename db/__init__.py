@@ -2153,96 +2153,9 @@ from db.style import (  # noqa: E402,F401
 # previously applied to: nothing else references presets.id at all.
 # ---------------------------------------------------------------------------
 
-def save_preset(name: str, translation_engine: str = None, engine_model: str = None,
-                 style_preset: str = None, locale: str = None,
-                 default_female_pronouns: bool = False, include_genre_notes: bool = True) -> int:
-    """Creates a new preset, or overwrites the existing one with this exact
-    name -- "Save as preset" under a name that's already taken replaces
-    its captured fields rather than failing on the name's UNIQUE
-    constraint, the same "save as" behavior as most apps. Overwriting
-    never touches any drama the old version was previously applied to,
-    since applying one only ever copies its fields onto a drama at that
-    moment (see the `presets` table comment) -- there's no live link to
-    break."""
-    now = datetime.datetime.utcnow().isoformat()
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("""
-            INSERT INTO presets (name, translation_engine, engine_model, style_preset, locale,
-                                  default_female_pronouns, include_genre_notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                translation_engine = excluded.translation_engine,
-                engine_model = excluded.engine_model,
-                style_preset = excluded.style_preset,
-                locale = excluded.locale,
-                default_female_pronouns = excluded.default_female_pronouns,
-                include_genre_notes = excluded.include_genre_notes,
-                updated_at = excluded.updated_at
-        """, (name, translation_engine, engine_model, style_preset, locale,
-              int(bool(default_female_pronouns)), int(bool(include_genre_notes)), now, now))
-        conn.commit()
-        # cur.lastrowid isn't reliable on the UPDATE branch of an upsert --
-        # look the row up by its own UNIQUE name instead of trusting it.
-        preset_id = conn.execute("SELECT id FROM presets WHERE name = ?", (name,)).fetchone()["id"]
-    return preset_id
-
-
-def insert_preset(name: str, translation_engine: str = None, engine_model: str = None,
-                  style_preset: str = None, locale: str = None,
-                  default_female_pronouns: bool = False, include_genre_notes: bool = True) -> int:
-    """Insert-only twin of save_preset: a taken name raises
-    sqlite3.IntegrityError (UNIQUE(name)) instead of replacing the row, so
-    a caller can refuse an overwrite without a check-then-write race."""
-    now = datetime.datetime.utcnow().isoformat()
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute("""
-            INSERT INTO presets (name, translation_engine, engine_model, style_preset, locale,
-                                  default_female_pronouns, include_genre_notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (name, translation_engine, engine_model, style_preset, locale,
-              int(bool(default_female_pronouns)), int(bool(include_genre_notes)), now, now))
-        conn.commit()
-        return cur.lastrowid
-
-
-def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str = None) -> bool:
-    """The guided switch: changes only a preset's model, and only if it
-    still holds expected_model (when given). False when nothing changed."""
-    with contextlib.closing(get_conn()) as conn:
-        if expected_model is None:
-            cur = conn.execute("UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ?",
-                               (engine_model, datetime.datetime.utcnow().isoformat(), preset_id))
-        else:
-            cur = conn.execute(
-                "UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ? AND engine_model = ?",
-                (engine_model, datetime.datetime.utcnow().isoformat(), preset_id, expected_model))
-        conn.commit()
-    return cur.rowcount > 0
-
-
-def list_presets():
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
-    return [dict(r) for r in rows]
-
-
-def rename_preset(preset_id: int, new_name: str):
-    """Updates only the name -- every captured field is left exactly as
-    saved."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE presets SET name = ?, updated_at = ? WHERE id = ?",
-                     (new_name, datetime.datetime.utcnow().isoformat(), preset_id))
-        conn.commit()
-
-
-def delete_preset(preset_id: int):
-    """Removes only the presets row. No drama row (or any other table)
-    references a preset's id, so a drama this preset was previously
-    applied to is completely unaffected -- see the `presets` table's own
-    comment in init_db."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM presets WHERE id = ?", (preset_id,))
-        conn.commit()
+from db.presets import (  # noqa: E402,F401
+    delete_preset, insert_preset, list_presets, rename_preset, save_preset,
+    set_preset_engine_model)
 
 
 # ---------------------------------------------------------------------------
