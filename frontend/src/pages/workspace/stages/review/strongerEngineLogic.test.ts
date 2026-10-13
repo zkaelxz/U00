@@ -88,6 +88,14 @@ describe('stronger engine logic', () => {
     expect(tryErrorText(apiError(429, 'busy'), 'Claude')).toMatch(/Another AI request is running/)
     expect(tryErrorText(apiError(503, 'No claude key'), 'Claude')).toMatch(/Claude isn't set up/)
     expect(tryErrorText(apiError(500, 'boom'), 'Claude')).toBeNull()
+  })
+
+  it('says the package is missing, not the key, when the server names a package', () => {
+    const missing = new ApiError(503, { code: 'dependency_unavailable', message: 'x', details: { reason: 'missing_package', package: 'anthropic' } })
+    expect(tryErrorText(missing, 'Claude')).toMatch(/package isn't installed.*Diagnostics/)
+    const noKey = new ApiError(503, { code: 'dependency_unavailable', message: 'x', details: { reason: 'no_key', engine: 'claude' } })
+    expect(tryErrorText(noKey, 'Claude')).toMatch(/Add its key under Settings/)
+    expect(tryErrorText(apiError(500, 'boom'), 'Claude')).toBeNull()
     expect(tryErrorText(new Error('x'), 'Claude')).toBeNull()
   })
 })

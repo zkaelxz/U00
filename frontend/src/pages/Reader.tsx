@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 
 import { api, ApiError } from '../api/client'
 import { mediaStreamUrl } from '../api/media'
-import { captionUrl, dubTrackUrl, readerApi, readerEngines } from '../api/reader'
+import { captionUrl, dubTrackUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
 import { translateApi } from '../api/translate'
 import { getGlossaryTerms } from '../api/translateStage'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -217,6 +217,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [vocab, setVocab] = useState<ReaderVocabList | null>(null)
   const [terms, setTerms] = useState<GlossaryTerm[]>([])
   const [engines, setEngines] = useState<TranslateEngine[]>([])
+  const [enginesOff, setEnginesOff] = useState<TranslateEngine[]>([])
   const [enginePref, setEngine] = usePersistedState('reader.engine', '')
   const [pageTick, setPageTick] = useState(0)
   const [loadTick, setLoadTick] = useState(0)
@@ -255,7 +256,10 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     }, setLoadError)
     readerApi.media(id).then(setMedia, () => setMedia(null))
     getGlossaryTerms(id).then(setTerms, () => setTerms([]))
-    translateApi.engines().then((all) => setEngines(readerEngines(all)), () => setEngines([]))
+    translateApi.engines().then((all) => {
+      setEngines(readerEngines(all))
+      setEnginesOff(readerEnginesOff(all))
+    }, () => setEngines([]))
     return () => {
       cancelled = true
     }
@@ -449,6 +453,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
                 page={page}
                 chapterSize={prefs.chapterSize}
                 engines={engines}
+                enginesOff={enginesOff}
                 engine={engine}
                 onEngine={setEngine}
                 onLookedUp={() => {
@@ -467,6 +472,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
                 boundary={boundary}
                 spoilerFree={prefs.spoilerFree}
                 engines={engines}
+                enginesOff={enginesOff}
                 engine={engine}
                 onEngine={setEngine}
               />

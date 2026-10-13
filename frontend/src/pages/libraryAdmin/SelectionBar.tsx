@@ -5,6 +5,7 @@ import { bulkDelete, bulkSetStatus, bulkSetTag, bulkTranslate, startExport } fro
 import type { DramaSummary } from '../../api/types'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { TypedConfirm } from '../../components/TypedConfirm'
+import { routeHref } from '../../router'
 import { useHolds } from '../../hooks/useHolds'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { statusLabel, tagLabel } from '../../labels'
@@ -13,7 +14,7 @@ import {
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
 import {
-  EXPORT_NEEDS, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeTranslateSkips,
+  EXPORT_NEEDS, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
   exportableIds, titleOf, translatableIds,
 } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
@@ -146,6 +147,7 @@ export function SelectionBar({
 
   const n = selected.length
   const translateMsg = translateError(translate.startError)
+  const noKeyNote = translate.done ? describeNoKeySkips(translate.job?.result, name) : null
   // Reasons sit under their buttons in the phone menu, in the bar's lines on desktop.
   const reason = (show: boolean, id: string, text: string): ReactNode =>
     show ? <p className="muted" id={id}>{text}</p> : null
@@ -226,6 +228,11 @@ export function SelectionBar({
       {!phone && pcReason}
       {!phone && editReason}
       <AdminJobLine job={translate} busyText="Translating…" />
+      {noKeyNote && (
+        <p className="muted" role="status" data-testid="translate-no-key">
+          {noKeyNote} <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>
+        </p>
+      )}
       {translateMsg ? <p className="error" role="alert">{translateMsg}</p> : <ErrorBanner error={translate.startError} />}
       {skips && <p className="muted">{skips}</p>}
       {local && <AdminJobLine job={exporter} busyText="Exporting…" artifact="export" showLink={exporter.done} />}
