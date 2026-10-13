@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
-import { mediaTab } from './mediaTabs'
+import { selectMediaTab } from './mediaTabs'
 import { mockDub, mockProgress } from './plainErrorsMocks'
 
 // Plain reasons instead of generic or raw errors: Export and Dub buttons that
@@ -115,7 +115,7 @@ test('Transcribe uses the stored media when a staged file is not set to replace 
   })
   await page.goto('/#/drama/1/source')
   await page.locator('#source-media-file-1').setInputFiles({ name: 'other.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('x') })
-  await mediaTab(page, 'transcribe').click()
+  await selectMediaTab(page, 'transcribe')
   await expect(page.getByTestId('transcribe-staged-unused')).toContainText('not used for this run')
   const transcribe = page.getByRole('button', { name: 'Transcribe', exact: true })
   await expect(transcribe).toBeEnabled()

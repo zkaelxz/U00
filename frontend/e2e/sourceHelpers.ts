@@ -1,12 +1,12 @@
 import { expect, type Page } from '@playwright/test'
 
-import { mediaPanel, mediaTab, openAllFolds } from './mediaTabs'
+import { mediaPanel, openAllFolds, selectMediaTab } from './mediaTabs'
 
 // The Media stage's sub-tabs: the Transcribe tab holds the run form (language, model, the Transcribe button),
 // the Tools tab the Advanced options folds, Auto-tune and Speech coverage. Wait for the saved options to load
 // (the settings summary shows then) so a click is not undone by the first render.
 export async function openTranscribeOptions(page: Page) {
-  await mediaTab(page, 'transcribe').click()
+  await selectMediaTab(page, 'transcribe')
   await expect(page.getByTestId('settings-summary')).toBeVisible()
 }
 
@@ -18,7 +18,7 @@ export const transcribeCard = (page: Page) => mediaPanel(page, 'transcribe')
  * (Extra names, Replacement prompt) is opened too unless `prompt` is false.
  */
 export async function openAdvanced(page: Page, prompt = true) {
-  await mediaTab(page, 'tools').click()
+  await selectMediaTab(page, 'tools')
   const advanced = mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })
   await expect(advanced).toBeVisible()
   await openAllFolds(advanced)

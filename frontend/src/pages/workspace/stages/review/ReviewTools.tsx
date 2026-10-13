@@ -87,7 +87,7 @@ export function ReviewTools({ dramaId, status, panels, attention = {}, request =
   return (
     <section className="review-toolbox" aria-label="Checks and tools">
       {status}
-      <Tabs label="Review tools" idPrefix={ID_PREFIX} tabs={tabs} active={tab} onSelect={select} />
+      <Tabs label="Review tools" idPrefix={ID_PREFIX} tabs={tabs} active={tab} onSelect={select} keepRow />
       {REVIEW_TOOLS_TABS.map(({ id }) => (
         <div
           key={id}
