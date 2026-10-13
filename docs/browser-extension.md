@@ -182,7 +182,7 @@ to Scanlate when no engine is set. Capture sends no chapter labels, so an
 identical page shared by two chapters (credits) is reused too, not duplicated.
 
 Everything funnels into the existing, tested pipeline
-(`scanlate.detect_and_ocr_page` → `scanlate.translate_page_bubbles`) and
+(`scanlate.detect_and_ocr_page` → `scanlate_translate.translate_page_bubbles`) and
 the same `sources.pipeline.add_page_images` import path Scanlate's own
 manual upload uses. There is deliberately no second translation path, and
 which images count as real pages is decided by

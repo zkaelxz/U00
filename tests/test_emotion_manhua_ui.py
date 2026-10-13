@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 import emotion as em
-import scanlate
+import scanlate_render
 import scanlate_detect
 from core import Line
 
@@ -218,13 +218,13 @@ class TestTextRegionClassification:
         try:
             p = os.path.join(d, "p.png")
             cv2.imwrite(p, np.full((200, 200, 3), 255, dtype=np.uint8))
-            s = scanlate.sample_text_style(p, {"x": 10, "y": 10, "w": 100, "h": 50})
+            s = scanlate_render.sample_text_style(p, {"x": 10, "y": 10, "w": 100, "h": 50})
             assert s["suggested_style"] in ("handwritten", "bold", "regular")
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_font_sampling_missing_file_fallback(self):
-        s = scanlate.sample_text_style("/nope/x.png", {"x": 0, "y": 0, "w": 5, "h": 5})
+        s = scanlate_render.sample_text_style("/nope/x.png", {"x": 0, "y": 0, "w": 5, "h": 5})
         assert s["weight"] == "regular"
 
 

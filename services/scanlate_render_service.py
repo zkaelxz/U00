@@ -55,9 +55,9 @@ def _pages_dir(drama_id: int) -> str:
 
 def _custom_fonts(drama_id: int) -> dict:
     """The drama's own saved fonts (`fonts/<category>.ttf`)."""
-    import scanlate
+    import scanlate_render
     folder = os.path.join(db.drama_dir(drama_id), "fonts")
-    return {cat: os.path.join(folder, f"{cat}.ttf") for cat in scanlate.FONT_CATEGORIES
+    return {cat: os.path.join(folder, f"{cat}.ttf") for cat in scanlate_render.FONT_CATEGORIES
             if os.path.isfile(os.path.join(folder, f"{cat}.ttf"))
             and not os.path.islink(os.path.join(folder, f"{cat}.ttf"))}
 
@@ -69,11 +69,12 @@ def render_page(drama_id: int, page_id: int, notes: list = None, cancel_check=No
     no translation. Warnings (blank regions, an inpaint fallback) are
     appended to `notes` as (level, message). `cancel_check` lets a cancel end the
     wait for the pipeline lock."""
-    import scanlate
+    import scanlate_regions
+    import scanlate_render
     notes = notes if notes is not None else []
     page = pages_svc.require_page(drama_id, page_id)
     bubbles = db.load_bubbles(page_id)
-    placed = [b for b in bubbles if not b.get("skip") and not scanlate.region_excluded_from_auto(b)
+    placed = [b for b in bubbles if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
               and (b.get("translated_text") or "").strip()]
     if not placed:
         return {"rendered": False, "blank": 0}
@@ -83,7 +84,7 @@ def render_page(drama_id: int, page_id: int, notes: list = None, cancel_check=No
     render_notes = []
     # A direct call outside a job has no cancel to honour, so the wait is unbounded as before.
     with cancellable_lock.hold(pages_svc.pipeline_lock(), cancel_check or (lambda: None)):
-        _path, skipped_blank = scanlate.process_page(
+        _path, skipped_blank = scanlate_render.process_page(
             src, bubbles, out, custom_fonts=_custom_fonts(drama_id), notes=render_notes)
     for n in render_notes:
         notes.append((n[0], "Text cleanup fell back to OpenCV: " + n[-1]))

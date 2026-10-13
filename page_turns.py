@@ -79,10 +79,10 @@ def _evict_idle_chains():
 def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb):
     """Translates one page as the next link of its title's context chain.
     Other titles never wait on this title's lock."""
-    import scanlate
+    import scanlate_translate
     key = _chain_key(drama_id, source_url)
     if key is None:
-        scanlate.translate_page_bubbles(
+        scanlate_translate.translate_page_bubbles(
             bubbles, engine, drama or {}, previous_context="",
             glossary_terms=glossary, usage_cb=usage_cb)
         return
@@ -98,7 +98,7 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
         try:
             with _context_lock:
                 previous = _contexts.get(key, "") if linked else ""
-            new_context = scanlate.translate_page_bubbles(
+            new_context = scanlate_translate.translate_page_bubbles(
                 bubbles, engine, drama or {}, previous_context=previous,
                 glossary_terms=glossary, usage_cb=usage_cb)
             if linked:
