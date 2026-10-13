@@ -1308,7 +1308,8 @@ def _migrate_drama_columns(conn):
                           ("source_url_full", "TEXT"), ("keep_original", "INTEGER DEFAULT 0"),
                           # NULL = off: translate whole sentences, then split the English
                           # across the short timed lines (sentence_groups.py).
-                          ("translate_by_sentence", "INTEGER")]:
+                          ("translate_by_sentence", "INTEGER"),
+                          ("release_date", "TEXT")]:
         if col not in drama_cols:
             _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off

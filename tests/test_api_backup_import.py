@@ -468,7 +468,7 @@ COPIED = {
                "project_instructions", "reading_speed_mode", "default_female_pronouns",
                "include_genre_notes", "whisper_repeat_guard", "split_by_sentences",
                "vocabulary_hint", "translate_thinking", "source_url_full", "keep_original",
-               "translate_by_sentence"},
+               "translate_by_sentence", "release_date"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
               "speaker_manual", "sfx", "lang", "word_timings"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",

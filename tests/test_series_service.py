@@ -459,3 +459,22 @@ class TestCopyTerms:
         s = db.create_series("S", owner_user_id=people["a_id"])
         with pytest.raises(InvalidInputError):
             svc.copy_terms_preview(people["a"], s, s)
+
+
+class TestReleaseDate:
+    def test_page_carries_each_visible_titles_date_only(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        shown = db.create_drama(title_en="Shown", source_language="zh", series_id=s,
+                                owner_user_id=people["a_id"], release_date="2025-01-02")
+        hidden = db.create_drama(title_en="Old private", source_language="zh",
+                                 owner_user_id=people["b_id"], release_date="2024-01-01")
+        with contextlib.closing(db.get_conn()) as conn:   # from before the flag was cleared
+            conn.execute("UPDATE dramas SET series_id = ?, is_private = 1 WHERE id = ?",
+                         (s, hidden))
+            conn.commit()
+        for did in (shown, hidden):
+            db.save_lines(did, [Line(1, 0.0, 1.0, "你好", "hi")])
+        other = db.auth_create_user("c@example.com")
+        seen = svc.get_series_page(_p(other), s)["titles"]
+        assert {t["id"]: t["release_date"] for t in seen} == {shown: "2025-01-02"}
+        assert "2024-01-01" not in repr(seen)

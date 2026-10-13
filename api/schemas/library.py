@@ -126,6 +126,8 @@ class DramaSummary(BaseModel):
     media_type: Optional[str] = None
     content_mode: Optional[str] = None
     series_id: Optional[int] = None
+    release_date: Optional[str] = Field(
+        default=None, description="Stream / release date, YYYY-MM-DD; empty or null = unknown.")
     translation_engine: Optional[str] = None
     custom_tags: List[str] = Field(default_factory=list)
     created_at: Optional[str] = None
@@ -264,6 +266,7 @@ class DramaCreateRequest(BaseModel):
     voice_actors: str = Field(default="", max_length=300)
     summary: str = Field(default="", max_length=5000)
     media_type: str = "audio_drama"
+    release_date: str = Field(default="", max_length=10)
     series_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
     new_series_name: Optional[str] = Field(default=None, max_length=300)
     preset_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
@@ -304,6 +307,7 @@ class DramaMetadataUpdate(BaseModel):
     keep_original: Optional[StrictBool] = None
     translate_by_sentence: Optional[StrictBool] = None
     media_type: Optional[str] = None
+    release_date: Optional[str] = Field(default=None, max_length=10)
     publication_status: Optional[str] = None
     series_id: Optional[int] = Field(default=None, ge=0, le=2147483647)
     new_series_name: Optional[str] = Field(default=None, max_length=300)

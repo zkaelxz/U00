@@ -353,3 +353,20 @@ def test_metadata_title_with_nul_is_422(client):
     did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     resp = client.post(f"/api/dramas/{did}/metadata", json={"title_en": "a\u0000b"})
     assert resp.status_code == 422
+
+
+def test_release_date_create_read_update_and_reject(client):
+    made = client.post("/api/dramas", json={"source_language": "ja", "title_en": "Stream",
+                                            "release_date": "2025-03-04"})
+    assert made.status_code == 201, made.text
+    did = made.json()["id"]
+    assert made.json()["release_date"] == "2025-03-04"
+    assert client.get(f"/api/library/dramas/{did}").json()["release_date"] == "2025-03-04"
+    listed = client.get("/api/library/dramas").json()["items"]
+    assert [i["release_date"] for i in listed] == ["2025-03-04"]
+
+    bad = client.post(f"/api/dramas/{did}/metadata", json={"release_date": "2025-02-30"})
+    assert bad.status_code == 422, bad.text
+    _error(bad)
+    cleared = client.post(f"/api/dramas/{did}/metadata", json={"release_date": ""})
+    assert cleared.status_code == 200 and cleared.json()["release_date"] is None

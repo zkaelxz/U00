@@ -509,3 +509,36 @@ def test_delete_drops_only_that_titles_language_pack_choice(isolated_db):
 def test_delete_without_a_language_pack_choice_is_fine(isolated_db):
     a = ds.create_drama(source_language="zh", title_en="A")["id"]
     assert ds.delete_drama(a, confirm=True, confirm_text="DELETE")["deleted"] is True
+
+
+# --- release_date (stream / release date) -------------------------------------
+
+@pytest.mark.parametrize("bad", ["2026-13-01", "2026-02-30", "20260101", "2026-1-1", "26-01-01",
+                                 "2026-01-01T00:00", " 2026-01-01", "yesterday", "٢٠٢٦-٠١-٠١"])
+def test_release_date_bad_format_rejected_and_nothing_written(isolated_db, bad):
+    did = db.create_drama(title_en="A", source_language="zh")
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(did, release_date=bad)
+    with pytest.raises(InvalidInputError):
+        ds.create_drama(source_language="zh", release_date=bad)
+    assert db.get_drama(did)["release_date"] is None and _count() == 1
+
+
+def test_release_date_non_text_rejected(isolated_db):
+    did = db.create_drama(title_en="A", source_language="zh")
+    for bad in (20260101, True, ["2026-01-01"]):
+        with pytest.raises(InvalidInputError):
+            ds.update_drama_metadata(did, release_date=bad)
+
+
+def test_release_date_set_clear_and_future_allowed(isolated_db):
+    did = db.create_drama(title_en="A", source_language="zh")
+    assert ds.update_drama_metadata(did, release_date="2031-12-31")["release_date"] == "2031-12-31"
+    assert ds.update_drama_metadata(did, title_en="B")["release_date"] == "2031-12-31"
+    assert ds.update_drama_metadata(did, release_date="")["release_date"] is None
+
+
+def test_release_date_on_create_and_never_taken_from_created_at(isolated_db):
+    assert ds.create_drama(source_language="ja", title_en="A")["release_date"] is None
+    assert ds.create_drama(source_language="ja", title_en="B",
+                           release_date="2024-02-29")["release_date"] == "2024-02-29"

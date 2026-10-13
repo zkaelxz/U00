@@ -97,7 +97,7 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
     const bad = validateDetails(form, initial)
     setErrors(bad)
     // An error on a field inside "More details" must not stay hidden, nor one on the other sub-tab.
-    if (bad.source_url || bad.custom_tags || bad.episode_summary) setMoreSignal((n) => n + 1)
+    if (bad.custom_tags || bad.episode_summary) setMoreSignal((n) => n + 1)
     const badKeys = Object.keys(bad) as (keyof DetailsForm)[]
     const onCredits = (k: keyof DetailsForm) => CREDITS_FIELDS.includes(k)
     if (badKeys.length && !badKeys.some((k) => onCredits(k) === (tab === 'credits'))) goTab(tab === 'credits' ? 'details' : 'credits')
@@ -229,18 +229,21 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
                   </select>
                 </Field>
                 {kind !== 'audio' && count('chapter_count', 'How many chapters the original has. Leave empty if unknown.')}
+                <Field label={FIELD_LABELS.release_date} help="When the stream aired or the title came out. Lets the Library list titles in the order to watch them. Leave empty if unknown." error={errors.release_date}>
+                  <input type="date" name="release_date" value={form.release_date} onChange={set('release_date')} />
+                </Field>
                 {count('episode_number', 'Orders this title within its series, so the next episode gets this one\'s running summary. Leave empty to use the date added.')}
               </div>
               <Field label="Summary" error={errors.summary}>
                 <textarea rows={2} value={form.summary} onChange={set('summary')} />
               </Field>
+              {text('source_url', 'The page this title came from. The full link is kept for the PC owner; everyone else sees it without any ?query part, which can hold a download token.', 'url')}
               <Section
                 storageKey="source.details.more"
                 openSignal={moreSignal}
                 title="More details"
-                summary="Link, tags, episode summary"
+                summary="Tags, episode summary"
               >
-                {text('source_url', 'The public listing or info page this title came from. Shown without any ?query part, which can hold a download token.', 'url')}
                 {text('custom_tags', 'Comma-separated, e.g. bl, favorite.')}
                 <Field
                   label={FIELD_LABELS.episode_summary}

@@ -39,6 +39,8 @@ export interface DramaSummary {
   media_type: string | null
   content_mode: string | null
   series_id: number | null
+  // Stream / release date, YYYY-MM-DD; empty or missing = unknown.
+  release_date?: string | null
   translation_engine: string | null
   custom_tags: string[]
   created_at: string | null

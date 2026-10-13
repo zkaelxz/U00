@@ -27,6 +27,7 @@
 /* The title's main way in (read or open the comic) plus its source page, pushed to the header's right edge. */
 .ws-actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .ws-actions a { white-space: nowrap; }
+.ws-actions .ws-source-add { font-size: var(--text-sm); display: inline-flex; align-items: center; }
 
 /* Job pill: what is running on this title, on every stage. 32px on desktop, 44px on touch and phones. */
 .job-pill-wrap { position: relative; flex: 0 0 auto; }
@@ -112,7 +113,7 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header .ws-lines { display: none; }
   .ws-actions { margin: var(--space-2) 0; justify-content: flex-end; }
   /* Kept to their own width: stretched full width, Read outranked each stage's own primary action. */
-  .workspace .ws-actions a.btn { flex: 0 1 auto; justify-content: center; min-height: 44px; }
+  .workspace .ws-actions a.btn, .workspace .ws-actions a.ws-source-add { flex: 0 1 auto; justify-content: center; min-height: 44px; }
   .workspace-header h2 { flex: 1 1 auto; font-size: var(--text-lg); }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }

@@ -43,7 +43,7 @@ test('Edit details shows and saves genre, status, counts, source URL and episode
   await openDetailsTab(page)
   await page.locator('.section-title', { hasText: 'More details' }).click()
   await expect(page.getByLabel('Chapter count', { exact: true })).toHaveValue('120')
-  await expect(page.getByLabel('Source URL', { exact: true })).toHaveValue('https://example.com/d/2')
+  await expect(page.getByLabel('Source link (where you got it)', { exact: true })).toHaveValue('https://example.com/d/2')
   // Genre is on Credits; one draft covers both tabs, so the single Save below sends it too.
   await openCreditsTab(page)
   await expect(page.getByLabel('Genre', { exact: true })).toHaveValue('xianxia')
@@ -59,17 +59,33 @@ test('Edit details shows and saves genre, status, counts, source URL and episode
   await expect(page.getByText('Enter a whole number, or leave it empty.')).toBeVisible()
   expect(bodies).toEqual([])
   await page.getByLabel('Episode number', { exact: true }).fill('3')
-  await page.getByLabel('Source URL', { exact: true }).fill('ftp://nope')
+  await page.getByLabel('Source link (where you got it)', { exact: true }).fill('ftp://nope')
   await page.getByRole('button', { name: 'Save details' }).click()
   await expect(page.getByText('Start the link with http:// or https://.')).toBeVisible()
   expect(bodies).toEqual([])
-  await page.getByLabel('Source URL', { exact: true }).fill('https://example.org/d/2')
+  await page.getByLabel('Source link (where you got it)', { exact: true }).fill('https://example.org/d/2')
   await page.getByRole('button', { name: 'Save details' }).click()
   await expect.poll(() => bodies).toEqual([{
     genre: 'romance', source_url: 'https://example.org/d/2', episode_summary: 'After.',
     chapter_count: 0, episode_number: 3, publication_status: 'completed',
   }])
   await expect(page.getByRole('status').filter({ hasText: 'Details saved.' })).toBeVisible()
+})
+
+test('Details has the stream / release date and the source link outside the folded card', async ({ page }) => {
+  const bodies = await stubDrama(page, { release_date: '2025-03-04', source_url: 'https://example.com/d/2' })
+  await page.goto('/#/drama/2/source')
+  await openDetailsTab(page)
+  const date = page.getByLabel('Stream / release date', { exact: true })
+  await expect(date).toHaveValue('2025-03-04')
+  await expect(page.getByLabel('Source link (where you got it)', { exact: true })).toBeVisible()
+  await expect(page.locator('.field-help-text', { hasText: 'The full link is kept for the PC owner' })).toHaveCount(1)
+  await date.fill('2025-04-05')
+  await page.getByRole('button', { name: 'Save details' }).click()
+  await expect.poll(() => bodies).toEqual([{ release_date: '2025-04-05' }])
+  await date.fill('')
+  await page.getByRole('button', { name: 'Save details' }).click()
+  await expect.poll(() => bodies.at(-1)).toEqual({ release_date: '' })
 })
 
 test('Edit details "+ New series…" sends the name and then shows the new series', async ({ page }) => {
@@ -109,4 +125,16 @@ test('the glossary box can move the title to another series', async ({ page }) =
   await box.getByRole('button', { name: 'Move to this series' }).click()
   await expect.poll(() => bodies).toEqual([{ series_id: 7 }])
   await expect(page.getByTestId('series-assign-current')).toContainText('Seven')
+})
+
+test('the header shows Source when a link exists, else a muted "Add a source link" that opens Details', async ({ page }) => {
+  await stubDrama(page, { source_url: 'https://example.com/d/2' })
+  await page.goto('/#/drama/2/source')
+  await expect(page.locator('.ws-source')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Add a source link' })).toHaveCount(0)
+  await page.unroute('**/api/library/dramas/2')
+  await stubDrama(page, { source_url: null })
+  await page.reload()
+  await expect(page.locator('.ws-source')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Add a source link' })).toHaveAttribute('href', '#/drama/2/source?tab=details')
 })

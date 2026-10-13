@@ -24,6 +24,29 @@ export function toggleId(selected: ReadonlySet<number>, id: number): Set<number>
   return next
 }
 
+/** The titles on screen, in display order: every group that is not collapsed (an ungrouped list has no header to collapse). */
+export function visibleTitles<T>(groups: readonly { key: string; label: string; items: T[] }[], collapsed: ReadonlySet<string>): T[] {
+  return groups.filter((g) => !g.label || !collapsed.has(g.key)).flatMap((g) => g.items)
+}
+
+/** Whether every one of `list` (up to the cap) is selected. */
+export const allSelected = (selected: ReadonlySet<number>, list: readonly Pick<DramaSummary, 'id'>[]) =>
+  list.length > 0 && list.slice(0, MAX_SELECTION).every((d) => selected.has(d.id))
+
+/** A group's (or the whole list's) select-all: clears just those rows when all are selected, else adds them in display order up to the cap. */
+export function selectIds(selected: ReadonlySet<number>, list: readonly Pick<DramaSummary, 'id'>[]): Set<number> {
+  const next = new Set(selected)
+  if (allSelected(selected, list)) {
+    for (const d of list) next.delete(d.id)
+    return next
+  }
+  for (const d of list) {
+    if (next.size >= MAX_SELECTION) break
+    next.add(d.id)
+  }
+  return next
+}
+
 /** "Select all visible": the first MAX_SELECTION visible ids; capped says some were left out. */
 export function selectAllVisible(visible: readonly Pick<DramaSummary, 'id'>[]): { ids: Set<number>; capped: boolean } {
   return {

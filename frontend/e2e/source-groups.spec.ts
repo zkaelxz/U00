@@ -104,7 +104,7 @@ test('Details and Credits hide the fields another content type owns, and Add cre
   await openDetailsTab(page)
   await expect(page.getByLabel('Chapter count', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Content mode')).toHaveCount(0)
-  await expect(page.getByLabel('Source URL', { exact: true })).toHaveCount(1)
+  await expect(page.getByLabel('Source link (where you got it)', { exact: true })).toHaveCount(1)
   await openCreditsTab(page, true)
   await expect(page.getByLabel('Director', { exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Voice actors', { exact: true })).toHaveCount(0)
