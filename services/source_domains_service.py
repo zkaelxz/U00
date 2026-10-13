@@ -132,18 +132,18 @@ def file_unreachable_backlog_item(source: str, display_name: str, probe_lines: l
     """The sources/domains.py unreachable hook. Returns the backlog item, or
     None when the assistant is off, an item for this source is still in the
     backlog, or the backlog can't take one."""
-    from services import maintenance_assistant_service as assistant
-    if not assistant.developer_mode_enabled():
+    from services import assistant_backlog_service, assistant_settings_service
+    if not assistant_settings_service.developer_mode_enabled():
         return None
     marker = BACKLOG_MARKER.format(source=source)
-    if any(str(item["text"]).startswith(marker) for item in assistant.list_backlog()["items"]):
+    if any(str(item["text"]).startswith(marker) for item in assistant_backlog_service.list_backlog()["items"]):
         return None
     text = (f"{marker} {display_name}: every domain on its list is unreachable and no new "
             "address was found.\nProbe results:\n" + "\n".join(probe_lines or ["(none)"])
             + "\nUpdate the source's domain list under Sources on the PC, or the adapter.")
-    text = redact_for_storage(text)[:assistant.MAX_BACKLOG_TEXT]
+    text = redact_for_storage(text)[:assistant_backlog_service.MAX_BACKLOG_TEXT]
     try:
-        return assistant.add_backlog_item("bug", text)
+        return assistant_backlog_service.add_backlog_item("bug", text)
     except ServiceError:
         return None
 

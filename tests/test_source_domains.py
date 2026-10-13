@@ -9,7 +9,7 @@ import json
 import pytest
 import requests
 
-from services import maintenance_assistant_service as assistant
+from services import assistant_backlog_service as backlog, assistant_settings_service as settings_svc
 from services import source_domains_service as svc
 from sources import domains, health, store
 from sources import http as src_http
@@ -238,29 +238,29 @@ class TestUnreachable:
         health.reset("toonkor")
 
     def test_one_backlog_item_per_source_until_it_is_cleared(self, world):
-        assistant.set_settings({"developer_mode": True})
+        settings_svc.set_settings({"developer_mode": True})
         self._fail()
-        items = assistant.list_backlog()["items"]
+        items = backlog.list_backlog()["items"]
         assert len(items) == 1
         text = items[0]["text"]
         assert text.startswith("[source-domains:toonkor]") and "toonkor0.org" in text
         assert SECRET not in text and "?" not in text and "://" not in text
         self._fail()
-        assert len(assistant.list_backlog()["items"]) == 1
-        assistant.delete_backlog_item(items[0]["id"], confirm=True)
+        assert len(backlog.list_backlog()["items"]) == 1
+        backlog.delete_backlog_item(items[0]["id"], confirm=True)
         self._fail()
-        assert len(assistant.list_backlog()["items"]) == 1
+        assert len(backlog.list_backlog()["items"]) == 1
 
     def test_no_backlog_item_while_the_assistant_is_off_or_a_proposal_waits(self, world):
         self._fail()
-        assert assistant.list_backlog()["items"] == []
-        assistant.set_settings({"developer_mode": True})
+        assert backlog.list_backlog()["items"] == []
+        settings_svc.set_settings({"developer_mode": True})
         store.propose_domain("toonkor", "toonkor1.org")
         self._fail()
-        assert assistant.list_backlog()["items"] == []
+        assert backlog.list_backlog()["items"] == []
 
     def test_nothing_stored_carries_a_secret_or_a_url_query(self, world):
-        assistant.set_settings({"developer_mode": True})
+        settings_svc.set_settings({"developer_mode": True})
         self._fail()
         with store.connect() as conn:
             tables = [r["name"] for r in

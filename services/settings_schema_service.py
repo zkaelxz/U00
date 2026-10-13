@@ -3,7 +3,7 @@
 Never carries a stored value: the page reads values from the overview.
 """
 from lib import settings_schema
-from services import maintenance_assistant_service, settings_service
+from services import assistant_settings_service, settings_service
 
 
 def _choices(name):
@@ -12,7 +12,7 @@ def _choices(name):
 
 
 def get_schema() -> dict:
-    developer_mode = maintenance_assistant_service.developer_mode_enabled()
+    developer_mode = assistant_settings_service.developer_mode_enabled()
     rows = []
     for s in settings_schema.SETTINGS:
         # Keys in .env are secrets and have their own routes; a row with no tab

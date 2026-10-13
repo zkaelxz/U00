@@ -150,8 +150,8 @@ async def _lifespan(app: FastAPI):
         yield
         return
     from engine_backends import echo
-    from services import lncrawl_service, maintenance_assistant_service
-    echo.set_enabled(maintenance_assistant_service.developer_mode_enabled())
+    from services import assistant_settings_service, lncrawl_service
+    echo.set_enabled(assistant_settings_service.developer_mode_enabled())
     if not getattr(app.state.settings, "background_services", False):
         try:
             yield

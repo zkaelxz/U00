@@ -839,8 +839,8 @@ _CAPTURE_ALLOWED = {
     "raw_transcript.py::_git_commit": "probe: git rev-parse",
     "services/bug_report_service.py::_git_commit": "probe: git rev-parse",
     "services/line_provenance_service.py::software_version": "probe: git describe",
-    "services/maintenance_assistant_service.py::_git": "probe: read-only git",
-    "services/maintenance_assistant_service.py::_tracked_files": "probe: git ls-files",
+    "services/assistant_repo_access.py::_git": "probe: read-only git",
+    "services/assistant_repo_access.py::_tracked_files": "probe: git ls-files",
     "lib/proc_kill.py::kill_tree": "taskkill, 10 s",
     # sc / netsh / icacls calls, timeout= COMMAND_TIMEOUT (120 s); no grandchildren.
     "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",

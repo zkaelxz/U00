@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 import action_tiers
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import assistant_roles_service as roles, maintenance_assistant_service as svc
+from services import (assistant_diagnosis_service as diag, assistant_roles_service as roles,
+                      assistant_settings_service as settings_svc, assistant_tools_service as tools_svc,
+                      maintenance_assistant_service as svc)
 
 PATCH = ("The fix:\n```diff\n--- a/services/dub_service.py\n+++ b/services/dub_service.py\n"
          "@@ -10,1 +10,1 @@\n-    if not line.speaker:\n+    if not line.speaker and not default_voice:\n```")
@@ -37,13 +39,13 @@ class EngineChat:
 
 @pytest.fixture
 def engines(isolated_db, monkeypatch):
-    svc.set_settings({"developer_mode": True, "roles_enabled": True, "engine": "claude",
+    settings_svc.set_settings({"developer_mode": True, "roles_enabled": True, "engine": "claude",
                       "review_engine": "gemini"})
     monkeypatch.setattr(svc, "build_engine",
                         lambda name=None, model=None: (FakeEngine("claude"), "claude", None))
 
     def review_engine():
-        s = svc.get_settings()
+        s = settings_svc.get_settings()
         return FakeEngine(s["review_engine"]), s["review_engine"], s["review_model"]
 
     monkeypatch.setattr(svc, "build_review_engine", review_engine)
@@ -80,7 +82,7 @@ def test_review_really_uses_a_different_backend(engines):
 
 
 def test_same_engine_is_never_used_as_its_own_reviewer(engines):
-    svc.set_settings({"review_engine": "claude", "review_model": "another-model"})
+    settings_svc.set_settings({"review_engine": "claude", "review_model": "another-model"})
     chat = EngineChat(claude=[PATCH])
     out = svc.ask("x", chat=chat)
     assert len(chat.calls) == 1  # no second call to the same provider
@@ -89,7 +91,7 @@ def test_same_engine_is_never_used_as_its_own_reviewer(engines):
 
 
 def test_missing_review_engine_is_reported_not_hidden(engines, monkeypatch):
-    svc.set_settings({"review_engine": None})
+    settings_svc.set_settings({"review_engine": None})
     monkeypatch.undo()  # real build_review_engine; build_engine patched again below
     monkeypatch.setattr(svc, "build_engine",
                         lambda name=None, model=None: (FakeEngine("claude"), "claude", None))
@@ -100,9 +102,10 @@ def test_missing_review_engine_is_reported_not_hidden(engines, monkeypatch):
 @pytest.fixture
 def ladder(engines, monkeypatch):
     """claude is tier 1; the escalation confirm names only the tier asked."""
-    monkeypatch.setattr(svc, "tier_ladder", lambda choices=None: [
-        {"tier": 1, "engine": "claude", "local": False, "consent": True}])
-    monkeypatch.setattr(svc, "_ollama_is_local", lambda: True)
+    only_claude = lambda choices=None: [{"tier": 1, "engine": "claude", "local": False, "consent": True}]
+    monkeypatch.setattr(settings_svc, "tier_ladder", only_claude)
+    monkeypatch.setattr(svc, "tier_ladder", only_claude)
+    monkeypatch.setattr(settings_svc, "_ollama_is_local", lambda: True)
 
 
 def test_escalation_never_sends_the_fix_to_an_unconfirmed_cloud_reviewer(ladder):
@@ -114,7 +117,7 @@ def test_escalation_never_sends_the_fix_to_an_unconfirmed_cloud_reviewer(ladder)
 
 
 def test_escalation_still_reviews_on_a_local_reviewer(ladder):
-    svc.set_settings({"review_engine": "ollama"})
+    settings_svc.set_settings({"review_engine": "ollama"})
     chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nLooks right."])
     out = svc.ask("x", engine_name="claude", escalate=True, consent=True, chat=chat)
     assert [c[0] for c in chat.calls] == ["claude", "ollama"]
@@ -131,13 +134,13 @@ def test_a_plain_ask_still_uses_the_cloud_reviewer(ladder):
 def test_no_review_without_a_patch_or_when_off(engines):
     chat = EngineChat(claude=["Nothing to fix; the log shows a network timeout."])
     assert svc.ask("x", chat=chat)["review"] is None
-    svc.set_settings({"roles_enabled": False})
+    settings_svc.set_settings({"roles_enabled": False})
     chat = EngineChat(claude=[PATCH])
     assert svc.ask("x", chat=chat)["review"] is None and len(chat.calls) == 1
 
 
 def test_roles_off_by_default(isolated_db):
-    s = svc.get_settings()
+    s = settings_svc.get_settings()
     assert s["roles_enabled"] is False and s["review_engine"] is None
 
 
@@ -150,10 +153,10 @@ def test_missing_verdict_is_unclear_not_agreement():
 
 
 def test_reviewer_has_only_the_read_only_tools():
-    prompt = roles.review_system_prompt(svc.tools_prompt())
-    for name in svc.READ_ONLY_TOOLS:
+    prompt = roles.review_system_prompt(diag.tools_prompt())
+    for name in tools_svc.READ_ONLY_TOOLS:
         assert name in prompt
-    assert svc.list_tools()["write_tools"] == []
+    assert tools_svc.list_tools()["write_tools"] == []
 
 
 def test_roles_module_is_protected():
@@ -167,7 +170,7 @@ def test_api_settings_and_answer_carry_the_review(engines, monkeypatch):
                    client=("127.0.0.1", 50000), raise_server_exceptions=False)
     r = c.post("/api/assistant/settings", json={"roles_enabled": True, "review_engine": "ollama"})
     assert r.status_code == 200 and r.json()["review_engine"] == "ollama"
-    monkeypatch.setattr(svc, "_chat", EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nfine"]))
+    monkeypatch.setattr(diag, "_chat", EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nfine"]))
     r = c.post("/api/assistant/ask", json={"question": "x"})
     assert r.status_code == 200 and r.json()["review"]["verdict"] == "agrees"
     assert c.post("/api/assistant/settings", json={"review_engine": "fake_mt"}).status_code == 422
@@ -192,8 +195,8 @@ def test_a_per_request_engine_equal_to_the_reviewer_is_not_independent(engines, 
 
 def test_the_reviewer_shares_the_one_test_run(engines, monkeypatch):
     ran = []
-    monkeypatch.setitem(svc.READ_ONLY_TOOLS, "run_tests",
-                        (lambda a: ran.append(a) or "ok",) + svc.READ_ONLY_TOOLS["run_tests"][1:])
+    monkeypatch.setitem(tools_svc.READ_ONLY_TOOLS, "run_tests",
+                        (lambda a: ran.append(a) or "ok",) + tools_svc.READ_ONLY_TOOLS["run_tests"][1:])
     call = 'TOOL: {"id": "r", "name": "run_tests", "args": {"path": "tests/test_db.py"}}'
     chat = EngineChat(claude=[call, PATCH], gemini=[call, "VERDICT: AGREES\nok"])
     out = svc.ask("x", chat=chat)
@@ -211,7 +214,7 @@ def test_review_engine_without_cloud_consent_is_not_reviewed(engines, monkeypatc
     out = svc.ask("x", chat=chat)
     assert out["review"]["verdict"] == "unavailable" and "isn't allowed yet" in out["review"]["notes"]
     assert [c[0] for c in chat.calls] == ["claude"] and out["proposed_patches"]
-    svc.set_settings({"cloud_consent": {"gemini": True}})
+    settings_svc.set_settings({"cloud_consent": {"gemini": True}})
     chat = EngineChat(claude=[PATCH], gemini=["VERDICT: AGREES\nok"])
     assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"
 
@@ -234,12 +237,12 @@ def test_remote_ollama_reviewer_needs_consent(engines, monkeypatch):
     from services import settings_service
     _real_review_build(monkeypatch)
     monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://192.168.1.5:11434")
-    svc.set_settings({"review_engine": "ollama"})
+    settings_svc.set_settings({"review_engine": "ollama"})
     chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nok"])
     out = svc.ask("x", chat=chat)
     assert out["review"]["verdict"] == "unavailable" and "isn't allowed yet" in out["review"]["notes"]
     assert [c[0] for c in chat.calls] == ["claude"]  # the remote server was never asked
-    svc.set_settings({"cloud_consent": {"ollama": True}})
+    settings_svc.set_settings({"cloud_consent": {"ollama": True}})
     chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nok"])
     assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"
 
@@ -248,18 +251,18 @@ def test_local_ollama_reviewer_needs_no_consent(engines, monkeypatch):
     from services import settings_service
     _real_review_build(monkeypatch)
     monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://127.0.0.1:11434")
-    svc.set_settings({"review_engine": "ollama"})
+    settings_svc.set_settings({"review_engine": "ollama"})
     chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nok"])
     assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"
 
 
 def test_cloud_reviewer_without_consent_is_refused_through_the_api(engines, monkeypatch):
     _real_review_build(monkeypatch)
-    monkeypatch.setattr(svc, "_chat", EngineChat(claude=[PATCH], deepseek=["VERDICT: AGREES\nok"]))
+    monkeypatch.setattr(diag, "_chat", EngineChat(claude=[PATCH], deepseek=["VERDICT: AGREES\nok"]))
     c = _client()
     assert c.post("/api/assistant/settings", json={"review_engine": "deepseek"}).status_code == 200
     body = c.post("/api/assistant/ask", json={"question": "x"}).json()
     assert body["review"]["verdict"] == "unavailable" and body["proposed_patches"]
-    assert [call[0] for call in svc._chat.calls] == ["claude"]
+    assert [call[0] for call in diag._chat.calls] == ["claude"]
 
 
