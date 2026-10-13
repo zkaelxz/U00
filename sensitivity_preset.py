@@ -16,6 +16,13 @@ PRESETS = (NORMAL, SENSITIVE)
 DEFAULT_VAD_THRESHOLD = 0.5
 SENSITIVE_VAD_THRESHOLD = 0.35
 
+# Difficult audio relaxes Whisper's own skip rule, which drops a segment when
+# no_speech_prob is above the first number unless avg_logprob is above the second.
+# faster-whisper's defaults are 0.6 and -1.0; screamed or whispered speech scores
+# as "probably not speech" with a low confidence and is lost under both.
+DIFFICULT_NO_SPEECH_THRESHOLD = 0.8
+DIFFICULT_LOG_PROB_THRESHOLD = -1.5
+
 # These two are what stop a repeated short phrase from being decoded twice.
 _REPEAT_PENALTIES = ("no_repeat_ngram_size", "repetition_penalty")
 
@@ -39,6 +46,15 @@ def effective_vad_threshold(stored, preset,
 def stored_vad_threshold(drama, sensitive_threshold: float = SENSITIVE_VAD_THRESHOLD) -> float:
     return effective_vad_threshold(drama.get("vad_threshold"), drama.get("sensitivity_preset"),
                                    sensitive_threshold)
+
+
+def difficult_audio_view(drama) -> dict:
+    """The title's row as a Difficult audio run sees it: the Sensitive preset in place of
+    the stored one, so a threshold the owner changed still wins (effective_vad_threshold).
+    Min silence is not part of the preset and stays the title's own."""
+    if not drama.get("difficult_audio"):
+        return drama
+    return {**drama, "sensitivity_preset": SENSITIVE}
 
 
 def decode_kwargs(preset, anti_loop_kwargs: dict, repeat_guard_kwargs: dict | None = None,

@@ -191,6 +191,8 @@ class TranscribeConfig(BaseModel):
     whisper_fast_mode: bool
     # Whisper's no-repeat and repetition-penalty decoding (off by default).
     whisper_repeat_guard: bool = False
+    # Level the audio, use the sensitive detector and relax Whisper's skip rule (opt-in).
+    difficult_audio: bool = False
     # Cut lines at sentence ends and word pauses instead of speech-detector pauses.
     split_by_sentences: bool = False
     # Qwen3-ASR gets a "Vocabulary: ..." hint of the title's names (off by default).
@@ -221,6 +223,7 @@ class TranscribeConfigUpdate(BaseModel):
     realign_long_segments: Optional[bool] = None
     whisper_fast_mode: Optional[bool] = None
     whisper_repeat_guard: Optional[bool] = None
+    difficult_audio: Optional[bool] = None
     split_by_sentences: Optional[bool] = None
     vocabulary_hint: Optional[bool] = None
     use_groq: Optional[bool] = None

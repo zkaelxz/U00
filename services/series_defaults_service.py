@@ -93,6 +93,7 @@ SETTINGS = {
     "whisper_fast_mode": _bool("Fast mode", "transcribe"),
     "whisper_repeat_guard": _bool("Repeat guard", "transcribe"),
     "split_by_sentences": _bool("Split by sentences", "transcribe"),
+    "difficult_audio": _bool("Difficult audio", "transcribe"),
     "vocabulary_hint": _bool("Vocabulary hint", "transcribe"),
 }
 _ALLOWED = frozenset(SETTINGS)
@@ -101,7 +102,7 @@ _TRANSCRIBE = frozenset(k for k, f in SETTINGS.items() if f["group"] == "transcr
 # title" (most columns have a database default, so NULL alone can't tell).
 _BUILTIN = {k: v for k, v in transcribe_service._DEFAULT_TUNING.items() if k in _ALLOWED}
 _BUILTIN.update(alignment_method="whisper_diff", whisper_repeat_guard=False,
-                split_by_sentences=False)
+                split_by_sentences=False, difficult_audio=False)
 
 
 def _check_type(key, value):

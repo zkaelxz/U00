@@ -120,7 +120,7 @@ class TestGetTranscribeConfig:
             "realign_long_segments": False,
             "whisper_fast_mode": False,
             "whisper_repeat_guard": False,
-            "split_by_sentences": False,
+            "split_by_sentences": False, "difficult_audio": False,
             "vocabulary_hint": False,
             "use_groq": False,
             "has_video_source": False,

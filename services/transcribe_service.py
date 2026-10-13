@@ -60,6 +60,7 @@ from engine_backends import paid_calls
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
+from services import difficult_audio_service as difficult
 from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
                       settings_service, source_service, timing_check_service, timing_settings_service,
                       transcribe_pipeline,
@@ -307,7 +308,8 @@ def get_transcribe_config(drama_id: int) -> dict:
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
         "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
-        "effective_vad_threshold": timing_settings_service.vad_threshold_for(drama),
+        "effective_vad_threshold": timing_settings_service.vad_threshold_for(
+            presets.difficult_audio_view(drama)),
         "hallucination_silence_sec": stored_hallucination_silence_sec(drama),
         "min_pause_sec": stored_min_pause_sec(drama),
         "separate_vocals_first": bool(drama.get("separate_vocals_first")),
@@ -316,6 +318,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "whisper_fast_mode": bool(drama.get("whisper_fast_mode")),
         "whisper_repeat_guard": bool(drama.get("whisper_repeat_guard")),
         "split_by_sentences": bool(drama.get("split_by_sentences")),
+        "difficult_audio": bool(drama.get("difficult_audio")),
         "vocabulary_hint": bool(drama.get("vocabulary_hint")),
         "use_groq": bool(drama.get("use_groq")),
         "has_video_source": source["has_video_source"],
@@ -340,7 +343,8 @@ def stored_min_pause_sec(drama) -> float:
 
 
 _BOOL_FIELDS = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
-                "whisper_repeat_guard", "split_by_sentences", "vocabulary_hint", "use_groq")
+                "whisper_repeat_guard", "split_by_sentences", "vocabulary_hint", "use_groq",
+                "difficult_audio")
 _SEPARATION_BACKENDS = ("auto", "audio_separator", "demucs")
 
 
@@ -600,8 +604,13 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     check_whisper_size_for_language(whisper_size, source_language)
     beam_size = drama.get("beam_size") or _DEFAULT_TUNING["beam_size"]
     min_silence_ms = drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"]
-    vad_threshold = timing_settings_service.vad_threshold_for(drama)
-    preset = presets.normalize(drama.get("sensitivity_preset"))
+    # Difficult audio runs with the Sensitive preset (a threshold the title changed still wins),
+    # but only when the app transcribes the audio itself: a supplied transcript or Groq
+    # ignores the option, and the worker says so in the result.
+    run_row = (presets.difficult_audio_view(drama)
+               if transcript_mode == "whisper" and not drama.get("use_groq") else drama)
+    vad_threshold = timing_settings_service.vad_threshold_for(run_row)
+    preset = presets.normalize(run_row.get("sensitivity_preset"))
     hallucination_silence_sec = stored_hallucination_silence_sec(drama)
     min_pause_sec = stored_min_pause_sec(drama)
     separation_backend = drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"]
@@ -659,7 +668,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       hallucination_silence_sec, min_pause_sec,
                       bool(drama.get("whisper_repeat_guard")),
                       bool(drama.get("split_by_sentences")), preset, voice_detector,
-                      qwen_prompt, timing, scratch_dir),
+                      qwen_prompt, difficult.mark(timing, drama), scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
                 run_settings=run_settings,
                 # Spawn, not Linux's default fork: a forked child of a process

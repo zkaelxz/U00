@@ -38,7 +38,7 @@ ALLOWED_KEYS = {
     # On/off toggles
     "use_gpu": _BOOL, "diarize": _BOOL, "use_groq": _BOOL, "separate_vocals_first": _BOOL,
     "realign_long_segments": _BOOL, "whisper_fast_mode": _BOOL, "whisper_repeat_guard": _BOOL,
-    "split_by_sentences": _BOOL, "force_retranslate": _BOOL, "reflect": _BOOL, "bulk": _BOOL,
+    "split_by_sentences": _BOOL, "difficult_audio": _BOOL, "force_retranslate": _BOOL, "reflect": _BOOL, "bulk": _BOOL,
     "thinking": _BOOL, "own_lines_only": _BOOL, "glossary": _BOOL, "style_guide": _BOOL,
     "style_note": _BOOL, "pronoun_hint": _BOOL, "genre_notes": _BOOL, "overwrite_manual": _BOOL,
     "reply_without_thinking": _BOOL,
@@ -139,7 +139,7 @@ def for_transcribe(drama, source_language, chinese_script, whisper_size, beam_si
     drama's 0/1 toggle columns as booleans (an int would be dropped). `timing`:
     the Timing and splitting values that differ from the default."""
     toggles = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
-               "use_groq", "whisper_repeat_guard", "split_by_sentences")
+               "use_groq", "whisper_repeat_guard", "split_by_sentences", "difficult_audio")
     return build(
         {k: bool(drama.get(k)) for k in toggles}, timing or {}, source_language=source_language,
         chinese_script=chinese_script, whisper_size=whisper_size, beam_size=beam_size,

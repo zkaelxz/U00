@@ -2681,11 +2681,15 @@ class TestPerUserJobCaps:
         self._library_state = _isolate_library()
         bg.set_gpu_limit_enabled(True)
         self.release = threading.Event()
+        self.gates = [self.release]
         self.acting = {"uid": None}
         self.before = set(bg.list_all_jobs())
 
     def teardown_method(self):
-        self.release.set()
+        # Every gate a test made, not just self.release: a job blocked on one that is left
+        # closed outlives the join below and holds up the jobs queued behind it.
+        for gate in self.gates:
+            gate.set()
         # Only this test's jobs: another test in the same worker may leave its own.
         mine = [j for j in bg.list_all_jobs() if j not in self.before]
         for job_id in mine:
@@ -2699,6 +2703,11 @@ class TestPerUserJobCaps:
     def _as(self, monkeypatch, uid):
         self.acting["uid"] = uid
         monkeypatch.setattr(bg, "_acting_user_id", lambda: self.acting["uid"])
+
+    def _gate(self):
+        gate = threading.Event()
+        self.gates.append(gate)
+        return gate
 
     def _block(self):
         self.release.wait(timeout=5.0)
@@ -2756,7 +2765,7 @@ class TestPerUserJobCaps:
     def test_a_member_past_the_queued_cap_gets_rate_limited(self, monkeypatch):
         from lib.errors import RateLimitedError
         self._as(monkeypatch, None)
-        owner_gate = threading.Event()
+        owner_gate = self._gate()
         assert bg.start_job("owner_gpu", owner_gate.wait, 5.0, gpu_touching=True) is True
         self._as(monkeypatch, 7)
         for n in range(user_caps.MAX_QUEUED_JOBS_PER_USER):
@@ -2772,7 +2781,7 @@ class TestPerUserJobCaps:
     def test_a_gpu_job_at_the_running_cap_waits_without_holding_up_others_then_starts(
             self, monkeypatch):
         self._as(monkeypatch, 7)
-        own_release = threading.Event()
+        own_release = self._gate()
         assert bg.start_job("cpu_1", lambda: own_release.wait(timeout=5.0)) is True
         assert bg.start_job("cpu_2", self._block) is True
         ran = threading.Event()
@@ -2813,7 +2822,7 @@ class TestPerUserJobCaps:
         assert bg.wait_for_job_threads(5.0, job_ids=["cpu_a", "cpu_b"])
         self.release.clear()
         self._as(monkeypatch, None)
-        owner_gate = threading.Event()
+        owner_gate = self._gate()
         assert bg.start_job("owner_gpu", owner_gate.wait, 5.0, gpu_touching=True) is True
         self._as(monkeypatch, 7)
         ran = threading.Event()
