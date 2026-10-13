@@ -6,7 +6,8 @@ import { mockJobsApi, pageJobs } from './jobsMenuMocks'
 import { openMenu } from './settingsNav'
 
 // The Jobs page (#/jobs) with /api/jobs mocked: table, filters, states,
-// Cancel, PC-only Delete, row details and the remote-admin persona.
+// Cancel, PC-only Delete, row details, the queue line and the member and
+// remote-admin personas.
 
 const rows = (page: import('@playwright/test').Page) => page.getByTestId('jobs-table').locator('tbody > tr[data-testid^="job-row-"]')
 const chip = (page: import('@playwright/test').Page, name: string) => page.getByRole('group', { name: 'Status' }).getByRole('button', { name })
@@ -358,15 +359,16 @@ const me = (permissions: string[], user: Record<string, unknown>) => ({
   user: { id: 1, email: 'owner@example.com', display_name: 'Owner', is_admin: true, is_local_owner: false, ...user },
 })
 
-test('remote admin: Cancel only their own, the note, no Delete, and Who and Mine show', async ({ page }) => {
+test('remote admin: Cancel on every job, no Delete, and Who and Mine show', async ({ page }) => {
   const log = await mockJobsApi(page, pageJobs(), true)
   await page.route('**/api/meta', (route) => route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: me(['library.read', 'jobs.cancel', 'admin.users.read'], {}) }))
   await page.goto('/#/jobs')
   await expect(rows(page)).toHaveCount(2)
   await expect(page.getByRole('button', { name: 'Cancel Translate Signal' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Cancel Dub Kae' })).toHaveCount(0)
-  await expect(page.getByTestId('remote-admin-jobs-note')).toContainText('Changing other people’s items is done on the main PC.')
+  // Owner decision 2026-10-12: an admin may stop a runaway job from away.
+  await expect(page.getByRole('button', { name: 'Cancel Dub Kae' })).toBeVisible()
+  await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
   await expect(page.getByRole('columnheader', { name: 'Who' })).toBeVisible()
   await expect(page.getByTestId('job-row-dub_4')).toContainText('Someone else')
   await expect(page.getByTestId('job-row-translate_3')).toContainText('You')
@@ -382,13 +384,36 @@ test('remote admin: Cancel only their own, the note, no Delete, and Who and Mine
   expect(log.cancelled).toEqual([])
 })
 
+test('member: Cancel only on their own jobs, with the rule', async ({ page }) => {
+  await mockJobsApi(page, pageJobs(), true)
+  await page.route('**/api/meta', (route) => route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
+  await page.route('**/api/auth/me', (route) => route.fulfill({ json: me(['library.read', 'jobs.cancel'], { is_admin: false }) }))
+  await page.goto('/#/jobs')
+  await expect(page.getByRole('button', { name: 'Cancel Translate Signal' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel Dub Kae' })).toHaveCount(0)
+  await expect(page.getByTestId('jobs-cancel-note')).toHaveText('Only the person who started a job, the title’s owner or an admin can cancel it.')
+})
+
+test('the queue: counts for everyone, and the place of each of my waiting jobs', async ({ page }) => {
+  const t = Math.floor(Date.now() / 1000)
+  const jobs = pageJobs()
+  jobs.push({ ...jobs[1], job_id: 'dub_3', description: 'Dub Signal', drama_id: 3, owned_by_me: true, started_at: t, updated_at: t })
+  await mockJobsApi(page, jobs, true)
+  await page.goto('/#/jobs')
+  await expect(page.getByTestId('jobs-queue-line')).toHaveText('1 job running (all lanes), 2 waiting in the GPU queue')
+  await expect(page.getByTestId('job-place-dub_3')).toHaveText('Waiting: #2 in the GPU queue')
+  // Someone else's waiting job shows no place, and a running job none either.
+  await expect(page.getByTestId('job-place-dub_4')).toHaveCount(0)
+  await expect(page.getByTestId('job-place-translate_3')).toHaveCount(0)
+})
+
 test('PC owner gets Cancel on every job', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.route('**/api/meta', (route) => route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: me(['library.read', 'jobs.cancel', 'admin.library', 'admin.users.read'], { is_local_owner: true }) }))
   await page.goto('/#/jobs')
   await expect(page.getByRole('button', { name: 'Cancel Dub Kae' })).toBeVisible()
-  await expect(page.getByTestId('remote-admin-jobs-note')).toHaveCount(0)
+  await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
 })
 
 test('the menu has Jobs with a running count, and it opens the page', async ({ page }) => {

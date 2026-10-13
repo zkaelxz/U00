@@ -11,15 +11,11 @@ through it: the Translate run, build_run_style_context (fix-flagged,
 series bulk translate, stronger engine), line Improve and the CLI.
 Fully mocked: no network.
 """
-import argparse
-import contextlib
-import io
 import time
 
 import pytest
 
 import background_jobs
-import cli_translate
 import db
 import line_tools
 import translate_engines
@@ -94,21 +90,3 @@ def test_line_improve(isolated_db, monkeypatch, apply):
     line_ai_service.improve_line(did, line_id, engine_name="claude")
     assert (PREF in seen["style"]) is apply
 
-
-@pytest.mark.parametrize("apply", [True, False])
-def test_cli_translate(isolated_db, monkeypatch, apply):
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
-    seen = {}
-
-    def fake_translate(lines, engine, **kw):
-        seen.update(kw)
-        return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
-    did = _drama(apply)
-    args = argparse.Namespace(
-        id=did, status=None, engine="claude", api_key="fake-key", model=None,
-        style_note=None, style_preset="audio_drama", locale="en-US", force=False,
-        ollama_num_ctx=None)
-    with contextlib.redirect_stdout(io.StringIO()):
-        cli_translate.cmd_translate(args)
-    assert (PREF in seen["style_guidelines"]) is apply

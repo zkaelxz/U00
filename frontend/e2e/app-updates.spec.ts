@@ -7,7 +7,7 @@ import { openSettingsGroups } from './settingsNav'
 const BASE = {
   current: '0.1.0', installed: true, latest: null, update_available: false, notes: '', installer_name: null,
   size: null, checked_at: null, check_error: null, release_lookup: 'unchecked', download: 'idle', downloaded_bytes: 0, download_error: null,
-  verified: false, verified_version: null, verified_name: null, can_install: false, auto_check: false,
+  verified: false, verified_version: null, verified_name: null, can_install: false, signature_check: false, signature_verified: false, auto_check: false,
   custom_source: false,
 }
 const AVAILABLE = {
@@ -32,12 +32,12 @@ async function mockUpdates(page: Page, initial: Record<string, unknown> = {}) {
       if (status.download === 'downloading' && ++polls >= 2) {
         status = {
           ...status, download: 'verified', downloaded_bytes: 104_000_000, verified: true, can_install: true,
-          verified_version: '0.2.0', verified_name: AVAILABLE.installer_name,
+          verified_version: '0.2.0', verified_name: AVAILABLE.installer_name, signature_verified: status.signature_check,
         }
       }
       return json(route, status)
     }
-    if (path.endsWith('/check')) return json(route, (status = { ...AVAILABLE }))
+    if (path.endsWith('/check')) return json(route, (status = { ...AVAILABLE, signature_check: status.signature_check }))
     if (path.endsWith('/download')) {
       return json(route, (status = { ...status, download: 'downloading', downloaded_bytes: 52_000_000 }), 202)
     }
@@ -57,6 +57,7 @@ test('check, download and verify, then open Setup behind a confirm', async ({ pa
   await expect(c.getByTestId('update-check-line')).toHaveText('Not checked yet.')
   await expect(c).toContainText('not code-signed')
   await expect(c).toContainText('it is not a signature')
+  await expect(c.getByTestId('update-signature-line')).toHaveText('Not signature-checked: this copy has no release key.')
   await expect(c.getByRole('switch', { name: 'Check once a day' })).not.toBeChecked()
   await expect(c.getByRole('button', { name: 'Download' })).toHaveCount(0)
 
@@ -78,6 +79,21 @@ test('check, download and verify, then open Setup behind a confirm', async ({ pa
   await expect(c).toContainText('Setup is open (BaiheStudio-Setup-0.2.0.exe, version 0.2.0).')
   const install = calls.filter((x) => x.path.endsWith('/install'))
   expect(install).toEqual([{ method: 'POST', path: '/api/system/update/install', body: { confirm: true } }])
+})
+
+test('a copy with a release key says when the signature was verified', async ({ page }) => {
+  await mockUpdates(page, { signature_check: true })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Notifications and backups')
+  const c = card(page)
+  const line = c.getByTestId('update-signature-line')
+  await expect(line).toHaveText('Updates must carry a valid release signature.')
+  await c.getByRole('button', { name: 'Check for updates' }).click()
+  await c.getByRole('button', { name: 'Download' }).click()
+  await expect(c.getByTestId('update-download-line')).toHaveText(
+    'Downloaded and verified: BaiheStudio-Setup-0.2.0.exe.',
+  )
+  await expect(line).toHaveText('Signature verified.')
 })
 
 test('the daily check is a switch, off by default', async ({ page }) => {

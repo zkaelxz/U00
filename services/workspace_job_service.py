@@ -17,7 +17,7 @@ import ollama_unload
 import translate_engines
 import translation_guide as tguide
 from engine_backends.run_limits import FailureStreak
-import bulk_translate
+import translation_finish
 import emotion
 import core as core_module
 import whisper_models
@@ -167,7 +167,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         scene_aware_batches=scene_aware, thinking=thinking)
 
     # A run takes minutes, and the user may type English meanwhile.
-    _save, _notes, kept_edits = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
+    _save, _notes, kept_edits = translation_finish.own_lines_callbacks(drama_id, lines, provenance)
 
     job_timing_service.mark_stage(job_id, "Translate")
     _, errors = translate_engines.translate_lines_with_engine(
@@ -202,7 +202,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     # Shared with `cli.py translate`: glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
-    if not bulk_translate.finish_translation_run(
+    if not translation_finish.finish_translation_run(
             drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
             cancelled=cancelled,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
@@ -687,7 +687,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     # translated in bulk matches one translated alone.
     style_note = settings_service.get("default_style_note") or ""
     if (summary_engine is not None and not monthly_cap
-            and bulk_translate._summary_engine_is_paid(summary_engine, summary_choice)):
+            and translation_finish._summary_engine_is_paid(summary_engine, summary_choice)):
         summary_engine = None  # a paid summary is paid work nobody watches: it needs a cap
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],

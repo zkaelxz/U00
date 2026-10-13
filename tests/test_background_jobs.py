@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import background_jobs as bg
 import db
 import diagnostics_torch
-from jobs import gpu_slots
+from jobs import gpu_slots, user_caps
 
 
 def _isolate_library():
@@ -2670,3 +2670,157 @@ def test_a_partial_worker_outcome_still_ends_done(reason):
     status = _wait_for_status(job_id, "running")
     assert status["status"] == "done" and status["progress"] == 1.0
     bg.clear_job(job_id)
+
+
+class TestPerUserJobCaps:
+    """A member can't fill the GPU queue or the job threads: jobs/user_caps.py
+    caps the running and queued jobs they started, whatever the job ids.
+    Starter None (the PC owner, auth off, legacy records) is never capped."""
+
+    def setup_method(self):
+        self._library_state = _isolate_library()
+        bg.set_gpu_limit_enabled(True)
+        self.release = threading.Event()
+        self.acting = {"uid": None}
+        self.before = set(bg.list_all_jobs())
+
+    def teardown_method(self):
+        self.release.set()
+        # Only this test's jobs: another test in the same worker may leave its own.
+        mine = [j for j in bg.list_all_jobs() if j not in self.before]
+        for job_id in mine:
+            if (bg.get_status(job_id) or {}).get("status") == "queued":
+                bg.request_cancel(job_id)      # it may never get a GPU slot here
+        assert bg.wait_for_job_threads(5.0, job_ids=mine)
+        bg.clear_all_jobs()
+        bg.set_gpu_limit_enabled(True)
+        _restore_library(*self._library_state)
+
+    def _as(self, monkeypatch, uid):
+        self.acting["uid"] = uid
+        monkeypatch.setattr(bg, "_acting_user_id", lambda: self.acting["uid"])
+
+    def _block(self):
+        self.release.wait(timeout=5.0)
+
+    def test_a_member_past_the_running_cap_gets_rate_limited_whatever_the_job_ids(self, monkeypatch):
+        from lib.errors import RateLimitedError
+        self._as(monkeypatch, 7)
+        assert bg.start_job("translate_1", self._block) is True
+        assert bg.start_job("transcribe_2", self._block) is True
+        with pytest.raises(RateLimitedError) as err:
+            bg.start_job("dub_3", self._block)
+        assert "2 jobs running" in err.value.message
+        assert bg.get_status("dub_3") is None
+        with pytest.raises(RateLimitedError):
+            bg.start_process_job("speakers_4", _boom)
+        assert bg.get_status("speakers_4") is None
+
+        self._as(monkeypatch, 8)
+        assert bg.start_job("translate_5", self._block) is True
+        self._as(monkeypatch, None)
+        for n in range(3):
+            assert bg.start_job(f"owner_{n}", self._block) is True
+
+    def test_a_finished_or_cancelled_job_frees_its_place(self, monkeypatch):
+        self._as(monkeypatch, 7)
+        assert bg.start_job("quick_1", lambda: None) is True
+        _wait("quick_1")
+        assert bg.start_job("slow_1", self._block) is True
+        assert bg.start_job("slow_2", self._block) is True
+        bg.request_cancel("slow_2")
+        bg._jobs["slow_2"]["status"] = "cancelled"   # as a cooperative stop records it
+        assert bg.start_job("slow_3", self._block) is True
+
+    def test_starts_at_the_same_moment_cannot_both_pass_the_count(self, monkeypatch):
+        from lib.errors import RateLimitedError
+        self._as(monkeypatch, 7)
+        barrier = threading.Barrier(8)
+        outcomes = []
+
+        def go(n):
+            barrier.wait()
+            try:
+                outcomes.append(bg.start_job(f"race_{n}", self._block))
+            except RateLimitedError:
+                outcomes.append("limited")
+
+        threads = [threading.Thread(target=go, args=(n,)) for n in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5.0)
+        assert outcomes.count(True) == user_caps.MAX_RUNNING_JOBS_PER_USER
+        assert outcomes.count("limited") == 8 - user_caps.MAX_RUNNING_JOBS_PER_USER
+
+    def test_a_member_past_the_queued_cap_gets_rate_limited(self, monkeypatch):
+        from lib.errors import RateLimitedError
+        self._as(monkeypatch, None)
+        owner_gate = threading.Event()
+        assert bg.start_job("owner_gpu", owner_gate.wait, 5.0, gpu_touching=True) is True
+        self._as(monkeypatch, 7)
+        for n in range(user_caps.MAX_QUEUED_JOBS_PER_USER):
+            assert bg.start_job(f"gpu_wait_{n}", lambda: None, gpu_touching=True) is True
+            assert bg.get_status(f"gpu_wait_{n}")["status"] == "queued"
+        with pytest.raises(RateLimitedError) as err:
+            bg.start_job("gpu_wait_more", lambda: None, gpu_touching=True)
+        assert "5 jobs waiting" in err.value.message
+        assert all(e["job_id"] != "gpu_wait_more" for e in bg._gpu_queue)
+        self._as(monkeypatch, 8)
+        assert bg.start_job("other_gpu", lambda: None, gpu_touching=True) is True
+
+    def test_a_gpu_job_at_the_running_cap_waits_without_holding_up_others_then_starts(
+            self, monkeypatch):
+        self._as(monkeypatch, 7)
+        own_release = threading.Event()
+        assert bg.start_job("cpu_1", lambda: own_release.wait(timeout=5.0)) is True
+        assert bg.start_job("cpu_2", self._block) is True
+        ran = threading.Event()
+        assert bg.start_job("gpu_held", ran.set, gpu_touching=True) is True
+        assert bg.get_status("gpu_held")["status"] == "queued"
+
+        # The GPU is free, so someone else's GPU job starts rather than
+        # queueing behind the held one.
+        self._as(monkeypatch, 8)
+        other_ran = threading.Event()
+        assert bg.start_job("gpu_other", other_ran.set, gpu_touching=True) is True
+        assert other_ran.wait(timeout=2.0)
+        _wait("gpu_other")
+        assert bg.get_status("gpu_held")["status"] == "queued"
+
+        own_release.set()
+        assert ran.wait(timeout=2.0), "the member's queued job never started once under the cap"
+        _wait("gpu_held")
+        assert bg.get_status("gpu_held")["status"] == "done"
+
+    def test_the_queue_runner_is_refused_at_the_cap_and_its_jobs_never_wait_for_it(
+            self, monkeypatch):
+        from lib.errors import RateLimitedError
+        self._as(monkeypatch, 7)
+        assert bg.start_job("cpu_a", self._block) is True
+        assert bg.start_job("cpu_b", self._block) is True
+        with user_caps.refuse_at_cap():
+            with pytest.raises(RateLimitedError):
+                bg.start_job("gpu_runner", lambda: None, gpu_touching=True)
+        assert bg.get_status("gpu_runner") is None and not bg._gpu_queue
+        assert bg.start_job("gpu_direct", lambda: None, gpu_touching=True) is True
+        assert bg.get_status("gpu_direct")["status"] == "queued"      # a direct start waits
+
+        # A runner start that queues behind someone else's GPU job is promoted
+        # even if its starter reaches the cap meanwhile.
+        bg.clear_job("gpu_direct")
+        self.release.set()
+        assert bg.wait_for_job_threads(5.0, job_ids=["cpu_a", "cpu_b"])
+        self.release.clear()
+        self._as(monkeypatch, None)
+        owner_gate = threading.Event()
+        assert bg.start_job("owner_gpu", owner_gate.wait, 5.0, gpu_touching=True) is True
+        self._as(monkeypatch, 7)
+        ran = threading.Event()
+        with user_caps.refuse_at_cap():
+            assert bg.start_job("gpu_runner", ran.set, gpu_touching=True) is True
+        assert bg.get_status("gpu_runner")["status"] == "queued"
+        assert bg.start_job("cpu_c", self._block) is True
+        assert bg.start_job("cpu_d", self._block) is True
+        owner_gate.set()
+        assert ran.wait(2.0), "the runner's job was held for its starter's cap"

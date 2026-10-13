@@ -3,7 +3,6 @@ two routes and the CLI flag. Fully mocked: the offline test engine or a
 stub, no network."""
 import threading
 import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -11,8 +10,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 import background_jobs
-import bulk_translate
-import cli_translate
+import translation_finish
 import db
 import subtitle_formats
 import translate_engines
@@ -355,14 +353,14 @@ class TestOwnLinesOnly:
     def test_edit_after_the_save_gets_no_exact_term_substitution(self, isolated_db, monkeypatch):
         did, sid, rows = _seed([("林晚", "machine")], terms=[LIN])
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="Lynn", enforce_exact=True)
-        real_finish = bulk_translate.finish_translation_run
+        real_finish = translation_finish.finish_translation_run
         edited = []
 
         def finish(drama_id, lines, *a, **kw):
             edited.append(db.update_line_fields_if(drama_id, rows[0]["id"], {"en": "Lynn waves"},
                                                    {"en": "[TEST] 林晚"}))
             return real_finish(drama_id, lines, *a, **kw)
-        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                              engine_name="fake")["job_id"])
@@ -373,7 +371,7 @@ class TestOwnLinesOnly:
             self, isolated_db, monkeypatch):
         did, sid, rows = _seed([("林晚", "machine")], terms=[LIN])
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="Lynn", enforce_exact=True)
-        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        real_finish, real_load = translation_finish.finish_translation_run, db.load_line_objects
         edited = []
 
         def load_then_edit(drama_id, *a, **kw):
@@ -387,7 +385,7 @@ class TestOwnLinesOnly:
         def finish(*a, **kw):
             monkeypatch.setattr(db, "load_line_objects", load_then_edit)
             return real_finish(*a, **kw)
-        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                              engine_name="fake")["job_id"])
@@ -423,7 +421,7 @@ class TestOwnLinesOnly:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)
         monkeypatch.setattr(subtitle_formats, "flag_dense_lines", flag_all)
-        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        real_finish, real_load = translation_finish.finish_translation_run, db.load_line_objects
         edited = []
 
         def load_then_edit(drama_id, *a, **kw):
@@ -438,7 +436,7 @@ class TestOwnLinesOnly:
         def finish(*a, **kw):
             monkeypatch.setattr(db, "load_line_objects", load_then_edit)
             return real_finish(*a, **kw)
-        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                                    engine_name="fake")["job_id"])
@@ -467,7 +465,7 @@ class TestOwnLinesOnly:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)
         monkeypatch.setattr(subtitle_formats, "flag_dense_lines", flag_all)
-        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        real_finish, real_load = translation_finish.finish_translation_run, db.load_line_objects
         edited = []
 
         def load_then_edit(drama_id, *a, **kw):
@@ -479,7 +477,7 @@ class TestOwnLinesOnly:
         def finish(*a, **kw):
             monkeypatch.setattr(db, "load_line_objects", load_then_edit)
             return real_finish(*a, **kw)
-        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        monkeypatch.setattr(translation_finish, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
                                                    engine_name="fake")["job_id"])
@@ -507,7 +505,7 @@ class TestOwnLinesOnly:
             return real_save(drama_id, lines, **kw)
         monkeypatch.setattr(db, "save_lines", spy)
         lines = db.load_line_objects(did)
-        bulk_translate.finish_translation_run(
+        translation_finish.finish_translation_run(
             did, lines, None, "fake", "", [], [],
             enforce_ids={rows[0]["id"]}, flags_needing_recheck=set())
         guarded = [kw for kw in calls if kw.get("only_if_unchanged")
@@ -527,7 +525,7 @@ class TestOwnLinesOnly:
         did, _sid, rows = _seed([("一", "one"), ("二", "two")], series=None)
         lines = db.load_line_objects(did)
         saved = []
-        save_cb, notes_cb, _kept = bulk_translate.own_lines_callbacks(did, lines, saved.extend)
+        save_cb, notes_cb, _kept = translation_finish.own_lines_callbacks(did, lines, saved.extend)
         # A Reflect critique arrives before its batch is saved.
         notes_cb([{"line_idx": ln.idx, "term": "", "note_type": "reflection",
                    "note": f"critique {ln.idx}"} for ln in lines])
@@ -628,85 +626,3 @@ class TestApi:
         _wait(r.json()["job_id"])
         assert [x["en"] for x in db.load_lines(did)] == ["[TEST] 林晚", "mine"]
 
-
-class TestCli:
-    def _args(self, did, **kw):
-        base = dict(id=did, status=None, engine="fake", api_key=None, model=None,
-                    episode_summary_engine="ollama", episode_summary_api_key=None,
-                    style_note=None, style_preset=None, locale=None, female_pronouns=False,
-                    no_genre_notes=False, force=False, ollama_num_ctx=None, ollama_url=None,
-                    reflect=False, cost_cap=None, monthly_cap=0.0, context_window=None,
-                    context_window_ahead=None, batch_size=None, fallback=None,
-                    glossary_affected=True, include_hand_edited=False)
-        base.update(kw)
-        return SimpleNamespace(**base)
-
-    def test_glossary_affected_skips_hand_edited(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: fake_engine.FakeEngine())
-        did, _sid, _ = _seed([("林晚一", "old"), ("林晚二", "my edit"), ("天气", "Weather")],
-                             terms=[LIN], machine={0, 2})
-        cli_translate.cmd_translate(self._args(did))
-        assert [r["en"] for r in db.load_lines(did)] == ["[TEST] 林晚一", "my edit", "Weather"]
-        cli_translate.cmd_translate(self._args(did, include_hand_edited=True))
-        assert [r["en"] for r in db.load_lines(did)] == ["[TEST] 林晚一", "[TEST] 林晚二", "Weather"]
-
-    def test_glossary_affected_needs_id(self, isolated_db):
-        with pytest.raises(SystemExit):
-            cli_translate.cmd_translate(self._args(None))
-        with pytest.raises(SystemExit):
-            cli_translate.cmd_translate(self._args(1, glossary_affected=False, include_hand_edited=True))
-
-
-    def _two_terms(self):
-        wan = {"term_original": "林晚", "term_translation": "Lin Wan"}
-        zhou = {"term_original": "周然", "term_translation": "Zhou Ran"}
-        did, sid, _ = _seed([("林晚一", "a"), ("周然二", "b"), ("天气", "c")], terms=[wan, zhou])
-        ids = {t["term_original"]: t["id"] for t in db.list_glossary_terms(sid)}
-        return did, ids
-
-    def _run(self, monkeypatch, did, **kw):
-        monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: fake_engine.FakeEngine())
-        cli_translate.cmd_translate(self._args(did, **kw))
-        return [r["en"] for r in db.load_lines(did)]
-
-    def test_term_by_text_selects_only_its_lines(self, isolated_db, monkeypatch, capsys):
-        did, ids = self._two_terms()
-        assert self._run(monkeypatch, did, term=["林晚"]) == ["[TEST] 林晚一", "b", "c"]
-        assert f"glossary terms: {ids['林晚']}; 1 lines selected" in capsys.readouterr().out
-
-    def test_term_by_id_and_repeat(self, isolated_db, monkeypatch):
-        did, ids = self._two_terms()
-        assert self._run(monkeypatch, did, term=[str(ids["周然"])]) == ["a", "[TEST] 周然二", "c"]
-        assert self._run(monkeypatch, did, term=["林晚", str(ids["周然"])]) == [
-            "[TEST] 林晚一", "[TEST] 周然二", "c"]
-
-    def test_unknown_term_errors(self, isolated_db, monkeypatch):
-        did, _ids = self._two_terms()
-        for ref in ("nope", "99999"):
-            with pytest.raises(SystemExit, match="matches no term"):
-                self._run(monkeypatch, did, term=[ref])
-        assert [r["en"] for r in db.load_lines(did)] == ["a", "b", "c"]
-
-    def test_ambiguous_term_errors(self, isolated_db, monkeypatch):
-        # A term whose source text is another term's id matches both ways.
-        did, sid, _ = _seed([("林晚一", "a")], terms=[LIN])
-        lin_id = db.list_glossary_terms(sid)[0]["id"]
-        db.upsert_glossary_term(sid, str(lin_id), "Digits")
-        with pytest.raises(SystemExit, match="matches 2 glossary terms"):
-            self._run(monkeypatch, did, term=[str(lin_id)])
-
-    def test_term_requires_glossary_affected(self, isolated_db):
-        with pytest.raises(SystemExit, match="--term only applies"):
-            cli_translate.cmd_translate(self._args(1, glossary_affected=False, term=["林晚"]))
-
-    def test_matches_service_selection(self, isolated_db, monkeypatch):
-        did, ids = self._two_terms()
-        expected = {ln["id"] for ln in svc.find_glossary_affected_lines(
-            did, term_ids=[ids["周然"]])["lines"]}
-        assert expected == set(svc.affected_line_ids(did, term_ids=[ids["周然"]]))
-        before = {r["id"]: r["en"] for r in db.load_lines(did)}
-        self._run(monkeypatch, did, term=["周然"])
-        changed = {r["id"] for r in db.load_lines(did) if r["en"] != before[r["id"]]}
-        assert changed == expected

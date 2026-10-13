@@ -7,7 +7,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 
 import { api } from '../api/client'
-import { cancelJob, clearFinishedJobs, deleteJob, forceStopJob } from '../api/jobs'
+import { cancelJob, clearFinishedJobs, deleteJob, forceStopJob, getQueueSummary } from '../api/jobs'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ConfirmButton } from '../components/ConfirmButton'
@@ -19,9 +19,12 @@ import { useJobs, jobsRefusal, useNow } from '../hooks/useJobs'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
-import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
+import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
-import { FORCE_STOP_HINT, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, shownStatus, type JobRecord } from '../types/jobs'
+import {
+  CANCEL_RULE_NOTE, FORCE_STOP_HINT, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
+  shownStatus, type JobQueueSummary, type JobRecord,
+} from '../types/jobs'
 import { formatDuration, isActive, isFinished, jobBaseName, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
 import { JobQueue } from './jobs/JobQueue'
@@ -35,6 +38,7 @@ import './jobs/jobs.css'
 
 // The list is capped until asked for more: the endpoint has no paging yet.
 const PAGE = 50
+const QUEUE_POLL_MS = 15_000
 
 const REFUSED_TEXT: Record<number, string> = {
   404: "This server doesn't list jobs.",
@@ -47,7 +51,7 @@ const fullTime = (sec: number) => new Date(sec * 1000).toLocaleString()
 export default function JobsPage() {
   const { jobs, error, polling, reload } = useJobs()
   const session = useSession()
-  const remoteAdmin = isRemoteAdmin(session)
+  const anyJob = cancelsAnyJob(session)
   const authOn = session.status === 'ready' && session.me.auth_enabled
   const pc = usePcOnly()
   const phone = useMediaQuery('(max-width: 640px)')
@@ -58,6 +62,7 @@ export default function JobsPage() {
   const [titles, setTitles] = useState<ReadonlyMap<number, string>>(new Map())
   const [actionError, setActionError] = useState<unknown>(null)
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
+  const [queue, setQueue] = useState<JobQueueSummary | null>(null)
 
   // Titles come from the library list; a failed read just leaves the Title column blank.
   useEffect(() => {
@@ -68,6 +73,23 @@ export default function JobsPage() {
   }, [])
 
   const all = jobs ?? []
+  // Re-read the queue when a job starts, waits or ends here, and every
+  // QUEUE_POLL_MS while the page is visible: other people's jobs move the
+  // counts without changing this list.
+  const statusKey = all.map((j) => `${j.job_id}:${j.status}`).join(',')
+  const loaded = jobs !== null
+  const [queueTick, setQueueTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (!document.hidden) setQueueTick((n) => n + 1)
+    }, QUEUE_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [])
+  useEffect(() => {
+    if (!loaded) return
+    getQueueSummary().then(setQueue, () => setQueue(null))
+  }, [statusKey, loaded, queueTick])
+  const places = useMemo(() => new Map((queue?.mine ?? []).map((m) => [m.job_id, m.position])), [queue])
   const anyActive = all.some((j) => isActive(j.status))
   const now = useNow(anyActive)
   const refused = jobsRefusal(error)
@@ -77,7 +99,7 @@ export default function JobsPage() {
   const counts = statusCounts(all)
   const matching = sortJobs(filterJobs(all, filters, titles, now), sort.key, sort.dir, now)
   const shown = matching.slice(0, Math.max(limit, matching.filter((j) => isActive(j.status)).length))
-  const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, remoteAdmin)
+  const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, anyJob)
   const finishedCount = counts.finished + counts.failed + counts.cancelled
 
   async function run(action: () => Promise<unknown>) {
@@ -99,9 +121,9 @@ export default function JobsPage() {
     setSort((cur) => (cur.key === key ? { key, dir: cur.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
 
   const rowProps = {
-    now, titles, authOn, pc, open,
+    now, titles, authOn, pc, open, places,
     cancellable,
-    forceStoppable: (j: JobRecord) => offersForceStop(j, remoteAdmin),
+    forceStoppable: (j: JobRecord) => offersForceStop(j, anyJob),
     onToggle: toggle,
     onCancel: (id: string) => void run(() => cancelJob(id)),
     onForceStop: (id: string) => void run(() => forceStopJob(id)),
@@ -125,6 +147,7 @@ export default function JobsPage() {
           {error != null && <ErrorBanner error={error} />}
           <ErrorBanner error={actionError} onDismiss={() => setActionError(null)} />
           {polling && <p className="muted" data-testid="jobs-polling">Updating every 10 seconds.</p>}
+          {queue && queue.running + queue.waiting > 0 && <p className="muted" data-testid="jobs-queue-line">{queueLine(queue)}</p>}
 
           {jobs === null ? (
             <ul className="jobs-skeleton" aria-label="Loading jobs">
@@ -207,7 +230,7 @@ export default function JobsPage() {
                 </p>
               )}
               {all.some((j) => isActive(j.status) && !cancellable(j)) && (
-                <p className="muted" data-testid="remote-admin-jobs-note">{REMOTE_ADMIN_NOTE} That includes cancelling their jobs.</p>
+                <p className="muted" data-testid="jobs-cancel-note">{CANCEL_RULE_NOTE}</p>
               )}
               {pc !== 'remote' && finishedCount > 0 && (
                 <div className="actions" data-testid="jobs-clear">
@@ -236,6 +259,8 @@ interface RowProps {
   authOn: boolean
   pc: ReturnType<typeof usePcOnly>
   open: ReadonlySet<string>
+  // The caller's own waiting jobs: place in the GPU queue, 1 = next.
+  places: ReadonlyMap<string, number>
   cancellable: (j: JobRecord) => boolean
   forceStoppable: (j: JobRecord) => boolean
   onToggle: (id: string) => void
@@ -257,7 +282,7 @@ function ProgressBar({ job, titles }: { job: JobRecord; titles: ReadonlyMap<numb
   )
 }
 
-function StatusCell({ job }: { job: JobRecord }) {
+function StatusCell({ job, place }: { job: JobRecord; place?: number }) {
   // A failed job's error already shows under its name; say it once.
   const outcome = isFinished(job.status) && jobOutcomeDetail(job) !== jobDetail(job) ? jobOutcomeDetail(job) : null
   return (
@@ -266,6 +291,7 @@ function StatusCell({ job }: { job: JobRecord }) {
       {job.stale && <Badge tone="warn">Stale</Badge>}
       {job.stalled && !job.stale && <Badge tone="warn">Stalled</Badge>}
       {outcome && <div className="muted jobs-outcome">{plainJobText(outcome)}</div>}
+      {job.status === 'queued' && place != null && <div className="muted jobs-outcome" data-testid={`job-place-${job.job_id}`}>{queuePlace(place)}</div>}
     </>
   )
 }
@@ -364,7 +390,7 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
                 </td>
                 <td>{title && links.title ? <a href={routeHref(links.title)}>{title}</a> : ''}</td>
                 <td>{links.stage ? <a href={routeHref(links.stage.route)}>{links.stage.label}</a> : ''}</td>
-                <td><StatusCell job={j} /></td>
+                <td><StatusCell job={j} place={props.places.get(j.job_id)} /></td>
                 <td><ProgressBar job={j} titles={props.titles} /></td>
                 <td>{j.started_at != null && <time dateTime={new Date(j.started_at * 1000).toISOString()}>{relativeTime(j.started_at, props.now)}</time>}</td>
                 <td>{formatDuration(j, props.now)}</td>
@@ -396,7 +422,7 @@ function JobCards({ jobs, ...props }: RowProps & { jobs: JobRecord[] }) {
           <li key={j.job_id} data-testid={`job-row-${j.job_id}`}>
             {title && links.title ? <a className="jobs-card-title" href={routeHref(links.title)}>{title}</a> : null}
             <strong>{jobBaseName(j)}</strong>
-            <div className="jobs-card-status"><StatusCell job={j} /><span className="muted">{formatDuration(j, props.now)}</span></div>
+            <div className="jobs-card-status"><StatusCell job={j} place={props.places.get(j.job_id)} /><span className="muted">{formatDuration(j, props.now)}</span></div>
             <ProgressBar job={j} titles={props.titles} />
             {note && <p className="muted jobs-note">{plainJobText(note)}</p>}
             {props.authOn && <p className="muted">{j.owned_by_me ? 'You' : 'Someone else'}</p>}

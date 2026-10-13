@@ -28,28 +28,13 @@ sudo apt install ffmpeg        # Ubuntu/Debian
 ```
 - **Automatic updates (source checkouts).** Before launch, `start.bat` fast-forwards a clone on `baihe-subtitler` to `origin/baihe-subtitler`. It never discards, stashes or overwrites your changes and leaves untracked and ignored files (`library\`, `.env`, `venv\`, `frontend\dist`) alone. When it updates it prints `Updated to <commit>: N new commits` and the latest subjects. If `requirements-core.txt` or the constraints files changed it reinstalls dependencies in the same launch; if the screens' source changed it rebuilds `frontend\dist` when `npm` exists, otherwise it says to run `start.bat --build-frontend` or unzip the release's frontend zip. It does nothing without a `.git` folder, without `git` on PATH, for an installed copy, or when GitHub can't be reached. A copy with local commits that aren't on origin is not updated (the update wouldn't sit on top of them).
 
-## Running the app and the CLI
+## Running the app
 
 Double-click `start.bat`, or from the repo root inside the venv (once `frontend/dist` exists):
 ```bash
 python -m api     # then open http://127.0.0.1:8600/
 ```
 Set `BAIHE_API_SERVE_FRONTEND=0` to run API-only.
-
-**CLI (headless batch)** (`python cli.py --help` lists every command and option):
-```bash
-python cli.py list
-python cli.py align --whisper-size medium                    # audio-drama mode
-python cli.py align --id 3 --transcript script.txt            # or --transcript - for stdin
-python cli.py narrate-prep --engine claude --api-key $KEY     # novel-narration mode
-python cli.py translate --status aligned --engine claude --api-key $KEY
-python cli.py dub --id 3
-python cli.py export-video --subs english
-python cli.py transcribe --id 3 --language zh --whisper-size large-v3 --diarize   # same service as the app; options are saved on the title
-python cli.py qc --id 3                                       # Auto QC: flags number/name/banned-term slips, no engine
-python cli.py glossary list --id 3                            # also add / remove / import FILE / export (the series glossary)
-```
-Without `--transcript`, put the transcript at `library/dramas/<id>/transcript.txt` and the media at `library/dramas/<id>/source.<ext>`. For novel narration, put the text at `library/dramas/<id>/novel_narration_source.txt` and set `content_mode = 'novel_narration'` on the drama row (the app does all this for you).
 
 ## Developer setup, ports and the Windows service
 
@@ -208,9 +193,9 @@ With no source audio, line timings come from each generated TTS clip, so downloa
 
 - **Voice engine**: OmniVoice is the only engine and is not bundled; install it in Diagnostics (`pip install omnivoice`, needs `transformers` 5.3+). It clones a voice from a 3-10s clip or designs one from a description, and speaks Chinese, Japanese and Korean. A speaker with no clip gets a designed voice. "Find clips in the audio" pulls reference clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
 - **Removed engines**: Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick OmniVoice; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand (Library tools > Data folder lists it as "Old voices").
-- **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable (`--max-speedup` / `--max-slowdown` on `cli.py dub`). Editing a line and generating again re-voices only that line.
+- **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable in the Dub stage. Editing a line and generating again re-voices only that line.
 - **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
-- **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers from the novel's headings (or one per paragraph); CLI: `python cli.py dub --id N --m4b`.
+- **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers from the novel's headings (or one per paragraph).
 
 Cloning real people's voices, even for personal fan translation, is a legal and ethical gray area; think it through before sharing dubbed files.
 
@@ -234,6 +219,7 @@ Raw and translated text side by side, for proofing and language learning.
 
 - **Continue shelf** with cover art and progress; reading history (clearable).
 - **Metadata**: cover, genre, publication status, chapter count, custom tags, private notes, reading/listening time estimates.
+- **Stream / release date**: set it in a title's Media > Details (empty = unknown; Baihe never guesses it from the date added). The Library can sort by it (titles without a date last) and **Group by** series, media type or status, with each series' titles oldest first so you can watch in order; a series page has its own **Sort titles by**, and both remember your choice in this browser.
 - **Dashboard**: totals, translated lines, API calls, estimated spend, cache-hit rate, per-drama costs.
 - **Series**: dramas sharing a glossary or characters get a consolidated view. Each series has its own page (`#/series/<id>`), opened from **Series** on the Library page or from "Open series page" in a title's Glossary. It has three tabs: **Titles** (every title in the series with its media type and line count; each opens the title), **Glossary tools** (the term count, a link to the glossary and series instructions, and **Copy terms from another series**: pick a series, see a preview such as "2 new terms will be added, 1 is already there and is skipped", then copy. A term the series already has, with the same original text ignoring case and width, is skipped and keeps its own translation and notes; nothing is removed from the other series, another person's private series is never offered, and a series with more than 2,000 terms can't be copied in one go) and **Settings** (**Rename series**, refused when another series you can see has the same name ignoring case; **Delete series…**, PC only, first lists what goes and what stays: the titles are kept and become "No series", while the series glossary, series characters, instructions, translation memory, dismissed suggestions and learned style profile are deleted with it. A series holding anything needs DELETE typed; an empty one a second press. It is refused while a job runs for any of its titles, and no files are touched). A title with no series can't hold glossary terms: pick a series, or "New series…", in its Glossary first. The Series page's **Defaults** tab holds default title settings (translation engine, the Translate toggles and the Transcribe tuning; never API keys, Groq transcription or Thinking, which only someone allowed to use paid engines may switch on for a title): a new title in the series starts with them, a title moved into it gets them only for settings it has no value for, and **Apply to all titles in this series** previews, per title, what would change before writing it ("Only fill settings a title hasn't changed" by default, where a value equal to the app's default counts as unchanged, or "Overwrite every title's settings"); it changes only titles you may edit and is refused while a job runs for any title in the series. The New title, Edit details and Glossary series pickers now list every series you can see, one-title and empty ones included.
 - **Search and bulk actions**: a global search over every drama's original and translated lines; bulk status, delete (typed confirm) and translate (skips dramas without a key, lines, or already running).
@@ -293,14 +279,14 @@ The Jobs page has a Queue card for lining up work and letting it run hands-off, 
 ## Reliability
 
 - One failure breaks only that thing: each React page has an error boundary, database connections are reclaimed after errors, destructive writes (`save_lines`, `save_bubbles`, history snapshots) run in transactions with rollback, and optional packages are imported lazily so a missing one disables only its feature.
-- Batch work isolates failures: a CLI batch continues past a failing drama and prints which ids to retry with `--id` (`BAIHE_CLI_DEBUG=1` for tracebacks); one failed TTS line leaves only that line silent; one failed page doesn't stop a bulk scanlate job; diarization failure keeps the alignment already saved.
+- Batch work isolates failures: one failed TTS line leaves only that line silent; one failed page doesn't stop a bulk scanlate job; diarization failure keeps the alignment already saved.
 - API calls back off exponentially on rate limits (up to 5 attempts) and fail fast on real errors.
 - Translation saves after every batch and skips already-translated lines on re-run; use "force re-translate everything" for a full redo.
 - Settings holds each API key once; keys are never shown back by the API. Settings has six tabs (Translation and keys, Costs, Notifications and backups, Sharing and devices, Integrations, System) and a search box that opens the tab and card it finds. Every card folds; the app remembers which are open, and "Expand all" / "Collapse all" act on the tab you are on. The first time you open a tab only its first card is open; after that the app keeps the cards as you left them, and a closed card shows its current value in one line. Someone without the settings permission sees only the Sharing and devices cards, with no tab bar or search. The public address check and the sign-in accounts are on the People and access page, and ports are on Diagnostics > System.
 - SQLite runs in WAL mode; the review table is paginated; real token usage is logged per drama (estimates only, since prices change).
 - GPU acceleration is optional (Whisper, diarization, local cloning) and falls back to CPU if CUDA isn't available.
 - The novel reference is sent as a prompt-cached block per drama. A very long novel (200k+ Chinese characters) may not fit; trim to the relevant arc or compress it into a glossary.
-- For 50-100+ dramas: filter the Library by status and use `cli.py` for unattended batches.
+- For 50-100+ dramas: filter the Library by status and line the work up in the Queue card on the Jobs page.
 
 ## Troubleshooting
 

@@ -2038,7 +2038,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
-        "keep_original", "translate_by_sentence"),
+        "keep_original", "translate_by_sentence", "release_date"),
     "series": ("instructions", "owner_user_id", "is_private", "default_settings"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
@@ -2632,19 +2632,6 @@ class TestInterruptedRestoreRecovery:
         finally:
             db.release_restore_lock(holder)
         assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
-
-    def test_the_cli_checks_the_library_before_its_command_runs(self, tmp_path, monkeypatch, capsys):
-        import cli
-        self._aside(tmp_path, "library.pre_restore_100", b"old")
-        monkeypatch.setattr(db, "LIBRARY_DIR", str(tmp_path / "library"))
-        seen = []
-        monkeypatch.setattr(cli, "cmd_list", lambda args: seen.append(
-            (tmp_path / "library" / "library.db").read_bytes()))
-        monkeypatch.setattr(sys, "argv", ["cli.py", "list"])
-        cli.main()
-        assert seen == [b"old"]
-        assert "library.pre_restore_100" in capsys.readouterr().out
-
 
     def test_the_lock_file_goes_at_a_clean_finish(self, tmp_path):
         lock = tmp_path / "library.restore-lock"

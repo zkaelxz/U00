@@ -414,11 +414,13 @@ class TestAdminOverrideIsPcOnly:
         assert r.status_code == 403
         assert db.get_item_ownership("drama", private)["is_private"] == 1
 
-    def test_cannot_cancel_a_pc_job(self, isolated_db):
+    def test_can_cancel_a_pc_job(self, isolated_db):
+        # The one admin change allowed from away: stopping a runaway job
+        # (owner decision 2026-10-12).
         s, _private = self._world()
         r = _household_client().post("/api/jobs/sources_search/cancel", headers=_h(s))
-        assert r.status_code == 403
-        assert not db.get_job_record("sources_search").get("cancel_requested")
+        assert r.status_code == 200
+        assert db.get_job_record("sources_search").get("cancel_requested")
 
     def test_cannot_edit_another_members_private_drama(self, isolated_db):
         s, private = self._world()

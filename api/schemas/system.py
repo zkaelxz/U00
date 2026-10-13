@@ -35,6 +35,8 @@ __all__ = [
     "RemoteIpCheckTestResult",
     "JobRecord",
     "JobListResponse",
+    "JobQueuePosition",
+    "JobQueueSummary",
     "SettingsPreferences",
     "SettingsChoices",
     "SettingsOverview",
@@ -279,9 +281,10 @@ class JobRecord(BaseModel):
     # Cancel was heard over a minute ago and the worker still runs: the
     # Force stop button's condition (job_force_stop.can_force_stop).
     can_force_stop: bool = False
-    # The caller started this job or owns its drama (auth off and the local
-    # owner: every job). Server-computed from the caller's session; true
-    # only where the caller may also cancel it.
+    # The caller started this job or it runs on the caller's title (auth
+    # off and the local owner: every job).
+    # Server-computed from the caller's session; true only where the caller
+    # may also cancel it (admins may cancel every job).
     owned_by_me: bool = False
     # The title a drama-scoped job runs on, and a fixed-vocabulary label for
     # what it does (services/jobs_service.JOB_KIND_BY_PREFIX), so clients
@@ -418,6 +421,22 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     cookies_browser: Optional[StrictStr] = Field(None, max_length=40)
     cookies_file: Optional[StrictStr] = Field(None, max_length=1024)
     lncrawl_cmd: Optional[StrictStr] = Field(None, max_length=1024)
+
+
+class JobQueuePosition(BaseModel):
+    job_id: str
+    # 1 = the next to start.
+    position: int
+
+
+class JobQueueSummary(BaseModel):
+    # Which line the positions are in: only GPU jobs wait.
+    lane: Literal["gpu"]
+    # Everyone's jobs, as counts only.
+    running: int
+    waiting: int
+    # The caller's own waiting jobs (owned_by_me), next first.
+    mine: List[JobQueuePosition]
 
 
 class JobCancelResult(BaseModel):
@@ -1011,6 +1030,9 @@ class UpdateStatus(BaseModel):
     verified_version: Optional[str] = Field(None, description="The version Install would start.")
     verified_name: Optional[str] = None
     can_install: bool
+    signature_check: bool = Field(description="This copy has a release public key, so an update is "
+                                              "accepted only with a valid release signature.")
+    signature_verified: bool = Field(description="The verified download's release signature was checked.")
     auto_check: bool
     custom_source: bool = Field(description="BAIHE_UPDATE_REPO names another repository than the default.")
 

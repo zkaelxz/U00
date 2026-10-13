@@ -11,9 +11,9 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
-| `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
-| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status) | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
+| `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
+| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
@@ -38,10 +38,6 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `job_process_result.py` (the channel a process-job worker sends its result through: a large result travels as a file so a child killed mid-write cannot hang the watcher)
 - `benchmark.py`
 - `check_setup.py`
-- `cli.py`
-- `cli_subtitle.py` (the `import-subtitle` command)
-- `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
-- `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
   - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
@@ -52,6 +48,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/job_records.py` (the job_records mirror of background job status)
   - `db/speakers.py` (characters and speakers: speaker rename and merge with its undo, series characters and voice links, the voice bank)
   - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
+- `dependency_updates.py` (installed versions against PyPI: update classification, constraints.txt and requirement minimums, known upgrade and install limitations)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
@@ -64,7 +61,6 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `portable.py`
 - `process_guard.py`
 - `qwen3_native.py`
-- `real_model_check_cli.py`
 - `run_tests.py`
 - `storage.py`
 
@@ -96,8 +92,11 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**
 
 - `auto_qc.py`
+- `bulk_apply.py` (applies finished bulk results by line id, per kind)
+- `bulk_poll.py` (polling, scheduled off-peak run, resume, cancel)
 - `bulk_providers.py`
-- `bulk_translate.py`
+- `bulk_reflect.py` (the staged Reflect pipeline as bulk jobs)
+- `bulk_translate.py` (building and submitting bulk requests)
 - `emotion.py`
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
@@ -115,6 +114,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
 - `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
+- `translation_finish.py` (untranslated count, aligned -> translated, the shared end of a translation run)
 - `translation_guide.py`
 - `translation_memory.py`
 
@@ -188,6 +188,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `file_lock.py` (`hold`: an exclusive cross-process lock on a file, for a model download two processes must not run at once)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
+- `release_signature.py` (the Ed25519 release signature format: the signed message, key and `.sig` texts, sign and verify; used by `services/update_service.py` and `tools/release_signing.py`)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
 - `model_offline.py` (offline model loads for a run started away from the PC: the per-run mark jobs carry into their thread or child process, and the Hugging Face / ModelScope cache folders)
 - `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
@@ -566,6 +567,7 @@ The job store behind `background_jobs.py`.
 
 - `gpu_slots.py` (the one way any process takes, keeps and frees a GPU slot)
 - `job_store.py` (writes and closes the job_records row of every job)
+- `user_caps.py` (how many running and queued jobs one signed-in user may have at once)
 
 ## sources/
 
@@ -651,6 +653,7 @@ Developer tools, not shipped.
 - `check_change.py` (prints the checks that matter for the files you changed, in under 2 KB)
 - `ci_changes.py` (Decides which CI jobs a change needs; used by the `changes` job in .github/workflows/tests.yml)
 - `ja_whisper_models.py` (Prepare Japanese Whisper fine-tunes for the Benchmark Lab's offline-model-folder arm)
+- `release_signing.py` (the owner's release key by hand: `generate`, `sign`, `verify`; docs/runbook.md §1a)
 - `repo_map.py` (Print a symbol map of the repo, sized for a model with a small context window)
 - `route_table.py` (Print the route -> permission table for docs/route-permissions.md, derived from the decorators)
 - `self_test.py` (One-run hardware self-test)
@@ -664,6 +667,7 @@ Windows installer and boot service, not imported by the app.
 - `build_installer.py` (assembles the Windows installer's payload and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe)
 - `launcher.py` (what the installed app's Start-menu shortcut runs)
 - `postinstall.py` (the installer's one post-install step)
+- `release_public_key.txt` (the release public key the installed app checks in-app updates against; ships in the payload; no key line = SHA-256 only)
 - `service.py` (runs the installed Baihe Studio as a Windows service)
 - `service_checks.py` (Asking what is listening: the loopback health checks, waiting for a condition, and whether this process is an administrator)
 - `service_cli.py` (The service script's command line)

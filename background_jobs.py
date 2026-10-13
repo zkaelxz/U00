@@ -36,6 +36,7 @@ import traceback
 import gpu_probe
 import job_force_stop
 import job_process_result
+from jobs import user_caps
 from lib import model_offline, settings_schema
 from job_process_kill import _kill_worker_group, _stop_process, kill_tree, reap_worker  # noqa: F401
 
@@ -268,10 +269,13 @@ def _running_gpu_job_count_locked(exclude_job_id):
 
 
 def _gpu_queue_waiting_locked():
-    """Caller must already hold _lock. True if a job is still waiting in
-    _gpu_queue: a new GPU job then queues behind it (first come, first
-    served) rather than taking a slot that just opened."""
-    return any(_jobs.get(e["job_id"], {}).get("status") == "queued" for e in _gpu_queue)
+    """Caller must already hold _lock. True if a job that could start is
+    still waiting in _gpu_queue: a new GPU job then queues behind it (first
+    come, first served) rather than taking a slot that just opened. One held
+    back by its starter's running cap doesn't count, or it would hold up
+    everyone else's."""
+    return any(_jobs.get(e["job_id"], {}).get("status") == "queued"
+               and not user_caps.held(_jobs, e) for e in _gpu_queue)
 
 
 def _take_queued_locked(job_id=None) -> list:
@@ -335,19 +339,27 @@ def _note_gpu_wait_reason_locked(job_id):
     _refresh_queue_messages_locked()
 
 
+def _queued_in_order_locked() -> list:
+    """Caller holds _lock: the job ids still waiting in _gpu_queue, next first."""
+    return [e["job_id"] for e in _gpu_queue
+            if _jobs.get(e["job_id"], {}).get("status") == "queued"]
+
+
 def _refresh_queue_messages_locked():
     """Caller holds _lock: rewrites each queued job's message to its
     current place in _gpu_queue after the queue changed."""
-    position = 0
-    for entry in _gpu_queue:
-        job = _jobs.get(entry["job_id"])
-        if not job or job.get("status") != "queued":
-            continue
-        position += 1
+    for position, job_id in enumerate(_queued_in_order_locked(), start=1):
+        job = _jobs[job_id]
         message = (job.get("gpu_wait_external") if position == 1 else None) or _queue_message(position)
         if job.get("message") != message:
             job["message"] = message
-            _mirror_locked(entry["job_id"])
+            _mirror_locked(job_id)
+
+
+def gpu_queue_order() -> list:
+    """[(job_id, owner_user_id)] waiting for the GPU here, next first."""
+    with _lock:
+        return [(jid, _jobs[jid].get("owner_user_id")) for jid in _queued_in_order_locked()]
 
 
 def _gpu_slot_available_locked(job_id, description):
@@ -709,6 +721,25 @@ def _promote_next_queued_gpu_job():
         _run_finish_hooks(dropped)
 
 
+def _next_promotable_entry_locked(dropped):
+    """Caller holds _lock. Drops entries whose job was cleared or ended
+    (their finish hooks go to `dropped`) and returns the first one left
+    whose starter is under their running cap (jobs/user_caps.py), else
+    None. A held entry keeps its place in line and can't deadlock: it
+    becomes promotable when one of its starter's running jobs ends, and
+    every job's end runs a promotion."""
+    for entry in list(_gpu_queue):
+        job = _jobs.get(entry["job_id"])
+        if job is None or job["status"] != "queued":
+            _gpu_queue[:] = [e for e in _gpu_queue if e is not entry]
+            if entry.get("on_finish") is not None:
+                dropped.append((entry["job_id"], entry["on_finish"]))
+            continue
+        if not user_caps.held(_jobs, entry):
+            return entry
+    return None
+
+
 def _promote_one_queued_gpu_job(dropped):
     """_promote_next_queued_gpu_job's body. Appends the finish hooks of the
     entries it drops, and of a promoted process job that fails to start, to
@@ -719,16 +750,13 @@ def _promote_one_queued_gpu_job(dropped):
         with _lock:
             if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
                 return
-            entry = _gpu_queue[0]
+            entry = _next_promotable_entry_locked(dropped)
+            if entry is None:
+                return
             job_id = entry["job_id"]
-            if job_id not in _jobs or _jobs[job_id]["status"] != "queued":
-                _gpu_queue.pop(0)
-                if entry.get("on_finish") is not None:
-                    dropped.append((job_id, entry["on_finish"]))
-                continue
             if not _gpu_slot_available_locked(job_id, entry["description"]):
                 return
-            _gpu_queue.pop(0)
+            _gpu_queue[:] = [e for e in _gpu_queue if e is not entry]
             _refresh_queue_messages_locked()
             if entry.get("kind") == "process":
                 on_done = entry.get("on_done")
@@ -900,7 +928,9 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     the PC owner, auth off, the CLI and jobs started by jobs.
 
     Raises ConflictError once the server's clean stop has begun
-    (refuse_new_jobs).
+    (refuse_new_jobs), and RateLimitedError when the starter is over a
+    per-user cap (jobs/user_caps.py). A GPU job whose starter is at the
+    running cap queues instead, and starts once one of their jobs ends.
     """
     owner_user_id = _acting_user_id()
     if model_offline.active():
@@ -915,7 +945,9 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         if existing and existing["status"] in ("running", "queued"):
             return False
         if gpu_touching and get_gpu_limit_enabled() and (
-                _gpu_queue_waiting_locked() or not _gpu_slot_available_locked(job_id, description)):
+                user_caps.wait_for_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
+                or not _gpu_slot_available_locked(job_id, description)):
+            user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=True)
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
                 "message": GPU_WAIT_MESSAGE,
@@ -926,9 +958,11 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             }
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
-                                "kwargs": kwargs, "description": description, "kind": "thread"})
+                                "kwargs": kwargs, "description": description, "kind": "thread",
+                                "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
             return True
+        user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=False)
         _jobs[job_id] = {
             "status": "running", "progress": 0.0, "message": "Starting...",
             "error": None, "started_at": time.time(), "finished_at": None,
@@ -1020,8 +1054,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     return or the subprocess's result replaces it.
 
     on_done/on_finish/kill_whole_tree/start_method are carried through the
-    GPU queue like target/args. Records its starter and refuses during a clean stop like
-    start_job().
+    GPU queue like target/args. Records its starter, applies the per-user caps and
+    refuses during a clean stop like start_job().
     """
     owner_user_id = _acting_user_id()
     if model_offline.active():
@@ -1038,7 +1072,9 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         if existing and existing["status"] in ("running", "queued"):
             return False
         if gpu_touching and get_gpu_limit_enabled() and (
-                _gpu_queue_waiting_locked() or not _gpu_slot_available_locked(job_id, description)):
+                user_caps.wait_for_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
+                or not _gpu_slot_available_locked(job_id, description)):
+            user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=True)
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
                 "message": GPU_WAIT_MESSAGE,
@@ -1052,9 +1088,11 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done, "on_finish": on_finish,
-                                "kill_whole_tree": kill_whole_tree, "start_method": start_method})
+                                "kill_whole_tree": kill_whole_tree, "start_method": start_method,
+                                "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
             return True
+        user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=False)
         try:
             proc, result_queue = _register_process_job(job_id, target, args, gpu_touching,
                                                        description, owner_user_id,
@@ -1724,7 +1762,10 @@ def _cancel_queued_locked(job_id, job, requested_at=None) -> list:
     return hooks
 
 
-def request_cancel(job_id: str, requested_at=None):
+_ANY_OWNER = object()
+
+
+def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> bool:
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
     is_cancel_requested() between units of work, since a thread can't be
@@ -1738,12 +1779,17 @@ def request_cancel(job_id: str, requested_at=None):
     "cancelled" at once and never starts (a process job's on_finish runs
     before this returns). A running job's message becomes
     CANCELLING_MESSAGE (mirrored) until it stops, so a worker blocked in a
-    call with no cancel point (a model load) shows the cancel was heard."""
+    call with no cancel point (a model load) shows the cancel was heard.
+    With `owner_user_id`, False (nothing done) for a queued or running run
+    someone else started (see jobs_service.cancel_job)."""
     hooks = []
     with _lock:
         job = _jobs.get(job_id)
         if job is None:
-            return
+            return True
+        if owner_user_id is not _ANY_OWNER and job.get("status") in ("queued", "running") \
+                and job.get("owner_user_id") != owner_user_id:
+            return False
         if job.get("status") == "queued":
             hooks = _cancel_queued_locked(job_id, job, requested_at)
         else:
@@ -1753,6 +1799,7 @@ def request_cancel(job_id: str, requested_at=None):
             job["message"] = CANCELLING_MESSAGE
             _mirror_locked(job_id)
     _run_finish_hooks(hooks)
+    return True
 
 
 # A cancel from another process can take up to this long to be seen; the

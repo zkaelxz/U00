@@ -399,15 +399,14 @@ class TestLearnStyle:
             db.get_style_profile(f"series:{sid}")["profile"])
 
     def test_translate_run_skips_a_paused_profile(self, isolated_db):
-        """translate_run_service, line_ai_service and the CLI build their
+        """translate_run_service and line_ai_service build their
         guidelines with workspace_job_service.build_run_style_context (B-20),
         which calls profile_to_prompt_block on the stored profile."""
         import inspect
         from services import line_ai_service, translate_run_service, workspace_job_service
-        import cli_translate
         assert "profile_to_prompt_block" in inspect.getsource(
             workspace_job_service.build_run_style_context)
-        for mod in (translate_run_service, line_ai_service, cli_translate):
+        for mod in (translate_run_service, line_ai_service):
             assert "build_run_style_context" in inspect.getsource(mod)
         assert adaptive_style.profile_to_prompt_block(
             {"preferences": ["x"], "apply": False}) == ""

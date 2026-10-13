@@ -8,8 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
+import bulk_poll
 import bulk_providers
-import bulk_translate as bt
+import bulk_reflect
+import bulk_translate
 import db
 import translate_engines as te
 from api.server import create_app
@@ -89,7 +91,7 @@ def _env(monkeypatch):
     background_jobs.clear_all_jobs()
     FakeProvider.submitted, FakeProvider.cancelled, FakeProvider._jobs = [], [], {}
     FakeProvider.fail, FakeProvider.on_results = {}, {}
-    monkeypatch.setattr(bt, "POLL_INTERVAL_SECONDS", 0.02)
+    monkeypatch.setattr(bulk_poll, "POLL_INTERVAL_SECONDS", 0.02)
     # A batch or an off-peak run is refused without a monthly cap.
     monkeypatch.setattr(svc.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "sk-fake")
@@ -101,7 +103,7 @@ def _env(monkeypatch):
 def _fake_engines(monkeypatch, ended=True):
     engine = te.ClaudeEngine("sk-ant-fake")
     monkeypatch.setattr(te, "get_engine", lambda *a, **k: engine)
-    for module in (bulk_providers, bt):
+    for module in (bulk_providers, bulk_translate, bulk_reflect, bulk_poll):
         monkeypatch.setattr(module, "make_provider",
                             lambda choice, e: FakeProvider(_current["did"], ended=ended))
     return engine
@@ -280,7 +282,7 @@ def test_resume_starts_poller_for_pending_job(isolated_db, monkeypatch):
     bid = db.create_bulk_job(did, "claude", "m", "submitted", [(rows[0]["id"], "k", "h", "")])
     out = svc.resume_bulk_translations(did)
     assert out == {"drama_id": did, "jobs": [{"bulk_job_id": bid, "state": "polling"}]}
-    bt.cancel_bulk_job(bid)
+    bulk_poll.cancel_bulk_job(bid)
 
 
 def test_offpeak_schedule_stores_the_runs_batching(isolated_db, monkeypatch):

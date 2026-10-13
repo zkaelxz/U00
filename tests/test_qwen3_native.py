@@ -692,50 +692,6 @@ def test_the_pipeline_passes_the_hint_to_both_qwen3_backends(monkeypatch, isolat
     assert prompts == ["Vocabulary: 龙", "Vocabulary: 龙"]
 
 
-def test_cli_transcribe_saves_the_flag_and_defaults_to_the_saved_choice(monkeypatch):
-    import cli
-    from services import transcribe_service
-    saved = []
-    monkeypatch.setattr(transcribe_service, "update_transcribe_config",
-                        lambda did, **fields: saved.append(fields))
-    monkeypatch.setattr(transcribe_service, "start_transcribe_run",
-                        lambda *a, **k: {"job_id": "transcribe_1"})
-    monkeypatch.setattr(cli, "_wait_for_job", lambda *a, **k: ("ok", "", {"line_count": 0}))
-    parser_args = {}
-
-    def run(*flags):
-        sys.argv = ["cli", "transcribe", "--id", "1", *flags]
-        saved.clear()
-        monkeypatch.setattr(cli, "cmd_transcribe", lambda args: parser_args.update(vars(args)))
-        cli.main()
-        return parser_args["vocab_hint"]
-    assert run("--vocab-hint") is True
-    assert run("--no-vocab-hint") is False
-    assert run() is None            # nothing passed: the title's saved choice stands
-
-
-def test_cli_passes_only_an_explicit_choice_to_the_saved_config(monkeypatch):
-    import argparse
-    import cli
-    from services import transcribe_service
-    saved = []
-    monkeypatch.setattr(transcribe_service, "update_transcribe_config",
-                        lambda did, **fields: saved.append(fields))
-    monkeypatch.setattr(transcribe_service, "start_transcribe_run",
-                        lambda *a, **k: {"job_id": "transcribe_1"})
-    monkeypatch.setattr(cli, "_wait_for_job", lambda *a, **k: ("ok", "", {"line_count": 0}))
-    base = dict(id=1, whisper_size=None, asr_backend=None, beam_size=None, min_silence_ms=None,
-                min_pause=None, vad_threshold=None, sensitivity=None, separation_backend=None,
-                separate_vocals=None, language=None, chinese_script=None, diarize=False,
-                num_speakers=None, min_speakers=None, max_speakers=None, transcript=None,
-                initial_prompt=None, extra_names=None)
-    cli.cmd_transcribe(argparse.Namespace(**base, vocab_hint=True))
-    assert saved == [{"vocabulary_hint": True, **{k: None for k in saved[0] if k != "vocabulary_hint"}}]
-    saved.clear()
-    cli.cmd_transcribe(argparse.Namespace(**base, vocab_hint=None))
-    assert saved == []
-
-
 def test_the_requirement_service_messages(monkeypatch):
     import importlib.util
     from services import qwen3_requirements_service as req
@@ -778,8 +734,8 @@ def test_the_model_row_names_the_download_size_and_that_old_weights_are_not_reus
 
 
 def test_the_huggingface_hub_limit_stays_conditional_on_the_installed_transformers_cap():
-    import diagnostics
-    known = diagnostics.KNOWN_UPGRADE_LIMITATIONS["huggingface-hub"]
+    import dependency_updates
+    known = dependency_updates.KNOWN_UPGRADE_LIMITATIONS["huggingface-hub"]
     assert known["blocked_from"] == 2 and known["while_required_below_by"] == "transformers"
     assert "5.19" in known["reason"]
 

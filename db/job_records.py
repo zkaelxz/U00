@@ -114,6 +114,14 @@ def list_job_record_fingerprints() -> dict:
     return {r[0]: tuple(r[1:]) for r in rows}
 
 
+def count_active_job_records() -> dict:
+    """{"queued": n, "running": n} over every job_records row."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute("SELECT status, COUNT(*) FROM job_records "
+                            "WHERE status IN ('queued', 'running') GROUP BY status").fetchall()
+    return {"queued": 0, "running": 0, **{r[0]: r[1] for r in rows}}
+
+
 def get_job_record(job_id: str):
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute("SELECT * FROM job_records WHERE job_id = ?", (job_id,)).fetchone()

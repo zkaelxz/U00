@@ -37,7 +37,6 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - Jobs save only their own fields: `db.save_lines(id, lines, fields=("en",))`.
 - A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db` and is listed in
   `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
-- When you change shared logic, the CLI must not break. New features are app-only unless asked. The CLI is maintenance-only.
 - Tests are mocked (no network, GPU, models or keys); use `isolated_db` for DB tests and `pytest.importorskip` for optional libraries.
 - A new optional dependency goes in `diagnostics.OPTIONAL_DEPENDENCIES`; a new `sources.db` column in `_ADDED_COLUMNS` (`sources/store.py`).
 - Comments explain WHY only, never a Step or PR id. No new files, settings or abstractions beyond the task.
@@ -79,15 +78,15 @@ the folder named in the header, comma separated; a trailing `/` is a folder and
 `*` a glob. `n/a` means there is none. Root modules sit at the repo top level.
 
 Big files, use `python tools/repo_map.py <name>` (then `--part N`), never open them
-whole: `db`, `background_jobs`, `diagnostics`, `cli`, `core`, plus every file listed in
+whole: `db`, `background_jobs`, `diagnostics`, `core`, plus every file listed in
 `OVERSIZED_MODULE_BYTES` in `tests/test_static_analysis.py` (e.g. `scanlate`,
-`bulk_translate`, `services/transcribe_service`).
+`services/transcribe_service`).
 
 | Area | UI `frontend/src/pages/` | Router `api/routers/` | Service `services/` | Root / domain module | db (`db/` tables) | Tests `tests/` | E2E `frontend/e2e/` | Doc `docs/` |
 |---|---|---|---|---|---|---|---|---|
 | Library / titles | Library.tsx, LibraryTools.tsx, libraryParity/ | library_routes.py, drama_routes.py | library_service.py, drama_service.py, ownership_service.py | title_library.py | dramas, series | test_library_service.py, test_drama_service.py, test_api_dramas.py, test_title_library.py | library*.spec.ts | database.md |
 | Transcription (ASR) | workspace/stages/TranscribeStage.tsx | transcribe_routes.py, asr_options_routes.py, diarization_routes.py | transcribe_service.py, transcribe_pipeline.py, asr_options_service.py, diarization_service.py | asr_backend.py, vad_segments.py, forced_align.py, diarize.py, segment_splitting.py | dramas, lines | test_transcribe_service.py, test_asr_backend.py, test_diarize.py, test_segment.py | transcribe-*.spec.ts | engine-backends.md, asr-experiments.md |
-| Translation + engines | Translate.tsx, workspace/stages/TranslateStage.tsx | translate_routes.py, translate_run_routes.py, engine_routing_routes.py | translate_service.py, translate_run_service.py, engine_routing_service.py | translate_engines.py, engine_backends/, bulk_translate.py, translation_guide.py | lines, translation_versions, presets, usage_log | test_translate_engines.py, test_translate_run_service.py, test_bulk_translate.py, test_engine_routing.py | translate*.spec.ts | engine-backends.md |
+| Translation + engines | Translate.tsx, workspace/stages/TranslateStage.tsx | translate_routes.py, translate_run_routes.py, engine_routing_routes.py | translate_service.py, translate_run_service.py, engine_routing_service.py | translate_engines.py, engine_backends/, bulk_translate.py, bulk_apply.py, bulk_reflect.py, bulk_poll.py, translation_finish.py, translation_guide.py | lines, translation_versions, presets, usage_log | test_translate_engines.py, test_translate_run_service.py, test_bulk_translate.py, test_engine_routing.py | translate*.spec.ts | engine-backends.md |
 | Review / lines | workspace/stages/ReviewStage.tsx, workspace/stages/review/ | lines_routes.py, review_lines_routes.py, review_extras_routes.py, review_records_routes.py | lines_service.py, review_lines_service.py, line_tools_service.py | line_tools.py, auto_qc.py, resegment.py | lines, line_history, line_provenance | test_lines_service.py, test_review_lines_service.py, test_api_lines.py | review-*.spec.ts | api-and-services.md |
 | Characters / glossary | workspace/stages/CharactersPanel.tsx, workspace/stages/GlossaryPanel.tsx | characters_routes.py, glossary_routes.py, series_people_routes.py | characters_service.py, glossary_service.py, series_people_service.py | translation_memory.py | characters, series_characters, glossary_terms | test_characters_service.py, test_glossary_service.py, test_api_glossary.py | characters-*.spec.ts, glossary-*.spec.ts | database.md |
 | Live translate | Live.tsx, live/ | live_routes.py | live_service.py | live_translate.py, live_fetch.py | n/a | test_live_service.py, test_live_translate.py, test_live_fetch.py, test_api_live.py | live*.spec.ts | n/a |

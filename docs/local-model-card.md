@@ -12,7 +12,6 @@ Read this first, then `CLAUDE.md` and `AGENTS.md` (about 10k tokens of rules tog
 7. A file over 40 KB never grows and is read with `python tools/repo_map.py <module> --part N`: `tests/test_static_analysis.py`, `tests/test_split_guards.py`.
 8. Tests are mocked (`isolated_db` for the database); never skip, loosen or delete one to get green.
 9. Comments explain WHY only and never name a PR or step. No new files, settings or abstractions beyond the task: `tests/test_file_organization.py`.
-10. The CLI must not break when shared logic changes; new features are app-only.
 
 ## Stop and ask the owner before touching
 - `db/` (splits, table rebuilds, any migration that is not a plain `ADD COLUMN`).

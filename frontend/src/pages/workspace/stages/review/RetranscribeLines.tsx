@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
+import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import { applyRetranscribeLines, getRetranscribeLinesResult, startRetranscribeLines } from '../../../../api/workspace'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
-import { TERMINAL_STATUSES } from '../../../../types/jobs'
+import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeManyResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import {
@@ -54,6 +55,7 @@ export function RetranscribeLines({
   const [failure, setFailure] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
 
+  const anyJob = useCancelsAnyJob()
   const { job, error: pollError } = useJob(jobId, {
     runKey,
     onDone: (j) => {
@@ -143,7 +145,7 @@ export function RetranscribeLines({
             <button type="button" onClick={() => start(selectedIds)} disabled={busy || applying || !!blocked}>
               {busy ? 'Re-transcribing…' : 'Re-transcribe selected'}
             </button>
-            {active && job && <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
+            {active && job && offersCancel(job, anyJob) && <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
           </div>
           {need ? <NeedsInstall need={need} /> : blocked && !busy && <p className="muted" data-testid="retranscribe-lines-blocked">{blocked}</p>}
           <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />

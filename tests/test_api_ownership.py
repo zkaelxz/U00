@@ -77,9 +77,11 @@ OWNERSHIP_EXEMPT_PARAMS = {
 # and TestJobs.test_every_job_route_hides_other_users_jobs walks them all.
 JOB_ROUTES = {
     ("GET", "/api/jobs/{job_id}"): "jobs_service.get_job -> can_see_job",
-    ("POST", "/api/jobs/{job_id}/cancel"): "jobs_service.cancel_job -> can_see_job",
+    ("POST", "/api/jobs/{job_id}/cancel"):
+        "jobs_service.cancel_job -> can_see_job, then may_cancel_job",
     ("POST", "/api/jobs/{job_id}/delete"): "jobs_service.delete_job -> can_see_job",
-    ("POST", "/api/jobs/{job_id}/force-stop"): "jobs_service.force_stop_job -> can_see_job",
+    ("POST", "/api/jobs/{job_id}/force-stop"):
+        "jobs_service.force_stop_job -> can_see_job, then may_cancel_job",
     ("GET", "/api/jobs/{job_id}/stages"): "jobs_service.get_job_stages -> can_see_job",
     ("GET", "/api/sources/jobs/{job_id}/result"):
         "sources_search_service.get_job_result -> can_see_job",
@@ -104,6 +106,17 @@ def _client(app):
 def _local(app):
     return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
                       raise_server_exceptions=False)
+
+
+def _household():
+    """A client on the internet-facing household listener, where an admin
+    loses the admin override."""
+    return TestClient(
+        create_app(ApiSettings(household_port=8610, serve_frontend=False,
+                               google_client_id="cid", google_client_secret="s3cr3t-value",
+                               public_url=REMOTE), listener="household"),
+        base_url=REMOTE.replace("https", "http"), client=("127.0.0.1", 5000),
+        raise_server_exceptions=False)
 
 
 def _login(email, admin=False):
@@ -882,9 +895,9 @@ class TestJobs:
         assert (owner["drama_id"], owner["kind"]) == (world["private"], "translate")
 
     def test_owned_by_me_agrees_with_cancel(self, world, jobs):
-        # owned_by_me: the caller started the job or owns its drama. Where it
-        # is true, cancel is allowed; where false, it is someone else's job
-        # (a member may still cancel one on a shared drama).
+        # owned_by_me: the caller started the job, or someone signed in
+        # started it on the caller's title. Where it is true, cancel is
+        # allowed; where false, only an admin (on any listener) may cancel.
         adm_drama = db.create_drama(title_en="Admin's", source_language="zh",
                                     owner_user_id=world["admin_id"], is_private=1)
         jobs = dict(jobs, adm_fixed="discover_navigation_help",
@@ -892,21 +905,16 @@ class TestJobs:
         db.save_job_record(jobs["adm_fixed"], "running", started_at=1.0,
                            owner_user_id=world["admin_id"])
         db.save_job_record(jobs["adm_drama"], "running", started_at=1.0, owner_user_id=None)
-        household = TestClient(
-            create_app(ApiSettings(household_port=8610, serve_frontend=False,
-                                   google_client_id="cid", google_client_secret="s3cr3t-value",
-                                   public_url=REMOTE), listener="household"),
-            base_url=REMOTE.replace("https", "http"), client=("127.0.0.1", 5000),
-            raise_server_exceptions=False)
+        household = _household()
         remote = _client(_app())
         # who -> (client, headers, {job key: (owned_by_me, cancel status)})
         cases = {
             "owner": (remote, world["a"], {"priv": (True, 200), "shared": (True, 200),
                                            "a_fixed": (True, 200)}),
-            "member": (remote, world["b"], {"shared": (False, 200), "b_fixed": (True, 200)}),
+            "member": (remote, world["b"], {"shared": (False, 403), "b_fixed": (True, 200)}),
             "remote_admin": (household, world["admin"], {
-                "priv": (False, 403), "shared": (False, 200), "a_fixed": (False, 403),
-                "pc_fixed": (False, 403), "b_fixed": (False, 403),
+                "priv": (False, 200), "shared": (False, 200), "a_fixed": (False, 200),
+                "pc_fixed": (False, 200), "b_fixed": (False, 200),
                 "adm_fixed": (True, 200), "adm_drama": (True, 200)}),
             "local_owner": (_local(_app("off")), {"X-Baihe-Local": "1"},
                             {k: (True, 200) for k in jobs}),
@@ -924,6 +932,204 @@ class TestJobs:
                 if flag is not None:
                     assert one.json()["owned_by_me"] is flag, (who, key)
                     assert not flag or code == 200, (who, key)
+
+    def test_only_the_starter_the_title_owner_or_an_admin_stops_a_job(self, world):
+        # Owner decision 2026-10-12: a member may not stop another member's
+        # job on a shared title; admins may, on the household listener too.
+        c_id, c = _login("c@example.com")
+        shared = world["shared"]                      # A's title, shared
+        rows = {"b_on_a": (f"dub_{shared}", world["b_id"]),
+                "c_on_a": (f"flag_{shared}", c_id),
+                "a_on_a": (f"translate_{shared}", world["a_id"]),
+                "pc_on_a": (f"transcribe_{shared}", None),
+                "a_priv": (f"translate_{world['private']}", world["a_id"])}
+        remote, household = _client(_app()), _household()
+        local = _local(_app("off"))                  # the PC owner: auth off
+        cases = [  # (client, headers, job key, expected cancel status)
+            (remote, world["b"], "c_on_a", 403),      # another member's, shared title
+            (remote, world["b"], "a_on_a", 403),
+            (remote, world["b"], "pc_on_a", 403),
+            (remote, world["b"], "a_priv", 404),      # invisible stays 404
+            (remote, world["b"], "b_on_a", 200),      # their own
+            (remote, c, "c_on_a", 200),
+            (remote, world["a"], "pc_on_a", 200),     # no starter, but A's title
+            (household, world["admin"], "a_on_a", 200),
+            (household, world["admin"], "a_priv", 200),
+            (local, {"X-Baihe-Local": "1"}, "pc_on_a", 200),
+        ]
+        for client, headers, key, want in cases:
+            job_id, owner = rows[key]
+            db.save_job_record(job_id, "running", started_at=1.0, owner_user_id=owner)
+            r = client.post(f"/api/jobs/{job_id}/cancel", headers=headers)
+            assert r.status_code == want, (key, r.status_code, r.text)
+            if want == 403:
+                assert "Only the person who started this job" in r.json()["error"]["message"]
+                assert not db.get_job_record(job_id)["cancel_requested"]
+        # The title's owner stops a job another member started on it.
+        db.save_job_record(rows["b_on_a"][0], "running", started_at=2.0,
+                           owner_user_id=world["b_id"])
+        assert remote.post(f"/api/jobs/{rows['b_on_a'][0]}/cancel",
+                           headers=world["a"]).status_code == 200
+        # Force stop follows the same rule.
+        assert remote.post(f"/api/jobs/{rows['a_on_a'][0]}/force-stop",
+                           headers=world["b"]).status_code == 403
+        assert remote.post(f"/api/jobs/{rows['a_priv'][0]}/force-stop",
+                           headers=world["b"]).status_code == 404
+
+    @pytest.mark.parametrize("kind", ["from-lines", "from-novel", "spelling-suggestions"])
+    def test_title_glossary_cancel_routes_follow_the_job_rule(self, world, kind):
+        import threading
+        import background_jobs
+        from api.auth import require_permission
+        from services import glossary_extract_service as extract
+        from services import glossary_spelling_service as spelling
+        job_id_of = {"from-lines": extract.lines_glossary_job_id,
+                     "from-novel": extract.novel_glossary_job_id,
+                     "spelling-suggestions": spelling.spelling_job_id}[kind]
+        c_id, c = _login("c@example.com")
+        app = _app()
+        gate = threading.Event()
+
+        @app.post("/api/zz-run/{did}", dependencies=[require_permission("jobs.start")])
+        def start(did: int):
+            jid = job_id_of(did)
+            assert background_jobs.start_job(jid, gate.wait, 10)
+            extract._run_ids[jid] = "r1"
+            return {}
+        client, household = _client(app), _household()
+        heads = {"a": world["a"], "b": world["b"], "c": c}
+
+        def cancel(cl, headers, did):
+            return cl.post(f"/api/glossary/dramas/{did}/{kind}/cancel", headers=headers,
+                           json={"run_id": "r1"}).status_code
+        shared, private = world["shared"], world["private"]
+        try:
+            assert client.post(f"/api/zz-run/{shared}", headers=heads["b"]).status_code == 200
+            assert cancel(client, heads["c"], shared) == 403   # another member's job
+            assert cancel(client, heads["b"], shared) == 200   # their own
+            assert cancel(client, heads["a"], shared) == 200   # the title's owner
+            assert client.post(f"/api/zz-run/{private}", headers=heads["a"]).status_code == 200
+            assert cancel(client, heads["c"], private) == 404
+            # An admin away from the PC, on a member's private title.
+            assert cancel(household, world["admin"], private) == 200
+        finally:
+            gate.set()
+            for did in (shared, private):
+                jid = job_id_of(did)
+                for _ in range(200):
+                    st = background_jobs.get_status(jid)
+                    if not st or st["status"] not in ("queued", "running"):
+                        break
+                    threading.Event().wait(0.02)
+                background_jobs.clear_job(jid)
+                extract._run_ids.pop(jid, None)
+
+    def test_bulk_batch_cancel_is_the_title_owners_or_an_admins(self, world):
+        # A batch records no starter: only its title's owner and admins.
+        c_id, c = _login("c@example.com")
+        jobs = {did: db.create_bulk_job(did, "nllb", "m", "submitted", [(0, "k", "h", "")])
+                for did in (world["shared"], world["private"])}
+
+        def cancel(cl, headers, did):
+            return cl.post(f"/api/translate-run/dramas/{did}/bulk/{jobs[did]}/cancel",
+                           headers=headers).status_code
+        client = _client(_app())
+        assert cancel(client, world["b"], world["shared"]) == 403
+        assert cancel(client, c, world["shared"]) == 403
+        assert db.get_bulk_job(jobs[world["shared"]])["status"] == "submitted"
+        assert cancel(client, world["a"], world["shared"]) == 200
+        assert cancel(client, world["b"], world["private"]) == 404
+        assert cancel(_household(), world["admin"], world["private"]) == 200
+
+    def test_cancel_stops_only_the_run_that_was_checked(self, world, monkeypatch):
+        # A shared id restarted by someone else between the check and the
+        # cancel: the new run is not stopped.
+        from services import jobs_service, ownership_service
+        db.save_job_record("sources_search", "running", started_at=1.0,
+                           owner_user_id=world["b_id"])
+        real = ownership_service.require_job_changeable
+
+        def then_restarted(principal, job_id, owner):
+            real(principal, job_id, owner)
+            db.save_job_record("sources_search", "running", started_at=2.0,
+                               owner_user_id=world["a_id"])
+        monkeypatch.setattr(ownership_service, "require_job_changeable", then_restarted)
+        r = _client(_app()).post("/api/jobs/sources_search/cancel", headers=world["b"])
+        assert r.status_code == 409, r.text
+        assert not db.get_job_record("sources_search")["cancel_requested"]
+        assert jobs_service.cancel_job("sources_search", principal=None)["cancel_requested"]
+
+    def test_queue_summary_shows_counts_and_only_the_callers_places(self, world):
+        import threading
+        import background_jobs
+        from api.auth import require_permission
+        app = _app()
+        gates = {}
+
+        @app.post("/api/zz-q/{job_id}", dependencies=[require_permission("jobs.start")])
+        def start(job_id: str):
+            gates[job_id] = threading.Event()
+            background_jobs.start_job(job_id, gates[job_id].wait, 10, gpu_touching=True,
+                                      description=f"Secret {job_id}")
+            return {}
+        background_jobs.set_gpu_limit_enabled(True)
+        client = _client(app)
+        a_run, a_wait = f"transcribe_{world['private']}", f"translate_{world['private']}"
+        b1, b2, b3 = "zz_b_one", "zz_b_two", "zz_b_three"
+
+        def go(job_id, who):
+            assert client.post(f"/api/zz-q/{job_id}", headers=world[who]).status_code == 200
+
+        def summary(who="b"):
+            r = client.get("/api/jobs/queue-summary", headers=world[who])
+            assert r.status_code == 200, r.text
+            for hidden in (a_run, a_wait, "Secret", "A private", "owner", "description"):
+                assert who != "b" or hidden not in r.text, hidden
+            body = r.json()
+            assert set(body) == {"lane", "running", "waiting", "mine"} and body["lane"] == "gpu"
+            return body["running"], body["waiting"], [(m["job_id"], m["position"])
+                                                      for m in body["mine"]]
+
+        def wait_status(job_id, status):
+            for _ in range(200):
+                if (background_jobs.get_status(job_id) or {}).get("status") == status:
+                    return
+                threading.Event().wait(0.02)
+            raise AssertionError((job_id, status))
+        try:
+            go(a_run, "a")
+            wait_status(a_run, "running")
+            go(b1, "b")
+            go(a_wait, "a")
+            go(b2, "b")
+            assert summary() == (1, 3, [(b1, 1), (b2, 3)])
+            assert summary("a")[2] == [(a_wait, 2)]
+            # The job ahead is cancelled: everyone behind it moves up.
+            assert client.post(f"/api/jobs/{b1}/cancel", headers=world["b"]).status_code == 200
+            assert summary() == (1, 2, [(b2, 2)])
+            # A new one arrives at the back.
+            go(b3, "b")
+            assert summary() == (1, 3, [(b2, 2), (b3, 3)])
+            # The running job finishes: the next starts and is no longer waiting.
+            gates[a_run].set()
+            wait_status(a_wait, "running")
+            assert summary() == (1, 2, [(b2, 1), (b3, 2)])
+            assert summary("a")[2] == []
+            # An admin's own list is theirs only; the counts are everyone's.
+            body = client.get("/api/jobs/queue-summary", headers=world["admin"]).json()
+            assert (body["running"], body["waiting"], body["mine"]) == (1, 2, [])
+        finally:
+            for gate in gates.values():
+                gate.set()
+            for jid in gates:
+                background_jobs.cancel_queued(jid)
+            for jid in gates:
+                for _ in range(200):
+                    st = background_jobs.get_status(jid)
+                    if not st or st["status"] not in ("queued", "running"):
+                        break
+                    threading.Event().wait(0.02)
+                background_jobs.clear_job(jid)
 
     def test_starter_loses_a_drama_job_when_the_drama_goes_private(self, world):
         # Review L-1: B started a run on A's shared drama; A then made it private.
@@ -1057,3 +1263,24 @@ class TestLibrarySharingFlags:
         assert mine[0]["is_private"] is True and mine[0]["owned_by_me"] is True
         admin = client.get("/api/library/series", headers=w["admin"]).json()["items"]
         assert admin[0]["owned_by_me"] is False
+
+
+class TestReleaseDate:
+    def test_member_cannot_see_or_set_the_date_of_a_title_they_cannot_see(self, world):
+        db.update_drama(world["private"], release_date="2025-05-05")
+        client = _client(_app())
+        assert client.get(f"/api/library/dramas/{world['private']}",
+                          headers=world["b"]).status_code == 404
+        listed = client.get("/api/library/dramas", headers=world["b"]).json()["items"]
+        assert world["private"] not in {i["id"] for i in listed}
+        assert "2025-05-05" not in repr(listed)
+        r = client.post(f"/api/dramas/{world['private']}/metadata", headers=world["b"],
+                        json={"release_date": "2030-01-01"})
+        assert r.status_code in (403, 404)
+        assert db.get_drama(world["private"])["release_date"] == "2025-05-05"
+
+    def test_admin_can_set_and_read_it(self, world):
+        client = _client(_app())
+        r = client.post(f"/api/dramas/{world['private']}/metadata", headers=world["admin"],
+                        json={"release_date": "2026-06-07"})
+        assert r.status_code == 200 and r.json()["release_date"] == "2026-06-07"

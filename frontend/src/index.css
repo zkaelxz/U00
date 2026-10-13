@@ -1,7 +1,7 @@
-/* Indigo ink palette (owner pick). Token names are the app's own; --ink, --line,
+/* Frost palette (owner pick): blue accent, cool neutrals. Token names are the app's own; --ink, --line,
    --accent-ink and --err are aliases of --text, --border, --on-accent and --bad. */
 :root {
-  --accent: #3d4fa8;
+  --accent: #1d6fd1;
   --accent-text: var(--accent);
   --accent-ink: var(--on-accent);
   --ink: var(--text);
@@ -11,13 +11,13 @@
   --field-bg: #ffffff;
   --field-edge: var(--border);
   --focus: color-mix(in srgb, var(--accent) 35%, transparent);
-  --bg: #f4f5f9;
+  --bg: #f3f6fc;
   --surface: #ffffff;
-  --surface-2: #f8f9fc;
-  --text: #1a1d2b;
-  --muted: #585e76;
-  --border: #dcdfea;
-  --highlight: #e8ebfa;
+  --surface-2: #eef2fa;
+  --text: #17202f;
+  --muted: #44526b;
+  --border: #dde3ef;
+  --highlight: #e6eefb;
   --bad: #b3261e;
   --ok: #1f7a4d;
   --warn: #9a5b00;
@@ -88,16 +88,16 @@
    sepia (data-theme, src/theme.ts), and always when it chose dark or oled. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"], [data-theme="sepia"]) {
-    --bg: #12141d;
-    --accent: #9aa7ee;
-    --on-accent: #10142c;
-    --field-bg: #151823;
-    --surface: #1a1d29;
-    --surface-2: #212536;
-    --text: #e7e9f3;
-    --muted: #9aa0b8;
-    --border: #2b3042;
-    --highlight: #232845;
+    --bg: #0d1220;
+    --accent: #8ec5ff;
+    --on-accent: #08111f;
+    --field-bg: #111729;
+    --surface: #161b2e;
+    --surface-2: #1d2438;
+    --text: #eef1fa;
+    --muted: #a8b2cc;
+    --border: #2a3350;
+    --highlight: #1d2a4a;
     --bad: #ef7b73;
     --ok: #5fc08c;
     --warn: #e0a24a;
@@ -113,16 +113,16 @@
 /* Same tokens as the prefers-color-scheme block above, repeated on purpose: a media query cannot be combined with
    an attribute selector, and an explicit dark or oled choice must win over the OS setting. Edit both together. */
 :root:is([data-theme="dark"], [data-theme="oled"]) {
-  --bg: #12141d;
-  --accent: #9aa7ee;
-  --on-accent: #10142c;
-  --field-bg: #151823;
-  --surface: #1a1d29;
-  --surface-2: #212536;
-  --text: #e7e9f3;
-  --muted: #9aa0b8;
-  --border: #2b3042;
-  --highlight: #232845;
+  --bg: #0d1220;
+  --accent: #8ec5ff;
+  --on-accent: #08111f;
+  --field-bg: #111729;
+  --surface: #161b2e;
+  --surface-2: #1d2438;
+  --text: #eef1fa;
+  --muted: #a8b2cc;
+  --border: #2a3350;
+  --highlight: #1d2a4a;
   --bad: #ef7b73;
   --ok: #5fc08c;
   --warn: #e0a24a;
@@ -152,8 +152,9 @@
   --shadow-pop: none;
 }
 
-/* Warm paper with the light accent and status colours; warn (owner pick) and ok are darker for contrast on the paper. */
+/* Warm paper with a burnt-orange accent; warn and ok are darker for contrast on the paper. */
 :root[data-theme="sepia"] {
+  --accent: #8a4a1f;
   --bg: #efe4cb;
   --surface: #ebe0c6;
   --surface-2: #f6eed8;
@@ -893,3 +894,10 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   .source-link { position: relative; }
   .source-link::after { content: ''; position: absolute; inset: -12px -6px; }
 }
+
+/* Library "Group by": one collapsible header per group. */
+.title-group { margin-block: var(--space-4); }
+.title-group-head { display: flex; align-items: center; gap: var(--space-3); margin: 0 0 var(--space-3); font-size: var(--text-md); }
+.title-group-toggle { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.title-group-name { font-weight: 600; }
+.title-group-link { margin-left: auto; white-space: nowrap; }

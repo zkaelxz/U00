@@ -317,14 +317,14 @@ class TestReadingSpeed:
         assert "The speech is this fast: shorten the text" in ln.flag_note
 
     def test_translation_finishing_honours_the_titles_mode(self, isolated_db):
-        import bulk_translate
+        import translation_finish
         text = "word " * 20  # 19.8 cps over 5 s
         for mode, expected in (("normal", sf.READING_SPEED_FLAG), ("relaxed", None), ("off", None)):
             did = isolated_db.create_drama(title_en=mode)
             isolated_db.update_drama(did, reading_speed_mode=mode)
             isolated_db.save_lines(did, [Line(idx=0, start=0, end=5, zh="你好", en=text)])
             lines = isolated_db.load_line_objects(did)
-            bulk_translate.finish_translation_run(did, lines, object(), "claude", "", [], [],
+            translation_finish.finish_translation_run(did, lines, object(), "claude", "", [], [],
                                                   enforce_ids={ln.id for ln in lines})
             assert isolated_db.load_lines(did)[0]["flag"] == expected, mode
 

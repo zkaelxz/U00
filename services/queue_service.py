@@ -32,8 +32,9 @@ from typing import Optional
 import db
 import translate_engines
 from lib import model_offline
+from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
-                        ServiceError, UnsupportedOperationError)
+                        RateLimitedError, ServiceError, UnsupportedOperationError)
 from services import (auth_service, artifact_service, export_service, jobs_service,
                       model_readiness_service, ownership_service, settings_service, transcribe_service,
                       translate_run_service, translate_thinking_service)
@@ -56,6 +57,8 @@ _HHMM = re.compile(r"^([01][0-9]|2[0-3]):([0-5][0-9])$")
 _MAX_REASON = 300
 _STOPPED_AFTER_FAILURE = "Stopped because an item failed. Start the queue to go on."
 _INTERRUPTED = "Interrupted: Baihe stopped while this ran. Press Retry to run it again."
+_WAITING_FOR_CAP = ("Waiting for other jobs of the account that added it to finish; it "
+                    "starts when one of them ends.")
 _NO_CAP = ("Set a monthly spending cap (Settings > Spending) to run paid translation "
            "from the queue.")
 
@@ -731,7 +734,11 @@ def tick(now: float = None) -> None:
     _start_next(now)
 
 
-def _start_next(now: float) -> None:
+def _start_next(now: float, deferred=frozenset()) -> None:
+    """Starts the first waiting item not in `deferred`. An item whose adder
+    is at their running cap (jobs/user_caps.py) goes back to waiting with a
+    reason and the next one is tried, so one member's own jobs never hold up
+    the line; the next tick tries it again."""
     import background_jobs
     if background_jobs.exclusive_active() or background_jobs.maintenance_active():
         return     # a restore or cleanup holds the library: wait rather than skip everything
@@ -739,19 +746,24 @@ def _start_next(now: float) -> None:
         doc = _load(now)
         if doc["state"] != ACTIVE or any(i["status"] == RUNNING for i in doc["items"]):
             return
-        item = next((i for i in doc["items"] if i["status"] == WAITING), None)
+        item = next((i for i in doc["items"]
+                     if i["status"] == WAITING and i["id"] not in deferred), None)
         if item is None:
-            doc["state"] = IDLE
-            _save(doc)
+            if not deferred:
+                doc["state"] = IDLE
+                _save(doc)
             return
         item.update(status=RUNNING, started_at=now, reason="", job_id=None)
         claimed = dict(item)
         _save(doc)
     status, reason, job_id = RUNNING, "", None
     try:
-        job_id = _start_item(claimed)
+        with user_caps.refuse_at_cap():
+            job_id = _start_item(claimed)
         if job_id is None:
             status = DONE
+    except RateLimitedError:
+        status = WAITING
     except ServiceError as exc:
         status, reason = SKIPPED, str(exc)
         if background_jobs.is_stopping():
@@ -766,13 +778,17 @@ def _start_next(now: float) -> None:
         if item is not None:
             if status == RUNNING:
                 item["job_id"] = job_id
+            elif status == WAITING:
+                item.update(status=WAITING, reason=_WAITING_FOR_CAP, started_at=None)
             elif status == INTERRUPTED:
                 _finish(item, status, _INTERRUPTED, _clock())
             else:
                 _finish(item, status, reason and f"Skipped: {reason}", _clock())
                 item["job_id"] = job_id
         _save(doc)
-    if status != RUNNING:
+    if status == WAITING:
+        _start_next(now, deferred | {claimed["id"]})
+    elif status != RUNNING:
         _wake.set()     # straight on to the next item
 
 

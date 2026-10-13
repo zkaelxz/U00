@@ -192,7 +192,8 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
   `deepseek`, `gemini`, `openai`) and not to free-tier Gemini
   (`engine_cap_applies`). With a `FallbackEngine`, each engine has its own cap
   and spend.
-- `bulk_translate.py` submits whole-drama batches: Claude Message Batches and
+- `bulk_translate.py` submits whole-drama batches (`bulk_apply.py` applies the results,
+  `bulk_reflect.py` is the Reflect pipeline, `bulk_poll.py` polls, resumes and cancels): Claude Message Batches and
   Gemini Batch API at `BATCH_PRICE_FACTOR = 0.5`, and DeepSeek scheduled into
   its off-peak window (no batch API). Results are applied by line id, and only
   to a line that still exists, whose source hash is unchanged and whose English
@@ -231,17 +232,16 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
 7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS` (default `OLLAMA_DEFAULT_MODEL`,
-   `gemma4:12b`); the API and CLI also accept any tag typed by hand, and a title
+   `gemma4:12b`); the API also accepts any tag typed by hand, and a title
    or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
    (`gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
    `<think>` blocks in a reply are stripped before parsing; a separate
    `thinking` field is never read.
 8. **Thinking on translation runs.** Off by default for every run (Workspace,
-   bulk, CLI): `build_translation_context` sets `reply_without_thinking`, so
+   bulk): `build_translation_context` sets `reply_without_thinking`, so
    DeepSeek gets `thinking: disabled` and Ollama `think: false`
    (`engine_backends/thinking.py`, shared with Live). A run that asks to "think
-   harder" (`thinking=True`, the Translate step's toggle, `cli.py translate
-   --thinking`) sends the explicit on form instead (`thinking: enabled`,
+   harder" (`thinking=True`, the Translate step's toggle) sends the explicit on form instead (`thinking: enabled`,
    `think: true`). Engines without a request switch (Claude, Gemini, OpenAI,
    the translation-only engines) are unchanged, and so are Reflect's passes and
    a Claude/Gemini batch; the form says so. Comics are not covered: Scanlate calls
@@ -249,8 +249,7 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
    `dramas.translate_thinking` (NULL = never chosen = off), written by
    `save_style_toggles` once a run is accepted and read by
    `build_translation_context` when a run begins (so retries, line AI and the
-   DeepSeek off-peak job use it too). `cli.py translate --thinking` /
-   `--no-thinking` saves the same column. Reasoning is never saved: `<think>` blocks are stripped
+   DeepSeek off-peak job use it too). Reasoning is never saved: `<think>` blocks are stripped
    and `reasoning_content` / `thinking` fields are never read. Hidden reasoning
    is billed inside the provider's output token count, so `usage_log` and the
    spend history (`spend_history_service`) already include it with no new
@@ -284,8 +283,7 @@ flag on the Whisper path in `transcribe_service`.
 A title saved with a removed backend (`REMOVED_ASR_BACKENDS`: `moss_td`) runs and
 displays as the backend a title with no saved choice gets
 (`asr_options_service.stored_asr_backend`: `qwen3_asr_long` or `whisper`, see
-below), with `removed_asr_backend_notice()` shown in the Transcribe stage and
-printed by the CLI. The saved value is not rewritten.
+below), with `removed_asr_backend_notice()` shown in the Transcribe stage. The saved value is not rewritten.
 
 Alignment is a separate choice (`alignment_method`): `whisper_diff` (the
 default, `core.align_transcript_to_timing`) or `qwen3_forced_align`
@@ -351,9 +349,9 @@ All in `dub.py`; this page only maps them.
 - The optional packages for this (`omnivoice`, `pydub`) are in
   `diagnostics.OPTIONAL_DEPENDENCIES`.
 
-## 5. App and CLI share these paths
+## 5. Shared paths
 
-`cli.py` calls the same functions as the API: `translate_engines.get_engine`,
+The API calls these shared functions: `translate_engines.get_engine`,
 `FallbackEngine`, `redact_secrets`, `estimate_cost_for_engine`,
 `settings_service.resolve_key`, `transcribe_service` (including
 `stored_whisper_size`, `build_auto_initial_prompt`, `require_qwen3_packages`),
@@ -361,9 +359,7 @@ All in `dub.py`; this page only maps them.
 resolve through `settings_service.resolve_key` (`ENV_NAMES`: `BAIHE_*_KEY`
 first, then the provider's own variable; the Gemini key deliberately does not
 fall back to `GOOGLE_API_KEY`). Ollama's URL comes from `ollama_url` /
-`BAIHE_OLLAMA_URL`. When you change engine behaviour, check `cli.py` for the
-same call (glossary, style guide, locale, character names, caps) so the two do
-not diverge.
+`BAIHE_OLLAMA_URL`.
 
 ## 6. Adding an engine: checklist
 

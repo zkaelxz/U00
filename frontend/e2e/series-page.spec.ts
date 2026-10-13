@@ -184,3 +184,35 @@ test.describe('phone', () => {
     await noSidewaysScroll(page)
   })
 })
+
+test('sorts a series\' titles by date, defaults oldest first, and remembers the choice per series', async ({ page }) => {
+  const dated = {
+    ...PAGE,
+    titles: [
+      { ...PAGE.titles[0], id: 1, title_en: 'Bravo', release_date: '2025-02-01' },
+      { ...PAGE.titles[1], id: 2, title_en: 'Alpha', release_date: null },
+      { ...PAGE.titles[0], id: 3, title_en: 'Charlie', release_date: '2024-01-01' },
+    ],
+  }
+  await mockSeries(page)
+  await page.route('**/api/series/9', (r) => r.fulfill({ json: dated }))
+  await page.goto('/#/series/9')
+  const names = () => page.locator('.series-titles .table-title').allTextContents()
+  const sort = page.getByLabel('Sort titles by')
+  // Some title has a date: oldest first, the undated one last.
+  await expect(sort).toHaveValue('date-asc')
+  expect((await names()).map((n) => n.replace(/^#\d+ /, ''))).toEqual(['Charlie', 'Bravo', 'Alpha'])
+  await expect(page.getByTestId('series-titles')).toContainText('2024-01-01')
+  await sort.selectOption('date-desc')
+  expect((await names()).map((n) => n.replace(/^#\d+ /, ''))).toEqual(['Bravo', 'Charlie', 'Alpha'])
+  await sort.selectOption('title')
+  expect((await names()).map((n) => n.replace(/^#\d+ /, ''))).toEqual(['Alpha', 'Bravo', 'Charlie'])
+  await page.reload()
+  await expect(page.getByLabel('Sort titles by')).toHaveValue('title')
+})
+
+test('a series with no dates keeps its current order by default', async ({ page }) => {
+  await mockSeries(page)
+  await page.goto('/#/series/9')
+  await expect(page.getByLabel('Sort titles by')).toHaveValue('added')
+})

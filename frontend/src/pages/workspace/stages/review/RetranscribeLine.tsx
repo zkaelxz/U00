@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
+import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import {
   applyRetranscribeLine,
   getRetranscribeResult,
@@ -9,7 +10,7 @@ import {
 } from '../../../../api/workspace'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
-import { TERMINAL_STATUSES } from '../../../../types/jobs'
+import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeApplyResult, RetranscribeResult } from '../../../../types/workspace'
 import { canRetranscribe, jobIsForLine, retranscribeOutcome } from './retranscribeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -73,6 +74,7 @@ export function RetranscribeLine({
     }
   }, [dramaId])
 
+  const anyJob = useCancelsAnyJob()
   const { job, error: pollError } = useJob(jobId, {
     runKey,
     onDone: (j) => {
@@ -132,7 +134,7 @@ export function RetranscribeLine({
         <button ref={startRef} type="button" onClick={start} disabled={busy || applying || !!need} title={need?.reason}>
           {busy ? 'Re-transcribing…' : 'Re-transcribe this line'}
         </button>
-        {active && job && (
+        {active && job && offersCancel(job, anyJob) && (
           <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>
             Cancel
           </button>

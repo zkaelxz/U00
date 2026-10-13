@@ -93,7 +93,7 @@ ones create):
 Things to know:
 
 - **`_safe_alter`** swallows only `duplicate column name`. `init_db` has no
-  cross-process lock, so the API server and a separate `cli.py` can both reach
+  cross-process lock, so the API server and a second process can both reach
   the same missing-column check; the second `ALTER` then fails even though the
   migration succeeded. Any other error is re-raised.
 - **Every migration is idempotent.** A fresh database and an upgraded one must
@@ -129,7 +129,7 @@ or `series` go when the parent goes.
 
 | Table | Purpose and key columns | Written by | How rows are written |
 |---|---|---|---|
-| `dramas` | One title: titles, language, `media_type`, `status`, per-drama engine and ASR settings, media filenames, `series_id`, `episode_number`, `owner_user_id`, `is_private`, `updated_at` | `services/drama_service.py` (metadata); `transcribe_service`, `dub_service`, `export_service` (status and settings) | `create_drama` / `update_drama` (kwarg keys become SQL: whitelist in the service) |
+| `dramas` | One title: titles, language, `media_type`, `status`, per-drama engine and ASR settings, media filenames, `series_id`, `episode_number`, `release_date` (ISO `YYYY-MM-DD`, NULL = unknown), `owner_user_id`, `is_private`, `updated_at` | `services/drama_service.py` (metadata); `transcribe_service`, `dub_service`, `export_service` (status and settings) | `create_drama` / `update_drama` (kwarg keys become SQL: whitelist in the service) |
 | `lines` | Subtitle lines: stable `id`, `drama_id`, `idx`, `start`, `end`, `zh` (source text, any language), `en`, `speaker`, `speaker_manual`, `flag`, `flag_note`, `sfx`, `lang`, `dub_filename` | `lines_service`, `diarization_service`, `export_service`, `translate_run_service`, jobs | `save_lines` (full sync or field-scoped), `update_line_fields_if` (compare-and-set) |
 | `characters` | Per-drama speaker: `speaker_label` (unique per drama), `character_name`, voices, clone reference (`ref_audio_filename`, `ref_text`), `series_character_id` | `characters_service` | `upsert_character`, `rename_speaker_atomic`, `merge_speakers_atomic` |
 | `series` | Groups titles; `name` (unique), `instructions`, `owner_user_id`, `is_private` | `services/ownership_service.py` (`get_or_create_series_for`) | `create_series`, `get_or_create_series` |
@@ -141,16 +141,16 @@ or `series` go when the parent goes.
 | `speaker_merge_undos` | Single-use snapshot (`snapshot`, `stale`, `expires_at`) to undo a speaker merge | `characters_service` | written inside `merge_speakers_atomic`; consumed by `undo_merge_speakers_atomic`; `drop_speaker_merge_undos` expires old ones |
 | `pages`, `bubbles` | Comic pages and their text bubbles; `pages.rev` is bumped on bubble edits | `scanlate_*_service`, `scanlate.py` | `create_page`, `update_bubble_fields` (compare-and-set), `replace_bubbles_if_unchanged`, `save_bubbles` |
 | `known_titles` | The discover catalogue | `discover_catalog_service` | `create_known_title` |
-| `translation_notes`, `line_emotions` | Per-line notes/emotion, keyed by `line_id` (not `idx`) | `lines_service`, `workspace_job_service`, `cli.py`, `bulk_translate.py` | `save_translation_notes`, `save_emotions` |
+| `translation_notes`, `line_emotions` | Per-line notes/emotion, keyed by `line_id` (not `idx`) | `lines_service`, `workspace_job_service`, `bulk_apply.py` | `save_translation_notes`, `save_emotions` |
 | `consistency_issues`, `vocab_lookups`, `wiki_entries`, `edit_samples`, `bug_reports` | Review and reading records per drama | `review_records_service`, `reader_service`, `lines_service`, `bug_report_service` | `save_consistency_issues`, `save_vocab_lookup`, `upsert_wiki_entry`, `record_edit_sample` |
 | `line_history` | Whole-drama line snapshots taken before risky bulk edits; `snapshot_json`, newest 10 kept per drama | `lines_service`, `line_tools_service`, `translation_version_service`, `transcribe_service` | `save_line_history_snapshot` (insert and prune in one transaction) |
-| `translation_versions` | Named full translations (`lines_json`, `engine`, `model`, `is_active`) so a re-translation does not destroy the previous one | `translation_version_service`, `bulk_translate.py` | `save_translation_version`, `set_active_translation_version` |
+| `translation_versions` | Named full translations (`lines_json`, `engine`, `model`, `is_active`) so a re-translation does not destroy the previous one | `translation_version_service`, `bulk_apply.py`, `translation_finish.py` | `save_translation_version`, `set_active_translation_version` |
 | `profiles`, `progress`, `personal_notes`, `reading_history` | Reader profiles (a default one always exists) and each profile's place, notes and history | `reader_service`, `comic_view_service` | `save_progress`, `save_personal_notes`; `progress` is keyed `(drama_id, profile_id)` |
 | `style_profile` | Learned style per scope (`global` or a series), with `history_json` (last 5 kept) | `review_extras_service` | `save_style_profile`, `replace_style_profile`, `restore_style_profile` |
 | `presets` | Saved translation settings | `translate_run_service`, `glossary_service` | `save_preset`, `insert_preset` |
 | `translate_history` | Standalone translations, `user_id` per owner | `translate_service`, `page_server.py` | `save_translate_history` |
 | `usage_log` | Token and cost log; `drama_id` is `ON DELETE SET NULL`, so spend survives deleting a title | engine callers via `log_usage` | `log_usage`; `get_month_spend` reads it |
-| `bulk_jobs`, `bulk_job_lines` | Provider batch-API translations in flight | `bulk_translate.py` | `create_bulk_job`, `update_bulk_job`, `set_bulk_job_line_result_texts` |
+| `bulk_jobs`, `bulk_job_lines` | Provider batch-API translations in flight | `bulk_translate.py`, `bulk_apply.py`, `bulk_reflect.py`, `bulk_poll.py` | `create_bulk_job`, `update_bulk_job`, `set_bulk_job_line_result_texts` |
 | `voice_bank` | Reusable voice clips; the file lives in `library/voice_bank/` | `voice_clone_service` | `save_voice_bank_entry` copies the clip first, then inserts |
 | `job_records` | Mirror of `background_jobs` job status for other processes | `background_jobs.py` | `save_job_record` (upsert); see section 5 |
 | `gpu_lock` | Cross-process GPU slots with owner pid/instance, heartbeat and stale cutoff | `jobs/gpu_slots.py` only | `acquire`, `heartbeat`, `release`, `reap` |
@@ -262,7 +262,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 
 `background_jobs._jobs` (in memory) is the authority for jobs the process owns.
 `_mirror_locked` copies every status change into `job_records` with
-`db.save_job_record` so another process (the CLI, a restarted server) can see the
+`db.save_job_record` so another process (a restarted server) can see the
 last known state.
 
 - A failed write never breaks the job; `jobs/job_store.py` shows it on the job
