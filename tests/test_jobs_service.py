@@ -140,6 +140,12 @@ class TestJobResults:
         result = jobs_service.project_result({"line_count": 5, "gpu_fallback": "x", "device_notice": notice})
         assert jobs_service.derive_outcome("done", None, result) == ("partial", notice)
 
+    def test_transcribe_stage_seconds_keep_only_the_recorded_known_stages(self):
+        result = jobs_service.project_result({"line_count": 5, "stage_seconds": {
+            "separate": 12.345, "transcribe": 80, "align": True, "load": -1, "C:/secret": 3, "decode_vad": "x"}})
+        assert result["stage_seconds"] == {"separate": 12.35, "transcribe": 80}
+        assert "stage_seconds" not in jobs_service.project_result({"line_count": 5, "stage_seconds": {}})
+
     def test_cancelled_bulk_run_is_cancelled(self):
         assert jobs_service.derive_outcome("done", None, {"status": "cancelled"})[0] == "cancelled"
 

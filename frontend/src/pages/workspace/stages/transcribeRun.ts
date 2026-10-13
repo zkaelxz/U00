@@ -88,15 +88,3 @@ export function runLine(i: RunLineInput): string {
   }
   return `This run will use: ${backend} · ${model} · ${gpuPart(i, ctranslate2)}`
 }
-
-/** Advisor: what not to combine, and the recommended default. Evidence: docs/asr-experiments.md and the owner's JP Test. */
-export function advisorNote(backend: string, separateVocals: boolean): string {
-  const parts = ['Recommended for stream titles: Whisper large-v3 with Separate vocals first off.']
-  if (separateVocals) {
-    parts.push('Vocal separation dropped real lines in our test (142 lines against 184 without it on a Japanese stream), so keep it off unless the background is music alone.')
-  }
-  if (backend === 'qwen3_asr_long' || backend === 'qwen3_asr_vad') {
-    parts.push('Qwen3 ASR on long audio marked most lines "timing uncertain" in the same test; pick Whisper for long recordings.')
-  }
-  return parts.join(' ')
-}
