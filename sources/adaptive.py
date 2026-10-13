@@ -30,6 +30,9 @@ import time
 from dataclasses import dataclass, field
 
 from . import ai_extract as ax
+from . import ai_extract_comic as axc
+from . import ai_extract_media as axm
+from . import ai_extract_novel as axn
 from . import detect, generic_import, profiles, store
 from .generic_import import GENERIC_SOURCE, ComicImportResult, NoContentFound, NovelImportResult
 from .ladder import TIER_LABELS, access_facts, browser_tier_state
@@ -274,7 +277,7 @@ def _novel_candidate_check(page, source: dict, rules: dict) -> dict:
     cand, why = profiles.apply_novel_rules(page, rules)
     if cand is None:
         return {"valid": False, "problems": [why], "overall": {"score": 0, "bucket": ax.FAILED}}
-    ax.validate_novel(cand, page)
+    axn.validate_novel(cand, page)
     want = {ax.squash(p["text"]) for p in source.get("paragraphs") or []}
     got = {ax.squash(p["text"]) for p in cand.get("paragraphs") or []}
     if want:
@@ -317,7 +320,7 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
         report.profile.update(existed=True, version=prof["version"])
         data, why = profiles.apply_novel_rules(page, prof["rules"])
         if data is not None:
-            ax.validate_novel(data, page)
+            axn.validate_novel(data, page)
             if data["valid"]:
                 if remember:
                     profiles.record_use(domain, "novel", prof["version"], True)
@@ -332,8 +335,8 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
         report.note(f"The saved profile for {domain} (v{prof['version']}) no longer fits this page "
                     f"({why}). It's kept as it was; ran the full ladder instead.")
 
-    det = ax.deterministic_novel(page)
-    ax.validate_novel(det, page)
+    det = axn.deterministic_novel(page)
+    axn.validate_novel(det, page)
     if det["valid"]:
         if failed_profile and remember:
             _offer_novel_profile(page, det, report, domain, "deterministic")
@@ -342,11 +345,11 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
     report.note("Deterministic extraction was ambiguous or empty: "
                 + ("; ".join(det["problems"]) or "no chapter text"))
 
-    picks, h = _llm_picks("novel", ax.blocks_payload(page), ax.NOVEL_PROMPT, engine, report,
+    picks, h = _llm_picks("novel", ax.blocks_payload(page), axn.NOVEL_PROMPT, engine, report,
                           3000, use_cache)
     if picks is not None:
-        data = ax.novel_from_picks(page, picks)
-        ax.validate_novel(data, page, picks.get("confidence"))
+        data = axn.novel_from_picks(page, picks)
+        axn.validate_novel(data, page, picks.get("confidence"))
         if data["valid"]:
             if not report.cache_hit and remember:
                 _cache_put("novel", h, url, picks, data, engine)
@@ -462,9 +465,9 @@ def _offer_comic_profile(page, candidates, data, report, domain, origin):
         check = {"valid": False, "problems": [why]}
     else:
         roles = {c.url: "content" for c in picked}
-        check = ax.comic_data(page, candidates, roles, method="profile",
+        check = axc.comic_data(page, candidates, roles, method="profile",
                               order={c.url: i for i, c in enumerate(picked)})
-        ax.validate_comic(check, page, measured(candidates))
+        axc.validate_comic(check, page, measured(candidates))
         want = [p["resource_url"] for p in data["pages"] if p["role"] == "content"]
         got = [c.url for c in picked]
         if set(want) != set(got):
@@ -479,17 +482,17 @@ def _classify_comic(page, candidates, engine, report, use_cache, download=None):
     `download` (the existing downloader), only the pages it picked that
     haven't been fetched yet are then fetched, and their download results
     are applied as hard facts."""
-    picks, h = _llm_picks("comic", ax.comic_payload(page, candidates), ax.COMIC_PROMPT, engine,
+    picks, h = _llm_picks("comic", axc.comic_payload(page, candidates), axc.COMIC_PROMPT, engine,
                           report, 3000, use_cache)
     if picks is None:
         return None
-    data = ax.comic_from_picks(page, candidates, picks)
+    data = axc.comic_from_picks(page, candidates, picks)
     by_url = {c.url: c for c in candidates}
     if download is not None:
         download([by_url[p["resource_url"]] for p in data["pages"] if p["role"] == "content"
                   and not by_url[p["resource_url"]].content])
     _drop_unusable(data, by_url)
-    ax.validate_comic(data, page, measured(candidates))
+    axc.validate_comic(data, page, measured(candidates))
     if data["valid"] and not report.cache_hit:
         _cache_put("comic", h, page.url, picks, data, engine)
     return data
@@ -501,7 +504,7 @@ def classify_comic_page(html: str, url: str, engine=None, use_cache: bool = True
     tier on its own, with nothing downloaded. Returns (data or None, report)."""
     report = ExtractionReport(url, "comic")
     page = ax.PageModel(html, url)
-    data = _classify_comic(page, ax.comic_candidates(html, url), engine, report, use_cache)
+    data = _classify_comic(page, axc.comic_candidates(html, url), engine, report, use_cache)
     if data is not None:
         _done(report, data, "llm", "AI-assisted classification of the page's images.")
     return data, report
@@ -531,10 +534,10 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
             roles = {c.url: "content" for c in picked}
             reasons = {c.url: "not matched by the saved profile" for c in candidates
                        if c.url not in roles}
-            data = ax.comic_data(page, candidates, roles, method="profile",
+            data = axc.comic_data(page, candidates, roles, method="profile",
                                  order={c.url: i for i, c in enumerate(picked)}, reasons=reasons)
             _drop_unusable(data, by_url)
-            ax.validate_comic(data, page, measured(candidates))
+            axc.validate_comic(data, page, measured(candidates))
             if data["valid"]:
                 profiles.record_use(domain, "comic", prof["version"], True)
                 report.profile["used"] = True
@@ -558,9 +561,9 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
         pool = candidates
         download(pool)
         kept, rejected = generic_import.filter_candidates(pool, url, remember, learn)
-    det = ax.comic_from_filter(page, pool, kept, rejected)
-    ax.validate_comic(det, page, measured(pool))
-    ambiguous = ax.comic_needs_review(det, pool)
+    det = axc.comic_from_filter(page, pool, kept, rejected)
+    axc.validate_comic(det, page, measured(pool))
+    ambiguous = axc.comic_needs_review(det, pool)
     if not ambiguous:
         if failed_profile:
             _offer_comic_profile(page, pool, det, report, domain, "deterministic")
@@ -612,7 +615,7 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
         report.reason = _unreachable_reason(report)
         _log(report)
         raise _no_content(_unreachable_message(report, lr), report)
-    candidates = ax.comic_candidates(lr.html, url)
+    candidates = axc.comic_candidates(lr.html, url)
     if not candidates:
         report.reason = ("The page has no image tags or listed image URLs this importer "
                          "recognizes -- upload the pages manually instead.")
@@ -666,24 +669,24 @@ def identify_media(url: str, html: str, engine=None, use_cache: bool = True):
     page = ax.PageModel(html, url)
     report.protection = [r.value for r in detect.classify(200, {}, html, url, url)
                          if r in PROTECTION_REASONS]
-    candidates = ax.media_candidates(html, url)
+    candidates = axm.media_candidates(html, url)
     if not candidates:
         report.reason = ("No video, audio or subtitle resources are exposed on this page (it may "
                          "load them only after interaction or behind a login).")
         _log(report)
         return None, report
-    det, ambiguous = ax.deterministic_media(page, candidates, report.protection)
-    ax.validate_media(det, page)
+    det, ambiguous = axm.deterministic_media(page, candidates, report.protection)
+    axm.validate_media(det, page)
     if not ambiguous and det["valid"]:
         _done(report, det, "deterministic", "Found one clear media resource -- 0 AI calls.")
         _log(report)
         return det, report
     report.note("Deterministic result was ambiguous: " + "; ".join(ambiguous or det["problems"]))
-    picks, h = _llm_picks("video", ax.media_payload(page, candidates), ax.MEDIA_PROMPT, engine,
+    picks, h = _llm_picks("video", axm.media_payload(page, candidates), axm.MEDIA_PROMPT, engine,
                           report, 1500, use_cache)
     if picks is not None:
-        data = ax.media_from_picks(page, candidates, picks, report.protection)
-        ax.validate_media(data, page)
+        data = axm.media_from_picks(page, candidates, picks, report.protection)
+        axm.validate_media(data, page)
         if data["valid"]:
             if not report.cache_hit:
                 _cache_put("video", h, url, picks, data, engine)

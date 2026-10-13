@@ -753,8 +753,8 @@ def test_signed_in_review_is_pc_only(env):
     url = _novel_page(env)
     did = db.create_drama(title_en="N", media_type="novel")
     html = env["fetch"].pages[url]
-    from sources import ai_extract
-    data = ai_extract.deterministic_novel(ai_extract.PageModel(html, url))
+    from sources import ai_extract, ai_extract_novel as axn
+    data = axn.deterministic_novel(ai_extract.PageModel(html, url))
     assert svc.open_review(did, "novel", url, html, data, None, svc.WHY_ASKED, pc_only=True)
     c, h = _remote_user_named("r2@example.com", "sources.import")
     assert c.get(f"/api/sources/dramas/{did}/extraction", headers=h).status_code == 404
@@ -1296,11 +1296,11 @@ def test_follow_address_check_refuses_a_private_address(env, monkeypatch):
 
 def test_follow_first_page_heading_falls_back_to_the_page_title(client, env):
     from services import sources_extraction_service as svc
-    from sources import ai_extract, novel_follow
+    from sources import ai_extract, ai_extract_novel as axn, novel_follow
     url = _novel_page(env)
     did = db.create_drama(title_en="N", media_type="novel")
     html = env["fetch"].pages[url]
-    data = ai_extract.deterministic_novel(ai_extract.PageModel(html, url))
+    data = axn.deterministic_novel(ai_extract.PageModel(html, url))
     data["chapter_title"] = None
     later = novel_follow.FollowedPage(chapter_url(13), "第13章 重逢", "第13章第0段。" * 40)
     assert svc.open_review(did, "novel", url, html, data, None, svc.WHY_FOLLOWED,

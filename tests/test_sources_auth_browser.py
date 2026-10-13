@@ -18,7 +18,8 @@ import textwrap
 import pytest
 
 import page_fetch
-from sources import (adaptive, ai_extract, auth_browser, front_door, generic_import, ladder,
+from sources import (adaptive, ai_extract, ai_extract_comic as axc, ai_extract_media as axm,
+                     ai_extract_novel as axn, auth_browser, front_door, generic_import, ladder,
                      registry, site_terms, store)
 from sources.base import SourceAdapter
 from sources.models import (AccessTier, AiMlUse, AutomationPermission, CapabilityStatus,
@@ -492,11 +493,11 @@ class TestFullResourceSet:
         lr = generic_import.fetch_page(url, client=make_client("generic", ScriptedTransport({})))
         assert set(lr.resource_types) >= {"TEXT", "IMAGES", "VIDEO", "SUBTITLES"}
         assert lr.content_access == "MIXED"
-        cands = ai_extract.comic_candidates(lr.html, url)
+        cands = axc.comic_candidates(lr.html, url)
         by_attr = {c.attr for c in cands}
         assert {"srcset", "data-src", "manifest"} <= by_attr
         assert any(c.url.endswith("p1-1200.webp") for c in cands)      # <picture> best source
-        kinds = {c.kind for c in ai_extract.media_candidates(lr.html, url)}
+        kinds = {c.kind for c in axm.media_candidates(lr.html, url)}
         assert {"video", "subtitle"} <= kinds
         assert ladder.load_capabilities("generic").content_access_status == "MIXED"
 
@@ -569,7 +570,7 @@ class TestPromptNeverCarriesSession:
 
     @pytest.mark.parametrize("fn", [
         ai_extract.ask_json, ai_extract.prompt_safe, ai_extract.blocks_payload,
-        ai_extract.comic_payload, ai_extract._desc, ai_extract.media_payload,
+        axc.comic_payload, axc._desc, axm.media_payload,
         adaptive._llm_picks, adaptive.extract_novel, adaptive._classify_comic,
         adaptive.classify_comic_page, adaptive.identify_media])
     def test_prompt_building_code_never_touches_session_state(self, fn):
@@ -577,12 +578,12 @@ class TestPromptNeverCarriesSession:
         assert not found, f"{fn.__qualname__} references {found}"
 
     def test_prompt_constants_carry_no_session_state(self):
-        for name in ("NOVEL_PROMPT", "COMIC_PROMPT", "MEDIA_PROMPT"):
-            text = getattr(ai_extract, name).lower()
+        for mod, name in ((axn, "NOVEL_PROMPT"), (axc, "COMIC_PROMPT"), (axm, "MEDIA_PROMPT")):
+            text = getattr(mod, name).lower()
             assert "cookie" not in text and "sessdata" not in text
 
     def test_llm_modules_never_import_the_session_layer(self):
-        for mod in (ai_extract, adaptive):
+        for mod in (ai_extract, axn, axc, axm, adaptive):
             imported = _imports(_tree(mod))
             assert not any("auth_browser" in i or "fetch_with_profile" in i or
                            "open_login_window" in i for i in imported), mod.__name__
