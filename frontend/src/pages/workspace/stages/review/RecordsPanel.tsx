@@ -334,7 +334,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                 <button
                   type="button"
                   className={buttonClass('ghost', 'sm')}
-                  aria-label={`${previewing === h.id ? 'Hide preview of' : 'Preview'} ${versionName}`}
+                  aria-label={`${previewing === h.id ? 'Hide preview of version:' : 'Preview version:'} ${versionName}`}
                   aria-expanded={previewing === h.id}
                   onClick={() => setPreviewing(previewing === h.id ? null : h.id)}
                 >
@@ -342,7 +342,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                 </button>{' '}
                 {previewing === h.id && <SnapshotPreview dramaId={dramaId} historyId={h.id} />}
                 {restoring?.id !== h.id && (
-                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => askRestore(h)} aria-label={`Restore snapshot ${versionName}`}>
+                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => askRestore(h)} aria-label={`Restore version: ${versionName}`}>
                     Restore…
                   </button>
                 )}
