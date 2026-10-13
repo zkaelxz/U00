@@ -68,6 +68,8 @@ def test_key_status_true_and_false(tmp_path, monkeypatch):
     overview = settings_service.get_settings_overview(str(env))
     assert overview["engine_keys"]["openai"] is True
     assert KEY not in repr(overview)
+    # The key counts as usable only with the SDK importable (not installed in every test environment).
+    monkeypatch.setattr(translate_service.diagnostics, "check_dependency", lambda name: True)
     engines = {e["name"]: e for e in translate_service.list_engines(str(env))}
     assert engines["openai"]["key_configured"] is True
     assert engines["openai"]["models"] == list(te.OPENAI_MODELS)

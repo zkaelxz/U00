@@ -839,7 +839,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
     except ImportError:
-        outcome = transcribe_pipeline.missing_package_outcome()
+        outcome = transcribe_pipeline.missing_package_outcome(
+            transcribe_pipeline.MISSING_OCR_MESSAGE if transcript_mode == "hardsub_ocr"
+            else transcribe_pipeline.MISSING_TRANSCRIPTION_MESSAGE)
     background_jobs.set_result(job_id, _apply_transcription(
         job_id, drama_id, outcome, source_language=source_language, whisper_size=whisper_size,
         use_gpu=use_gpu, transcript_mode=transcript_mode, alignment_method=alignment_method,
