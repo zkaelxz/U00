@@ -159,17 +159,20 @@ export function useStoredRun<R, D extends object>(opts: StoredRunOptions<R, D>) 
   useReattachJob(jobIds, adopt)
   const stage = useStageDraft(dramaId, kind, draftShape)
   const latest = useRef(opts)
+  const draftRef = useRef(stage.draft)
   useEffect(() => {
     latest.current = opts
+    draftRef.current = stage.draft
   })
   useEffect(
     () =>
       loadStoredResult(dramaId, {
-        fetchResult: (id) => latest.current.fetchResult(id, stage.draft),
+        fetchResult: (id) => latest.current.fetchResult(id, draftRef.current),
         onResult: (r) => latest.current.onResult(r),
         onError: (e) => latest.current.onError?.(e),
       }),
-    [dramaId, stage.draft],
+    // Once per title: the draft and callbacks are read through refs, and `draftShape` is usually a fresh literal.
+    [dramaId],
   )
   return stage
 }
