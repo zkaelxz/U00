@@ -8,7 +8,7 @@ import types
 
 import pytest
 
-import core
+import whisper_transcribe
 import forced_align
 import memory_headroom
 import mixed_language
@@ -128,7 +128,7 @@ def fake_whisper(monkeypatch):
 
 class TestSegmentTimingOnly:
     def test_transcribe_never_requests_word_timestamps(self, fake_whisper):
-        result = core.transcribe_for_timing("/a.wav", KEY, language="ja")
+        result = whisper_transcribe.transcribe_for_timing("/a.wav", KEY, language="ja")
         assert [s["text"] for s in result] == ["こんにちは", "さようなら"]
         assert NoWordTimestampsModel.seen[0]["word_timestamps"] is False
         assert all("words" not in s for s in result)
@@ -142,7 +142,7 @@ class TestSegmentTimingOnly:
                 return iter([]), None
         monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(
             WhisperModel=lambda *a, **k: Model()))
-        core.transcribe_for_timing("/a.wav", "large-v3-turbo", language="ja")
+        whisper_transcribe.transcribe_for_timing("/a.wav", "large-v3-turbo", language="ja")
         assert asked == [True]
 
     def test_the_mixed_language_runner_does_not_request_them_either(self):

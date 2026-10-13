@@ -9,7 +9,7 @@ import types
 
 import pytest
 
-import core
+import whisper_transcribe
 import diarize
 from core import Line
 
@@ -98,7 +98,7 @@ def no_asr(monkeypatch):
     """The ASR mock: re-running speaker detection must never call it."""
     def boom(*a, **k):
         raise AssertionError("ASR was called during a speaker-detection re-run")
-    monkeypatch.setattr(core, "transcribe_for_timing", boom)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", boom)
     # (A patch on tabs.workspace_tab.transcribe_for_timing used to sit here;
     # the tab never calls that bare name -- its per-line re-transcribe goes
     # through core_module, patched above -- so it was dropped for the

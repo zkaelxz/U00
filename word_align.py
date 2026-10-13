@@ -234,8 +234,8 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     fd, slice_path = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     try:
-        import core as core_module
-        core_module.extract_audio_slice(audio_path, segment["start"], segment["end"], slice_path)
+        import audio_extract
+        audio_extract.extract_audio_slice(audio_path, segment["start"], segment["end"], slice_path)
         if aligner is not None:
             aligned = align_words(slice_path, words, device=device, aligner=aligner)
         else:

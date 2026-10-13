@@ -8,7 +8,8 @@ import subprocess
 
 import asr_backend
 import background_jobs
-import core as core_module
+import audio_extract
+import whisper_transcribe
 import whisper_models
 import ollama_unload
 from translate_engines import redact_secrets
@@ -25,14 +26,14 @@ def hear(slice_path: str, cfg: dict, language, on_fallback) -> str:
         segments = asr_backend.get_backend(backend).transcribe(
             slice_path, language, use_gpu=use_gpu)
     else:
-        segments = core_module.transcribe_for_timing(
+        segments = whisper_transcribe.transcribe_for_timing(
             slice_path, cfg["whisper_size"], language=language, use_gpu=use_gpu,
             initial_prompt=cfg["prompt"], beam_size=cfg["beam_size"],
             min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
             sensitivity_preset=cfg.get("sensitivity_preset", "normal"),
             on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"],
             hallucination_silence_sec=cfg.get("hallucination_silence_sec",
-                                              core_module.DEFAULT_HALLUCINATION_SILENCE_SEC),
+                                              whisper_transcribe.DEFAULT_HALLUCINATION_SILENCE_SEC),
             repeat_guard=cfg.get("repeat_guard", False))
         if backend == "qwen3_asr" and segments:
             segments = asr_backend.get_backend(backend).transcribe(
@@ -66,7 +67,7 @@ def hear_lines_worker(audio_path, windows, cfg, scratch_dir, result_queue):
             result_queue, n / len(windows), f"Hearing line {n + 1} of {len(windows)}")
         try:
             try:
-                core_module.extract_audio_slice(audio_path, start, end, slice_path,
+                audio_extract.extract_audio_slice(audio_path, start, end, slice_path,
                                                 timeout=SLICE_TIMEOUT_S)
             except subprocess.TimeoutExpired:
                 lines.append({"line_id": line_id,

@@ -15,7 +15,8 @@ import time
 import pytest
 
 import background_jobs
-import core
+import audio_extract
+import whisper_transcribe
 import whisper_models
 import db
 from core import Line
@@ -123,8 +124,8 @@ def fake_asr(monkeypatch, inline_process_jobs):
         t = calls["text"]
         return [{"start": 0.0, "end": 1.0, "text": t}] if t else []
 
-    monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
-    monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", fake_slice)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
     monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     return calls
 
@@ -159,7 +160,8 @@ def _hung_transcribe_worker(*args):
     every module fresh. args end with (..., timeout_s, scratch_dir, queue);
     the marker path rides in the scratch dir's name file."""
     from services import transcribe_service as ts
-    import core as c
+    import audio_extract
+    import whisper_transcribe
 
     def cut(audio_path, start, end, out_path, timeout=None):
         with open(out_path, "wb") as f:
@@ -171,8 +173,8 @@ def _hung_transcribe_worker(*args):
 
     def hang(*a, **k):
         time.sleep(600)
-    c.extract_audio_slice = cut
-    c.transcribe_for_timing = hang
+    audio_extract.extract_audio_slice = cut
+    whisper_transcribe.transcribe_for_timing = hang
     whisper_models.is_whisper_model_cached = lambda size: True
     ts._retranscribe_worker(*args)
 
@@ -422,7 +424,7 @@ class TestJobBody:
     def test_model_download_error_redacted(self, isolated_db, captured, fake_asr, monkeypatch):
         def boom(*a, **k):
             raise whisper_models.ModelDownloadError(f"download failed token={SECRET}")
-        monkeypatch.setattr(core, "transcribe_for_timing", boom)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", boom)
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0])
         result = _run_with_result(captured)
@@ -434,7 +436,7 @@ class TestJobBody:
 
         def bad_slice(audio_path, *a, **k):
             raise RuntimeError(f"ffmpeg failed on {audio_path}")
-        monkeypatch.setattr(core, "extract_audio_slice", bad_slice)
+        monkeypatch.setattr(audio_extract, "extract_audio_slice", bad_slice)
         transcribe_service.start_retranscribe_line(did, ids[0])
         result = _run_with_result(captured)
         assert result["failed_reason"] == "audio_slice"
@@ -446,7 +448,7 @@ class TestJobBody:
         def slow_slice(audio_path, start, end, out_path, timeout=None):
             seen["timeout"] = timeout
             raise subprocess.TimeoutExpired(["ffmpeg", audio_path], timeout)
-        monkeypatch.setattr(core, "extract_audio_slice", slow_slice)
+        monkeypatch.setattr(audio_extract, "extract_audio_slice", slow_slice)
         did, ids = _drama(isolated_db)
         out = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))
         assert seen["timeout"] == 120
@@ -465,7 +467,7 @@ class TestJobBody:
             assert release.wait(5)
             with open(out_path, "wb") as f:
                 f.write(b"slice")
-        monkeypatch.setattr(core, "extract_audio_slice", held_slice)
+        monkeypatch.setattr(audio_extract, "extract_audio_slice", held_slice)
         did, ids = _drama(isolated_db)
         out = transcribe_service.start_retranscribe_line(did, ids[1])
         try:

@@ -61,8 +61,8 @@ class TestListCompletedChunks:
 
 class TestProcessChunk:
     def test_shifts_timestamps_by_chunk_offset(self, monkeypatch, tmp_path):
-        import core
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                              lambda path, **kw: [{"start": 1.0, "end": 2.0, "text": "你好"}])
 
         class FakeEngine:
@@ -79,8 +79,8 @@ class TestProcessChunk:
                           "translated": "[translated] 你好", "translation": "done"}]
 
     def test_blank_transcribed_lines_are_dropped(self, monkeypatch, tmp_path):
-        import core
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                              lambda path, **kw: [{"start": 0.0, "end": 1.0, "text": "   "}])
         chunk_path = tmp_path / "chunk_00000.wav"
         chunk_path.write_bytes(b"x")
@@ -89,8 +89,8 @@ class TestProcessChunk:
         assert cues == []
 
     def test_a_translation_failure_is_captured_per_line_not_raised(self, monkeypatch, tmp_path):
-        import core
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                              lambda path, **kw: [{"start": 0.0, "end": 1.0, "text": "你好"}])
 
         class FailingEngine:
@@ -109,13 +109,13 @@ class TestProcessChunk:
         chunk used to be transcribed with no knowledge of what was just
         said in the previous one, so a sentence split across a chunk
         boundary had nothing to anchor its second half to."""
-        import core
+        import whisper_transcribe
         captured = {}
 
         def fake_transcribe(path, **kw):
             captured["initial_prompt"] = kw.get("initial_prompt")
             return [{"start": 0.0, "end": 1.0, "text": "你好"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
 
         chunk_path = tmp_path / "chunk_00001.wav"
         chunk_path.write_bytes(b"x")
@@ -125,9 +125,9 @@ class TestProcessChunk:
         assert captured["initial_prompt"] == "previous chunk's tail"
 
     def test_context_prompt_defaults_to_empty(self, monkeypatch, tmp_path):
-        import core
+        import whisper_transcribe
         captured = {}
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                              lambda path, **kw: captured.update(kw) or [])
         chunk_path = tmp_path / "chunk_00000.wav"
         chunk_path.write_bytes(b"x")
@@ -776,7 +776,7 @@ class TestOverlapDedupAgainstRealAudio:
 
     def _run(self, monkeypatch, tmp_path, job_id, chunks, overlap_seconds=2):
         import background_jobs
-        import core
+        import whisper_transcribe
         out_dir = tmp_path / "chunks"
         out_dir.mkdir()
         for i, codes in enumerate(chunks):
@@ -806,7 +806,7 @@ class TestOverlapDedupAgainstRealAudio:
                 # Stop pressed once: the lines already transcribed are translated.
                 live_pipeline.request_finish(job_id)
             return _fake_transcribe_by_decoding_audio(path, **kw)
-        monkeypatch.setattr(core, "transcribe_for_timing", transcribe)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", transcribe)
 
         class EchoEngine:
             def translate_batch(self, lines, context):

@@ -478,7 +478,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     returns. translate=False returns the cues untranslated (pending), for a
     caller that translates them elsewhere (run_live_job's worker).
     """
-    import core
+    import whisper_transcribe
 
     def checkpoint():
         if is_cancelled is not None and is_cancelled():
@@ -488,7 +488,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
         on_stage("transcribing")
     translator = translator or CueTranslator(engine, source_language)
     started = time.monotonic()
-    segments = (guard or (lambda call: call(None)))(lambda progress_cb: core.transcribe_for_timing(
+    segments = (guard or (lambda call: call(None)))(lambda progress_cb: whisper_transcribe.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
         initial_prompt=context_prompt, progress_cb=progress_cb))
     if on_transcribed:

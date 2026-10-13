@@ -23,7 +23,7 @@ import os
 from typing import Optional
 
 import background_jobs
-import core as core_module
+import novel_text
 import db
 import dub_narration
 import translate_engines
@@ -160,7 +160,7 @@ def _raise_if_cancelled(job_id):
 def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False):
     job_timing_service.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
-    chunks = core_module.chunk_novel_text(text, MAX_CHUNK_CHARS)
+    chunks = novel_text.chunk_novel_text(text, MAX_CHUNK_CHARS)
     if not chunks:
         background_jobs.set_result(job_id, {"failed_reason": "empty"})
         return

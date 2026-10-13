@@ -40,7 +40,7 @@ from typing import Optional
 
 import adaptive_style
 import background_jobs
-import core as core_module
+import line_alignment
 import db
 import en_cleanup
 import sensevoice_tags
@@ -108,7 +108,7 @@ def _copies(lines):
 def _merge_plan(lines, opts):
     """(merged lines, groups) where each group is the ids of 2+ lines that
     become one, first id kept."""
-    merged = core_module.merge_adjacent_short_lines(_copies(lines), **opts)
+    merged = line_alignment.merge_adjacent_short_lines(_copies(lines), **opts)
     groups = [[ln.id] + list(ln.merged_ids) for ln in merged if ln.merged_ids]
     return merged, groups
 

@@ -90,7 +90,7 @@ def tag_lines(audio_path: str, lines, use_gpu: bool = False, progress_cb=None,
     """{line_id: {"emotion", "events"}} for every line with a permanent id.
     Each line's own time slice is run through SenseVoice; results come back
     keyed by line id (a wav.scp list), never matched up by position."""
-    from core import extract_audio_slice
+    from audio_extract import extract_audio_slice
     model = _load_model(use_gpu)
     lines = [ln for ln in lines if getattr(ln, "id", None) is not None and ln.end > ln.start]
     if not lines:

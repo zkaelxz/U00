@@ -9,7 +9,8 @@ import os
 import subprocess
 
 import background_jobs
-import core as core_module
+import audio_extract
+import whisper_transcribe
 import whisper_models
 import db
 import ollama_unload
@@ -50,7 +51,7 @@ def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_
     jobs hear a window identically: not the batched pipeline (it is for long
     audio and has hung on repeated short windows) and never fast mode."""
     try:
-        core_module.extract_audio_slice(audio_path, start, end, slice_path,
+        audio_extract.extract_audio_slice(audio_path, start, end, slice_path,
                                         timeout=_SLICE_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         return {"failed_reason": "audio_slice",
@@ -58,7 +59,7 @@ def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_
     except Exception:
         return {"failed_reason": "audio_slice", "detail": "Couldn't cut this line's audio."}
     try:
-        segments = core_module.transcribe_for_timing(
+        segments = whisper_transcribe.transcribe_for_timing(
             slice_path, whisper_size, language=language,
             on_gpu_fallback=lambda exc: gpu_fallback.append(whisper_models.short_reason(exc)),
             fast_mode=False, **transcribe_kwargs)

@@ -78,7 +78,7 @@ class _Engine:
 def _narration_setup(isolated_db, monkeypatch, chunks=40):
     did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
-    monkeypatch.setattr(narration_service.core_module, "chunk_novel_text",
+    monkeypatch.setattr(narration_service.novel_text, "chunk_novel_text",
                         lambda text, n: [f"段落{i}" for i in range(chunks)])
     return did
 

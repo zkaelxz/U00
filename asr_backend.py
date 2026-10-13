@@ -42,7 +42,9 @@ from typing import NamedTuple, Optional
 
 import memory_headroom
 import word_align
-from core import STOCK_PHRASE_ISOLATION_SEC, extract_audio_slice, transcribe_for_timing
+from whisper_hallucination import STOCK_PHRASE_ISOLATION_SEC
+from audio_extract import extract_audio_slice
+from whisper_transcribe import transcribe_for_timing
 from whisper_models import ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname
 import qwen3_native
 from segment_splitting import (DEFAULT_FLOORS, SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS,
@@ -433,7 +435,7 @@ class Qwen3ASRVadBackend:
         vad_fn wins.
         prompt: see Qwen3ASRBackend.transcribe. tuning: the run's thresholds (AsrTuning)."""
         import vad_segments
-        from core import filter_hallucinated_segments
+        from whisper_hallucination import filter_hallucinated_segments
         from segment_splitting import split_long_segments
         if language is None:
             mixed_languages = True

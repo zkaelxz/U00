@@ -13,7 +13,8 @@ import os
 import subprocess
 
 import background_jobs
-import core as core_module
+import audio_extract
+import whisper_transcribe
 import db
 import sensitivity_preset as presets
 import source_change
@@ -62,8 +63,8 @@ def hear_flagged_worker(audio_path, windows, settings, scratch_dir, result_queue
         background_jobs.report_progress(
             result_queue, n / len(windows), f"Hearing flagged line {n + 1} of {len(windows)}")
         try:
-            core_module.extract_audio_slice(audio_path, start, end, slice_path)
-            segments = core_module.transcribe_for_timing(slice_path, **settings)
+            audio_extract.extract_audio_slice(audio_path, start, end, slice_path)
+            segments = whisper_transcribe.transcribe_for_timing(slice_path, **settings)
             entry = {"idx": idx, "text": " ".join(s["text"] for s in segments).strip()}
         except subprocess.CalledProcessError:
             # str() of it carries the ffmpeg command line, i.e. absolute paths.

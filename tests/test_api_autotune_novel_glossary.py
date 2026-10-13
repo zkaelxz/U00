@@ -16,7 +16,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
-import core
+import whisper_transcribe
 import translation_guide as tguide
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -127,7 +127,7 @@ class TestAutotuneStart:
         r = client.post(_at(did), json={})
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"autotune_{did}",
-                            "candidates": list(core.DEFAULT_AUTOTUNE_CANDIDATES_MS)}
+                            "candidates": list(whisper_transcribe.DEFAULT_AUTOTUNE_CANDIDATES_MS)}
         r = client.post(_at(did), json={"candidates": [300, 1500], "initial_prompt": "人名"})
         assert r.status_code == 200
         assert r.json()["candidates"] == [300, 1500]
