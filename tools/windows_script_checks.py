@@ -429,7 +429,8 @@ def restore_round_trip_code():
     Windows paths are the r+b fsync of the staged databases, the msvcrt restore lock and the folder renames."""
     return (
         "import os, db\n"
-        "from services import library_admin_service as las\n"
+        "from services import library_backup_restore_service as lbr\n"
+        "from services import library_backup_service as lbs\n"
         "db.init_db()\n"
         f"[seeded] = [d['id'] for d in db.list_dramas() if d['title_en'] == {LIBRARY_DRAMA!r}]\n"
         "media = os.path.join(db.drama_dir(seeded), 'audio.wav')\n"
