@@ -16,6 +16,7 @@ import diagnostics_torch
 from lib import proc as proc_run
 from services import diagnostics_gaps_service as svc
 from services import diagnostics_admin_service as admin_svc
+from services import diagnostics_installs_service as installs_svc
 from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_gpu_torch_service as torch_svc
 
@@ -161,7 +162,8 @@ def test_other_installs_carry_a_torch_pins_file_that_is_removed(monkeypatch):
     _versions(monkeypatch, torch="2.11.0+cu128", torchvision="0.26.0+cu128")
     seen, pins = [], []
     _fake_pip(monkeypatch, seen, read_pins=pins)
-    for fn in (packages_svc.install_dependency, packages_svc.upgrade_dependency):
+    upgrade = lambda n, confirm: packages_svc.upgrade_dependency(n, packages_svc.upgrade_specs(n))
+    for fn in (packages_svc.install_dependency, upgrade):
         assert fn("omnivoice", confirm=True)["ok"] is True
     assert len(seen) == 2 and len(pins) == 2
     for path, text in pins:
@@ -202,9 +204,9 @@ def test_torch_upgrade_goes_through_the_setup(monkeypatch):
     _no_jobs(monkeypatch)
     monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
     with pytest.raises(admin_svc.AdminActionNotPossible):
-        packages_svc.upgrade_dependency("torch", confirm=True)
+        installs_svc.start_dependency_upgrade("torch", confirm=True)
     with pytest.raises(admin_svc.AdminActionUnconfirmed):
-        packages_svc.upgrade_dependency("torch", confirm=False)
+        installs_svc.start_dependency_upgrade("torch", confirm=False)
 
 
 # ---- setup and status ----

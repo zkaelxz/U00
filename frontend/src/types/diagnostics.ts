@@ -92,14 +92,6 @@ export interface DiagnosticsSupportReport {
   report: string
 }
 
-export interface DiagnosticsInstallResult {
-  package: string
-  ok: boolean
-  output_tail: string[]
-  // Plain-English next step for a known failure (pip's cache unwritable).
-  hint?: string | null
-}
-
 export interface DiagnosticsPackageInfo {
   name: string
   dist: string

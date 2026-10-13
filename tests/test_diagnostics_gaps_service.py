@@ -15,6 +15,7 @@ import diagnostics_torch
 import diarize
 from services import diagnostics_gaps_service as svc
 from services import diagnostics_admin_service as admin_svc
+from services import diagnostics_installs_service as installs_svc
 from services import diagnostics_packages_service as packages_svc
 from services import settings_service
 
@@ -246,7 +247,7 @@ def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
 
 @pytest.mark.parametrize("call", [
     lambda c: packages_svc.install_dependency("pydub", confirm=c),
-    lambda c: packages_svc.upgrade_dependency("pydub", confirm=c),
+    lambda c: installs_svc.start_dependency_upgrade("pydub", confirm=c),
     lambda c: admin_svc.reset_library(confirm=c),
 ])
 def test_admin_requires_confirm(call, monkeypatch):
@@ -297,7 +298,8 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
     monkeypatch.setattr(packages_svc.gpu_torch, "torch_pin_lines", lambda: [])
     seen = []
     _fake_pip(monkeypatch, seen=seen)
-    for fn in (packages_svc.install_dependency, packages_svc.upgrade_dependency):
+    upgrade = lambda n, confirm: packages_svc.upgrade_dependency(n, packages_svc.upgrade_specs(n))
+    for fn in (packages_svc.install_dependency, upgrade):
         out = fn("pydub", confirm=True)
         assert out["ok"] is True and out["package"] == "pydub"
         _assert_clean(out)
