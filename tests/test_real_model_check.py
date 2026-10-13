@@ -10,6 +10,7 @@ import background_jobs
 import translate_engines
 from services import settings_service
 from services import diagnostics_gaps_service as gaps
+from services import diagnostics_admin_service as admin_svc
 from services import real_model_check_service as svc
 from tests.saved_settings import patch_setting
 
@@ -373,7 +374,7 @@ def test_translate_uses_the_configured_ollama_url_without_leaking_it(ollama, mon
 # --- The job ---------------------------------------------------------------
 
 def test_start_requires_confirm(env):
-    with pytest.raises(gaps.AdminActionUnconfirmed):
+    with pytest.raises(admin_svc.AdminActionUnconfirmed):
         svc.start(confirm=False)
 
 
@@ -418,7 +419,7 @@ def test_a_second_start_while_running_is_refused(env, monkeypatch):
     monkeypatch.setattr(svc, "_CHECKS", (("asr", "Transcription", lambda **_: gate.wait(5) and "ok"),))
     svc.start(confirm=True)
     try:
-        with pytest.raises(gaps.AdminActionJobsRunning):
+        with pytest.raises(admin_svc.AdminActionJobsRunning):
             svc.start(confirm=True)
     finally:
         gate.set()

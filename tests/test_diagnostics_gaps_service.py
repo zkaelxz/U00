@@ -13,6 +13,8 @@ import diagnostics
 import diagnostics_torch
 import diarize
 from services import diagnostics_gaps_service as svc
+from services import diagnostics_admin_service as admin_svc
+from services import diagnostics_packages_service as packages_svc
 from services import settings_service
 
 SECRET_KEY = "sk-ant-api03-SECRETSECRETSECRET123456"
@@ -230,7 +232,7 @@ def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
             seen.append((cmd, timeout))
         yield {"line": DIRTY}
         yield {"returncode": returncode, "timed_out": timed_out}
-    monkeypatch.setattr(svc, "stream_tree", fake)
+    monkeypatch.setattr(packages_svc, "stream_tree", fake)
 
 
 def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
@@ -242,70 +244,70 @@ def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
 
 
 @pytest.mark.parametrize("call", [
-    lambda c: svc.install_dependency("pydub", confirm=c),
-    lambda c: svc.upgrade_dependency("pydub", confirm=c),
-    lambda c: svc.reset_library(confirm=c),
+    lambda c: packages_svc.install_dependency("pydub", confirm=c),
+    lambda c: packages_svc.upgrade_dependency("pydub", confirm=c),
+    lambda c: admin_svc.reset_library(confirm=c),
 ])
 def test_admin_requires_confirm(call, monkeypatch):
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     _no_jobs(monkeypatch)
     for bad in (False, None, "yes", 1):
-        with pytest.raises(svc.AdminActionRefused):
+        with pytest.raises(admin_svc.AdminActionRefused):
             call(bad)
 
 
 def test_admin_refuses_while_jobs_run_here_or_elsewhere(monkeypatch):
     _no_jobs(monkeypatch, running=True)
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
-    with pytest.raises(svc.AdminActionJobsRunning):
-        svc.reset_library(confirm=True)
-    with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("pydub", confirm=True)
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
+        admin_svc.reset_library(confirm=True)
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
+        packages_svc.install_dependency("pydub", confirm=True)
 
 
 def test_guard_sees_queued_jobs_and_other_process_records(isolated_db, monkeypatch):
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
     monkeypatch.setattr(background_jobs, "list_all_jobs",
                         lambda: {"translate_1": {"status": "queued"}})
-    with pytest.raises(svc.AdminActionJobsRunning):
-        svc.reset_library(confirm=True)
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
+        admin_svc.reset_library(confirm=True)
     import time as _t
     monkeypatch.setattr(background_jobs, "list_all_jobs", lambda: {})
     monkeypatch.setattr(db, "list_job_records", lambda: [
         {"job_id": "dub_3", "status": "running", "updated_at": _t.time()}])
-    with pytest.raises(svc.AdminActionJobsRunning):
-        svc.reset_library(confirm=True)
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
+        admin_svc.reset_library(confirm=True)
 
 
 def test_install_rejects_unknown_package(monkeypatch):
     _no_jobs(monkeypatch)
-    with pytest.raises(svc.AdminActionRefused):
-        svc.install_dependency("evil-package; rm -rf /", confirm=True)
-    with pytest.raises(svc.AdminActionRefused):
-        svc.install_dependency("fastapi", confirm=True)  # required tier
+    with pytest.raises(admin_svc.AdminActionRefused):
+        packages_svc.install_dependency("evil-package; rm -rf /", confirm=True)
+    with pytest.raises(admin_svc.AdminActionRefused):
+        packages_svc.install_dependency("fastapi", confirm=True)  # required tier
 
 
 def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
     _no_jobs(monkeypatch)
     # The command line depends on whether torch is installed on the machine
     # running the tests (it then gets a `-c <pins>` file); pin that down.
-    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(packages_svc.gpu_torch, "torch_pin_lines", lambda: [])
     seen = []
     _fake_pip(monkeypatch, seen=seen)
-    for fn in (svc.install_dependency, svc.upgrade_dependency):
+    for fn in (packages_svc.install_dependency, packages_svc.upgrade_dependency):
         out = fn("pydub", confirm=True)
         assert out["ok"] is True and out["package"] == "pydub"
         _assert_clean(out)
-    assert all(t == svc.PIP_TIMEOUT_SECONDS for _c, t in seen)
+    assert all(t == packages_svc.PIP_TIMEOUT_SECONDS for _c, t in seen)
     assert seen[0][0][3:] == ["install", "--no-cache-dir", "--disable-pip-version-check",
                               "pydub", *CONSTRAINTS]
 
 
 def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_file(monkeypatch):
     _no_jobs(monkeypatch)
-    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines",
+    monkeypatch.setattr(packages_svc.gpu_torch, "torch_pin_lines",
                         lambda: ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"])
     contents = {}
 
@@ -315,8 +317,8 @@ def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_fi
             contents["pins"] = f.read().split()
         contents["path"] = path
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "stream_tree", fake)
-    assert svc.install_dependency("pydub", confirm=True)["ok"] is True
+    monkeypatch.setattr(packages_svc, "stream_tree", fake)
+    assert packages_svc.install_dependency("pydub", confirm=True)["ok"] is True
     assert contents["pins"] == ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"]
     assert not os.path.exists(contents["path"])      # removed after the run
 
@@ -324,18 +326,18 @@ def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_fi
 def test_pip_timeout_or_failure_is_not_ok(monkeypatch):
     _no_jobs(monkeypatch)
     _fake_pip(monkeypatch, returncode=-9, timed_out=True)
-    out = svc.install_dependency("pydub", confirm=True)
+    out = packages_svc.install_dependency("pydub", confirm=True)
     assert out["ok"] is False and "took too long" in out["output_tail"][-1]
 
 
 def test_torchaudio_is_a_plain_install(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    ((cmd, timeout),) = svc._install_commands("torchaudio")
+    ((cmd, timeout),) = packages_svc._install_commands("torchaudio")
     assert cmd[3:] == ["install", "--no-cache-dir", "--disable-pip-version-check",
                        "torchaudio", *CONSTRAINTS]
     assert "--index-url" not in cmd
-    assert timeout == svc.PIP_TIMEOUT_SECONDS
+    assert timeout == packages_svc.PIP_TIMEOUT_SECONDS
 
 
 @pytest.mark.parametrize("compute", [7.0, 8.6])
@@ -348,7 +350,7 @@ def test_plain_torch_family_installs_are_refused_on_an_nvidia_pc_whatever_the_ca
     monkeypatch.setattr(diagnostics_torch, "lowest_compute_capability", lambda: compute)
     for name in ("torch", "torchaudio"):
         assert "GPU PyTorch" in install_registry.unqueueable_reason([name])
-    ((cmd, _),) = svc._install_commands("torchaudio")
+    ((cmd, _),) = packages_svc._install_commands("torchaudio")
     assert "--index-url" not in cmd and not any("+cu1" in a for a in cmd)
 
 
@@ -362,8 +364,8 @@ def test_pip_holds_the_library_exclusively(monkeypatch):
         seen["job_started"] = background_jobs.start_job("l7_probe", lambda: None)
         seen["maintenance"] = background_jobs.enter_maintenance()
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "stream_tree", fake)
-    assert svc.install_dependency("pydub", confirm=True)["ok"] is True
+    monkeypatch.setattr(packages_svc, "stream_tree", fake)
+    assert packages_svc.install_dependency("pydub", confirm=True)["ok"] is True
     assert seen == {"exclusive": True, "job_started": False, "maintenance": False}
     assert background_jobs.exclusive_active() is False
     background_jobs.clear_job("l7_probe")
@@ -374,8 +376,8 @@ def test_pip_refused_while_another_hold_is_active(monkeypatch):
     _fake_pip(monkeypatch)
     # a hold taken between _guard and the acquire (e.g. a restore) -> 409
     monkeypatch.setattr(background_jobs, "acquire_exclusive", lambda label: False)
-    with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("pydub", confirm=True)
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
+        packages_svc.install_dependency("pydub", confirm=True)
 
 
 def test_pip_releases_the_hold_when_it_fails(monkeypatch):
@@ -384,9 +386,9 @@ def test_pip_releases_the_hold_when_it_fails(monkeypatch):
     def boom(cmd, timeout, **_kw):
         raise OSError("no pip")
         yield  # noqa
-    monkeypatch.setattr(svc, "stream_tree", boom)
+    monkeypatch.setattr(packages_svc, "stream_tree", boom)
     with pytest.raises(OSError):
-        svc.install_dependency("pydub", confirm=True)
+        packages_svc.install_dependency("pydub", confirm=True)
     assert background_jobs.exclusive_active() is False
 
 
@@ -402,7 +404,7 @@ def test_stream_tree_kills_the_whole_tree_on_timeout(tmp_path):
               "print('started', flush=True)\n"
               "time.sleep(60)\n")
     t0 = _t.monotonic()
-    items = list(svc.stream_tree([sys.executable, "-c", script], timeout=1.0))
+    items = list(packages_svc.stream_tree([sys.executable, "-c", script], timeout=1.0))
     assert _t.monotonic() - t0 < 30
     assert items[-1]["timed_out"] is True and items[0] == {"line": "started"}
     gpid = int(marker.read_text())
@@ -424,26 +426,26 @@ def test_reset_runs_when_confirmed(monkeypatch):
     _no_jobs(monkeypatch)
     monkeypatch.setattr(db, "reset_library", lambda: calls.append("reset"))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append("clear"))
-    assert svc.reset_library(confirm=True)["ok"] is True
+    assert admin_svc.reset_library(confirm=True)["ok"] is True
     assert calls == ["reset", "clear"]
 
 
 def test_admin_refuses_during_exclusive_hold_or_maintenance(monkeypatch):
     _no_jobs(monkeypatch)
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     assert background_jobs.acquire_exclusive("Library restore")
     try:
-        for call in (lambda: svc.reset_library(confirm=True, confirm_text="RESET"),
-                     lambda: svc.install_dependency("pydub", confirm=True)):
-            with pytest.raises(svc.AdminActionJobsRunning):
+        for call in (lambda: admin_svc.reset_library(confirm=True, confirm_text="RESET"),
+                     lambda: packages_svc.install_dependency("pydub", confirm=True)):
+            with pytest.raises(admin_svc.AdminActionJobsRunning):
                 call()
     finally:
         background_jobs.release_exclusive()
     assert background_jobs.enter_maintenance()
     try:
-        with pytest.raises(svc.AdminActionJobsRunning):
-            svc.reset_library(confirm=True, confirm_text="RESET")
+        with pytest.raises(admin_svc.AdminActionJobsRunning):
+            admin_svc.reset_library(confirm=True, confirm_text="RESET")
     finally:
         background_jobs.exit_maintenance()
 
@@ -456,7 +458,7 @@ def test_reset_holds_the_library_exclusively(monkeypatch):
         seen["exclusive"] = background_jobs.exclusive_active()
         seen["started"] = background_jobs.start_job("m3_probe", lambda: None)
     monkeypatch.setattr(db, "reset_library", fake_reset)
-    assert svc.reset_library(confirm=True, confirm_text="RESET")["ok"] is True
+    assert admin_svc.reset_library(confirm=True, confirm_text="RESET")["ok"] is True
     assert seen == {"exclusive": True, "started": False}
     assert background_jobs.exclusive_active() is False
     background_jobs.clear_job("m3_probe")
@@ -490,7 +492,7 @@ def test_reset_waits_for_a_finished_jobs_thread_to_exit(isolated_db, monkeypatch
 
     result = {}
     resetter = threading.Thread(
-        target=lambda: result.update(svc.reset_library(confirm=True, confirm_text="RESET")))
+        target=lambda: result.update(admin_svc.reset_library(confirm=True, confirm_text="RESET")))
     resetter.start()
     try:
         assert waiting.wait(10), "the reset did not wait for the job's thread"
@@ -513,7 +515,7 @@ def test_reset_keeps_the_last_library_beside_it(isolated_db):
     os.makedirs(os.path.join(db.DRAMAS_DIR, str(first)))
     with open(os.path.join(db.DRAMAS_DIR, str(first), "audio.mp3"), "wb") as fh:
         fh.write(b"a")
-    svc.reset_library(confirm=True, confirm_text="RESET")
+    admin_svc.reset_library(confirm=True, confirm_text="RESET")
     assert isolated_db.list_dramas() == []
     [copy] = _kept_copies()
     copy = os.path.join(os.path.dirname(db.LIBRARY_DIR), copy)
@@ -523,7 +525,7 @@ def test_reset_keeps_the_last_library_beside_it(isolated_db):
     conn.close()
 
     isolated_db.create_drama(title_en="Second")
-    svc.reset_library(confirm=True, confirm_text="RESET")
+    admin_svc.reset_library(confirm=True, confirm_text="RESET")
     [copy] = _kept_copies()
     conn = sqlite3.connect(os.path.join(os.path.dirname(db.LIBRARY_DIR), copy, "library.db"))
     assert conn.execute("SELECT title_en FROM dramas").fetchall() == [("Second",)]
@@ -538,7 +540,7 @@ def test_reset_changes_nothing_when_the_copy_cannot_be_kept(isolated_db, monkeyp
         raise OSError("disk full")
     monkeypatch.setattr(db, "snapshot_database", full_disk)
     with pytest.raises(ServiceError):
-        svc.reset_library(confirm=True, confirm_text="RESET")
+        admin_svc.reset_library(confirm=True, confirm_text="RESET")
     assert isolated_db.get_drama(did)["title_en"] == "Kept"
     assert _kept_copies() == []
     assert background_jobs.exclusive_active() is False
@@ -547,7 +549,7 @@ def test_reset_changes_nothing_when_the_copy_cannot_be_kept(isolated_db, monkeyp
 def test_a_failed_reset_puts_the_media_back_and_keeps_the_older_copy(isolated_db, monkeypatch):
     did = isolated_db.create_drama(title_en="First")
     os.makedirs(os.path.join(db.DRAMAS_DIR, str(did)))
-    svc.reset_library(confirm=True, confirm_text="RESET")
+    admin_svc.reset_library(confirm=True, confirm_text="RESET")
     [older] = _kept_copies()
     second = isolated_db.create_drama(title_en="Second")
     media = os.path.join(db.DRAMAS_DIR, str(second), "audio.mp3")
@@ -559,7 +561,7 @@ def test_a_failed_reset_puts_the_media_back_and_keeps_the_older_copy(isolated_db
         raise PermissionError("library.db is in use")
     monkeypatch.setattr(db, "reset_library", locked)
     with pytest.raises(PermissionError):
-        svc.reset_library(confirm=True, confirm_text="RESET")
+        admin_svc.reset_library(confirm=True, confirm_text="RESET")
     assert os.path.isfile(media)
     assert _kept_copies() == [older]
 
@@ -583,7 +585,7 @@ def test_a_reset_that_fails_after_deleting_the_database_keeps_the_copy_whole(
         raise PermissionError("cedict.txt is in use")
     monkeypatch.setattr(db, "reset_library", fails_after_deleting)
     with pytest.raises(PermissionError):
-        svc.reset_library(confirm=True, confirm_text="RESET")
+        admin_svc.reset_library(confirm=True, confirm_text="RESET")
     [copy] = _kept_copies()
     copy = os.path.join(os.path.dirname(db.LIBRARY_DIR), copy)
     assert os.path.isfile(os.path.join(copy, "dramas", str(did), "audio.mp3"))
@@ -598,7 +600,7 @@ def test_reset_releases_the_hold_when_it_fails(monkeypatch):
         raise OSError("disk")
     monkeypatch.setattr(db, "reset_library", boom)
     with pytest.raises(OSError):
-        svc.reset_library(confirm=True, confirm_text="RESET")
+        admin_svc.reset_library(confirm=True, confirm_text="RESET")
     assert background_jobs.exclusive_active() is False
 
 
@@ -630,7 +632,7 @@ def test_stream_tree_drain_is_bounded_when_a_survivor_holds_the_pipe(tmp_path):
     marker = tmp_path / "gc.pid"
     try:
         t0 = _t.monotonic()
-        items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 60)],
+        items = list(packages_svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 60)],
                                       timeout=1.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
         assert items[0] == {"line": "started"} and items[-1]["timed_out"] is True
@@ -645,7 +647,7 @@ def test_stream_tree_returns_when_pip_exits_but_a_child_holds_the_pipe(tmp_path)
     marker = tmp_path / "gc.pid"
     try:
         t0 = _t.monotonic()
-        items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
+        items = list(packages_svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
                                       timeout=60.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
         assert items[-1] == {"returncode": 0, "timed_out": False, "cancelled": False}
@@ -661,13 +663,13 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
         pytest.skip("POSIX sessions")
     _no_jobs(monkeypatch)
     marker = tmp_path / "gc.pid"
-    real = svc.stream_tree
-    monkeypatch.setattr(svc, "_install_commands", lambda n: [
+    real = packages_svc.stream_tree
+    monkeypatch.setattr(packages_svc, "_install_commands", lambda n: [
         ([sys.executable, "-c", _pipe_holder_script(marker, 60)], 1.0)])
-    monkeypatch.setattr(svc, "stream_tree",
+    monkeypatch.setattr(packages_svc, "stream_tree",
                         lambda cmd, timeout, **kw: real(cmd, timeout, drain_seconds=1.0, **kw))
     try:
-        out = svc.install_dependency("pydub", confirm=True)
+        out = packages_svc.install_dependency("pydub", confirm=True)
         assert out["ok"] is False
         assert background_jobs.exclusive_active() is False
     finally:
@@ -678,9 +680,9 @@ def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
     from services import library_admin_service
     answers = iter([False, True])      # _guard: none; under the hold: one appeared
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: next(answers))
-    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
-    with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("pydub", confirm=True)
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
+        packages_svc.install_dependency("pydub", confirm=True)
     assert background_jobs.exclusive_active() is False
 
 
@@ -696,8 +698,8 @@ def _scripted_pip(monkeypatch, outputs):
         for line in lines:
             yield {"line": line}
         yield {"returncode": rc, "timed_out": False}
-    monkeypatch.setattr(svc, "stream_tree", fake)
-    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(packages_svc, "stream_tree", fake)
+    monkeypatch.setattr(packages_svc.gpu_torch, "torch_pin_lines", lambda: [])
     return seen
 
 
@@ -707,7 +709,7 @@ CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")
 def test_transformers_install_is_one_plain_pip_run(monkeypatch):
     _no_jobs(monkeypatch)
     seen = _scripted_pip(monkeypatch, [(["Successfully installed transformers-5.19.0"], 0)])
-    out = svc.install_dependency("transformers", confirm=True)
+    out = packages_svc.install_dependency("transformers", confirm=True)
     assert out["ok"] is True and out["hint"] is None
     assert [c[3:] for c in seen] == [["install", "--no-cache-dir", "--disable-pip-version-check",
                                       "transformers", *CONSTRAINTS]]
@@ -716,39 +718,39 @@ def test_transformers_install_is_one_plain_pip_run(monkeypatch):
 def test_a_failed_install_is_not_retried_and_the_sox_fallback_is_gone(monkeypatch):
     _no_jobs(monkeypatch)
     seen = _scripted_pip(monkeypatch, [(["Collecting torch", "ERROR: no matching distribution"], 1)])
-    out = svc.install_dependency("transformers", confirm=True)
+    out = packages_svc.install_dependency("transformers", confirm=True)
     assert out["ok"] is False and out["hint"] is None and len(seen) == 1
     assert not hasattr(diagnostics, "SoxBuildWatch") and not hasattr(svc, "_install_qwen_asr")
 
 
 
 def test_a_plain_opencv_is_uninstalled_before_paddleocr_installs(monkeypatch):
-    monkeypatch.setattr(svc.pending_install, "snapshot", lambda: {"opencv-python": "4.10.0.84"})
-    cmds = [cmd for cmd, _t in svc._install_commands("paddleocr")]
+    monkeypatch.setattr(packages_svc.pending_install, "snapshot", lambda: {"opencv-python": "4.10.0.84"})
+    cmds = [cmd for cmd, _t in packages_svc._install_commands("paddleocr")]
     assert [c[3] for c in cmds] == ["install", "uninstall", "install"]
     assert "--dry-run" in cmds[0] and "--dry-run" not in cmds[2]     # resolve before removing anything
     assert cmds[1][4:] == ["-y", "opencv-python"]
 
 
 def test_no_swap_when_contrib_is_already_installed(monkeypatch):
-    monkeypatch.setattr(svc.pending_install, "snapshot",
+    monkeypatch.setattr(packages_svc.pending_install, "snapshot",
                         lambda: {"opencv-python": "4.10", "opencv-contrib-python": "4.10"})
-    assert [c[3] for c, _t in svc._install_commands("paddleocr")] == ["install"]
+    assert [c[3] for c, _t in packages_svc._install_commands("paddleocr")] == ["install"]
 
 
 def test_the_torch_pins_constraint_goes_only_on_the_install_step(monkeypatch):
-    monkeypatch.setattr(svc.pending_install, "snapshot", lambda: {"opencv-python": "4.10"})
-    monkeypatch.setattr(svc.gpu_torch, "torch_pin_lines", lambda: ["torch==2.11.0"])
+    monkeypatch.setattr(packages_svc.pending_install, "snapshot", lambda: {"opencv-python": "4.10"})
+    monkeypatch.setattr(packages_svc.gpu_torch, "torch_pin_lines", lambda: ["torch==2.11.0"])
     seen = []
-    monkeypatch.setattr(svc, "_run_commands", lambda cmds, **kw: seen.extend(c for c, _t in cmds)
+    monkeypatch.setattr(packages_svc, "_run_commands", lambda cmds, **kw: seen.extend(c for c, _t in cmds)
                         or {"ok": True, "output_tail": [], "hint": None})
-    svc.install_dependency("paddleocr", True, job_id="j")
+    packages_svc.install_dependency("paddleocr", True, job_id="j")
     assert [c[3] for c in seen] == ["install", "uninstall", "install"]
     assert "-c" in seen[0] and "-c" not in seen[1] and "-c" in seen[2]
 
 
 def test_the_torch_conflict_hint_does_not_claim_nothing_changed_after_an_uninstall():
     lines = ["The conflict is caused by:", "    (constraint) torch==2.11.0"]
-    assert "nothing was changed" in svc.torch_conflict_hint(lines, ["torch==2.11.0"])
-    hint = svc.torch_conflict_hint(lines, ["torch==2.11.0"], changed=True)
+    assert "nothing was changed" in packages_svc.torch_conflict_hint(lines, ["torch==2.11.0"])
+    hint = packages_svc.torch_conflict_hint(lines, ["torch==2.11.0"], changed=True)
     assert "nothing was changed" not in hint and "not installed" in hint

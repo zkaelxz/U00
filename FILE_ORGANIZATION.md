@@ -237,7 +237,10 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `cover_art_service.py`
 - `delete_service.py`
 - `device_token_service.py`
-- `diagnostics_gaps_service.py`
+- `diagnostics_admin_service.py` (admin refusals, the install guard, library reset, model-cache delete)
+- `diagnostics_gaps_service.py` (read-only Diagnostics reports)
+- `diagnostics_gpu_torch_service.py` (GPU PyTorch status and setup)
+- `diagnostics_packages_service.py` (pip install/upgrade, update check, install presets)
 - `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
