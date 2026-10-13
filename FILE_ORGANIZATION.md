@@ -174,7 +174,10 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `known_sites.py`
 - `metadata_lookup.py`
 - `navigator.py`
-- `page_fetch.py`
+- `page_fetch.py` (static and browser-rendered page fetches, shell detection, `smart_fetch`)
+- `page_fetch_browser.py` (which browser program to launch, the Playwright check and the shutdown flag)
+- `page_fetch_guard.py` (the pinning proxy, request guard and fail-closed `_goto` that keep fetch browsers off private addresses)
+- `page_fetch_profile.py` (persistent sign-in profiles: signed-in reads and the visible sign-in window)
 - `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches)
 - `page_capture_checks.py` (blank-page probe, re-capture lookup and fixed failure messages for the extension bridge)
 - `page_server.py`
@@ -237,7 +240,10 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `cover_art_service.py`
 - `delete_service.py`
 - `device_token_service.py`
-- `diagnostics_gaps_service.py`
+- `diagnostics_admin_service.py` (admin refusals, the install guard, library reset, model-cache delete)
+- `diagnostics_gaps_service.py` (read-only Diagnostics reports)
+- `diagnostics_gpu_torch_service.py` (GPU PyTorch status and setup)
+- `diagnostics_packages_service.py` (pip install/upgrade, update check, install presets)
 - `cuda_runtime_service.py` (state of the Diagnostics "CUDA runtime for GPU Whisper" row)
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
@@ -286,7 +292,10 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `jobs_service.py`
 - `language_pack_service.py`
 - `vdb_names_service.py` (the optional personal VTuber name list, downloaded on demand; personal use only, never exported)
-- `library_admin_service.py`
+- `library_admin_service.py` (shared admin guards and bulk actions: typed confirm, maintenance hold, artifact lookup, bulk status/tags/delete/translate, storage cleanup)
+- `library_backup_service.py` (the export-all zip, full backup and database-only backup jobs, and the sanitized database snapshot)
+- `library_user_backup_service.py` (the backup of one person's items)
+- `library_backup_restore_service.py` (validating and applying an uploaded library backup)
 - `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_restore_service.py` (restoring a whole-library backup zip: validation, staged databases, the folder swap)
 - `library_service.py`
@@ -382,6 +391,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `transcribe_options_service.py` (what a transcribe run may be asked to do: tuning defaults, the Whisper sizes a title may store, and validation of saved config fields and run choices)
 - `transcribe_service.py`
 - `transcribe_speed_service.py` (remembered speed of finished transcription and speaker-detection runs per model and device, behind the time estimate)
+- `translate_preset_service.py` (apply a workflow tier or preset to a title; save the Translate form as a preset)
 - `translate_run_service.py`
 - `translate_service.py`
 - `translate_thinking_service.py`

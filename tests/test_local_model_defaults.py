@@ -33,7 +33,7 @@ class TestOllamaDefaults:
         svc._require_offered_model("ollama", "qwen2.5:14b")
 
     def test_a_saved_qwen_tag_is_kept_by_a_preset(self, isolated_db):
-        from services import translate_run_service as svc
+        from services import translate_preset_service as svc
         saved = svc.save_translate_preset("Qwen preset", "ollama", engine_model="qwen3:8b")
         did = isolated_db.create_drama(title_zh="D")
         applied = svc.apply_translate_preset(did, saved["preset"]["id"])

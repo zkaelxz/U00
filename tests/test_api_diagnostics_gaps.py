@@ -23,6 +23,8 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from services import diagnostics_gaps_service as svc
+from services import diagnostics_packages_service as packages_svc
+from services import diagnostics_gpu_torch_service as torch_svc
 from services import diagnostics_installs_service as installs
 from services import settings_service
 
@@ -103,10 +105,10 @@ def fakes(isolated_db, monkeypatch):
         yield {"line": DIRTY}
         yield {"returncode": 0, "timed_out": False}
 
-    monkeypatch.setattr(svc, "stream_tree", fake_stream)
+    monkeypatch.setattr(packages_svc, "stream_tree", fake_stream)
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info",
                         lambda: {"gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": "580.97"})
-    monkeypatch.setattr(svc, "verify_torch", lambda blocking=True, cancel=None: {
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda blocking=True, cancel=None: {
         "torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128", "torchaudio": "2.11.0+cu128",
         "cuda_build": "12.8", "cuda_available": True, "device": "RTX", "error": None})
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
@@ -129,9 +131,9 @@ def client(fakes):
 def test_setup_checks_report_the_playwright_package(client, monkeypatch, installed):
     # Through the real check_browser so a dropped key can't hide behind a fake.
     import browser_support
-    import page_fetch
+    import page_fetch_browser
     monkeypatch.setattr(diagnostics, "check_browser", _real_check_browser)
-    monkeypatch.setattr(page_fetch, "browser_status", lambda: {"found": True, "name": "Chrome"})
+    monkeypatch.setattr(page_fetch_browser, "browser_status", lambda: {"found": True, "name": "Chrome"})
     monkeypatch.setattr(browser_support, "package_installed", lambda: installed)
     b = _clean(client.get("/api/diagnostics/setup-checks"))
     assert b["browser"]["package"] is installed
@@ -178,7 +180,7 @@ def test_install_failure_hint(client, monkeypatch):
         yield {"line": "ERROR: [Errno 13] Permission denied: "
                        "'C:\\users\\x\\appdata\\local\\pip\\cache\\wheels\\a.whl'"}
         yield {"returncode": 1, "timed_out": False, "cancelled": False}
-    monkeypatch.setattr(svc, "stream_tree", fake_stream)
+    monkeypatch.setattr(packages_svc, "stream_tree", fake_stream)
     client.post("/api/diagnostics/dependencies/jieba/install", json={"confirm": True})
     b = _install_result(client)
     assert b["result"]["ok"] is False and "pip\\cache" in b["result"]["hint"]
@@ -357,7 +359,7 @@ def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monk
     monkeypatch.setattr(dependency_updates, "pypi_release_versions",
                         lambda dist: asked.append(dist) or ["99.0.0"])
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
-    svc._UPDATES.update(checked_at=None, packages={})
+    packages_svc._UPDATES.update(checked_at=None, packages={})
     c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
                    raise_server_exceptions=False)
     url = "/api/diagnostics/package-updates/check"
@@ -371,13 +373,13 @@ def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monk
     assert b["packages"]["pydub"]["status"] == "update"
     assert b["packages"]["pydub"]["target"] == "99.0.0"
     assert c.post("/api/diagnostics/gpu-torch/check", json={}).status_code in (401, 403)
-    svc._UPDATES.update(checked_at=None, packages={})
+    packages_svc._UPDATES.update(checked_at=None, packages={})
 
 
 def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
     monkeypatch.setattr(dependency_updates, "pypi_release_versions", lambda dist: ["1.0.0", "2.0.0"])
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
-    svc._UPDATES.update(checked_at=None, packages={})
+    packages_svc._UPDATES.update(checked_at=None, packages={})
     assert client.post("/api/diagnostics/package-updates/check", json={}).status_code == 200
     url = "/api/diagnostics/dependencies/pydub/upgrade"
     for bad in ("--index-url=x", "1.0 --pre", "", "a" * 65):
@@ -387,4 +389,4 @@ def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
     r = client.post(url, json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 200
     assert "pydub==2.0.0" in fakes[0][1] or "pydub==2.0.0" in fakes[0][1]
-    svc._UPDATES.update(checked_at=None, packages={})
+    packages_svc._UPDATES.update(checked_at=None, packages={})

@@ -15,7 +15,8 @@ from fastapi.testclient import TestClient
 
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import diagnostics_gaps_service as diag
+from services import diagnostics_packages_service as packages_svc
+from services import diagnostics_gpu_torch_service as torch_svc
 from services import extension_service as ext
 
 
@@ -52,8 +53,8 @@ def test_main_installs_the_stubs_before_the_app():
 
 def test_pip_can_never_run(stubbed, monkeypatch):
     # If anything still reached a real process runner, fail loudly.
-    monkeypatch.setattr(diag, "stream_tree", lambda *a, **k: pytest.fail("pip would have run"))
-    assert diag._run_commands([(["pip", "install", "x"], 1)]) == {"ok": False, "output_tail": ["stubbed in e2e"]}
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("pip would have run"))
+    assert packages_svc._run_commands([(["pip", "install", "x"], 1)]) == {"ok": False, "output_tail": ["stubbed in e2e"]}
     client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     for action in ("install", "upgrade"):
         r = client.post(f"/api/diagnostics/dependencies/pydub/{action}", json={"confirm": True})
@@ -65,7 +66,7 @@ def test_pip_can_never_run(stubbed, monkeypatch):
                        ("/api/diagnostics/gpu-torch/check", {}),
                        ("/api/diagnostics/package-updates/check", {})):
         assert client.post(path, json=body).status_code == 409, path
-    assert diag.verify_torch() == {"error": "stubbed in e2e"}
+    assert torch_svc.verify_torch() == {"error": "stubbed in e2e"}
 
 
 def test_reset_and_extension_are_stubbed(stubbed, monkeypatch):

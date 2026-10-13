@@ -10,7 +10,7 @@ import pytest
 from jobs import job_table
 import db
 import storage
-from services import library_admin_service as las
+from services import library_backup_service as lbs
 
 
 def _age(path, seconds):
@@ -82,7 +82,7 @@ def test_backup_excludes_temp_folder(isolated_db, tmp_path):
     with open(os.path.join(db.LIBRARY_DIR, "keep.txt"), "w") as f:
         f.write("k")
     dest = str(tmp_path / "b.zip")
-    las.write_backup_zip(dest, include_media=True)
+    lbs.write_backup_zip(dest, include_media=True)
     names = zipfile.ZipFile(dest).namelist()
     assert "keep.txt" in names
     assert not any(n.split("/")[0] == storage.TEMP_DIRNAME for n in names)

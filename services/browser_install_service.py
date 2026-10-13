@@ -26,7 +26,7 @@ import browser_support
 import diagnostics_report
 import translate_engines
 from lib.proc import stream_tree
-from services import diagnostics_gaps_service as gaps
+from services import diagnostics_admin_service as admin_svc
 from services.service_errors import ConflictError
 
 BROWSER_JOB_ID = "browser_install"
@@ -46,7 +46,7 @@ _STATE_LOCK = threading.Lock()
 _RESULT = {"last": None}
 
 
-class AlreadyAvailable(gaps.AdminActionRefused, ConflictError):
+class AlreadyAvailable(admin_svc.AdminActionRefused, ConflictError):
     pass
 
 
@@ -72,13 +72,13 @@ def _playwright_importable() -> bool:
 
 
 def _system_browser_found() -> bool:
-    import page_fetch
-    return bool(page_fetch.find_system_browser() or page_fetch._explicit_browser())
+    import page_fetch_browser
+    return bool(page_fetch_browser.find_system_browser() or page_fetch_browser._explicit_browser())
 
 
 def _global_chromium_present() -> bool:
-    import page_fetch
-    return page_fetch._bundled_browser_present()
+    import page_fetch_browser
+    return page_fetch_browser._bundled_browser_present()
 
 
 def _free_mb() -> int:
@@ -121,15 +121,15 @@ def start_install(confirm: bool = False) -> dict:
     """PC only (the route is local_only()). 422 unconfirmed, or without the
     playwright package, or with too little disk; 409 while any job runs or
     when a browser is already available."""
-    gaps.guard(confirm)
+    admin_svc.guard(confirm)
     reason = _refusal()
     if reason:
         if reason.startswith(("Chrome", "Browser support", "A Playwright")):
             raise AlreadyAvailable(reason)
-        raise gaps.AdminActionNotPossible(reason)
+        raise admin_svc.AdminActionNotPossible(reason)
     if not job_launch.start_job(BROWSER_JOB_ID, _install_job,
                                      description="Installing browser support"):
-        raise gaps.AdminActionJobsRunning(
+        raise admin_svc.AdminActionJobsRunning(
             "A browser install or a library restore is already running; try again when it ends.")
     return {"job_id": BROWSER_JOB_ID, "started": True}
 

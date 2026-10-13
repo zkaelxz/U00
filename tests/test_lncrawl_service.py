@@ -208,8 +208,8 @@ class TestDetection:
         assert dep[0] == "lncrawl" and dep[2] == "feature" and "GPL-3.0" in dep[1]
         reason = diagnostics.NOT_OFFERED_FOR_INSTALL["lightnovel-crawler"]
         assert "you install yourself" in reason and "pipx install lightnovel-crawler" in reason
-        from services import diagnostics_gaps_service
-        assert "lightnovel-crawler" not in diagnostics_gaps_service.installable_packages()
+        from services import diagnostics_packages_service as packages_svc
+        assert "lightnovel-crawler" not in packages_svc.installable_packages()
         # detection never asks importlib about the lncrawl module
         calls = []
         monkeypatch.setattr(diagnostics.importlib.util, "find_spec",

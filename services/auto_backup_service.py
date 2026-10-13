@@ -36,6 +36,7 @@ import db
 from db import fsync_dir as _fsync_dir
 from services import backup_space_check as space
 from services import library_admin_service as las
+from services import library_backup_service as lbs
 from services.auto_backup_copies import (_MANAGED, _MAX_COPY_NAME_LEN, _NO_COPY, _NO_SNAPSHOT, _classify,
                                          _identity, _identity_info, _list_copies, _pick_copy,
                                          _prune, _record_copy, _snapshot_lock, snapshot_info)
@@ -168,7 +169,7 @@ def _backup_job(job_id, include_media: bool):
             foreign_above = floor > ident["sequence"]
             owner = _identity(bump_from=floor)
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
-        las.write_backup_zip(tmp, include_media=include_media,
+        lbs.write_backup_zip(tmp, include_media=include_media,
                              manifest=lambda snap: _manifest_bytes(snap, include_media, owner),
                              should_cancel=lambda: background_jobs.is_cancel_requested(job_id))
         background_jobs.update_progress(job_id, 0.8, "Checking the backup...")

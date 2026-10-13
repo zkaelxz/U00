@@ -14,7 +14,9 @@ import db
 import diagnostics_torch
 import install_plan
 import pending_install
-from services import diagnostics_gaps_service as gaps
+from services import diagnostics_admin_service as admin_svc
+from services import diagnostics_packages_service as packages_svc
+from services import diagnostics_gpu_torch_service as torch_svc
 from services import diagnostics_installs_service as svc
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
@@ -56,7 +58,7 @@ def env(isolated_db, monkeypatch, tmp_path):
 
 
 def _commands(monkeypatch, *scripts, timeout=60):
-    monkeypatch.setattr(gaps, "_install_commands",
+    monkeypatch.setattr(packages_svc, "_install_commands",
                         lambda name: [([sys.executable, "-c", s], timeout) for s in scripts])
 
 
@@ -88,7 +90,7 @@ def test_cancel_kills_the_pip_tree_and_releases_the_hold(env, monkeypatch, tmp_p
     assert job_launch.exclusive_active() is True
     # While it runs nothing else may start, and a second install is refused.
     assert job_launch.start_job("other_job", lambda: None) is False
-    with pytest.raises(gaps.AdminActionJobsRunning):
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
         svc.start_dependency_install("jieba", confirm=True)
 
     background_jobs.request_cancel(JOB)
@@ -109,7 +111,7 @@ def test_cancel_between_commands_runs_no_further_command(env, monkeypatch):
         ran.append(cmd[-1])
         background_jobs.request_cancel(JOB)       # Cancel arrives as the first command ends
         yield {"returncode": 0, "timed_out": False, "cancelled": False}
-    monkeypatch.setattr(gaps, "stream_tree", fake_tree)
+    monkeypatch.setattr(packages_svc, "stream_tree", fake_tree)
     _commands(monkeypatch, "first", "second")
     svc.start_dependency_install("jieba", confirm=True)
     assert _wait(_finished)["status"] == "cancelled"
@@ -146,7 +148,7 @@ def test_an_unexpected_error_is_not_echoed_and_releases_the_hold(env, monkeypatc
     def boom(cmd, timeout, cancel=None, **_kw):
         raise RuntimeError(f"secret {SECRET} at {ABS_PATH}")
         yield  # noqa
-    monkeypatch.setattr(gaps, "stream_tree", boom)
+    monkeypatch.setattr(packages_svc, "stream_tree", boom)
     _commands(monkeypatch, "pass")
     svc.start_dependency_install("jieba", confirm=True)
     job = _wait(_finished)
@@ -157,11 +159,11 @@ def test_an_unexpected_error_is_not_echoed_and_releases_the_hold(env, monkeypatc
 
 
 def test_start_checks_run_before_a_job_exists(env, monkeypatch):
-    with pytest.raises(gaps.AdminActionUnconfirmed):
+    with pytest.raises(admin_svc.AdminActionUnconfirmed):
         svc.start_dependency_install("jieba", confirm=False)
-    with pytest.raises(gaps.AdminActionUnknownPackage):
+    with pytest.raises(admin_svc.AdminActionUnknownPackage):
         svc.start_dependency_install("fastapi", confirm=True)
-    with pytest.raises(gaps.AdminActionUnconfirmed):
+    with pytest.raises(admin_svc.AdminActionUnconfirmed):
         svc.start_gpu_torch_setup("cpu", confirm=False)
     assert background_jobs.get_status(JOB) is None and job_launch.exclusive_active() is False
 
@@ -169,7 +171,7 @@ def test_start_checks_run_before_a_job_exists(env, monkeypatch):
 def test_the_install_refuses_while_another_job_runs(env, monkeypatch):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
-    with pytest.raises(gaps.AdminActionJobsRunning):
+    with pytest.raises(admin_svc.AdminActionJobsRunning):
         svc.start_dependency_install("jieba", confirm=True)
     assert background_jobs.get_status(JOB) is None
 
@@ -180,7 +182,7 @@ def test_a_job_that_appears_after_the_start_checks_stops_the_install(env, monkey
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     monkeypatch.setattr(svc, "_other_job_running", lambda own: True)
-    monkeypatch.setattr(gaps, "stream_tree",
+    monkeypatch.setattr(packages_svc, "stream_tree",
                         lambda *a, **k: pytest.fail("pip must not run"))
     svc.start_dependency_install("jieba", confirm=True)
     assert _wait(_finished)["status"] == "error"
@@ -200,10 +202,10 @@ def test_other_job_check_ignores_the_install_itself(env, monkeypatch):
 
 def test_gpu_torch_setup_runs_as_a_job_and_cancel_skips_the_check(env, monkeypatch):
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
-    monkeypatch.setattr(svc.gaps, "_python_supported", lambda: True)
-    monkeypatch.setattr(gaps, "_torch_setup_commands",
+    monkeypatch.setattr(svc.torch_svc, "_python_supported", lambda: True)
+    monkeypatch.setattr(torch_svc, "_torch_setup_commands",
                         lambda variant: [([sys.executable, "-c", "import time; print('x', flush=True); time.sleep(60)"], 60)])
-    monkeypatch.setattr(gaps, "verify_torch", lambda **k: pytest.fail("no verify after Cancel"))
+    monkeypatch.setattr(torch_svc, "verify_torch", lambda **k: pytest.fail("no verify after Cancel"))
     assert svc.start_gpu_torch_setup("cpu", confirm=True)["started"] is True
     _wait(lambda: "x" in (background_jobs.get_status(JOB) or {}).get("message", ""))
     assert svc.get_dependency_install()["kind"] == "gpu_torch"
@@ -218,7 +220,7 @@ def _report(*pairs):
 
 def test_install_now_refuses_a_blocked_plan(env, monkeypatch):
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: (None, "conflict"))
-    with pytest.raises(gaps.AdminActionNotPossible, match="can't be installed together"):
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="can't be installed together"):
         svc.start_dependency_install("jieba", confirm=True)
     assert background_jobs.get_status(JOB) is None
 
@@ -234,7 +236,7 @@ def _downgrade_plan(monkeypatch):
 
 def test_install_now_needs_the_downgrade_accepted(env, monkeypatch):
     _downgrade_plan(monkeypatch)
-    with pytest.raises(gaps.AdminActionRefused, match="downgrade") as exc:
+    with pytest.raises(admin_svc.AdminActionRefused, match="downgrade") as exc:
         svc.start_dependency_install("jieba", confirm=True)
     assert getattr(exc.value, "http_status", 409) == 409
     assert background_jobs.get_status(JOB) is None
@@ -315,11 +317,11 @@ def test_a_read_only_install_folder_refuses_before_a_job_exists(env, monkeypatch
         return real_tf(*a, dir=dir, **k)
     monkeypatch.setattr(svc.tempfile, "TemporaryFile", denied)
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: pytest.fail("no preview"))
-    with pytest.raises(gaps.AdminActionNotPossible, match="Stop the service"):
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="Stop the service"):
         svc.start_dependency_install("jieba", confirm=True)
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
-    monkeypatch.setattr(svc.gaps, "_python_supported", lambda: True)
-    with pytest.raises(gaps.AdminActionNotPossible, match="Stop the service"):
+    monkeypatch.setattr(svc.torch_svc, "_python_supported", lambda: True)
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="Stop the service"):
         svc.start_gpu_torch_setup("cpu", confirm=True)
     assert background_jobs.get_status(JOB) is None
     assert os.listdir(paths["purelib" if which == "platlib" else "platlib"]) == []   # probe cleaned up
@@ -359,7 +361,7 @@ def _pip_moves(restore, monkeypatch, changes, cancel=False):
             yield {"returncode": None, "timed_out": False, "cancelled": True}
         else:
             yield {"returncode": 1, "timed_out": False, "cancelled": False}
-    monkeypatch.setattr(gaps, "stream_tree", fake_tree)
+    monkeypatch.setattr(packages_svc, "stream_tree", fake_tree)
 
 
 def test_a_pip_failure_puts_the_earlier_packages_back(env, monkeypatch, restore):
@@ -429,8 +431,8 @@ def test_a_failed_gpu_setup_points_back_to_the_setup(env, monkeypatch, restore):
     restore["unavailable"] = {"torch==2.5.0"}
     restore["env"]["torch"] = "2.5.0"
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
-    monkeypatch.setattr(svc.gaps, "_python_supported", lambda: True)
-    monkeypatch.setattr(gaps, "_torch_setup_commands", lambda variant: [([sys.executable, "-c", "pip"], 60)])
+    monkeypatch.setattr(svc.torch_svc, "_python_supported", lambda: True)
+    monkeypatch.setattr(torch_svc, "_torch_setup_commands", lambda variant: [([sys.executable, "-c", "pip"], 60)])
     _pip_moves(restore, monkeypatch, {"torch": "2.11.0+cpu"})
     svc.start_gpu_torch_setup("cpu", confirm=True)
     _wait(_finished)

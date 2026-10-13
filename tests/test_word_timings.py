@@ -632,13 +632,13 @@ def test_transcription_stores_words_with_the_lines_it_creates(monkeypatch):
                            "older lines table a backup is written from")
 def test_backup_import_of_an_older_backup_without_the_column(tmp_path):
     from services import backup_import_service as bis
-    from services import library_admin_service as las
+    from services import library_backup_service as lbs
     did, ids = _seed()
     with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
         c.execute("ALTER TABLE lines DROP COLUMN word_timings")
         c.commit()
     dest = os.path.join(db.LIBRARY_DIR, "old.zip")
-    las.write_backup_zip(dest, include_media=False)
+    lbs.write_backup_zip(dest, include_media=False)
     with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
         c.execute("ALTER TABLE lines ADD COLUMN word_timings TEXT")
         c.commit()
@@ -653,7 +653,7 @@ def test_backup_import_of_an_older_backup_without_the_column(tmp_path):
 def test_backup_copy_keeps_words_but_drops_oversized_ones():
     import io
     from services import backup_import_service as bis
-    from services import library_admin_service as las
+    from services import library_backup_service as lbs
     did, ids = _seed()
     big, big_ids = _seed()
     with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
@@ -661,7 +661,7 @@ def test_backup_copy_keeps_words_but_drops_oversized_ones():
                   ("x" * (segment_splitting.MAX_STORED_WORD_BYTES + 1), big_ids[0]))
         c.commit()
     dest = os.path.join(db.LIBRARY_DIR, "b.zip")
-    las.write_backup_zip(dest, include_media=False)
+    lbs.write_backup_zip(dest, include_media=False)
     with open(dest, "rb") as fh:
         res = bis.import_dramas(io.BytesIO(fh.read()), [did, big], confirm=True,
                                 confirm_text="RESTORE")

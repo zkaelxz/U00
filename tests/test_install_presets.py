@@ -13,6 +13,8 @@ import dependency_updates
 import diagnostics
 import diagnostics_report
 from services import diagnostics_gaps_service as svc
+from services import diagnostics_admin_service as admin_svc
+from services import diagnostics_packages_service as packages_svc
 
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
 CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")]
@@ -49,10 +51,10 @@ def _offered():
 def test_service_install_and_upgrade_commands_carry_the_flags(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    ((cmd, _t),) = svc._install_commands("jieba")
+    ((cmd, _t),) = packages_svc._install_commands("jieba")
     assert cmd[3:] == ["install", *FLAGS, "jieba", *CONSTRAINTS]
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-    for cmd, _t in svc._install_commands("torch"):
+    for cmd, _t in packages_svc._install_commands("torch"):
         assert cmd[3:6] == ["install", *FLAGS]
 
 
@@ -77,8 +79,8 @@ def test_failed_install_returns_the_hint_even_though_output_is_redacted(monkeypa
     def fake(cmd, timeout, **_kw):
         yield {"line": WIN_LINE}
         yield {"returncode": 1, "timed_out": False}
-    monkeypatch.setattr(svc, "stream_tree", fake)
-    out = svc._run_commands([(["pip"], 1)])
+    monkeypatch.setattr(packages_svc, "stream_tree", fake)
+    out = packages_svc._run_commands([(["pip"], 1)])
     assert out["ok"] is False and out["hint"] == diagnostics.PIP_CACHE_PERMISSION_HINT
     assert "kae" not in " ".join(out["output_tail"])
 
@@ -87,8 +89,8 @@ def test_success_has_no_hint(monkeypatch):
     def fake(cmd, timeout, **_kw):
         yield {"line": WIN_LINE}
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "stream_tree", fake)
-    assert svc._run_commands([(["pip"], 1)])["hint"] is None
+    monkeypatch.setattr(packages_svc, "stream_tree", fake)
+    assert packages_svc._run_commands([(["pip"], 1)])["hint"] is None
 
 
 # ---- B: install names are real distributions ----
@@ -109,7 +111,7 @@ def test_install_name_mapping(key, dist):
 def test_service_installs_opencv_python_for_cv2(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    ((cmd, _t),) = svc._install_commands("cv2")
+    ((cmd, _t),) = packages_svc._install_commands("cv2")
     assert cmd[-3:] == ["opencv-python", *CONSTRAINTS]
 
 
@@ -138,7 +140,7 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     installed = {"numpy", "soundfile"}
     monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: imp in installed)
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
-    out = svc.get_install_presets()
+    out = packages_svc.get_install_presets()
     t = next(t for t in out["tasks"] if t["id"] == "transcribe")
     assert t["installed_count"] == 2 and t["to_install"] == [
         "faster_whisper", "ctranslate2"]
@@ -177,14 +179,14 @@ def test_pypi_url_is_built_only_from_a_valid_name(monkeypatch):
 def test_lncrawl_is_not_offered_and_refused():
     reason = dependency_updates.known_install_limitation_reason("lightnovel-crawler")
     assert reason and "not offered" in reason
-    assert "lightnovel-crawler" not in svc.installable_packages()
+    assert "lightnovel-crawler" not in packages_svc.installable_packages()
     assert dependency_updates.known_install_limitation_reason("jieba") is None
 
 
 def test_lncrawl_install_is_refused_by_the_service(monkeypatch):
-    monkeypatch.setattr(svc, "guard", lambda confirm: None)
-    with pytest.raises(svc.AdminActionUnknownPackage):
-        svc.install_dependency("lightnovel-crawler", confirm=True)
+    monkeypatch.setattr(admin_svc, "guard", lambda confirm: None)
+    with pytest.raises(admin_svc.AdminActionUnknownPackage):
+        packages_svc.install_dependency("lightnovel-crawler", confirm=True)
 
 
 def test_python_version_limitation_is_a_warning_not_a_refusal(monkeypatch):
@@ -192,7 +194,7 @@ def test_python_version_limitation_is_a_warning_not_a_refusal(monkeypatch):
                         lambda n: "known not to install on Python 3.14" if n == "audio-separator"
                         else None)
     monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: False)
-    info = svc.get_install_presets()["packages"]["audio-separator"]
+    info = packages_svc.get_install_presets()["packages"]["audio-separator"]
     assert info["not_offered_reason"] is None and info["installable"] is True
     assert "3.14" in info["warning"]
 
@@ -213,7 +215,7 @@ def test_task_roles_name_the_tasks_own_packages():
 def test_install_for_a_task_skips_optional_packages(monkeypatch):
     monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: False)
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
-    t = next(t for t in svc.get_install_presets()["tasks"] if t["id"] == "hardsub_ocr")
+    t = next(t for t in packages_svc.get_install_presets()["tasks"] if t["id"] == "hardsub_ocr")
     assert t["roles"] == {"cv2": "required", "numpy": "required", "PIL": "required",
                           "pytesseract": "recommended", "paddleocr": "optional",
                           "paddlepaddle": "optional"}
@@ -247,7 +249,7 @@ def test_below_min_version(have, need, below):
 def test_package_info_reports_min_version_and_below_min(monkeypatch):
     monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: imp == "jieba")
     monkeypatch.setattr(diagnostics, "get_installed_version", {"jieba": "0.40"}.get)
-    p = svc.get_install_presets()["packages"]
+    p = packages_svc.get_install_presets()["packages"]
     assert p["jieba"]["min_version"] == "0.42" and p["jieba"]["below_min"] is True
     assert p["pypinyin"]["below_min"] is False
 
@@ -255,8 +257,8 @@ def test_package_info_reports_min_version_and_below_min(monkeypatch):
 def test_install_commands_omit_constraints_when_file_is_absent(monkeypatch, tmp_path):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    monkeypatch.setattr(svc, "default_project_root", lambda: str(tmp_path))
-    ((cmd, _t),) = svc._install_commands("jieba")
+    monkeypatch.setattr(packages_svc, "default_project_root", lambda: str(tmp_path))
+    ((cmd, _t),) = packages_svc._install_commands("jieba")
     assert cmd[3:] == ["install", *FLAGS, "jieba"]
 
 
@@ -264,7 +266,7 @@ def test_install_commands_include_constraints_when_file_exists(monkeypatch, tmp_
     import shutil
     (tmp_path / "constraints.txt").write_text("av<19\n")
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    monkeypatch.setattr(svc, "default_project_root", lambda: str(tmp_path))
+    monkeypatch.setattr(packages_svc, "default_project_root", lambda: str(tmp_path))
     want = ["-c", str(tmp_path / "constraints.txt")]
-    ((cmd, _t),) = svc._install_commands("jieba")
+    ((cmd, _t),) = packages_svc._install_commands("jieba")
     assert cmd[-2:] == want

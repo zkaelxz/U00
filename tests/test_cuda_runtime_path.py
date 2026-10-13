@@ -15,7 +15,8 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from services import cuda_runtime_service
-from services import diagnostics_gaps_service as gaps
+from services import diagnostics_packages_service as packages_svc
+from services import diagnostics_gpu_torch_service as torch_svc
 from services import diagnostics_installs_service as installs
 
 
@@ -193,29 +194,29 @@ def test_loading_a_model_fixes_the_path_before_faster_whisper_is_used(monkeypatc
 
 def test_the_install_runs_cublas_then_cudnn_and_then_fixes_the_path(monkeypatch):
     order = []
-    monkeypatch.setattr(gaps, "install_dependency",
+    monkeypatch.setattr(packages_svc, "install_dependency",
                         lambda name, confirm, job_id=None, timeout=None: order.append((name, timeout)) or {"ok": True})
     monkeypatch.setattr(installs.cuda_runtime_path, "ensure_cuda_runtime_on_path",
                         lambda: order.append("ensure"))
 
     assert installs._install_cuda_runtime()["ok"] is True
-    long = gaps.GPU_TORCH_TIMEOUT_SECONDS
+    long = torch_svc.GPU_TORCH_TIMEOUT_SECONDS
     assert order == [("nvidia-cublas-cu12", long), ("nvidia-cudnn-cu12", long), "ensure"]
 
 
 def test_a_failed_first_package_stops_the_install(monkeypatch):
     order = []
-    monkeypatch.setattr(gaps, "install_dependency",
+    monkeypatch.setattr(packages_svc, "install_dependency",
                         lambda name, confirm, job_id=None, timeout=None: order.append((name, timeout)) or {"ok": False})
     monkeypatch.setattr(installs.cuda_runtime_path, "ensure_cuda_runtime_on_path",
                         lambda: order.append("ensure"))
 
     assert installs._install_cuda_runtime()["ok"] is False
-    assert order == [("nvidia-cublas-cu12", gaps.GPU_TORCH_TIMEOUT_SECONDS)]
+    assert order == [("nvidia-cublas-cu12", torch_svc.GPU_TORCH_TIMEOUT_SECONDS)]
 
 
 def test_both_wheels_are_installable_packages():
-    assert set(installs.CUDA_RUNTIME_PACKAGES) <= gaps.installable_packages()
+    assert set(installs.CUDA_RUNTIME_PACKAGES) <= packages_svc.installable_packages()
 
 
 # --- the Diagnostics row ------------------------------------------------------
@@ -269,15 +270,15 @@ def test_install_is_pc_only(isolated_db, row):
 
 def test_the_pip_allowance_for_a_big_wheel_replaces_the_default(monkeypatch):
     seen = []
-    monkeypatch.setattr(gaps, "_install_commands", lambda name: [(["pip"], gaps.PIP_TIMEOUT_SECONDS)])
-    monkeypatch.setattr(gaps, "_run_commands",
+    monkeypatch.setattr(packages_svc, "_install_commands", lambda name: [(["pip"], packages_svc.PIP_TIMEOUT_SECONDS)])
+    monkeypatch.setattr(packages_svc, "_run_commands",
                         lambda cmds, job_id=None, torch_pins=None: seen.append(cmds) or {"ok": True})
-    monkeypatch.setattr(gaps.gpu_torch, "torch_pin_lines", lambda: [])
+    monkeypatch.setattr(packages_svc.gpu_torch, "torch_pin_lines", lambda: [])
 
-    gaps.install_dependency("nvidia-cudnn-cu12", True, job_id="j", timeout=3600)
-    gaps.install_dependency("nvidia-cudnn-cu12", True, job_id="j")
+    packages_svc.install_dependency("nvidia-cudnn-cu12", True, job_id="j", timeout=3600)
+    packages_svc.install_dependency("nvidia-cudnn-cu12", True, job_id="j")
 
-    assert [c[0][1] for c in seen] == [3600, gaps.PIP_TIMEOUT_SECONDS]
+    assert [c[0][1] for c in seen] == [3600, packages_svc.PIP_TIMEOUT_SECONDS]
 
 
 def test_a_plan_that_needs_confirming_is_refused_with_the_servers_reason(isolated_db, monkeypatch, tmp_path):

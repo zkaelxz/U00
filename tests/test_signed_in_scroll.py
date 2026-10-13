@@ -3,6 +3,8 @@ anonymous rendered path does, and a no-pages failure says what was read."""
 import pytest
 
 import page_fetch
+
+import page_fetch_profile
 import page_scroll
 from sources import adaptive
 from sources.ladder import LadderResult
@@ -48,7 +50,7 @@ class _PW:
 def _fetch(tmp_path, page):
     def launcher(profile_dir, headless):
         return _PW(), _Context(page)
-    return page_fetch.fetch_with_profile("https://public.example/c", str(tmp_path / "p"),
+    return page_fetch_profile.fetch_with_profile("https://public.example/c", str(tmp_path / "p"),
                                          wait_ms=0, launcher=launcher)
 
 
@@ -68,7 +70,7 @@ def test_scroll_failure_is_swallowed(tmp_path):
 
 def test_both_fetch_paths_use_the_shared_helper():
     import inspect
-    for fn in (page_fetch._rendered_page, page_fetch.fetch_with_profile):
+    for fn in (page_fetch._rendered_page, page_fetch_profile.fetch_with_profile):
         assert "scroll_through_and_settle" in inspect.getsource(fn)
     assert not hasattr(page_fetch, "_SCROLL_THROUGH_JS")
     assert page_scroll.scroll_through_and_settle(_Page(), 1000) is True

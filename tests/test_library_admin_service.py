@@ -12,6 +12,8 @@ import background_jobs
 from jobs import job_launch, job_runner
 import db
 from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
+from services import library_backup_service as lbs
 from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -63,7 +65,7 @@ def test_restore_wrong_confirm_changes_nothing(isolated_db, monkeypatch):
     good = _zip({"library.db": b"x"})
     for confirm, text in [(False, "RESTORE"), (True, "restore"), (True, "")]:
         with pytest.raises(InvalidInputError):
-            las.restore_backup(good, confirm=confirm, confirm_text=text)
+            lbr.restore_backup(good, confirm=confirm, confirm_text=text)
     assert not called
 
 
@@ -170,7 +172,7 @@ def test_export_zip_job_and_artifact(isolated_db):
     a = _new("Exported", "translated")
     db.save_lines(a, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
     _new("Skip", "aligned")
-    r = las.start_export_zip()
+    r = lbs.start_export_zip()
     assert r["drama_ids"] == [a]
     st = _wait(r["job_id"])
     assert st["status"] == "done", st.get("error")
@@ -184,13 +186,13 @@ def test_export_zip_job_and_artifact(isolated_db):
 
 def test_backup_job_then_valid_for_restore(isolated_db):
     _new("Backed up")
-    r = las.start_backup()
+    r = lbs.start_backup()
     st = _wait(r["job_id"])
     assert st["status"] == "done", st.get("error")
     _no_path(st["result"], db.LIBRARY_DIR)
     with open(las.admin_artifact_path("backup")["path"], "rb") as f:
         data = f.read()
-    las.validate_backup_zip(data)
+    lbr.validate_backup_zip(data)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         assert not any(n.startswith("backups/") for n in zf.namelist())
 
@@ -211,11 +213,11 @@ def _members(path):
 def test_backup_zip_progress_monotonic_and_same_members(isolated_db, tmp_path, monkeypatch):
     _new("P")
     _media()
-    monkeypatch.setattr(las, "_BACKUP_PROGRESS_INTERVAL", 0)
+    monkeypatch.setattr(lbs, "_BACKUP_PROGRESS_INTERVAL", 0)
     calls = []
     plain, with_cb = str(tmp_path / "a.zip"), str(tmp_path / "b.zip")
-    las.write_backup_zip(plain)
-    las.write_backup_zip(with_cb, progress=lambda f, m: calls.append((f, m)),
+    lbs.write_backup_zip(plain)
+    lbs.write_backup_zip(with_cb, progress=lambda f, m: calls.append((f, m)),
                          should_cancel=lambda: False)
     assert _members(plain) == _members(with_cb)
     with zipfile.ZipFile(plain) as a, zipfile.ZipFile(with_cb) as b:
@@ -229,7 +231,7 @@ def test_backup_zip_progress_monotonic_and_same_members(isolated_db, tmp_path, m
 
 def test_backup_job_reports_progress_and_ends_at_one(isolated_db):
     _media()
-    st = _wait(las.start_backup()["job_id"])
+    st = _wait(lbs.start_backup()["job_id"])
     assert st["status"] == "done", st.get("error")
     assert st["progress"] == 1.0 and st["message"] == "Backup ready."
 
@@ -238,7 +240,7 @@ def test_backup_job_cancel_leaves_no_partial_or_zip(isolated_db, monkeypatch):
     _media()
     monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
     with pytest.raises(background_jobs.JobCancelled):
-        las._backup_job(las.BACKUP_JOB_ID)
+        lbs._backup_job(las.BACKUP_JOB_ID)
     folder = las._artifact_dir("backup", create=True)
     assert os.listdir(folder) == []
 
@@ -246,7 +248,7 @@ def test_backup_job_cancel_leaves_no_partial_or_zip(isolated_db, monkeypatch):
 def test_backup_job_cancel_marks_job_cancelled(isolated_db, monkeypatch):
     _media()
     monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
-    job_id = las.start_backup()["job_id"]
+    job_id = lbs.start_backup()["job_id"]
     end = time.time() + 10
     st = None
     while time.time() < end:
@@ -270,7 +272,7 @@ def test_restore_refused_while_job_running(isolated_db, monkeypatch):
     assert job_launch.start_job("some_job", gate.wait, 5)
     try:
         with pytest.raises(ConflictError):
-            las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
+            lbr.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
     finally:
         gate.set()
         _wait("some_job")
@@ -281,7 +283,7 @@ def test_restore_refused_for_other_process_job_record(isolated_db, monkeypatch):
     monkeypatch.setattr(db, "list_job_records", lambda: [
         {"job_id": "transcribe_1", "status": "running", "updated_at": time.time()}])
     with pytest.raises(ConflictError):
-        las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
+        lbr.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
 
 
 @pytest.mark.parametrize("payload", [
@@ -314,7 +316,7 @@ def test_invalid_zip_rejected_before_change(isolated_db, monkeypatch, payload):
             zf.writestr(info, "/etc/passwd")
         payload = buf.getvalue()
     with pytest.raises(InvalidInputError) as ei:
-        las.restore_backup(payload, confirm=True, confirm_text="RESTORE")
+        lbr.restore_backup(payload, confirm=True, confirm_text="RESTORE")
     assert not called
     assert db.get_drama(did) is not None
     assert db.LIBRARY_DIR not in str(ei.value)
@@ -326,15 +328,15 @@ def test_oversized_zip_rejected_before_change(isolated_db, monkeypatch):
     data = _zip({"library.db": b"x" * 100, "big.bin": b"y" * 1000})
     monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 500)
     with pytest.raises(InvalidInputError):
-        las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+        lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
     monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 10 ** 9)
     monkeypatch.setattr(lrs, "MAX_RESTORE_TOTAL_BYTES", 900)
     with pytest.raises(InvalidInputError):
-        las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+        lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
     monkeypatch.setattr(lrs, "MAX_RESTORE_TOTAL_BYTES", 10 ** 9)
     monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBERS", 1)
     with pytest.raises(InvalidInputError):
-        las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+        lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert not called
 
 
@@ -342,7 +344,7 @@ def test_valid_restore_calls_existing_swap(isolated_db, monkeypatch):
     called = []
     monkeypatch.setattr(lrs, "restore_library_backup",
                         lambda b, d, before_swap=None: called.append(d))
-    r = las.restore_backup(_zip({"library.db": b"x", "dramas/1/a.txt": b"x"}),
+    r = lbr.restore_backup(_zip({"library.db": b"x", "dramas/1/a.txt": b"x"}),
                            confirm=True, confirm_text="RESTORE")
     assert r["restored"] is True
     assert called == [db.LIBRARY_DIR]
@@ -355,11 +357,11 @@ def test_restore_that_flips_developer_mode_syncs_the_echo_engine(isolated_db, mo
     monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
         assistant._SETTINGS_PREFIX + "developer_mode", True))
     try:
-        las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
+        lbr.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
         assert echo.ENGINE_ID in engine_registry.ENGINES
         monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
             assistant._SETTINGS_PREFIX + "developer_mode", False))
-        las.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
+        lbr.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
         assert echo.ENGINE_ID not in engine_registry.ENGINES
     finally:
         echo.set_enabled(False)
@@ -404,14 +406,14 @@ from sources import store as src_store  # noqa: E402
 
 
 def _backup_bytes():
-    st = _wait(las.start_backup()["job_id"])
+    st = _wait(lbs.start_backup()["job_id"])
     assert st["status"] == "done", st.get("error")
     with open(las.admin_artifact_path("backup")["path"], "rb") as f:
         return f.read()
 
 
 def _restore(data):
-    return las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+    return lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
 
 
 def _write(rel, data=b"x"):
@@ -961,7 +963,7 @@ def test_snapshot_strips_sessions_and_device_tokens_but_keeps_accounts(isolated_
     device_token_service.create_token({"user_id": uid, "is_admin": False,
                                        "permissions": ["extension.send"]}, "Laptop")
     dest = os.path.join(tempfile.mkdtemp(), "snap.db")
-    las._sanitized_snapshot(dest)
+    lbs._sanitized_snapshot(dest)
     conn = sqlite3.connect(dest)
     try:
         assert conn.execute("SELECT COUNT(*) FROM auth_sessions").fetchone()[0] == 0
@@ -984,7 +986,7 @@ def test_backups_never_carry_the_personal_vtuber_names(isolated_db):
     job = db.create_bulk_job(did, "deepseek", "deepseek-chat", "scheduled", [],
                              translate_args={"style_guidelines": guidelines, "style_preset": "x"})
     database = os.path.join(tempfile.mkdtemp(), "db.db")
-    las._sanitized_snapshot(database)
+    lbs._sanitized_snapshot(database)
     zipped = _zip_db(_backup_bytes())
     try:
         for path in (database, zipped):
@@ -1017,7 +1019,7 @@ def test_names_of_a_deleted_title_are_not_left_in_a_backups_free_pages(isolated_
     with open(db.DB_PATH, "rb") as f:
         assert b"Inventa" in f.read()   # the live file still holds them
     dest = os.path.join(tempfile.mkdtemp(), "db.db")
-    las._sanitized_snapshot(dest)
+    lbs._sanitized_snapshot(dest)
     with open(dest, "rb") as f:
         assert b"Inventa" not in f.read()
 
@@ -1157,7 +1159,7 @@ def test_backup_holds_a_consistent_sources_db_snapshot(isolated_db, include_medi
         reader.execute("SELECT COUNT(*) FROM tracked_series").fetchone()
         src_store.track_series("site", "s2", "In the log")
         dest = str(tmp_path / "b.zip")
-        las.write_backup_zip(dest, include_media=include_media)
+        lbs.write_backup_zip(dest, include_media=include_media)
     finally:
         reader.close()
     with open(dest, "rb") as f:
@@ -1192,7 +1194,7 @@ def test_busy_sources_db_fails_the_backup_with_the_fixed_message(isolated_db, mo
     def busy(dest, source=None):
         raise src_store.SourcesDatabaseBusy()
     monkeypatch.setattr(src_store, "snapshot_to", busy)
-    st = _wait(las.start_backup()["job_id"])
+    st = _wait(lbs.start_backup()["job_id"])
     assert st["status"] == "error"
     assert st["error"].endswith("The backup could not be written.")
     assert "Sources" not in st["error"] and "busy" not in st["error"]
@@ -1262,7 +1264,7 @@ def test_restore_rechecks_jobs_before_swap(isolated_db, monkeypatch):
     data = _backup_bytes()
     b = _new("B")
     answers = iter([False, True])
-    monkeypatch.setattr(las, "any_job_running", lambda: next(answers))
+    monkeypatch.setattr(lbr, "any_job_running", lambda: next(answers))
     with pytest.raises(ConflictError):
         _restore(data)
     assert db.get_drama(a) and db.get_drama(b)
@@ -1293,7 +1295,7 @@ def test_no_job_or_delete_during_restore(isolated_db):
     try:
         assert job_launch.start_job("x", lambda: None) is False
         with pytest.raises(ConflictError):
-            las.start_backup()
+            lbs.start_backup()
         with pytest.raises(ConflictError):
             las.bulk_delete([a], confirm=True, confirm_text="DELETE")
         with pytest.raises(ConflictError):
@@ -1338,24 +1340,24 @@ def test_restore_caps(isolated_db, monkeypatch):
         zf.writestr("library.db", b"x" * 100)
         zf.writestr("big.bin", b"y" * 5000)   # compresses far below 5000 bytes
     data = buf.getvalue()
-    monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 1)
+    monkeypatch.setattr(lbr, "RESTORE_MAX_MEMBERS", 1)
     with pytest.raises(InvalidInputError):
-        las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 100)
-    monkeypatch.setattr(las, "_RESTORE_MIN_TOTAL_BYTES", 1)
-    monkeypatch.setattr(las, "_RESTORE_EXPANSION_FACTOR", 1)   # cap = upload size
-    monkeypatch.setattr(las, "_library_size", lambda: 0)
+        lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
+    monkeypatch.setattr(lbr, "RESTORE_MAX_MEMBERS", 100)
+    monkeypatch.setattr(lbr, "_RESTORE_MIN_TOTAL_BYTES", 1)
+    monkeypatch.setattr(lbr, "_RESTORE_EXPANSION_FACTOR", 1)   # cap = upload size
+    monkeypatch.setattr(lbr, "_library_size", lambda: 0)
     with pytest.raises(InvalidInputError):
-        las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(las, "_library_size", lambda: 10 ** 6)  # 2x library allows it
+        lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
+    monkeypatch.setattr(lbr, "_library_size", lambda: 10 ** 6)  # 2x library allows it
     usage = collections.namedtuple("usage", "total used free")
     monkeypatch.setattr(las.shutil, "disk_usage", lambda p: usage(1, 1, 10))
     with pytest.raises(InvalidInputError) as ei:
-        las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+        lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert "disk" in str(ei.value)
     assert not called
     monkeypatch.setattr(las.shutil, "disk_usage", lambda p: usage(1, 1, 10 ** 12))
-    las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+    lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert len(called) == 1
     # The library's parent folder is checked; free space that can't be read
     # doesn't block the restore.
@@ -1365,7 +1367,7 @@ def test_restore_caps(isolated_db, monkeypatch):
         asked.append(path)
         raise OSError("not reported")
     monkeypatch.setattr(las.shutil, "disk_usage", unreadable)
-    las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+    lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert len(called) == 2
     assert asked == [os.path.dirname(os.path.abspath(db.LIBRARY_DIR))]
 
@@ -1391,13 +1393,13 @@ def test_encrypted_member_is_invalid_input(isolated_db):
         zf.writestr("secret.bin", b"y")
         zf.getinfo("secret.bin").flag_bits |= 0x1   # central directory: encrypted
     with pytest.raises(InvalidInputError):
-        las.validate_backup_zip(buf.getvalue())
+        lbr.validate_backup_zip(buf.getvalue())
 
 
 def test_export_explicit_ids_one_result_each(isolated_db):
     a = _new("A", status="translated", translated=True)
     b = _new("B", status="aligned")
-    r = las.start_export_zip([a, b, 999])
+    r = lbs.start_export_zip([a, b, 999])
     _wait(r["job_id"])
     assert r["drama_ids"] == [a]
     assert r["results"] == [{"drama_id": a, "ok": True},
@@ -1408,10 +1410,10 @@ def test_export_explicit_ids_one_result_each(isolated_db):
 def test_artifact_write_failure_has_no_path(isolated_db, monkeypatch):
     def boom(kind, create):
         raise OSError(f"{db.LIBRARY_DIR}/backups: denied")
-    monkeypatch.setattr(las, "_artifact_dir", boom)
+    monkeypatch.setattr(lbs, "_artifact_dir", boom)
     t = _new("A", status="translated", translated=True)
-    for start in (las.start_backup, las.start_database_backup,
-                  lambda: las.start_export_zip([t])):
+    for start in (lbs.start_backup, lbs.start_database_backup,
+                  lambda: lbs.start_export_zip([t])):
         st = _wait(start()["job_id"])
         assert st["status"] == "error"
         assert db.LIBRARY_DIR not in (st.get("error") or "")
@@ -1421,7 +1423,7 @@ def test_database_backup(isolated_db):
     _new("A")
     uid = auth_service.add_user("a@example.com")["id"]
     auth_service.create_session(uid)
-    st = _wait(las.start_database_backup()["job_id"])
+    st = _wait(lbs.start_database_backup()["job_id"])
     assert st["status"] == "done", st.get("error")
     _no_path(st["result"], db.LIBRARY_DIR)
     info = las.admin_artifact_path("database")
@@ -1513,7 +1515,7 @@ def test_trigger_in_sources_db_refused(isolated_db):
                                     "extension_token.txt.", "backups/ /x", "a//b"])
 def test_kept_name_variants_rejected_by_validation(isolated_db, member):
     with pytest.raises(InvalidInputError):
-        las.validate_backup_zip(_zip({"library.db": b"x", member: b"x"}))
+        lbr.validate_backup_zip(_zip({"library.db": b"x", member: b"x"}))
 
 
 def test_kept_name_variants_removed_from_staging(isolated_db, tmp_path):
@@ -1578,7 +1580,7 @@ def test_restore_aborts_if_auth_changed_meanwhile(isolated_db, monkeypatch):
         if len(calls) == 2:   # the before_swap re-check: a sign-in happens now
             auth_service.add_user("new@example.com")
         return orig()
-    monkeypatch.setattr(las, "any_job_running", running)
+    monkeypatch.setattr(lbr, "any_job_running", running)
     with pytest.raises(ConflictError):
         _restore(data)
     assert db.get_drama(a) and db.get_drama(b)
@@ -1600,7 +1602,7 @@ def test_maintenance_blocks_restore(isolated_db):
 def test_restore_audit_actor(isolated_db):
     _new("A")
     uid = auth_service.add_user("admin@example.com")["id"]
-    las.restore_backup(_backup_bytes(), confirm=True, confirm_text="RESTORE", actor_id=uid)
+    lbr.restore_backup(_backup_bytes(), confirm=True, confirm_text="RESTORE", actor_id=uid)
     entry = [e for e in auth_service.list_audit() if e["action"] == "library.restore"][0]
     assert entry["user_id"] == uid
 
@@ -1880,16 +1882,16 @@ def test_export_skips_translated_titles_with_no_translated_lines(isolated_db):
     good = _new("Good", "translated")
     db.save_lines(good, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
     hollow = _new("Hollow", "translated")
-    r = las.start_export_zip()
+    r = lbs.start_export_zip()
     assert r["drama_ids"] == [good]
     assert r["results"] == [{"drama_id": hollow, "ok": False, "error": "no_translated_lines",
                              "message": r["results"][0]["message"]}]
     _wait(r["job_id"])
-    explicit = las.start_export_zip([good, hollow])
+    explicit = lbs.start_export_zip([good, hollow])
     _wait(explicit["job_id"])
     assert [(x["drama_id"], x["ok"]) for x in explicit["results"]] == [(good, True), (hollow, False)]
     with pytest.raises(InvalidInputError):
-        las.start_export_zip([hollow])
+        lbs.start_export_zip([hollow])
 
 
 def test_bulk_delete_continues_when_the_language_pack_cleanup_fails(isolated_db, monkeypatch):
@@ -1999,7 +2001,7 @@ def test_a_restore_whose_rollback_fails_says_where_the_library_went(isolated_db,
 
 def _db_only_backup():
     path = os.path.join(tempfile.mkdtemp(), "db_only.zip")
-    las.write_backup_zip(path, include_media=False)
+    lbs.write_backup_zip(path, include_media=False)
     with open(path, "rb") as f:
         return f.read()
 

@@ -1,5 +1,5 @@
 """Parity X02/X22: apply a workflow tier and save the Translate form's
-settings as a preset (services/translate_run_service.py, routes in
+settings as a preset (services/translate_preset_service.py, routes in
 api/routers/translate_run_routes.py)."""
 import pytest
 
@@ -14,7 +14,7 @@ import translate_engines
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, settings_service, translate_run_service
+from services import auth_service, settings_service, translate_preset_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 TIER = "/api/translate-run/dramas/{}/workflow-tier"
@@ -42,7 +42,7 @@ def test_service_apply_tier_matches_streamlit(isolated_db):
     model/reflect/auto_qc into the form (returned here)."""
     did = db.create_drama(title_zh="D", translation_engine="fake_mt")
     for key, t in translate_engines.WORKFLOW_TIERS.items():
-        r = translate_run_service.apply_workflow_tier(did, key)
+        r = translate_preset_service.apply_workflow_tier(did, key)
         assert r == {"drama_id": did, "tier": key, "label": t["label"],
                      "translation_engine": t["translation_engine"],
                      "engine_model": t["engine_model"], "reflect": bool(t["reflect"]),
@@ -54,19 +54,19 @@ def test_service_apply_tier_starts_nothing(isolated_db, monkeypatch):
     monkeypatch.setattr(job_launch, "start_job",
                         lambda *a, **k: pytest.fail("applying a tier must not start a job"))
     did = db.create_drama(title_zh="D")
-    translate_run_service.apply_workflow_tier(did, "release")
+    translate_preset_service.apply_workflow_tier(did, "release")
 
 
 def test_service_apply_tier_errors(isolated_db):
     with pytest.raises(NotFoundError):
-        translate_run_service.apply_workflow_tier(9999, "draft")
+        translate_preset_service.apply_workflow_tier(9999, "draft")
     did = db.create_drama(title_zh="D")
     with pytest.raises(InvalidInputError):
-        translate_run_service.apply_workflow_tier(did, "nope")
+        translate_preset_service.apply_workflow_tier(did, "nope")
 
 
 def test_service_save_preset_and_overwrite(isolated_db):
-    r = translate_run_service.save_translate_preset(
+    r = translate_preset_service.save_translate_preset(
         "Mine", "claude", engine_model="claude-sonnet-5", style_preset="audio_drama",
         locale="en-GB", default_female_pronouns=True, include_genre_notes=False)
     assert r["replaced"] is False
@@ -75,9 +75,9 @@ def test_service_save_preset_and_overwrite(isolated_db):
     assert p["engine_model"] == "claude-sonnet-5" and p["locale"] == "en-GB"
     assert p["default_female_pronouns"] == 1 and p["include_genre_notes"] == 0
     with pytest.raises(ConflictError):
-        translate_run_service.save_translate_preset("Mine", "deepseek")
+        translate_preset_service.save_translate_preset("Mine", "deepseek")
     assert db.list_presets()[0]["translation_engine"] == "claude"   # untouched
-    r2 = translate_run_service.save_translate_preset("  Mine ", "deepseek", overwrite=True)
+    r2 = translate_preset_service.save_translate_preset("  Mine ", "deepseek", overwrite=True)
     assert r2["replaced"] is True and r2["preset"]["id"] == p["id"]
     assert r2["preset"]["translation_engine"] == "deepseek"
     assert r2["preset"]["engine_model"] is None
@@ -93,12 +93,12 @@ def test_service_save_preset_and_overwrite(isolated_db):
 def test_service_save_preset_invalid(isolated_db, kw):
     args = {"name": "Mine", "translation_engine": "claude", **kw}
     with pytest.raises(InvalidInputError):
-        translate_run_service.save_translate_preset(**args)
+        translate_preset_service.save_translate_preset(**args)
     assert db.list_presets() == []
 
 
 def test_service_save_preset_accepts_a_pulled_ollama_model(isolated_db):
-    p = translate_run_service.save_translate_preset(
+    p = translate_preset_service.save_translate_preset(
         "Local", "ollama", engine_model="my-own/qwen3:14b-q4")["preset"]
     assert p["engine_model"] == "my-own/qwen3:14b-q4"
 
@@ -106,7 +106,7 @@ def test_service_save_preset_accepts_a_pulled_ollama_model(isolated_db):
 @pytest.mark.parametrize("bad", ["../x", "/abs", "has space", "a/../b", "", "x" * 101])
 def test_service_save_preset_refuses_unsafe_ollama_names(isolated_db, bad):
     with pytest.raises(InvalidInputError):
-        translate_run_service.save_translate_preset("Local", "ollama", engine_model=bad)
+        translate_preset_service.save_translate_preset("Local", "ollama", engine_model=bad)
     assert db.list_presets() == []
 
 

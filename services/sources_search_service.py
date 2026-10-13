@@ -71,7 +71,8 @@ def _note_layout_change(source, message: str):
 def error_view(exc, source: str = None) -> dict:
     """A SourceError (or anything else) as {status, code, message, details}."""
     msg = scrub(str(exc)) or type(exc).__name__
-    from page_fetch import BROWSER_MISSING, BrowserNotFound
+    from browser_support import BROWSER_MISSING
+    from page_fetch_browser import BrowserNotFound
     if isinstance(exc, BrowserNotFound):
         return {"status": 503, "code": DependencyUnavailableError.code, "message": BROWSER_MISSING,
                 "details": {"reason": "BROWSER_MISSING"}}

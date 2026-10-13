@@ -24,7 +24,7 @@ actions the React page runs as background jobs:
   updates" (the same cached target the Upgrade route installs). An installed
   copy has no tests/ folder, so the status says Test first is unavailable.
 
-Both start through the install guard of diagnostics_gaps_service
+Both start through the install guard of diagnostics_admin_service
 (confirm=true; 409 while any job, restore, reset, cleanup or install is in
 progress) and run as ordinary background_jobs jobs, so they show in the
 running-jobs list and an install can't start under them. Their progress
@@ -60,6 +60,9 @@ import pending_install
 import upgrade_check
 from lib import proc as proc_run
 from services import diagnostics_gaps_service as gaps
+from services import diagnostics_admin_service as admin_svc
+from services import diagnostics_packages_service as packages_svc
+from services import diagnostics_gpu_torch_service as torch_svc
 from services import pending_install_service
 from services.pending_install_service import PlanNeedsConfirm
 from services.service_errors import ConflictError
@@ -113,7 +116,7 @@ class DenoInstallFailed(Exception):
     """A fixed, plain-English reason; never carries a URL or path."""
 
 
-class AlreadyInstalled(gaps.AdminActionRefused, ConflictError):
+class AlreadyInstalled(admin_svc.AdminActionRefused, ConflictError):
     pass
 
 
@@ -121,7 +124,7 @@ class DependencyInstallFailed(Exception):
     """Ends the install job as an error; the details are in the stored result."""
 
 
-class InstallNeedsRestart(gaps.AdminActionRefused, ConflictError):
+class InstallNeedsRestart(admin_svc.AdminActionRefused, ConflictError):
     """pip would replace files this process has loaded (409)."""
 
 
@@ -192,14 +195,14 @@ def start_deno_install(confirm: bool = False) -> dict:
     PATH, or in ~/.deno/bin or winget's links folder though not on PATH:
     an existing binary is never replaced); 422 unconfirmed or on an OS/CPU
     with neither winget nor a table row."""
-    gaps.guard(confirm)
+    admin_svc.guard(confirm)
     if _deno_installed_somewhere():
         raise AlreadyInstalled("Deno is already installed.")
     if not _use_winget() and _deno_download_url() is None:
-        raise gaps.AdminActionNotPossible(
+        raise admin_svc.AdminActionNotPossible(
             "There is no Deno download for this system here; install Deno yourself.")
     if not job_launch.start_job(DENO_JOB_ID, _deno_job, description="Installing Deno"):
-        raise gaps.AdminActionJobsRunning(
+        raise admin_svc.AdminActionJobsRunning(
             "A Deno install or a library restore is already running; try again when it ends.")
     return {"job_id": DENO_JOB_ID, "started": True}
 
@@ -466,7 +469,7 @@ def _require_writable_site_packages():
     # would fail part-way after removing files.
     paths = sysconfig.get_paths()
     if not all(_writable(d) for d in dict.fromkeys((paths["purelib"], paths["platlib"]))):
-        raise gaps.AdminActionNotPossible(_READ_ONLY_HINT)
+        raise admin_svc.AdminActionNotPossible(_READ_ONLY_HINT)
 
 
 def _plan_busy() -> ConflictError:
@@ -481,7 +484,7 @@ def _require_safe_plan(name: str, accept_risk: bool, accepted_risks):
     plan that gained one since the preview asks again."""
     plan = install_plan.build_plan([name])
     if plan["blocked"]:
-        raise gaps.AdminActionNotPossible(plan["blocked"][0])
+        raise admin_svc.AdminActionNotPossible(plan["blocked"][0])
     unseen = [r for r in plan["needs_confirm"] if r not in set(accepted_risks or ())]
     if plan["needs_confirm"] and (accept_risk is not True or unseen):
         raise PlanNeedsConfirm(" ".join(unseen or plan["needs_confirm"])
@@ -499,9 +502,9 @@ def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool
     or install preview runs, for a downgrade of something Baihe needs (or an
     install pip could not preview) that the owner did not accept, or when the
     install must wait for the next start."""
-    gaps.guard(confirm)
-    if name not in gaps.installable_packages():
-        raise gaps.AdminActionUnknownPackage("Unknown or non-installable package.")
+    admin_svc.guard(confirm)
+    if name not in packages_svc.installable_packages():
+        raise admin_svc.AdminActionUnknownPackage("Unknown or non-installable package.")
     return _start_planned_install("package", (name,), f"Installing {name}", name,
                                   accept_risk, accepted_risks)
 
@@ -509,7 +512,7 @@ def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool
 def start_cuda_runtime_install(confirm: bool = False) -> dict:
     """PC only. Installs CUDA_RUNTIME_PACKAGES (cuBLAS 12 and cuDNN 9 wheels)
     as one install job, with the refusals of start_dependency_install."""
-    gaps.guard(confirm)
+    admin_svc.guard(confirm)
     return _start_planned_install("cuda_runtime", CUDA_RUNTIME_PACKAGES,
                                   "Installing the CUDA runtime for GPU Whisper", "cuda_runtime",
                                   False, None)
@@ -534,11 +537,11 @@ def _start_planned_install(kind: str, names: tuple, description: str, arg: str,
 
 
 def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
-    """PC only. The refusals of gaps.prepare_gpu_torch_setup (422/409), a
+    """PC only. The refusals of torch_svc.prepare_gpu_torch_setup (422/409), a
     read-only install folder (422), and 409 on Windows while this process
     has PyTorch loaded. The fixed-index triple has no pip preview, so only
     the in-use part of the install plan applies."""
-    variant = gaps.prepare_gpu_torch_setup(variant, confirm)
+    variant = torch_svc.prepare_gpu_torch_setup(variant, confirm)
     _require_writable_site_packages()
     if os.name == "nt":
         loaded = [d for d in sorted(diagnostics_torch.TORCH_FAMILY) if install_plan.dist_in_use(d)]
@@ -555,7 +558,7 @@ def _start_install_job(kind: str, package: str, description: str, arg: str) -> d
     with _STATE_LOCK:
         if not job_launch.start_job(DEPENDENCY_JOB_ID, _dependency_job, kind, arg,
                                          description=description):
-            raise gaps.AdminActionJobsRunning(
+            raise admin_svc.AdminActionJobsRunning(
                 "An install or a library restore is already running; try again when it ends.")
         _DEPENDENCY.update(kind=kind, package=package, last=None)
     return {"job_id": DEPENDENCY_JOB_ID, "started": True}
@@ -574,11 +577,11 @@ def _job_hold(job_id: str):
     else can start (409) until the install ends or is cancelled, and the
     hold is released on every exit."""
     if not job_launch.acquire_exclusive("Dependency install", ignore_job_id=job_id):
-        raise gaps.AdminActionJobsRunning(
+        raise admin_svc.AdminActionJobsRunning(
             "A job, restore, cleanup or another install is in progress; try again when it ends.")
     try:
         if _other_job_running(job_id):      # re-check under the hold, as reset does
-            raise gaps.AdminActionJobsRunning(
+            raise admin_svc.AdminActionJobsRunning(
                 "A background job is running or queued; wait for it to finish.")
         yield
     finally:
@@ -635,7 +638,7 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     """Reinstalls every package whose version pip changed or removed; the
     sentence says how that went (dist names only)."""
     background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.95, "Putting your earlier packages back...")
-    probe = gaps._cancel_probe(DEPENDENCY_JOB_ID)
+    probe = admin_svc._cancel_probe(DEPENDENCY_JOB_ID)
     # Cancel is sticky: after a cancelled pip the probe is already true, and
     # honouring it would skip the very restore the Cancel asked for.
     cancel = None if probe() else probe
@@ -668,18 +671,18 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
 
 def _run_pip_step(kind: str, arg: str) -> dict:
     if kind == "gpu_torch":
-        return gaps.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
+        return torch_svc.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
     if kind == "cuda_runtime":
         return _install_cuda_runtime()
-    return gaps.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
+    return packages_svc.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)
 
 
 def _install_cuda_runtime() -> dict:
     result = {"ok": True, "output_tail": [], "hint": None}
     for name in CUDA_RUNTIME_PACKAGES:
         # The cuDNN wheel is ~700 MB: the same allowance as GPU PyTorch, not pip's 900 s.
-        result = gaps.install_dependency(name, True, job_id=DEPENDENCY_JOB_ID,
-                                         timeout=gaps.GPU_TORCH_TIMEOUT_SECONDS)
+        result = packages_svc.install_dependency(name, True, job_id=DEPENDENCY_JOB_ID,
+                                         timeout=torch_svc.GPU_TORCH_TIMEOUT_SECONDS)
         if not result["ok"]:
             return result
     # The wheels land in site-packages/nvidia/*/bin; this puts them on the
@@ -718,7 +721,7 @@ def _dependency_job(kind: str, arg: str):
                                   "hint": "Cancelled. " + (restore_note or "Nothing was changed.")},
                                  "cancelled")
         raise
-    except gaps.AdminActionRefused as exc:      # lost the race for the hold
+    except admin_svc.AdminActionRefused as exc:      # lost the race for the hold
         _store_dependency_result({**failure, "hint": str(exc)}, "failed")
         raise DependencyInstallFailed(str(exc)) from None
     except Exception as exc:     # noqa: BLE001 -- never echo an exception (paths, keys)
@@ -753,19 +756,19 @@ def start_upgrade_check(name: str, target: str = None, confirm: bool = False) ->
     version (with constraints.txt) into a throwaway environment and runs
     this app's tests against it. Your real install is not touched."""
     if name in diagnostics_torch.TORCH_FAMILY:
-        gaps.guard(confirm)
-        raise gaps.AdminActionNotPossible(
+        admin_svc.guard(confirm)
+        raise admin_svc.AdminActionNotPossible(
             "torch, torchvision and torchaudio are set up together under GPU PyTorch.")
-    gaps.guard(confirm)
-    if name not in gaps.installable_packages():
-        raise gaps.AdminActionUnknownPackage("Unknown or non-installable package.")
+    admin_svc.guard(confirm)
+    if name not in packages_svc.installable_packages():
+        raise admin_svc.AdminActionUnknownPackage("Unknown or non-installable package.")
     if not upgrade_check.test_suite_available(gaps.default_project_root()):
-        raise gaps.AdminActionNotPossible(upgrade_check.NO_TEST_SUITE)
-    checked = gaps.cached_update(name)
+        raise admin_svc.AdminActionNotPossible(upgrade_check.NO_TEST_SUITE)
+    checked = packages_svc.cached_update(name)
     if checked is None or checked.get("status") != "update" or not checked.get("target"):
-        raise gaps.AdminActionStale("Check for updates first; there is no update to test.")
+        raise admin_svc.AdminActionStale("Check for updates first; there is no update to test.")
     if target != checked["target"]:
-        raise gaps.AdminActionStale("The update check has changed since; check for updates again.")
+        raise admin_svc.AdminActionStale("The update check has changed since; check for updates again.")
     dist, version = checked["dist"], checked["target"]
     # Started and labelled under one lock: the state names a package only
     # once its job really started, and the job's own writes (tail, result)
@@ -773,7 +776,7 @@ def start_upgrade_check(name: str, target: str = None, confirm: bool = False) ->
     with _STATE_LOCK:
         if not job_launch.start_job(UPGRADE_CHECK_JOB_ID, _upgrade_check_job, name, dist,
                                          version, description=f"Testing {name} {version}"):
-            raise gaps.AdminActionJobsRunning(
+            raise admin_svc.AdminActionJobsRunning(
                 "An update test or a library restore is already running; try again when it ends.")
         _UPGRADE_CHECK.update(package=name, target=version, tail=[], last=None)
     return {"job_id": UPGRADE_CHECK_JOB_ID, "started": True}

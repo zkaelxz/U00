@@ -26,6 +26,8 @@ from api.routers import library_admin_routes
 from api.server import create_app
 from services import auth_service
 from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
+from services import library_backup_service as lbs
 from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
 
@@ -302,7 +304,7 @@ class TestExportBackupArtifacts:
         st = _wait(las.BACKUP_JOB_ID)
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "backup", "application/zip")
-        las.validate_backup_zip(data)
+        lbr.validate_backup_zip(data)
 
     def test_database_backup_job_info_download(self, client):
         _new("A")
@@ -324,7 +326,7 @@ class TestExportBackupArtifacts:
         st = _wait(las.USER_BACKUP_JOB_ID)
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "user_backup", "application/zip")
-        las.validate_backup_zip(data)
+        lbr.validate_backup_zip(data)
         assert "owner" not in client.get(f"{BASE}/artifacts/user_backup/info").json()["name"]
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             raw = zf.read("library.db")
@@ -399,7 +401,7 @@ class TestRestore:
     def test_oversize_422(self, client, monkeypatch, no_swap):
         monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "0.001")   # ~1 KiB
         validated = []
-        monkeypatch.setattr(las, "validate_backup_zip", lambda b: validated.append(1))
+        monkeypatch.setattr(lbr, "validate_backup_zip", lambda b: validated.append(1))
         r = _restore(client, b"0" * 4096)
         assert r.status_code == 422
         assert _error(r)["message"].startswith("A restore can load at most")
@@ -450,7 +452,7 @@ class TestRestore:
 def _db_only_zip():
     import tempfile
     path = os.path.join(tempfile.mkdtemp(), "db_only.zip")
-    las.write_backup_zip(path, include_media=False)
+    lbs.write_backup_zip(path, include_media=False)
     with open(path, "rb") as f:
         return f.read()
 

@@ -13,7 +13,7 @@ import os
 import shutil
 
 import db
-from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
 
 SPACE_FACTOR = 1.2
 LOW_SPACE = ("The automatic backup was skipped: the backup drive doesn't have enough free "
@@ -30,7 +30,7 @@ def expected_size(include_media: bool, state: dict) -> int:
     if type(last) is int and last > 0 and state.get("last_copy_kind") == copy_kind(include_media):
         return last
     if include_media:
-        return las._library_size()
+        return lbr._library_size()
     try:
         return os.path.getsize(db.DB_PATH)
     except OSError:

@@ -23,7 +23,7 @@ import zipfile
 import storage
 from db import fsync_dir as _fsync_dir
 from lib.link_new import link_new
-from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
 from services import library_restore_service as lrs
 from services.auto_backup_copies import (MANIFEST_FORMAT, _BAD_SNAPSHOT, _MANAGED, _classify,
                                          _identity_info, _read_copy, _read_manifest, _recorded)
@@ -220,7 +220,7 @@ def _verify_snapshot(path: str):
     """Everything a finished snapshot must pass before it replaces the old
     one: the restore zip checks, a readable manifest, a sound library.db
     whose dramas match the manifest."""
-    las.validate_backup_file(path, check_disk=False, check_limits=False)
+    lbr.validate_backup_file(path, check_disk=False, check_limits=False)
     with zipfile.ZipFile(path) as zf, storage.job_workdir() as tmp:
         manifest = _read_manifest(zf)
         dest = extract_db(zf, tmp)

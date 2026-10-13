@@ -12,6 +12,8 @@ import background_jobs
 from jobs import job_launch, job_table
 import db
 import page_fetch
+import page_fetch_profile
+import page_fetch_guard
 import storage
 from jobs import gpu_slots
 from services import temp_cleanup_service
@@ -317,7 +319,7 @@ def test_page_fetch_closes_the_browser_and_driver_when_the_page_fails(isolated_d
         def stop(self):
             pass
 
-    monkeypatch.setattr(page_fetch, "_PinningProxy", _Proxy)
+    monkeypatch.setattr(page_fetch_guard, "_PinningProxy", _Proxy)
     monkeypatch.setattr(page_fetch, "_guarded_page", lambda b: (_ for _ in ()).throw(RuntimeError("boom")))
     class _Play:
         chromium = _Chromium()
@@ -369,12 +371,12 @@ def test_persistent_launch_frees_its_folder_on_close_and_on_failure(isolated_db,
         def stop(self):
             pass
 
-    monkeypatch.setattr(page_fetch, "_require_playwright", lambda: (lambda: _Play()))
-    monkeypatch.setattr(page_fetch, "_PinningProxy", _Proxy)
-    pw, context = page_fetch._launch_persistent(str(isolated_db), True)
+    monkeypatch.setattr(page_fetch_profile, "_require_playwright", lambda: (lambda: _Play()))
+    monkeypatch.setattr(page_fetch_profile, "_PinningProxy", _Proxy)
+    pw, context = page_fetch_profile._launch_persistent(str(isolated_db), True)
     work = log[0][1]["TMPDIR"]
     assert os.path.isdir(work)
-    page_fetch._shut(pw, context)
+    page_fetch_profile._shut(pw, context)
     assert ctx.closed and log[-1][0] == "stop" and not os.path.exists(work)
 
     log.clear()
@@ -382,9 +384,9 @@ def test_persistent_launch_frees_its_folder_on_close_and_on_failure(isolated_db,
     def refuse(*a, **k):
         raise RuntimeError("no browser")
 
-    monkeypatch.setattr(page_fetch, "_launch_chromium", refuse)
+    monkeypatch.setattr(page_fetch_profile, "_launch_chromium", refuse)
     with pytest.raises(RuntimeError):
-        page_fetch._launch_persistent(str(isolated_db), True)
+        page_fetch_profile._launch_persistent(str(isolated_db), True)
     assert log[-1][0] == "stop"
     assert os.listdir(storage.temp_root()) == []
 

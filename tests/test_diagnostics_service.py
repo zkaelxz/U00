@@ -180,6 +180,7 @@ def test_a_good_gpu_answer_is_kept_until_an_install(monkeypatch):
     import time
     import diagnostics_torch
     from services import diagnostics_gaps_service
+    from services import diagnostics_packages_service as packages_svc
     calls = []
     monkeypatch.setattr(diagnostics_torch, "_gpu_status_cache", {"at": None, "value": None})
     monkeypatch.setattr(diagnostics_torch, "_gpu_status_from_child",
@@ -190,7 +191,7 @@ def test_a_good_gpu_answer_is_kept_until_an_install(monkeypatch):
                         time.monotonic() - diagnostics_torch.GPU_STATUS_RETRY_SECONDS - 1)
     diagnostics_torch.get_gpu_status_isolated()
     assert len(calls) == 1
-    diagnostics_gaps_service._clear_update_cache()
+    packages_svc._clear_update_cache()
     diagnostics_torch.get_gpu_status_isolated()
     assert len(calls) == 2
 

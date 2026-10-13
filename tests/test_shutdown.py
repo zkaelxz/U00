@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 from jobs import job_launch
-import page_fetch
+import page_fetch_profile
+import page_fetch_browser
 import page_server
 import process_guard
 from api.api_config import ApiSettings
@@ -32,7 +33,9 @@ def _fresh(monkeypatch):
     monkeypatch.setattr(shutdown_service, "_background_stopper", None)
     monkeypatch.delenv(shutdown_service.TOKEN_ENV, raising=False)
     # A stop sets these process-wide flags; keep them to this test.
-    monkeypatch.setattr(page_fetch, "_SHUTDOWN", threading.Event())
+    shutdown_flag = threading.Event()
+    monkeypatch.setattr(page_fetch_browser, "_SHUTDOWN", shutdown_flag)
+    monkeypatch.setattr(page_fetch_profile, "_SHUTDOWN", shutdown_flag)
     monkeypatch.setattr(chapter_check, "_scheduler_stop", threading.Event())
     monkeypatch.setattr(page_server, "_server", None)
     monkeypatch.setattr(page_server, "_server_started", False)
@@ -169,7 +172,7 @@ class TestCleanShutdown:
         monkeypatch.setattr(jobs_service, "cancel_job",
                             lambda j, principal=None: order.append(("cancel", j)))
         monkeypatch.setattr(chapter_check, "stop_scheduler", lambda: order.append("scheduler"))
-        monkeypatch.setattr(page_fetch, "request_shutdown", lambda: order.append("browsers"))
+        monkeypatch.setattr(page_fetch_browser, "request_shutdown", lambda: order.append("browsers"))
         monkeypatch.setattr(page_server, "stop_server", lambda: order.append("page_server"))
         monkeypatch.setattr(shutdown_service, "wait_for_jobs",
                             lambda ids, timeout: order.append(("wait", tuple(ids), timeout)))
@@ -283,27 +286,27 @@ class TestStoppableServices:
         assert polls and not threads[0].is_alive()
 
     def test_no_new_browser_once_shutting_down(self):
-        page_fetch.request_shutdown()
+        page_fetch_browser.request_shutdown()
         with pytest.raises(RuntimeError, match="shutting down"):
-            page_fetch._require_playwright()
+            page_fetch_browser._require_playwright()
 
     def test_sign_in_window_wait_ends_on_shutdown(self, monkeypatch):
         # Waits however long the person takes (timeouts just loop), but an
         # app shutdown ends the wait so the window closes on its own thread.
         class Timeout(Exception):
             pass
-        monkeypatch.setattr(page_fetch, "_playwright_timeout_error", lambda: Timeout)
+        monkeypatch.setattr(page_fetch_profile, "_playwright_timeout_error", lambda: Timeout)
 
         class Ctx:
             waits = 0
 
             def wait_for_event(self, name, timeout):
-                assert (name, timeout) == ("close", page_fetch.LOGIN_POLL_MS)
+                assert (name, timeout) == ("close", page_fetch_profile.LOGIN_POLL_MS)
                 Ctx.waits += 1
                 if Ctx.waits == 3:
-                    page_fetch.request_shutdown()
+                    page_fetch_browser.request_shutdown()
                 raise Timeout()
-        page_fetch._wait_for_close(Ctx())
+        page_fetch_profile._wait_for_close(Ctx())
         assert Ctx.waits == 3
 
     def test_sign_in_window_wait_ends_when_the_person_closes_it(self):
@@ -312,7 +315,7 @@ class TestStoppableServices:
 
             def wait_for_event(self, name, timeout):
                 Ctx.waits += 1
-        page_fetch._wait_for_close(Ctx())
+        page_fetch_profile._wait_for_close(Ctx())
         assert Ctx.waits == 1
 
 

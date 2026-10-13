@@ -15,6 +15,7 @@ from services import disk_usage_service as dus
 from services import disk_usage_trash_service as dts
 from services import drama_service, keep_original_service
 from services import library_admin_service as las
+from services import library_backup_service as lbs
 from services.service_errors import InvalidInputError, NotFoundError
 
 ORIGINALS = ["source.mp4", "audio.wav", "novel_reference.txt", "raw_novel_context.txt",
@@ -165,7 +166,7 @@ def test_trashing_the_whole_dramas_folder_warns_only_when_a_title_is_pinned(isol
 def _export(*ids):
     for did in ids:
         db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
-    job = las.start_export_zip(list(ids))["job_id"]
+    job = lbs.start_export_zip(list(ids))["job_id"]
     end = time.time() + 10
     while (background_jobs.get_status(job) or {}).get("status") not in ("done", "error"):
         assert time.time() < end, "export did not finish"
@@ -189,7 +190,7 @@ def test_export_carries_a_pinned_titles_originals_only(isolated_db):
 def _run_export(*ids):
     for did in ids:
         db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
-    job = las.start_export_zip(list(ids))["job_id"]
+    job = lbs.start_export_zip(list(ids))["job_id"]
     end = time.time() + 10
     while (background_jobs.get_status(job) or {}).get("status") not in ("done", "error", "cancelled"):
         assert time.time() < end, "export did not finish"
@@ -200,7 +201,7 @@ def _run_export(*ids):
 def test_export_fails_plainly_when_the_originals_do_not_fit(isolated_db, monkeypatch):
     pinned, _ = _title(True, "Pinned")
     asked = []
-    monkeypatch.setattr(las, "has_disk_room", lambda folder, need: asked.append(need) or False)
+    monkeypatch.setattr(lbs, "has_disk_room", lambda folder, need: asked.append(need) or False)
     status = _run_export(pinned)
     assert status["status"] == "error"
     assert "free disk space" in status["error"]
@@ -222,5 +223,5 @@ def test_export_stops_between_originals_when_cancelled(isolated_db, monkeypatch)
 
 def test_export_of_an_unpinned_title_does_not_check_disk_room(isolated_db, monkeypatch):
     loose, _ = _title(False, "Loose")
-    monkeypatch.setattr(las, "has_disk_room", lambda folder, need: False)
+    monkeypatch.setattr(lbs, "has_disk_room", lambda folder, need: False)
     assert _run_export(loose)["status"] == "done"
