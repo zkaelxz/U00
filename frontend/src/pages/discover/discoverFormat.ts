@@ -32,6 +32,11 @@ export function discoverEngines(all: TranslateEngine[]): TranslateEngine[] {
   return all.filter((e) => DISCOVER_ENGINE_IDS.has(e.name) && e.key_configured)
 }
 
+/** Engines the Discover routes accept that cannot run yet: listed switched off, with the reason. */
+export function discoverEnginesOff(all: TranslateEngine[]): TranslateEngine[] {
+  return all.filter((e) => DISCOVER_ENGINE_IDS.has(e.name) && !e.key_configured)
+}
+
 export function mediaLabel(type: string | null | undefined): string {
   return humanize('mediaType', type) || '—'
 }

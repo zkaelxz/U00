@@ -128,6 +128,19 @@ export function describeTranslateSkips(skips: readonly LibraryBulkTranslateSkip[
   return `${skips.length} skipped: ${parts.join(', ')}`
 }
 
+/**
+ * The finished bulk-translate job leaves titles whose engine has no key untouched; without this line the run just looks like it did nothing. Null when none were skipped.
+ */
+export function describeNoKeySkips(result: JobRecord['result'], names: Names): string | null {
+  const bulk = result?.bulk as { skipped?: { no_key?: { count?: number; drama_ids?: unknown[] } } } | undefined
+  const entry = bulk?.skipped?.no_key
+  const count = entry?.count ?? 0
+  if (count <= 0) return null
+  const shown = (entry?.drama_ids ?? []).filter((x): x is number => typeof x === 'number').slice(0, 3).map(names)
+  const more = count > shown.length ? ` and ${count - shown.length} more` : ''
+  return `${count} title${count === 1 ? ' was' : 's were'} not translated: no key for ${count === 1 ? 'its' : 'their'} engine${shown.length ? ` (${shown.join(', ')}${more})` : ''}.`
+}
+
 /** Decimal units, one decimal from KB up: "48.2 GB", "512 B". */
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 1000) return `${Math.max(0, Math.round(n || 0))} B`

@@ -16,6 +16,7 @@ import math
 
 import segment_splitting
 import resegment
+import segment
 
 EVEN_SPLIT_NOTE = resegment.EVEN_SPLIT_NOTE
 
@@ -71,12 +72,21 @@ def resegment_reason(lines, language: str, changed, new_lines=()) -> str:
     """Why a rules preview cut nothing, or, when it did cut, which cuts were
     guesses. Re-segmenting counts characters only, so a line that runs long in
     time but is short in text needs Split long lines."""
+    # Without the word splitter the rules cut by length alone and "Use AI" is no remedy
+    # for that, so a missing package is named instead of hidden behind that advice.
+    missing = segment.missing_word_segmenters(language)
+    missing_note = (
+        f"Cutting at word boundaries needs {' and '.join(missing)}, which "
+        f"{'isn' if len(missing) == 1 else 'aren'}'t installed. Install "
+        f"{'it' if len(missing) == 1 else 'them'} in Diagnostics, then preview again.")
     if changed:
         # The rules always fall back to an even cut, so "could not be cut" never
         # happens; what Use AI can still improve is where those even cuts land.
         even = sum(ln.flag_note == EVEN_SPLIT_NOTE for ln in new_lines)
         if not even:
             return ""
+        if missing:
+            return missing_note
         return (f"{even} piece{'s were' if even != 1 else ' was'} cut evenly by length because "
                 "there was no punctuation or pause to cut at, so the times are approximate. "
                 "Try Use AI for better break points.")
@@ -86,6 +96,8 @@ def resegment_reason(lines, language: str, changed, new_lines=()) -> str:
     slow = sum(ln.end - ln.start > LONG_LINE_SECONDS or resegment.length(ln.zh) > LONG_LINE_CHARS
                for ln in real)
     plural = lambda n: f"{n} line{'s' if n != 1 else ''}"  # noqa: E731
+    if over and missing:
+        return missing_note
     if over:
         return f"{plural(over)} over {cap} characters could not be cut at a boundary. Try Use AI."
     if slow:
