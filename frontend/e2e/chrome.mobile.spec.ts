@@ -22,10 +22,9 @@ test('phone header: Report a problem is a 44px icon button on the title row', as
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.width).toBeLessThan(60)
   expect(box.height).toBeGreaterThanOrEqual(44)
-  // Same row as the title and the Menu button; the 3 by 2 nav grid is gone, so the page starts right under it.
+  // Same row as the title; the 3 by 2 nav grid is gone, so the page starts right under it, and the bottom bar carries the navigation.
   expect(box.y).toBeLessThan(title.y + title.height)
-  const menu = (await page.getByRole('button', { name: 'Menu', exact: true }).boundingBox())!
-  expect(Math.abs(menu.y - box.y)).toBeLessThanOrEqual(2)
+  await expect(page.getByRole('navigation', { name: 'Quick' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
   await noSideways(page)
 })

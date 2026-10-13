@@ -68,7 +68,7 @@ test('signed in: the Menu button leads the header, replaces the cogwheel, and it
   await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
   await expect(page.locator('summary[aria-label="Settings and tools"]')).toHaveCount(0)
-  const menu = page.getByRole('button', { name: 'Menu', exact: true })
+  const menu = page.getByRole('button', { name: /^(Menu|More)$/ })
   await expect(menu).toBeVisible()
   const mb = (await menu.boundingBox())!
   expect(mb.width).toBeGreaterThanOrEqual(44)

@@ -1,0 +1,57 @@
+/* The phone bottom bar (nav/PhoneBar.tsx). Glass tokens come from frost.css, with solid fallbacks. */
+.app-shell.has-phone-bar { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+
+.phone-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-sticky, 3);
+  display: flex;
+  justify-content: space-around;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--glass-edge, var(--border));
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 -8px 30px color-mix(in srgb, var(--text) 8%, transparent);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .phone-bar { backdrop-filter: blur(20px) saturate(1.4); }
+}
+.phone-bar a,
+.phone-bar button {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 52px;
+  padding: var(--space-1) 0;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: none;
+}
+.phone-bar a[aria-current='page'] { color: var(--accent-text); background: var(--accent-soft); }
+.phone-bar-badge {
+  position: absolute;
+  top: 2px;
+  left: calc(50% + 6px);
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--text-xs);
+  line-height: 18px;
+  text-align: center;
+}
