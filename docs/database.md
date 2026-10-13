@@ -82,7 +82,8 @@ for backup and restore operations see `runbook.md`.
   (edit samples, the style profile and its history),
   `db/line_annotations.py` (translation notes, consistency issues, emotion
   tags; `_line_id_for_idx` stays in `db/__init__.py`),
-  and `db/bulk_jobs.py` (bulk translation jobs and their lines).
+  `db/bulk_jobs.py` (bulk translation jobs and their lines) and
+  `db/presets.py` (workspace-configuration presets).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
