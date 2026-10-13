@@ -117,7 +117,7 @@ def run_benchmark(audio_path: str, language: str, transcript_path: str = None,
                    use_gpu: bool = False):
     import asr_backend
     import forced_align
-    from core import align_transcript_to_timing, split_user_transcript
+    from line_alignment import align_transcript_to_timing, split_user_transcript
 
     results = {"audio_path": audio_path, "language": language,
                "whisper_size": whisper_size, "qwen_model_size": qwen_model_size,

@@ -16,7 +16,7 @@ import os
 import tempfile
 import time
 
-from core import extract_audio_slice as _extract_audio_slice
+from audio_extract import extract_audio_slice as _extract_audio_slice
 
 
 def _spreadsheet_safe(cell: str) -> str:

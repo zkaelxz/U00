@@ -15,7 +15,8 @@ the run is local ASR.
 from typing import Optional
 
 import background_jobs
-import core as core_module
+import line_alignment
+import whisper_transcribe
 import db
 import sensitivity_preset as presets
 from core import Line
@@ -39,7 +40,7 @@ def score_autotune_segments(candidate_ms, segments) -> dict:
     (core.diagnose_line_coverage) and total non-empty lines."""
     cand_lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
                   for i, s in enumerate(segments or []) if (s.get("text") or "").strip()]
-    coverage = core_module.diagnose_line_coverage(cand_lines)
+    coverage = line_alignment.diagnose_line_coverage(cand_lines)
     return {"candidate_ms": candidate_ms, "long_lines": len(coverage["long_lines"]),
             "total_lines": len(cand_lines)}
 
@@ -56,7 +57,7 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
             background_jobs.report_progress(
                 result_queue, n / len(candidates),
                 f"Testing candidate {n + 1} of {len(candidates)} ({candidate_ms}ms)...")
-            segments = core_module.transcribe_for_timing(
+            segments = whisper_transcribe.transcribe_for_timing(
                 audio_path, model_size, language=language, use_gpu=use_gpu,
                 hf_token=hf_token, initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
@@ -91,15 +92,15 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     if audio_path is None:
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
     if candidates is None:
-        candidates = list(core_module.DEFAULT_AUTOTUNE_CANDIDATES_MS)
+        candidates = list(whisper_transcribe.DEFAULT_AUTOTUNE_CANDIDATES_MS)
     if (not isinstance(candidates, (list, tuple)) or not candidates or len(candidates) > 6
             or any(isinstance(c, bool) or not isinstance(c, int)
-                   or not core_module.MIN_SILENCE_MS_MIN <= c <= core_module.MIN_SILENCE_MS_MAX
+                   or not whisper_transcribe.MIN_SILENCE_MS_MIN <= c <= whisper_transcribe.MIN_SILENCE_MS_MAX
                    for c in candidates)
             or len(set(candidates)) != len(candidates)):
         raise InvalidInputError(
-            f"candidates must be 1-6 distinct whole numbers between {core_module.MIN_SILENCE_MS_MIN} "
-            f"and {core_module.MIN_SILENCE_MS_MAX} (ms).")
+            f"candidates must be 1-6 distinct whole numbers between {whisper_transcribe.MIN_SILENCE_MS_MIN} "
+            f"and {whisper_transcribe.MIN_SILENCE_MS_MAX} (ms).")
     if (drama.get("split_by_sentences")
             and asr_options_service.stored_asr_backend(drama) in ("whisper", "qwen3_asr")):
         # The run then splits on a fixed silence, so a tuned min_silence would not apply.

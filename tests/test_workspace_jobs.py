@@ -25,7 +25,8 @@ from services.workspace_job_service import (run_transcribe_job, run_hardsub_ocr_
                                  run_emotion_job, run_consistency_job, run_translation_notes_job,
                                  run_fix_flagged_lines_job, run_translate_job)
 from services.workflow_service import compute_workspace_stage_index as _compute_workspace_stage_index
-import core as core_module
+import audio_extract
+import whisper_transcribe
 import whisper_models
 from core import Line
 from tests import fake_engine
@@ -243,7 +244,7 @@ def test_groq_transcription_is_used_instead_of_local_whisper_when_enabled(monkey
         if progress_cb:
             progress_cb(1.0)
         return [{"start": 0.0, "end": 1.0, "text": "hi from groq"}]
-    monkeypatch.setattr(core_module, "transcribe_with_groq", fake_groq)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_with_groq", fake_groq)
 
     called = []
     monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
@@ -267,8 +268,8 @@ def test_groq_failure_is_recorded_not_raised(monkeypatch):
                                       "error": None, "cancel_requested": False, "result": None}
 
     def fake_groq(*a, **k):
-        raise core_module.GroqTranscriptionError("401: invalid api key")
-    monkeypatch.setattr(core_module, "transcribe_with_groq", fake_groq)
+        raise whisper_transcribe.GroqTranscriptionError("401: invalid api key")
+    monkeypatch.setattr(whisper_transcribe, "transcribe_with_groq", fake_groq)
 
     called = []
     monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
@@ -291,7 +292,7 @@ def test_use_groq_off_by_default_still_uses_local_whisper(monkeypatch):
 
     def boom(*a, **k):
         raise AssertionError("Groq must not be called when use_groq is False")
-    monkeypatch.setattr(core_module, "transcribe_with_groq", boom)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_with_groq", boom)
     monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
 
@@ -933,8 +934,8 @@ def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, 
 
     monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
     # wt.core_module was the plain `core` module; patched directly now.
-    monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
-    monkeypatch.setattr(core_module, "transcribe_for_timing",
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", lambda *a, **k: None)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                          lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "她昨天来了"}])
 
     engine = FakeFixEngine(translations={"她昨天来了": "She came yesterday."})
@@ -976,7 +977,7 @@ def test_fix_flagged_cancel_mid_hearing_keeps_the_lines_heard(isolated_db, monke
     job_id = "test_fixflag_cancel_mid"
     did, lines, audio_path = _three_flagged(isolated_db, tmp_path, job_id)
     monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
-    monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", lambda *a, **k: None)
     heard = []
 
     def hear(*a, **k):
@@ -984,7 +985,7 @@ def test_fix_flagged_cancel_mid_hearing_keeps_the_lines_heard(isolated_db, monke
         if len(heard) == 2:
             background_jobs.request_cancel(job_id)
         return [{"start": 0.0, "end": 1.0, "text": f"new{len(heard)}"}]
-    monkeypatch.setattr(core_module, "transcribe_for_timing", hear)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", hear)
     with pytest.raises(background_jobs.JobCancelled):
         run_fix_flagged_lines_job(job_id, did, lines, audio_path, "medium", False, "zh",
                                   FakeFixEngine(), "claude")
@@ -1019,7 +1020,7 @@ def test_hear_flagged_worker_hides_the_ffmpeg_command_line(monkeypatch, tmp_path
 
     def cut_fails(*a, **k):
         raise subprocess.CalledProcessError(1, ["ffmpeg", "-i", "/secret/dir/audio.wav"])
-    monkeypatch.setattr(core_module, "extract_audio_slice", cut_fails)
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", cut_fails)
     sent = []
 
     class Sink:
@@ -1210,7 +1211,7 @@ def test_fix_flagged_job_keeps_earlier_fixes_when_a_later_line_crashes(isolated_
 
     monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
     # wt.core_module was the plain `core` module; patched directly now.
-    monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", lambda *a, **k: None)
 
     heard = []
 
@@ -1220,7 +1221,7 @@ def test_fix_flagged_job_keeps_earlier_fixes_when_a_later_line_crashes(isolated_
             raise RuntimeError("model download failed partway through")
         return [{"start": 0.0, "end": 1.0, "text": "重新转录"}]
 
-    monkeypatch.setattr(core_module, "transcribe_for_timing", _fake_transcribe)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", _fake_transcribe)
 
     # Line 1's own translation would otherwise still succeed against its
     # stale (un-re-transcribed) text and clear its flag -- failing that
@@ -1572,8 +1573,8 @@ def test_fix_flagged_hears_each_line_with_the_titles_saved_decoding(isolated_db,
         f.write(b"x")
     seen = {}
     monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
-    monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
-    monkeypatch.setattr(core_module, "transcribe_for_timing",
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", lambda *a, **k: None)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                         lambda *a, **k: seen.update(k) or [{"start": 0.0, "end": 1.0, "text": "新"}])
     job_id = f"fix_decode_{did}"
     _clear(job_id)

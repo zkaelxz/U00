@@ -127,11 +127,11 @@ class TestOtherFfmpegTimeouts:
 
     def test_core_extract_audio_from_video_has_a_timeout(self, monkeypatch):
         import subprocess
-        import core
+        import audio_extract
         seen = []
         monkeypatch.setattr(subprocess, "run", lambda cmd, **k: seen.append(k.get("timeout")))
-        core.extract_audio_from_video("v.mp4", "a.wav")
-        assert seen == [core.EXTRACT_AUDIO_TIMEOUT_SECONDS]
+        audio_extract.extract_audio_from_video("v.mp4", "a.wav")
+        assert seen == [audio_extract.EXTRACT_AUDIO_TIMEOUT_SECONDS]
 
 
 class TestSoftsubContainer:
@@ -406,10 +406,10 @@ class TestStoredMediaIsReadOnlyAsLocalMedia:
         self._assert_local(cmds, 3)
 
     def test_core_audio_extraction_and_slices(self, monkeypatch):
-        import core
+        import audio_extract
         cmds = self._cmds(monkeypatch)
-        core.extract_audio_from_video("in.mp4", "out.wav")
-        core.extract_audio_slice("in.m4a", 1.0, 2.0, "out.wav")
+        audio_extract.extract_audio_from_video("in.mp4", "out.wav")
+        audio_extract.extract_audio_slice("in.m4a", 1.0, 2.0, "out.wav")
         self._assert_local(cmds, 2)
 
     def test_hardsub_frames(self, monkeypatch, tmp_path):

@@ -10,7 +10,7 @@ import pytest
 
 import asmr_vad
 import asr_backend
-import core
+import whisper_hallucination
 import segment_splitting
 import sensitivity_preset
 import sentence_groups
@@ -71,9 +71,9 @@ def _constants():
         "quick_split_seconds": _frontend_quick_split_default(),
         "realign_min_seconds": word_align.REALIGN_MIN_SECONDS,
         "realign_pause_seconds": word_align.REALIGN_PAUSE_SECONDS,
-        "stock_phrase_isolation_seconds": core.STOCK_PHRASE_ISOLATION_SEC,
+        "stock_phrase_isolation_seconds": whisper_hallucination.STOCK_PHRASE_ISOLATION_SEC,
         "repeat_loop_min_repeats": inspect.signature(
-            core.filter_hallucinated_segments).parameters["min_repeat_count"].default,
+            whisper_hallucination.filter_hallucinated_segments).parameters["min_repeat_count"].default,
         "retime_window_pad_seconds": retime_service._PAD_S,
         "gap_fill_min_gap_seconds": transcribe_gap_service.MIN_GAP_SECONDS,
         "scene_break_gap_seconds": translate_pipeline.SCENE_BREAK_GAP_SECONDS,
@@ -530,9 +530,9 @@ class TestLineSplitting:
     def test_the_stock_phrase_silence_decides_whether_a_credit_line_is_dropped(self):
         credit = {"start": 0.0, "end": 1.0, "text": "Thanks for watching"}
         near = [credit, {"start": 4.0, "end": 5.0, "text": "ok"}]
-        assert core.filter_hallucinated_segments(near) == near
-        assert core.filter_hallucinated_segments(near, 4, 3.0) == near[1:]
-        assert core.filter_hallucinated_segments(near, 4, 5.0) == near
+        assert whisper_hallucination.filter_hallucinated_segments(near) == near
+        assert whisper_hallucination.filter_hallucinated_segments(near, 4, 3.0) == near[1:]
+        assert whisper_hallucination.filter_hallucinated_segments(near, 4, 5.0) == near
 
     def test_the_saved_stock_phrase_and_loop_limits_reach_transcribe_for_timing_callers(
             self, developer_mode, tmp_path, monkeypatch):
@@ -544,8 +544,8 @@ class TestLineSplitting:
 
     def test_the_repeat_limit_collapses_a_shorter_run(self):
         run = [{"start": float(i), "end": i + 0.5, "text": "嗯"} for i in range(3)]
-        assert len(core.filter_hallucinated_segments(run, 4)) == 3
-        assert len(core.filter_hallucinated_segments(run, 3)) == 1
+        assert len(whisper_hallucination.filter_hallucinated_segments(run, 4)) == 3
+        assert len(whisper_hallucination.filter_hallucinated_segments(run, 3)) == 1
 
     def test_realign_limits_reach_the_realigner(self, developer_mode, tmp_path, monkeypatch):
         settings_service.set_settings({"realign_min_seconds": 9, "realign_pause_seconds": 0.8})

@@ -10,7 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
-import core
+import audio_extract
+import whisper_transcribe
 import whisper_models
 import db
 import translate_engines
@@ -60,8 +61,8 @@ def _env(isolated_db, monkeypatch):
         return [{"start": 0.0, "end": 1.0, "text": f"{calls['text']}{len(calls['transcribe'])}"}]
 
     monkeypatch.setattr(gpu_process_job, "run_in_child", run_in_child_inline)
-    monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
-    monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", fake_slice)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
     monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     calls["engine"] = engine
     yield calls
@@ -238,7 +239,7 @@ class TestRun:
         already heard, so they become proposals; line 3 is never heard."""
         did, _ = _drama(3)
         job_id = svc.compare_job_id(did)
-        real, heard_count = core.transcribe_for_timing, []
+        real, heard_count = whisper_transcribe.transcribe_for_timing, []
 
         def cancel_while_hearing_second(path, *a, **kw):
             heard = real(path, *a, **kw)
@@ -246,7 +247,7 @@ class TestRun:
             if len(heard_count) == 2:
                 background_jobs.request_cancel(job_id)
             return heard
-        monkeypatch.setattr(core, "transcribe_for_timing", cancel_while_hearing_second)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", cancel_while_hearing_second)
         _run(did)
         res = svc.get_compare_result(did)
         assert [p["number"] for p in res["proposals"]] == [1, 2]
@@ -286,7 +287,7 @@ class TestRun:
     def test_model_download_failure_is_redacted(self, monkeypatch):
         def boom(*a, **k):
             raise whisper_models.ModelDownloadError(f"failed token={SECRET}")
-        monkeypatch.setattr(core, "transcribe_for_timing", boom)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", boom)
         did, _ = _drama(2)
         out = _run(did, expect="error")
         job = background_jobs.get_status(out["job_id"])
@@ -316,22 +317,22 @@ class TestRun:
 
     def test_slice_and_hearing_errors_never_show_paths(self, _env, monkeypatch):
         secret_dir = "/home/someone/private/library/drama_42"
-        real_slice = core.extract_audio_slice
+        real_slice = audio_extract.extract_audio_slice
 
         def failing_slice(audio_path, start, end, out_path, timeout=None):
             if start == 0.0:
                 raise subprocess.CalledProcessError(
                     1, ["ffmpeg", "-i", f"{secret_dir}/audio.wav", f"{secret_dir}/out.wav"])
             return real_slice(audio_path, start, end, out_path, timeout=timeout)
-        real_hear = core.transcribe_for_timing
+        real_hear = whisper_transcribe.transcribe_for_timing
 
         def failing_hear(path, *a, **k):
             if len(_env["transcribe"]) == 0:
                 _env["transcribe"].append({})
                 raise RuntimeError(f"Invalid data found when processing input: '{secret_dir}/x.wav'")
             return real_hear(path, *a, **k)
-        monkeypatch.setattr(core, "extract_audio_slice", failing_slice)
-        monkeypatch.setattr(core, "transcribe_for_timing", failing_hear)
+        monkeypatch.setattr(audio_extract, "extract_audio_slice", failing_slice)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", failing_hear)
         did, _ = _drama(3)
         client = TestClient(create_app(ApiSettings()))
         started = client.post(f"/api/transcribe/dramas/{did}/compare-transcription/run",
@@ -429,7 +430,7 @@ class TestMissingPackage:
 
         def boom(*a, **k):
             raise ModuleNotFoundError("No module named 'faster_whisper'")
-        monkeypatch.setattr(core, "transcribe_for_timing", boom)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", boom)
         out = svc.start_compare(did, selection=ALL)
         job = _wait(out)
         assert job["status"] == "error"

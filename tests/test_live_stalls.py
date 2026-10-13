@@ -17,7 +17,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
-import core
+import whisper_transcribe
 import whisper_models
 import live_audio
 import live_translate as lt
@@ -186,7 +186,7 @@ class TestWhisperThatNeverReturns:
                 release.wait(20)   # the second chunk: no segment is ever produced
                 return []
             return [{"start": 0.5, "end": 1.0, "text": f"t{len(calls)}"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         stream.add(2)
         assert start("live_hang", Engine())
         assert _wait(lambda: _texts("live_hang") == ["t1"])
@@ -219,7 +219,7 @@ class TestWhisperThatNeverReturns:
                 release.wait(20)   # a CUDA call that does not come back
                 return []
             return [{"start": 0.5, "end": 1.0, "text": f"t{len(calls)}"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         monkeypatch.setattr(live_whisper, "warm_up",
                             lambda size, gpu, cb=None: whisper_models.load_whisper_model(size))
         stream.add(2)
@@ -262,7 +262,7 @@ class TestWhisperThatNeverReturns:
                 release.wait(20)
                 return []
             return [{"start": 0.5, "end": 1.0, "text": f"t{len(calls)}"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         monkeypatch.setattr(live_whisper, "warm_up",
                             lambda size, gpu, cb=None: _prepare(True))
         stream.add(2)
@@ -295,7 +295,7 @@ class TestWhisperThatNeverReturns:
                 translating.set()
                 release.wait(20)
                 return super().translate_batch(lines, context)
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         stream.add(3)
         assert start("live_badtr", Held(fail=True))
         assert translating.wait(PROMPT)
@@ -315,7 +315,7 @@ class TestStopIsPrompt:
             inside.set()
             release.wait(20)
             return []
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         stream.add(2)
         assert start("live_stop", Engine())
         assert inside.wait(PROMPT)
@@ -493,7 +493,7 @@ class TestWhisperRunner:
         _wav(wav, 1)
         runner = self._runner(clock=TickingClock())
         with pytest.raises(live_whisper.ChunkTimeout):
-            runner.run(lambda cb: core.transcribe_for_timing(str(wav), progress_cb=cb), 3, "chunk 0")
+            runner.run(lambda cb: whisper_transcribe.transcribe_for_timing(str(wav), progress_cb=cb), 3, "chunk 0")
         n = len(yielded)
         assert _wait(lambda: runner.busy_with() is None)
         assert len(yielded) <= n + 2
@@ -581,7 +581,7 @@ class TestCatchUp:
             seen.append(os.path.basename(path))
             gate.wait(5)
             return []
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         stream.add(7)   # chunks 0-5 are complete: a six-chunk backlog
         assert start("live_catchup", Engine())
         assert _wait(lambda: seen)
@@ -606,7 +606,7 @@ class TestAudioWindow:
         def whisper(path, **kw):
             lengths.append(_seconds(path))
             return [{"start": 0.0, "end": 1.0, "text": "x"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         stream.add(1, seconds=95)   # a stream timestamp jump: one 95 s "chunk"
         stream.add(1, seconds=10)
         stream.add(1, seconds=10)
@@ -621,7 +621,7 @@ class TestAudioWindow:
         window = live_audio.window_for_chunk(str(src), 0, str(tmp_path), 10, None, 0)
         assert window.trimmed_seconds == pytest.approx(20)
         assert _seconds(window.path) == pytest.approx(10)
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                             lambda p, **kw: [{"start": 1.0, "end": 2.0, "text": "x"}])
         cues = lt.process_chunk(window.path, 0, 10, "zh", "small", Engine(),
                                 audio_shift=window.trimmed_seconds)
@@ -643,7 +643,7 @@ class TestWarmStart:
                             lambda size, gpu, cb=None: order.append(("warm", size, gpu)))
         monkeypatch.setattr(lt, "start_segment_capture",
                             lambda *a, **k: order.append("capture") or FakeProc())
-        monkeypatch.setattr(core, "transcribe_for_timing", lambda p, **kw: [])
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda p, **kw: [])
         assert start("live_warm", Engine(), use_gpu=True)
         assert _wait(lambda: "capture" in order)
         assert order[0] == ("warm", "small", True)
@@ -655,7 +655,7 @@ class TestWarmStart:
         def boom(size, gpu, cb=None):
             raise RuntimeError("no cuda")
         monkeypatch.setattr(live_whisper, "warm_up", boom)
-        monkeypatch.setattr(core, "transcribe_for_timing", lambda p, **kw: [])
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda p, **kw: [])
         stream.add(2)
         assert start("live_warmfail", Engine())
         assert _wait(lambda: any("could not be warmed up" in n for n in notes))
@@ -674,7 +674,7 @@ class TestWarmStart:
             release.wait(20)
         monkeypatch.setattr(live_whisper, "warm_up", stuck_load)
         calls = []
-        monkeypatch.setattr(core, "transcribe_for_timing", lambda p, **kw: calls.append(p) or [])
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda p, **kw: calls.append(p) or [])
         stream.add(3)
         assert start("live_warmhang", Engine())
         assert _wait(lambda: entered)
@@ -712,7 +712,7 @@ class TestWarmStart:
                 return gen(), None
         monkeypatch.setattr(whisper_models, "load_whisper_model", lambda size, use_gpu=False, **k: Model())
         # transcribe_for_timing always enables the VAD filter, so it must not be the path.
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                             lambda *a, **k: pytest.fail("the warm-up must call the model directly"))
         ticks = []
         live_whisper.warm_up.real("small", True, ticks.append)
@@ -725,7 +725,7 @@ class TestWarmStart:
 class TestTimingsAndNotes:
     def test_the_status_names_the_speed_of_the_last_chunk(self, job, monkeypatch):
         stream, start, notes = job
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                             lambda p, **kw: [{"start": 0.0, "end": 1.0, "text": "x"}])
         gate = threading.Event()
 
@@ -790,7 +790,7 @@ class TestTimingsAndNotes:
         def whisper(path, **kw):
             time.sleep(0.03)   # more than the 5 ms of audio below
             return [{"start": 0.0, "end": 0.001, "text": "x"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         stream.add(3, seconds=0.005)
         assert start("live_slowonce", Engine())
         assert _wait(lambda: len(_texts("live_slowonce")) >= 2)
@@ -900,7 +900,7 @@ class TestOllamaCadence:
         def whisper(path, **kw):
             _prepare(True)   # the loader's hook, per call
             return [{"start": 0.5, "end": 1.0, "text": "x"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
         monkeypatch.setattr(live_whisper, "warm_up",
                             lambda size, gpu, cb=None: _prepare(gpu))
         stream.add(3)

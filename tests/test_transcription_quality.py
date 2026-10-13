@@ -9,7 +9,10 @@ import types
 
 import pytest
 
-import core
+import audio_extract
+import line_alignment
+import whisper_hallucination
+import whisper_transcribe
 import whisper_models
 
 
@@ -46,28 +49,28 @@ def fake_whisper(monkeypatch):
 
 class TestWhisperSettings:
     def test_anti_loop_kwargs_are_sent(self, fake_whisper):
-        core.transcribe_for_timing("a.wav")
+        whisper_transcribe.transcribe_for_timing("a.wav")
         [(entry, kwargs)] = fake_whisper
         assert entry == "model"
         assert kwargs["condition_on_previous_text"] is False
         assert "no_repeat_ngram_size" not in kwargs and "repetition_penalty" not in kwargs
 
     def test_repeat_guard_adds_the_repeat_ban(self, fake_whisper):
-        core.transcribe_for_timing("a.wav", repeat_guard=True)
+        whisper_transcribe.transcribe_for_timing("a.wav", repeat_guard=True)
         [(entry, kwargs)] = fake_whisper
         assert kwargs["no_repeat_ngram_size"] == 3
         assert kwargs["repetition_penalty"] == pytest.approx(1.1)
 
     def test_the_hallucination_filter_is_still_the_backstop(self, monkeypatch, fake_whisper):
         seen = []
-        real = core.filter_hallucinated_segments
-        monkeypatch.setattr(core, "filter_hallucinated_segments",
+        real = whisper_hallucination.filter_hallucinated_segments
+        monkeypatch.setattr(whisper_transcribe, "filter_hallucinated_segments",
                             lambda segs, n: seen.append(n) or real(segs, n))
-        core.transcribe_for_timing("a.wav")
+        whisper_transcribe.transcribe_for_timing("a.wav")
         assert seen == [4]
 
     def test_fast_mode_uses_the_batched_pipeline_with_the_same_settings(self, fake_whisper):
-        core.transcribe_for_timing("a.wav", fast_mode=True, repeat_guard=True)
+        whisper_transcribe.transcribe_for_timing("a.wav", fast_mode=True, repeat_guard=True)
         [(entry, kwargs)] = fake_whisper
         assert entry == "batched"
         assert kwargs["no_repeat_ngram_size"] == 3 and kwargs["vad_filter"] is True
@@ -104,7 +107,7 @@ class TestForcedAlignerReliability:
         import translate_engines as te
         user_lines = ["你好", "再见"]
         whisper_segments = [{"start": 0.0, "end": 4.0, "text": "你好再见"}]
-        coarse = core.align_transcript_to_timing(user_lines, whisper_segments)
+        coarse = line_alignment.align_transcript_to_timing(user_lines, whisper_segments)
 
         class Aligner:
             def align(self, audio, text, language):
@@ -239,7 +242,7 @@ def _fake_funasr(monkeypatch, texts_by_key):
     mod = types.ModuleType("funasr")
     mod.AutoModel = AutoModel
     monkeypatch.setitem(sys.modules, "funasr", mod)
-    monkeypatch.setattr(core, "extract_audio_slice",
+    monkeypatch.setattr(audio_extract, "extract_audio_slice",
                         lambda a, s, e, out: open(out, "wb").close() or out)
     return seen
 
@@ -310,12 +313,12 @@ class TestSenseVoiceTags:
 
 class TestSensevoiceCancelAndTimeout:
     def test_tag_lines_checks_cancel_per_line_and_slices_with_a_timeout(self, monkeypatch):
-        import core
+        import audio_extract
         import sensevoice_tags as sv
         from core import Line
         _fake_funasr(monkeypatch, {})
         slices = []
-        monkeypatch.setattr(core, "extract_audio_slice",
+        monkeypatch.setattr(audio_extract, "extract_audio_slice",
                             lambda *a, **k: slices.append(k) or a[3])
 
         class Stop(Exception):
@@ -331,6 +334,6 @@ class TestSensevoiceCancelAndTimeout:
 
     def test_slice_default_timeout_is_finite(self):
         import inspect
-        import core
-        assert inspect.signature(core.extract_audio_slice).parameters["timeout"].default \
-            == core.SLICE_TIMEOUT_SECONDS
+        import audio_extract
+        assert inspect.signature(audio_extract.extract_audio_slice).parameters["timeout"].default \
+            == audio_extract.SLICE_TIMEOUT_SECONDS

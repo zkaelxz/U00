@@ -115,7 +115,7 @@ class TestRunBenchmarkSequencing:
 
         from core import Line
         monkeypatch.setattr(
-            "core.align_transcript_to_timing",
+            "line_alignment.align_transcript_to_timing",
             lambda user_lines, whisper_segments: [Line(idx=0, start=0.0, end=2.0, zh="你好世界")],
         )
         monkeypatch.setattr(
@@ -151,7 +151,7 @@ class TestRunBenchmarkSequencing:
 
         from core import Line
         monkeypatch.setattr(
-            "core.align_transcript_to_timing",
+            "line_alignment.align_transcript_to_timing",
             lambda user_lines, whisper_segments: [Line(idx=0, start=0.0, end=2.0, zh="你好")],
         )
         monkeypatch.setattr(

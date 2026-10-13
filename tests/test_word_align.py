@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import word_align
 import segment as segment_module
-import core as core_module
+import audio_extract
 
 
 class TestCheckDependencies:
@@ -238,7 +238,7 @@ class TestRealignLongSegment:
         monkeypatch.setattr(segment_module, "segment_and_annotate",
                              lambda text, language, chinese_script="simplified":
                              [("你好", None), ("世界", None)])
-        monkeypatch.setattr(core_module, "extract_audio_slice",
+        monkeypatch.setattr(audio_extract, "extract_audio_slice",
                              lambda audio_path, start, end, out_path: open(out_path, "wb").close())
         monkeypatch.setattr(word_align, "align_words",
                              lambda slice_path, words, device="cpu":
@@ -258,7 +258,7 @@ class TestRealignLongSegment:
         monkeypatch.setattr(segment_module, "segment_and_annotate",
                              lambda text, language, chinese_script="simplified":
                              [("你好", None), ("世界", None)])
-        monkeypatch.setattr(core_module, "extract_audio_slice",
+        monkeypatch.setattr(audio_extract, "extract_audio_slice",
                              lambda audio_path, start, end, out_path: open(out_path, "wb").close())
 
         def failing_align(slice_path, words, device="cpu"):
@@ -281,7 +281,7 @@ class TestRealignLongSegment:
         monkeypatch.setattr(segment_module, "segment_and_annotate",
                              lambda text, language, chinese_script="simplified":
                              [("你好", None), ("世界", None)])
-        monkeypatch.setattr(core_module, "extract_audio_slice",
+        monkeypatch.setattr(audio_extract, "extract_audio_slice",
                              lambda audio_path, start, end, out_path: open(out_path, "wb").close())
 
         def failing_align(slice_path, words, device="cpu"):
@@ -304,7 +304,7 @@ class TestRealignLongSegment:
         def fake_extract(audio_path, start, end, out_path):
             created_paths.append(out_path)
             open(out_path, "wb").close()
-        monkeypatch.setattr(core_module, "extract_audio_slice", fake_extract)
+        monkeypatch.setattr(audio_extract, "extract_audio_slice", fake_extract)
 
         def failing_align(slice_path, words, device="cpu"):
             raise RuntimeError("boom")
@@ -453,8 +453,8 @@ class TestAlignerLoadedOncePerRun:
             return [(w, i * 10.0, i * 10.0 + 1.0) for i, w in enumerate(words)]
         monkeypatch.setattr(word_align, "align_words", fake_align)
         monkeypatch.setattr(word_align, "_release_gpu", lambda: calls.append("release"))
-        import core
-        monkeypatch.setattr(core, "extract_audio_slice",
+        import audio_extract
+        monkeypatch.setattr(audio_extract, "extract_audio_slice",
                             lambda a, s, e, out, **k: open(out, "wb").close())
         import segment
         monkeypatch.setattr(segment, "segment_and_annotate",
@@ -524,7 +524,7 @@ class TestRealignLongSegmentLanguage:
         monkeypatch.setattr(segment_module, "segment_and_annotate", segmenter)
         monkeypatch.setattr(word_align, "align_words",
                             lambda *a, **k: [("こんにちは", 0.0, 1.0), ("世界", 1.0, 2.0)])
-        monkeypatch.setattr("core.extract_audio_slice", lambda *a, **k: None)
+        monkeypatch.setattr("audio_extract.extract_audio_slice", lambda *a, **k: None)
         segment = {"start": 0.0, "end": 20.0, "text": "こんにちは世界", "lang": "ja"}
         result = word_align.realign_long_segment("/fake/audio.wav", segment, "zh")
         assert seen == ["ja"]

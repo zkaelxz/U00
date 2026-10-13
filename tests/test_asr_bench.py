@@ -57,7 +57,7 @@ def engine(monkeypatch):
         open(out_path, "wb").write(b"RIFF")
         return out_path
 
-    monkeypatch.setattr(bench.core, "extract_audio_slice", fake_cut)
+    monkeypatch.setattr(bench.audio_extract, "extract_audio_slice", fake_cut)
     monkeypatch.setattr(bench.transcribe_pipeline, "_audio_duration_seconds", lambda path: 20.0)
     monkeypatch.setattr(bench, "speech_spans", lambda wav, offset: [(offset + 2, offset + 4),
                                                                     (offset + 6, offset + 8)])
@@ -522,7 +522,7 @@ def test_lines_in_silence_need_no_speech_under_them():
 @pytest.fixture
 def app_calls(monkeypatch):
     calls = []
-    monkeypatch.setattr(recipes.core, "transcribe_for_timing",
+    monkeypatch.setattr(recipes.whisper_transcribe, "transcribe_for_timing",
                         lambda wav, model, **kw: calls.append(("whisper", model, kw)) or [seg(0, 1, "x")])
     monkeypatch.setattr(recipes.forced_align, "refine_whisper_segments",
                         lambda wav, segments, language, **kw: calls.append(("align", language, kw)) or segments)

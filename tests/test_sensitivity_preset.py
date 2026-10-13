@@ -11,7 +11,7 @@ import types
 import pytest
 
 import background_jobs
-import core
+import whisper_transcribe
 import whisper_models
 import raw_transcript
 import sensitivity_preset as presets
@@ -42,18 +42,18 @@ class TestPresetRules:
         assert presets.decode_kwargs(None, base) == base
         assert presets.decode_kwargs("normal", base) is not base
         assert presets.decode_kwargs("sensitive", base) == {"condition_on_previous_text": False}
-        assert core.WHISPER_ANTI_LOOP_KWARGS == {"condition_on_previous_text": False}
+        assert whisper_transcribe.WHISPER_ANTI_LOOP_KWARGS == {"condition_on_previous_text": False}
 
     @pytest.mark.parametrize("preset", ["normal", "sensitive", None])
     def test_unset_repeat_guard_adds_no_penalties_in_either_preset(self, preset):
-        assert presets.decode_kwargs(preset, core.WHISPER_ANTI_LOOP_KWARGS,
-                                     core.WHISPER_REPEAT_GUARD_KWARGS) == {"condition_on_previous_text": False}
+        assert presets.decode_kwargs(preset, whisper_transcribe.WHISPER_ANTI_LOOP_KWARGS,
+                                     whisper_transcribe.WHISPER_REPEAT_GUARD_KWARGS) == {"condition_on_previous_text": False}
 
     @pytest.mark.parametrize("preset", ["normal", "sensitive"])
     def test_explicit_repeat_guard_wins_over_the_preset(self, preset):
-        got = presets.decode_kwargs(preset, core.WHISPER_ANTI_LOOP_KWARGS,
-                                    core.WHISPER_REPEAT_GUARD_KWARGS, repeat_guard=True)
-        assert got == {"condition_on_previous_text": False, **core.WHISPER_REPEAT_GUARD_KWARGS}
+        got = presets.decode_kwargs(preset, whisper_transcribe.WHISPER_ANTI_LOOP_KWARGS,
+                                    whisper_transcribe.WHISPER_REPEAT_GUARD_KWARGS, repeat_guard=True)
+        assert got == {"condition_on_previous_text": False, **whisper_transcribe.WHISPER_REPEAT_GUARD_KWARGS}
 
     def test_sensitive_preset_still_lowers_the_vad_threshold_with_the_guard_on(self):
         assert presets.effective_vad_threshold(0.5, "sensitive") == 0.35
@@ -79,7 +79,7 @@ class TestDecode:
     def test_normal_passes_the_default_decode_settings(self, monkeypatch):
         seen = {}
         _fake_whisper(monkeypatch, ["a"], seen)
-        core.transcribe_for_timing("/fake.mp3", min_silence_duration_ms=300, vad_threshold=0.5)
+        whisper_transcribe.transcribe_for_timing("/fake.mp3", min_silence_duration_ms=300, vad_threshold=0.5)
         assert seen == {
             "language": "zh", "vad_filter": True, "beam_size": 5,
             "vad_parameters": {"min_silence_duration_ms": 300, "threshold": 0.5},
@@ -89,20 +89,20 @@ class TestDecode:
     def test_repeat_guard_toggle_decides_the_penalties_in_either_preset(self, monkeypatch, preset):
         seen = {}
         _fake_whisper(monkeypatch, ["a"], seen)
-        core.transcribe_for_timing("/fake.mp3", sensitivity_preset=preset, repeat_guard=True)
+        whisper_transcribe.transcribe_for_timing("/fake.mp3", sensitivity_preset=preset, repeat_guard=True)
         assert seen["no_repeat_ngram_size"] == 3 and seen["repetition_penalty"] == 1.1
 
     def test_sensitive_drops_the_repeat_penalties_only(self, monkeypatch):
         seen = {}
         _fake_whisper(monkeypatch, ["a"], seen)
-        core.transcribe_for_timing("/fake.mp3", vad_threshold=0.35, sensitivity_preset="sensitive")
+        whisper_transcribe.transcribe_for_timing("/fake.mp3", vad_threshold=0.35, sensitivity_preset="sensitive")
         assert "no_repeat_ngram_size" not in seen and "repetition_penalty" not in seen
         assert seen["condition_on_previous_text"] is False
         assert seen["vad_parameters"]["threshold"] == 0.35
 
     def test_sensitive_still_collapses_a_runaway_repeat(self, monkeypatch):
         _fake_whisper(monkeypatch, ["thanks for watching"] * 5 + ["好的", "好的", "real"], {})
-        result = core.transcribe_for_timing("/fake.mp3", sensitivity_preset="sensitive")
+        result = whisper_transcribe.transcribe_for_timing("/fake.mp3", sensitivity_preset="sensitive")
         assert [r["text"] for r in result] == ["thanks for watching", "好的", "好的", "real"]
 
 

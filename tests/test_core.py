@@ -8,17 +8,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
-import core
+import whisper_transcribe
 import whisper_models
 import segment_splitting
 from segment_splitting import encode_line_words, line_words
 
-from core import (
-    Line, fmt_ts, lines_to_srt, lines_to_bilingual_srt,
-    split_user_transcript, align_transcript_to_timing,
-    merge_adjacent_short_lines, chunk_novel_text,
-    filter_hallucinated_segments,
-)
+from core import Line, fmt_ts, lines_to_srt, lines_to_bilingual_srt
+from line_alignment import split_user_transcript, align_transcript_to_timing, merge_adjacent_short_lines
+from novel_text import chunk_novel_text
+from whisper_hallucination import filter_hallucinated_segments
 from tests.http_fakes import StreamedBody
 
 
@@ -338,43 +336,43 @@ class TestInitialPromptBuilding:
     valid word and so passes silently into the translation."""
 
     def test_builds_from_glossary_rows(self):
-        from core import build_initial_prompt
+        from whisper_transcribe import build_initial_prompt
         p = build_initial_prompt([{"term_original": "沈清疑"}, {"term_original": "云隐宗"}])
         assert "沈清疑" in p and "云隐宗" in p
 
     def test_accepts_plain_strings(self):
-        from core import build_initial_prompt
+        from whisper_transcribe import build_initial_prompt
         assert "岳家" in build_initial_prompt(["岳家", "神机营"])
 
     def test_ends_with_a_full_stop(self):
-        from core import build_initial_prompt
+        from whisper_transcribe import build_initial_prompt
         assert build_initial_prompt(["x"]).endswith("。")
 
     def test_empty_inputs_give_empty_prompt(self):
-        from core import build_initial_prompt
+        from whisper_transcribe import build_initial_prompt
         assert build_initial_prompt([]) == ""
         assert build_initial_prompt(None) == ""
         assert build_initial_prompt([{"term_original": "   "}]) == ""
 
     def test_caps_term_count(self):
-        from core import build_initial_prompt
+        from whisper_transcribe import build_initial_prompt
         p = build_initial_prompt([{"term_original": f"t{i}"} for i in range(100)], max_terms=40)
         assert p.count("、") == 39
 
     def test_skips_blank_terms(self):
-        from core import build_initial_prompt
+        from whisper_transcribe import build_initial_prompt
         assert build_initial_prompt(["", "  ", "实名"]) == "实名。"
 
     def test_primes_recorded_aliases_alongside_the_canonical_original(self):
         """Step 30: a glossary row's aliases (alt spellings/transliterations
         of term_original) are included in Whisper's priming context too,
         not just the canonical original."""
-        from core import build_initial_prompt
+        from whisper_transcribe import build_initial_prompt
         p = build_initial_prompt([{"term_original": "沈清疑", "aliases": "沈清儀|Shen Qing Yi"}])
         assert "沈清疑" in p and "沈清儀" in p and "Shen Qing Yi" in p
 
     def test_a_glossary_row_with_no_aliases_field_still_works(self):
-        from core import build_initial_prompt
+        from whisper_transcribe import build_initial_prompt
         assert build_initial_prompt([{"term_original": "岳家"}]) == "岳家。"
 
 
@@ -449,14 +447,14 @@ class TestModelSelection:
 class TestVadSensitivity:
     def test_transcribe_signature_accepts_min_silence_duration(self):
         import inspect
-        from core import transcribe_for_timing
+        from whisper_transcribe import transcribe_for_timing
         params = inspect.signature(transcribe_for_timing).parameters
         assert "min_silence_duration_ms" in params
         assert params["min_silence_duration_ms"].default == 2000
 
     def test_transcribe_signature_accepts_vad_threshold(self):
         import inspect
-        from core import transcribe_for_timing
+        from whisper_transcribe import transcribe_for_timing
         params = inspect.signature(transcribe_for_timing).parameters
         assert "vad_threshold" in params
         assert params["vad_threshold"].default == 0.5
@@ -468,7 +466,7 @@ class TestVadSensitivity:
         reaches Silero's own "threshold" parameter, not just that the
         function accepts the argument."""
         import sys, types
-        import core
+        import whisper_transcribe
         whisper_models._whisper_model_cache.clear()
 
         class FakeSegment:
@@ -491,13 +489,13 @@ class TestVadSensitivity:
         fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
         sys.modules["faster_whisper"] = fake_fw
 
-        core.transcribe_for_timing("/fake/audio.mp3", vad_threshold=0.7)
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", vad_threshold=0.7)
 
         assert captured["vad_parameters"]["threshold"] == 0.7
 
     def test_vad_threshold_defaults_to_point_five(self, monkeypatch):
         import sys, types
-        import core
+        import whisper_transcribe
         whisper_models._whisper_model_cache.clear()
 
         class FakeSegment:
@@ -520,7 +518,7 @@ class TestVadSensitivity:
         fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
         sys.modules["faster_whisper"] = fake_fw
 
-        core.transcribe_for_timing("/fake/audio.mp3")
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3")
 
         assert captured["vad_parameters"]["threshold"] == 0.5
 
@@ -675,12 +673,12 @@ class TestStockPhraseFilter:
 class TestHallucinationSilenceThreshold:
     def _run(self, model_cls, **kwargs):
         import sys, types
-        import core
+        import whisper_transcribe
         fake_fw = types.ModuleType("faster_whisper")
         fake_fw.WhisperModel = lambda *a, **k: model_cls()
         sys.modules["faster_whisper"] = fake_fw
         whisper_models._whisper_model_cache.clear()
-        return core.transcribe_for_timing("/fake/audio.mp3", **kwargs)
+        return whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", **kwargs)
 
     def test_off_by_default_and_overridable(self):
         seen = {}
@@ -812,8 +810,8 @@ class TestDifficultAudioSkipRule:
             def transcribe(self, audio_path, **kwargs):
                 return iter([]), None
         monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
-        import core
-        core.transcribe_for_timing("/fake/audio.mp3", fast_mode=True, difficult_audio=True)
+        import whisper_transcribe
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", fast_mode=True, difficult_audio=True)
         assert "no_speech_threshold" not in seen and "log_prob_threshold" not in seen
 
     def test_repeat_filter_still_runs_on_the_brought_back_lines(self):
@@ -854,21 +852,21 @@ class TestTranscribeForTimingHallucinationFilter:
         sys.modules["faster_whisper"] = fake_fw
 
     def test_hallucination_filter_is_applied_by_default(self):
-        import core
+        import whisper_transcribe
         whisper_models._whisper_model_cache.clear()
         self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
 
-        result = core.transcribe_for_timing("/fake/audio.mp3")
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3")
 
         assert result == [{"start": 0.0, "end": 1.0, "text": "thanks for watching"},
                            {"start": 5.0, "end": 6.0, "text": "real line"}]
 
     def test_filter_can_be_disabled(self):
-        import core
+        import whisper_transcribe
         whisper_models._whisper_model_cache.clear()
         self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
 
-        result = core.transcribe_for_timing("/fake/audio.mp3", filter_hallucination_repeats=0)
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", filter_hallucination_repeats=0)
 
         assert len(result) == 6  # nothing collapsed
 
@@ -894,7 +892,8 @@ class TestTightenToWords:
             assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
 
     def test_transcribe_uses_word_times_and_asks_whisper_for_them(self):
-        import core, sys, types
+        import sys, types
+        import whisper_transcribe
 
         seen = {}
 
@@ -912,14 +911,15 @@ class TestTightenToWords:
         sys.modules["faster_whisper"] = fake_fw
         whisper_models._whisper_model_cache.clear()
 
-        assert core.transcribe_for_timing("/fake/audio.mp3") == [
+        assert whisper_transcribe.transcribe_for_timing("/fake/audio.mp3") == [
             {"start": 4.0, "end": 5.0, "text": "hi"}]
         assert seen["word_timestamps"] is True
 
 
 class TestPunctuationOnlySegmentsDropped:
     def test_a_lone_bracket_is_dropped_but_real_and_tag_lines_stay(self):
-        import core, sys, types
+        import sys, types
+        import whisper_transcribe
 
         class Seg:
             def __init__(self, start, text):
@@ -935,7 +935,7 @@ class TestPunctuationOnlySegmentsDropped:
         sys.modules["faster_whisper"] = fake_fw
         whisper_models._whisper_model_cache.clear()
 
-        got = core.transcribe_for_timing("/fake/audio.mp3")
+        got = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3")
 
         assert [g["text"] for g in got] == ["你好", "[Music]", "こんにちは。", "7"]
 
@@ -947,7 +947,8 @@ class TestLineCoverageDiagnosis:
     lines of dialogue into one oversized segment."""
 
     def test_catches_the_real_worst_case_from_the_field(self):
-        from core import Line, diagnose_line_coverage
+        from core import Line
+        from line_alignment import diagnose_line_coverage
         lines = [
             Line(idx=0, start=390.0, end=413.0, zh="还有其他吗", en="x"),
             Line(idx=1, start=431.0, end=477.0, zh="都好", en="x"),        # 46s, 2 chars
@@ -958,12 +959,14 @@ class TestLineCoverageDiagnosis:
         assert report["long_lines"][0]["idx"] == 2  # worst offender sorts first
 
     def test_normal_short_line_is_not_flagged(self):
-        from core import Line, diagnose_line_coverage
+        from core import Line
+        from line_alignment import diagnose_line_coverage
         lines = [Line(idx=0, start=0.0, end=2.0, zh="正常对话", en="Normal.")]
         assert diagnose_line_coverage(lines)["long_lines"] == []
 
     def test_detects_large_silent_gaps(self):
-        from core import Line, diagnose_line_coverage
+        from core import Line
+        from line_alignment import diagnose_line_coverage
         lines = [Line(idx=0, start=0.0, end=1.0, zh="a", en="a"),
                  Line(idx=1, start=10.0, end=11.0, zh="b", en="b")]
         report = diagnose_line_coverage(lines, gap_seconds=3.0)
@@ -971,26 +974,29 @@ class TestLineCoverageDiagnosis:
         assert report["large_gaps"][0]["gap_seconds"] == 9.0
 
     def test_small_gap_not_flagged(self):
-        from core import Line, diagnose_line_coverage
+        from core import Line
+        from line_alignment import diagnose_line_coverage
         lines = [Line(idx=0, start=0.0, end=1.0, zh="a", en="a"),
                  Line(idx=1, start=1.5, end=2.5, zh="b", en="b")]
         assert diagnose_line_coverage(lines, gap_seconds=3.0)["large_gaps"] == []
 
     def test_detects_blank_source_text(self):
-        from core import Line, diagnose_line_coverage
+        from core import Line
+        from line_alignment import diagnose_line_coverage
         lines = [Line(idx=0, start=0.0, end=1.0, zh="", en="")]
         report = diagnose_line_coverage(lines)
         assert len(report["blank_zh"]) == 1
 
     def test_detects_untranslated_lines_with_source_present(self):
-        from core import Line, diagnose_line_coverage
+        from core import Line
+        from line_alignment import diagnose_line_coverage
         lines = [Line(idx=0, start=0.0, end=1.0, zh="有文本", en="")]
         report = diagnose_line_coverage(lines)
         assert len(report["blank_en"]) == 1
         assert report["blank_en"][0]["zh"] == "有文本"
 
     def test_empty_input_does_not_crash(self):
-        from core import diagnose_line_coverage
+        from line_alignment import diagnose_line_coverage
         report = diagnose_line_coverage([])
         assert report == {"long_lines": [], "large_gaps": [], "blank_zh": [], "blank_en": []}
 
@@ -1085,11 +1091,11 @@ class TestGpuInferenceFailureFallback:
         return calls
 
     def test_gpu_inference_failure_falls_back_to_cpu_and_returns_real_segments(self):
-        import core
+        import whisper_transcribe
         calls = self._stub_faster_whisper()
         whisper_models._whisper_model_cache.clear()
 
-        result = core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
 
         assert result == [{"start": 0.0, "end": 1.0, "text": "第一句"},
                            {"start": 1.0, "end": 2.0, "text": "第二句"}]
@@ -1099,12 +1105,12 @@ class TestGpuInferenceFailureFallback:
         assert calls["cpu_transcribe"] == 1   # and actually transcribed there
 
     def test_caller_is_notified_when_fallback_occurs(self):
-        import core
+        import whisper_transcribe
         self._stub_faster_whisper()
         whisper_models._whisper_model_cache.clear()
 
         notified = []
-        core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True,
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True,
                                     on_gpu_fallback=lambda exc: notified.append(str(exc)))
         assert len(notified) == 1
         assert "cublas64_12.dll" in notified[0]
@@ -1130,10 +1136,10 @@ class TestGpuInferenceFailureFallback:
         fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeCpuModel()
         sys.modules["faster_whisper"] = fake_fw
 
-        import core
+        import whisper_transcribe
         whisper_models._whisper_model_cache.clear()
         notified = []
-        core.transcribe_for_timing("/fake/audio.mp3", use_gpu=False,
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=False,
                                     on_gpu_fallback=lambda exc: notified.append(exc))
         assert notified == []
         assert calls["cpu_transcribe"] == 1
@@ -1153,10 +1159,10 @@ class TestGpuInferenceFailureFallback:
         fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
         sys.modules["faster_whisper"] = fake_fw
 
-        import core
+        import whisper_transcribe
         whisper_models._whisper_model_cache.clear()
         try:
-            core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
+            whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
             assert False, "a genuine non-GPU error must still propagate, not be swallowed"
         except ValueError as e:
             assert "corrupt audio stream" in str(e)
@@ -1189,7 +1195,7 @@ class TestTranscribeProgress:
         sys.modules["faster_whisper"] = fake_fw
 
     def test_progress_cb_reports_fraction_of_duration(self):
-        import core
+        import whisper_transcribe
         segments = [self._FakeSegment(0.0, 30.0, "a"),
                     self._FakeSegment(30.0, 90.0, "b"),
                     self._FakeSegment(90.0, 120.0, "c")]
@@ -1197,35 +1203,35 @@ class TestTranscribeProgress:
         whisper_models._whisper_model_cache.clear()
 
         seen = []
-        result = core.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
 
         assert len(result) == 3
         assert seen == [0.25, 0.75, 1.0]
 
     def test_progress_cb_is_optional(self):
-        import core
+        import whisper_transcribe
         segments = [self._FakeSegment(0.0, 10.0, "a")]
         self._stub_faster_whisper(segments, self._FakeInfo(duration=10.0))
         whisper_models._whisper_model_cache.clear()
 
-        result = core.transcribe_for_timing("/fake/audio.mp3")
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3")
         assert result == [{"start": 0.0, "end": 10.0, "text": "a"}]
 
     def test_missing_duration_does_not_crash(self):
         """info can legitimately be None (some callers/tests stub it that
         way) or lack .duration -- progress just can't be estimated then."""
-        import core
+        import whisper_transcribe
         segments = [self._FakeSegment(0.0, 10.0, "a")]
         self._stub_faster_whisper(segments, info=None)
         whisper_models._whisper_model_cache.clear()
 
         seen = []
-        result = core.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
         assert result == [{"start": 0.0, "end": 10.0, "text": "a"}]
         assert seen == [0.0]
 
     def test_progress_cb_called_on_gpu_fallback_path_too(self):
-        import core
+        import whisper_transcribe
         segments = [self._FakeSegment(0.0, 50.0, "a"), self._FakeSegment(50.0, 100.0, "b")]
         info = self._FakeInfo(duration=100.0)
 
@@ -1252,7 +1258,7 @@ class TestTranscribeProgress:
         whisper_models._whisper_model_cache.clear()
 
         seen = []
-        result = core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True, progress_cb=seen.append)
+        result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True, progress_cb=seen.append)
         assert len(result) == 2
         assert seen == [0.5, 1.0]
 
@@ -1275,7 +1281,7 @@ class TestTranscribeWithGroq:
             return {"segments": self._segments}
 
     def test_returns_the_same_segment_shape_as_local_whisper(self, monkeypatch, tmp_path):
-        import core
+        import whisper_transcribe
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
         captured = {}
@@ -1289,12 +1295,12 @@ class TestTranscribeWithGroq:
             ])
         monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
-        result = core.transcribe_with_groq(str(audio), "en", "fake-groq-key")
+        result = whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-groq-key")
 
         assert result == [{"start": 0.0, "end": 1.5, "text": "Hello there."},
                           {"start": 1.5, "end": 3.0, "text": "Goodbye."}]
         assert captured["headers"] == {"Authorization": "Bearer fake-groq-key"}
-        assert captured["data"]["model"] == core.GROQ_DEFAULT_MODEL
+        assert captured["data"]["model"] == whisper_transcribe.GROQ_DEFAULT_MODEL
         assert captured["data"]["language"] == "en"
         assert captured["timeout"] is not None  # never an unbounded hang
 
@@ -1306,49 +1312,49 @@ class TestTranscribeWithGroq:
         monkeypatch.setattr("lib.http.pinned_get",
                             lambda *a, **k: self._FakeResponse(segments=looped))
 
-        result = core.transcribe_with_groq(str(audio), "en", "fake-groq-key")
+        result = whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-groq-key")
 
         assert result == [{"start": 0.0, "end": 1.0, "text": "Thank you."},
                           {"start": 10.0, "end": 12.0, "text": "See you tomorrow."}]
 
     def test_blank_segments_are_dropped(self, monkeypatch, tmp_path):
-        import core
+        import whisper_transcribe
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
         monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
             segments=[{"start": 0.0, "end": 1.0, "text": "   "},
                       {"start": 1.0, "end": 2.0, "text": "Real text."}]))
 
-        result = core.transcribe_with_groq(str(audio), "en", "fake-key")
+        result = whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key")
 
         assert result == [{"start": 1.0, "end": 2.0, "text": "Real text."}]
 
     def test_progress_cb_is_called_once_at_completion(self, monkeypatch, tmp_path):
-        import core
+        import whisper_transcribe
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
         monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(segments=[]))
         seen = []
 
-        core.transcribe_with_groq(str(audio), "en", "fake-key", progress_cb=seen.append)
+        whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key", progress_cb=seen.append)
 
         assert seen == [1.0]
 
     def test_a_non_200_response_raises_with_the_body_and_status(self, monkeypatch, tmp_path):
-        import core
+        import whisper_transcribe
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
         monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
             status_code=401, text="invalid api key"))
 
         try:
-            core.transcribe_with_groq(str(audio), "en", "bad-key")
+            whisper_transcribe.transcribe_with_groq(str(audio), "en", "bad-key")
             assert False, "expected GroqTranscriptionError"
-        except core.GroqTranscriptionError as exc:
+        except whisper_transcribe.GroqTranscriptionError as exc:
             assert "401" in str(exc) and "invalid api key" in str(exc)
 
     def test_a_network_error_is_raised_as_groq_transcription_error(self, monkeypatch, tmp_path):
-        import core
+        import whisper_transcribe
         import requests
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
@@ -1358,16 +1364,16 @@ class TestTranscribeWithGroq:
         monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
         try:
-            core.transcribe_with_groq(str(audio), "en", "fake-key")
+            whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key")
             assert False, "expected GroqTranscriptionError"
-        except core.GroqTranscriptionError as exc:
+        except whisper_transcribe.GroqTranscriptionError as exc:
             assert str(exc) == "Couldn't reach Groq's API."
 
     def test_a_key_leaked_into_the_error_message_is_redacted(self, monkeypatch, tmp_path):
         """Never put an API key in a shown/stored/logged error -- see
         translate_engines.redact_secrets and this project's own rule
         against reintroducing that class of bug."""
-        import core
+        import whisper_transcribe
         import requests
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
@@ -1378,9 +1384,9 @@ class TestTranscribeWithGroq:
         monkeypatch.setattr("lib.http.pinned_get", fake_post)
 
         try:
-            core.transcribe_with_groq(str(audio), "en", "gsk_realsecretkey1234567890")
+            whisper_transcribe.transcribe_with_groq(str(audio), "en", "gsk_realsecretkey1234567890")
             assert False, "expected GroqTranscriptionError"
-        except core.GroqTranscriptionError as exc:
+        except whisper_transcribe.GroqTranscriptionError as exc:
             assert "gsk_realsecretkey1234567890" not in str(exc)
 
     def test_needs_a_timeout_so_a_hung_server_cannot_stick_a_job_at_running_forever(self):
@@ -1388,8 +1394,8 @@ class TestTranscribeWithGroq:
         tests/test_static_analysis.py::TestHttpCallsHaveTimeouts::test_core
         -- this test documents why, at the unit level."""
         import inspect
-        import core
-        assert "timeout=" in inspect.getsource(core.transcribe_with_groq)
+        import whisper_transcribe
+        assert "timeout=" in inspect.getsource(whisper_transcribe.transcribe_with_groq)
 
 
 class TestWhisperDeviceReporting:
@@ -1694,7 +1700,8 @@ class TestWordTimestampsKept:
                 "words": words, **extra}
 
     def test_transcribe_keeps_the_words_as_plain_dicts(self):
-        import core, sys, types
+        import sys, types
+        import whisper_transcribe
 
         class Word:
             def __init__(self, start, end, word):
@@ -1712,13 +1719,14 @@ class TestWordTimestampsKept:
         fake_fw.WhisperModel = lambda *a, **k: Model()
         sys.modules["faster_whisper"] = fake_fw
         whisper_models._whisper_model_cache.clear()
-        assert core.transcribe_for_timing("/fake/audio.mp3") == [
+        assert whisper_transcribe.transcribe_for_timing("/fake/audio.mp3") == [
             {"start": 0.2, "end": 1.0, "text": "你好",
              "words": [{"start": 0.2, "end": 0.6, "word": "你"},
                        {"start": 0.6, "end": 1.0, "word": "好"}]}]
 
     def test_fast_mode_gets_the_same_word_timestamps_kwarg(self):
-        import core, sys, types
+        import sys, types
+        import whisper_transcribe
         seen = {}
 
         class Seg:
@@ -1737,7 +1745,7 @@ class TestWordTimestampsKept:
         fake_fw.BatchedInferencePipeline = Pipeline
         sys.modules["faster_whisper"] = fake_fw
         whisper_models._whisper_model_cache.clear()
-        core.transcribe_for_timing("/fake/audio.mp3", fast_mode=True)
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", fast_mode=True)
         assert seen["word_timestamps"] is True
 
     def test_a_line_with_no_punctuation_is_cut_at_the_real_pauses(self):
@@ -1891,10 +1899,10 @@ class TestWordTimestampsKept:
         assert segment_splitting.split_long_segments([seg]) == [seg]
 
     def test_hallucination_filter_and_coverage_ignore_the_extra_key(self):
-        import core
+        import whisper_hallucination
         from services.transcribe_service import coverage_warning
         segs = [self._seg("你好吗"), self._seg("你好吗"), self._seg("再见了")]
-        assert core.filter_hallucinated_segments(segs) == segs
+        assert whisper_hallucination.filter_hallucinated_segments(segs) == segs
         coverage_warning(segs, 100.0)
 
     def test_a_hundred_thousand_characters_is_not_quadratic(self):

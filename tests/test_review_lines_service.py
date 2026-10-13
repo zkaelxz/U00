@@ -5,6 +5,7 @@ import os
 import pytest
 
 import core
+import line_alignment
 import translate_engines
 from core import Line
 from services import review_lines_service as svc
@@ -138,7 +139,7 @@ class TestChecks:
     def test_coverage_matches_underlying(self, isolated_db):
         did = _seed(isolated_db, self._lines())
         loaded = core.lines_from_rows(isolated_db.load_lines(did))
-        expected = core.diagnose_line_coverage(loaded)
+        expected = line_alignment.diagnose_line_coverage(loaded)
         got = svc.get_coverage_report(did)
         assert set(got) == set(expected)
         for key in expected:

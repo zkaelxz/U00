@@ -38,7 +38,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `job_process_result.py` (the channel a process-job worker sends its result through: a large result travels as a file so a child killed mid-write cannot hang the watcher)
 - `benchmark.py`
 - `check_setup.py`
-- `core.py`
+- `core.py` (the `Line` model, line rows and saved-version restore, SRT text; moved names still resolve through it)
 - `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
   - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
   - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
@@ -71,12 +71,15 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `asr_backend.py`
 - `asr_benchmark.py`
 - `audio_preprocess.py`
+- `audio_extract.py` (ffmpeg: pull the audio track out of a video, cut a short slice out of an audio file)
 - `diarize.py`
 - `forced_align.py`
+- `line_alignment.py` (a user transcript plus Whisper timing become timed lines: merging short lines, character-time reconstruction, coverage checks)
 - `gpu_wait_message.py` (the waiting text when another program is using the GPU)
 - `long_line_split.py` (last-resort even split for lines no punctuation or pause can cut, and the plain-words reasons a re-split found nothing)
 - `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
+- `novel_text.py` (the raw source novel: chunking it into narration lines, paragraph ends, and use as transcription context)
 - `ollama_unload.py`
 - `raw_transcript.py`
 - `resegment.py`
@@ -86,7 +89,9 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `vad_segments.py`
 - `voice_id.py`
 - `cuda_runtime_path.py` (puts the folders holding cuBLAS 12 and cuDNN 9 on the Windows DLL search path so CTranslate2 can use the GPU; inspects folders only)
+- `whisper_hallucination.py` (drops the stock-phrase and repeated-phrase segments Whisper invents on silence)
 - `whisper_models.py` (loads or releases the Whisper model on the right device and explains why it fell back to the CPU; the model list, GPU status and download-error diagnosis)
+- `whisper_transcribe.py` (speech-to-text for timing: local faster-whisper, the opt-in Groq cloud path, initial prompt and sensitivity settings)
 - `word_align.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**

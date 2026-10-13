@@ -20,8 +20,9 @@ from engine_backends.run_limits import FailureStreak
 import translation_finish
 import emotion
 import core as core_module
+import whisper_transcribe
 import whisper_models
-from core import transcribe_for_timing
+from whisper_transcribe import transcribe_for_timing
 from services import (fixflag_transcribe, fixflag_translate, job_timing_service,
                       language_pack_service, line_provenance_service, paid_job_service,
                       run_settings_service, settings_service, timing_settings_service,
@@ -324,11 +325,11 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     if use_groq:
         background_jobs.update_progress(job_id, 0.0, "Transcribing via Groq's cloud API...")
         try:
-            segments = core_module.transcribe_with_groq(
+            segments = whisper_transcribe.transcribe_with_groq(
                 audio_path, language, groq_api_key,
                 progress_cb=lambda frac: background_jobs.update_progress(
                     job_id, frac, f"Transcribing via Groq's cloud API... {frac * 100:.0f}%"))
-        except core_module.GroqTranscriptionError as exc:
+        except whisper_transcribe.GroqTranscriptionError as exc:
             background_jobs.set_result(job_id, {"failed_reason": "groq", "detail": str(exc)})
             return
     else:

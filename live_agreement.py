@@ -10,7 +10,7 @@ import re
 import time
 from dataclasses import dataclass
 
-import core
+import whisper_hallucination
 from live_tokens import CJK_CHARS, HANGUL_CHARS, agreement_tokens
 
 MIN_WINDOW_SECONDS = 2.0
@@ -57,7 +57,7 @@ def _cue_from(words) -> Cue:
 def _is_stock_hallucination(words) -> bool:
     text = "".join(w.text for w in words)
     segment = {"text": text, "start": words[0].start, "end": words[-1].end}
-    return not core.filter_hallucinated_segments([segment])
+    return not whisper_hallucination.filter_hallucinated_segments([segment])
 
 
 class StreamAgreement:

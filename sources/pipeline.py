@@ -181,8 +181,8 @@ def _as_written(text: str) -> bytes:
 
 
 def _novel_block(text: str, heading: str) -> str:
-    import core
-    loaded = core.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
+    import novel_text
+    loaded = novel_text.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
     return f"{heading}\n\n{loaded}" if heading else loaded
 
 
@@ -338,9 +338,9 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
     Returns "" once the text is in the file, else the error to report
     (none of the chapter's text left in the file). Raises only if a failed
     write could not be cut off again, so nothing is appended after it."""
-    import core
+    import novel_text
     from translate_engines import redact_secrets
-    loaded = core.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
+    loaded = novel_text.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
     if ch.title:
         loaded = f"{ch.title}\n\n{loaded}"
     path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)

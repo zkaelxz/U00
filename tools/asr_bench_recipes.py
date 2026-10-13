@@ -17,7 +17,7 @@ from typing import Callable, Optional
 
 import asr_backend
 import audio_preprocess
-import core
+import whisper_transcribe
 import forced_align
 import memory_headroom
 import qwen3_native
@@ -154,7 +154,7 @@ def _whisper_pass(ctx: RunContext, r: Recipe, wav: str = None) -> list:
     prompt = ""
     if r.prompt:
         prompt = transcribe_service.build_auto_initial_prompt(ctx.title_id)
-    segments = core.transcribe_for_timing(
+    segments = whisper_transcribe.transcribe_for_timing(
         wav or ctx.wav, r.model, language=ctx.language, use_gpu=ctx.use_gpu,
         local_model_path=ctx.local_model_path, hf_token=None, initial_prompt=prompt,
         beam_size=r.beam or drama.get("beam_size") or transcribe_service._DEFAULT_TUNING["beam_size"],

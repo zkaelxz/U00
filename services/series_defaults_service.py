@@ -34,7 +34,7 @@ No FastAPI import.
 import json
 import math
 
-import core as core_module
+import whisper_transcribe
 import db
 import segment_splitting
 import sensitivity_preset as presets
@@ -81,7 +81,7 @@ SETTINGS = {
                                   transcribe_service._SEPARATION_BACKENDS),
     "beam_size": _num("Beam size", "transcribe", "int", 1, 10),
     "min_silence_ms": _num("Minimum silence (ms)", "transcribe", "int",
-                           core_module.MIN_SILENCE_MS_MIN, core_module.MIN_SILENCE_MS_MAX),
+                           whisper_transcribe.MIN_SILENCE_MS_MIN, whisper_transcribe.MIN_SILENCE_MS_MAX),
     "vad_threshold": _num("Voice detection threshold", "transcribe", "number", 0.1, 0.9),
     "hallucination_silence_sec": _num("Skip silences longer than (s, 0 = off)", "transcribe",
                                       "number", 0, 10),

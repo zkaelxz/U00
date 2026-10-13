@@ -6,6 +6,7 @@ import os
 import pytest
 
 import core
+import whisper_transcribe
 import whisper_models as wm
 from lib.errors import InvalidInputError
 from services import benchmark_lab_service as lab
@@ -184,5 +185,5 @@ class TestSelectableSizes:
         assert transcribe_service.get_transcribe_config(did)["whisper_size"] == "large-v3"
 
     def test_live_default_and_groq_model_are_unchanged(self):
-        assert core.GROQ_DEFAULT_MODEL == "whisper-large-v3-turbo"
+        assert whisper_transcribe.GROQ_DEFAULT_MODEL == "whisper-large-v3-turbo"
         assert "large-v3-turbo" in wm.LIVE_WHISPER_SIZES

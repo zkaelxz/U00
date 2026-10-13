@@ -34,7 +34,7 @@ import difflib
 import json
 import re
 
-import core
+import line_alignment
 import segment_splitting
 import subtitle_formats
 from core import LANGUAGE_NAMES
@@ -310,7 +310,7 @@ def split_times(line, pieces, segments=None) -> list:
 
     window = [s for s in (segments or []) if s.get("end", 0) > start and s.get("start", 0) < end]
     if window:
-        aligned = core.align_transcript_to_timing(pieces, window)
+        aligned = line_alignment.align_transcript_to_timing(pieces, window)
         cuts = [aligned[k].start for k in range(1, n)]
         if all(start < c < end for c in cuts) and all(a < b for a, b in zip(cuts, cuts[1:])):
             return cuts

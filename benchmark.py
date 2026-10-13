@@ -97,11 +97,11 @@ def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bo
     caught and recorded, not raised -- one broken/missing case file must
     never stop the rest of the suite from running.
     """
-    import core
+    import whisper_transcribe
 
     started = time.monotonic()
     try:
-        segments = core.transcribe_for_timing(
+        segments = whisper_transcribe.transcribe_for_timing(
             case["input_path"], model_size=whisper_size,
             language=case.get("source_language", "zh"), use_gpu=use_gpu,
             local_model_path=local_model_path)

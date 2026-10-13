@@ -16,7 +16,7 @@ position. Fully mocked: isolated_db, no network.
 import pytest
 
 import background_jobs
-import core
+import line_alignment
 import db
 from core import Line
 from services import restructure_service as svc
@@ -59,7 +59,7 @@ class TestRestructureKeepsZeroBasedIdx:
     def test_restructure_base_matches_streamlit_merge_base(self):
         # The Streamlit "Apply merge" saves core.merge_adjacent_short_lines'
         # output, which renumbers from 0 (core.py `ln.idx = i`).
-        streamlit = core.merge_adjacent_short_lines(
+        streamlit = line_alignment.merge_adjacent_short_lines(
             [Line(idx=i + 1, start=i * 0.5, end=i * 0.5 + 0.4, zh="嗯", en="", speaker="S")
              for i in range(3)])
         assert streamlit[0].idx == 0

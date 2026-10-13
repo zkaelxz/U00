@@ -18,7 +18,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
-import core
+import whisper_transcribe
 import live_pipeline
 import live_translate as lt
 import live_whisper
@@ -129,7 +129,7 @@ def _whisper_by_chunk(monkeypatch, cues_per_chunk=2, block=None):
         if block is not None and idx in block:
             block[idx].wait(20)
         return [{"start": i + 0.1, "end": i + 0.9, "text": f"c{idx}l{i}"} for i in range(cues_per_chunk)]
-    monkeypatch.setattr(core, "transcribe_for_timing", whisper)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
 
     def started(idx):
         return called.setdefault(idx, threading.Event())

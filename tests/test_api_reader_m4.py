@@ -816,14 +816,14 @@ def test_rich_apkg_card_cap_and_slot(client, isolated_db, fake_sentence_deck):
 
 def test_extract_audio_slice_passes_timeout(monkeypatch, tmp_path):
     import subprocess
-    import core
+    import audio_extract
     seen = {}
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: seen.update(kw))
-    core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=15)
+    audio_extract.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=15)
     assert seen["timeout"] == 15
-    core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"))
-    assert seen["timeout"] == core.SLICE_TIMEOUT_SECONDS
-    core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=None)
+    audio_extract.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"))
+    assert seen["timeout"] == audio_extract.SLICE_TIMEOUT_SECONDS
+    audio_extract.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=None)
     assert seen["timeout"] is None
 
 

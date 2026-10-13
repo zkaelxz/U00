@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 import benchmark
-import core
+import whisper_transcribe
 import ocr as ocr_module
 
 
@@ -42,7 +42,7 @@ class TestScoreTextSimilarity:
 
 class TestRunTranscriptionCase:
     def test_scores_against_a_reference_transcript(self, monkeypatch):
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                              lambda path, **kw: [{"start": 0.0, "end": 1.0, "text": "你好"},
                                                   {"start": 1.0, "end": 2.0, "text": "世界"}])
         case = {"input_path": "/fake/audio.wav", "source_language": "zh",
@@ -55,7 +55,7 @@ class TestRunTranscriptionCase:
         assert result["duration_seconds"] >= 0
 
     def test_no_reference_text_gives_no_score(self, monkeypatch):
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                              lambda path, **kw: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         case = {"input_path": "/fake/audio.wav"}
         result = benchmark.run_transcription_case(case)
@@ -66,7 +66,7 @@ class TestRunTranscriptionCase:
     def test_a_transcription_failure_is_captured_not_raised(self, monkeypatch):
         def fake_transcribe(path, **kw):
             raise RuntimeError("model download failed")
-        monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
 
         case = {"input_path": "/fake/audio.wav", "reference_text": "x"}
         result = benchmark.run_transcription_case(case)
@@ -81,7 +81,7 @@ class TestRunTranscriptionCase:
             captured["model_size"] = model_size
             captured["language"] = language
             return []
-        monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
 
         case = {"input_path": "/fake/audio.wav", "source_language": "ja"}
         benchmark.run_transcription_case(case, whisper_size="large-v3")
@@ -91,7 +91,7 @@ class TestRunTranscriptionCase:
 
     def test_local_model_path_reaches_transcribe(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                              lambda path, **kw: captured.update(kw) or [])
         benchmark.run_transcription_case({"input_path": "/fake/a.wav"}, local_model_path="/models/ja")
         assert captured["local_model_path"] == "/models/ja"
@@ -166,7 +166,7 @@ class TestRunOcrCase:
 
 class TestRunSuite:
     def test_dispatches_to_the_right_stage_runner(self, monkeypatch):
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                              lambda path, **kw: [{"start": 0, "end": 1, "text": "hi"}])
         cases = [{"id": 1, "input_path": "/fake/a.wav"}, {"id": 2, "input_path": "/fake/b.wav"}]
         results = benchmark.run_suite(cases, "transcription")
@@ -185,7 +185,7 @@ class TestRunSuite:
             if calls["n"] == 1:
                 raise RuntimeError("boom")
             return [{"start": 0, "end": 1, "text": "ok"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
 
         cases = [{"id": 1, "input_path": "/a"}, {"id": 2, "input_path": "/b"}]
         results = benchmark.run_suite(cases, "transcription")
