@@ -87,7 +87,7 @@ test('Undo refused for a note added since says so, and Records warns before dele
 
   await openFoldFor(page, 'Records')
   await unfold(page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }))
-  await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).first().click()
+  await page.getByTestId('history-list').getByRole('button', { name: /^Restore version:/ }).first().click()
   await expect(page.getByTestId('restore-loss')).toHaveText(
     '1 line this would remove has a note or emotion tag. Restoring deletes them. Move or copy the note first to keep it.')
 })

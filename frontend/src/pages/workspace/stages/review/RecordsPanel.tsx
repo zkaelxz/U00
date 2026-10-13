@@ -325,12 +325,16 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
         <>
           <h4>Line history</h4>
           <ul className="records-list" data-testid="history-list">
-            {history.map((h) => (
+            {history.map((h) => {
+              // Every row has the same visible words, so the name says which version it acts on.
+              const versionName = `${h.label ?? `Snapshot ${h.id}`} (${h.created_at})`
+              return (
               <li key={h.id}>
                 {capFirst(h.label ?? `Snapshot ${h.id}`)} <span className="muted">{h.created_at}</span>{' '}
                 <button
                   type="button"
                   className={buttonClass('ghost', 'sm')}
+                  aria-label={`${previewing === h.id ? 'Hide preview of version:' : 'Preview version:'} ${versionName}`}
                   aria-expanded={previewing === h.id}
                   onClick={() => setPreviewing(previewing === h.id ? null : h.id)}
                 >
@@ -338,7 +342,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                 </button>{' '}
                 {previewing === h.id && <SnapshotPreview dramaId={dramaId} historyId={h.id} />}
                 {restoring?.id !== h.id && (
-                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => askRestore(h)}>
+                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => askRestore(h)} aria-label={`Restore version: ${versionName}`}>
                     Restore…
                   </button>
                 )}
@@ -361,7 +365,8 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                   </TypedConfirm>
                 )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         </>
       )}

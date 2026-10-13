@@ -52,7 +52,8 @@ export function VoiceDetectorField() {
             if (!live || !problem) return
             setFailure(problem)
             setDownloading(false)
-          })
+            // 404 means no download was ever started: nothing to report, and an unhandled rejection is a console error.
+          }, () => undefined)
         },
         () => undefined,
       )

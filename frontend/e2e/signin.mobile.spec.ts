@@ -47,7 +47,7 @@ test('phone: signed-in header keeps the menu on the title row, 44 px targets, Si
   const summary = page.locator('details.user-menu > summary')
   await expect(summary).toContainText(USER.email!)
   await tall(page, 'details.user-menu > summary')
-  const title = await page.getByRole('heading', { name: 'Baihe Studio' }).boundingBox()
+  const title = await page.locator('.app-brand').boundingBox()
   const menuBox = await summary.boundingBox()
   // Same row as the title (the nav wraps below).
   expect(Math.abs(menuBox!.y + menuBox!.height / 2 - (title!.y + title!.height / 2))).toBeLessThan(24)

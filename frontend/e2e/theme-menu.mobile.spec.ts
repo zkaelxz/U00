@@ -24,7 +24,7 @@ test('phone header: theme button is 44px, on the title row, and picking sepia wo
   const box = (await btn.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
-  const title = (await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).boundingBox())!
+  const title = (await page.locator('.app-brand, .rail-brand').boundingBox())!
   expect(box.y).toBeLessThan(title.y + title.height)
   expect(box.y + box.height).toBeGreaterThan(title.y)
   await noSideways(page)
