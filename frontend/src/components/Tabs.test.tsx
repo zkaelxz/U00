@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { PICKER_MIN_TABS, TabPicker, Tabs } from './Tabs'
+import { PICKER_MIN_TABS, TabLabel, TabPicker, Tabs } from './Tabs'
 import { tabButtonId, tabPanelId } from './tabIds'
 
 const tabs = [
@@ -46,17 +46,23 @@ describe('unsaved dot', () => {
 })
 
 describe('short labels', () => {
-  const html = renderToStaticMarkup(
-    <Tabs label="T" idPrefix="t" tabs={[{ id: 'a', label: 'Packages and installs', short: 'Packages' }, { id: 'b', label: 'Models' }]} active="a" onSelect={() => {}} />,
-  )
+  const tab = { id: 'a', label: 'Packages and installs', short: 'Packages' }
 
-  it('keeps the full label in the accessible name and hides the short one from it', () => {
+  it('on a phone keeps the full label in the accessible name and hides the short one from it', () => {
+    const html = renderToStaticMarkup(<TabLabel t={tab} phone />)
     expect(html).toContain('<span class="ui-tab-full">Packages and installs</span>')
     expect(html).toContain('<span class="ui-tab-short" aria-hidden="true">Packages</span>')
   })
 
-  it('leaves a tab without a short label as plain text', () => {
-    expect(html).toContain('>Models</button>')
+  it('elsewhere is the full label only, so the tab text is never doubled', () => {
+    expect(renderToStaticMarkup(<TabLabel t={tab} phone={false} />)).toBe('Packages and installs')
+    const row = renderToStaticMarkup(<Tabs label="T" idPrefix="t" tabs={[tab, { id: 'b', label: 'Models' }]} active="a" onSelect={() => {}} />)
+    expect(row).not.toContain('Packages<')
+    expect(row).toContain('>Models</button>')
+  })
+
+  it('leaves a tab without a short label as plain text on a phone too', () => {
+    expect(renderToStaticMarkup(<TabLabel t={{ id: 'b', label: 'Models' }} phone />)).toBe('Models')
   })
 })
 

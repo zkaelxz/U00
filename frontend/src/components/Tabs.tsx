@@ -29,6 +29,18 @@ export type TabInfo<T extends string = string> = { id: T; label: string; short?:
 export const PICKER_MIN_TABS = 5
 const PHONE_QUERY = '(max-width: 640px)'
 
+// On a phone a tab with a short label shows it and keeps the full label in the accessible name; elsewhere the page holds
+// the full label only, so its text is never doubled.
+export function TabLabel<T extends string>({ t, phone }: { t: TabInfo<T>; phone: boolean }) {
+  if (!phone || !t.short) return <>{t.label}</>
+  return (
+    <>
+      <span className="ui-tab-full">{t.label}</span>
+      <span className="ui-tab-short" aria-hidden="true">{t.short}</span>
+    </>
+  )
+}
+
 function TabExtras<T extends string>({ t }: { t: TabInfo<T> }) {
   return (
     <>
@@ -141,12 +153,7 @@ export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix
           className="ui-tab"
           onClick={() => onSelect(t.id)}
         >
-          {t.short ? (
-            <>
-              <span className="ui-tab-full">{t.label}</span>
-              <span className="ui-tab-short" aria-hidden="true">{t.short}</span>
-            </>
-          ) : t.label}
+          <TabLabel t={t} phone={phone} />
           <TabExtras t={t} />
         </button>
       ))}
