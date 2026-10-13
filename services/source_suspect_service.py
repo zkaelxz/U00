@@ -2,7 +2,8 @@
 (source_suspect.py has the rules) and lists them with the line each could merge into.
 
 Computed from the stored lines alone and written as flag/flag_note only, by
-line id, so a concurrent edit to text, timing or speaker survives. A line that
+line id, as a compare-and-set: a line whose flag, text or timing changed
+since it was read keeps that edit and isn't counted. A line that
 already carries another flag keeps it; this check clears only its own flag once
 it no longer applies. Merging goes through the existing restructure merge.
 """
@@ -24,17 +25,20 @@ def check_source_text(drama_id: int) -> dict:
     removed because the text no longer looks off}."""
     drama, lines = _load(drama_id)
     suspects = find_suspects(lines, drama.get("source_language") or "zh")
-    flagged = cleared = 0
+    flagged, cleared = [], []
     for ln in lines:
         if ln.id in suspects and not ln.flag:
             ln.flag, ln.flag_note = SUSPECT_FLAG, suspects[ln.id]
-            flagged += 1
+            flagged.append(ln.id)
         elif ln.flag == SUSPECT_FLAG and ln.id not in suspects:
             ln.flag, ln.flag_note = None, ""
-            cleared += 1
+            cleared.append(ln.id)
+    kept = set()
     if flagged or cleared:
-        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
-    return {"flagged_count": flagged, "cleared_count": cleared}
+        kept = db.save_lines(drama_id, lines, fields=("flag", "flag_note"), only_if_unchanged=True,
+                             guard_fields=("zh", "start", "end", "speaker"))
+    return {"flagged_count": sum(1 for i in flagged if i not in kept),
+            "cleared_count": sum(1 for i in cleared if i not in kept)}
 
 
 def list_suspects(drama_id: int) -> dict:

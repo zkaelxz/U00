@@ -2,6 +2,7 @@
 Slice 45). Fully mocked: isolated_db, no real LLM, no GPU."""
 import contextlib
 import json
+import threading
 import time
 
 import pytest
@@ -66,7 +67,42 @@ def _all_refs_point_to_lines(did):
     assert set(_emo_line_ids(did).values()) <= ids
 
 
+def _race_a_line_edit(monkeypatch, did, line_id, en=None, note=False):
+    """Runs a single-line edit (the Review page's PATCH or note route) on
+    another thread between a structural write's checks and its save, the
+    snapshot being the last step before the save. The edit must finish
+    without waiting for the drama lock."""
+    from services import lines_service
+    real = db.save_line_history_snapshot
+    barrier = threading.Barrier(2, timeout=5)
+
+    def edit():
+        barrier.wait()
+        if note:
+            lines_service.add_note(did, line_id, "公园", "cultural", "a park")
+        else:
+            lines_service.patch_line(did, line_id, en=en)
+
+    def snapshot_then_race(*a, **k):
+        out = real(*a, **k)
+        t = threading.Thread(target=edit)
+        t.start()
+        barrier.wait()
+        t.join(5)
+        assert not t.is_alive()
+        return out
+    monkeypatch.setattr(db, "save_line_history_snapshot", snapshot_then_race)
+
+
 class TestMergeAndUndo:
+    def test_merge_refused_when_an_edit_races_the_save(self, monkeypatch):
+        did, ids = _seed()
+        _race_a_line_edit(monkeypatch, did, ids[1], en="typed in the window")
+        with pytest.raises(ConflictError):
+            svc.merge_lines(did, [ids[0], ids[1]], ids)
+        rows = _rows(did)
+        assert [r["id"] for r in rows] == ids and rows[1]["en"] == "typed in the window"
+
     def test_merge_carries_refs_and_snapshots_first(self):
         did, ids = _seed()
         _decorate(did, ids)
@@ -298,6 +334,24 @@ class TestResegment:
         rows = _rows(did)
         assert [r["id"] for r in rows] == ids and rows[1]["en"] == "typed meanwhile"
         assert not db.list_line_history(did)
+
+    def test_an_edit_racing_the_save_is_kept(self, monkeypatch):
+        """Line edits don't take the drama lock, so one can land between the
+        job's final check and its save; the save must then write nothing."""
+        did, ids = _seed([("a", ""), (LONG, "")])
+        _race_a_line_edit(monkeypatch, did, ids[1], en="typed in the window")
+        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        assert job["status"] == "error"
+        rows = _rows(did)
+        assert [r["id"] for r in rows] == ids and rows[1]["en"] == "typed in the window"
+
+    def test_a_note_racing_the_save_is_kept(self, monkeypatch):
+        did, ids = _seed([("a", ""), (LONG, "")])
+        _race_a_line_edit(monkeypatch, did, ids[1], note=True)
+        job = _wait(resegmentation_service.start_resegmentation(did, ids,
+                                                                confirm=True)["job_id"])
+        assert job["status"] == "error"
+        assert [r["id"] for r in _rows(did)] == ids and _notes(did) == {"公园": ids[1]}
 
     @pytest.mark.parametrize("confirm", [False, True])
     def test_apply_refuses_a_split_that_now_loses_a_note(self, monkeypatch, confirm):

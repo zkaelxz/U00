@@ -149,6 +149,22 @@ class TestService:
         isolated_db.save_lines(did, _lines("これはCDです", "ありがとう、Tom さん"))
         assert source_suspect_service.check_source_text(did)["flagged_count"] == 0
 
+    def test_source_text_fixed_while_checking_is_not_flagged(self, isolated_db, monkeypatch):
+        from services import lines_service
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, _lines(*PUNCTUATED, "他不甘願的做起", "身。"))
+        lid = isolated_db.load_lines(did)[5]["id"]
+        real = source_suspect_service.find_suspects
+
+        def user_fixes_meanwhile(lines, language):
+            lines_service.patch_line(did, lid, zh="他不甘願的做起身。")
+            return real(lines, language)
+        monkeypatch.setattr(source_suspect_service, "find_suspects", user_fixes_meanwhile)
+
+        assert source_suspect_service.check_source_text(did)["flagged_count"] == 0
+        row = isolated_db.load_lines(did)[5]
+        assert (row["zh"], row["flag"]) == ("他不甘願的做起身。", None)
+
     def test_unknown_drama_is_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             source_suspect_service.check_source_text(999999)

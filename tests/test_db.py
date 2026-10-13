@@ -199,6 +199,48 @@ class TestLinesSaveLoad:
         assert loaded[0]["flag"] is None
 
 
+class TestSaveLinesExpectUnchanged:
+    """A full sync computed from an earlier read refuses, inside its own
+    transaction, when the lines or a removed line's notes changed since."""
+
+    def _seed(self, db):
+        did = db.create_drama(title_en="Test")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a"), Line(idx=1, start=1, end=2, zh="b")])
+        return did, db.load_line_objects(did)
+
+    def test_an_edit_since_the_read_refuses_and_writes_nothing(self, isolated_db):
+        from lib.errors import ConflictError
+        did, read = self._seed(isolated_db)
+        edited = isolated_db.load_line_objects(did)
+        edited[1].en = "typed"
+        isolated_db.save_lines(did, edited, fields=("en",))
+        with pytest.raises(ConflictError):
+            isolated_db.save_lines(did, read[:1], expect_unchanged=read)
+        assert [r["en"] for r in isolated_db.load_lines(did)] == ["", "typed"]
+
+    def test_unchanged_lines_save(self, isolated_db):
+        did, read = self._seed(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="new")], expect_unchanged=read)
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["new"]
+
+    def test_a_new_note_on_a_removed_line_refuses(self, isolated_db):
+        from lib.errors import ConflictError
+        did, read = self._seed(isolated_db)
+        isolated_db.save_translation_notes(did, [{"line_id": read[1].id, "line_idx": 1,
+                                                  "term": "t", "note": "n"}])
+        with pytest.raises(ConflictError):
+            isolated_db.save_lines(did, read[:1], known_note_ids=set())
+        assert len(isolated_db.load_lines(did)) == 2
+        known = {n["id"] for n in isolated_db.list_translation_notes(did)}
+        isolated_db.save_lines(did, read[:1], known_note_ids=known)
+        assert len(isolated_db.load_lines(did)) == 1
+
+    def test_field_scoped_saves_refuse_the_checks(self, isolated_db):
+        did, read = self._seed(isolated_db)
+        with pytest.raises(ValueError):
+            isolated_db.save_lines(did, read, fields=("en",), expect_unchanged=read)
+
+
 class TestLoadLineIds:
     """Step 6f: the cheap id-set check a caller uses to confirm a
     snapshot it computed earlier isn't stale relative to the database

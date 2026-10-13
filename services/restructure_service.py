@@ -19,16 +19,15 @@ Correctness rules:
 - Refused (409) while any job is running on the drama, so a job's
   field-scoped result can't land on a line whose text just changed shape.
 
-Atomicity gap: the snapshot, the id-set re-check and `save_lines` are three
-separate transactions (db.py has no API to run them in one). Guarded by a
-per-drama lock held across load -> check -> snapshot -> save for every write
-in this module and in the re-segmentation and re-split modules, and by
-re-reading the id set immediately before `save_lines`. Another process
-(e.g. the CLI) can still full-sync between that re-check and the save; a
-failure between snapshot and save leaves only an extra snapshot. Line edits
-(the line PATCH and notes routes) don't take the drama lock either, so an
-edit saved between a write's checks and its save_lines can be overwritten by
-it; an undo's fingerprint check has the same window.
+Atomicity: a per-drama lock is held across load -> check -> snapshot -> save
+for every write in this module and in the re-segmentation and re-split
+modules. Line edits (the line PATCH and notes routes) and other processes
+(the CLI) don't take that lock, so the save itself re-checks, inside its
+transaction, that the drama's lines are still exactly the ones the write
+was computed from (`save_lines(expect_unchanged=...)`) and refuses with
+nothing written if not. The snapshot is its own transaction, so a refused
+or failed save leaves only an extra snapshot. An undo's fingerprint check
+still runs outside the save's transaction.
 
 No FastAPI import: plain dicts in and out. Messages never echo
 line text, keys or paths.
@@ -121,17 +120,17 @@ def lines_fingerprint(lines) -> str:
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _commit(drama_id: int, current, new, label: str) -> int:
-    """Snapshot `current` (fresh from the DB), then full-sync `new`.
+def _commit(drama_id: int, current, new, label: str, known_note_ids=None) -> int:
+    """Snapshot `current` (fresh from the DB), then full-sync `new`, refused
+    (ConflictError, nothing saved) if the lines no longer match `current`
+    or, with `known_note_ids`, a line being removed gained a note.
     Caller holds the drama lock and has already checked expected ids.
     Returns the snapshot's `history_id`, so the caller can offer an undo."""
     history_id = db.save_line_history_snapshot(drama_id, current, label)
-    if db.load_line_ids(drama_id) != {ln.id for ln in current}:
-        raise ConflictError("This title's lines changed while saving -- nothing was changed; "
-                            "reload and try again.")
     for i, ln in enumerate(new):
         ln.idx = i
-    translate_service.save_synced(drama_id, new)
+    translate_service.save_synced(drama_id, new, expect_unchanged=current,
+                                  known_note_ids=known_note_ids)
     return history_id
 
 

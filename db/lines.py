@@ -8,6 +8,8 @@ import db
 # core has no db dependency, so importing it here can't cycle.
 from core import LINE_FIELDS as _LINE_COLUMNS
 from core import LINE_LANGUAGES as _LINE_LANGUAGES
+from core import lines_from_rows
+from lib.errors import ConflictError
 
 
 def line_value(ln, f):
@@ -108,7 +110,8 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     return f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}", args + cargs
 
 
-def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard_fields=()):
+def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard_fields=(),
+               expect_unchanged=None, known_note_ids=None):
     """Saves a drama's lines by their permanent id (Line.id).
 
     Full sync (fields=None) -- the list IS the drama's lines now:
@@ -139,6 +142,17 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     database value must still equal this Line's own value -- the text the
     written fields were computed from (a flag from `en` and its timing).
 
+    expect_unchanged (full sync only): the Lines this write was computed
+    from, as read. The drama's lines must still be exactly these (same ids,
+    every field equal), checked inside this transaction, or ConflictError
+    is raised and nothing is written. Line edits don't take the
+    structural writers' drama lock, so only this makes their check and
+    save one step.
+
+    known_note_ids (full sync only): translation note ids the caller has
+    seen. A line this sync deletes that carries any other note raises
+    ConflictError, so a note added since the caller looked isn't lost.
+
     Word timings (Line.word_timings) are written only by a full sync, and
     only when the Line carries a value that differs from `orig`; None leaves
     the column alone. Any save that changes a line's `zh` without new words
@@ -152,6 +166,8 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
         raise ValueError("only_if_unchanged needs field-scoped saving")
     if guard_fields and not only_if_unchanged:
         raise ValueError("guard_fields needs only_if_unchanged")
+    if fields is not None and (expect_unchanged is not None or known_note_ids is not None):
+        raise ValueError("expect_unchanged and known_note_ids need a full sync")
     guard_cols = tuple(f for f in _LINE_COLUMNS if f in guard_fields)
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = db.get_conn()
@@ -162,6 +178,8 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
         conn.execute("BEGIN IMMEDIATE")
         existing = {r["id"] for r in conn.execute(
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
+        if expect_unchanged is not None:
+            _check_unchanged(conn, drama_id, expect_unchanged)
         kept, unwritten, words_written, words_cleared = set(), set(), set(), set()
         for ln in lines:
             lid = getattr(ln, "id", None)
@@ -225,6 +243,8 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                     if mid in existing and mid not in kept:
                         _repoint_line_refs(conn, drama_id, mid, ln.id)
             removed = existing - kept
+            if known_note_ids is not None:
+                _check_no_new_notes(conn, drama_id, removed, known_note_ids)
             for lid in removed:
                 _delete_line_refs(conn, lid)
             conn.executemany("DELETE FROM lines WHERE id = ?", [(lid,) for lid in removed])
@@ -249,6 +269,23 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
         if fields is None:
             ln.merged_ids = []
     return unwritten
+
+
+_CHANGED_WHILE_SAVING = ("This title's lines changed while saving -- nothing was changed; "
+                         "reload and try again.")
+
+
+def _check_unchanged(conn, drama_id, expected):
+    now = lines_from_rows(dict(r) for r in conn.execute(
+        f"SELECT {_LOAD_COLUMNS} FROM lines WHERE drama_id = ? ORDER BY idx, id", (drama_id,)))
+    if [ln.id for ln in now] != [ln.id for ln in expected] or now != list(expected):
+        raise ConflictError(_CHANGED_WHILE_SAVING)
+
+
+def _check_no_new_notes(conn, drama_id, removed, known_note_ids):
+    if any(r["line_id"] in removed and r["id"] not in known_note_ids for r in conn.execute(
+            "SELECT id, line_id FROM translation_notes WHERE drama_id = ?", (drama_id,))):
+        raise ConflictError(_CHANGED_WHILE_SAVING)
 
 
 # Every per-line table a full sync touches, and what it does to a removed
@@ -291,13 +328,16 @@ def _delete_line_refs(conn, line_id):
             conn.execute(f"UPDATE {table} SET line_id = NULL WHERE line_id = ?", (line_id,))
 
 
+_LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, "
+                 "speaker_manual, sfx, lang")
+
+
 def load_lines(drama_id: int, with_words: bool = False):
     """with_words adds word_timings, which only the re-split paths need."""
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute(
-            "SELECT id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, speaker_manual, "
-            f"sfx, lang{', word_timings' if with_words else ''} FROM lines WHERE drama_id = ? "
-            "ORDER BY idx, id",
+            f"SELECT {_LOAD_COLUMNS}{', word_timings' if with_words else ''} FROM lines "
+            "WHERE drama_id = ? ORDER BY idx, id",
             (drama_id,)
         ).fetchall()
     return [dict(r) for r in rows]
