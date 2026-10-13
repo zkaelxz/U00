@@ -18,7 +18,7 @@ test('phone header: Report a problem is a 44px icon button on the title row', as
   const report = page.getByRole('button', { name: 'Report a problem' })
   await expect(report).toBeVisible()
   const box = (await report.boundingBox())!
-  const title = (await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).boundingBox())!
+  const title = (await page.locator('.app-brand, .rail-brand').boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.width).toBeLessThan(60)
   expect(box.height).toBeGreaterThanOrEqual(44)
@@ -41,4 +41,20 @@ test('Reader on a phone: a long title does not push the page sideways', async ({
   await noSideways(page)
   const aa = (await page.getByRole('button', { name: /Aa|Reading settings/ }).first().boundingBox())!
   expect(aa.x + aa.width).toBeLessThanOrEqual(390)
+})
+
+test('Library at 360px: the title and the Titles/Lines toggle never break inside a word', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('/#/library')
+  await expect(page.locator('.page-title')).toHaveText('Library')
+  await expect(page.locator('.segmented span')).toHaveText(['Titles', 'Lines'])
+  // Rendered lines of each one-word label, counted from the text's own boxes.
+  const lines = await page.locator('.page-title, .segmented span').evaluateAll((els) =>
+    els.map((el) => {
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size
+    }))
+  expect(lines).toEqual([1, 1, 1])
+  await noSideways(page)
 })

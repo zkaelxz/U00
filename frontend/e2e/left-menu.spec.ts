@@ -76,7 +76,7 @@ test('manga routes mark Library tools current, not Library', async ({ page }) =>
 
 test('the brand links to Library', async ({ page }) => {
   await page.goto('/#/settings')
-  await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).getByRole('link').click()
+  await page.locator('.app-brand, .rail-brand').getByRole('link').click()
   await expect(page).toHaveURL(/#\/library$/)
 })
 

@@ -20,7 +20,6 @@ import weakref
 from typing import List
 
 import portable
-from lib import gzip_text
 
 # Next to the code for a source checkout; the per-user data folder for an
 # installed copy (portable.data_dir()).
@@ -2153,96 +2152,9 @@ from db.style import (  # noqa: E402,F401
 # previously applied to: nothing else references presets.id at all.
 # ---------------------------------------------------------------------------
 
-def save_preset(name: str, translation_engine: str = None, engine_model: str = None,
-                 style_preset: str = None, locale: str = None,
-                 default_female_pronouns: bool = False, include_genre_notes: bool = True) -> int:
-    """Creates a new preset, or overwrites the existing one with this exact
-    name -- "Save as preset" under a name that's already taken replaces
-    its captured fields rather than failing on the name's UNIQUE
-    constraint, the same "save as" behavior as most apps. Overwriting
-    never touches any drama the old version was previously applied to,
-    since applying one only ever copies its fields onto a drama at that
-    moment (see the `presets` table comment) -- there's no live link to
-    break."""
-    now = datetime.datetime.utcnow().isoformat()
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("""
-            INSERT INTO presets (name, translation_engine, engine_model, style_preset, locale,
-                                  default_female_pronouns, include_genre_notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                translation_engine = excluded.translation_engine,
-                engine_model = excluded.engine_model,
-                style_preset = excluded.style_preset,
-                locale = excluded.locale,
-                default_female_pronouns = excluded.default_female_pronouns,
-                include_genre_notes = excluded.include_genre_notes,
-                updated_at = excluded.updated_at
-        """, (name, translation_engine, engine_model, style_preset, locale,
-              int(bool(default_female_pronouns)), int(bool(include_genre_notes)), now, now))
-        conn.commit()
-        # cur.lastrowid isn't reliable on the UPDATE branch of an upsert --
-        # look the row up by its own UNIQUE name instead of trusting it.
-        preset_id = conn.execute("SELECT id FROM presets WHERE name = ?", (name,)).fetchone()["id"]
-    return preset_id
-
-
-def insert_preset(name: str, translation_engine: str = None, engine_model: str = None,
-                  style_preset: str = None, locale: str = None,
-                  default_female_pronouns: bool = False, include_genre_notes: bool = True) -> int:
-    """Insert-only twin of save_preset: a taken name raises
-    sqlite3.IntegrityError (UNIQUE(name)) instead of replacing the row, so
-    a caller can refuse an overwrite without a check-then-write race."""
-    now = datetime.datetime.utcnow().isoformat()
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute("""
-            INSERT INTO presets (name, translation_engine, engine_model, style_preset, locale,
-                                  default_female_pronouns, include_genre_notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (name, translation_engine, engine_model, style_preset, locale,
-              int(bool(default_female_pronouns)), int(bool(include_genre_notes)), now, now))
-        conn.commit()
-        return cur.lastrowid
-
-
-def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str = None) -> bool:
-    """The guided switch: changes only a preset's model, and only if it
-    still holds expected_model (when given). False when nothing changed."""
-    with contextlib.closing(get_conn()) as conn:
-        if expected_model is None:
-            cur = conn.execute("UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ?",
-                               (engine_model, datetime.datetime.utcnow().isoformat(), preset_id))
-        else:
-            cur = conn.execute(
-                "UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ? AND engine_model = ?",
-                (engine_model, datetime.datetime.utcnow().isoformat(), preset_id, expected_model))
-        conn.commit()
-    return cur.rowcount > 0
-
-
-def list_presets():
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
-    return [dict(r) for r in rows]
-
-
-def rename_preset(preset_id: int, new_name: str):
-    """Updates only the name -- every captured field is left exactly as
-    saved."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE presets SET name = ?, updated_at = ? WHERE id = ?",
-                     (new_name, datetime.datetime.utcnow().isoformat(), preset_id))
-        conn.commit()
-
-
-def delete_preset(preset_id: int):
-    """Removes only the presets row. No drama row (or any other table)
-    references a preset's id, so a drama this preset was previously
-    applied to is completely unaffected -- see the `presets` table's own
-    comment in init_db."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM presets WHERE id = ?", (preset_id,))
-        conn.commit()
+from db.presets import (  # noqa: E402,F401
+    delete_preset, insert_preset, list_presets, rename_preset, save_preset,
+    set_preset_engine_model)
 
 
 # ---------------------------------------------------------------------------
@@ -2251,95 +2163,9 @@ def delete_preset(preset_id: int):
 # instead of losing translation work with no way back.
 # ---------------------------------------------------------------------------
 
-# Word timings a snapshot carries, in total: about 3 MB for a three-hour,
-# 9,000-line title. Past it the remaining lines are saved without words, so a
-# restore re-splits them proportionally rather than growing every snapshot.
-MAX_SNAPSHOT_WORD_BYTES = 4_000_000
-# Older snapshots are rarely opened, so they are kept gzip-compressed (a BLOB
-# in the same column; get_line_history_snapshot reads both forms).
-PLAIN_SNAPSHOTS = 3
-
-
-def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int = 10):
-    """Saves a full snapshot of the current lines before a risky bulk
-    operation. Keeps only the most recent `keep_last` snapshots per
-    drama to avoid unbounded growth -- older ones are pruned. Returns the
-    new snapshot's id.
-
-    Each line's stored word timings are read from its row and kept only when
-    they were computed for the snapshot's own text (up to
-    MAX_SNAPSHOT_WORD_BYTES in all), so a restore brings back real pauses."""
-    from segment_splitting import words_for_text
-    snapshot = [
-        {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
-         "zh": ln.zh, "en": ln.en,
-         "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None),
-         "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
-         "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-         "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
-        for ln in lines
-    ]
-    conn = get_conn()
-    try:
-        # IMMEDIATE: this reads the lines' words before it writes, and a
-        # deferred BEGIN's upgrade to a write fails at once ("database is
-        # locked") if another connection commits in between.
-        conn.execute("BEGIN IMMEDIATE")
-        stored = dict(conn.execute(
-            "SELECT id, word_timings FROM lines WHERE drama_id = ? AND word_timings IS NOT NULL",
-            (drama_id,)).fetchall())
-        budget = MAX_SNAPSHOT_WORD_BYTES
-        for row in snapshot:
-            words = words_for_text(stored.get(row["id"]), row["zh"])
-            if words is not None and len(words) <= budget:
-                row["word_timings"] = words
-                budget -= len(words)
-        history_id = conn.execute(
-            "INSERT INTO line_history (drama_id, label, snapshot_json, created_at) VALUES (?, ?, ?, ?)",
-            (drama_id, label, json.dumps(snapshot, ensure_ascii=False),
-             datetime.datetime.utcnow().isoformat())
-        ).lastrowid
-        # Prune old snapshots. Inside the same transaction so a failure here
-        # can't leave the prune applied without the new snapshot written.
-        ids = conn.execute(
-            "SELECT id FROM line_history WHERE drama_id = ? ORDER BY created_at DESC", (drama_id,)
-        ).fetchall()
-        if len(ids) > keep_last:
-            old_ids = [r["id"] for r in ids[keep_last:]]
-            conn.executemany("DELETE FROM line_history WHERE id = ?", [(i,) for i in old_ids])
-        for old_id, text in conn.execute(
-                "SELECT id, snapshot_json FROM line_history WHERE typeof(snapshot_json) = 'text' "
-                "AND id IN (SELECT id FROM line_history WHERE drama_id = ? ORDER BY created_at DESC,"
-                " id DESC LIMIT -1 OFFSET ?)", (drama_id, PLAIN_SNAPSHOTS)).fetchall():
-            packed = gzip_text.pack(text)
-            if gzip_text.unpack(packed) == text:
-                conn.execute("UPDATE line_history SET snapshot_json = ? WHERE id = ?", (packed, old_id))
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-    return history_id
-
-
-def list_line_history(drama_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT id, drama_id, label, created_at FROM line_history WHERE drama_id = ? ORDER BY created_at DESC",
-            (drama_id,)
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def get_line_history_snapshot(history_id: int):
-    """Returns the list of line dicts from a saved snapshot, ready to
-    be turned back into Line objects and saved via save_lines()."""
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT snapshot_json FROM line_history WHERE id = ?", (history_id,)).fetchone()
-    if not row:
-        return None
-    return json.loads(gzip_text.unpack(row["snapshot_json"]))
+from db.line_history import (  # noqa: E402,F401
+    MAX_SNAPSHOT_WORD_BYTES, PLAIN_SNAPSHOTS, get_line_history_snapshot, list_line_history,
+    save_line_history_snapshot)
 
 
 # ---------------------------------------------------------------------------

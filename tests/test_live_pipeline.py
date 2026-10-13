@@ -362,8 +362,11 @@ class TestLagFigures:
             assert _wait(lambda: len([c for c in _result("live_stats")
                                       if c["translation"] == "done"]) >= done)
             stream.add(1)
-        assert _wait(lambda: start.stats and start.stats[-1]["chunks_measured"] == 3)
-        last = start.stats[-1]
+        # The last add() lets a fourth chunk finish too, so the newest figures may already
+        # count 4: look for the ones published when the third chunk was measured.
+        third = lambda: [s for s in start.stats if s["chunks_measured"] == 3]  # noqa: E731
+        assert _wait(third)
+        last = third()[-1]
         assert set(last) == {"lag_seconds", "processing_seconds", "translations_skipped",
                              "translate_queue", "chunks_measured"}
         assert all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in last.values())

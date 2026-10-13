@@ -99,7 +99,7 @@ test('Away from the PC (household listener): no banner and no request', async ({
   // The Library list loads after /api/meta has said this is not the PC, which is when a health read would start.
   const libraryRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/library/dramas')
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Baihe Studio' })).toBeVisible()
+  await expect(page.locator('.app-brand, .rail-brand')).toBeVisible()
   await libraryRead
   expect(m.reads).toBe(0)
   await expect(page.getByTestId('remote-health-banner')).toHaveCount(0)
