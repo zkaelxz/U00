@@ -46,14 +46,24 @@ function base() {
 // Every request carries the token as a header. Never as a query
 // parameter: a URL reaches logs, history and referrers, and this repo's
 // standing rule is that nothing token-shaped goes into one.
+// Chrome may stop a service worker whose single event runs about five minutes,
+// which would drop the reply port without a word. A bridge call that is still
+// queued behind a long run (or a first model download) is cut off a little
+// earlier and reported honestly: the app keeps working on it.
+const CALL_TIMEOUT_MS = 4.5 * 60 * 1000;
+const STILL_WORKING = "Baihe is still working; send the rest later.";
+
 async function call(path, { method = "GET", body = null } = {}) {
   const { token } = await settings();
   if (!token) {
     return { ok: false, error: "No token yet. Open the extension's options and paste the token from Baihe's Settings." };
   }
   let response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
   try {
     response = await fetch(base() + path, {
+      signal: controller.signal,
       method,
       headers: {
         "X-Baihe-Token": token,
@@ -62,6 +72,14 @@ async function call(path, { method = "GET", body = null } = {}) {
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === "AbortError") {
+      return {
+        ok: false,
+        timedOut: true,
+        error: "Baihe is still working on this. Check the drama in Baihe in a few minutes; pages already read are kept.",
+      };
+    }
     // A refused connection is the ordinary "the app isn't running" case,
     // and is worth saying plainly rather than as a network error.
     return {
@@ -75,6 +93,7 @@ async function call(path, { method = "GET", body = null } = {}) {
   } catch (e) {
     payload = null;
   }
+  clearTimeout(timer);
   if (!response.ok) {
     const detail = (payload && payload.error) || `HTTP ${response.status}`;
     return { ok: false, error: detail, status: response.status };
@@ -177,7 +196,8 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
   const cap = await batchCap();
   const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
-  for (const batch of planBatches(images, cap, filterPages !== false ? 2 : 1)) {
+  const batches = planBatches(images, cap, filterPages !== false ? 2 : 1);
+  for (const [index, batch] of batches.entries()) {
     // /pages is the only route that runs the page filter, so a chapter of two or more images uses it even if the filter later leaves one.
     const answer = await call(batch.length === 1 && images.length === 1 ? "/page" : "/pages", {
       method: "POST",
@@ -202,6 +222,19 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
       firstError = firstError || answer;
       for (const image of batch) {
         merged.failed.push({ key: image.key, url: image.url || "", error: answer.error });
+      }
+      if (answer.timedOut) {
+        // The app keeps working on this batch. Sending the next one now would
+        // run two at once and interleave the stored pages.
+        let notSent = 0;
+        for (const later of batches.slice(index + 1)) {
+          for (const image of later) {
+            merged.failed.push({ key: image.key, url: image.url || "", error: STILL_WORKING });
+            notSent += 1;
+          }
+        }
+        merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
+        break;
       }
       continue;
     }
@@ -232,7 +265,7 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
 // still lets this worker download the file once the person has allowed that one
 // image origin, so the bytes come from here and go through the same upload path.
 
-// The bridge accepts exactly these (page_server.ALLOWED_IMAGE_TYPES) and refuses
+// The bridge accepts exactly these (PNG, JPEG or WebP, judged from the bytes) and refuses
 // anything over 12 MB, so a download that could never be sent is cut off early.
 const FETCH_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 const FETCH_IMAGE_TIMEOUT_MS = 20000;

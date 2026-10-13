@@ -213,6 +213,23 @@ class TestTheEndpointRefusesWhatItShould:
                                             "content_type": "text/html"}]})
         assert handler.status == 415
 
+    def test_bytes_that_are_not_the_claimed_image_type_are_refused(self, token, fake_pipeline,
+                                                                    isolated_db):
+        Image = pytest.importorskip("PIL.Image")
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 40), (200, 10, 10)).save(buf, "TIFF")
+        handler = _post(token, {"images": [{"data": _b64(buf.getvalue()),
+                                            "content_type": "image/png"}]})
+        assert handler.status == 415
+
+    def test_an_image_over_the_pixel_cap_is_refused_before_decoding(self, token, fake_pipeline,
+                                                                    isolated_db, monkeypatch):
+        from services import page_import_limits
+        monkeypatch.setattr(page_import_limits, "MAX_IMAGE_PIXELS", 1000)
+        handler = _post(token, {"images": [{"data": _b64(_png_bytes(100, 100)),
+                                            "content_type": "image/png"}]})
+        assert handler.status == 413
+
     def test_too_many_images_are_refused(self, token, fake_pipeline):
         one = {"data": _b64(_png_bytes()), "content_type": "image/png"}
         handler = _post(token, {"images": [one] * (page_server.MAX_IMAGES_PER_REQUEST + 1)},

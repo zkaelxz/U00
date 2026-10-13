@@ -251,7 +251,11 @@ def test_the_page_pipeline_receives_the_saved_ocr_settings(env, monkeypatch):
 
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", fake_detect)
     page_server.set_config_provider(extension_service.resolved_translation_config)
-    out = page_server.translate_image(b"not-really-a-png", "image/png", store=False,
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), (255, 255, 255)).save(buf, "PNG")
+    out = page_server.translate_image(buf.getvalue(), "image/png", store=False,
                                       source_language="zh")
     assert seen["tesseract_cmd"] == "/opt/tess/tesseract"
     assert seen["hf_token"] == HF_TOKEN
