@@ -202,10 +202,10 @@ def custom_source() -> bool:
 def include_prereleases() -> bool:
     """Developer Mode's "include pre-releases". Ignored while Developer Mode
     is off, so switching it off also stops betas being offered."""
-    from services import maintenance_assistant_service, settings_service
+    from services import assistant_settings_service, settings_service
     try:
         return (settings_service.get(INCLUDE_PRERELEASES_KEY) is True
-                and maintenance_assistant_service.developer_mode_enabled())
+                and assistant_settings_service.developer_mode_enabled())
     except Exception:
         return False
 

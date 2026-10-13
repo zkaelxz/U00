@@ -349,7 +349,7 @@ def test_valid_restore_calls_existing_swap(isolated_db, monkeypatch):
 
 def test_restore_that_flips_developer_mode_syncs_the_echo_engine(isolated_db, monkeypatch):
     from engine_backends import echo, engine_registry
-    from services import maintenance_assistant_service as assistant
+    from services import assistant_settings_service as assistant
     echo.set_enabled(False)
     monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
         assistant._SETTINGS_PREFIX + "developer_mode", True))

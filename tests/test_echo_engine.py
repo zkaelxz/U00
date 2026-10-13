@@ -12,7 +12,7 @@ from api.server import create_app
 from fastapi.testclient import TestClient
 from core import Line, lines_to_srt
 from engine_backends import echo
-from services import maintenance_assistant_service as assistant
+from services import assistant_settings_service as settings_svc
 from services import translate_run_service as run_svc
 from services import translate_service
 from services.service_errors import InvalidInputError
@@ -47,7 +47,7 @@ def _listed():
 
 
 def test_translate_run_through_a_title_then_export(isolated_db):
-    assistant.set_settings({"developer_mode": True})
+    settings_svc.set_settings({"developer_mode": True})
     entry = _listed()["echo"]
     assert entry["free"] and entry["key_configured"]
     assert entry["label"] == echo.NOTE
@@ -63,9 +63,9 @@ def test_translate_run_through_a_title_then_export(isolated_db):
 
 
 def test_absent_and_refused_with_developer_mode_off(isolated_db):
-    assistant.set_settings({"developer_mode": True})
+    settings_svc.set_settings({"developer_mode": True})
     assert "echo" in _listed()
-    assistant.set_settings({"developer_mode": False})
+    settings_svc.set_settings({"developer_mode": False})
     assert "echo" not in _listed()
     assert "echo" not in te.KEYLESS_ENGINES and "echo" not in te.FREE_ENGINES
     did = _seed(["你好"])
