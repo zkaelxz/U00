@@ -49,6 +49,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/library_folder.py` (the library folder on disk: `fsync_dir`, and the start-up check that puts back a library an interrupted restore left renamed aside)
   - `db/media_journal.py` (the media journal for backup imports and restores: staging folders, the journal of drama folders moved in, crash recovery, claiming a new drama's folder)
   - `db/job_records.py` (the job_records mirror of background job status)
+  - `db/reading.py` (profiles and what each has read: resume points, reading history, personal notes per drama)
   - `db/speakers.py` (characters and speakers: speaker rename and merge with its undo, series characters and voice links, the voice bank)
   - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
 - `dependency_updates.py` (installed versions against PyPI: update classification, constraints.txt and requirement minimums, known upgrade and install limitations)
