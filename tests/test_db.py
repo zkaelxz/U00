@@ -2288,7 +2288,7 @@ class TestInitDbSchema:
 
 # Tables with a line_id that a full sync deliberately leaves alone when a line
 # is removed or merged. A new per-line table must go here or in
-# db._LINE_REF_TABLES, so a merge moves its rows and a delete cleans them.
+# db.lines._LINE_REF_TABLES, so a merge moves its rows and a delete cleans them.
 _LINE_ID_TABLES_NOT_FOLLOWED = {
     "bug_reports": "a frozen debugging bundle; its line_id is only a hint",
     "bulk_job_lines": "results are applied by line id and skipped once the line is gone",
@@ -2301,8 +2301,8 @@ def test_every_line_id_table_is_followed_or_listed(isolated_db):
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
         with_line_id = {t for t in tables
                         if "line_id" in {c[1] for c in conn.execute(f'PRAGMA table_info("{t}")')}}
-    assert with_line_id == set(db._LINE_REF_TABLES) | set(_LINE_ID_TABLES_NOT_FOLLOWED)
-    assert set(db._LINE_REF_TABLES.values()) <= {"delete", "unlink"}
+    assert with_line_id == set(db.lines._LINE_REF_TABLES) | set(_LINE_ID_TABLES_NOT_FOLLOWED)
+    assert set(db.lines._LINE_REF_TABLES.values()) <= {"delete", "unlink"}
 
 
 def test_line_refs_follow_a_merge_and_go_with_a_delete(isolated_db):
