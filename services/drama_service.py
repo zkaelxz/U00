@@ -68,9 +68,10 @@ _TEXT_CAPS = {"summary": MAX_LONG_TEXT_LEN, "episode_summary": MAX_LONG_TEXT_LEN
               "project_instructions": MAX_LONG_TEXT_LEN, "source_url": MAX_URL_LEN,
               "custom_tags": MAX_URL_LEN}
 _STRIPPED = ("title_en", "title_zh")
+_RELEASE_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _UPDATABLE = frozenset(_TEXT_FIELDS + _INT_FIELDS + _BOOL_FIELDS
                        + ("media_type", "publication_status", "series_id",
-                          "new_series_name"))
+                          "new_series_name", "release_date"))
 
 
 def _check_text(name, value):
@@ -86,6 +87,25 @@ def _check_text(name, value):
     if name in _STRIPPED and "\x00" in value:
         raise InvalidInputError(f"{name} must not contain a NUL character.")
     return value.strip() if name in _STRIPPED else value
+
+
+def _check_release_date(value):
+    """"" clears (unknown); otherwise a real calendar date as YYYY-MM-DD.
+    The regex is needed because fromisoformat also accepts other spellings
+    (e.g. 20260101) that would sort wrongly as text."""
+    if not isinstance(value, str):
+        raise InvalidInputError("release_date must be text.")
+    if value and not (_RELEASE_DATE_RE.fullmatch(value) and _is_real_date(value)):
+        raise InvalidInputError("release_date must be empty or a date as YYYY-MM-DD.")
+    return value
+
+
+def _is_real_date(value):
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _check_id(name, value):
@@ -109,7 +129,7 @@ SENTENCE_SPLIT_DEFAULT_LANGUAGES = ("zh", "ja")
 
 
 def create_drama(*, source_language, title_en="", title_zh="", author="", studio="",
-                 director="", voice_actors="", summary="", media_type="audio_drama",
+                 director="", voice_actors="", summary="", media_type="audio_drama", release_date="",
                  series_id=None, new_series_name=None, preset_id=None,
                  principal=None) -> dict:
     """Creates a drama (and optionally assigns a series and applies a
@@ -130,6 +150,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     for name, value in texts.items():
         texts[name] = _check_text(name, value)
     _check_media_type(media_type)
+    release_date = _check_release_date(release_date)
 
     if series_id is not None and new_series_name is not None:
         raise InvalidInputError("Pass series_id or new_series_name, not both.")
@@ -153,6 +174,8 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             raise NotFoundError("No preset with that id.")
 
     fields = dict(texts, media_type=media_type, source_language=source_language, **owned)
+    if release_date:
+        fields["release_date"] = release_date
     if series_id is not None:
         fields["series_id"] = series_id
     if source_language in SENTENCE_SPLIT_DEFAULT_LANGUAGES:
@@ -250,6 +273,8 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
             if not isinstance(value, bool):
                 raise InvalidInputError(f"{key} must be true or false.")
             value = int(value)
+        elif key == "release_date":
+            value = _check_release_date(value) or None  # "" clears to NULL
         elif key == "media_type":
             _check_media_type(value)
         elif key == "publication_status":

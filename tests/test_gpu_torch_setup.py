@@ -10,6 +10,7 @@ import subprocess
 
 import pytest
 
+import dependency_updates
 import diagnostics
 import diagnostics_torch
 from lib import proc as proc_run
@@ -65,7 +66,7 @@ def test_variants_are_matched_triples_from_fixed_pytorch_indexes():
 def test_constraints_caps_allow_the_recommended_triple():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for name in ("torch", "torchaudio"):
-        cap = diagnostics._constraints_cap(name, root)
+        cap = dependency_updates._constraints_cap(name, root)
         assert cap is None or int(diagnostics_torch.TORCH_VARIANTS["cu128"]["versions"][name][0]) < cap[1]
 
 

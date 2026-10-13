@@ -192,7 +192,8 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
   `deepseek`, `gemini`, `openai`) and not to free-tier Gemini
   (`engine_cap_applies`). With a `FallbackEngine`, each engine has its own cap
   and spend.
-- `bulk_translate.py` submits whole-drama batches: Claude Message Batches and
+- `bulk_translate.py` submits whole-drama batches (`bulk_apply.py` applies the results,
+  `bulk_reflect.py` is the Reflect pipeline, `bulk_poll.py` polls, resumes and cancels): Claude Message Batches and
   Gemini Batch API at `BATCH_PRICE_FACTOR = 0.5`, and DeepSeek scheduled into
   its off-peak window (no batch API). Results are applied by line id, and only
   to a line that still exists, whose source hash is unchanged and whose English

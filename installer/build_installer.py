@@ -82,8 +82,9 @@ PYTHON_EMBED_SHA256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63
 INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
 
 # The runtime half of installer/ that ships; the rest (this script, the
-# .iss) is build-only.
-RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py")
+# .iss) is build-only. The release public key ships so the installed app's
+# updater checks signatures against the key it was installed with.
+RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py", "release_public_key.txt")
 
 # The Python files of the elevated service script, which imports its siblings
 # as installer.<name> from helper/lib; one missing here breaks it only on
@@ -272,11 +273,33 @@ def check_payload(app_dest) -> None:
             problems.append(rel)
     for required in ("frontend/dist/index.html", "api/__main__.py", "portable.py", "process_guard.py",
                      "requirements-core.txt", "constraints.txt", "check_setup.py",
-                     "installer/launcher.py", "installer/postinstall.py"):
+                     "installer/launcher.py", "installer/postinstall.py",
+                     "installer/release_public_key.txt"):
         if not (app_dest / required).is_file():
             problems.append(f"missing: {required}")
+    key_file = app_dest / "installer" / "release_public_key.txt"
+    if key_file.is_file():
+        key_text = key_file.read_text(encoding="utf-8", errors="replace")
+        if "ed25519-private:" in key_text:
+            problems.append("installer/release_public_key.txt holds a private key")
+        else:
+            try:
+                _release_signature().parse_public_key(key_text)
+            except ValueError:
+                problems.append("installer/release_public_key.txt isn't one ed25519-public key line")
     if problems:
         raise BuildError("The staged app isn't safe to ship: " + ", ".join(sorted(problems)))
+
+
+def _release_signature():
+    """lib/release_signature.py, the parser the installed app uses, loaded by
+    path so this standard-library build script doesn't put the repo on
+    sys.path (its parsing needs only the standard library)."""
+    spec = importlib.util.spec_from_file_location("_release_signature",
+                                                  REPO_ROOT / "lib" / "release_signature.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def sha256_of(path) -> str:
