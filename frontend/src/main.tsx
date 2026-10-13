@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './frost.css'
 import App from './App.tsx'
 import { installBootFallback, renderBootFallback } from './bootFallback'
 import { RouteErrorBoundary } from './components/ErrorBoundary'

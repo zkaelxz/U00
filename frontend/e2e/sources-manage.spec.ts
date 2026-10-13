@@ -46,6 +46,9 @@ test('the header is the Sources page header with its tabs; switching tabs keeps 
   await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
   await page.getByRole('tab', { name: 'Manage sources' }).click()
   await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
+  // The page switches tabs before the router has handled the hash change; a Back inside that gap never reaches
+  // the route, so wait a frame or two like a person would.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
   await page.goBack()
   await expect(page.getByRole('tab', { name: 'Find' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('searchbox', { name: 'Title' })).toHaveValue('Heaven')
