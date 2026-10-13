@@ -113,13 +113,9 @@ class _Probe:
     supports_reference are read (estimates, the prompt context)."""
     def __init__(self, engine_name: str):
         self.name = engine_name
-        self.model = _default_model(engine_name)
+        self.model = translate_engines.effective_default_model(engine_name)
         self.free_tier = engine_name == "gemini" and settings_service.get("gemini_free_tier")
         self.supports_reference = engine_name not in translate_engines.TRANSLATION_ONLY_ENGINES
-
-
-def _default_model(engine_name: str):
-    return translate_engines.effective_default_model(engine_name)
 
 
 def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:

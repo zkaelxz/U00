@@ -936,7 +936,7 @@ def test_raw_tokens_never_stored_listed_or_audited(isolated_db):
     text = _all_db_text()
     for raw in (s["session_token"], s["csrf_token"]):
         assert raw not in text
-        blob = repr(auth_service.list_sessions(u["id"])) + repr(auth_service.list_audit(500)) \
+        blob = repr(db.auth_list_sessions(u["id"])) + repr(auth_service.list_audit(500)) \
             + repr(auth_service.list_users())
         assert raw not in blob
         assert auth_service._hash(raw) not in blob

@@ -1,6 +1,6 @@
 """
 services/subtitle_import_service.py -- bring a timed subtitle or lyric file
-(SRT, VTT, ASS/SSA, LRC) into a title, and rank sidecar file names.
+(SRT, VTT, ASS/SSA, LRC) into a title.
 
 Two ways in, chosen by the user (default "source"):
 - "source": the cues become the title's lines, the file's times authoritative.
@@ -178,19 +178,3 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
             "matched_lines": plan.get("matched_lines", 0),
             "unmatched_cues": plan.get("unmatched_cues", 0),
             "undo": handle}
-
-
-def rank_sidecar_names(drama_id: int, media_name: str, names: list) -> dict:
-    """Subtitle file names (picked in the browser) that belong to `media_name`,
-    best first. Names only, never paths; nothing is bound for the caller."""
-    drama = _drama(drama_id)
-    media_name = (media_name or "").strip()
-    if not media_name or "/" in media_name or "\\" in media_name:
-        raise InvalidInputError("media_name must be a file name.")
-    if len(names) > 500 or any((not isinstance(n, str)) or len(n) > 255 or "/" in n or "\\" in n
-                              for n in names):
-        raise InvalidInputError("names must be at most 500 file names, without folders.")
-    ranked = subtitle_sidecar.rank_sidecars(media_name, names, drama.get("source_language"))
-    return {"candidates": [{"name": c.name, "format": c.format, "language_token": c.language_token,
-                            "language": c.language, "exact": c.exact} for c in ranked],
-            "ambiguous": len(ranked) > 1}

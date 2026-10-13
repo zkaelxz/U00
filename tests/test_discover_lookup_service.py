@@ -119,6 +119,13 @@ def test_import_suggestion_needs_manual_passthrough(monkeypatch, paid):
     assert out["needs_manual"] is True and out["suggestion"] == {}
 
 
+def test_import_suggestion_source_url_drops_query_and_userinfo(monkeypatch, paid, isolated_db):
+    monkeypatch.setattr(safe_fetch, "fetch_public_text", lambda url: PAGE)
+    monkeypatch.setattr(metadata_lookup, "extract_metadata_llm", lambda text, eng: {"title_zh": "书"})
+    out = svc.import_suggestion("https://user:pw@example.com/book/1?token=abc123#frag", "claude")
+    assert out["suggestion"]["source_url"] == "https://example.com/book/1"
+
+
 def test_import_suggestion_whitelists_and_writes_nothing(monkeypatch, paid, isolated_db):
     monkeypatch.setattr(safe_fetch, "fetch_public_text", lambda url: PAGE)
     monkeypatch.setattr(metadata_lookup, "extract_metadata_llm",

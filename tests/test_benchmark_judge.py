@@ -93,7 +93,7 @@ class TestCheckJudge:
             judge_svc.check_judge({"engine": "claude"}, CONFIGS)
 
     def test_a_named_model_equal_to_the_default_is_the_same_model(self, isolated_db, engines):
-        assert lab.default_model("claude") == "claude-sonnet-5-5"
+        assert translate_engines.effective_default_model("claude") == "claude-sonnet-5-5"
         with pytest.raises(UnsupportedOperationError):
             judge_svc.check_judge({"engine": "claude", "model": "claude-sonnet-5-5"},
                                   [{"engine": "claude"}])
