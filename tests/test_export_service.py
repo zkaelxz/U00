@@ -13,9 +13,16 @@ import sys
 import pytest
 
 from core import Line, lines_from_rows
-from services import export_service
+from services import export_service, lines_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, UnsupportedOperationError)
+
+
+def _set_flag_now(db, did, line_id, flag, note):
+    """Another writer (the Review page) saving a flag on one line."""
+    ln = next(x for x in lines_from_rows(db.load_lines(did)) if x.id == line_id)
+    ln.flag, ln.flag_note = flag, note
+    db.save_lines(did, [ln], fields=("flag", "flag_note"))
 
 
 def _drama(db, **fields):
@@ -241,7 +248,61 @@ class TestFlagOverlappingLines:
             export_service.flag_overlapping_lines(999999)
 
 
+    def test_a_flag_the_user_sets_while_checking_is_kept(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        first = isolated_db.load_lines(did)[0]["id"]
+        real = export_service.subtitle_formats.clamp_overlaps
+
+        def user_flags_meanwhile(lines):
+            _set_flag_now(isolated_db, did, first, "uncertain_translation", "mine")
+            return real(lines)
+        monkeypatch.setattr(export_service.subtitle_formats, "clamp_overlaps",
+                            user_flags_meanwhile)
+        assert export_service.flag_overlapping_lines(did) == {"flagged_count": 0}
+        row = isolated_db.load_lines(did)[0]
+        assert (row["flag"], row["flag_note"]) == ("uncertain_translation", "mine")
+
+
+    def test_the_next_line_moved_while_checking_is_not_flagged(self, isolated_db, monkeypatch):
+        """The overlap is with the NEXT line: moving that one away while the
+        check runs must stop the flag too."""
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        second = isolated_db.load_lines(did)[1]["id"]
+        real = export_service.subtitle_formats.clamp_overlaps
+
+        def user_moves_the_next_line(lines):
+            lines_service.patch_line(did, second, start=3.5, end=5.0)
+            return real(lines)
+        monkeypatch.setattr(export_service.subtitle_formats, "clamp_overlaps",
+                            user_moves_the_next_line)
+        assert export_service.flag_overlapping_lines(did) == {"flagged_count": 0}
+        assert isolated_db.load_lines(did)[0]["flag"] is None
+
+
 class TestFlagDenseLines:
+    def test_english_shortened_while_checking_is_not_flagged(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="word " * 60)])
+        lid = isolated_db.load_lines(did)[0]["id"]
+        real = export_service.subtitle_formats.flag_dense_lines
+
+        def user_edits_meanwhile(lines, **kw):
+            lines_service.patch_line(did, lid, en="Short.")
+            return real(lines, **kw)
+        monkeypatch.setattr(export_service.subtitle_formats, "flag_dense_lines",
+                            user_edits_meanwhile)
+        assert export_service.flag_dense_lines(did) == {"flagged_count": 0}
+        row = isolated_db.load_lines(did)[0]
+        assert (row["en"], row["flag"]) == ("Short.", None)
+
     def test_flags_a_dense_line(self, isolated_db):
         did = _drama(isolated_db)
         dense_text = "word " * 60  # far more than fits in 1 second on screen
@@ -257,7 +318,6 @@ class TestFlagDenseLines:
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             export_service.flag_dense_lines(999999)
-
 
     def test_the_titles_mode_is_honoured(self, isolated_db):
         text = "word " * 20  # 19.8 cps over 5 s: over 17, under 20
@@ -352,6 +412,22 @@ class TestClearReadingSpeedFlags:
         with pytest.raises(NotFoundError):
             export_service.clear_reading_speed_flags(999999)
 
+    def test_a_flag_the_user_sets_while_clearing_is_kept(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, self._lines())
+        first = isolated_db.load_lines(did)[0]["id"]
+        real = isolated_db.save_line_history_snapshot
+
+        def user_flags_meanwhile(*a, **k):
+            out = real(*a, **k)
+            _set_flag_now(isolated_db, did, first, "uncertain_translation", "mine")
+            return out
+        monkeypatch.setattr(isolated_db, "save_line_history_snapshot", user_flags_meanwhile)
+        result = export_service.clear_reading_speed_flags(did)
+        assert result["cleared_count"] == 0
+        row = isolated_db.load_lines(did)[0]
+        assert (row["flag"], row["flag_note"]) == ("uncertain_translation", "mine")
+
 
 class TestRunAutoQcFlagging:
     def test_flags_a_missing_number(self, isolated_db):
@@ -386,6 +462,23 @@ class TestRunAutoQcFlagging:
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             export_service.run_auto_qc_flagging(999999)
+
+    def test_english_fixed_while_checking_is_not_flagged(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="他有三个孩子。", en="He has kids."),
+        ])
+        lid = isolated_db.load_lines(did)[0]["id"]
+        real = export_service.auto_qc.run_auto_qc
+
+        def user_fixes_meanwhile(lines, *a, **k):
+            lines_service.patch_line(did, lid, en="He has three kids.")
+            return real(lines, *a, **k)
+        monkeypatch.setattr(export_service.auto_qc, "run_auto_qc", user_fixes_meanwhile)
+        result = export_service.run_auto_qc_flagging(did)
+        assert result["flagged"] == 0
+        row = isolated_db.load_lines(did)[0]
+        assert (row["en"], row["flag"]) == ("He has three kids.", None)
 
 
 class TestGenerateEpub:

@@ -176,3 +176,38 @@ describe('frost wash and cards', () => {
     expect(frost.slice(frost.indexOf('@supports (backdrop-filter: blur(1px)) {'))).not.toMatch(/^\s*\.card,/m)
   })
 })
+
+// Covers: flat hue fills under white text, in every theme (sepia reads the light set, oled the dark set).
+describe('cover hues under cover text', () => {
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (let i = 0; i < 6; i++) {
+      it(`${name}: --on-tile on --tile-h${i}`, () => {
+        expect(contrast(resolve(theme, '--on-tile'), resolve(theme, `--tile-h${i}`))).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+
+  it('dark hues are darker than the light ones', () => {
+    for (let i = 0; i < 6; i++) {
+      expect(luminance(resolve(THEMES.dark, `--tile-h${i}`))).toBeLessThan(luminance(resolve(THEMES.light, `--tile-h${i}`)))
+    }
+  })
+
+  it('draws covers as a flat fill, no gradient', () => {
+    const frost = readFileSync(new URL('./frost.css', import.meta.url), 'utf8')
+    const rule = frost.match(/\.continue-tile\[class\*='tile-h'\] \{([^}]*)\}/)?.[1] ?? ''
+    expect(rule).toContain('background: var(--tile);')
+    expect(rule).not.toMatch(/gradient/)
+    expect(css).not.toMatch(/gradient\(160deg/)
+  })
+})
+
+describe('mono numbers', () => {
+  it('timecodes and line ids use the mono face with tabular figures', () => {
+    for (const cls of ['review-time', 'review-idx']) {
+      const decl = [...reviewCss.matchAll(new RegExp(`\\.${cls} \\{([^}]*)\\}`, 'g'))].map((m) => m[1]).join(';')
+      expect(decl, cls).toContain('font-family: var(--font-mono)')
+      expect(decl, cls).toContain('tabular-nums')
+    }
+  })
+})

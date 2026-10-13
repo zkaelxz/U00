@@ -6,7 +6,6 @@ glossary_service describes the contract; import these names from there.
 
 No FastAPI import.
 """
-import os
 import threading
 import uuid
 from typing import Optional
@@ -18,7 +17,7 @@ import translate_engines
 import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
-from services import job_checkpoint_service, paid_job_service
+from services import job_checkpoint_service, novel_files_service, paid_job_service
 from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
 from services.service_errors import (
     ConflictError,
@@ -40,14 +39,8 @@ def novel_glossary_job_id(drama_id: int) -> str:
     return f"novel_glossary_{drama_id}"
 
 
-def _read_drama_file(drama_id: int, filename: Optional[str]) -> str:
-    if not filename:
-        return ""
-    path = os.path.join(db.drama_dir(drama_id), filename)
-    if not os.path.isfile(path):
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+def _read_drama_file(drama_id: int, filename: Optional[str], capped: bool = True) -> str:
+    return novel_files_service.read_stored_text(drama_id, filename, capped) or ""
 
 
 def _default_engine() -> str:
@@ -283,7 +276,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     text and engine and ask the model again (the new replies replace them)."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
-    orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME)
+    orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME, capped=False)
     novel = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
     if not (orig.strip() or novel.strip()):
         raise UnsupportedOperationError("Attach a novel to this title first.")
