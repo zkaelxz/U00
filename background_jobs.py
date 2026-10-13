@@ -274,9 +274,8 @@ def _gpu_queue_waiting_locked():
     come, first served) rather than taking a slot that just opened. One held
     back by its starter's running cap doesn't count, or it would hold up
     everyone else's."""
-    return any(job.get("status") == "queued"
-               and not user_caps.at_running_cap(_jobs, job.get("owner_user_id"))
-               for job in (_jobs.get(e["job_id"], {}) for e in _gpu_queue))
+    return any(_jobs.get(e["job_id"], {}).get("status") == "queued"
+               and not user_caps.held(_jobs, e) for e in _gpu_queue)
 
 
 def _take_queued_locked(job_id=None) -> list:
@@ -728,7 +727,7 @@ def _next_promotable_entry_locked(dropped):
             if entry.get("on_finish") is not None:
                 dropped.append((entry["job_id"], entry["on_finish"]))
             continue
-        if not user_caps.at_running_cap(_jobs, job.get("owner_user_id")):
+        if not user_caps.held(_jobs, entry):
             return entry
     return None
 
@@ -938,7 +937,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         if existing and existing["status"] in ("running", "queued"):
             return False
         if gpu_touching and get_gpu_limit_enabled() and (
-                user_caps.at_running_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
+                user_caps.wait_for_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
                 or not _gpu_slot_available_locked(job_id, description)):
             user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=True)
             _jobs[job_id] = {
@@ -951,7 +950,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             }
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
-                                "kwargs": kwargs, "description": description, "kind": "thread"})
+                                "kwargs": kwargs, "description": description, "kind": "thread",
+                                "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
             return True
         user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=False)
@@ -1064,7 +1064,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         if existing and existing["status"] in ("running", "queued"):
             return False
         if gpu_touching and get_gpu_limit_enabled() and (
-                user_caps.at_running_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
+                user_caps.wait_for_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
                 or not _gpu_slot_available_locked(job_id, description)):
             user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=True)
             _jobs[job_id] = {
@@ -1080,7 +1080,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done, "on_finish": on_finish,
-                                "kill_whole_tree": kill_whole_tree, "start_method": start_method})
+                                "kill_whole_tree": kill_whole_tree, "start_method": start_method,
+                                "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
             return True
         user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=False)

@@ -173,11 +173,17 @@ Per-user caps (`jobs/user_caps.py`) apply to every job, GPU or not: a signed-in 
 may have `MAX_RUNNING_JOBS_PER_USER` (2) running and `MAX_QUEUED_JOBS_PER_USER` (5)
 queued jobs they started (`owner_user_id`), whatever the job ids; past either,
 `start_job`/`start_process_job` raise `RateLimitedError` (429). The count and the new
-entry happen under `_lock`. A GPU job whose starter is at the running cap is queued
-rather than refused; promotion skips it (it keeps its place) and other users' jobs go
-ahead of it until one of the starter's jobs ends, and every job's end runs a promotion.
-Starter None (the PC owner, auth off, the CLI, jobs started by jobs, older records) is
-never capped.
+entry happen under `_lock`, and a force-stopped job's worker that is still running
+counts as running. While the GPU limit setting is on, a GPU job whose starter is at the
+running cap is queued rather than refused; promotion skips it (it keeps its place) and
+other users' jobs go ahead of it until one of the starter's jobs ends, and every job's
+end runs a promotion. With the GPU limit off there is no GPU queue, so it is refused
+(429) like any other job. The job queue runner (`services/queue_service.py`) starts
+items inside `user_caps.refuse_at_cap()`: an item whose adder is at the running cap is
+refused instead of queued, goes back to waiting with a reason and the runner tries the
+next item, and a GPU job the runner starts is never held back for its starter's cap, so
+one member can't stall the shared queue. Starter None (the PC owner, auth off, the CLI,
+jobs started by jobs, older records) is never capped.
 
 A GPU job is queued instead of started when an earlier GPU job is already waiting
 (`_gpu_queue_waiting_locked`: first come, first served) or no slot is free

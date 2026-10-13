@@ -32,7 +32,8 @@ DECISION_DOC = ROOT / "docs" / "route-permissions.md"
 UPSTREAM = "127.0.0.1:{$BAIHE_API_HOUSEHOLD_PORT}"
 SITE = "{$BAIHE_DOMAIN}"
 # Household-permission routes the proxy refuses on purpose: bulk translate is
-# only reachable from the Library admin page, which the proxy blocks as a whole.
+# under /api/library/admin/*, which the proxy blocks as a whole, and the Library
+# selection bar offers it only at the PC (members translate title by title).
 BLOCKED_ON_PURPOSE = {("POST", "/api/library/admin/bulk/translate")}
 
 
