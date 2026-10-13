@@ -62,6 +62,8 @@ def test_pip_can_never_run(stubbed, monkeypatch):
     r = client.post("/api/diagnostics/dependencies/pydub/upgrade",
                     json={"confirm": True, "target": "9.9.9"})
     assert r.status_code == 409
+    r = client.post("/api/diagnostics/dependencies/pydub/upgrade/plan", json={"target": "9.9.9"})
+    assert r.status_code == 409
     for path, body in (("/api/diagnostics/gpu-torch/setup", {"confirm": True}),
                        ("/api/diagnostics/gpu-torch/check", {}),
                        ("/api/diagnostics/package-updates/check", {})):

@@ -114,7 +114,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
     import install_plan
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: ({"install": []}, None))
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: ({"install": []}, None))
     monkeypatch.setattr(installs, "_writable", lambda folder: True)
     background_jobs.clear_job(installs.DEPENDENCY_JOB_ID)
     installs._DEPENDENCY.update(kind=None, package=None, last=None)
@@ -193,7 +193,7 @@ def test_log_bounds_422(client):
     assert client.get("/api/diagnostics/log?keyword=" + "a" * 101).status_code == 422
 
 
-def test_install_runs_as_a_job_and_upgrade_stays_synchronous(client, fakes):
+def test_install_and_upgrade_run_as_jobs(client, fakes):
     r = client.post("/api/diagnostics/dependencies/pydub/install", json={"confirm": True})
     assert r.status_code == 200 and r.json() == {"job_id": "dependency_install", "started": True}
     b = _install_result(client)
@@ -201,8 +201,10 @@ def test_install_runs_as_a_job_and_upgrade_stays_synchronous(client, fakes):
     assert b["result"]["ok"] is True and b["result"]["package"] == "pydub"
     assert b["job"]["status"] == "done" and not job_launch.exclusive_active()
     r = client.post("/api/diagnostics/dependencies/pydub/upgrade", json={"confirm": True})
-    b = _clean(r)
-    assert r.status_code == 200 and b["ok"] is True and b["package"] == "pydub"
+    assert r.status_code == 200 and r.json() == {"job_id": "dependency_install", "started": True}
+    b = _install_result(client)
+    assert b["kind"] == "upgrade" and b["package"] == "pydub"
+    assert b["result"]["ok"] is True and DIRTY not in str(b["result"]["output_tail"])
     assert len(fakes) == 2
 
 
@@ -215,7 +217,7 @@ def test_install_takes_only_the_risks_the_owner_was_shown(client, fakes, monkeyp
     import install_plan
     import pending_install
     risk = "numpy 2.0 -> 1.0 is a downgrade of a package Baihe itself needs."
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: (
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (
         {"install": [{"metadata": {"name": "numpy", "version": "1.0"}}]}, None))
     monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "2.0"})
     monkeypatch.setattr(install_plan, "app_required_names", lambda: {"numpy"})
@@ -230,6 +232,33 @@ def test_install_takes_only_the_risks_the_owner_was_shown(client, fakes, monkeyp
     r = client.post(url, json={"confirm": True, "accept_risk": True, "accepted_risks": [risk]})
     assert r.status_code == 200 and r.json()["started"] is True
     assert _install_result(client)["result"]["ok"] is True
+
+
+def test_upgrade_previews_then_needs_the_shown_risks(client, fakes, monkeypatch):
+    import install_plan
+    import pending_install
+    monkeypatch.setattr(dependency_updates, "pypi_release_versions", lambda dist: ["1.0.0", "2.0.0"])
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
+    packages_svc._UPDATES.update(checked_at=None, packages={})
+    assert client.post("/api/diagnostics/package-updates/check", json={}).status_code == 200
+    risk = "numpy 2.0 -> 1.0 is a downgrade of a package Baihe itself needs."
+    asked = []
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: asked.append(specs) or (
+        {"install": [{"metadata": {"name": "numpy", "version": "1.0"}}]}, None))
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "2.0"})
+    monkeypatch.setattr(install_plan, "app_required_names", lambda: {"numpy"})
+    url = "/api/diagnostics/dependencies/pydub/upgrade"
+    plan = _clean(client.post(url + "/plan", json={"target": "2.0.0"}))
+    assert plan["needs_confirm"] == [risk] and asked == [["pydub==2.0.0"]]
+    assert client.post(url + "/plan", json={"target": "1.5.0"}).status_code == 409
+    r = client.post(url, json={"confirm": True, "target": "2.0.0", "accept_risk": True})
+    assert r.status_code == 409 and "numpy 2.0" in r.text and fakes == []
+    r = client.post(url, json={"confirm": True, "target": "2.0.0", "accept_risk": True,
+                               "accepted_risks": [risk]})
+    assert r.status_code == 200 and r.json()["started"] is True
+    assert _install_result(client)["result"]["ok"] is True
+    assert "pydub==2.0.0" in fakes[0][1]
+    packages_svc._UPDATES.update(checked_at=None, packages={})
 
 
 def test_install_refusals(client, fakes, monkeypatch):
@@ -349,7 +378,7 @@ def test_auth_on_writes_are_pc_only(fakes):
     assert fakes == []
     for path, body in WRITES:
         assert local.post(path, json=body).status_code == 200, path
-        if "/install" in path or "gpu-torch/setup" in path:
+        if "/install" in path or "/upgrade" in path or "gpu-torch/setup" in path:
             _wait_install_job()      # one install at a time
     assert ("reset",) in fakes
 
@@ -388,5 +417,6 @@ def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
     assert r.status_code == 409 and fakes == []
     r = client.post(url, json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 200
-    assert "pydub==2.0.0" in fakes[0][1] or "pydub==2.0.0" in fakes[0][1]
+    _wait_install_job()
+    assert "pydub==2.0.0" in fakes[0][1]
     packages_svc._UPDATES.update(checked_at=None, packages={})
