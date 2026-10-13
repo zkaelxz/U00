@@ -84,7 +84,8 @@ test.describe('Library tools', () => {
     await mockEmptyLibrary(page)
     await page.route('**/api/library/presets', (r) => r.fulfill({ json: { items: [{ id: 7, name: 'My preset', translation_engine: null }] } }))
     await page.goto('/#/library-tools?tab=organize')
-    await expect(page.getByTestId('tools-empty')).toHaveCount(0)
+    // Only the open tab: the hidden Activity tab rightly says it is empty once its lists load.
+    await expect(page.locator('.tools-panel:not([hidden]) [data-testid=tools-empty]')).toHaveCount(0)
     await expect.poll(() => openTitles(page, '.tools-panel')).toEqual(['Presets'])
   })
 
