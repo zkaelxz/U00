@@ -16,7 +16,7 @@
  * explained instead of the generic text. Browser cookies never travel over
  * the API, so a stream that needs a signed-in browser won't resolve here.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError, api } from '../api/client'
 import {
@@ -27,6 +27,7 @@ import {
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
+import { HelpTip } from '../components/HelpTip'
 import { PageShell } from '../components/PageShell'
 import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
@@ -69,6 +70,7 @@ function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
 export default function LivePage() {
   const pc = usePcOnly()
   const [prefs, setPrefs] = usePersistedState<LiveOptions>('live.options', DEFAULT_OPTIONS)
+  const fastHelpId = useId()
   const [url, setUrl] = useState('')
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
@@ -362,12 +364,15 @@ export default function LivePage() {
           )}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           <Section storageKey="live.advanced" title="Advanced" summary={advancedSummary(form)}>
-            <div className="field-row">
+            <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active}
                 onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
                 Fast captions
               </button>
-              <p className="muted">Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).</p>
+              <span className="muted">Replaces Whisper model, Chunk, Overlap and Reply without thinking.</span>
+              <HelpTip label="Fast captions" id={fastHelpId}>
+                Chunk 4 s, overlap 1 s, Whisper small, no thinking: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk 20 s, overlap 3 s, Whisper small, no thinking).
+              </HelpTip>
             </div>
             <div className="field-row">
               <Field label="Whisper model" help={WHISPER_HELP}>

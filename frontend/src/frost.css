@@ -136,12 +136,20 @@ details.section { background: var(--glass); border-color: var(--glass-edge); bor
   border-radius: var(--radius-pill);
   color: var(--text);
 }
-.btn.btn-primary {
+/* No background transition on buttons: a gradient and a flat colour cannot interpolate, so animating `background` between them (hover,
+   a pill turning primary, a disabled button enabling) passed through the transparent start colour and flashed white. State changes
+   snap; hover darkens with `filter`, which animates smoothly and keeps the gradient. */
+.btn {
+  transition: border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), filter var(--dur-2) var(--ease);
+}
+.btn.btn-primary,
+.btn.btn-primary:hover:not(:disabled) {
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, white), var(--accent));
   border-color: transparent;
   color: var(--on-accent);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
+.btn.btn-primary:hover:not(:disabled) { filter: brightness(0.9); }
 .btn.btn-ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--accent-text); }
 .btn.btn-danger { background: var(--btn); }
 .btn:disabled { opacity: 0.5; }
@@ -188,7 +196,7 @@ fieldset.segmented {
 .stage-tabs a { border: 0; border-radius: var(--radius-pill); flex: 1 1 auto; min-width: 0; justify-content: center; text-align: center; white-space: nowrap; }
 .stage-tabs a[aria-current='page'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 .ui-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: 22px; background: var(--glass); }
-.ui-tab { border: 0; border-radius: var(--radius-pill); box-shadow: none; background: transparent; }
+.ui-tabs .ui-tab { border: 0; border-radius: var(--radius-pill); box-shadow: none; background: transparent; }
 .ui-tab[aria-selected='true'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 /* On phones the tray adds no height: the Review toolbar collapses on scroll and hides these tabs, and its two scroll thresholds
    (LinesPanel.tsx) only hold when that layout shift stays small. The ring is drawn inset instead of as a border and padding. */
