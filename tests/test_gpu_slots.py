@@ -428,7 +428,7 @@ class TestOnlyThisModuleTouchesTheTable:
     def test_no_other_module_names_the_table_or_its_old_helpers(self):
         root = pathlib.Path(__file__).resolve().parent.parent
         skip = {"__pycache__", "tests", "node_modules", "frontend", "venv", ".venv"}
-        allowed = {root / "jobs" / "gpu_slots.py", root / "db" / "__init__.py"}
+        allowed = {root / "jobs" / "gpu_slots.py", root / "db" / "migrations.py"}
         offenders = []
         for path in root.rglob("*.py"):
             rel = path.relative_to(root).parts
