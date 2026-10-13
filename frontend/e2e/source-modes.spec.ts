@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { mediaTab } from './mediaTabs'
+import { selectMediaTab } from './mediaTabs'
 
 // The seeded API (drama 1, an audio drama with no source video): where the
 // lines come from is picked on Add media and saved at once.
@@ -9,9 +9,9 @@ test('the transcript mode is picked on Add media and saved at once', async ({ pa
   const group = () => page.getByRole('radiogroup', { name: 'Where the lines come from' })
   // The transcript box itself is the Transcribe tab's input; it follows the mode.
   const transcriptBox = async (visible: boolean) => {
-    await mediaTab(page, 'transcribe').click()
+    await selectMediaTab(page, 'transcribe')
     await expect(page.getByLabel('Transcript text')).toHaveCount(visible ? 1 : 0)
-    await mediaTab(page, 'add').click()
+    await selectMediaTab(page, 'add')
   }
   await expect(group().getByLabel('I have a transcript')).toBeChecked()
   // Reading burned-in subtitles is offered only for a drama with a source video.
@@ -21,7 +21,7 @@ test('the transcript mode is picked on Add media and saved at once', async ({ pa
   await group().getByLabel('Transcribe the audio').click()
   await transcriptBox(false)
   await page.reload()
-  await mediaTab(page, 'add').click()
+  await selectMediaTab(page, 'add')
   await expect(group().getByLabel('Transcribe the audio')).toBeChecked()
 
   // Put it back: the seeded library is shared with the other specs.
