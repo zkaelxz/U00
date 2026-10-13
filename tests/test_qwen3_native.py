@@ -778,8 +778,8 @@ def test_the_model_row_names_the_download_size_and_that_old_weights_are_not_reus
 
 
 def test_the_huggingface_hub_limit_stays_conditional_on_the_installed_transformers_cap():
-    import diagnostics
-    known = diagnostics.KNOWN_UPGRADE_LIMITATIONS["huggingface-hub"]
+    import dependency_updates
+    known = dependency_updates.KNOWN_UPGRADE_LIMITATIONS["huggingface-hub"]
     assert known["blocked_from"] == 2 and known["while_required_below_by"] == "transformers"
     assert "5.19" in known["reason"]
 

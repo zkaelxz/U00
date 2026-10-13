@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+import dependency_updates
 import diagnostics
 import diagnostics_torch
 from lib import http
@@ -56,9 +57,9 @@ def test_pypi_release_versions_filters_and_uses_a_fixed_url(monkeypatch):
             "1.0.0": _file(), "1.2.0": _file(), "2.0.0rc1": _file(), "1.3.0": _file(yanked=True),
             "1.4.0": [], "not a version": _file(), "1.1.0.dev1": _file()}})
     monkeypatch.setattr(http, "pinned_get", get)
-    assert sorted(diagnostics.pypi_release_versions("Sudachidict_Core")) == ["1.0.0", "1.2.0"]
+    assert sorted(dependency_updates.pypi_release_versions("Sudachidict_Core")) == ["1.0.0", "1.2.0"]
     assert seen["url"] == "https://pypi.org/pypi/sudachidict-core/json"
-    assert seen["timeout"] == diagnostics.PYPI_JSON_TIMEOUT
+    assert seen["timeout"] == dependency_updates.PYPI_JSON_TIMEOUT
     assert seen["ip"] is None  # a fixed vendor URL: not pinned, redirects not followed
 
 
@@ -67,39 +68,39 @@ def test_pypi_release_versions_does_not_follow_a_redirect(monkeypatch):
     redirect = _Resp(302, {})
     redirect.headers = {"Location": "https://elsewhere.example/json"}
     monkeypatch.setattr(http, "pinned_get", lambda url, *a, **k: calls.append(url) or redirect)
-    assert diagnostics.pypi_release_versions("jieba") is None
+    assert dependency_updates.pypi_release_versions("jieba") is None
     assert calls == ["https://pypi.org/pypi/jieba/json"]
 
 
 def test_pypi_release_versions_stops_reading_past_the_size_cap(monkeypatch):
     resp = _Resp(200, {"releases": {"1.0.0": _file()}, "pad": "x" * 200})
-    monkeypatch.setattr(diagnostics, "PYPI_JSON_MAX_BYTES", 100)
+    monkeypatch.setattr(dependency_updates, "PYPI_JSON_MAX_BYTES", 100)
     monkeypatch.setattr(http, "pinned_get", lambda *a, **k: resp)
-    assert diagnostics.pypi_release_versions("jieba") is None
+    assert dependency_updates.pypi_release_versions("jieba") is None
     assert resp.closed
 
 
 @pytest.mark.parametrize("bad", ["", "../x", "a b", "x/../../y", "-e"])
 def test_pypi_release_versions_never_builds_a_url_from_a_bad_name(monkeypatch, bad):
     monkeypatch.setattr(http, "pinned_get", lambda *a, **k: pytest.fail("no request"))
-    assert diagnostics.pypi_release_versions(bad) is None
+    assert dependency_updates.pypi_release_versions(bad) is None
 
 
 def test_pypi_release_versions_none_on_failure(monkeypatch):
     import requests
     monkeypatch.setattr(http, "pinned_get", lambda *a, **k: _Resp(404, {}))
-    assert diagnostics.pypi_release_versions("jieba") is None
+    assert dependency_updates.pypi_release_versions("jieba") is None
 
     def boom(*a, **k):
         raise requests.ConnectionError("offline")
     monkeypatch.setattr(http, "pinned_get", boom)
-    assert diagnostics.pypi_release_versions("jieba") is None
+    assert dependency_updates.pypi_release_versions("jieba") is None
 
 
 # ---- classification ----
 
 def _c(name, have, releases, constraints=None, required_by=None):
-    return diagnostics.classify_update(name, have, releases, constraints or {}, required_by or {})
+    return dependency_updates.classify_update(name, have, releases, constraints or {}, required_by or {})
 
 
 def test_up_to_date_and_unknown():
@@ -141,7 +142,7 @@ def test_a_local_build_tag_is_not_an_older_version():
 
 
 def test_python_version_limitation(monkeypatch):
-    monkeypatch.setitem(diagnostics.KNOWN_UPGRADE_LIMITATIONS, "jieba",
+    monkeypatch.setitem(dependency_updates.KNOWN_UPGRADE_LIMITATIONS, "jieba",
                         {"python_version": tuple(diagnostics.sys.version_info[:2]),
                          "reason": "no wheels"})
     out = _c("jieba", "0.42.0", ["0.42.0", "0.43.0"])
@@ -151,12 +152,12 @@ def test_python_version_limitation(monkeypatch):
 def test_installed_dist_version_tries_alternates(monkeypatch):
     have = {"opencv-python-headless": "4.10.0.84"}
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: have.get(d))
-    assert diagnostics.installed_dist_version("cv2") == ("opencv-python-headless", "4.10.0.84")
-    assert diagnostics.installed_dist_version("PIL") == ("pillow", None)
+    assert dependency_updates.installed_dist_version("cv2") == ("opencv-python-headless", "4.10.0.84")
+    assert dependency_updates.installed_dist_version("PIL") == ("pillow", None)
 
 
 def test_real_constraints_file_parses():
-    cons = diagnostics.constraint_specifiers()
+    cons = dependency_updates.constraint_specifiers()
     assert "torch" in cons and cons["torch"][0].contains("2.11.0")
     assert not cons["transformers"][0].contains("6.0.0")
 
@@ -172,8 +173,8 @@ def _fake_env(monkeypatch, installed, releases):
     def fetch(dist):
         calls.append(dist)
         return releases.get(dist)
-    monkeypatch.setattr(diagnostics, "pypi_release_versions", fetch)
-    monkeypatch.setattr(diagnostics, "installed_requirements_on", lambda: {})
+    monkeypatch.setattr(dependency_updates, "pypi_release_versions", fetch)
+    monkeypatch.setattr(dependency_updates, "installed_requirements_on", lambda: {})
     return calls
 
 
@@ -295,7 +296,7 @@ def test_a_check_overtaken_by_an_install_stores_nothing(monkeypatch):
     def fetch_during_an_install(dist):
         svc._clear_update_cache()           # an install finishes while PyPI answers
         return ["0.42.0", "0.42.1"]
-    monkeypatch.setattr(diagnostics, "pypi_release_versions", fetch_during_an_install)
+    monkeypatch.setattr(dependency_updates, "pypi_release_versions", fetch_during_an_install)
     out = svc.check_package_updates()
     assert out["packages"]["jieba"]["status"] == "update"     # the caller still sees it
     assert svc.cached_update("jieba") is None                  # but Update can't use it

@@ -9,6 +9,7 @@ import os
 
 import pytest
 
+import dependency_updates
 import diagnostics
 import diagnostics_report
 from services import diagnostics_gaps_service as svc
@@ -174,10 +175,10 @@ def test_pypi_url_is_built_only_from_a_valid_name(monkeypatch):
 # ---- F: not offered, downgrade warning ----
 
 def test_lncrawl_is_not_offered_and_refused():
-    reason = diagnostics.known_install_limitation_reason("lightnovel-crawler")
+    reason = dependency_updates.known_install_limitation_reason("lightnovel-crawler")
     assert reason and "not offered" in reason
     assert "lightnovel-crawler" not in svc.installable_packages()
-    assert diagnostics.known_install_limitation_reason("jieba") is None
+    assert dependency_updates.known_install_limitation_reason("jieba") is None
 
 
 def test_lncrawl_install_is_refused_by_the_service(monkeypatch):
@@ -187,7 +188,7 @@ def test_lncrawl_install_is_refused_by_the_service(monkeypatch):
 
 
 def test_python_version_limitation_is_a_warning_not_a_refusal(monkeypatch):
-    monkeypatch.setattr(diagnostics, "known_install_limitation_reason",
+    monkeypatch.setattr(dependency_updates, "known_install_limitation_reason",
                         lambda n: "known not to install on Python 3.14" if n == "audio-separator"
                         else None)
     monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: False)
@@ -205,7 +206,7 @@ def test_task_roles_name_the_tasks_own_packages():
         assert not rec & opt, t["id"]
         # every task needs at least one package it can't work without, unless
         # it is a set of interchangeable engines or independent extras
-        required = [n for n in t["packages"] if diagnostics.task_package_role(t, n) == "required"]
+        required = [n for n in t["packages"] if dependency_updates.task_package_role(t, n) == "required"]
         assert required or t["id"] in {"books", "paid_engines"}, t["id"]
 
 
@@ -226,12 +227,12 @@ def test_required_min_versions_from_active_requirement_lines(tmp_path):
     (tmp_path / "requirements-core.txt").write_text(
         "requests>=2.32.2\nauthlib>=1.3,<2   # comment\n# jieba>=9.9\n")
     (tmp_path / "requirements-optional.txt").write_text("Sudachidict_Core>=20240716\n")
-    assert diagnostics.required_min_versions(str(tmp_path)) == {
+    assert dependency_updates.required_min_versions(str(tmp_path)) == {
         "requests": "2.32.2", "authlib": "1.3", "sudachidict-core": "20240716"}
 
 
 def test_real_requirements_give_known_minimums():
-    mins = diagnostics.required_min_versions()
+    mins = dependency_updates.required_min_versions()
     assert mins["jieba"] == "0.42" and mins["opencv-python"] == "4.8.1.78"
     assert "paddleocr" not in mins               # commented out in requirements-optional.txt
 

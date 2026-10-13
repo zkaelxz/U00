@@ -27,6 +27,7 @@ import time
 import background_jobs
 import job_process_kill
 import db
+import dependency_updates
 import diagnostics
 import diagnostics_report
 import diagnostics_torch as gpu_torch
@@ -297,7 +298,7 @@ def _install_commands(name: str) -> list:
     them (install_registry.unqueueable_reason) for the GPU PyTorch setup."""
     # Fresh snapshot: the plan the owner confirmed may be minutes old.
     install = _pip("install", diagnostics.pip_install_name(name),
-                   *diagnostics.constraints_pip_args(default_project_root()))
+                   *dependency_updates.constraints_pip_args(default_project_root()))
     swap = install_registry.cv2_swap_names([name], pending_install.snapshot())
     if not swap:
         return [(install, PIP_TIMEOUT_SECONDS)]
@@ -479,9 +480,9 @@ def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> 
         dist = diagnostics.pip_install_name(n)
         if checked is not None:
             args = [f"{checked['dist']}=={checked['target']}"]
-            args += diagnostics.constraints_pip_args(default_project_root())
+            args += dependency_updates.constraints_pip_args(default_project_root())
         else:
-            args = diagnostics.upgrade_pip_args(dist, default_project_root())
+            args = dependency_updates.upgrade_pip_args(dist, default_project_root())
         return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]
     try:
         return _run_pip(name, confirm, cmds)
@@ -528,7 +529,7 @@ def check_package_updates(force: bool = False) -> dict:
     """For every installed package the Upgrade route accepts: installed
     version, newest PyPI release, and the newest one allowed by
     constraints.txt, the installed packages that depend on it and the
-    known limitations (diagnostics.classify_update). torch/torchvision/
+    known limitations (dependency_updates.classify_update). torch/torchvision/
     torchaudio are "managed" (GPU PyTorch setup), never an update here.
     One PyPI request per distribution, in parallel, each with a timeout."""
     def cached():
@@ -564,13 +565,13 @@ def _check_package_updates_now() -> dict:
     with _UPDATES_LOCK:
         generation = _UPDATES.get("generation", 0)
     names = sorted(n for n in installable_packages() if _package_installed(n))
-    installed = {n: diagnostics.installed_dist_version(n) for n in names}
+    installed = {n: dependency_updates.installed_dist_version(n) for n in names}
     to_fetch = sorted({dist for n, (dist, v) in installed.items()
                        if v and n not in gpu_torch.TORCH_FAMILY})
     with ThreadPoolExecutor(max_workers=UPDATE_CHECK_WORKERS) as pool:
-        releases = dict(zip(to_fetch, pool.map(diagnostics.pypi_release_versions, to_fetch)))
-    constraints = diagnostics.constraint_specifiers(default_project_root())
-    required_by = diagnostics.installed_requirements_on()
+        releases = dict(zip(to_fetch, pool.map(dependency_updates.pypi_release_versions, to_fetch)))
+    constraints = dependency_updates.constraint_specifiers(default_project_root())
+    required_by = dependency_updates.installed_requirements_on()
     packages = {}
     for n in names:
         dist, version = installed[n]
@@ -578,7 +579,7 @@ def _check_package_updates_now() -> dict:
             info = {"status": "managed", "latest": None, "target": None,
                     "reason": "set up together with torchvision/torchaudio under GPU PyTorch"}
         else:
-            info = diagnostics.classify_update(n, version, releases.get(dist), constraints,
+            info = dependency_updates.classify_update(n, version, releases.get(dist), constraints,
                                                required_by)
         packages[n] = {"name": n, "dist": dist, "installed_version": version, **info}
         if packages[n]["reason"]:
@@ -787,13 +788,13 @@ def _package_installed(name: str) -> bool:
 
 def _package_info(name: str, installed: bool, offered: set, mins: dict = None) -> dict:
     dist = diagnostics.pip_install_name(name)
-    installed_version = diagnostics.installed_dist_version(name)[1] if installed else None
+    installed_version = dependency_updates.installed_dist_version(name)[1] if installed else None
     min_version = (mins or {}).get(diagnostics.canonical_dist(dist))
     dep = diagnostics.OPTIONAL_DEPENDENCIES.get(name)
     reason = diagnostics.NOT_OFFERED_FOR_INSTALL.get(diagnostics.canonical_dist(dist))
     # A Python-version limitation (e.g. audio-separator on 3.14) is a warning,
     # not a refusal: the install route still accepts it.
-    limitation = None if reason else diagnostics.known_install_limitation_reason(name)
+    limitation = None if reason else dependency_updates.known_install_limitation_reason(name)
     return {
         "name": name,
         "dist": dist,
@@ -824,13 +825,13 @@ def get_install_presets() -> dict:
     missing optional ones are listed in "optional_missing". Local checks
     only (import specs, installed metadata, requirements files), no network."""
     offered = installable_packages()
-    mins = diagnostics.required_min_versions(default_project_root())
+    mins = dependency_updates.required_min_versions(default_project_root())
     names = set(offered) | {n for t in diagnostics.INSTALL_TASKS for n in t["packages"]}
     names |= set(diagnostics.OPTIONAL_DEPENDENCIES)    # versions for required ones too
     packages = {n: _package_info(n, _package_installed(n), offered, mins) for n in sorted(names)}
     tasks = []
     for t in diagnostics.INSTALL_TASKS:
-        roles = {n: diagnostics.task_package_role(t, n) for n in t["packages"]}
+        roles = {n: dependency_updates.task_package_role(t, n) for n in t["packages"]}
         rows = [packages[n] for n in t["packages"]]
         missing = [r for r in rows if not r["installed"]]
         to_install = [r for r in missing if r["installable"] and roles[r["name"]] != "optional"]

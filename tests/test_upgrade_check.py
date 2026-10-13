@@ -20,6 +20,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import dependency_updates
 import diagnostics
 import upgrade_check
 
@@ -276,27 +277,27 @@ class TestKnownHuggingFaceHubLimitation:
 
     def test_blocks_2x_while_transformers_caps_it(self, monkeypatch, tmp_path):
         self._requires(monkeypatch, ["filelock", "huggingface-hub<2.0,>=1.5.0"])
-        reason = diagnostics.upgrade_blocked_reason(
+        reason = dependency_updates.upgrade_blocked_reason(
             "huggingface_hub", "2.0.0", project_root=str(tmp_path))
         assert reason and "transformers" in reason and "2.0.0" in reason
 
     def test_a_1x_release_is_not_blocked(self, monkeypatch, tmp_path):
         self._requires(monkeypatch, ["huggingface-hub<2.0,>=1.5.0"])
-        assert diagnostics.upgrade_blocked_reason(
+        assert dependency_updates.upgrade_blocked_reason(
             "huggingface_hub", "1.40.0", project_root=str(tmp_path)) is None
 
     def test_lifts_itself_once_transformers_accepts_2x(self, monkeypatch, tmp_path):
         self._requires(monkeypatch, ["huggingface_hub>=1.5.0,<3"])
-        assert diagnostics.upgrade_blocked_reason(
+        assert dependency_updates.upgrade_blocked_reason(
             "huggingface_hub", "2.0.0", project_root=str(tmp_path)) is None
 
     def test_not_blocked_without_transformers_installed(self, monkeypatch, tmp_path):
         self._requires(monkeypatch, None)
-        assert diagnostics.upgrade_blocked_reason(
+        assert dependency_updates.upgrade_blocked_reason(
             "huggingface_hub", "2.0.0", project_root=str(tmp_path)) is None
 
     def test_does_not_affect_the_install_time_reason(self):
-        assert diagnostics.known_install_limitation_reason("huggingface_hub") is None
+        assert dependency_updates.known_install_limitation_reason("huggingface_hub") is None
 
 
 class TestParsePytestFailures:

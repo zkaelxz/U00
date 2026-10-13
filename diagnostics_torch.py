@@ -16,6 +16,7 @@ import threading
 import time
 
 import background_jobs
+import dependency_updates
 import diagnostics
 from lib.proc import run_captured
 
@@ -463,7 +464,7 @@ def torch_setup_pip_args(variant: str, project_root: str = None) -> list:
     spec = TORCH_VARIANTS[variant]
     pins = [f"{n}=={spec['versions'][n]}" for n in TORCH_FAMILY]
     tail = ["--index-url", spec["index_url"]]
-    tail += diagnostics.constraints_pip_args(project_root)
+    tail += dependency_updates.constraints_pip_args(project_root)
     return [["--force-reinstall", "--no-deps", *pins, *tail], [*pins, *tail]]
 
 

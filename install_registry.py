@@ -13,6 +13,7 @@ import shutil
 import sys
 import tempfile
 
+import dependency_updates
 import diagnostics
 import diagnostics_report
 import diagnostics_torch
@@ -63,7 +64,7 @@ def install_argv(keys, python: str = None, torch_pins_path: str = None,
     names, constraints.txt's caps, and a pin file holding the installed torch
     family so a dependent package can't swap a CUDA torch for a CPU one."""
     argv = [python or sys.executable, "-m", "pip", "install", *diagnostics.PIP_INSTALL_FLAGS,
-            *install_dists(keys), *diagnostics.constraints_pip_args(project_root or ROOT)]
+            *install_dists(keys), *dependency_updates.constraints_pip_args(project_root or ROOT)]
     if torch_pins_path:
         argv += ["-c", torch_pins_path]
     return argv

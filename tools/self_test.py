@@ -107,11 +107,12 @@ def check_gpu_whisper(model: str = DEFAULT_MODEL):
 
 
 def check_torch_cuda():
+    import dependency_updates
     import diagnostics
     import diagnostics_torch
     if not diagnostics.check_dependency("torch"):
         return SKIPPED, "torch is not installed"
-    version = diagnostics.installed_dist_version("torch") or "unknown"
+    version = dependency_updates.installed_dist_version("torch") or "unknown"
     gpu = diagnostics_torch.get_gpu_status()
     if gpu.get("available"):
         return PASS, f"torch {version}, CUDA build {gpu.get('torch_cuda_version')}, GPU visible"
