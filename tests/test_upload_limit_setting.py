@@ -188,8 +188,8 @@ def test_only_local_only_routes_reach_max_upload_bytes():
 
 
 def test_restore_is_capped_below_the_upload_limit(isolated_db, monkeypatch):
-    from services import library_admin_service as las
-    monkeypatch.setattr(las, "RESTORE_MAX_UPLOAD_BYTES", 1000)
+    from services import library_backup_restore_service as lbr
+    monkeypatch.setattr(lbr, "RESTORE_MAX_UPLOAD_BYTES", 1000)
     r = _client(local=True).post(
         "/api/library/admin/restore", files={"file": ("b.zip", b"x" * 2000)},
         data={"confirm": "true", "confirm_text": "RESTORE"}, headers={"X-Baihe-Local": "1"})

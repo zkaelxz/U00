@@ -26,6 +26,8 @@ from services import auto_backup_settings as abt_
 from services import backup_import_service as bis
 from services import drama_restore_service as drs
 from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
+from services import library_backup_service as lbs
 
 OK = {"confirm": "true", "confirm_text": "RESTORE"}
 REMOTE = "https://baihe.example.com"
@@ -82,7 +84,7 @@ def _manual_zip(media=None) -> bytes:
         with open(os.path.join(d, name), "wb") as fh:
             fh.write(b"media-" + name.encode())
     dest = os.path.join(db.LIBRARY_DIR, "manual.zip")
-    las.write_backup_zip(dest, include_media=True)
+    lbs.write_backup_zip(dest, include_media=True)
     with open(dest, "rb") as fh:
         data = fh.read()
     os.remove(dest)
@@ -150,7 +152,7 @@ def test_list_automatic_snapshot_copy(client):
 def test_list_bare_database_file(client):
     _world()
     dest = os.path.join(db.LIBRARY_DIR, "x.db")
-    las._sanitized_snapshot(dest)
+    lbs._sanitized_snapshot(dest)
     with open(dest, "rb") as fh:
         r = _post_list(client, fh.read(), "library.db")
     assert r.status_code == 200 and r.json()["kind"] == "database"
@@ -261,7 +263,7 @@ def test_schema_drift_tolerated(client):
     """A newer file has extra columns; an older one lacks some (they default)."""
     a, b, g = _world()
     dest = os.path.join(db.LIBRARY_DIR, "drift.db")
-    las._sanitized_snapshot(dest)
+    lbs._sanitized_snapshot(dest)
     with contextlib.closing(sqlite3.connect(dest)) as c:
         c.execute("ALTER TABLE dramas ADD COLUMN from_the_future TEXT")
         c.execute("UPDATE dramas SET from_the_future = 'x'")
@@ -348,7 +350,7 @@ def test_zip_bomb_limits(client, monkeypatch):
     monkeypatch.setattr(bis, "_MAX_DB_BYTES", 1024)
     assert _post_list(client, data).status_code == 422
     monkeypatch.undo()
-    monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 1)
+    monkeypatch.setattr(lbr, "RESTORE_MAX_MEMBERS", 1)
     assert _post_list(client, data).status_code == 422
 
 
@@ -608,7 +610,7 @@ def test_database_only_import_clears_file_references(client):
     a, b, g = _world()
     _legit_media(a)
     dest = os.path.join(db.LIBRARY_DIR, "x.db")
-    las._sanitized_snapshot(dest)
+    lbs._sanitized_snapshot(dest)
     with open(dest, "rb") as fh:
         r = _post_import(client, fh.read(), [a])
     assert r.status_code == 200, r.text
@@ -632,7 +634,7 @@ def test_zip_without_this_dramas_media_clears_file_references(client):
 
 def _db_bytes(mutate) -> bytes:
     dest = os.path.join(db.LIBRARY_DIR, "hostile.db")
-    las._sanitized_snapshot(dest)
+    lbs._sanitized_snapshot(dest)
     with contextlib.closing(sqlite3.connect(dest)) as c:
         mutate(c)
         c.commit()

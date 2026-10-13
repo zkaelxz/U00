@@ -182,9 +182,10 @@ def test_backup_manifest_never_carries_the_link(isolated_db, tmp_path):
 def _run_export(did):
     from core import Line
     from services import library_admin_service as las
+    from services import library_backup_service as lbs
     db.update_drama(did, status="translated")
     db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
-    job = las.start_export_zip([did])["job_id"]
+    job = lbs.start_export_zip([did])["job_id"]
     end = time.time() + 10
     while (background_jobs.get_status(job) or {}).get("status") not in ("done", "error"):
         assert time.time() < end, "export did not finish"

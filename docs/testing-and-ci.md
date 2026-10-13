@@ -96,7 +96,7 @@ workflow step each:
   and a drama with a line is saved. Upgrade: the files are copied over the install, `start.bat --ci` runs again (it keeps the venv
   and installs nothing) and again with `BAIHE_FORCE_DEPS=1` (it reinstalls over the venv); after each the drama and line are read back.
   Last, a restore round trip in the installed copy: a full backup zip of that library, a title added afterwards, then the app's own
-  restore (`library_admin_service.restore_backup`), which on Windows takes the `msvcrt` restore lock, fsyncs the staged databases
+  restore (`library_backup_restore_service.restore_backup`), which on Windows takes the `msvcrt` restore lock, fsyncs the staged databases
   opened `r+b` and renames the folders. The added title is gone, the drama, line and a media file are back, and no
   `.pre_restore_*`, staging folder or `.restore-lock` file is left.
 - `uninstall`: in a throwaway user profile, so the runner's own shortcuts and caches are never touched. Answering `n` to the first

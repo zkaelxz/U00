@@ -46,6 +46,7 @@ from services import auto_backup_files as abf_
 from services import auto_backup_service as abs_
 from services import drama_restore_service as drs
 from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
 from services import media_upload_service
 from services import ownership_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -158,7 +159,7 @@ class _Backup:
                 raise InvalidInputError(_BAD_FILE)
             self.db_path = upload
         else:
-            las.validate_backup_file(upload, check_disk=False, check_limits=True)
+            lbr.validate_backup_file(upload, check_disk=False, check_limits=True)
             try:
                 with zipfile.ZipFile(upload) as zf:
                     # No SQL runs on it until _check_db's guarded connection.

@@ -26,7 +26,7 @@ from services import auto_backup_files as abf_
 from services import auto_backup_service as abs_
 from services import auto_backup_settings as abt_
 from services import drama_restore_service as drs
-from services import library_admin_service as las
+from services import library_backup_service as lbs
 from services import library_restore_service as lrs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -444,7 +444,7 @@ class TestDefaultPick:
 
 def _library_zip(tmp_path):
     path = str(tmp_path / "whole.zip")
-    las.write_backup_zip(path, include_media=False)
+    lbs.write_backup_zip(path, include_media=False)
     return _read(path)
 
 

@@ -37,6 +37,8 @@ from services import auto_backup_settings as abt_
 from services import drama_restore_service as drs
 from services import drama_service
 from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
+from services import library_backup_service as lbs
 from services import library_restore_service as lrs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -800,7 +802,7 @@ class TestSnapshotWrite:
         assert os.path.isfile(first)
         # a manual full backup never contains the snapshot
         dest = tmp_path / "manual.zip"
-        las.write_backup_zip(str(dest), include_media=True)
+        lbs.write_backup_zip(str(dest), include_media=True)
         with zipfile.ZipFile(dest) as zf:
             names = zf.namelist()
         assert f"dramas/{a}/a.wav" in names
@@ -930,7 +932,7 @@ class TestBackupFailureKeepsOldSnapshot:
             with open(dest, "wb") as fh:
                 fh.write(b"PK\x03\x04half a zip")
             raise OSError(f"disk full at {db.LIBRARY_DIR}")
-        monkeypatch.setattr(las, "write_backup_zip", broken)
+        monkeypatch.setattr(lbs, "write_backup_zip", broken)
         with pytest.raises(RuntimeError) as e:
             abs_._backup_job(abs_.JOB_ID, False)
         assert db.LIBRARY_DIR not in str(e.value)
@@ -969,7 +971,7 @@ class TestBackupFailureKeepsOldSnapshot:
 
     def test_failure_via_job_thread(self, isolated_db, monkeypatch):
         old, st = self._old()
-        monkeypatch.setattr(las, "write_backup_zip",
+        monkeypatch.setattr(lbs, "write_backup_zip",
                             lambda *a, **k: (_ for _ in ()).throw(OSError(db.LIBRARY_DIR)))
         abs_.start_now(replace=True)
         job = _wait_job()
@@ -982,7 +984,7 @@ class TestBackupFailureKeepsOldSnapshot:
             with open(dest, "wb") as fh:
                 fh.write(b"junk")
             raise OSError("x")
-        monkeypatch.setattr(las, "write_backup_zip", broken)
+        monkeypatch.setattr(lbs, "write_backup_zip", broken)
         with pytest.raises(RuntimeError):
             abs_._backup_job(abs_.JOB_ID, False)
         assert os.listdir(_default_dir()) == []
@@ -1396,7 +1398,7 @@ class TestRotation:
         assert len(before) == 4     # a successful run on the 18th would delete one
         _patch_now(monkeypatch, lambda: _at(18))
         if breakage == "writer":
-            monkeypatch.setattr(las, "write_backup_zip",
+            monkeypatch.setattr(lbs, "write_backup_zip",
                                 lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
         elif breakage == "verify":
             monkeypatch.setattr(abs_, "_verify_snapshot",
@@ -1404,7 +1406,7 @@ class TestRotation:
         elif breakage == "manifest":
             monkeypatch.setattr(abs_, "_manifest_bytes", lambda snap, media: b"{not json")
         else:
-            monkeypatch.setattr(las, "write_backup_zip",
+            monkeypatch.setattr(lbs, "write_backup_zip",
                                 lambda *a, **k: (_ for _ in ()).throw(OSError("x")))
         if breakage == "job_thread":
             abs_.start_now()
@@ -1859,8 +1861,8 @@ class TestRestoreRoundTrip:
 
         def spy(*args, **kw):
             seen.append(abs_.check_and_run())
-            for start in (lambda: abs_.start_now(replace=True), las.start_backup,
-                          las.start_database_backup):
+            for start in (lambda: abs_.start_now(replace=True), lbs.start_backup,
+                          lbs.start_database_backup):
                 try:
                     start()
                     seen.append("started a backup during the restore")
@@ -2269,7 +2271,7 @@ class TestRestoreRejectsUnsafeSnapshot:
         self._assert_refused(self._craft(extra))
 
     def test_too_many_drama_members(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 6)
+        monkeypatch.setattr(lbr, "RESTORE_MAX_MEMBERS", 6)
         a = self._craft(lambda a: [(f"dramas/{a}/f{i}.txt", b"x") for i in range(10)])
         self._assert_refused(a)
 
@@ -2298,34 +2300,34 @@ class TestRestoreRejectsUnsafeSnapshot:
                     [(f"dramas/{a}/f{i}", b"x") for i in range(10)])
         path = _default_path()
         assert os.path.getsize(path) < 2_000_000   # compresses hard
-        las.validate_backup_file(path, check_disk=False)   # within the real caps
-        las.validate_backup_file(path, check_disk=False, check_limits=False)
+        lbr.validate_backup_file(path, check_disk=False)   # within the real caps
+        lbr.validate_backup_file(path, check_disk=False, check_limits=False)
         with monkeypatch.context() as m:   # expanded total
-            m.setattr(las, "_RESTORE_MIN_TOTAL_BYTES", 0)
-            m.setattr(las, "_RESTORE_EXPANSION_FACTOR", 2)
-            m.setattr(las, "_library_size", lambda: 0)
+            m.setattr(lbr, "_RESTORE_MIN_TOTAL_BYTES", 0)
+            m.setattr(lbr, "_RESTORE_EXPANSION_FACTOR", 2)
+            m.setattr(lbr, "_library_size", lambda: 0)
             with pytest.raises(InvalidInputError):
-                las.validate_backup_file(path, check_disk=False)
-            las.validate_backup_file(path, check_disk=False, check_limits=False)
+                lbr.validate_backup_file(path, check_disk=False)
+            lbr.validate_backup_file(path, check_disk=False, check_limits=False)
             with open(path, "rb") as fh:
                 with pytest.raises(InvalidInputError):
-                    las.validate_backup_zip(fh.read())
+                    lbr.validate_backup_zip(fh.read())
         with monkeypatch.context() as m:   # member count
-            m.setattr(las, "RESTORE_MAX_MEMBERS", 5)
+            m.setattr(lbr, "RESTORE_MAX_MEMBERS", 5)
             with pytest.raises(InvalidInputError):
-                las.validate_backup_file(path, check_disk=False)
-            las.validate_backup_file(path, check_disk=False, check_limits=False)
+                lbr.validate_backup_file(path, check_disk=False)
+            lbr.validate_backup_file(path, check_disk=False, check_limits=False)
         with monkeypatch.context() as m:   # one member too large
             m.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 10_000_000)
             with pytest.raises(InvalidInputError):
-                las.validate_backup_file(path, check_disk=False)
-            las.validate_backup_file(path, check_disk=False, check_limits=False)
+                lbr.validate_backup_file(path, check_disk=False)
+            lbr.validate_backup_file(path, check_disk=False, check_limits=False)
 
     @pytest.mark.parametrize("name", ["../evil", "/abs", "C:/x"])
     def test_structural_checks_apply_without_limits(self, isolated_db, name):
         self._craft(lambda a: [(zipfile.ZipInfo(name), b"x")])
         with pytest.raises(InvalidInputError):
-            las.validate_backup_file(_default_path(), check_disk=False, check_limits=False)
+            lbr.validate_backup_file(_default_path(), check_disk=False, check_limits=False)
 
     def test_snapshot_larger_than_upload_caps_is_still_written(self, isolated_db, monkeypatch):
         a = db.create_drama(title_en="A")
@@ -2333,16 +2335,16 @@ class TestRestoreRejectsUnsafeSnapshot:
         for i in range(8):
             with open(os.path.join(_ddir(a), f"f{i}.bin"), "wb") as fh:
                 fh.write(b"\0" * 50_000)
-        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 3)
+        monkeypatch.setattr(lbr, "RESTORE_MAX_MEMBERS", 3)
         monkeypatch.setattr(lrs, "MAX_RESTORE_MEMBER_BYTES", 10_000)
-        monkeypatch.setattr(las, "_RESTORE_MIN_TOTAL_BYTES", 0)
-        monkeypatch.setattr(las, "_RESTORE_EXPANSION_FACTOR", 1)
-        monkeypatch.setattr(las, "_library_size", lambda: 0)
+        monkeypatch.setattr(lbr, "_RESTORE_MIN_TOTAL_BYTES", 0)
+        monkeypatch.setattr(lbr, "_RESTORE_EXPANSION_FACTOR", 1)
+        monkeypatch.setattr(lbr, "_library_size", lambda: 0)
         _snap(include_media=True)
         assert abt_._get_state()["last_error"] is None
         assert abc_.snapshot_info()["kind"] == "full"
         _delete_drama(a)
-        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 100)
+        monkeypatch.setattr(lbr, "RESTORE_MAX_MEMBERS", 100)
         res = _restore(a)
         assert res["media_restored"] and len(os.listdir(_ddir(a))) == 8
 
@@ -3321,7 +3323,7 @@ class TestDiskSpaceCheck:
         before = {n: _read(os.path.join(_default_dir(), n)) for n in self._folder()}
         self._free(monkeypatch, int(size * 1.19))
         writes = []
-        monkeypatch.setattr(las, "write_backup_zip", lambda *a, **k: writes.append(a))
+        monkeypatch.setattr(lbs, "write_backup_zip", lambda *a, **k: writes.append(a))
         monkeypatch.setattr(abs_, "_prune", lambda *a: writes.append("prune"))
         with pytest.raises(RuntimeError) as e:
             abs_._backup_job(abs_.JOB_ID, False)

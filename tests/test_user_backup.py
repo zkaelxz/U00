@@ -17,6 +17,8 @@ import background_jobs
 import db
 from services import auth_service
 from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
+from services import library_user_backup_service as lub
 from services.service_errors import InvalidInputError, NotFoundError
 
 OTHER = "zzotherzz"   # must never leave the library in A's backup
@@ -51,11 +53,11 @@ def test_every_table_is_classified(isolated_db):
     conn = sqlite3.connect(db.DB_PATH)
     try:
         tables = set(_tables(conn))
-        assert tables - set(las.USER_BACKUP_TABLES) == set(), \
+        assert tables - set(lub.USER_BACKUP_TABLES) == set(), \
             "classify the new table in library_admin_service.USER_BACKUP_TABLES"
-        assert set(las.USER_BACKUP_TABLES) - tables == set(), "stale entry"
+        assert set(lub.USER_BACKUP_TABLES) - tables == set(), "stale entry"
         for t in tables:
-            rule = las.USER_BACKUP_TABLES[t][0]
+            rule = lub.USER_BACKUP_TABLES[t][0]
             cols = set(_cols(conn, t))
             if "drama_id" in cols:
                 assert rule in ("drama", "profile_drama", "series_character", "empty"), t
@@ -76,10 +78,10 @@ def test_every_table_is_classified(isolated_db):
 
 def test_bad_user_refused(isolated_db):
     with pytest.raises(NotFoundError):
-        las.start_user_backup(424242)
+        lub.start_user_backup(424242)
     for bad in (0, -1, True, "1", 1.0):
         with pytest.raises(InvalidInputError):
-            las.start_user_backup(bad)
+            lub.start_user_backup(bad)
     assert background_jobs.list_all_jobs() == {}
 
 
@@ -202,7 +204,7 @@ def _build_library():
                                       "user_permissions", "auth_sessions", "audit_log"}
         for t in _tables(conn):
             if t not in seeded:
-                rule = las.USER_BACKUP_TABLES[t][0]
+                rule = lub.USER_BACKUP_TABLES[t][0]
                 _seed_row(conn, t, {}, HOUSE if rule == "keep" else OTHER)
         # A pre-Step-2 migration copy and a table nobody classified yet.
         conn.execute("CREATE TABLE _backup_step2_translation_notes AS "
@@ -256,7 +258,7 @@ def _assert_sequences_match_kept_rows(data):
         assert seqs, "expected kept AUTOINCREMENT tables"
         for name, seq in seqs.items():
             assert seq == conn.execute(f'SELECT MAX(rowid) FROM "{name}"').fetchone()[0], name
-        for t, (rule, _why) in las.USER_BACKUP_TABLES.items():
+        for t, (rule, _why) in lub.USER_BACKUP_TABLES.items():
             if rule == "empty":
                 assert t not in seqs, t
     finally:
@@ -274,7 +276,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
     a, b, sa, sb, d, mine, drama_tables = _build_library()
     before = _library_state()
 
-    r = las.start_user_backup(a)
+    r = lub.start_user_backup(a)
     assert r == {"job_id": las.USER_BACKUP_JOB_ID}
     st = _wait(r["job_id"])
     assert st["status"] == "done", st.get("error")
@@ -300,7 +302,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
     allowed = {"library.db"} | {f"dramas/{did}/{f}" for did in mine
                                 for f in ("audio.wav", "pages/p1.png")}
     assert set(names) == allowed
-    las.validate_backup_zip(data)
+    lbr.validate_backup_zip(data)
     _assert_sequences_match_kept_rows(data)
 
     # Restore into an empty library.
@@ -310,7 +312,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
     db.init_db()
     assert db.list_dramas() == []
     background_jobs.clear_all_jobs()
-    assert las.restore_backup(data, confirm=True, confirm_text="RESTORE")["restored"] is True
+    assert lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")["restored"] is True
 
     conn = sqlite3.connect(db.DB_PATH)
     try:
@@ -329,7 +331,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
                             (d["a_private"],)).fetchone()[0] == 1
         # Every drama table: A's rows, each drama's intact.
         for t in drama_tables:
-            if las.USER_BACKUP_TABLES[t][0] not in ("drama", "profile_drama"):
+            if lub.USER_BACKUP_TABLES[t][0] not in ("drama", "profile_drama"):
                 continue
             got = {r[0] for r in conn.execute(f'SELECT drama_id FROM "{t}"')}
             assert got == mine, t
@@ -354,7 +356,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
         for t in ("users", "user_permissions", "auth_sessions"):
             assert conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] == 0, t
         assert [r[0] for r in conn.execute("SELECT action FROM audit_log")] == ["library.restore"]
-        for t, (rule, _why) in las.USER_BACKUP_TABLES.items():
+        for t, (rule, _why) in lub.USER_BACKUP_TABLES.items():
             if rule == "empty" and t not in ("audit_log", "job_records"):
                 assert conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] == 0, t
     finally:
@@ -385,7 +387,7 @@ def test_pc_owner_backup_keeps_only_unowned_items(isolated_db):
     theirs = db.create_drama(title_en="Their drama", owner_user_id=uid)
     _write(f"dramas/{pc}/a.wav", b"pc")
     _write(f"dramas/{theirs}/a.wav", b"theirs")
-    st = _wait(las.start_user_backup(None)["job_id"])
+    st = _wait(lub.start_user_backup(None)["job_id"])
     assert st["status"] == "done", st.get("error")
     with open(las.admin_artifact_path("user_backup")["path"], "rb") as f:
         data = f.read()
@@ -400,7 +402,7 @@ def test_user_backup_refused_during_maintenance(isolated_db):
     assert background_jobs.enter_maintenance()
     try:
         with pytest.raises(las.ConflictError):
-            las.start_user_backup(None)
+            lub.start_user_backup(None)
     finally:
         background_jobs.exit_maintenance()
     assert background_jobs.list_all_jobs() == {}
@@ -416,7 +418,7 @@ def test_cancel_leaves_no_artifact(isolated_db, monkeypatch):
     _write(f"dramas/{did}/a.wav", b"pc")
     monkeypatch.setattr(background_jobs, "is_cancel_requested",
                         lambda job_id: job_id == las.USER_BACKUP_JOB_ID)
-    las.start_user_backup(None)
+    lub.start_user_backup(None)
     end = time.time() + 20
     while background_jobs.get_status(las.USER_BACKUP_JOB_ID)["status"] in ("queued", "running"):
         assert time.time() < end, "job did not finish"
@@ -433,7 +435,7 @@ def test_only_the_newest_user_backup_is_kept(isolated_db):
     unrelated = ("notes.zip", "baihe_my_items_backup_x.zip", "baihe_library_backup_20200101_000000.zip")
     for name in (old,) + unrelated:
         _write(f"backups/user_backups/{name}", b"x")
-    st = _wait(las.start_user_backup(None)["job_id"])
+    st = _wait(lub.start_user_backup(None)["job_id"])
     assert st["status"] == "done", st.get("error")
     new = st["result"]["name"]
     assert new != old

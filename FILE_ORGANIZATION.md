@@ -292,7 +292,10 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `jobs_service.py`
 - `language_pack_service.py`
 - `vdb_names_service.py` (the optional personal VTuber name list, downloaded on demand; personal use only, never exported)
-- `library_admin_service.py`
+- `library_admin_service.py` (shared admin guards and bulk actions: typed confirm, maintenance hold, artifact lookup, bulk status/tags/delete/translate, storage cleanup)
+- `library_backup_service.py` (the export-all zip, full backup and database-only backup jobs, and the sanitized database snapshot)
+- `library_user_backup_service.py` (the backup of one person's items)
+- `library_backup_restore_service.py` (validating and applying an uploaded library backup)
 - `library_restore_sql.py` (SQL helpers for the library restore)
 - `library_restore_service.py` (restoring a whole-library backup zip: validation, staged databases, the folder swap)
 - `library_service.py`

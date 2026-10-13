@@ -26,6 +26,9 @@ from api.schemas import (
     LibraryRestoreDone, LibraryStorageCleanRequest, LibraryStorageCleanResult,
     LibraryStoragePreset, LibraryStorageScan, LibraryUserBackupRequest)
 from services import library_admin_service as las
+from services import library_backup_restore_service as lbr
+from services import library_backup_service as lbs
+from services import library_user_backup_service as lub
 from services import media_upload_service
 from services.service_errors import InvalidInputError, NotFoundError
 
@@ -90,22 +93,22 @@ def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
 @router.post("/export", dependencies=[local_only()], response_model=LibraryExportStarted,
              responses=_ERR_409, summary="Start the export-all zip job")
 def post_export(body: LibraryExportRequest = None):
-    return las.start_export_zip(body.drama_ids if body else None)
+    return lbs.start_export_zip(body.drama_ids if body else None)
 
 
 @router.post("/backup", dependencies=[local_only()], response_model=LibraryJobStarted,
              responses=_ERR_409, summary="Start a full (or database-only) library backup job")
 def post_backup(body: LibraryBackupRequest = None):
     if body is not None and body.database_only:
-        return las.start_database_backup()
-    return las.start_backup()
+        return lbs.start_database_backup()
+    return lbs.start_backup()
 
 
 @router.post("/backup/user", dependencies=[local_only()], response_model=LibraryJobStarted,
              responses={404: {"model": ErrorResponse}, **_ERR_409},
              summary="Start a backup of one person's dramas and series (no user: the PC's)")
 def post_user_backup(body: LibraryUserBackupRequest = None):
-    return las.start_user_backup(body.user_id if body else None)
+    return lub.start_user_backup(body.user_id if body else None)
 
 
 @router.get("/artifacts/{kind}/info", dependencies=[require_permission("admin.library")],
@@ -153,7 +156,7 @@ def _read_capped(upload: UploadFile) -> bytes:
     """The upload as one bytes object, refused (422) past the upload limit
     or the smaller restore cap. One read of limit+1 bytes, so the peak is
     the upload itself, not a copy."""
-    limit = min(media_upload_service.max_upload_bytes(), las.RESTORE_MAX_UPLOAD_BYTES)
+    limit = min(media_upload_service.max_upload_bytes(), lbr.RESTORE_MAX_UPLOAD_BYTES)
     size = getattr(upload, "size", None)
     if size is not None and size > limit:
         raise InvalidInputError(_restore_too_large(limit))
@@ -178,7 +181,7 @@ def post_restore(request: Request, file: UploadFile = File(...),
                                 f"to the word {las.RESTORE_CONFIRM_TEXT}, in capitals.")
     data = _read_capped(file)
     principal = getattr(request.state, "principal", None) or {}
-    return las.restore_backup(data, confirm=True, confirm_text=confirm_text,
+    return lbr.restore_backup(data, confirm=True, confirm_text=confirm_text,
                               actor_id=principal.get("user_id"))
 
 

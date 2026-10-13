@@ -399,13 +399,13 @@ def test_confirm_flag_must_be_a_bool(isolated_db):
 def test_kept_media_is_in_a_media_backup(client, isolated_db):
     import zipfile
     import db
-    from services import library_admin_service as las
+    from services import library_backup_service as lbs
     did = db.create_drama(title_en="D")
     _up(client, did, "a.mp3", b"first")
     client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
                 data={"confirm_replace_audio": "true"})
     dest = os.path.join(db.LIBRARY_DIR, "b.zip")
-    las.write_backup_zip(dest, include_media=True)
+    lbs.write_backup_zip(dest, include_media=True)
     with zipfile.ZipFile(dest) as zf:
         names = [n for n in zf.namelist() if n.startswith(f"dramas/{did}/kept_media/replaced-")]
         assert len(names) == 1 and zf.read(names[0]) == b"first"

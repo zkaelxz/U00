@@ -103,7 +103,7 @@ Things to know:
   and `_migrate_line_refs_to_ids` (rebuilds `translation_notes`, `line_emotions`)
   copy to a new table, drop and rename. The line-ref migration first copies the
   old tables to `_backup_step2_<table>`, which are kept and never overwritten
-  (`library_admin_service` leaves them out of per-user backups).
+  (`library_user_backup_service` leaves them out of per-user backups).
 - **`migrate_database_file(path)`** runs the same `init_db()` against another
   file, in the calling thread only (a thread-local path override in
   `get_conn`). A library restore uses it on a staged copy, with
@@ -281,12 +281,12 @@ last known state.
 
 | What | Where | Database part | Media |
 |---|---|---|---|
-| Manual full backup | `library_admin_service.start_backup`, `write_backup_zip` | `_sanitized_snapshot`: backup-API copy with every `auth_sessions` and `extension_device_tokens` row deleted (`secure_delete`), journal mode `DELETE`; accounts (`users`, `user_permissions`) stay | yes |
+| Manual full backup | `library_backup_service.start_backup`, `write_backup_zip` | `_sanitized_snapshot`: backup-API copy with every `auth_sessions` and `extension_device_tokens` row deleted (`secure_delete`), journal mode `DELETE`; accounts (`users`, `user_permissions`) stay | yes |
 | Database-only backup | `start_database_backup` | same snapshot | no |
 | Automatic backup | `auto_backup_service` (settings in `app_settings`) | same writer | `include_media`, off by default |
 | My-items backup | `write_user_backup_zip`, per `USER_BACKUP_TABLES` | filtered copy: owner's rows only, auth and machine-local tables emptied | owner's drama media |
 | Single-drama restore / import | `drama_restore_service.restore_drama`, `backup_import_service.import_dramas` | `copy_drama` copies rows with new ids | staged, then moved in |
-| Full restore | `library_admin_service.restore_backup` -> `library_restore_service.restore_library_backup` | staged, rebuilt from the app's own schema, current auth tables kept | staged, rename-aside, rename-in |
+| Full restore | `library_backup_restore_service.restore_backup` -> `library_restore_service.restore_library_backup` | staged, rebuilt from the app's own schema, current auth tables kept | staged, rename-aside, rename-in |
 
 What they skip or keep:
 
@@ -438,7 +438,7 @@ Add a table:
    `line_provenance`, `job_checkpoints`).
 2. Put its access functions in the `db` package; services call those.
 3. Decide its backup behaviour: add it to `USER_BACKUP_TABLES` in
-   `library_admin_service` (the my-items backup treats every table explicitly),
+   `library_user_backup_service` (the my-items backup treats every table explicitly),
    and to `CHILD_TABLES`, `_SKIPPED_TABLES` or the line-reference lists in
    `auto_backup_service` if single-drama restore must handle it.
 4. Redact anything error-like with `redact_secrets` before storing it.

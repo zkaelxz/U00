@@ -421,7 +421,7 @@ Thread unless marked process.
 | `extract_audio_<id>`, `lncrawl_<id>` | media upload and lncrawl services | thread | no |
 | `urlmedia_<id>` | `url_media_service` (the download itself runs in the `ytdlp_child` process) | thread | no |
 | Sources: `sources_search`, `sources_save`, `sourceimport_<id>`, `sources_series_*`, `sources_signin_*` | `sources_*_service` | thread | no |
-| Library: `library_backup`, `library_db_backup`, `library_user_backup`, `library_auto_backup`, `library_export_zip`, `bulk_series_translate` | `library_admin_service`, `auto_backup_service` | thread | no |
+| Library: `library_backup`, `library_db_backup`, `library_user_backup`, `library_auto_backup`, `library_export_zip`, `bulk_series_translate` | `library_admin_service`, `library_backup_service`, `library_user_backup_service`, `auto_backup_service` | thread | no |
 | `deno_install`, `upgrade_check`, `discover_*` | diagnostics and discover services | thread | no |
 | Live capture | `live_service` | thread | with local Whisper |
 | Benchmark runs | `benchmark_lab_service` | thread | for local-model stages |
