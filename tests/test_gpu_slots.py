@@ -186,25 +186,6 @@ class TestGpuParallelSlots:
         db.set_app_setting("gpu_max_parallel", "lots")
         assert bg.get_gpu_max_parallel() == 1
 
-    def test_cli_gpu_lock_waits_for_a_ui_job_and_releases(self):
-        import cli
-        release = self._start("par_a")
-        got = threading.Event()
-
-        def run_cli():
-            with cli._gpu_lock("CLI translate", poll_interval=0.01) as holder:
-                got.set()
-                assert gpu_slots.status()[0] == holder
-        t = threading.Thread(target=run_cli)
-        t.start()
-        assert not got.wait(0.2)
-        release.set()
-        t.join(5)
-        assert got.is_set() and not t.is_alive()
-        assert gpu_slots.status() == (None, None)
-
-
-
 class TestTwoProcesses:
     def test_cap_is_never_exceeded_with_holders_from_two_other_pids(self, isolated_db, monkeypatch):
         monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: {"memory_free_mb": 20000.0})

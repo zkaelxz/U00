@@ -39,6 +39,7 @@ import { useStrongerOffers } from './useStrongerOffers'
 import { DRAFT_NOT_SAVED, buildStructureEdits, type UndoOffer } from './structureEdits'
 import { useDraftGuard } from './useDraftGuard'
 import { useCanRetranscribeLine } from './useCanRetranscribeLine'
+import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 import { useReviewShortcuts } from './useReviewShortcuts'
 import { useTimingSnap } from './useTimingSnap'
 import { useTmByLine } from './useTmByLine'
@@ -133,6 +134,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [structError, setStructError] = useState<unknown>(null)
   const [sheetNote, setSheetNote] = useState<string | null>(null)
   const canRetranscribeLine = useCanRetranscribeLine(dramaId)
+  const retranscribeNeed = useAudioToolNeed()
   const [retranscribeFocusId, setRetranscribeFocusId] = useState<number | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   // The last structural edit, while it can still be undone.
@@ -428,6 +430,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         focusGap={gapFocus}
         jobRunning={jobRunning}
         canTranscribe={canRetranscribeLine}
+        need={retranscribeNeed}
       />
     ) : null
 
@@ -624,6 +627,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
           onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
           canRetranscribe={canRetranscribeLine}
+          retranscribeNeed={retranscribeNeed}
           onRetranscribe={() =>
             closeSheetThen(() => {
               if (!sheetLine) return

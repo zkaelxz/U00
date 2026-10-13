@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
+import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import { applyRetime, getCompareOptions, getRetimeResult, startRetime } from '../../../../api/workspace'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
-import { TERMINAL_STATUSES } from '../../../../types/jobs'
+import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { RetimeProposal, RetimeResult } from '../../../../types/workspace'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { formatTime } from './reviewLogic'
@@ -57,6 +58,7 @@ export function RetimeLines({
     panelRef.current?.scrollIntoView({ block: 'start' })
   }, [openSignal])
 
+  const anyJob = useCancelsAnyJob()
   const { job, error: pollError } = useJob(jobId, {
     runKey,
     onDone: (j) => {
@@ -125,7 +127,7 @@ export function RetimeLines({
             <button type="button" onClick={start} disabled={busy || applying || !!blocked}>
               {busy ? 'Re-timing…' : 'Re-time ticked lines'}
             </button>
-            {active && job && <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
+            {active && job && offersCancel(job, anyJob) && <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
           </div>
           {blocked && !busy && <p className="muted" data-testid="retime-blocked">{blocked}</p>}
           <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />

@@ -1,14 +1,9 @@
 """The NLLB engine was removed. Saved data may still name it: every surface
 refuses a run with the removed-engine message, and old rows keep loading."""
-import argparse
-import contextlib
-import io
 
 import pytest
 
 import bulk_poll
-import cli
-import cli_translate
 import db
 import translate_engines
 from core import Line
@@ -16,6 +11,12 @@ from services import (benchmark_lab_service, engine_routing_service,
                       translate_run_service as svc, translate_service)
 from services.service_errors import InvalidInputError
 from tests.saved_settings import patch_setting
+
+
+@pytest.fixture(autouse=True)
+def _no_ollama_probe(monkeypatch):
+    """GET /api/translate/engines checks whether Ollama answers; no test may make that network call."""
+    monkeypatch.setattr("services.translate_run_service.ollama_reachable", lambda: False)
 
 MESSAGE = "The nllb engine was removed. Pick another engine."
 
@@ -90,7 +91,7 @@ class TestBulkResume:
 
     def test_cancelling_it_does_not_crash(self, isolated_db):
         did, jid = self._job("submitted")
-        assert svc.cancel_bulk_translation(did, jid)["bulk_job"]["status"] == "cancelled"
+        assert svc.cancel_bulk_translation(did, jid, None)["bulk_job"]["status"] == "cancelled"
 
 
 class TestLibraryBulkQueue:
@@ -161,50 +162,9 @@ class TestApi:
         assert "nllb" not in r.text
 
 
-class TestCli:
-    def _run(self, monkeypatch, args):
-        built = []
-        monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: built.append(name) or object())
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            cli_translate.cmd_translate(args)
-        assert "nllb" not in built, "a removed engine must not be built"
-        return out.getvalue()
-
-    def _args(self, **overrides):
-        from tests.test_cli import _translate_args
-        return _translate_args(**overrides)
-
-    def test_a_drama_saved_with_it_is_skipped_with_the_message(self, isolated_db, monkeypatch):
-        did = _drama(translation_engine="nllb")
-        out = self._run(monkeypatch, self._args(id=did, engine=None, api_key=None))
-        assert f"#{did} skipped" in out and MESSAGE in out
-
-    def test_a_fallback_naming_it_is_refused_up_front(self):
-        with pytest.raises(SystemExit) as exc:
-            cli_translate._parse_fallback_arg("deepseek,nllb", reflect=False)
-        assert MESSAGE in str(exc.value)
-
-    def test_the_engine_flag_refuses_it_with_the_api_message(self, isolated_db, monkeypatch):
-        built = []
-        monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: built.append(name) or object())
-        monkeypatch.setattr("sys.argv", ["cli.py", "translate", "--id", "1", "--engine", "nllb"])
-        with pytest.raises(SystemExit) as exc:
-            cli.main()
-        assert str(exc.value) == f"translate: {MESSAGE}"
-        assert not built
-
-    def test_an_unknown_engine_flag_is_still_refused(self, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["cli.py", "translate", "--engine", "nope"])
-        with pytest.raises(SystemExit) as exc:
-            cli.main()
-        assert str(exc.value) == "translate: Unknown engine."
-
-    def test_the_default_model_is_the_same_in_the_cli_and_the_app(self, isolated_db):
-        assert translate_engines.builtin_default_model("ollama") == "gemma4:12b"
-        assert svc._default_model("ollama") == "gemma4:12b"
+def test_the_default_model_is_the_same_in_the_builtin_and_the_app(isolated_db):
+    assert translate_engines.builtin_default_model("ollama") == "gemma4:12b"
+    assert svc._default_model("ollama") == "gemma4:12b"
 
 
 class TestOllamaDefaultAgrees:

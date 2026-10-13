@@ -28,28 +28,13 @@ sudo apt install ffmpeg        # Ubuntu/Debian
 ```
 - **Automatic updates (source checkouts).** Before launch, `start.bat` fast-forwards a clone on `baihe-subtitler` to `origin/baihe-subtitler`. It never discards, stashes or overwrites your changes and leaves untracked and ignored files (`library\`, `.env`, `venv\`, `frontend\dist`) alone. When it updates it prints `Updated to <commit>: N new commits` and the latest subjects. If `requirements-core.txt` or the constraints files changed it reinstalls dependencies in the same launch; if the screens' source changed it rebuilds `frontend\dist` when `npm` exists, otherwise it says to run `start.bat --build-frontend` or unzip the release's frontend zip. It does nothing without a `.git` folder, without `git` on PATH, for an installed copy, or when GitHub can't be reached. A copy with local commits that aren't on origin is not updated (the update wouldn't sit on top of them).
 
-## Running the app and the CLI
+## Running the app
 
 Double-click `start.bat`, or from the repo root inside the venv (once `frontend/dist` exists):
 ```bash
 python -m api     # then open http://127.0.0.1:8600/
 ```
 Set `BAIHE_API_SERVE_FRONTEND=0` to run API-only.
-
-**CLI (headless batch)** (`python cli.py --help` lists every command and option):
-```bash
-python cli.py list
-python cli.py align --whisper-size medium                    # audio-drama mode
-python cli.py align --id 3 --transcript script.txt            # or --transcript - for stdin
-python cli.py narrate-prep --engine claude --api-key $KEY     # novel-narration mode
-python cli.py translate --status aligned --engine claude --api-key $KEY
-python cli.py dub --id 3
-python cli.py export-video --subs english
-python cli.py transcribe --id 3 --language zh --whisper-size large-v3 --diarize   # same service as the app; options are saved on the title
-python cli.py qc --id 3                                       # Auto QC: flags number/name/banned-term slips, no engine
-python cli.py glossary list --id 3                            # also add / remove / import FILE / export (the series glossary)
-```
-Without `--transcript`, put the transcript at `library/dramas/<id>/transcript.txt` and the media at `library/dramas/<id>/source.<ext>`. For novel narration, put the text at `library/dramas/<id>/novel_narration_source.txt` and set `content_mode = 'novel_narration'` on the drama row (the app does all this for you).
 
 ## Developer setup, ports and the Windows service
 
@@ -151,6 +136,7 @@ The Media stage has five sub-tabs, one screen each (the last one you used is rem
 
 Other transcribe options (Workspace > Media > Tools > Advanced options, folded into Speakers, Timing, Models and backends, Guards (Developer Mode) and Switches, which lists every on/off option and names the ones that are on when folded. Switches opens on a title whose options were never saved, and Speakers opens once they are; each fold remembers how you left it. "Extra names to expect" sits with the replacement prompt in the "More: replace the automatic prompt" fold, whose header says what is set. Ranges read like "0.1-2.0 s, default 0.35 s"):
 - **Min silence** (ms; default 300, range 100-3000; lower values split at shorter pauses and can cut mid-sentence) and **VAD threshold** (the Silero speech-detection threshold, 0.1-0.9): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines. A "Sensitivity" preset (normal / sensitive): sensitive lowers a VAD threshold you haven't changed from 0.5 to 0.35 and drops Whisper's repeat penalties; it leaves Min silence alone.
+- **Difficult audio** (Switches, off by default; also a series default): for speakers who scream, whisper or talk over each other, where lines go missing or are misheard. It uses the sensitive speech detector (unless you changed the VAD threshold yourself), transcribes a temporary levelled copy of the audio (needs ffmpeg; the stored file is never changed, and the job notes it if ffmpeg is missing) and makes Whisper less eager to drop low-confidence speech. Slower, and it can add a few false lines; the usual repeat and hallucination filters still run. Whisper and Qwen3-ASR (the Whisper-boundary one) use all three; the "detect speech first" Qwen3 recognizers and anime-whisper only get the levelling; Groq and a supplied transcript ignore it. To test it on a clip first: `python -m tools.asr_bench TITLE_ID --config whisper:large-v3 --config whisper:large-v3,vad=sensitive --config whisper:large-v3,difficult=on`. With Developer Mode on, Settings > Timing and splitting also holds the two Whisper numbers it relaxes.
 - **Timing and splitting** (Settings > System). Shows the numbers that decide how long a line may run (default 8 s or 40 characters), how long a pause counts as a scene change when translating (3 s) and how fragments are joined into a sentence (1 s apart), each with its default, a plain tooltip and a Reset button. The speech-detection and tidy-up numbers behind them appear when Developer Mode is on, and read as their defaults when it is off. A change only affects runs you start afterwards; lines you already have are not touched, and the CLI uses the same values.
 - **Separate vocals first** (removes background music before transcribing): vocal separation with `audio-separator` (preferred) or Demucs. Adds a full extra pass; skip it unless the background is music alone (in the benchmark it hurt with noise and did nothing on clean audio).
 - **Realign long segments** (experimental, off by default): re-aligns a line against its own audio with Meta's MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper already produced.
@@ -208,9 +194,9 @@ With no source audio, line timings come from each generated TTS clip, so downloa
 
 - **Voice engine**: OmniVoice is the only engine and is not bundled; install it in Diagnostics (`pip install omnivoice`, needs `transformers` 5.3+). It clones a voice from a 3-10s clip or designs one from a description, and speaks Chinese, Japanese and Korean. A speaker with no clip gets a designed voice. "Find clips in the audio" pulls reference clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
 - **Removed engines**: Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick OmniVoice; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand (Library tools > Data folder lists it as "Old voices").
-- **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable (`--max-speedup` / `--max-slowdown` on `cli.py dub`). Editing a line and generating again re-voices only that line.
+- **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable in the Dub stage. Editing a line and generating again re-voices only that line.
 - **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
-- **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers from the novel's headings (or one per paragraph); CLI: `python cli.py dub --id N --m4b`.
+- **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers from the novel's headings (or one per paragraph).
 
 Cloning real people's voices, even for personal fan translation, is a legal and ethical gray area; think it through before sharing dubbed files.
 
@@ -294,14 +280,14 @@ The Jobs page has a Queue card for lining up work and letting it run hands-off, 
 ## Reliability
 
 - One failure breaks only that thing: each React page has an error boundary, database connections are reclaimed after errors, destructive writes (`save_lines`, `save_bubbles`, history snapshots) run in transactions with rollback, and optional packages are imported lazily so a missing one disables only its feature.
-- Batch work isolates failures: a CLI batch continues past a failing drama and prints which ids to retry with `--id` (`BAIHE_CLI_DEBUG=1` for tracebacks); one failed TTS line leaves only that line silent; one failed page doesn't stop a bulk scanlate job; diarization failure keeps the alignment already saved.
+- Batch work isolates failures: one failed TTS line leaves only that line silent; one failed page doesn't stop a bulk scanlate job; diarization failure keeps the alignment already saved.
 - API calls back off exponentially on rate limits (up to 5 attempts) and fail fast on real errors.
 - Translation saves after every batch and skips already-translated lines on re-run; use "force re-translate everything" for a full redo.
 - Settings holds each API key once; keys are never shown back by the API. Settings has six tabs (Translation and keys, Costs, Notifications and backups, Sharing and devices, Integrations, System) and a search box that opens the tab and card it finds. Every card folds; the app remembers which are open, and "Expand all" / "Collapse all" act on the tab you are on. The first time you open a tab only its first card is open; after that the app keeps the cards as you left them, and a closed card shows its current value in one line. Someone without the settings permission sees only the Sharing and devices cards, with no tab bar or search. The public address check and the sign-in accounts are on the People and access page, and ports are on Diagnostics > System.
 - SQLite runs in WAL mode; the review table is paginated; real token usage is logged per drama (estimates only, since prices change).
 - GPU acceleration is optional (Whisper, diarization, local cloning) and falls back to CPU if CUDA isn't available.
 - The novel reference is sent as a prompt-cached block per drama. A very long novel (200k+ Chinese characters) may not fit; trim to the relevant arc or compress it into a glossary.
-- For 50-100+ dramas: filter the Library by status and use `cli.py` for unattended batches.
+- For 50-100+ dramas: filter the Library by status and line the work up in the Queue card on the Jobs page.
 
 ## Troubleshooting
 
@@ -387,7 +373,7 @@ The Benchmark Lab page (linked from Diagnostics) checks whether a model, engine 
 - **Scores.** Translation uses chrF via `sacrebleu` when installed, else a text similarity ratio; transcription and OCR use 1 - CER (1 - WER for space-delimited languages), via `jiwer` when installed, else a built-in scorer. For Chinese, both texts are first converted to Simplified (OpenCC, else a built-in character table), so Traditional against Simplified is not an error; the run records which converter it used, and the Traditional/Simplified counts still show the script. Japanese and Korean are not converted, and Chinese scores from before this change were script-sensitive. Each result records its metric and scorer.
 - **Results.** Every run is saved (engine, model, score, latency, cost, peak VRAM, per-case pass/fail) under "Recent runs"; tick runs and press "Compare". A scheduled re-evaluation of candidate models against your production model is on the same page.
 
-**Comparing transcription recipes on your own audio.** The Benchmark Lab needs a golden set; `python -m tools.asr_bench TITLE_ID --config RECIPE --config RECIPE ...` instead runs one stretch of a title's stored audio (`--from`/`--to` in seconds, default the first 300) through several recipes and writes `asr-bench-report.md` to the data folder. A recipe is a backend, a model and a few options, for example `whisper:large-v3-turbo`, `whisper:kotoba-v2,align=on`, `whisper:large-v3-turbo,vad=sensitive,beam=1`, `qwen3_asr_vad,detector=asmr` or `qwen3_asr_long`; the first is the baseline, and the full grammar is in `--help` and `docs/asr-experiments.md`. It scores against `--reference FILE.srt` (hand-corrected subtitles on the title's timeline) or, without one, against the title's current lines. Without `--yes` it is a dry run that lists the recipes, the models they would load and a rough time, and writes nothing; with `--yes` it waits for any running GPU job, unloads models between recipes and saves nothing to the title. The report gives per recipe time, real-time factor, peak GPU memory, merged and missed lines, start/end timing error, 1 - CER (1 - WER for space-delimited languages), repetition loops, stock-phrase hallucinations, lines over silence and a side-by-side listing of the lines that differ.
+**Comparing transcription recipes on your own audio.** The Benchmark Lab needs a golden set; `python -m tools.asr_bench TITLE_ID --config RECIPE --config RECIPE ...` instead runs one stretch of a title's stored audio (`--from`/`--to` in seconds, default the first 300) through several recipes and writes `asr-bench-report.md` to the data folder. A recipe is a backend, a model and a few options, for example `whisper:large-v3-turbo`, `whisper:kotoba-v2,align=on`, `whisper:large-v3-turbo,vad=sensitive,beam=1`, `whisper:large-v3,difficult=on`, `qwen3_asr_vad,detector=asmr` or `qwen3_asr_long`; the first is the baseline, and the full grammar is in `--help` and `docs/asr-experiments.md`. It scores against `--reference FILE.srt` (hand-corrected subtitles on the title's timeline) or, without one, against the title's current lines. Without `--yes` it is a dry run that lists the recipes, the models they would load and a rough time, and writes nothing; with `--yes` it waits for any running GPU job, unloads models between recipes and saves nothing to the title. The report gives per recipe time, real-time factor, peak GPU memory, merged and missed lines, start/end timing error, 1 - CER (1 - WER for space-delimited languages), repetition loops, stock-phrase hallucinations, lines over silence and a side-by-side listing of the lines that differ.
 
 ## Notes & tips
 

@@ -236,6 +236,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/jellyfin/test` | local_only() |
 | `GET /api/jobs` | library.read |
 | `POST /api/jobs/clear-finished` | local_only() |
+| `GET /api/jobs/queue-summary` | library.read |
 | `GET /api/jobs/{job_id}` | library.read |
 | `POST /api/jobs/{job_id}/cancel` | jobs.cancel |
 | `POST /api/jobs/{job_id}/delete` | local_only() |
@@ -498,6 +499,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/settings/usage-recost` | admin.settings |
 | `POST /api/settings/usage-recost/apply` | local_only() |
 | `POST /api/settings/usage-recost/undo` | local_only() |
+| `GET /api/setup/readiness` | library.read |
 | `POST /api/sharing/dramas/{drama_id}/private` | lines.edit |
 | `GET /api/sharing/items` | admin.library |
 | `POST /api/sharing/series/{series_id}/private` | lines.edit |

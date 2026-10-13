@@ -20,6 +20,8 @@ import {
   isActiveStatus,
 } from './autotuneGlossary'
 import { useRunStatus } from './useRunStatus'
+import { NeedsInstall } from '../../readiness/NeedsInstall'
+import { useAudioToolNeed } from '../../readiness/useAudioToolNeed'
 import './autotuneGlossary.css'
 import { buttonClass } from '../../../components/uiClasses'
 
@@ -64,6 +66,7 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
     const t = setInterval(() => setElapsed((Date.now() - begun) / 1000), 1000)
     return () => clearInterval(t)
   }, [active])
+  const need = useAudioToolNeed()
   const blocker = active ? null : autotuneBlocker(hasAudio, busy)
   const results = status?.status === 'done' ? status.results ?? [] : []
   const best = status?.best_candidate_ms ?? null
@@ -146,12 +149,13 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
           </p>
         ) : (
           <div className="actions">
-            <button type="button" disabled={!!blocker || starting} onClick={start}>
+            <button type="button" disabled={!!blocker || starting || !!need} title={need?.reason} onClick={start}>
               {status?.status === 'done' ? 'Run auto-tune again' : 'Start auto-tune'}
             </button>
             {blocker && <span className="muted">{blocker}</span>}
           </div>
         )}
+        {need && !active && <NeedsInstall need={need} />}
         {status?.status === 'error' && (
           <p className="error" role="alert">
             {safeDetail(status.message) ?? 'Auto-tune failed. Details are in the app log.'}

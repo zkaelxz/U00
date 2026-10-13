@@ -16,13 +16,14 @@ table) is in `archive/asr-experiments-history.md`.
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
 | Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
-| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (app only, not in the CLI; see "anime-whisper in the app"). |
+| ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (see "anime-whisper in the app"). |
 | Qwen3-ASR batch size | Settings > System > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
 | Mixed languages | same card | off | |
 | Voice detector | the Transcribe stage's voice detector field (no Settings card holds it) | `auto` | Choices come from `settings_service._voice_detector_choices`. Used by the speech-detection backends. |
 | Separate vocals first | per title | off | |
 | Sensitivity | per title | `normal` | `sensitive` lowers the VAD threshold to 0.35 (`sensitivity_preset.py`). |
+| Difficult audio | per title (Transcribe > Advanced > Switches) | off | Opt-in for screamed, whispered or quiet speech. See "Difficult audio" below. |
 | Min silence, VAD threshold, Beam size | per title (Developer Mode) | 300 ms, 0.5, 5 | Whisper's own pass. Min silence is not used when "Split lines by sentences" is on. |
 | Hallucination guard | per title (Developer Mode) | 0 (off) | Local Whisper only. Ignored by Fast mode, Groq, Mixed languages and the Qwen3-ASR backends. |
 | Pause that can split a long line | per title | 0.35 s | `segment_splitting.MIN_WORD_GAP_SECONDS`. |
@@ -52,6 +53,11 @@ or a model that `whisper_models.WHISPER_LANGUAGE_RULES` excludes for the title's
 | `prompt=` | `on` (default, the automatic name/glossary prompt), `off` | `whisper`, `qwen3_asr` |
 | `align=` | `on` (forced aligner refines line times), `off` (default) | `whisper`, `qwen3_asr_vad` (`qwen3_asr_long` always aligns) |
 | `detector=` | `standard`, `asmr` (default: the Settings choice) | `qwen3_asr_vad`, `qwen3_asr_long` |
+| `difficult=` | `on`, `off` (default: the title's saved Difficult audio choice). The levelled clip, the sensitive detector (an explicit `vad=` wins) and the relaxed skip rule; see "Difficult audio" | `whisper`, `qwen3_asr` |
+
+To compare the owner's loud-speech clip three ways: `--config whisper:large-v3 --config whisper:large-v3,vad=sensitive --config whisper:large-v3,difficult=on`.
+`difficult=on` writes a levelled copy of the cut window next to it in the bench's own temporary folder (removed afterwards) and says in the recipe's
+notes if ffmpeg was missing and the clip was used as it is.
 
 Anything a recipe does not name is what the title already uses (min silence, VAD threshold, hallucination guard, repeat guard, fast mode), so the
 bench matches a real run. Models are released between recipes, so every recipe pays its own load time; the wall time includes it.
@@ -110,7 +116,7 @@ speech, sits in silence, or overlaps the next line. The note is fixed text plus 
 ("Starts 1.4 s before speech."). The thresholds are constants in `timing_drift.py`.
 
 - It runs by itself after a transcription with either Qwen-only backend, and on demand
-  for any title (`python cli.py timing-check --id N [--snap]`).
+  for any title (Check timing).
 - Only `flag` and `flag_note` are written, only while a line's times are unchanged since
   they were judged. A line with another flag keeps it; a `timing_drift` flag that no
   longer applies is cleared. **Dismiss flag** on a timing flag is remembered
@@ -174,7 +180,7 @@ Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
 
 Which sizes the pickers offer is one function, `whisper_models.selectable_whisper_sizes(context)`: the
 Transcribe stage and Compare transcription list `large-v3`, `large-v3-turbo` and the opt-in Japanese models;
-`tiny`, `base`, `small` and `medium` are hidden unless Developer Mode is on. The API, the CLI and saved titles
+`tiny`, `base`, `small` and `medium` are hidden unless Developer Mode is on. The API and saved titles
 still accept the hidden sizes, and a title that saved one shows it as "medium (older choice, hidden)" with a
 one-click switch to large-v3; it is never changed silently. Live keeps its own list
 (`whisper_models.LIVE_WHISPER_SIZES`: tiny to medium and turbo, default small) and the Groq hosted model stays
@@ -206,7 +212,7 @@ check is skipped for a folder, as it is for any local path.
 
 Which Whisper models a language may use is one table, `whisper_models.WHISPER_LANGUAGE_RULES`
 (model, languages, reason). The server refuses an excluded pair (title settings, a run that names
-another language, Compare transcription, Benchmark Lab, `cli.py align`), and the pickers read the same
+another language, Compare transcription, Benchmark Lab), and the pickers read the same
 table from the config and options payloads (`whisper_exclusions`), showing an excluded model disabled with
 its reason. A title saved with a model that is no longer allowed falls back to the default and the
 Transcribe stage says so (`whisper_size_notice`). A model is excluded for a language only where this
@@ -405,10 +411,10 @@ its auto-mapping and `prepare_forced_aligner_inputs` / `decode_forced_alignment`
   4.1 GB (1.7B), 1.6 GB (0.6B) and 1.8 GB (the aligner) from Hugging Face; the old
   folders can be deleted in Diagnostics > Model cache.
 - **Japanese and Korean alignment** need `nagisa` and `soynlp`; a missing one is
-  reported in plain words, at job start (app and CLI), not as an ImportError after
+  reported in plain words, at job start, not as an ImportError after
   the recognition pass.
 - **Name hint (off by default).** A per-title switch in the Transcribe stage's
-  Advanced section (CLI: `transcribe --vocab-hint` / `--no-vocab-hint`) sends
+  Advanced section sends
   `Vocabulary: a, b, c` as the processor's `prompt=`, built from the title's
   character names and series glossary (`services/vocabulary_hint_service.py`).
   At most 40 terms and 300 characters, because every segment's request carries
@@ -616,3 +622,39 @@ The Qwen wall times include model loading. The worst-scoring lines of the best
 configurations were mostly short interjections Whisper left out and reference OCR
 mistakes, not wrong words. Not tested: GPU, the forced-aligner refine option,
 Whisper plus Qwen combined.
+
+
+## Difficult audio
+
+A per-title opt-in (`dramas.difficult_audio`, Transcribe > Advanced > Switches, also a series default) for audio where the default drops speech:
+someone screams or talks very loud, or two people whisper. Off, a run is identical to before: the same worker arguments, the same keywords to
+faster-whisper. On, a transcription does three things:
+
+1. **Sensitive detector.** The title runs with the Sensitive preset (`sensitivity_preset.difficult_audio_view`): Whisper's detector threshold drops
+   from 0.5 to 0.35 and the repeat penalties go, as for Sensitivity = sensitive. A VAD threshold the title changed still wins. Min silence is not part of
+   the preset and is left as the title has it (the 300 ms default is already short; lowering it cuts sentences).
+2. **Levelled temporary copy.** `audio_preprocess.level_audio` runs one ffmpeg call (`lib.proc.run_captured`, timeout, polled cancel) with
+   `dynaudnorm=f=150:g=5:p=0.9:m=8` into a 16 kHz mono WAV in the job's scratch folder in the library temp folder. The stored audio is never
+   touched. The worker is killed as a whole process group on a cancel, so ffmpeg is started with `own_group=False` to stay in that group
+   (a child in a group of its own would survive the kill; on Windows `taskkill /T` walks the process tree, which covers it either way). The parent removes the
+   scratch folder when the job ends, and the startup sweep removes one a crash left. dynaudnorm levels frame by frame and caps
+   the gain at 8x, so a whisper after a scream is lifted within about a second and silence is not pumped into something the detector takes for speech;
+   loudnorm was measured on a quiet/loud test tone and also levels, but has no gain cap, works at 192 kHz internally and its accurate mode is a single gain for the
+   whole file. The copy needs about 115 MB per hour of audio. If ffmpeg is missing, cannot start or fails, the disk is short of room, or
+   Separate vocals first is on (the separation model should hear the original), the original is transcribed and the job's warning says why. The other two parts still apply.
+3. **Relaxed Whisper skip rule.** `no_speech_threshold` and `log_prob_threshold` are passed to faster-whisper only when it accepts them
+   (`core._accepts_transcribe_kwarg`; not in Whisper fast mode, whose batched pipeline is not probed). Whisper drops a stretch whose no-speech probability is above the first number unless its average word confidence is above
+   the second; faster-whisper's defaults are 0.6 and -1.0, and the recipe uses 0.8 and -1.5. Both are Developer Mode rows in Settings > Timing and
+   splitting (`difficult_no_speech_threshold`, `difficult_log_prob_threshold`); with Developer Mode off they read as these defaults. The hallucination guards
+   (`filter_hallucinated_segments`, the stock-phrase and silence guards, and the title's repeat guard) still run on what comes back.
+
+Which recipe honours which part:
+
+| Recognizer | Levelling | Sensitive detector | Skip rule |
+|---|---|---|---|
+| Whisper | yes | yes | yes (not with Mixed languages on: the per-span run keeps Whisper's own rule, and the job says so) |
+| `qwen3_asr` (Whisper boundaries, Qwen3 text) | yes (both passes hear the copy) | yes | yes |
+| `qwen3_asr_vad`, `qwen3_asr_long`, `anime_whisper` | yes | no (own detector) | no (not Whisper) |
+| Groq, or a supplied transcript | ignored, with a note in the job result | | |
+
+A supplied transcript or Groq ignores the option, including the detector preset. Not covered: re-transcribing selected lines, the fix-flag and compare runs and auto-tune use the title's Sensitivity and defaults as before.

@@ -349,7 +349,7 @@ def test_valid_restore_calls_existing_swap(isolated_db, monkeypatch):
 
 def test_restore_that_flips_developer_mode_syncs_the_echo_engine(isolated_db, monkeypatch):
     from engine_backends import echo, engine_registry
-    from services import maintenance_assistant_service as assistant
+    from services import assistant_settings_service as assistant
     echo.set_enabled(False)
     monkeypatch.setattr(lrs, "restore_library_backup", lambda *a, **k: db.set_app_setting(
         assistant._SETTINGS_PREFIX + "developer_mode", True))
@@ -1244,16 +1244,16 @@ def test_unreadable_carried_sources_db_leaves_the_live_library(isolated_db, monk
 
 
 def test_restore_keeps_the_live_auto_backup_settings_and_state(isolated_db):
-    from services import auto_backup_service as abs_
+    from services import auto_backup_settings as abt_
     _new("A")
-    db.set_app_setting(abs_.SETTINGS_KEY, {"enabled": True, "folder": "elsewhere"})
-    db.set_app_setting(abs_.STATE_KEY, {"last_success_at": "from the backup"})
+    db.set_app_setting(abt_.SETTINGS_KEY, {"enabled": True, "folder": "elsewhere"})
+    db.set_app_setting(abt_.STATE_KEY, {"last_success_at": "from the backup"})
     data = _backup_bytes()
-    db.set_app_setting(abs_.SETTINGS_KEY, {"enabled": False, "folder": ""})
-    db.set_app_setting(abs_.STATE_KEY, {"last_success_at": "live"})
+    db.set_app_setting(abt_.SETTINGS_KEY, {"enabled": False, "folder": ""})
+    db.set_app_setting(abt_.STATE_KEY, {"last_success_at": "live"})
     _restore(data)
-    assert db.get_app_setting(abs_.SETTINGS_KEY) == {"enabled": False, "folder": ""}
-    assert db.get_app_setting(abs_.STATE_KEY) == {"last_success_at": "live"}
+    assert db.get_app_setting(abt_.SETTINGS_KEY) == {"enabled": False, "folder": ""}
+    assert db.get_app_setting(abt_.STATE_KEY) == {"last_success_at": "live"}
 
 
 def test_restore_rechecks_jobs_before_swap(isolated_db, monkeypatch):

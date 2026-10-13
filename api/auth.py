@@ -167,6 +167,10 @@ def require_permission(*permissions: str):
     # routes by a lone admin.* label; a compound label would slip past them.
     if len(permissions) > 1 and any(p.startswith("admin.") for p in permissions):
         raise ValueError("an admin.* permission is always declared on its own")
+    # Stopping a job is the one change an admin may make to other people's
+    # items from away (owner decision 2026-10-12), so a cancel route's path
+    # item only has to be visible; its service applies may_cancel_job.
+    stopping = permissions == ("jobs.cancel",)
 
     def dependency(request: Request):
         if not is_auth_enabled(request.app):
@@ -177,7 +181,7 @@ def require_permission(*permissions: str):
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = principal
         ownership_service.note_acting_principal(principal)
-        require_path_visible(request, principal)
+        require_path_visible(request, principal, stopping=stopping)
         return principal
 
     return _marked(dependency, "permission", " + ".join(permissions))
@@ -190,15 +194,17 @@ def require_permission(*permissions: str):
 OWNED_PATH_PARAMS = {"drama_id": "drama", "series_id": "series"}
 
 
-def require_path_visible(request: Request, principal) -> None:
+def require_path_visible(request: Request, principal, stopping: bool = False) -> None:
     """404 (never 403, so a private item's existence isn't revealed) when a
     `{drama_id}`/`{series_id}` path parameter names an item the principal
     can't see. Runs after the permission check, so a caller without the
     permission still gets a plain 403. Any other method also needs the item
     to be editable (ownership_service.require_editable): the same for
     everyone except an admin on the household listener, who sees every
-    item but may change only what a member could (403)."""
-    check = (ownership_service.require_visible if request.method.upper() in _SAFE_METHODS
+    item but may change only what a member could (403). `stopping`: a
+    `jobs.cancel` route, where seeing the item is enough here."""
+    check = (ownership_service.require_visible
+             if stopping or request.method.upper() in _SAFE_METHODS
              else ownership_service.require_editable)
     for name, kind in OWNED_PATH_PARAMS.items():
         if name in request.path_params:

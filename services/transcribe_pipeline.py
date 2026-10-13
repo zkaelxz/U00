@@ -29,7 +29,7 @@ import storage
 from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from diarize import select_device
-from services import settings_service, timing_settings_service
+from services import difficult_audio_service as difficult, settings_service, timing_settings_service
 from services.qwen3_requirements_service import import_failure_message
 from translate_engines import redact_secrets
 
@@ -57,14 +57,12 @@ REALIGN_START = 0.9
 QWEN_SPLIT = 0.85
 
 
-def _raise_if_job_cancelled(job_id):
-    if background_jobs.is_cancel_requested(job_id):
-        raise background_jobs.JobCancelled(job_id)
-
-
 # Fixed sentences, never the ImportError text: that names a module and reads
 # as a crash. The Diagnostics page is where the install button is.
 MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnostics to install it."
+# Hard-subtitle reading is OCR, not speech recognition: saying "Transcription isn't installed"
+# would send the user to install Whisper while the missing piece is an OCR package.
+MISSING_OCR_MESSAGE = "Reading on-screen text needs an OCR package that isn't installed yet. Open Diagnostics to install one."
 _MISSING_VAD_MESSAGE = ("Qwen3 speech detection needs transcription, which isn't installed yet. "
                         "Open Diagnostics to install it.")
 
@@ -161,7 +159,8 @@ class _ThreadReporter:
         return background_jobs.is_cancel_requested(self.job_id)
 
     def raise_if_cancelled(self):
-        _raise_if_job_cancelled(self.job_id)
+        if self.cancelled():
+            raise background_jobs.JobCancelled(self.job_id)
 
 
 class _ProcessStage:
@@ -246,8 +245,11 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
         os.makedirs(scratch_dir, exist_ok=True)
         tempfile.tempdir = scratch_dir
         groq_api_key = settings_service.resolve_key("groq") if use_groq else None
+        rep = _ProcessReporter(result_queue)
+        lev = difficult.prepare(rep, audio_path, scratch_dir, transcript_mode,
+                                asr_backend_choice, use_groq, mixed_languages, timing)
         outcome = _transcribe_pipeline(
-            _ProcessReporter(result_queue), audio_path, transcript_mode, transcript_text,
+            rep, lev.audio_path, transcript_mode, transcript_text,
             source_language, chinese_script, whisper_size, beam_size, min_silence_ms,
             vad_threshold, separate_vocals_first, separation_backend, realign_long_segments,
             whisper_fast_mode, use_groq, groq_api_key, initial_prompt, use_gpu,
@@ -257,8 +259,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             repeat_guard=repeat_guard, split_by_sentences=split_by_sentences,
             sensitivity_preset=sensitivity_preset, voice_detector=voice_detector,
-            qwen_prompt=qwen_prompt, timing=timing)
-        result_queue.put(("ok", outcome))
+            qwen_prompt=qwen_prompt, timing=lev.timing)
+        result_queue.put(("ok", lev.annotate(outcome)))
     except ImportError:
         result_queue.put(("ok", missing_package_outcome()))
     except Exception as exc:
@@ -294,10 +296,6 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
     `rep` is a _ThreadReporter or _ProcessReporter.
-
-    Reuses transcribe_for_timing exactly as
-    services.workspace_job_service.run_transcribe_job does (see that
-    function's own docstring for the reasoning behind each parameter).
 
     local_model_path is Settings > Offline Whisper model folder (a folder
     holding an already-downloaded faster-whisper model, used instead of a
@@ -570,7 +568,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         hallucination_silence_sec=hallucination_silence_sec,
                         repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset,
                         filter_hallucination_repeats=tuning.repeat_min_repeats,
-                        stock_isolation_sec=tuning.stock_isolation_sec)
+                        stock_isolation_sec=tuning.stock_isolation_sec,
+                        **difficult.whisper_kwargs(timing))
                 coarse_whisper_timing = not whisper_models.supports_word_timestamps(whisper_size)
                 # Not recorded for the speed estimate: a per-span detection run is slower.
                 if "t" in whisper_clock and not mixed_whisper_run:

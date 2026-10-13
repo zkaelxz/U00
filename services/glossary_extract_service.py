@@ -188,10 +188,11 @@ def _start_extraction_job(job_id: str, target, *args, **kwargs) -> bool:
     return started
 
 
-def _cancel_extraction(drama_id: int, job_id: str, run_id) -> dict:
+def _cancel_extraction(drama_id: int, job_id: str, run_id, principal) -> dict:
     """Cancels this drama's extraction only when the held run is `run_id`
     (the one the caller is looking at), so a stale Cancel can't stop a newer
-    run. ConflictError when another run is held or the run has finished."""
+    run. ConflictError when another run is held or the run has finished;
+    ForbiddenError when `principal` may not stop it (jobs_service.cancel_job)."""
     _drama(drama_id)
     if not isinstance(run_id, str) or not run_id or len(run_id) > 64:
         raise InvalidInputError("run_id must be the run_id from the extraction's status.")
@@ -203,18 +204,18 @@ def _cancel_extraction(drama_id: int, job_id: str, run_id) -> dict:
                                 "cancelled.")
         if not job or job.get("status") not in ("running", "queued"):
             raise ConflictError("That extraction has already finished.")
-        return jobs_service.cancel_job(job_id)
+        return jobs_service.cancel_job(job_id, principal=principal)
 
 
-def cancel_novel_glossary_run(drama_id: int, run_id: str) -> dict:
+def cancel_novel_glossary_run(drama_id: int, run_id: str, principal) -> dict:
     """Cancel this drama's glossary-from-novel run `run_id` (see
     _cancel_extraction). Returns jobs_service.cancel_job's result."""
-    return _cancel_extraction(drama_id, novel_glossary_job_id(drama_id), run_id)
+    return _cancel_extraction(drama_id, novel_glossary_job_id(drama_id), run_id, principal)
 
 
-def cancel_lines_glossary_run(drama_id: int, run_id: str) -> dict:
+def cancel_lines_glossary_run(drama_id: int, run_id: str, principal) -> dict:
     """Cancel this drama's glossary-from-lines run `run_id`."""
-    return _cancel_extraction(drama_id, lines_glossary_job_id(drama_id), run_id)
+    return _cancel_extraction(drama_id, lines_glossary_job_id(drama_id), run_id, principal)
 
 
 def _current_run_id_locked(job_id: str, job: Optional[dict]) -> Optional[str]:

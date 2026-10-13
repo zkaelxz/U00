@@ -1,17 +1,12 @@
 """Scene-aware translate batching: plan_batches itself, the pipeline's use of
-it with id-keyed matching, and CLI/app parity on the saved setting."""
-import contextlib
-import io
-
+it with id-keyed matching, and the saved setting reaching the app's run."""
 import pytest
 
 import background_jobs
-import cli_translate
 import translate_engines as te
 from core import Line
 from engine_backends.translate_pipeline import plan_batches
 from services import settings_service
-from tests.test_cli import _translate_args
 from services.workspace_job_service import run_translate_job
 
 
@@ -145,7 +140,7 @@ class TestPipeline:
         assert [ln.en for ln in lines[:7]] == ["done"] * 7
 
 
-class TestCliParity:
+class TestSceneAwareSetting:
     def _seen(self, isolated_db, monkeypatch):
         did = isolated_db.create_drama(title_en="Test", status="aligned")
         lines = [Line(idx=0, start=0.0, end=1.0, zh="你好")]
@@ -158,9 +153,6 @@ class TestCliParity:
             return lines, []
         monkeypatch.setattr(te, "translate_lines_with_engine", fake_translate)
 
-        args = _translate_args(id=did)
-        with contextlib.redirect_stdout(io.StringIO()):
-            cli_translate.cmd_translate(args)
         job_id = "test_plan_batches_parity"
         background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False,
@@ -168,13 +160,11 @@ class TestCliParity:
         run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
                           None, "", "claude", "audio_drama")
         background_jobs._jobs.pop(job_id, None)
-        return seen
+        return seen[0]
 
-    def test_default_is_on_for_both(self, isolated_db, monkeypatch):
-        cli_kw, app_kw = self._seen(isolated_db, monkeypatch)
-        assert cli_kw["scene_aware_batches"] is app_kw["scene_aware_batches"] is True
+    def test_default_is_on(self, isolated_db, monkeypatch):
+        assert self._seen(isolated_db, monkeypatch)["scene_aware_batches"] is True
 
-    def test_the_saved_setting_reaches_both(self, isolated_db, monkeypatch):
+    def test_the_saved_setting_reaches_the_run(self, isolated_db, monkeypatch):
         settings_service.set_settings({"scene_aware_batches": False})
-        cli_kw, app_kw = self._seen(isolated_db, monkeypatch)
-        assert cli_kw["scene_aware_batches"] is app_kw["scene_aware_batches"] is False
+        assert self._seen(isolated_db, monkeypatch)["scene_aware_batches"] is False

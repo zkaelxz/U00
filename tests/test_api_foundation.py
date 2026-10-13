@@ -28,6 +28,12 @@ import whisper_models
 from core import Line
 
 
+@pytest.fixture(autouse=True)
+def _no_ollama_probe(monkeypatch):
+    """GET /api/translate/engines checks whether Ollama answers; no test may make that network call."""
+    monkeypatch.setattr("services.translate_run_service.ollama_reachable", lambda: False)
+
+
 @pytest.fixture
 def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
@@ -855,7 +861,7 @@ class TestTranscribeConfigEndpoints:
             "hallucination_silence_sec": 0.0, "min_pause_sec": 0.35,
             "separate_vocals_first": False, "separation_backend": "auto",
             "realign_long_segments": False, "whisper_fast_mode": False,
-            "whisper_repeat_guard": False, "split_by_sentences": False, "vocabulary_hint": False, "use_groq": False,
+            "whisper_repeat_guard": False, "split_by_sentences": False, "difficult_audio": False, "vocabulary_hint": False, "use_groq": False,
             "has_video_source": False, "hardsub_ocr_backend": "paddle",
             "hardsub_interval_sec": 1.0, "auto_initial_prompt": "",
         }

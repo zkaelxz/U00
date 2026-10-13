@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
+import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import { getTimingCheck, snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
+import { NeedsInstall } from '../../../readiness/NeedsInstall'
+import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
-import { TERMINAL_STATUSES } from '../../../../types/jobs'
+import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { TimingCheckStatus } from '../../../../types/timingCheck'
 import { checkSummary, snapSummary } from './timingCheckLogic'
 
@@ -37,6 +40,7 @@ export function TimingCheck({ dramaId, onDone }: { dramaId: number; onDone: () =
     }
   }, [dramaId, adoptJob])
 
+  const anyJob = useCancelsAnyJob()
   const { job, error: pollError } = useJob(jobId, {
     runKey,
     onDone: (j) => {
@@ -71,15 +75,17 @@ export function TimingCheck({ dramaId, onDone }: { dramaId: number; onDone: () =
   }
 
   const summary = checkSummary(status ?? { last_check: null })
+  const need = useAudioToolNeed(true)
   return (
     <div className="review-flag-row" data-testid="timing-check">
-      <button type="button" className={buttonClass('secondary')} disabled={busy || snapping} onClick={start}>
+      <button type="button" className={buttonClass('secondary')} disabled={busy || snapping || !!need} title={need?.reason} onClick={start}>
         {busy ? 'Checking timing…' : 'Check timing'}
       </button>
-      {active && job && <button type="button" className={buttonClass('secondary')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
+      {active && job && offersCancel(job, anyJob) && <button type="button" className={buttonClass('secondary')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>}
       <button type="button" className={buttonClass('secondary')} disabled={busy || snapping || suggestionCount === 0} onClick={snapAll}>
         Snap all flagged{suggestionCount ? ` (${suggestionCount})` : ''}
       </button>
+      {need && <NeedsInstall need={need} />}
       <span className="muted">
         Flags lines that start or end away from the speech in the audio (a quick speech-detection pass; no transcription, no GPU).
         Music can pass for speech, so check flagged lines by ear. Only flags and notes are written; “Snap” shortens a line to the speech after a history snapshot.

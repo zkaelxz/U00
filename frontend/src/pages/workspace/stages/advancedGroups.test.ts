@@ -14,13 +14,13 @@ describe('advancedGroups', () => {
   })
 
   it('keeps all the controls', () => {
-    expect(ADVANCED_FIELD_IDS.length).toBeGreaterThanOrEqual(24)
+    expect(ADVANCED_FIELD_IDS.length).toBeGreaterThanOrEqual(25)
   })
 
-  it('puts the seven switches in one card', () => {
+  it('puts the eight switches in one card', () => {
     const switches = advancedGroups(true).find((g) => g.id === 'switches')!
-    expect(switches.fields).toHaveLength(7)
-    expect(advancedGroups(false).find((g) => g.id === 'switches')!.fields).toHaveLength(6)
+    expect(switches.fields).toHaveLength(8)
+    expect(advancedGroups(false).find((g) => g.id === 'switches')!.fields).toHaveLength(7)
   })
 
   it('hides Developer Mode controls unless it is on, and drops the group that leaves empty', () => {

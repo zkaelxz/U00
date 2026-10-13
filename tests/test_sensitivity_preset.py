@@ -4,9 +4,6 @@ exactly as it was; "sensitive" lowers an untouched VAD threshold and decodes
 without the repeat penalties but keeps the repeated-segment backstop. Whisper
 is faked throughout.
 """
-import argparse
-import contextlib
-import io
 import os
 import sys
 import types
@@ -14,7 +11,6 @@ import types
 import pytest
 
 import background_jobs
-import cli
 import core
 import whisper_models
 import raw_transcript
@@ -158,47 +154,21 @@ class TestSavedPerTitle:
         assert set(raw_transcript.build_run_settings()) == set(raw_transcript.SETTINGS_KEYS)
 
 
-class TestCli:
-    def _drama(self, db, **kw):
-        did = db.create_drama(title_en="A", status="aligned", audio_filename="audio.wav", **kw)
-        ddir = db.drama_dir(did)
-        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
-            f.write(b"x")
-        with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
-            f.write("你好")
-        return did
 
-    def _align(self, did, monkeypatch):
-        seen = {}
+class TestDifficultAudioView:
+    def test_a_title_without_the_option_is_returned_untouched(self):
+        row = {"sensitivity_preset": "normal", "vad_threshold": 0.5}
+        assert presets.difficult_audio_view(row) is row
+        assert presets.difficult_audio_view({**row, "difficult_audio": 0}) == {
+            **row, "difficult_audio": 0}
 
-        def fake(audio_path, model_size, **kw):
-            seen.update(kw)
-            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
-        monkeypatch.setattr(cli, "transcribe_for_timing", fake)
-        with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_align(argparse.Namespace(id=did, whisper_size=None, fast=False))
-        return seen
+    def test_the_option_means_the_sensitive_preset_and_the_stored_row_is_not_changed(self):
+        row = {"sensitivity_preset": "normal", "vad_threshold": 0.5, "difficult_audio": 1}
+        view = presets.difficult_audio_view(row)
+        assert view["sensitivity_preset"] == "sensitive" and row["sensitivity_preset"] == "normal"
+        assert presets.stored_vad_threshold(view) == presets.SENSITIVE_VAD_THRESHOLD
 
-    def test_align_follows_the_titles_preset(self, isolated_db, monkeypatch):
-        did = self._drama(isolated_db, sensitivity_preset="sensitive")
-        seen = self._align(did, monkeypatch)
-        assert seen["sensitivity_preset"] == "sensitive" and seen["vad_threshold"] == 0.35
-
-    def test_align_default_is_unchanged(self, isolated_db, monkeypatch):
-        did = self._drama(isolated_db)
-        seen = self._align(did, monkeypatch)
-        assert seen["sensitivity_preset"] == "normal" and seen["vad_threshold"] == 0.5
-
-    def test_transcribe_flag_is_saved_on_the_title(self, isolated_db, monkeypatch):
-        did = self._drama(isolated_db)
-        monkeypatch.setattr(cli.transcribe_service, "start_transcribe_run",
-                            lambda *a, **k: {"job_id": "transcribe_x"})
-        old = sys.argv
-        sys.argv = ["cli.py", "transcribe", "--id", str(did), "--sensitivity", "sensitive"]
-        try:
-            # The run is faked, so the wait for its job ends in an exit; only the saved option matters.
-            with contextlib.suppress(SystemExit):
-                cli.main()
-        finally:
-            sys.argv = old
-        assert isolated_db.get_drama(did)["sensitivity_preset"] == "sensitive"
+    def test_a_threshold_the_owner_changed_wins(self):
+        view = presets.difficult_audio_view(
+            {"sensitivity_preset": "normal", "vad_threshold": 0.6, "difficult_audio": 1})
+        assert presets.stored_vad_threshold(view) == 0.6

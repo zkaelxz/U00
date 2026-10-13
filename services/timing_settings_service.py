@@ -24,8 +24,8 @@ def values() -> dict:
     """{key: value} for every Timing and splitting row, as a run should use it."""
     # Imported here: the maintenance assistant imports settings_service, and a
     # transcription worker process imports this module without needing it.
-    from services import maintenance_assistant_service
-    developer = maintenance_assistant_service.developer_mode_enabled()
+    from services import assistant_settings_service
+    developer = assistant_settings_service.developer_mode_enabled()
     out = {}
     for key in KEYS:
         row = settings_schema.BY_KEY[key]

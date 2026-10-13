@@ -1,13 +1,10 @@
 """Settings parity (inventory G05, G06 URLs, G08, G09, G13, G14, G15):
 persisted PC-side preferences and endpoint URLs, their permissions, and
-that the services and the CLI read the saved values. Mocked; no network."""
+that the services read the saved values. Mocked; no network."""
 
 import whisper_models
-import contextlib
 import inspect
-import io
 import os
-import types
 
 import pytest
 
@@ -590,48 +587,6 @@ def test_live_route_uses_cookies_only_at_the_pc(isolated_db, env_file, monkeypat
     r = remote.post("/api/live/sessions", json={"url": "https://e.com/x"}, headers=_h(s))
     assert r.status_code == 200
     assert calls[-1]["use_saved_cookies"] is False
-
-
-def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
-    import cli_translate
-    settings_service.set_settings({"monthly_cap_usd": 4})
-    assert cli_translate._monthly_cap_setting() == 4.0
-    settings_service.set_settings({"monthly_cap_usd": 0})
-    assert cli_translate._monthly_cap_setting() is None
-
-    # cli translate: engine, locale, style note, num_ctx and summary engine
-    # fall back to the saved Settings values when no flag is given.
-    did = _seed(isolated_db, status="aligned")
-    settings_service.set_settings({"default_engine": "deepseek", "default_locale": "en-AU",
-                                   "default_style_note": "Terse.",
-                                   "ollama_num_ctx_override": 8192})
-    engines = []
-    monkeypatch.setattr(translate_engines, "get_engine",
-                        lambda name, *a, **k: engines.append(name) or object())
-    seen = {}
-
-    def fake_translate(lines, engine, **k):
-        seen.update(k)
-        return lines, []
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
-
-    def args(**over):
-        base = dict(id=did, status=None, engine=None, api_key=None, model=None,
-                    style_note=None, style_preset=None, locale=None, force=False,
-                    ollama_num_ctx=None)
-        base.update(over)
-        return types.SimpleNamespace(**base)
-
-    with contextlib.redirect_stdout(io.StringIO()):
-        cli_translate.cmd_translate(args())
-    assert "deepseek" in engines  # the drama has no engine saved
-    assert seen["locale"] == "en-AU" and seen["style_note"] == "Terse."
-    assert seen["ollama_num_ctx_override"] == 8192
-    with contextlib.redirect_stdout(io.StringIO()):
-        cli_translate.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
-                               ollama_num_ctx=0))
-    assert seen["locale"] == "en-GB" and seen["style_note"] == ""
-    assert seen["ollama_num_ctx_override"] == 0
 
 
 def test_baihe_own_ports_includes_configured_ports(monkeypatch, tmp_path):
