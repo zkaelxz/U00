@@ -73,6 +73,21 @@ describe('validateCreate', () => {
       validateCreate({ source_language: 'zh', title_en: 'A', summary: 'x'.repeat(5001) }),
     ).toMatch(/Summary/)
   })
+  it('allows a blank name when a link is given, and checks the link', () => {
+    expect(validateCreate({ source_language: 'ja', source_url: 'https://www.youtube.com/watch?v=x' })).toBeNull()
+    expect(validateCreate({ source_language: 'ja', source_url: 'youtube.com/x' })).toMatch(/http/)
+    expect(validateCreate({ source_language: 'ja', source_url: 'https://a.example/' + 'x'.repeat(2000) })).toMatch(/too long/)
+  })
+})
+
+describe('buildCreateRequest with a link', () => {
+  it('sends the link and the date, trimmed, and leaves them out when blank', () => {
+    const extras = { series: '', newSeriesName: '', preset: '' }
+    expect(buildCreateRequest({ source_language: 'ja', source_url: ' https://v.example/w ', release_date: '2026-03-01' }, extras))
+      .toEqual({ source_language: 'ja', source_url: 'https://v.example/w', release_date: '2026-03-01' })
+    expect(buildCreateRequest({ source_language: 'ja', title_en: 'A', source_url: '  ', release_date: '' }, extras))
+      .toEqual({ source_language: 'ja', title_en: 'A' })
+  })
 })
 
 describe('canConfirmDelete', () => {

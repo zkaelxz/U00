@@ -3,6 +3,7 @@ import type { DramaCreateRequest, DramaDeleteResult } from '../types/library'
 // Caps mirror api/schemas/library.py DramaCreateRequest.
 export const MAX_NAME_LEN = 300
 export const MAX_SUMMARY_LEN = 5000
+export const MAX_URL_LEN = 2000
 export const SOURCE_LANGUAGES = ['zh', 'ja', 'ko']
 // Choices offered when creating a drama. 'music' and 'other' were dropped from
 // the picker (user decision 2026-09-29); the API still accepts them so older
@@ -14,9 +15,13 @@ export const MEDIA_TYPES = [
 
 export function validateCreate(form: DramaCreateRequest): string | null {
   if (!SOURCE_LANGUAGES.includes(form.source_language)) return 'Choose a source language.'
-  if (!(form.title_en ?? '').trim() && !(form.title_zh ?? '').trim()) {
-    return 'Enter an English or original title.'
+  // With a link and no name, the server names the title from the link.
+  if (!(form.title_en ?? '').trim() && !(form.title_zh ?? '').trim() && !(form.source_url ?? '').trim()) {
+    return 'Enter an English or original title, or a link.'
   }
+  const link = (form.source_url ?? '').trim()
+  if (link && !/^https?:\/\/\S+$/i.test(link)) return 'The link must start with http:// or https://.'
+  if (link.length > MAX_URL_LEN) return `The link is too long (max ${MAX_URL_LEN} characters).`
   for (const key of ['title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors'] as const) {
     if ((form[key] ?? '').length > MAX_NAME_LEN) {
       return `${key} is too long (max ${MAX_NAME_LEN} characters).`
@@ -45,7 +50,7 @@ export interface CreateExtras {
 // series_id / new_series_name are never both sent.
 export function buildCreateRequest(form: DramaCreateRequest, extras: CreateExtras): DramaCreateRequest {
   const out: DramaCreateRequest = { source_language: form.source_language }
-  for (const k of ['title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors', 'summary'] as const) {
+  for (const k of ['title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors', 'summary', 'release_date', 'source_url'] as const) {
     const v = (form[k] ?? '').trim()
     if (v) out[k] = v
   }
