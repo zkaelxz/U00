@@ -54,13 +54,12 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`STATUS.md`** — current state, in-flight work and what's next.
 - **`archive/`** — historical records kept for reference, not sources of
   truth: the migration review, handoff and React/FastAPI phase log, the
-  old roadmap master tracker, the Streamlit test triage, the superseded
-  remote-access and browser-extension handoffs, the installer research
-  notes and cut installer-design history, the Step 19 click-through audit, the
-  unbuilt Jellyfin/Plex metadata design, the full ASR experiment write-up
-  (`asr-experiments-history.md`), the built Scanlate, Discover/Sources/Live and
-  workspace-shell specs, the one-off manual-check triage and the UI refresh's
-  before screenshots (`screens-before/`).
+  old roadmap master tracker, the superseded remote-access handoff, the
+  installer research notes and cut installer-design history, the Step 19
+  click-through audit, the unbuilt Jellyfin/Plex metadata design, the full
+  ASR experiment write-up (`asr-experiments-history.md`), the built
+  Scanlate, Discover/Sources/Live and workspace-shell specs and the UI
+  refresh's before screenshots (`screens-before/`).
 
 ## `docs/secondary-review-notes.md` — not present here
 
