@@ -20,7 +20,8 @@ export const SHELL_PAGES: { hash: string; width: 'narrow' | 'standard' | 'wide' 
   { hash: '#/', width: 'wide' },
 ]
 
-const PRESET_PX = { narrow: 860, standard: 1120 }
+// Every preset is the one --content-max column (index.css), so every page has the same width and left edge.
+const CONTENT_MAX_PX = 1440
 const TOLERANCE = 2
 
 type Measure = {
@@ -115,7 +116,7 @@ async function settled(page: Page): Promise<Measure> {
 // Visits every page and checks the four shell rules the owner reported as "not uniform".
 export async function expectUniformShell(page: Page, theme: 'light' | 'dark') {
   await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
-  const leftOf: Record<string, number> = {}
+  let left: number | null = null
   let gap: number | null = null
   let topOffset: number | null = null
   let title: { size: number; weight: string } | null = null
@@ -124,13 +125,8 @@ export async function expectUniformShell(page: Page, theme: 'light' | 'dark') {
     const m = await settled(page)
     const at = `${hash} (${width}, ${theme})`
     expect(m.width, `${at}: shell preset`).toBe(width)
-    const expected = width === 'wide' ? m.available : Math.min(PRESET_PX[width], m.available)
+    const expected = Math.min(CONTENT_MAX_PX, m.available)
     expect(Math.abs(m.shellWidth - expected), `${at}: column ${m.shellWidth}px, want ${expected}px`).toBeLessThanOrEqual(TOLERANCE)
-    if (width === 'wide') {
-      // Against the viewport, not .app-main: a cap on .app-main itself must not make "wide" look right.
-      const cap = Math.min(1800 - 32, m.viewport - m.railMax - 32)
-      expect(m.shellWidth, `${at}: wide column ${m.shellWidth}px, want at least ${cap}px`).toBeGreaterThanOrEqual(cap - TOLERANCE)
-    }
     expect(m.overflow, `${at}: horizontal scroll`).toBeLessThanOrEqual(0)
 
     expect(m.gapToFirst, `${at}: something follows the header`).not.toBeNull()
@@ -154,7 +150,7 @@ export async function expectUniformShell(page: Page, theme: 'light' | 'dark') {
       expect(Math.abs(g - gap), `${at}: gap between blocks ${g}px vs page gap ${gap}px`).toBeLessThanOrEqual(TOLERANCE)
     }
 
-    leftOf[width] ??= m.shellLeft
-    expect(Math.abs(m.shellLeft - leftOf[width]), `${at}: left edge ${m.shellLeft}px vs ${leftOf[width]}px`).toBeLessThanOrEqual(TOLERANCE)
+    left ??= m.shellLeft
+    expect(Math.abs(m.shellLeft - left), `${at}: left edge ${m.shellLeft}px vs ${left}px`).toBeLessThanOrEqual(TOLERANCE)
   }
 }

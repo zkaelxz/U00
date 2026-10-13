@@ -29,11 +29,11 @@
   --speaker-4-bg: hsl(170 55% 90%); --speaker-4-fg: hsl(170 65% 24%);
   --shadow-1: none;
   --shadow-pop: 0 2px 8px color-mix(in srgb, #000 16%, transparent);
-  --content-max: 1200px;
+  --content-max: 1440px;
   --content-max-wide: 1800px;
   /* PageShell: the three page widths, and the one vertical gap between header, tabs and content blocks. */
-  --page-narrow: 860px;
-  --page-standard: 1120px;
+  --page-narrow: var(--content-max);
+  --page-standard: var(--content-max);
   --page-gap: var(--space-5);
   --radius: 8px;
   --radius-sm: 6px;
@@ -207,8 +207,8 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* The app column (sideNav.css) takes the full wide cap; PageShell narrows a page to its preset inside it, and the routes that
-   have no shell (title workspace, readers) sit in .app-bounded so they keep the 1200px column. */
+/* Every page, with or without a PageShell, sits in the same --content-max column, so the left edge and width never change
+   between pages. The routes with no shell (title workspace, readers) sit in .app-bounded. */
 .app-bounded { max-width: var(--content-max); margin-inline: auto; }
 
 /* ---- header + top nav ---- */
@@ -718,7 +718,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .page-shell { display: grid; gap: var(--page-gap); min-width: 0; width: 100%; margin-inline: auto; align-content: start; }
 .page-shell-narrow { max-width: var(--page-narrow); }
 .page-shell-standard { max-width: var(--page-standard); }
-.page-shell-wide { max-width: none; }
+.page-shell-wide { max-width: var(--page-standard); }
 /* Not dialogs: a modal sheet positions itself with its own auto margins. */
 .page-shell > :not(dialog), .page-shell > .page-shell-body > :not(dialog) { min-width: 0; margin: 0; }
 .page-shell-tabs { display: grid; gap: var(--space-3); }
