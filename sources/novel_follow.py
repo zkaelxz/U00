@@ -11,7 +11,7 @@ from . import generic_import, profiles
 from .adaptive import (ExtractionReport, _log, _note_access, _unreachable_reason, extract_novel,
                        import_novel, page_heading)
 from .generic_import import NovelImportResult
-from .http import Cancelled
+from .http_transport import Cancelled
 from .models import SourceError
 
 DEFAULT_FOLLOW_PAGES = 10

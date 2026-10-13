@@ -124,7 +124,7 @@ class TestCanHandleAndNormalizeUrl:
         """Step 28 gap 2: the real resolver used to make a bare
         `requests.head()` call, bypassing sources/http.py's shared
         SourceClient transport (and therefore its pacing) entirely."""
-        from sources.http import Response
+        from sources.http_transport import Response
         from tests.sources_helpers import ScriptedTransport, make_client
         short_url = "https://b23.tv/abc123"
         resolved_url = "https://www.bilibili.com/video/BV1xx411c7abcd"

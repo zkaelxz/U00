@@ -14,7 +14,7 @@ import time
 import pytest
 
 from sources.adapters import zerosumonline
-from sources.http import Response
+from sources.http_transport import Response
 from sources.models import ChapterInfo, SourceError
 
 from .sources_helpers import FakeClock, ScriptedTransport, make_client

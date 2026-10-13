@@ -193,7 +193,7 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     cap (security review M-1). Fixed-text errors only."""
     from lib import http
     from services import metadata_service as ms
-    from sources import http as shttp
+    from sources import http_transport as shttp
     limit = media_upload_service.max_upload_bytes()
     started = clock()
     current = url

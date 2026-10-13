@@ -49,7 +49,7 @@ from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import (SAVE_JOB_ID, enabled_source, error_view,
                                              JobFailed, clean_series_id, start_job)
 from sources import chapter_order, ladder, registry, store
-from sources.http import Cancelled
+from sources.http_transport import Cancelled
 from sources.models import ChallengeDetected, FailureReason, SourceError, TermsProhibited
 
 # The reader refuses a chapter with more pages than this, so saving one would

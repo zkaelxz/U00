@@ -164,14 +164,14 @@ class TestB25TransportStillWorks:
         assert contacted == ["example.org"]
 
     def test_private_first_hop_is_refused(self, fake_net):
-        from sources.http import UnsafeRedirect, _requests_transport
+        from sources.http_transport import UnsafeRedirect, _requests_transport
         _, contacted = fake_net
         with pytest.raises(UnsafeRedirect):
             _requests_transport("GET", "http://10.0.0.5/admin", {}, None, 5)
         assert contacted == []
 
     def test_redirect_hop_cap_is_enforced(self, fake_net):
-        from sources.http import MAX_REDIRECTS, UnsafeRedirect, _requests_transport
+        from sources.http_transport import MAX_REDIRECTS, UnsafeRedirect, _requests_transport
         routes, contacted = fake_net
         routes["example.org"] = (302, {"Location": "/again"}, b"")
         with pytest.raises(UnsafeRedirect):
@@ -189,7 +189,7 @@ class TestB25ReviewFixes:
     def test_unicode_host_is_validated_in_the_form_requests_connects_to(self, fake_net, monkeypatch):
         """IDNA2003 (getaddrinfo) maps 'ß' to 'ss'; requests' UTS46 keeps it.
         The name validated must be the punycode requests will really use."""
-        from sources.http import UnsafeRedirect, _requests_transport
+        from sources.http_transport import UnsafeRedirect, _requests_transport
         real = socket.getaddrinfo
 
         def gai(host, port, *a, **k):
@@ -204,14 +204,14 @@ class TestB25ReviewFixes:
         assert SENT_URLS == []
 
     def test_pin_host_mismatch_fails_closed(self, fake_net, monkeypatch):
-        from sources import http
-        monkeypatch.setattr(http, "ascii_url", lambda u: u)   # skip normalisation
+        from sources import http_transport
+        monkeypatch.setattr(http_transport, "ascii_url", lambda u: u)   # skip normalisation
         real = socket.getaddrinfo
         monkeypatch.setattr(socket, "getaddrinfo", lambda h, p, *a, **k: (
             [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PUBLIC_IP, p))]
             if "stra" in h else real(h, p, *a, **k)))
-        with pytest.raises(http.UnsafeRedirect):
-            http._requests_transport("GET", "http://straße.example/", {}, None, 5)
+        with pytest.raises(http_transport.UnsafeRedirect):
+            http_transport._requests_transport("GET", "http://straße.example/", {}, None, 5)
         assert SENT_URLS == []
 
     def test_no_proxy_alone_keeps_pinning(self, fake_net, monkeypatch):
@@ -237,7 +237,7 @@ class TestB25ReviewFixes:
         assert urlsplit(SENT_URLS[0]).hostname == "example.org"
 
     def test_cross_host_hop_drops_cookie_and_authorization(self, fake_net):
-        from sources.http import _requests_transport
+        from sources.http_transport import _requests_transport
         routes, _ = fake_net
         seen = []
         routes["example.org"] = (302, {"Location": "https://www.bilibili.com/x"}, b"")
@@ -280,9 +280,9 @@ class TestB25ReviewFixes:
 
 class TestOversizedBodyIsARefusal:
     def test_an_oversized_image_through_the_real_session_is_the_sources_refusal(self, fake_net):
-        from sources import http
+        from sources import http_transport
         routes, _ = fake_net
         routes["example.org"] = (200, {"Content-Type": "image/png"},
-                                 b"x" * (http.MAX_IMAGE_BYTES + 1))
-        with pytest.raises(http.ResponseTooLarge):
-            http._requests_transport("GET", "https://example.org/big.png", {}, None, 5)
+                                 b"x" * (http_transport.MAX_IMAGE_BYTES + 1))
+        with pytest.raises(http_transport.ResponseTooLarge):
+            http_transport._requests_transport("GET", "https://example.org/big.png", {}, None, 5)

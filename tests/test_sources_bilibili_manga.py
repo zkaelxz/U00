@@ -205,7 +205,7 @@ class TestChapterImportKeepsEveryPageKind:
     def test_gif_and_text_plain_pages_are_kept_and_skips_reported(self, isolated_db):
         import io as _io
         from PIL import Image
-        from sources.http import Response
+        from sources.http_transport import Response
         from .sources_helpers import png
         buf = _io.BytesIO()
         Image.new("P", (800, 1200), 3).save(buf, "GIF")

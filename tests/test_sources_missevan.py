@@ -114,7 +114,7 @@ PAID_SOUND_JSON_UNLOCKED = {
 
 
 def _json_resp(obj, url=""):
-    from sources.http import Response
+    from sources.http_transport import Response
     return Response(200, {"content-type": "application/json; charset=utf-8"},
                     json.dumps(obj).encode("utf-8"), url)
 

@@ -31,7 +31,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 from services.sources_extension_service import require_not_extension_only
 from services.sources_registry_service import require_source, scrub, scrub_any, safe_url
 from sources import chapter_order, extension_marker, generic_import, health, ladder, registry
-from sources.http import Cancelled, ResponseRefused
+from sources.http_transport import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, FailureReason, NotSupportedError,
                             SourceError, SourceUnavailable, TermsProhibited)
 

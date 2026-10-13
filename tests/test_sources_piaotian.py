@@ -7,7 +7,7 @@ import pytest
 
 from sources import registry
 from sources.adapters import piaotian
-from sources.http import Response
+from sources.http_transport import Response
 from sources.models import (AutomationPermission, ChallengeDetected, ChapterInfo, ContentHidden,
                             FailureReason, FetchFailed, SourceError)
 

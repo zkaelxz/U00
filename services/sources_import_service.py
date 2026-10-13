@@ -86,7 +86,7 @@ from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, SERI
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
                                           source_client)
 from sources import adaptive, chapter_order, generic_import, ladder, novel_follow, pipeline, registry, store
-from sources.http import Cancelled
+from sources.http_transport import Cancelled
 from sources.models import AccessTier, ChallengeDetected, TermsProhibited
 
 MAX_CHAPTERS = 200
