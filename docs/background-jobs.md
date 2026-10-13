@@ -351,11 +351,11 @@ Rules that follow from the code:
 - The apply step is where field-scoped writes happen. Examples:
   `services/transcribe_service._apply_on_done` -> `_apply_transcription`,
   `services/diarization_service.make_apply_on_done` -> `apply_diarization_result`,
-  `services/restructure_service._make_on_done` -> `_apply_resegmented`,
+  `services/resegmentation_service._make_on_done` -> `_apply_resegmented`,
   `services/dub_service.apply_dub_result`.
 - Thread jobs follow the same shape in one function: a pure core computes, then the job
   applies at the end (`transcribe_service._run_transcribe_and_apply_job`,
-  `restructure_service._run_resegment_job`).
+  `resegmentation_service._run_resegment_job`).
 
 ### Field-scoped writes
 
@@ -408,8 +408,8 @@ Thread unless marked process.
 | `autotune_<id>` | `transcribe_service` | process | yes |
 | `retranscribe_<id>` | `transcribe_service` (one line), `retranscribe_many_service` (the ticked lines or a gap's added lines, one model load) | process | yes |
 | `dub_<id>` | `dub_service` | process | when a local clone/TTS model is used |
-| `resegment_<id>`, `resegpreview_<id>` | `restructure_service` | process with Ollama, otherwise thread | with Ollama |
-| `resplit_<id>` | `restructure_service` | thread | yes |
+| `resegment_<id>`, `resegpreview_<id>` | `resegmentation_service` | process with Ollama, otherwise thread | with Ollama |
+| `resplit_<id>` | `resplit_service` | thread | yes |
 | `translate_<id>`, `bulk_translate_<id>` | `translate_run_service`, `workspace_job_service` | thread | with Ollama |
 | `comparetx_<id>`, `fixflag_<id>` | `compare_transcription_service`, `fixflag_transcribe` (the hear step in `compare_hear_worker`, via `gpu_process_job.run_in_child`) | thread with a process stage | yes |
 | `flag_<id>`, `consistency_`, `emotion_`, `notes_` and their `bulk_*` | `review_jobs_service` and others | thread | no |

@@ -4,7 +4,8 @@ add, delete, merge, split, re-segmentation
 (read-only preview + a job that re-segments and saves; an
 LLM preview job, read back with GET .../resegment/preview-llm and applied
 as shown with `use_preview: true`), and Version
-history restore (the list is GET /api/review/dramas/{id}/history). Thin wrapper over services/restructure_service.py.
+history restore (the list is GET /api/review/dramas/{id}/history). Thin wrapper over services/restructure_service.py,
+services/resegmentation_service.py and services/resplit_service.py.
 
 Every write carries `expected_line_ids` (409 when the drama's lines changed),
 takes a history snapshot first, and is refused (409) while a job runs on the
@@ -18,7 +19,7 @@ from api.schemas import (ErrorResponse, ResegmentLlmPreview, ResegmentLlmPreview
                          RestoreVersionRequest, RestoreVersionResult, RestructureAddLine,
                          RestructureDeleteLine, RestructureMerge, RestructureResult,
                          RestructureSplit, ResplitResult, ResplitStart)
-from services import model_readiness_service
+from services import model_readiness_service, resegmentation_service, resplit_service
 from services import restructure_service as svc
 
 router = APIRouter(prefix="/api/restructure", tags=["restructure"])
@@ -59,7 +60,7 @@ def post_split(body: RestructureSplit, drama_id: int = Path(ge=1), line_id: int 
             summary="Rule-based re-segmentation preview (read-only)",
             responses={404: {"model": ErrorResponse}})
 def get_resegment_preview(drama_id: int = Path(ge=1)):
-    return svc.preview_resegmentation(drama_id)
+    return resegmentation_service.preview_resegmentation(drama_id)
 
 
 @router.post("/dramas/{drama_id}/resegment/preview-llm", dependencies=[require_permission("jobs.start")],
@@ -69,7 +70,7 @@ def get_resegment_preview(drama_id: int = Path(ge=1)):
 def post_resegment_llm_preview(body: ResegmentLlmPreviewStart, request: Request,
                                drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine, model=body.model)
-    return svc.start_llm_resegment_preview(drama_id, engine=body.engine, model=body.model)
+    return resegmentation_service.start_llm_resegment_preview(drama_id, engine=body.engine, model=body.model)
 
 
 @router.get("/dramas/{drama_id}/resegment/preview-llm", dependencies=[require_permission("lines.read")],
@@ -77,7 +78,7 @@ def post_resegment_llm_preview(body: ResegmentLlmPreviewStart, request: Request,
             summary="The finished LLM re-segmentation preview (404 until one is ready)",
             responses={404: {"model": ErrorResponse}})
 def get_resegment_llm_preview(drama_id: int = Path(ge=1)):
-    return svc.get_llm_resegment_preview(drama_id)
+    return resegmentation_service.get_llm_resegment_preview(drama_id)
 
 
 @router.post("/dramas/{drama_id}/resegment", dependencies=[require_permission("lines.edit")], response_model=ResegmentStarted,
@@ -86,7 +87,7 @@ def get_resegment_llm_preview(drama_id: int = Path(ge=1)):
 def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(ge=1)):
     if body.use_llm:
         require_engines_allowed(request, body.engine, model=body.model)
-    return svc.start_resegmentation(drama_id, body.expected_line_ids, confirm=body.confirm,
+    return resegmentation_service.start_resegmentation(drama_id, body.expected_line_ids, confirm=body.confirm,
                                     use_llm=body.use_llm, engine=body.engine, model=body.model,
                                     use_preview=body.use_preview)
 
@@ -97,7 +98,7 @@ def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(
 def post_resplit(body: ResplitStart, request: Request, drama_id: int = Path(ge=1)):
     if body.align_to_audio and not body.dry_run:
         model_readiness_service.require_ready(is_at_pc(request), model_readiness_service.for_aligner)
-    return svc.resplit_long_lines(drama_id, body.expected_line_ids,
+    return resplit_service.resplit_long_lines(drama_id, body.expected_line_ids,
                                   align_to_audio=body.align_to_audio, confirm=body.confirm,
                                   sensitivity=body.sensitivity, max_seconds=body.max_seconds,
                                   dry_run=body.dry_run)

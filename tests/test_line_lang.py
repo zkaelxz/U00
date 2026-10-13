@@ -14,7 +14,7 @@ import core
 import line_alignment
 import db
 from core import Line
-from services import lines_service, restructure_service
+from services import lines_service, resplit_service, restructure_service
 from services.service_errors import InvalidInputError, NotFoundError
 
 
@@ -308,7 +308,7 @@ def test_resplit_pieces_keep_lang(isolated_db):
     did = db.create_drama(title_zh="D", source_language="zh")
     db.save_lines(did, [Line(idx=0, start=0.0, end=30.0, zh=sent * 3, speaker="B", lang="ko")])
     ids = [r["id"] for r in db.load_lines(did)]
-    assert restructure_service.resplit_long_lines(did, ids)["split_lines"] == 1
+    assert resplit_service.resplit_long_lines(did, ids)["split_lines"] == 1
     assert _langs(did) == ["ko", "ko", "ko"]
 
 

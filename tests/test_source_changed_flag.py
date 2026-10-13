@@ -15,7 +15,7 @@ import source_change
 from api.server import create_app
 from core import Line
 from services import (compare_transcription_service as compare, fixflag_translate, lines_service,
-                      restructure_service, retranscribe_many_service as many, source_change_service,
+                      resegmentation_service, restructure_service, retranscribe_many_service as many, source_change_service,
                       subtitle_import_service, translate_run_service,
                       workspace_job_service, retranscribe_line_service)
 from services.service_errors import ConflictError
@@ -326,7 +326,7 @@ class TestStructureWriters:
         monkeypatch.setattr(resegment, "word_boundaries", lambda *a, **k: None)
         long = "我今天早上很早就起床了然后去公园跑步。" * 3
         did, ids = _seed([("a", "A"), (long, "translated")])
-        job = _wait(restructure_service.start_resegmentation(did, ids, confirm=True)["job_id"])
+        job = _wait(resegmentation_service.start_resegmentation(did, ids, confirm=True)["job_id"])
         assert job["status"] == "done", job
         assert not [r for r in db.load_lines(did) if r["flag"] == FLAG]
 

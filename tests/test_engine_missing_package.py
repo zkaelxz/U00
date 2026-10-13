@@ -18,7 +18,7 @@ from api.server import create_app
 from core import Line
 from lib.errors import MissingKeyError, MissingPackageError
 from services import (discover_lookup_service, line_ai_service, reader_service,
-                      restructure_service, review_jobs_service, settings_service,
+                      resegmentation_service, review_jobs_service, settings_service,
                       translate_run_service, translate_service)
 
 FIXED = "A tool or package this needs is not installed or not reachable. See Diagnostics."
@@ -77,7 +77,7 @@ def test_review_jobs(drama, starter):
 
 def test_restructure(drama):
     with pytest.raises(MissingPackageError) as exc:
-        restructure_service._build_engine(db.get_drama(drama[0]), "claude", None)
+        resegmentation_service._build_engine(db.get_drama(drama[0]), "claude", None)
     _assert_package_error(exc.value)
 
 

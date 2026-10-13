@@ -16,7 +16,7 @@ import db
 import resegment
 import segment
 from core import Line
-from services import restructure_service as svc
+from services import resegmentation_service, resplit_service, restructure_service as svc
 from services import review_lines_service
 
 # The owner's case: about 17 s and 56 Chinese characters with no punctuation,
@@ -165,8 +165,8 @@ class TestPayload:
                 c.execute("UPDATE lines SET word_timings = ? WHERE id = ?", (payload, ids[0]))
                 c.commit()
             # unusable words fall back to the estimate (an even cut, flagged), never a crash
-            assert svc.resplit_long_lines(did, ids, dry_run=True)["split_lines"] <= 1
-            assert svc.preview_resegmentation(did) is not None
+            assert resplit_service.resplit_long_lines(did, ids, dry_run=True)["split_lines"] <= 1
+            assert resegmentation_service.preview_resegmentation(did) is not None
 
     def test_cap_on_word_count_and_bytes(self):
         text = "字" * (segment_splitting.MAX_STORED_WORDS + 1)
@@ -196,7 +196,7 @@ class TestPayload:
                                  word_timings=segment_splitting.encode_line_words(text, words))])
         assert _stored(did) == [None]
         t0 = time.monotonic()
-        r = svc.resplit_long_lines(did, [r["id"] for r in db.load_lines(did)], dry_run=True)
+        r = resplit_service.resplit_long_lines(did, [r["id"] for r in db.load_lines(did)], dry_run=True)
         assert r["split_lines"] <= 1 and builds == [] and time.monotonic() - t0 < 20.0
 
 
@@ -311,8 +311,8 @@ class TestStorage:
 class TestResplit:
     def test_owner_case_cuts_at_real_pauses_with_real_times(self):
         did, ids = _seed()
-        dry = svc.resplit_long_lines(did, ids, dry_run=True)
-        r = svc.resplit_long_lines(did, ids)
+        dry = resplit_service.resplit_long_lines(did, ids, dry_run=True)
+        r = resplit_service.resplit_long_lines(did, ids)
         assert (dry["split_lines"], dry["pieces"]) == (1, 4)
         assert (r["split_lines"], r["line_count"]) == (1, dry["line_count"])
         rows = db.load_lines(did)
@@ -325,10 +325,10 @@ class TestResplit:
 
     def test_pieces_can_be_split_again_with_their_words(self):
         did, ids = _seed()
-        svc.resplit_long_lines(did, ids, max_seconds=10)
+        resplit_service.resplit_long_lines(did, ids, max_seconds=10)
         rows = db.load_lines(did)
         assert [x["zh"] for x in rows] == [PHRASES[0] + PHRASES[1], PHRASES[2] + PHRASES[3]]
-        r = svc.resplit_long_lines(did, [x["id"] for x in rows])
+        r = resplit_service.resplit_long_lines(did, [x["id"] for x in rows])
         assert r["split_lines"] == 2
         rows = db.load_lines(did)
         assert [x["zh"] for x in rows] == PHRASES
@@ -339,19 +339,19 @@ class TestResplit:
         # About the cut points, not what this machine has installed.
         monkeypatch.setattr(segment, "missing_word_segmenter", lambda language: None)
         did, ids = _seed()
-        svc.resplit_long_lines(did, ids)
+        resplit_service.resplit_long_lines(did, ids)
         ids = [r["id"] for r in db.load_lines(did)]
         # 3.8 s phrases over a 2 s cap, but only 0.05 s between their words
-        assert svc.resplit_long_lines(did, ids, sensitivity="more", max_seconds=2)[
+        assert resplit_service.resplit_long_lines(did, ids, sensitivity="more", max_seconds=2)[
             "split_lines"] == 0
 
     def test_line_without_words_behaves_as_before(self):
         did, ids = _seed(words=False)
-        r = svc.resplit_long_lines(did, ids)
+        r = resplit_service.resplit_long_lines(did, ids)
         assert r["split_lines"] == 1  # no words, no punctuation: the even cut
         assert {x["flag"] for x in db.load_lines(did)} == {"timing_uncertain"}
         fresh, _ = _seed(words=False)
-        sentence = svc.resplit_long_lines(
+        sentence = resplit_service.resplit_long_lines(
             fresh, [x["id"] for x in db.load_lines(fresh)], sensitivity="sentence", dry_run=True)
         assert "no sentence end" in sentence["note"]
 
@@ -364,7 +364,7 @@ class TestResplit:
             c.execute("UPDATE lines SET word_timings = ? WHERE id = ?",
                       (segment_splitting.encode_line_words(TEXT, WORDS), ids[0]))
             c.commit()
-        svc.resplit_long_lines(did, ids)
+        resplit_service.resplit_long_lines(did, ids)
         # the stale words were ignored: any cut is the estimated, flagged one
         assert {x["flag"] for x in db.load_lines(did)} <= {"timing_uncertain", None, ""}
         assert "".join(x["zh"] for x in db.load_lines(did)) == edited
@@ -372,7 +372,7 @@ class TestResplit:
     def test_cuts_stay_inside_a_retimed_line(self):
         did, ids = _seed()
         db.update_line_fields_if(did, ids[0], {"start": START + 0.2, "end": END - 0.3}, {})
-        svc.resplit_long_lines(did, ids)
+        resplit_service.resplit_long_lines(did, ids)
         rows = db.load_lines(did)
         assert rows[0]["start"] == pytest.approx(START + 0.2)
         assert rows[-1]["end"] == pytest.approx(END - 0.3)
@@ -381,12 +381,12 @@ class TestResplit:
     def test_an_outward_retime_keeps_the_line_edges(self):
         did, ids = _seed()
         db.update_line_fields_if(did, ids[0], {"start": START - 1.0, "end": END + 0.6}, {})
-        dry = svc.resplit_long_lines(did, ids, dry_run=True)
-        plan = svc._resplit_plan(db.load_line_objects(did, with_words=True),
-                                 svc._Resplit("zh", None, None))
+        dry = resplit_service.resplit_long_lines(did, ids, dry_run=True)
+        plan = resplit_service._resplit_plan(db.load_line_objects(did, with_words=True),
+                                 resplit_service._Resplit("zh", None, None))
         assert (plan[ids[0]][0]["start"], plan[ids[0]][-1]["end"]) == pytest.approx(
             (START - 1.0, END + 0.6))
-        svc.resplit_long_lines(did, ids)
+        resplit_service.resplit_long_lines(did, ids)
         rows = db.load_lines(did)
         assert len(rows) == dry["line_count"] == 4
         assert [x["zh"] for x in rows] == PHRASES
@@ -429,8 +429,8 @@ class TestResegment:
         monkey_cap = resegment.max_line_chars
         try:
             resegment.max_line_chars = lambda language: 30
-            preview = svc.preview_resegmentation(did)
-            job = svc.start_resegmentation(did, ids, confirm=True)
+            preview = resegmentation_service.preview_resegmentation(did)
+            job = resegmentation_service.start_resegmentation(did, ids, confirm=True)
             _wait(job["job_id"])
         finally:
             resegment.max_line_chars = monkey_cap

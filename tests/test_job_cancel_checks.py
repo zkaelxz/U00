@@ -19,7 +19,7 @@ from services import auto_backup_service as abs_
 from services import auto_backup_settings as abt_
 from services import benchmark_lab_service as bench
 from services import novel_attach_service as novel
-from services import restructure_service as restructure
+from services import resegmentation_service
 from services import sources_signin_service as signin
 
 
@@ -102,16 +102,16 @@ class TestCloudResegment:
             ln.id = ln.idx + 1
         _cancel_after(monkeypatch, 1)
         stored = []
-        monkeypatch.setattr(restructure, "_apply_resegmented", lambda *a: stored.append(1))
-        monkeypatch.setattr(restructure, "_store_llm_preview", lambda *a: stored.append(1))
-        monkeypatch.setattr(restructure, "_usage_logger", lambda *a: None)
+        monkeypatch.setattr(resegmentation_service, "_apply_resegmented", lambda *a: stored.append(1))
+        monkeypatch.setattr(resegmentation_service, "_store_llm_preview", lambda *a: stored.append(1))
+        monkeypatch.setattr(resegmentation_service, "_usage_logger", lambda *a: None)
         engine = object()
         with pytest.raises(background_jobs.JobCancelled):
             if runner == "apply":
-                restructure._run_resegment_job("resegment_1", 1, lines, [1, 2, 3], "zh", engine,
+                resegmentation_service._run_resegment_job("resegment_1", 1, lines, [1, 2, 3], "zh", engine,
                                                "claude", None, "simplified", 0.3)
             else:
-                restructure._run_llm_preview_job("resegpreview_1", 1, lines, "zh", engine,
+                resegmentation_service._run_llm_preview_job("resegpreview_1", 1, lines, "zh", engine,
                                                  "claude", None, "simplified", 0.3)
         assert len(calls) == 1 and not stored
 
@@ -124,17 +124,17 @@ class TestResegmentCancelDuringCall:
         def cancelling_call(*a, **k):
             raise TranslationCancelled("cancelled")
         monkeypatch.setattr(resegment, "llm_split_spans", cancelling_call)
-        monkeypatch.setattr(restructure, "_usage_logger", lambda *a: None)
+        monkeypatch.setattr(resegmentation_service, "_usage_logger", lambda *a: None)
         lines = [Line(idx=0, start=0, end=1, zh="长" * 200)]
         lines[0].id = 1
         job_id = "resegment_cancelmid" if runner == "apply" else "resegpreview_cancelmid"
 
         def job():
             if runner == "apply":
-                restructure._run_resegment_job(job_id, 1, lines, [1], "zh", object(),
+                resegmentation_service._run_resegment_job(job_id, 1, lines, [1], "zh", object(),
                                                "claude", None, "simplified", 0.3)
             else:
-                restructure._run_llm_preview_job(job_id, 1, lines, "zh", object(),
+                resegmentation_service._run_llm_preview_job(job_id, 1, lines, "zh", object(),
                                                  "claude", None, "simplified", 0.3)
         with pytest.raises(background_jobs.JobCancelled):
             job()

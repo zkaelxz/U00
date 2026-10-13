@@ -1,4 +1,4 @@
-"""Parity R47: the LLM re-segmentation preview (services/restructure_service
+"""Parity R47: the LLM re-segmentation preview (services/resegmentation_service
 start_llm_resegment_preview / get_llm_resegment_preview and
 /api/restructure/.../resegment/preview-llm). Fully mocked: no real LLM, no
 GPU, no subprocess. The preview must never write the drama's lines."""
@@ -12,7 +12,7 @@ import db
 import resegment
 import translate_engines
 from core import Line
-from services import jobs_service, restructure_service as svc, settings_service, translate_service
+from services import jobs_service, resegmentation_service, settings_service, translate_service
 from services.service_errors import (ConflictError, NotFoundError,
                                       UnsupportedOperationError)
 
@@ -26,13 +26,13 @@ class FakeEngine:
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
-    svc._llm_previews.clear()
+    resegmentation_service._llm_previews.clear()
     monkeypatch.setattr(resegment, "word_boundaries", lambda *a, **k: None)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
     yield
     background_jobs.clear_all_jobs()
-    svc._llm_previews.clear()
+    resegmentation_service._llm_previews.clear()
 
 
 def _seed():
@@ -73,12 +73,12 @@ def test_llm_preview_writes_no_lines_and_reads_back(monkeypatch):
     monkeypatch.setattr(db, "log_usage", lambda d, e, m, op, i, o, *a, **k:
                         logged.append((d, op, i, o)))
     _fake_llm_split(monkeypatch, seen)
-    out = svc.start_llm_resegment_preview(did, engine="claude")
+    out = resegmentation_service.start_llm_resegment_preview(did, engine="claude")
     assert out == {"job_id": f"resegpreview_{did}", "drama_id": did}
     assert _wait(out["job_id"])["status"] == "done"
     assert isinstance(seen[0], FakeEngine)                # the LLM pass ran
     assert _snapshot(did) == before                       # nothing written to the lines
-    p = svc.get_llm_resegment_preview(did)
+    p = resegmentation_service.get_llm_resegment_preview(did)
     assert p["engine"] == "claude" and p["line_count_before"] == 2
     assert p["line_count_after"] > 2 and p["changed"][0]["line_id"] == before[1][0]
     assert p["translated"] == 1 and p["flagged"] == 1 and p["needs_confirm"] is True
@@ -90,16 +90,16 @@ def test_llm_preview_writes_no_lines_and_reads_back(monkeypatch):
 def test_job_result_never_carries_line_text(monkeypatch):
     did = _seed()
     _fake_llm_split(monkeypatch, [])
-    job = _wait(svc.start_llm_resegment_preview(did, engine="claude")["job_id"])
+    job = _wait(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
     assert LONG[:5] not in str(jobs_service.project_result(job.get("result")))
 
 
 def test_no_preview_until_one_finishes():
     did = _seed()
     with pytest.raises(NotFoundError):
-        svc.get_llm_resegment_preview(did)
+        resegmentation_service.get_llm_resegment_preview(did)
     with pytest.raises(NotFoundError):
-        svc.get_llm_resegment_preview(99999)
+        resegmentation_service.get_llm_resegment_preview(99999)
 
 
 def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
@@ -115,27 +115,27 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
                          "changed": [(ln.id, ln.idx, ln.zh, p) for ln, p in changed]})
         return True
     monkeypatch.setattr(background_jobs, "start_process_job", fake_process_job)
-    svc.start_llm_resegment_preview(did, engine="ollama")
+    resegmentation_service.start_llm_resegment_preview(did, engine="ollama")
     assert captured["target"] is resegment.resegment_subprocess_worker
     assert captured["kw"]["gpu_touching"] is True
     assert captured["kw"]["kill_whole_tree"] is True
     assert captured["kw"]["start_method"] == "spawn"
-    assert svc.get_llm_resegment_preview(did)["engine"] == "ollama"
+    assert resegmentation_service.get_llm_resegment_preview(did)["engine"] == "ollama"
     assert _snapshot(did) == before
 
 
 def test_refusals(monkeypatch):
     did = _seed()
     with pytest.raises(UnsupportedOperationError):
-        svc.start_llm_resegment_preview(did, engine="fake_mt")   # translation-only
+        resegmentation_service.start_llm_resegment_preview(did, engine="fake_mt")   # translation-only
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
     with pytest.raises(UnsupportedOperationError):
-        svc.start_llm_resegment_preview(did, engine="claude")
+        resegmentation_service.start_llm_resegment_preview(did, engine="claude")
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 0.0)
     monkeypatch.setattr(background_jobs, "is_running", lambda job_id: True)
     with pytest.raises(ConflictError):
-        svc.start_llm_resegment_preview(did, engine="claude")
+        resegmentation_service.start_llm_resegment_preview(did, engine="claude")
 
 
 def test_preview_job_is_a_drama_job():
@@ -171,16 +171,16 @@ def test_api_routes(monkeypatch):
 def _preview(monkeypatch, did):
     seen = []
     _fake_llm_split(monkeypatch, seen)
-    _wait(svc.start_llm_resegment_preview(did, engine="claude")["job_id"])
+    _wait(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
     return seen
 
 
 def test_apply_commits_the_preview_without_calling_the_llm(monkeypatch):
     did = _seed()
     seen = _preview(monkeypatch, did)
-    p = svc.get_llm_resegment_preview(did)
+    p = resegmentation_service.get_llm_resegment_preview(did)
     calls = len(seen)
-    out = svc.start_resegmentation(did, p["source_line_ids"], confirm=True, use_preview=True)
+    out = resegmentation_service.start_resegmentation(did, p["source_line_ids"], confirm=True, use_preview=True)
     job = _wait(out["job_id"])
     assert job["status"] == "done", job
     assert len(seen) == calls                               # no second LLM pass
@@ -189,31 +189,31 @@ def test_apply_commits_the_preview_without_calling_the_llm(monkeypatch):
     assert [r["zh"] for r in rows[1:]] == p["changed"][0]["pieces"]
     assert rows[0]["zh"] == "短" and rows[0]["en"] == "short"
     with pytest.raises(NotFoundError):                     # consumed: can't apply twice
-        svc.get_llm_resegment_preview(did)
+        resegmentation_service.get_llm_resegment_preview(did)
 
 
 def test_apply_refused_after_an_edit_since_the_preview(monkeypatch):
     did = _seed()
     _preview(monkeypatch, did)
-    ids = svc.get_llm_resegment_preview(did)["source_line_ids"]
+    ids = resegmentation_service.get_llm_resegment_preview(did)["source_line_ids"]
     # the user edits the short line's translation after previewing
     db.save_lines(did, [Line(id=ids[0], idx=0, start=0.0, end=1.0, zh="短", en="edited")],
                   fields=("en",))
     before = _snapshot(did)
     with pytest.raises(ConflictError):
-        svc.start_resegmentation(did, ids, confirm=True, use_preview=True)
+        resegmentation_service.start_resegmentation(did, ids, confirm=True, use_preview=True)
     assert _snapshot(did) == before
 
 
 def test_apply_edit_racing_the_job_writes_nothing(monkeypatch):
     did = _seed()
     _preview(monkeypatch, did)
-    preview = svc._llm_previews[did]
+    preview = resegmentation_service._llm_previews[did]
     ids = preview["source_line_ids"]
     db.save_lines(did, [Line(id=ids[0], idx=0, start=0.0, end=1.0, zh="改", en="short")],
                   fields=("zh",))
     before = _snapshot(did)
-    background_jobs.start_job("resegment_x", svc._apply_llm_preview_job, "resegment_x", did,
+    background_jobs.start_job("resegment_x", resegmentation_service._apply_llm_preview_job, "resegment_x", did,
                               preview)
     assert _wait("resegment_x")["status"] == "error"
     assert _snapshot(did) == before
@@ -223,15 +223,15 @@ def test_apply_needs_confirm_and_a_preview(monkeypatch):
     did = _seed()
     ids = [r["id"] for r in db.load_lines(did)]
     with pytest.raises(NotFoundError):
-        svc.start_resegmentation(did, ids, use_preview=True)
+        resegmentation_service.start_resegmentation(did, ids, use_preview=True)
     _preview(monkeypatch, did)
     from services.service_errors import InvalidInputError
     with pytest.raises(InvalidInputError):                  # the long line is translated+flagged
-        svc.start_resegmentation(did, ids, use_preview=True)
+        resegmentation_service.start_resegmentation(did, ids, use_preview=True)
     with pytest.raises(InvalidInputError):
-        svc.start_resegmentation(did, ids, confirm=True, use_preview=True, use_llm=True)
+        resegmentation_service.start_resegmentation(did, ids, confirm=True, use_preview=True, use_llm=True)
     with pytest.raises(ConflictError):
-        svc.start_resegmentation(did, ids[:1], confirm=True, use_preview=True)
+        resegmentation_service.start_resegmentation(did, ids[:1], confirm=True, use_preview=True)
 
 
 def test_api_apply_preview(monkeypatch):
@@ -273,16 +273,16 @@ def test_note_added_after_the_preview_needs_confirm_on_apply(monkeypatch):
     from services.service_errors import InvalidInputError
     did = _seed_unconfirmed()
     _preview(monkeypatch, did)
-    p = svc.get_llm_resegment_preview(did)
+    p = resegmentation_service.get_llm_resegment_preview(did)
     assert p["needs_confirm"] is False and p["changed"]
     long_id = p["changed"][0]["line_id"]
     lines_service.add_note(did, long_id, "公园", "cultural", "a park")
     before = _snapshot(did)
     with pytest.raises(InvalidInputError):
-        svc.start_resegmentation(did, p["source_line_ids"], use_preview=True)
+        resegmentation_service.start_resegmentation(did, p["source_line_ids"], use_preview=True)
     assert _snapshot(did) == before
     assert [n["line_id"] for n in db.list_translation_notes(did)] == [long_id]
-    out = svc.start_resegmentation(did, p["source_line_ids"], confirm=True, use_preview=True)
+    out = resegmentation_service.start_resegmentation(did, p["source_line_ids"], confirm=True, use_preview=True)
     assert _wait(out["job_id"])["status"] == "done"
     assert len(db.load_lines(did)) == p["line_count_after"]
 
@@ -293,10 +293,10 @@ def test_note_racing_the_apply_job_needs_confirm(monkeypatch):
     from services import lines_service
     did = _seed_unconfirmed()
     _preview(monkeypatch, did)
-    preview = svc._llm_previews[did]
+    preview = resegmentation_service._llm_previews[did]
     lines_service.add_note(did, preview["changed"][0]["line_id"], "公园", "cultural", "a park")
     before = _snapshot(did)
-    background_jobs.start_job("resegment_x", svc._apply_llm_preview_job, "resegment_x", did,
+    background_jobs.start_job("resegment_x", resegmentation_service._apply_llm_preview_job, "resegment_x", did,
                               preview, False)
     job = _wait("resegment_x")
     assert job["status"] == "error" and "confirm=true" in job["error"]
@@ -310,17 +310,17 @@ def test_stale_preview_for_other_lines_is_not_read_back(monkeypatch):
     text -- is a 404 and is dropped, not served."""
     did = _seed()
     _preview(monkeypatch, did)
-    assert svc.get_llm_resegment_preview(did)["changed"]
+    assert resegmentation_service.get_llm_resegment_preview(did)["changed"]
     # a plain edit keeps the line ids: the preview is still readable
-    ids = svc.get_llm_resegment_preview(did)["source_line_ids"]
+    ids = resegmentation_service.get_llm_resegment_preview(did)["source_line_ids"]
     db.save_lines(did, [Line(id=ids[0], idx=0, start=0.0, end=1.0, zh="短", en="edited")],
                   fields=("en",))
-    assert svc.get_llm_resegment_preview(did)["source_line_ids"] == ids
+    assert resegmentation_service.get_llm_resegment_preview(did)["source_line_ids"] == ids
     # the lines are replaced wholesale (new ids): stale
     db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="别的", en="other")])
     with pytest.raises(NotFoundError):
-        svc.get_llm_resegment_preview(did)
-    assert did not in svc._llm_previews
+        resegmentation_service.get_llm_resegment_preview(did)
+    assert did not in resegmentation_service._llm_previews
 
 
 def test_resegment_worker_leaves_the_parents_process_group(monkeypatch):
@@ -339,5 +339,5 @@ def test_direct_llm_resegmentation_refuses_once_the_monthly_cap_is_used_up(monke
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
     with pytest.raises(UnsupportedOperationError, match="cap"):
-        svc.start_resegmentation(did, ids, confirm=True, use_llm=True, engine="claude")
+        resegmentation_service.start_resegmentation(did, ids, confirm=True, use_llm=True, engine="claude")
     assert started == []

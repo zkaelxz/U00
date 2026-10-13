@@ -1,4 +1,4 @@
-"""Re-split over-long lines in place (services/restructure_service.resplit_long_lines and
+"""Re-split over-long lines in place (services/resplit_service.resplit_long_lines and
 POST /api/restructure/dramas/{id}/resplit). Mocked: no GPU, no aligner model, no audio."""
 import importlib.util
 import whisper_models
@@ -15,7 +15,7 @@ import diarize
 import segment
 import segment_splitting
 from core import Line
-from services import restructure_service as svc
+from services import resegmentation_service, resplit_config, resplit_service
 from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError
 
 SENT = "我今天早上很早就起床了然后去公园跑步。"  # 19 CJK chars
@@ -64,7 +64,7 @@ def _wait(job_id):
 
 def test_proportional_split_in_place_keeps_parent_id_flag_speaker():
     did, ids = _seed()
-    r = svc.resplit_long_lines(did, ids)
+    r = resplit_service.resplit_long_lines(did, ids)
     assert (r["split_lines"], r["lines_before"], r["line_count"]) == (1, 3, 5)
     assert r["timing"] == "proportional" and r["speakers_reassigned"] is False
     rows = db.load_lines(did)
@@ -79,9 +79,9 @@ def test_proportional_split_in_place_keeps_parent_id_flag_speaker():
 def test_translated_long_line_needs_confirm_then_clears_en():
     did, ids = _seed(en="old translation")
     with pytest.raises(InvalidInputError):
-        svc.resplit_long_lines(did, ids)
+        resplit_service.resplit_long_lines(did, ids)
     assert len(db.load_lines(did)) == 3
-    r = svc.resplit_long_lines(did, ids, confirm=True)
+    r = resplit_service.resplit_long_lines(did, ids, confirm=True)
     assert r["cleared_translations"] == 1
     assert [x["en"] for x in db.load_lines(did)[1:4]] == ["", "", ""]
 
@@ -90,7 +90,7 @@ def test_saved_turns_relabel_pieces_and_keep_manual():
     did, ids = _seed()
     diarize.save_turns(db.drama_dir(did), [{"start": 0.0, "end": 12.0, "speaker": "S1"},
                                            {"start": 12.0, "end": 40.0, "speaker": "S2"}])
-    r = svc.resplit_long_lines(did, ids)
+    r = resplit_service.resplit_long_lines(did, ids)
     assert r["speakers_reassigned"] is True
     rows = db.load_lines(did)
     assert [x["speaker"] for x in rows[1:4]] == ["S1", "S2", "S2"]
@@ -98,7 +98,7 @@ def test_saved_turns_relabel_pieces_and_keep_manual():
     assert (rows[0]["speaker"], rows[4]["speaker"]) == ("A", "A")
     did, ids = _seed(manual=True)
     diarize.save_turns(db.drama_dir(did), [{"start": 0.0, "end": 40.0, "speaker": "S1"}])
-    svc.resplit_long_lines(did, ids)
+    resplit_service.resplit_long_lines(did, ids)
     assert [x["speaker"] for x in db.load_lines(did)[1:4]] == ["B"] * 3
 
 
@@ -106,9 +106,9 @@ def test_nothing_to_split_and_stale_ids():
     did = db.create_drama(title_zh="D")
     db.save_lines(did, [Line(idx=0, start=0, end=2, zh=SHORT)])
     ids = [r["id"] for r in db.load_lines(did)]
-    assert svc.resplit_long_lines(did, ids)["split_lines"] == 0
+    assert resplit_service.resplit_long_lines(did, ids)["split_lines"] == 0
     with pytest.raises(ConflictError):
-        svc.resplit_long_lines(did, [999])
+        resplit_service.resplit_long_lines(did, [999])
 
 
 def _fake_aligner(monkeypatch, fn):
@@ -125,7 +125,7 @@ def test_align_job_uses_aligner_boundaries(monkeypatch):
         return [Line(idx=i, start=2.0 + 9 * i + 1, end=2.0 + 9 * (i + 1), zh=t)
                 for i, t in enumerate(texts)]
     _fake_aligner(monkeypatch, align)
-    r = svc.resplit_long_lines(did, ids, align_to_audio=True)
+    r = resplit_service.resplit_long_lines(did, ids, align_to_audio=True)
     assert r["job_id"] == f"resplit_{did}"
     job = _wait(r["job_id"])
     assert job["status"] == "done", job
@@ -142,7 +142,7 @@ def test_align_falls_back_to_proportional_when_aligner_missing(monkeypatch):
     def align(*a, **k):
         raise ImportError("No module named 'qwen_asr'")
     _fake_aligner(monkeypatch, align)
-    r = svc.resplit_long_lines(did, ids, align_to_audio=True)
+    r = resplit_service.resplit_long_lines(did, ids, align_to_audio=True)
     res = _wait(r["job_id"])["result"]
     assert res["timing"] == "proportional" and "estimated timing" in res["note"]
     assert res["split_lines"] == 1 and len(db.load_lines(did)) == 5
@@ -158,13 +158,13 @@ def test_aligner_failure_note_has_no_paths(monkeypatch, exc):
     def align(*a, **k):
         raise exc
     _fake_aligner(monkeypatch, align)
-    res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert "someone" not in res["note"] and "estimated timing" in res["note"]
 
 
 def test_align_without_audio_splits_immediately_with_note():
     did, ids = _seed(audio=False)
-    r = svc.resplit_long_lines(did, ids, align_to_audio=True)
+    r = resplit_service.resplit_long_lines(did, ids, align_to_audio=True)
     assert r["timing"] == "proportional" and "no stored audio" in r["note"]
     assert len(db.load_lines(did)) == 5
 
@@ -177,7 +177,7 @@ def test_repaired_alignment_flags_only_the_affected_piece(monkeypatch):
         out[1].flag, out[1].flag_note = "timing_uncertain", "repaired"
         return out
     _fake_aligner(monkeypatch, align)
-    job = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
+    job = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
     assert job["status"] == "done", job
     rows = db.load_lines(did)
     assert [r["flag"] for r in rows[1:4]] == ["unsure", "timing_uncertain", None]
@@ -188,7 +188,7 @@ def test_bad_aligner_timing_keeps_that_line_proportional(monkeypatch):
     did, ids = _seed()
     _fake_aligner(monkeypatch, lambda audio, texts, segs, language, use_gpu=False: [
         Line(idx=i, start=5.0, end=4.0, zh=t) for i, t in enumerate(texts)])
-    res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert res["timing"] == "proportional" and "unusable" in res["note"]
 
 
@@ -199,7 +199,7 @@ def test_cancelled_job_writes_nothing(monkeypatch):
         background_jobs.request_cancel(f"resplit_{did}")
         return [Line(idx=i, start=3.0 + i, end=4.0 + i, zh=t) for i, t in enumerate(texts)]
     _fake_aligner(monkeypatch, align)
-    res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert res["failed_reason"] == "cancelled" and len(db.load_lines(did)) == 3
 
 
@@ -227,7 +227,7 @@ def test_job_started_during_alignment_blocks_the_commit(monkeypatch):
         return _aligned(texts)
     _fake_aligner(monkeypatch, align)
     try:
-        res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+        res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     finally:
         release.set()
     assert res["failed_reason"] == "not_applied" and "nothing was changed" in res["detail"]
@@ -244,7 +244,7 @@ def test_timing_or_translation_edit_during_alignment_is_kept(monkeypatch, field,
         _edit(did, ids[1], **{field: value})
         return _aligned(texts)
     _fake_aligner(monkeypatch, align)
-    job_id = svc.resplit_long_lines(did, ids, align_to_audio=True, confirm=True)["job_id"]
+    job_id = resplit_service.resplit_long_lines(did, ids, align_to_audio=True, confirm=True)["job_id"]
     res = _wait(job_id)["result"]
     assert res["failed_reason"] == "not_applied" and "nothing was changed" in res["detail"]
     rows = db.load_lines(did)
@@ -265,7 +265,7 @@ def test_cancelled_job_releases_the_aligner(monkeypatch):
     _fake_aligner(monkeypatch, align)
     monkeypatch.setattr(whisper_models, "release_gpu_models",
                         lambda: calls.__setitem__("release", calls["release"] + 1))
-    res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    res = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert res["failed_reason"] == "cancelled" and len(db.load_lines(did)) == 4
     assert calls == {"align": 1, "release": 1}
 
@@ -276,8 +276,8 @@ def test_relabel_failure_after_commit_keeps_the_split(monkeypatch):
 
     def boom(*a, **k):
         raise RuntimeError("disk error at /secret/path")
-    monkeypatch.setattr(svc.diarization_service, "relabel_from_saved_turns", boom)
-    r = svc.resplit_long_lines(did, ids)
+    monkeypatch.setattr(resplit_service.diarization_service, "relabel_from_saved_turns", boom)
+    r = resplit_service.resplit_long_lines(did, ids)
     assert r["split_lines"] == 1 and r["speakers_reassigned"] is False
     assert r["note"].startswith("Split saved; speakers were not re-assigned:")
     assert "/secret" not in r["note"]
@@ -291,7 +291,7 @@ def test_refused_while_a_job_runs():
     background_jobs.start_job(f"translate_{did}", lambda: release.wait(30))
     try:
         with pytest.raises(ConflictError):
-            svc.resplit_long_lines(did, ids)
+            resplit_service.resplit_long_lines(did, ids)
     finally:
         release.set()
         _wait(f"translate_{did}")
@@ -372,7 +372,7 @@ def test_align_job_aligns_each_line_in_its_own_language(monkeypatch):
         return [Line(idx=i, start=segs[0]["start"] + 9 * i + 1, end=segs[0]["start"] + 9 * (i + 1), zh=t)
                 for i, t in enumerate(texts)]
     _fake_aligner(monkeypatch, align)
-    job = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
+    job = _wait(resplit_service.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
     assert job["status"] == "done", job
     assert languages == ["ja", "zh", "en"]
     assert job["result"]["aligned_lines"] == 2  # the English line stays proportional
@@ -399,7 +399,7 @@ def _one_line(text, end, lang=None, source="zh", en=""):
 
 def _count(text, end, source="zh", lang=None, **kw):
     did, ids = _one_line(text, end, lang=lang, source=source)
-    return svc.resplit_long_lines(did, ids, dry_run=True, **kw)
+    return resplit_service.resplit_long_lines(did, ids, dry_run=True, **kw)
 
 
 def test_screenshot_like_line_splits_in_every_preset():
@@ -453,13 +453,13 @@ def test_min_piece_rule_in_english():
 def test_no_cut_inside_quotes_abbreviations_or_numbers():
     en = "Dr. Smith paid 3.5 dollars at No. 5 Main St. yesterday. He said \"Stop. Go home now.\" Then he left."
     did, ids = _one_line(en, 30.0, source="en")
-    svc.resplit_long_lines(did, ids, sensitivity="sentence")
+    resplit_service.resplit_long_lines(did, ids, sensitivity="sentence")
     assert [r["zh"] for r in db.load_lines(did)] == [
         "Dr. Smith paid 3.5 dollars at No. 5 Main St. yesterday.",
         "He said \"Stop. Go home now.\" Then he left."]
     zh = "他说：「你好。我是小明。请多关照。」然后他就走了。再见了朋友。"
     did, ids = _one_line(zh, 12.0)
-    svc.resplit_long_lines(did, ids, sensitivity="sentence")
+    resplit_service.resplit_long_lines(did, ids, sensitivity="sentence")
     assert [r["zh"] for r in db.load_lines(did)] == [
         "他说：「你好。我是小明。请多关照。」", "然后他就走了。", "再见了朋友。"]
 
@@ -475,41 +475,41 @@ def test_duration_cap_replaces_the_default_limit():
 
 def test_no_preset_without_options_is_todays_behaviour():
     did, ids = _seed()
-    r = svc.resplit_long_lines(did, ids, sensitivity=None, max_seconds=None)
+    r = resplit_service.resplit_long_lines(did, ids, sensitivity=None, max_seconds=None)
     assert (r["split_lines"], r["line_count"]) == (1, 5)
 
 
 def test_dry_run_writes_nothing_and_needs_no_confirm():
     did, ids = _seed(en="old translation")
     before = db.load_lines(did)
-    r = svc.resplit_long_lines(did, ids, dry_run=True)
+    r = resplit_service.resplit_long_lines(did, ids, dry_run=True)
     assert (r["dry_run"], r["split_lines"], r["pieces"], r["line_count"]) == (True, 1, 3, 5)
     assert r["cleared_translations"] == 1
     assert db.load_lines(did) == before and db.list_line_history(did) == []
     with pytest.raises(ConflictError):
-        svc.resplit_long_lines(did, [999], dry_run=True)
+        resplit_service.resplit_long_lines(did, [999], dry_run=True)
 
 
 def test_nothing_message_names_the_sensitivity_and_suggests_more():
     did = db.create_drama(title_zh="D")
     db.save_lines(did, [Line(idx=0, start=0, end=2, zh=SHORT)])
     ids = [r["id"] for r in db.load_lines(did)]
-    note = svc.resplit_long_lines(did, ids)["note"]
+    note = resplit_service.resplit_long_lines(did, ids)["note"]
     assert "Default limits" in note and "More" in note and "No line is over" in note
-    assert "Sentence by sentence" in svc.resplit_long_lines(did, ids, sensitivity="more")["note"]
-    assert "shorter duration" in svc.resplit_long_lines(did, ids, sensitivity="sentence")["note"]
+    assert "Sentence by sentence" in resplit_service.resplit_long_lines(did, ids, sensitivity="more")["note"]
+    assert "shorter duration" in resplit_service.resplit_long_lines(did, ids, sensitivity="sentence")["note"]
 
 
 def test_nothing_message_when_over_limit_but_no_cut_point():
     did, ids = _one_line("我今天早上很早就起床了然后去公园跑步路上遇到了老朋友我们聊了很久后来一起吃了早饭", 60.0)
-    note = svc.resplit_long_lines(did, ids, sensitivity="sentence", max_seconds=10)["note"]
+    note = resplit_service.resplit_long_lines(did, ids, sensitivity="sentence", max_seconds=10)["note"]
     assert note.startswith("1 line with no sentence end")
 
 
 def test_line_with_no_punctuation_or_words_is_cut_evenly_and_flagged():
     text = "".join(chr(0x4e00 + i) for i in range(100))
     did, ids = _one_line(text, 97.0)
-    r = svc.resplit_long_lines(did, ids)
+    r = resplit_service.resplit_long_lines(did, ids)
     assert r["split_lines"] == 1 and r["line_count"] > 2
     lines = db.load_line_objects(did)
     assert "".join(l.zh for l in lines) == text
@@ -522,7 +522,7 @@ def test_sensitivity_and_cap_validation():
     did, ids = _seed()
     for bad in ({"sensitivity": "extreme"}, {"max_seconds": 1}, {"max_seconds": 500}):
         with pytest.raises(InvalidInputError):
-            svc.resplit_long_lines(did, ids, **bad)
+            resplit_service.resplit_long_lines(did, ids, **bad)
 
 
 def test_route_sensitivity_fields(isolated_db):
@@ -619,9 +619,9 @@ def test_alternating_one_word_sentences_fold_in_one_pass():
 
 def test_resplit_leaves_a_line_over_the_cap_unsplit_and_says_so():
     did = db.create_drama(title_zh="D", source_language="zh")
-    db.save_lines(did, [Line(idx=0, start=0.0, end=60.0, zh="好。" * svc.RESPLIT_MAX_CHARS)])
+    db.save_lines(did, [Line(idx=0, start=0.0, end=60.0, zh="好。" * resplit_config.RESPLIT_MAX_CHARS)])
     ids = [r["id"] for r in db.load_lines(did)]
-    out = svc.resplit_long_lines(did, ids, sensitivity="sentence", dry_run=True)
+    out = resplit_service.resplit_long_lines(did, ids, sensitivity="sentence", dry_run=True)
     assert out["split_lines"] == 0
     assert "1 line over the limits" in out["note"]
 
@@ -633,7 +633,7 @@ def test_resplit_uses_the_titles_pause(monkeypatch):
     real = segment_splitting.split_long_segments
     monkeypatch.setattr(segment_splitting, "split_long_segments",
                         lambda segs, **kw: seen.append(kw["min_pause"]) or real(segs, **kw))
-    svc.resplit_long_lines(did, ids)
+    resplit_service.resplit_long_lines(did, ids)
     assert seen and set(seen) == {0.8}
 
 
@@ -641,18 +641,18 @@ def test_resegmentation_preview_uses_the_titles_pause(monkeypatch):
     did, _ids = _seed()
     db.update_drama(did, min_pause_sec=0.6)
     seen = []
-    monkeypatch.setattr(svc.resegment, "resegment_lines",
+    monkeypatch.setattr(resegmentation_service.resegment, "resegment_lines",
                         lambda lines, language, **kw: seen.append(kw["min_pause"]) or (lines, []))
-    svc.preview_resegmentation(did)
+    resegmentation_service.preview_resegmentation(did)
     assert seen == [0.6]
 
 
 def test_resegment_preview_says_why_nothing_changes():
     did, _ = _one_line("你好。", 60.0)  # short text that runs 60 s: not a character problem
-    p = svc.preview_resegmentation(did)
+    p = resegmentation_service.preview_resegmentation(did)
     assert p["changed"] == [] and "Split long lines" in p["reason"]
     clean, _ = _one_line("你好。", 2.0)
-    assert "Nothing to re-segment" in svc.preview_resegmentation(clean)["reason"]
+    assert "Nothing to re-segment" in resegmentation_service.preview_resegmentation(clean)["reason"]
 
 
 @pytest.mark.parametrize("lang,package", [("zh", "jieba"), ("ja", "sudachipy")])
@@ -663,9 +663,9 @@ def test_more_is_refused_for_cjk_titles_without_a_word_splitter(monkeypatch, lan
                         lambda name, *a: None if name == package else real_find_spec(name, *a))
     did, ids = _one_line(SAMPLES[lang], 7.0, source=lang)
     with pytest.raises(DependencyUnavailableError, match=package):
-        svc.resplit_long_lines(did, ids, sensitivity="more", dry_run=True)
+        resplit_service.resplit_long_lines(did, ids, sensitivity="more", dry_run=True)
     # The other presets don't cut by length, so they stay available.
-    assert svc.resplit_long_lines(did, ids, sensitivity="sentence", dry_run=True)["dry_run"]
+    assert resplit_service.resplit_long_lines(did, ids, sensitivity="sentence", dry_run=True)["dry_run"]
 
 
 def test_more_needs_no_word_splitter_for_korean_or_english(monkeypatch):
@@ -683,6 +683,6 @@ def test_more_checks_the_word_splitter_of_each_lines_own_language(monkeypatch):
                         lambda name, *a: None if name == "sudachipy" else real_find_spec(name, *a))
     did, ids = _one_line(SAMPLES["ja"], 7.0, lang="ja", source="ko")
     with pytest.raises(DependencyUnavailableError, match="sudachipy"):
-        svc.resplit_long_lines(did, ids, sensitivity="more", dry_run=True)
+        resplit_service.resplit_long_lines(did, ids, sensitivity="more", dry_run=True)
     untagged, untagged_ids = _one_line(SAMPLES["ko"], 7.0, source="ko")
-    assert svc.resplit_long_lines(untagged, untagged_ids, sensitivity="more", dry_run=True)["dry_run"]
+    assert resplit_service.resplit_long_lines(untagged, untagged_ids, sensitivity="more", dry_run=True)["dry_run"]

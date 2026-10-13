@@ -5,7 +5,7 @@ import pytest
 
 import translate_engines
 from services import (discover_lookup_service, live_service, metadata_service,
-                      narration_service, reader_service, restructure_service,
+                      narration_service, reader_service, resegmentation_service,
                       settings_service, translate_service)
 from tests.saved_settings import patch_setting
 
@@ -31,7 +31,7 @@ def built(monkeypatch):
 
 
 BUILDERS = {
-    "restructure": lambda: restructure_service._build_engine({}, "gemini", None),
+    "restructure": lambda: resegmentation_service._build_engine({}, "gemini", None),
     "reader": lambda: reader_service.llm_engine("gemini"),
     "live": lambda: live_service._build_engine("gemini", None),
     "discover_lookup": lambda: discover_lookup_service._build_engine("gemini"),
