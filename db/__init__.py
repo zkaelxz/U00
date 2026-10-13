@@ -1989,7 +1989,9 @@ from db.glossary import (  # noqa: E402,F401
     bump_translation_memory_use, create_series, get_or_create_series, get_series_id_by_name,
     insert_glossary_term_if_absent, list_series, list_translation_memory,
     record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
-    upsert_glossary_term)
+    upsert_glossary_term, list_glossary_terms, list_glossary_dismissals,
+    list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
+    delete_glossary_term)
 
 
 # ---------------------------------------------------------------------------
@@ -2407,58 +2409,6 @@ def get_style_profile(scope: str = "global"):
         d["profile"] = {}
     d["history"] = _style_history(d.get("history_json"))
     return d
-
-
-def list_glossary_terms(series_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM glossary_terms WHERE series_id = ? ORDER BY term_original",
-                             (series_id,)).fetchall()
-    return [dict(r) for r in rows]
-
-
-def list_glossary_dismissals(series_id: int) -> list:
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT term_original, created_at FROM glossary_dismissals "
-                            "WHERE series_id = ? ORDER BY term_original", (series_id,)).fetchall()
-    return [dict(r) for r in rows]
-
-
-def list_dismissed_glossary_terms(series_id: int, terms) -> set:
-    """Which of `terms` are on the series' ignore list (chunked to stay under
-    SQLite's bound-variable limit)."""
-    terms = list(dict.fromkeys(terms))
-    found = set()
-    with contextlib.closing(get_conn()) as conn:
-        for i in range(0, len(terms), 500):
-            chunk = terms[i:i + 500]
-            rows = conn.execute(
-                "SELECT term_original FROM glossary_dismissals WHERE series_id = ? "
-                f"AND term_original IN ({','.join('?' * len(chunk))})", (series_id, *chunk))
-            found.update(r["term_original"] for r in rows)
-    return found
-
-
-def add_glossary_dismissals(series_id: int, terms) -> None:
-    now = datetime.datetime.utcnow().isoformat()
-    with contextlib.closing(get_conn()) as conn:
-        conn.executemany("INSERT OR IGNORE INTO glossary_dismissals "
-                         "(series_id, term_original, created_at) VALUES (?, ?, ?)",
-                         [(series_id, t, now) for t in terms])
-        conn.commit()
-
-
-def remove_glossary_dismissals(series_id: int, terms) -> int:
-    with contextlib.closing(get_conn()) as conn:
-        n = sum(conn.execute("DELETE FROM glossary_dismissals WHERE series_id = ? "
-                             "AND term_original = ?", (series_id, t)).rowcount for t in terms)
-        conn.commit()
-    return n
-
-
-def delete_glossary_term(term_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM glossary_terms WHERE id = ?", (term_id,))
-        conn.commit()
 
 
 # ---------------------------------------------------------------------------
