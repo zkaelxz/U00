@@ -11,7 +11,7 @@ import contextlib
 import os
 
 import background_jobs
-import bulk_translate
+import translation_finish
 import db
 import translate_engines
 import translation_guide as tguide
@@ -309,7 +309,7 @@ def cmd_translate(args):
         # Same as the Workspace Translate job: writes `en` only, keeps an edit
         # saved in the app while this runs, and records each translated
         # line's provenance.
-        save_cb, notes_cb, kept = bulk_translate.own_lines_callbacks(d["id"], lines, provenance)
+        save_cb, notes_cb, kept = translation_finish.own_lines_callbacks(d["id"], lines, provenance)
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
             style_note=style_note,
@@ -343,7 +343,7 @@ def cmd_translate(args):
         # left, so the retry suggested below (default --status aligned)
         # still finds this drama.
         recheck = set()
-        bulk_translate.finish_translation_run(
+        translation_finish.finish_translation_run(
             d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap,

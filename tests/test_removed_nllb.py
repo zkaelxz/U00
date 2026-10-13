@@ -6,7 +6,7 @@ import io
 
 import pytest
 
-import bulk_translate
+import bulk_poll
 import cli
 import cli_translate
 import db
@@ -74,7 +74,7 @@ class TestBulkResume:
 
     @pytest.mark.parametrize("status", ["submitted", "scheduled", "running"])
     def test_a_pending_job_for_it_starts_nothing(self, isolated_db, monkeypatch, status):
-        monkeypatch.setattr(bulk_translate, "start_poller",
+        monkeypatch.setattr(bulk_poll, "start_poller",
                             lambda *a, **k: pytest.fail("a removed engine must not poll"))
         did, jid = self._job(status)
         out = svc.resume_bulk_translations(did)
@@ -83,7 +83,7 @@ class TestBulkResume:
     def test_startup_resume_does_not_crash_on_it(self, isolated_db, monkeypatch):
         did, jid = self._job("submitted")
         patch_setting(monkeypatch, "bulk_auto_resume", True)
-        monkeypatch.setattr(bulk_translate, "start_poller",
+        monkeypatch.setattr(bulk_poll, "start_poller",
                             lambda *a, **k: pytest.fail("a removed engine must not poll"))
         out = svc.resume_interrupted_at_startup()
         assert out["enabled"] is True and out["resumed"] == 0

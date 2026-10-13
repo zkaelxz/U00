@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 
+import dependency_updates
 import diagnostics
 import job_process_kill
 from lib import proc as proc_run
@@ -253,7 +254,7 @@ def _check_in_work(work, pip_name, version, project_root, test_args, python_exec
         return
     test_args = list(test_args or [os.path.join(project_root, "tests")])
     spec = f"{pip_name}=={version}" if version else pip_name
-    pip_args = ["--upgrade", spec] + diagnostics.upgrade_pip_args(pip_name, project_root)[2:] + list(pip_extra_args or [])
+    pip_args = ["--upgrade", spec] + dependency_updates.upgrade_pip_args(pip_name, project_root)[2:] + list(pip_extra_args or [])
     # The suite makes hundreds of temp files and folders, and on Windows some can't be
     # deleted while sqlite still holds them. A private TMP inside `work` goes away with it.
     scratch = os.path.join(work, "tmp")

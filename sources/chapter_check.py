@@ -193,7 +193,8 @@ def _save_new(adapter, row, new, summary):
     if not ids:
         return
     try:
-        rows, _ = save_series_chapters(adapter, row["source"], row["series_id"], ids)
+        rows, _ = save_series_chapters(adapter, row["source"], row["series_id"], ids,
+                                       owner_user_id=row.get("save_cbz_by_user_id"))
     except Exception as e:
         store.set_save_pending(row["source"], row["series_id"], ids)
         summary["errors"][row["title"]] = f"Saving as CBZ: {redact_for_storage(str(e))[:300]}"

@@ -13,7 +13,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
 | `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
-| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status) | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
+| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
@@ -52,6 +52,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/job_records.py` (the job_records mirror of background job status)
   - `db/speakers.py` (characters and speakers: speaker rename and merge with its undo, series characters and voice links, the voice bank)
   - `db/usage.py` (usage and cost log, monthly spend and its reset, re-costing, the standalone translate tool's history)
+- `dependency_updates.py` (installed versions against PyPI: update classification, constraints.txt and requirement minimums, known upgrade and install limitations)
 - `diagnostics.py`
 - `diagnostics_report.py` (which model engines are installed or reachable, and the plain-text support report with its redaction)
 - `diagnostics_torch.py` (is the GPU usable and is the torch family installed right: GPU readout, nvidia-smi probes, torch setup helpers)
@@ -96,8 +97,11 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**
 
 - `auto_qc.py`
+- `bulk_apply.py` (applies finished bulk results by line id, per kind)
+- `bulk_poll.py` (polling, scheduled off-peak run, resume, cancel)
 - `bulk_providers.py`
-- `bulk_translate.py`
+- `bulk_reflect.py` (the staged Reflect pipeline as bulk jobs)
+- `bulk_translate.py` (building and submitting bulk requests)
 - `emotion.py`
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
@@ -115,6 +119,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
 - `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
+- `translation_finish.py` (untranslated count, aligned -> translated, the shared end of a translation run)
 - `translation_guide.py`
 - `translation_memory.py`
 
@@ -564,6 +569,7 @@ The job store behind `background_jobs.py`.
 
 - `gpu_slots.py` (the one way any process takes, keeps and frees a GPU slot)
 - `job_store.py` (writes and closes the job_records row of every job)
+- `user_caps.py` (how many running and queued jobs one signed-in user may have at once)
 
 ## sources/
 
