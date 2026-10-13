@@ -14,7 +14,8 @@ import traceback
 
 import gpu_probe
 import job_process_result
-from background_jobs import JobCancelled, _db_cancel_requested, is_cancel_requested, stage_ticker, update_progress
+from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
+                             is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
 from jobs import user_caps
 from jobs.gpu_queue import (_gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
@@ -113,6 +114,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                         _jobs[job_id]["message"] = ""
                     else:
                         _jobs[job_id]["progress"] = 1.0
+                        _finish_message_locked(_jobs[job_id])
                         _reason = _soft_failure_text(_result)
                         if _reason:
                             _outcome = "error"
@@ -150,10 +152,19 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
         finally:
             _timing_finish(job_id, _timing)
+            _forget_cancel_check(job_id)
             _release_gpu_slot(job_id, gpu_touching, run)
             _promote_next_queued_gpu_job()
 
     _start_job_thread(runner, f"job:{job_id}", worker_for=job_id)
+
+
+def _finish_message_locked(job):
+    """Caller holds _lock. A cancel that arrived while the job was finishing
+    leaves the job `done` (the work completed), so it must stop saying
+    "Cancelling..." in the persisted row."""
+    if job.get("message") == CANCELLING_MESSAGE:
+        job["message"] = FINISHED_MESSAGE
 
 
 def _still_running_locked(job_id) -> bool:
@@ -435,6 +446,7 @@ def _apply_progress_item(job_id, item, stage=None) -> bool:
 
 
 CANCELLED_MESSAGE = "Cancelled."
+FINISHED_MESSAGE = "Finished."
 
 
 def _mark_cancelled_locked(job_id):
@@ -584,6 +596,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 else:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
+                    _finish_message_locked(_jobs[job_id])
                     _jobs_reason = _soft_failure_text(result)
                     _notify_failed = bool(_jobs_reason)
                     _jobs_reason = _jobs_reason or _done_note(result)
@@ -644,6 +657,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         except Exception:
             pass
         _timing_finish(job_id, _timing, thread_job=False)
+        _forget_cancel_check(job_id)
         _release_gpu_slot(job_id, gpu_touching, run)
         try:
             _promote_next_queued_gpu_job()

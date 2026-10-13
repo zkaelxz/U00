@@ -757,3 +757,11 @@ def test_the_torch_conflict_hint_does_not_claim_nothing_changed_after_an_uninsta
     assert "nothing was changed" in packages_svc.torch_conflict_hint(lines, ["torch==2.11.0"])
     hint = packages_svc.torch_conflict_hint(lines, ["torch==2.11.0"], changed=True)
     assert "nothing was changed" not in hint and "not installed" in hint
+
+
+def test_an_install_refreshes_the_import_caches_so_the_new_package_is_found(monkeypatch):
+    import importlib
+    calls = []
+    monkeypatch.setattr(importlib, "invalidate_caches", lambda: calls.append(1))
+    packages_svc._clear_update_cache()
+    assert calls == [1]

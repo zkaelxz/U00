@@ -11,6 +11,7 @@ PyTorch triple has its own flow in diagnostics_gpu_torch_service, which reuses
 _run_commands.
 """
 
+import importlib
 import os
 import re
 import sys
@@ -247,6 +248,9 @@ def _clear_update_cache() -> None:
     cached target may no longer be safe: the next Update needs a new check.
     The generation bump stops a check that started before from storing its
     (now stale) answer."""
+    # find_spec answers from finder caches taken before pip wrote the new files,
+    # so a package installed just now would read as missing until a restart.
+    importlib.invalidate_caches()
     with _UPDATES_LOCK:
         _UPDATES.update(checked_at=None, packages={},
                         generation=_UPDATES.get("generation", 0) + 1)

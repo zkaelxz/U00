@@ -139,6 +139,16 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
 
 
 def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_item):
+    stage = {}    # the running "stage" ticker, as in the process watcher
+    try:
+        return _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline,
+                                 on_item, stage)
+    finally:
+        if stage.get("ticker") is not None:
+            stage.pop("ticker").stop()
+
+
+def _read_child_items(job_id, proc, channel, poll_s, worker_deadline, deadline, on_item, stage):
     drain_until = None
     told_stopping = False
     while True:
@@ -149,6 +159,9 @@ def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_it
             raise ChildFailed(TIMEOUT_MESSAGE)
         if now > worker_deadline and not told_stopping:
             told_stopping = True
+            # A live stage ticker would rewrite the message every few seconds.
+            if stage.get("ticker") is not None:
+                stage.pop("ticker").stop()
             status = background_jobs.get_status(job_id) or {}
             background_jobs.update_progress(job_id, status.get("progress") or 0.0,
                                             STOPPING_MESSAGE)
@@ -164,7 +177,7 @@ def _await_child(job_id, proc, channel, poll_s, worker_deadline, deadline, on_it
             continue
         except OSError:
             raise ChildFailed(job_process_result.RESULT_FILE_ERROR) from None
-        if job_runner._apply_progress_item(job_id, item):
+        if job_runner._apply_progress_item(job_id, item, stage):
             continue
         if item and item[0] == "item":
             if on_item is not None:
