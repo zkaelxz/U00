@@ -116,6 +116,10 @@ class TestHttpCallsHaveTimeouts:
         problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "core.py"))
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
+    def test_whisper_transcribe(self):
+        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "whisper_transcribe.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
     def test_diagnostics(self):
         # Step 27: get_latest_pypi_version's requests.get to PyPI's JSON API.
         problems = _find_requests_calls_missing_timeout(
@@ -845,8 +849,8 @@ _CAPTURE_ALLOWED = {
     # sc / netsh / icacls calls, timeout= COMMAND_TIMEOUT (120 s); no grandchildren.
     "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
     # pending: ffmpeg runs bounded by timeout= only.
-    "core.py::extract_audio_from_video": "pending: ffmpeg",
-    "core.py::extract_audio_slice": "pending: ffmpeg",
+    "audio_extract.py::extract_audio_from_video": "pending: ffmpeg",
+    "audio_extract.py::extract_audio_slice": "pending: ffmpeg",
     "dub.py::time_stretch": "pending: ffmpeg",
     "dub_narration.py::export_narration_m4b": "pending: ffmpeg",
     "hardsub_ocr.py::extract_frames": "pending: ffmpeg",

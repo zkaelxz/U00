@@ -196,7 +196,6 @@ def hook_calls(monkeypatch):
 
 
 def test_the_whisper_loader_calls_the_hook_once_per_load(monkeypatch, hook_calls):
-    import core
     fake_fw = types.ModuleType("faster_whisper")
     fake_fw.WhisperModel = lambda *a, **k: object()
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
@@ -206,7 +205,7 @@ def test_the_whisper_loader_calls_the_hook_once_per_load(monkeypatch, hook_calls
 
 
 def test_transcribe_for_timing_asks_once_for_a_job(monkeypatch, hook_calls):
-    import core
+    import whisper_transcribe
     fake_fw = types.ModuleType("faster_whisper")
 
     class Model:
@@ -215,7 +214,7 @@ def test_transcribe_for_timing_asks_once_for_a_job(monkeypatch, hook_calls):
     fake_fw.WhisperModel = lambda *a, **k: Model()
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
     monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
-    core.transcribe_for_timing("a.wav", "tiny", use_gpu=True)
+    whisper_transcribe.transcribe_for_timing("a.wav", "tiny", use_gpu=True)
     assert hook_calls == [True]
 
 

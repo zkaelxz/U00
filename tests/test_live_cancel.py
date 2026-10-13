@@ -152,12 +152,12 @@ def _start(job_id, out_dir, engine, **kw):
 class TestBlockedOllamaTranslation:
     def test_status_names_ollama_then_cancel_returns_promptly(
             self, jobs, silent_ollama, tmp_path, monkeypatch):
-        import core
+        import whisper_transcribe
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://stream")
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
         stopped = []
         monkeypatch.setattr(lt, "stop_capture", lambda proc, **kw: stopped.append(kw))
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                             lambda path, **kw: [{"start": 0.0, "end": 2.0, "text": "你好"}])
         engine = local.OllamaEngine(model="qwen3:8b",
                                     base_url=f"http://127.0.0.1:{silent_ollama.port}")
@@ -213,7 +213,7 @@ class TestBlockedOllamaTranslation:
 
 class TestWhisperIsAbandonedOnCancel:
     def test_a_stuck_whisper_call_does_not_hold_up_a_cancel(self, jobs, tmp_path, monkeypatch):
-        import core
+        import whisper_transcribe
         release = threading.Event()
         inside = threading.Event()
 
@@ -224,7 +224,7 @@ class TestWhisperIsAbandonedOnCancel:
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://stream")
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
         monkeypatch.setattr(lt, "stop_capture", lambda proc, **kw: None)
-        monkeypatch.setattr(core, "transcribe_for_timing", blocked_whisper)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", blocked_whisper)
         released = []
         monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: released.append(1))
         assert _start("live_cancel_whisper", _chunk_dir(tmp_path), object(), use_gpu=True)

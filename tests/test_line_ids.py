@@ -13,7 +13,8 @@ import sqlite3
 import pytest
 
 import db
-from core import LINE_FIELDS, Line, merge_adjacent_short_lines, adopt_ids, restore_saved_lines
+from core import LINE_FIELDS, Line, adopt_ids, restore_saved_lines
+from line_alignment import merge_adjacent_short_lines
 
 
 def _lines(*texts, short=True):

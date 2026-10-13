@@ -7,6 +7,8 @@ import pytest
 
 import background_jobs
 import core
+import line_alignment
+import whisper_transcribe
 import translation_guide as tguide
 from services import glossary_extract_service, glossary_service as gs
 from services import autotune_service as at, settings_service, translate_service
@@ -46,7 +48,7 @@ class TestAutotune:
                 {"start": 31, "end": 32, "text": "好"}]
         r = at.score_autotune_segments(800, segs)
         assert r == {"candidate_ms": 800, "total_lines": 2,
-                     "long_lines": len(core.diagnose_line_coverage(
+                     "long_lines": len(line_alignment.diagnose_line_coverage(
                          [core.Line(idx=0, start=0, end=30, zh="长" * 5),
                           core.Line(idx=2, start=31, end=32, zh="好")])["long_lines"])}
         assert r["long_lines"] == 1
@@ -72,7 +74,7 @@ class TestAutotune:
             if kw["min_silence_duration_ms"] == 300:
                 return [{"start": 0, "end": 2, "text": "a"}, {"start": 2, "end": 4, "text": "b"}]
             return [{"start": 0, "end": 40, "text": "ab"}]
-        monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
         q = _Queue()
         captured["target"](*captured["args"], q)
         assert calls == [300, 1500]
@@ -84,7 +86,7 @@ class TestAutotune:
 
     def test_worker_scores_with_the_titles_repeat_guard(self, monkeypatch):
         seen = {}
-        monkeypatch.setattr(core, "transcribe_for_timing",
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                             lambda *a, **kw: seen.update(kw) or [])
         at._autotune_all_worker("a", "small", "zh", False, None, "", 5, [300], 0.5, False,
                                 "normal", True, _Queue())
@@ -107,7 +109,7 @@ class TestAutotune:
     def test_worker_error_is_redacted(self, monkeypatch):
         def boom(*a, **kw):
             raise RuntimeError(f"bad token {SECRET}")
-        monkeypatch.setattr(core, "transcribe_for_timing", boom)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", boom)
         q = _Queue()
         at._autotune_all_worker("a", "small", "zh", False, SECRET, "", 5, [300], 0.5, False, "normal", False, q)
         assert q.items[-1][0] == "error" and SECRET not in repr(q.items[-1])
@@ -348,7 +350,7 @@ def test_novel_glossary_job_blocks_drama_delete():
 def test_autotune_worker_leaves_the_parents_process_group(monkeypatch):
     left = []
     monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: left.append(True))
-    monkeypatch.setattr(core, "transcribe_for_timing", lambda *a, **kw: [])
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda *a, **kw: [])
     at._autotune_all_worker("a", "small", "zh", False, None, "", 5, [300], 0.5, False,
                             "normal", False, _Queue())
     assert left == [True]

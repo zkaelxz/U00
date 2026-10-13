@@ -23,7 +23,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import core
+import novel_text
 import dub
 import dub_narration
 from core import Line
@@ -407,18 +407,18 @@ class TestSequentialNarration:
 class TestNovelParagraphEnds:
     def test_matches_lines_chunked_from_the_source(self):
         text = "短段落。\n\n" + "长句子一。" * 30 + "\n第三段。"
-        chunks = core.chunk_novel_text(text, max_chars=60)
+        chunks = novel_text.chunk_novel_text(text, max_chars=60)
         lines = [Line(idx=i, start=0, end=0, zh=c) for i, c in enumerate(chunks)]
-        ends = core.novel_paragraph_ends(lines, text)
+        ends = novel_text.novel_paragraph_ends(lines, text)
         assert ends == {0, len(chunks) - 2, len(chunks) - 1}
 
     def test_edited_lines_mean_unknown_not_a_guess(self):
         lines = [Line(idx=0, start=0, end=0, zh="改过的。"), Line(idx=1, start=0, end=0, zh="第二段。")]
-        assert core.novel_paragraph_ends(lines, "第一段。\n第二段。") is None
+        assert novel_text.novel_paragraph_ends(lines, "第一段。\n第二段。") is None
 
     def test_missing_trailing_text_is_unknown(self):
         lines = [Line(idx=0, start=0, end=0, zh="第一段。")]
-        assert core.novel_paragraph_ends(lines, "第一段。\n第二段。") is None
+        assert novel_text.novel_paragraph_ends(lines, "第一段。\n第二段。") is None
 
 
 class TestNarrationChapters:

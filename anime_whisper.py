@@ -97,7 +97,8 @@ class AnimeWhisperBackend:
         import asr_backend
         import vad_segments
         import whisper_models
-        from core import WHISPER_REPEAT_GUARD_KWARGS, filter_hallucinated_segments
+        from whisper_transcribe import WHISPER_REPEAT_GUARD_KWARGS
+        from whisper_hallucination import filter_hallucinated_segments
         if language != ANIME_WHISPER_LANGUAGE:
             raise ValueError(
                 "anime-whisper is only for Japanese titles -- use another transcription "

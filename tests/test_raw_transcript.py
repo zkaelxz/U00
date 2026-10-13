@@ -8,7 +8,8 @@ import json
 import os
 
 import raw_transcript as rt
-from core import Line, merge_adjacent_short_lines
+from core import Line
+from line_alignment import merge_adjacent_short_lines
 
 
 SEGMENTS = [{"start": 0.0, "end": 0.5, "text": "你好"},

@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import translation_finish
-import core
+import audio_extract
+import whisper_transcribe
 import whisper_models
 import db
 from api import auth as api_auth
@@ -124,8 +125,8 @@ def fake_asr(monkeypatch, inline_process_jobs):
         text = calls["heard"].get(calls["current"], f"新{int(calls['current'])}")
         return [{"start": 0.0, "end": 1.0, "text": text}] if text else []
 
-    monkeypatch.setattr(core, "extract_audio_slice", fake_slice)
-    monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", fake_slice)
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake_transcribe)
     monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     return calls
 
@@ -337,7 +338,7 @@ class TestJob:
             self, isolated_db, fake_asr, monkeypatch):
         def boom(*a, **k):
             raise whisper_models.ModelDownloadError(f"download failed token={SECRET}")
-        monkeypatch.setattr(core, "transcribe_for_timing", boom)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", boom)
         did, ids = _drama(isolated_db)
         _out, job = _run(did, ids)
         assert job["result"]["failed_reason"] == "model_download"
@@ -349,7 +350,7 @@ class TestJob:
     def test_line_deleted_while_it_ran_is_reported_not_proposed(self, isolated_db, fake_asr,
                                                                  monkeypatch):
         did, ids = _drama(isolated_db)
-        real = core.transcribe_for_timing
+        real = whisper_transcribe.transcribe_for_timing
 
         def delete_then_hear(*a, **k):
             if not fake_asr.get("deleted"):
@@ -357,7 +358,7 @@ class TestJob:
                 isolated_db.save_lines(did, [ln for ln in isolated_db.load_line_objects(did)
                                              if ln.id != ids[3]])
             return real(*a, **k)
-        monkeypatch.setattr(core, "transcribe_for_timing", delete_then_hear)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", delete_then_hear)
         _run(did, ids)
         res = svc.get_retranscribe_many_result(did)
         assert ids[3] not in [p["line_id"] for p in res["proposals"]]
@@ -518,7 +519,8 @@ class TestApply:
 def _hung_many_worker(*args):
     """Process-job target for the real-process test: the real many-line worker
     with a Whisper that never returns (installed in the spawned child)."""
-    import core as c
+    import audio_extract
+    import whisper_transcribe
     from services import retranscribe_worker as rw
 
     def cut(audio_path, start, end, out_path, timeout=None):
@@ -531,8 +533,8 @@ def _hung_many_worker(*args):
 
     def hang(*a, **k):
         time.sleep(600)
-    c.extract_audio_slice = cut
-    c.transcribe_for_timing = hang
+    audio_extract.extract_audio_slice = cut
+    whisper_transcribe.transcribe_for_timing = hang
     whisper_models.is_whisper_model_cached = lambda size: True
     rw.retranscribe_many_worker(*args)
 

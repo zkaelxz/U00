@@ -43,7 +43,7 @@ def narration_paragraph_ends(lines, drama_dir: str):
     """Set of line idx that end a paragraph of the novel's saved source
     text (see core.novel_paragraph_ends), or None if there's no source
     text or the lines no longer match it."""
-    from core import novel_paragraph_ends
+    from novel_text import novel_paragraph_ends
     path = os.path.join(drama_dir, NOVEL_SOURCE_FILENAME)
     if not os.path.exists(path):
         return None

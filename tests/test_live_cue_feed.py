@@ -6,7 +6,7 @@ import time
 import pytest
 
 import background_jobs
-import core
+import whisper_transcribe
 import live_cue_feed
 import live_translate as lt
 
@@ -27,7 +27,7 @@ class FakeEngine:
 
 @pytest.fixture
 def two_segments(monkeypatch, tmp_path):
-    monkeypatch.setattr(core, "transcribe_for_timing", lambda path, **kw: [
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, **kw: [
         {"start": 0.0, "end": 1.0, "text": "一"}, {"start": 1.0, "end": 2.0, "text": "  "},
         {"start": 2.0, "end": 3.0, "text": "二"}])
     chunk = tmp_path / "chunk_00000.wav"
@@ -93,7 +93,7 @@ def test_ids_run_on_across_chunks_and_a_mid_chunk_result_holds_the_earlier_chunk
     monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://stream")
     monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: _Proc())
     monkeypatch.setattr(lt, "stop_capture", lambda proc, **kw: None)
-    monkeypatch.setattr(core, "transcribe_for_timing", lambda path, **kw: [
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, **kw: [
         {"start": 0.0, "end": 1.0, "text": f"{path[-9:-4]}a"},
         {"start": 1.0, "end": 2.0, "text": f"{path[-9:-4]}b"}])
     published = []
