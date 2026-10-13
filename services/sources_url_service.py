@@ -30,7 +30,7 @@ from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import (URL_PREVIEW_JOB_ID, error_view, JobFailed,
                                              start_job)
 from sources import front_door, generic_import
-from sources.http import Cancelled
+from sources.http_transport import Cancelled
 
 MAX_URL_LEN = 2000
 # Tighter than sources.http's defaults: a pasted URL is anyone's page, and

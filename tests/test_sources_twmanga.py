@@ -338,7 +338,7 @@ class TestPasteAndImport:
     @pytest.fixture
     def routed(self, isolated_db, monkeypatch):
         from .sources_helpers import png
-        from sources.http import Response
+        from sources.http_transport import Response
         pages = [f"https://s1.bzcdn.net/fcomic/{SLUG}/0/0-xxxx/{n}.jpg" for n in (1, 2, 3)]
         routes = {f"{TW}/comic/{SLUG}": html(_fx("series_short.html")),
                   f"{TW}/comic/chapter/{SLUG}/0_0.html": html(_fx("chapter.html"))}

@@ -279,7 +279,7 @@ class FakeImages:
         self.files, self.got = {}, []
 
     def get(self, url, classify_body=True, headers=None, action=""):
-        from sources.http import Response
+        from sources.http_transport import Response
         self.got.append(url)
         ctype, body = self.files[url]
         return Response(200, {"Content-Type": ctype}, body, url)
@@ -1333,7 +1333,7 @@ def test_follow_cancelled_import_says_how_many_pages_were_appended(client, env, 
 
 
 def test_follow_keeps_the_pages_when_a_later_page_is_too_large(client, env, monkeypatch):
-    from sources.http import ResponseTooLarge
+    from sources.http_transport import ResponseTooLarge
     url = _chain(env, 12, 13)
     real = env["fetch"]
 

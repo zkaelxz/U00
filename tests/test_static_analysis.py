@@ -146,8 +146,9 @@ class TestHttpCallsHaveTimeouts:
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
     def test_sources_http_and_dictionary(self):
-        # sources/http.py (session.request) and dictionary.py (urlopen).
-        for name in ("sources/http.py", "dictionary.py"):
+        # sources/http_transport.py (session.request), sources/http.py and
+        # dictionary.py (urlopen).
+        for name in ("sources/http.py", "sources/http_transport.py", "dictionary.py"):
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 

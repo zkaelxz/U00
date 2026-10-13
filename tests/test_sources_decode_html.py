@@ -2,7 +2,7 @@
 nothing and are not UTF-8 are sniffed among the CJK legacy encodings."""
 import pytest
 
-from sources.http import Response, decode_html
+from sources.http_transport import Response, decode_html
 
 ZH = "第一章 重生之后，他站在雨中，看着远方的城市慢慢亮起灯火。"
 ZH_TW = "第一章 重生之後，他站在雨中，看著遠方的城市慢慢亮起燈火。"

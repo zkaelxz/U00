@@ -30,7 +30,7 @@ import db
 
 from . import chapter_manifest, ladder, registry, store
 from .cache import RawCache
-from .http import Cancelled
+from .http_transport import Cancelled
 from .models import (ChallengeDetected, ChapterInfo, FailureReason, SourceError,
                      TermsProhibited)
 
