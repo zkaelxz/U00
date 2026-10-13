@@ -12,8 +12,8 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
 | `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
-| `services/` | UI-free application logic shared by `api/` and `cli.py`; raises the errors in `lib/errors.py` | called by routers and `cli.py` |
-| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `cli.py`, `real_model_check_cli.py`, `live_whisper.py`, `api/server.py` startup |
+| `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
+| `jobs/` | the job store behind `background_jobs.py`: `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `background_jobs._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
@@ -38,10 +38,6 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `job_process_result.py` (the channel a process-job worker sends its result through: a large result travels as a file so a child killed mid-write cannot hang the watcher)
 - `benchmark.py`
 - `check_setup.py`
-- `cli.py`
-- `cli_subtitle.py` (the `import-subtitle` command)
-- `cli_timing.py` (the `timing-check` command, and the wait after a Qwen-only `transcribe`)
-- `cli_translate.py` (the `translate` command)
 - `core.py`
 - `db/` (package: `__init__.py` holds what has not moved out yet and re-exports the rest, so callers keep `db.<name>`)
   - `db/app_settings.py` (cross-process app settings, the metadata research cache and results, field provenance)
@@ -65,7 +61,6 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `portable.py`
 - `process_guard.py`
 - `qwen3_native.py`
-- `real_model_check_cli.py`
 - `run_tests.py`
 - `storage.py`
 

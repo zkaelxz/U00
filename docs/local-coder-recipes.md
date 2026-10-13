@@ -33,7 +33,7 @@ Linked from `AGENTS.md`. For a 64k-context model: read the card for your edit, n
 2. `api/schemas/system.py`: the field on `SettingsPreferences` and on `SettingsUpdateRequest`.
 3. `frontend/src/types/settings.ts`: the same field.
 4. `services/settings_service.py` (a choices lambda or helper, only if the row needs one) and the code that reads it via
-   `settings_service.get(...)`; if the CLI runs the same path, check `cli_translate.py`.
+   `settings_service.get(...)`.
 5. `tests/test_settings_parity.py::test_preference_defaults` lists every default; add the row there. Editing only
    `lib/settings_schema.py` fails that test.
 6. A schema or UI test for the row (`tests/test_settings_schema.py`, `frontend/src/pages/settings/*.test.ts`) and a line in `docs/user-guide.md`.

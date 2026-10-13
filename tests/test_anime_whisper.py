@@ -296,20 +296,6 @@ class TestServerRules:
     def test_compare_refuses_it_for_other_languages(self):
         assert "Japanese" in compare_transcription_service._backend_problem("anime_whisper", "zh")
 
-    def test_the_cli_does_not_offer_it_but_still_offers_the_others(self, monkeypatch):
-        import cli
-        captured = {}
-        monkeypatch.setattr(cli, "cmd_transcribe", lambda a: captured.setdefault("args", a))
-        monkeypatch.setattr(sys, "argv", ["cli.py", "transcribe", "--id", "1",
-                                          "--asr-backend", "qwen3_asr_long"])
-        cli.main()
-        assert captured["args"].asr_backend == "qwen3_asr_long"
-        monkeypatch.setattr(sys, "argv", ["cli.py", "transcribe", "--id", "1",
-                                          "--asr-backend", "anime_whisper"])
-        with pytest.raises(SystemExit):
-            cli.main()
-
-
 class TestConcurrentDownloads:
     def test_two_downloads_share_nothing_and_the_second_reuses_the_first(self, monkeypatch, model_home):
         import threading

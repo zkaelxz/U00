@@ -208,7 +208,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
   `HF_TOKEN` alone isn't enough; the account it belongs to also has to
   have accepted that specific model's license on huggingface.co first
   (`diagnostics_report.check_pyannote_gated_access` is what checks this in-app;
-  the CLI's own `--hf-token`/`HF_TOKEN`/`BAIHE_HF_TOKEN` (`cli.py diarize`)
+  the `HF_TOKEN`/`BAIHE_HF_TOKEN` environment variables
   and the app's saved Hugging Face token setting both need the same accepted token). If
   a step touches diarization and needs a real (not mocked) run to verify
   — a real audio file, not `tests/`'s fake model classes — **ask the user

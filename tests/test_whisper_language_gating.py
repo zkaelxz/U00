@@ -1,14 +1,10 @@
 """Which Whisper models a source language may use: one table (whisper_models.WHISPER_LANGUAGE_RULES)
 checked at every entry point and sent to the pickers. Fakes only: no network, no weights."""
 
-import argparse
-import contextlib
-import io
 import os
 
 import pytest
 
-import cli
 import core
 import whisper_models as wm
 from lib.errors import InvalidInputError
@@ -89,20 +85,6 @@ class TestServerRefuses:
         monkeypatch.setattr(lab, "_select_cases", lambda *a, **k: cases)
         with pytest.raises(InvalidInputError, match=wm.WHISPER_LANGUAGE_RULES[model].reason[:30]):
             lab._check_selection("transcription", [{"engine": "whisper", "model": model}], None, None, None)
-
-    def test_cli_align_skips(self, isolated_db, model, language, monkeypatch):
-        did = isolated_db.create_drama(title_en="t", status="not started", audio_filename="a.wav",
-                                       source_language=language)
-        ddir = isolated_db.drama_dir(did)
-        for name, data in (("a.wav", b"x"), ("transcript.txt", b"hello")):
-            with open(os.path.join(ddir, name), "wb") as f:
-                f.write(data)
-        seen = []
-        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: seen.append(a) or [])
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            cli.cmd_align(argparse.Namespace(id=did, whisper_size=model, fast=False, transcript=None))
-        assert seen == [] and "skipped" in out.getvalue()
 
     def test_a_saved_choice_falls_back_and_the_config_says_so(self, isolated_db, model, language):
         did = isolated_db.create_drama(title_en="t", source_language=language)

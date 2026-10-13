@@ -310,12 +310,6 @@ def apply_dub_result(drama_id: int, result: dict) -> None:
     db.update_drama(drama_id, status="dubbed")
 
 
-def track_builder(is_narration: bool):
-    """The track-rendering function, looked up per call so the CLI sees
-    monkeypatched module attributes."""
-    return dub_narration.build_narration_track if is_narration else dub.build_dub_track
-
-
 def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max_speedup=None,
                   max_slowdown=None, narration_language=None,
                   keep_background: bool = False) -> dict:

@@ -1,9 +1,6 @@
 """Auto Whisper initial_prompt (parity audit B1): transcribe_service.
-build_auto_initial_prompt is shared by cli.cmd_align, the config response
+build_auto_initial_prompt is shared by the config response
 and a transcribe run whose prompt is empty. Fully mocked."""
-import argparse
-import contextlib
-import io
 import os
 
 import pytest
@@ -159,24 +156,3 @@ class TestApi:
         r = client.post(f"/api/transcribe/dramas/{did}/autotune", json={"extra_names": "x" * 1001})
         assert r.status_code in (400, 422)
 
-
-def test_cli_align_uses_the_helper(isolated_db, monkeypatch):
-    import cli
-    did = isolated_db.create_drama(title_en="D", audio_filename="audio.wav")
-    ddir = isolated_db.drama_dir(did)
-    with open(os.path.join(ddir, "audio.wav"), "wb") as f:
-        f.write(b"x")
-    with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
-        f.write("你好")
-    calls, seen = [], {}
-    monkeypatch.setattr(transcribe_service, "build_auto_initial_prompt",
-                        lambda d: calls.append(d) or "HELPER")
-
-    def fake_transcribe(audio_path, model_size, **kw):
-        seen["initial_prompt"] = kw.get("initial_prompt")
-        return [{"start": 0.0, "end": 1.0, "text": "你好"}]
-    monkeypatch.setattr(cli, "transcribe_for_timing", fake_transcribe)
-    with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_align(argparse.Namespace(id=did, whisper_size=None, fast=False))
-    assert calls and set(calls) == {did}
-    assert seen["initial_prompt"] == "HELPER"

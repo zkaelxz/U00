@@ -124,30 +124,6 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     background_jobs._jobs.pop(job_id, None)
 
 
-def test_cli_diarize_releases_models_even_when_detection_fails(isolated_db, monkeypatch, loaded_models):
-    import argparse
-    import contextlib
-    import io
-    import os
-    import cli
-    import diarize
-    from core import Line
-    did = isolated_db.create_drama(title_en="D", audio_filename="a.wav")
-    ddir = isolated_db.drama_dir(did)
-    os.makedirs(ddir, exist_ok=True)
-    open(os.path.join(ddir, "a.wav"), "wb").close()
-    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a")])
-
-    def failing(*a, **k):
-        whisper_models._whisper_model_cache["pyannote"] = object()
-        raise RuntimeError("out of memory")
-    monkeypatch.setattr(diarize, "diarize", failing)
-    args = argparse.Namespace(id=did, hf_token="hf", num_speakers=0, overwrite_manual=False)
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        cli.cmd_diarize(args)
-    assert whisper_models._whisper_model_cache == {}
-
-
 GEMMA_TAGS = ["gemma4:12b", "gemma4:26b", "gemma4:31b"]
 
 
@@ -181,32 +157,6 @@ class TestGemma4Models:
         from services import translate_service
         ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
         assert all(t in ollama["models"] for t in GEMMA_TAGS)
-
-    @pytest.mark.parametrize("tag", GEMMA_TAGS)
-    def test_cli_passes_the_tag_to_the_engine(self, isolated_db, monkeypatch, tag):
-        import contextlib
-        import io
-        import cli_translate
-        from core import Line
-        from tests.test_cli import _translate_args
-        seen = {}
-
-        class Engine:
-            name, supports_reference, model, last_usage = "ollama", True, tag, {}
-
-            def translate_batch(self, zh_lines, context):
-                return [f"EN:{z}" for z in zh_lines]
-
-        def fake_get_engine(name, api_key=None, model=None, **kw):
-            seen["model"] = model
-            return Engine()
-        monkeypatch.setattr(te, "get_engine", fake_get_engine)
-        did = isolated_db.create_drama(title_en="T", status="aligned")
-        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
-        with contextlib.redirect_stdout(io.StringIO()):
-            cli_translate.cmd_translate(_translate_args(id=did, engine="ollama", model=tag,
-                                              cost_cap=None, monthly_cap=None))
-        assert seen["model"] == tag
 
     def test_request_shape_is_the_same_as_for_a_hand_typed_qwen_tag(self, monkeypatch):
         sent = []

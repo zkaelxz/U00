@@ -17,7 +17,6 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diarize
-from jobs import gpu_slots
 
 
 @pytest.fixture(autouse=True)
@@ -540,38 +539,3 @@ class TestOomFallbackFollowUps:
         assert outcome[0] == "ok"
         assert outcome[1]["fell_back_to_cpu"] is True and outcome[1]["device"] == "cpu"
         assert "out of memory" in outcome[1]["fallback_reason"]
-
-    def test_cli_warns_heartbeats_and_saves_cpu_device(self, isolated_db, monkeypatch, capsys):
-        import argparse
-        import cli
-        from core import Line
-        did = isolated_db.create_drama(title_en="T", audio_filename="audio.wav")
-        ddir = isolated_db.drama_dir(did)
-        os.makedirs(ddir, exist_ok=True)
-        open(os.path.join(ddir, "audio.wav"), "wb").close()
-        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a")])
-        beats, saved = [], {}
-
-        def fake_diarize(path, token, run_info=None, on_progress=None, **kw):
-            on_progress(0.08, diarize.OOM_FALLBACK_MESSAGE)
-            run_info.update(device="cpu", fell_back_to_cpu=True, fallback_reason="x")
-            return [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}], "m", {}
-        real_save = diarize.save_turns
-        monkeypatch.setattr(diarize, "diarize", fake_diarize)
-        monkeypatch.setattr(diarize, "save_turns",
-                            lambda *a, **k: saved.update(k) or real_save(*a, **k))
-        monkeypatch.setattr(cli, "release_gpu_models", lambda: None)
-        monkeypatch.setattr(gpu_slots, "heartbeat", lambda holders: beats.extend(holders))
-        clock = iter([0.0, 100.0, 200.0, 300.0])
-        import time as real_time
-        import types
-        monkeypatch.setattr(cli, "time", types.SimpleNamespace(
-            monotonic=lambda: next(clock, 400.0), sleep=real_time.sleep))
-        cli.cmd_diarize(argparse.Namespace(
-            id=did, hf_token="hf_x", num_speakers=None, min_speakers=None,
-            max_speakers=None, overwrite_manual=False))
-        out = capsys.readouterr().out
-        assert diarize.OOM_FALLBACK_MESSAGE in out
-        assert f"WARNING: {diarize.OOM_FALLBACK_DONE_MESSAGE}" in out
-        assert saved["device"] == "cpu"
-        assert len(beats) >= 2

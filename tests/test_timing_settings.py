@@ -690,23 +690,21 @@ class TestSentenceGrouping:
         assert engine.contexts == [[[0, 1], [2, 3]]]
 
 
-class TestCliAndAppAgree:
-    """The CLI and the app reach the same services, so they hand the same numbers down."""
+class TestSavedValuesReachTheRun:
+    """The services hand the saved numbers down to the engines and workers."""
 
-    def test_translate_gets_the_same_limits_from_the_cli_and_the_workspace_job(self, isolated_db, monkeypatch):
-        from tests.test_plan_batches import TestCliParity
+    def test_translate_gets_the_saved_limits_from_the_workspace_job(self, isolated_db, monkeypatch):
+        from tests.test_plan_batches import TestSceneAwareSetting
         settings_service.set_settings({"scene_break_gap_seconds": 2.5, "sentence_group_gap_seconds": 0.8})
-        cli_kw, app_kw = TestCliParity()._seen(isolated_db, monkeypatch)
-        assert cli_kw["scene_break_gap"] == app_kw["scene_break_gap"] == 2.5
-        assert cli_kw["sentence_limits"] == app_kw["sentence_limits"]
-        assert cli_kw["sentence_limits"].max_gap_seconds == 0.8
+        kw = TestSceneAwareSetting()._seen(isolated_db, monkeypatch)
+        assert kw["scene_break_gap"] == 2.5
+        assert kw["sentence_limits"].max_gap_seconds == 0.8
 
     def test_the_default_translate_limits_are_the_built_in_ones(self, isolated_db, monkeypatch):
-        from tests.test_plan_batches import TestCliParity
-        cli_kw, app_kw = TestCliParity()._seen(isolated_db, monkeypatch)
-        for kw in (cli_kw, app_kw):
-            assert kw["scene_break_gap"] == translate_pipeline.SCENE_BREAK_GAP_SECONDS
-            assert kw["sentence_limits"] == sentence_groups.DEFAULT_LIMITS
+        from tests.test_plan_batches import TestSceneAwareSetting
+        kw = TestSceneAwareSetting()._seen(isolated_db, monkeypatch)
+        assert kw["scene_break_gap"] == translate_pipeline.SCENE_BREAK_GAP_SECONDS
+        assert kw["sentence_limits"] == sentence_groups.DEFAULT_LIMITS
 
     def test_a_transcription_run_hands_its_worker_the_saved_values(self, isolated_db, monkeypatch):
         from tests.test_transcribe_service import _capture_worker_start, _drama_with_audio
@@ -721,15 +719,6 @@ class TestCliAndAppAgree:
         transcribe_service.start_transcribe_run(did)
         assert captured["timing"]["split_max_seconds"] == 6
         assert captured["start_kwargs"]["run_settings"]["split_max_seconds"] == 6
-
-    def test_the_cli_transcribe_reaches_the_same_service(self):
-        text = open(os.path.join(ROOT, "cli.py"), encoding="utf-8").read()
-        assert "transcribe_service.start_transcribe_run(" in text
-
-    def test_cmd_align_keeps_its_literal_defaults(self):
-        # The CLI is maintenance-only; cmd_align calls the core functions directly.
-        text = open(os.path.join(ROOT, "cli.py"), encoding="utf-8").read()
-        assert "timing_settings_service" not in text
 
     def test_the_retranscribe_threshold_comes_from_the_same_reader(self, isolated_db):
         from services import transcribe_service

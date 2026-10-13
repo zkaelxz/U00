@@ -37,7 +37,6 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - Jobs save only their own fields: `db.save_lines(id, lines, fields=("en",))`.
 - A new `library.db` column is `ALTER TABLE ... ADD COLUMN` in `init_db` and is listed in
   `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
-- When you change shared logic, the CLI must not break. New features are app-only unless asked. The CLI is maintenance-only.
 - Tests are mocked (no network, GPU, models or keys); use `isolated_db` for DB tests and `pytest.importorskip` for optional libraries.
 - A new optional dependency goes in `diagnostics.OPTIONAL_DEPENDENCIES`; a new `sources.db` column in `_ADDED_COLUMNS` (`sources/store.py`).
 - Comments explain WHY only, never a Step or PR id. No new files, settings or abstractions beyond the task.
@@ -79,7 +78,7 @@ the folder named in the header, comma separated; a trailing `/` is a folder and
 `*` a glob. `n/a` means there is none. Root modules sit at the repo top level.
 
 Big files, use `python tools/repo_map.py <name>` (then `--part N`), never open them
-whole: `db`, `background_jobs`, `diagnostics`, `cli`, `core`, plus every file listed in
+whole: `db`, `background_jobs`, `diagnostics`, `core`, plus every file listed in
 `OVERSIZED_MODULE_BYTES` in `tests/test_static_analysis.py` (e.g. `scanlate`,
 `services/transcribe_service`).
 

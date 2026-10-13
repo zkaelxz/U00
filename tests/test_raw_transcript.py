@@ -3,9 +3,7 @@ tests/test_raw_transcript.py -- Step 3 (R1-lite): the untouched output of
 each transcription run is kept on disk, never overwritten, and a single
 line's text can be compared against / restored from it.
 """
-import argparse
 import contextlib
-import io
 import json
 import os
 
@@ -92,24 +90,6 @@ class TestOriginalTextForLine:
         assert rt.original_text_for_line(None, Line(idx=0, start=0, end=1, zh="x")) is None
 
 
-def test_cli_align_writes_the_raw_transcript_too(isolated_db, monkeypatch):
-    """CLI/UI parity: cmd_align is the CLI's transcription path."""
-    import cli
-    did = isolated_db.create_drama(title_en="D", audio_filename="a.wav")
-    ddir = isolated_db.drama_dir(did)
-    os.makedirs(ddir, exist_ok=True)
-    open(os.path.join(ddir, "a.wav"), "wb").close()
-    with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
-        f.write("你好\n世界\n再见")
-    monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: SEGMENTS)
-    args = argparse.Namespace(id=did, whisper_size="small")
-    with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_align(args)
-    raw = rt.load_latest(ddir)
-    assert raw["model"] == "small" and raw["mode"] == "aligned_transcript"
-    assert len(raw["lines"]) == len(isolated_db.load_lines(did))
-
-
 def test_word_timings_are_not_saved_with_the_raw_transcript(tmp_path):
     segs = [{"start": 0.0, "end": 1.0, "text": "hi", "words": [{"start": 0, "end": 1, "word": "hi"}]}]
     path = rt.write_raw_transcript(str(tmp_path), segs, [], backend="whisper")
@@ -160,24 +140,6 @@ class TestRunSettings:
         assert "settings" not in raw
         line = isolated_db.load_line_objects(did)[0]
         assert rt.original_text_for_line(raw, line) == "你好"
-
-    def test_cli_align_saves_the_settings_it_ran_with(self, isolated_db, monkeypatch):
-        import cli
-        did = isolated_db.create_drama(title_en="D", audio_filename="a.wav", beam_size=9,
-                                       min_silence_ms=700)
-        ddir = isolated_db.drama_dir(did)
-        os.makedirs(ddir, exist_ok=True)
-        open(os.path.join(ddir, "a.wav"), "wb").close()
-        with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
-            f.write("你好\n世界\n再见")
-        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: SEGMENTS)
-        with contextlib.redirect_stdout(io.StringIO()):
-            cli.cmd_align(argparse.Namespace(id=did, whisper_size="small"))
-        s = rt.load_latest(ddir)["settings"]
-        assert set(s) == set(rt.SETTINGS_KEYS)
-        assert s["whisper_size"] == "small" and s["beam_size"] == 9 and s["min_silence_ms"] == 700
-        assert s["transcript_mode"] == "have_transcript" and s["asr_backend"] == "whisper"
-
 
 def _runs(ddir, n):
     """n runs, each with its own text; returns their paths oldest first."""

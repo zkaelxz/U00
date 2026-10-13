@@ -137,14 +137,6 @@ def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str 
     }
 
 
-def affected_line_ids(drama_id: int, include_hand_edited: bool = False, term_ids=None) -> list:
-    """The ids a run would re-translate with no preview (`cli.py translate
-    --glossary-affected`): hand-edited lines only with include_hand_edited."""
-    drama = _require_drama(drama_id)
-    _terms, lines, _hash = _affected(drama_id, drama, term_ids)
-    return [ln["id"] for ln in lines if include_hand_edited or not ln["hand_edited"]]
-
-
 def start_affected_retranslate(drama_id: int, line_ids, preview_hash: str,
                                include_hand_edited: bool = False, term_ids=None,
                                engine_name: str = None, model: str = None,

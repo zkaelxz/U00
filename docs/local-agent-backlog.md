@@ -65,7 +65,7 @@ otherwise (CLAUDE.md "How to work").
 ### B3 Stereo tracks A1, A2, B
 - Decide first: what A1 and A2 are (not defined in the repo), and whether B builds on draft #947 (B1 DSP library).
 - Scope: one track per PR; DSP in the library, renderers, loudness; ffmpeg filters built from fixed strings.
-- Rules: no user text in ffmpeg arguments; outputs go through the library temp folder; app and CLI behave the same.
+- Rules: no user text in ffmpeg arguments; outputs go through the library temp folder.
 - Tests: mocked ffmpeg and numeric checks on tiny arrays; the owner's listening check is listed as owed.
 - Done: unit tests for each cue and renderer; docs say what was not listened to.
 

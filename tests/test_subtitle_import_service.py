@@ -4,7 +4,6 @@ title (service and HTTP contract), the confirmations and history snapshot,
 permissions and ownership, the LRC export route and the import-subtitle CLI.
 """
 
-import argparse
 
 import pytest
 
@@ -14,8 +13,6 @@ pytest.importorskip("multipart")
 
 from fastapi.testclient import TestClient
 
-import cli
-import cli_subtitle
 import db
 import subtitle_parse
 from api import auth as api_auth
@@ -259,51 +256,6 @@ class TestLrcExportRoute:
         assert client.get(f"/api/export/dramas/{did}/subtitle", params={"fmt": "sbv"}).status_code == 422
 
 
-class TestCli:
-    def _args(self, path, **kw):
-        base = dict(id=None, file=str(path), mode="source", encoding=None, split_bilingual=False,
-                    translation_first=False, yes=False, find=None)
-        base.update(kw)
-        return argparse.Namespace(**base)
-
-    def test_registered_on_the_real_parser(self, monkeypatch, capsys):
-        monkeypatch.setattr("sys.argv", ["cli.py", "import-subtitle", "--help"])
-        with pytest.raises(SystemExit):
-            cli.main()
-        assert "--split-bilingual" in capsys.readouterr().out
-
-    def test_import_matches_the_service(self, isolated_db, tmp_path, capsys):
-        f = tmp_path / "a.srt"
-        f.write_bytes(SRT)
-        did = _drama()
-        cli_subtitle.cmd_import_subtitle(self._args(f, id=did))
-        assert [x["zh"] for x in db.load_lines(did)] == ["first", "second", "third"]
-        assert "Wrote 3 line(s) as source" in capsys.readouterr().out
-
-    def test_replacing_needs_yes(self, isolated_db, tmp_path):
-        f = tmp_path / "a.srt"
-        f.write_bytes(SRT)
-        did = _drama(_three_lines())
-        with pytest.raises(SystemExit, match="--yes"):
-            cli_subtitle.cmd_import_subtitle(self._args(f, id=did))
-        assert [x["zh"] for x in db.load_lines(did)] == ["一", "二", "三"]
-        cli_subtitle.cmd_import_subtitle(self._args(f, id=did, yes=True))
-        assert [x["zh"] for x in db.load_lines(did)] == ["first", "second", "third"]
-
-    def test_bad_file_changes_nothing(self, isolated_db, tmp_path):
-        f = tmp_path / "a.srt"
-        f.write_bytes(b"1\n00:00:05,000 --> 00:00:04,000\nx\n")
-        did = _drama(_three_lines())
-        with pytest.raises(SystemExit, match="stop the import|nothing was imported"):
-            cli_subtitle.cmd_import_subtitle(self._args(f, id=did, yes=True))
-        assert len(db.load_lines(did)) == 3
-
-    def test_find_lists_candidates_without_importing(self, capsys):
-        cli_subtitle.cmd_import_subtitle(self._args("", find=["track.mp3", "track.ja.vtt", "track.en.srt", "z.srt"]))
-        out = capsys.readouterr().out
-        assert "track.ja.vtt" in out and "2 candidates" in out and "z.srt" not in out
-
-
 def test_nul_in_an_encoding_name_is_a_clean_input_error(isolated_db):
     did = _drama()
     with pytest.raises(InvalidInputError):
@@ -326,8 +278,3 @@ def test_translation_import_keeps_a_translation_edited_after_the_load(isolated_d
     assert [r["en"] for r in db.load_lines(did)][:2] == ["typed", "Two"]
     assert out["lines_written"] == 1
 
-
-def test_cli_find_ranks_by_the_titles_source_language(isolated_db, capsys):
-    did = _drama(source_language="ja")
-    cli_subtitle._find(argparse.Namespace(find=["ep1.mp4", "ep1.zh.srt", "ep1.ja.srt"], id=did))
-    assert capsys.readouterr().out.splitlines()[0].startswith("ep1.ja.srt")

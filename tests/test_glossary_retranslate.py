@@ -3,7 +3,6 @@ two routes and the CLI flag. Fully mocked: the offline test engine or a
 stub, no network."""
 import threading
 import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +11,6 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import translation_finish
-import cli_translate
 import db
 import subtitle_formats
 import translate_engines
@@ -628,85 +626,3 @@ class TestApi:
         _wait(r.json()["job_id"])
         assert [x["en"] for x in db.load_lines(did)] == ["[TEST] 林晚", "mine"]
 
-
-class TestCli:
-    def _args(self, did, **kw):
-        base = dict(id=did, status=None, engine="fake", api_key=None, model=None,
-                    episode_summary_engine="ollama", episode_summary_api_key=None,
-                    style_note=None, style_preset=None, locale=None, female_pronouns=False,
-                    no_genre_notes=False, force=False, ollama_num_ctx=None, ollama_url=None,
-                    reflect=False, cost_cap=None, monthly_cap=0.0, context_window=None,
-                    context_window_ahead=None, batch_size=None, fallback=None,
-                    glossary_affected=True, include_hand_edited=False)
-        base.update(kw)
-        return SimpleNamespace(**base)
-
-    def test_glossary_affected_skips_hand_edited(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: fake_engine.FakeEngine())
-        did, _sid, _ = _seed([("林晚一", "old"), ("林晚二", "my edit"), ("天气", "Weather")],
-                             terms=[LIN], machine={0, 2})
-        cli_translate.cmd_translate(self._args(did))
-        assert [r["en"] for r in db.load_lines(did)] == ["[TEST] 林晚一", "my edit", "Weather"]
-        cli_translate.cmd_translate(self._args(did, include_hand_edited=True))
-        assert [r["en"] for r in db.load_lines(did)] == ["[TEST] 林晚一", "[TEST] 林晚二", "Weather"]
-
-    def test_glossary_affected_needs_id(self, isolated_db):
-        with pytest.raises(SystemExit):
-            cli_translate.cmd_translate(self._args(None))
-        with pytest.raises(SystemExit):
-            cli_translate.cmd_translate(self._args(1, glossary_affected=False, include_hand_edited=True))
-
-
-    def _two_terms(self):
-        wan = {"term_original": "林晚", "term_translation": "Lin Wan"}
-        zhou = {"term_original": "周然", "term_translation": "Zhou Ran"}
-        did, sid, _ = _seed([("林晚一", "a"), ("周然二", "b"), ("天气", "c")], terms=[wan, zhou])
-        ids = {t["term_original"]: t["id"] for t in db.list_glossary_terms(sid)}
-        return did, ids
-
-    def _run(self, monkeypatch, did, **kw):
-        monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: fake_engine.FakeEngine())
-        cli_translate.cmd_translate(self._args(did, **kw))
-        return [r["en"] for r in db.load_lines(did)]
-
-    def test_term_by_text_selects_only_its_lines(self, isolated_db, monkeypatch, capsys):
-        did, ids = self._two_terms()
-        assert self._run(monkeypatch, did, term=["林晚"]) == ["[TEST] 林晚一", "b", "c"]
-        assert f"glossary terms: {ids['林晚']}; 1 lines selected" in capsys.readouterr().out
-
-    def test_term_by_id_and_repeat(self, isolated_db, monkeypatch):
-        did, ids = self._two_terms()
-        assert self._run(monkeypatch, did, term=[str(ids["周然"])]) == ["a", "[TEST] 周然二", "c"]
-        assert self._run(monkeypatch, did, term=["林晚", str(ids["周然"])]) == [
-            "[TEST] 林晚一", "[TEST] 周然二", "c"]
-
-    def test_unknown_term_errors(self, isolated_db, monkeypatch):
-        did, _ids = self._two_terms()
-        for ref in ("nope", "99999"):
-            with pytest.raises(SystemExit, match="matches no term"):
-                self._run(monkeypatch, did, term=[ref])
-        assert [r["en"] for r in db.load_lines(did)] == ["a", "b", "c"]
-
-    def test_ambiguous_term_errors(self, isolated_db, monkeypatch):
-        # A term whose source text is another term's id matches both ways.
-        did, sid, _ = _seed([("林晚一", "a")], terms=[LIN])
-        lin_id = db.list_glossary_terms(sid)[0]["id"]
-        db.upsert_glossary_term(sid, str(lin_id), "Digits")
-        with pytest.raises(SystemExit, match="matches 2 glossary terms"):
-            self._run(monkeypatch, did, term=[str(lin_id)])
-
-    def test_term_requires_glossary_affected(self, isolated_db):
-        with pytest.raises(SystemExit, match="--term only applies"):
-            cli_translate.cmd_translate(self._args(1, glossary_affected=False, term=["林晚"]))
-
-    def test_matches_service_selection(self, isolated_db, monkeypatch):
-        did, ids = self._two_terms()
-        expected = {ln["id"] for ln in svc.find_glossary_affected_lines(
-            did, term_ids=[ids["周然"]])["lines"]}
-        assert expected == set(svc.affected_line_ids(did, term_ids=[ids["周然"]]))
-        before = {r["id"]: r["en"] for r in db.load_lines(did)}
-        self._run(monkeypatch, did, term=["周然"])
-        changed = {r["id"] for r in db.load_lines(did) if r["en"] != before[r["id"]]}
-        assert changed == expected

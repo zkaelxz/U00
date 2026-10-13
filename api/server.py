@@ -216,8 +216,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app = FastAPI(
         title="Baihe Studio API",
         version=API_VERSION,
-        description="HTTP API for Baihe Studio. Shares its library with the "
-                    "CLI. Authentication is off by default (local use); "
+        description="HTTP API for Baihe Studio. "
+                    "Authentication is off by default (local use); "
                     "set BAIHE_API_AUTH=on to enforce sessions and permissions.",
         # With auth on, the interactive docs/schema would publish every route
         # to anyone who can reach the port, so they are not served.

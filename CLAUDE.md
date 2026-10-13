@@ -9,7 +9,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - `db/`: plain sqlite3, no ORM; callers use `db.<name>`. Schema changes to `library.db` go through `ALTER TABLE ... ADD COLUMN` in `init_db` (`db/__init__.py`) (a change that can't be an ADD COLUMN is a table rebuild in one transaction, as the line-id migration does); list each new column in `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py` so the upgrade test covers it (a guard test fails if you forget). `sources.db` is a separate file with its own `_ADDED_COLUMNS` in `sources/store.py`, which that guard test does not cover.
 - `translate_engines.py`: front door that re-exports `engine_backends/` (engines by provider, plus the id-keyed request, retry and redaction helpers in `engine_backends/shared.py`). Tests patch the module that uses a name, not the front door.
 - `background_jobs.py`: thread-based jobs. The in-memory dict is the authority, with a best-effort mirror in the `job_records` table.
-- `sources/`: site adapters (`sources/adapters/`) and the fetch ladder. `cli.py`: headless batch runner.
+- `sources/`: site adapters (`sources/adapters/`) and the fetch ladder.
 - Current status and what's next: `docs/STATUS.md`.
 - Small context window? Follow `docs/small-model-checklist.md`; `python tools/repo_map.py` prints the symbol map on demand. Local models (OpenCode) read `AGENTS.md`, not this file: when you change a rule AGENTS.md repeats, change it there too.
 
@@ -27,7 +27,6 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Background jobs write only the fields they own: `db.save_lines(drama_id, lines, fields=("en",))`. A full sync (`fields=None`) makes the list the drama's lines: rows are updated in place by id, rows missing from the list are deleted, and a field is written when it differs from the Line's `orig`. Build Lines with `core.line_from_row` (it carries every field and `orig`) so flags, speaker and the like aren't wiped.
 - `db.create_drama` / `db.update_drama` interpolate kwarg keys into SQL: services must whitelist any keys a client can choose (`drama_service` does); other services pass fixed literal keys. Services check drama/series ownership (`services/ownership_service.py`).
 - Every API route declares exactly one of `require_permission(...)`, `public_route()` or `local_only()`; `tests/test_api_permissions.py` enforces it, and its row in `docs/route-permissions.md` is regenerated with `python tools/route_table.py --write`.
-- When you change shared logic, the CLI must not break. New features are app-only unless asked. The CLI is maintenance-only.
 - A new optional dependency is registered in `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 
 ## Commenting Standards

@@ -7,9 +7,6 @@ pyannote's own min_speakers/max_speakers).
 torch, pyannote.audio and soundfile are all faked in sys.modules, so these
 run on the core-only CI install with no GPU.
 """
-import argparse
-import contextlib
-import io
 import os
 import queue
 import sys
@@ -281,44 +278,6 @@ class TestServiceAndApi:
                            f"&min_speakers=2").status_code == 422
         assert client.post(f"/api/diarization/dramas/{did}/run?max_speakers=21"
                            ).status_code == 422
-
-
-class TestCliParity:
-    def _run(self, did, **kw):
-        import cli
-        args = argparse.Namespace(id=did, hf_token="hf", num_speakers=kw.get("num_speakers", 0),
-                                  min_speakers=kw.get("min_speakers"),
-                                  max_speakers=kw.get("max_speakers"), overwrite_manual=False)
-        with contextlib.redirect_stdout(io.StringIO()) as out:
-            cli.cmd_diarize(args)
-        return out.getvalue()
-
-    def test_cli_passes_range_and_use_gpu_and_saves_the_device(self, isolated_db, monkeypatch):
-        import cli
-        from services import settings_service
-        from core import Line
-        patch_setting(monkeypatch, "use_gpu", True)
-        monkeypatch.setattr(cli, "release_gpu_models", lambda: None)
-        did, ddir = _drama_with_audio(isolated_db)
-        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a")])
-        seen = {}
-
-        def fake(audio_path, hf_token, **kw):
-            seen.update(kw)
-            kw["run_info"]["device"] = "cuda"
-            return [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}], "m", {}
-        monkeypatch.setattr(diarize, "diarize", fake)
-        out = self._run(did, min_speakers=2, max_speakers=4)
-        assert seen["min_speakers"] == 2 and seen["max_speakers"] == 4
-        assert seen["num_speakers"] is None and seen["use_gpu"] is True
-        assert "on cuda" in out
-        assert diarize.load_last_run_info(ddir) == {"min_speakers": 2, "max_speakers": 4,
-                                                    "device": "cuda"}
-
-    def test_cli_rejects_a_bad_range_without_running(self, isolated_db, monkeypatch):
-        did, _ = _drama_with_audio(isolated_db)
-        monkeypatch.setattr(diarize, "diarize", lambda *a, **k: pytest.fail("should not run"))
-        assert "more than maximum" in self._run(did, min_speakers=5, max_speakers=2)
 
 
 class TestProgressReporting:

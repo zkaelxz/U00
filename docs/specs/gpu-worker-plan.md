@@ -34,7 +34,7 @@ Remote access must be in place first: `docs/STATUS.md` says the API must not be 
 
 - `_transcribe_worker` (901-937) writes nothing to the database. `_transcribe_pipeline` (981-1337) touches no database row. `_apply_transcription` (1340-1425) does every library write: history snapshot (1370), full-sync `db.save_lines` (1373), raw transcript and status, chained diarization (1388), speed record (1397-1405).
 - Server-local values mixed into the args: `settings_service.get("whisper_model_path")` (650), `scratch_dir` (640), `use_gpu` (621). The outcome carries `"audio_path"` (1332) and `Line` objects, so it is not JSON as it stands.
-- Vocal separation moves `vocals.wav` next to the title's audio (1046, 1082-1084). Besides that stage, `workspace_job_service.py:249` (the standalone separation job) and `cli.py` (`cmd_align`) write it, and nothing under `services/` reads it back. Unknown: whether anything outside `services/` does.
+- Vocal separation moves `vocals.wav` next to the title's audio (1046, 1082-1084). Besides that stage, `workspace_job_service.py:249` (the standalone separation job) writes it, and nothing under `services/` reads it back. Unknown: whether anything outside `services/` does.
 - Inputs built from library state on the server at start: the initial prompt from series glossary names (`build_auto_initial_prompt` 302-316), transcript text, title tuning (613-619). Keys: `hf_token` (607) and the Groq key are read on the server.
 - Speed records are keyed `model|gpu|cpu` only (`_speed_key` 166; 245-268), with no machine dimension.
 - Hardsub OCR is a thread job that takes `tesseract_cmd` (622-636). PC-only path rules apply. Not offloadable.
@@ -49,10 +49,6 @@ Remote access must be in place first: `docs/STATUS.md` says the API must not be 
 ### Server-only by nature
 
 Dub and TTS (`services/dub_service.py:303-330`: writes into the title folder, reads voice references), live capture (`live_service.py:230`), Scanlate and OCR, translate jobs (glossary, style guide, locale, engine keys), benchmark. Autotune, SenseVoice and re-split are v2 candidates.
-
-### CLI (`cli.py`)
-
-Runs inline, takes the shared GPU slot (113-124) and does not use `background_jobs` (`cmd_align` 438-546). It cannot see the API's in-memory dispatcher, so it stays local in v1.
 
 ### Auth and listeners
 
@@ -173,7 +169,7 @@ Order: 1, 2, 3, 4, 5, 6, 7, 8, 9. PR 4 also needs the byte-capped reader consoli
 
 Risks: dispatcher races (lease expiry vs upload vs cancel vs restore hold); a wrong result applied as a full line sync (mitigated by validation and the history snapshot); long-poll behaviour through Caddy is unverified; full-screen detection may miss borderless games; per-model VRAM numbers are estimates to measure on the 3070 and 3080 Ti; upload bandwidth if a worker is outside the LAN; result drift when the two machines run different library versions.
 
-Not in v1: a persistent or distributed queue; partial or resumable results; stem uploads; dub, TTS, voice clone, OCR, Live or LLM on the worker; several workers sharing one job; worker self-update; a LAN-only listener with a self-signed certificate; CLI offload (the CLI has no access to the API dispatcher; its inputs match the app's specs, so outputs stay equivalent and "CLI and app behave the same" holds).
+Not in v1: a persistent or distributed queue; partial or resumable results; stem uploads; dub, TTS, voice clone, OCR, Live or LLM on the worker; several workers sharing one job; worker self-update; a LAN-only listener with a self-signed certificate.
 
 ## Unknowns to settle before building
 

@@ -551,36 +551,16 @@ class TestModelOverrides:
         svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
         assert db.list_presets()[0]["engine_model"] == "deepseek-flash"
 
+    def test_get_engine_uses_the_override(self, isolated_db):
+        svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
+        assert translate_engines.get_engine("deepseek", "k", None).model == "deepseek-v4-pro"
+
     def test_candidates_are_the_listed_models_and_replacement(self, isolated_db):
         item = self._default_item("deepseek")
         assert item["candidates"] == []
         self._cache(deepseek=["deepseek-flash", "deepseek-v4-pro", "deepseek-embed-1", "other-2"])
         item = self._default_item("deepseek")
         assert item["candidates"] == ["deepseek-v4-pro"]
-
-    def test_cli_get_engine_uses_the_override(self, isolated_db):
-        svc.set_model_override("default", "deepseek", "deepseek-flash", "deepseek-v4-pro")
-        import cli_translate
-        seen = {}
-        import argparse
-        import contextlib
-        import io
-        from core import Line
-        did = db.create_drama(title_en="T", status="aligned")
-        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
-
-        def fake_translate(lines, engine, **kwargs):
-            seen["model"] = engine.model
-            return lines, []
-        import unittest.mock as mock
-        with mock.patch.object(translate_engines, "translate_lines_with_engine", fake_translate):
-            args = argparse.Namespace(id=did, status=None, engine="deepseek", api_key="k", model=None,
-                                      style_note=None, style_preset="audio_drama", locale="en-US",
-                                      force=False, ollama_num_ctx=None)
-            with contextlib.redirect_stdout(io.StringIO()):
-                cli_translate.cmd_translate(args)
-        assert seen["model"] == "deepseek-v4-pro"
-
 
 def test_an_oversized_model_list_is_refused(monkeypatch):
 

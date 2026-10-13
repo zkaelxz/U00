@@ -39,8 +39,6 @@ MIN_BATCH_SIZE = 1
 MAX_BATCH_SIZE = 16
 
 ASR_BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
-# Not offered by the CLI, which is maintenance-only (a title that saved one in the app still runs it).
-APP_ONLY_ASR_BACKENDS = ("anime_whisper",)
 # Backends that exist for one language only, with the sentence shown when another is picked.
 LANGUAGE_ONLY_ASR_BACKENDS = {
     "anime_whisper": ("ja", "anime-whisper is only for Japanese titles."),

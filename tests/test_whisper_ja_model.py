@@ -4,16 +4,12 @@ cache check, and the Japanese-only rule on the server, the Lab and the CLI.
 Fakes only: no network, no weights.
 """
 
-import argparse
-import contextlib
-import io
 import os
 import sys
 import types
 
 import pytest
 
-import cli
 import memory_headroom
 import whisper_models as wm
 from lib import ct2_repo
@@ -236,35 +232,3 @@ class TestJapaneseOnly:
         with pytest.raises(InvalidInputError, match="Japanese"):
             lab._check_selection("transcription", cfg, None, None, None)
 
-
-class TestCli:
-    def _drama(self, isolated_db, language):
-        did = isolated_db.create_drama(title_en="t", status="not started", audio_filename="a.wav",
-                                       source_language=language)
-        ddir = isolated_db.drama_dir(did)
-        with open(os.path.join(ddir, "a.wav"), "wb") as f:
-            f.write(b"x")
-        with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
-            f.write("こんにちは")
-        return did
-
-    def _align(self, isolated_db, monkeypatch, language, size):
-        did = self._drama(isolated_db, language)
-        seen = []
-        monkeypatch.setattr(cli, "transcribe_for_timing",
-                            lambda path, model, **k: seen.append(model) or [{"start": 0.0, "end": 1.0, "text": "こんにちは"}])
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            cli.cmd_align(argparse.Namespace(id=did, whisper_size=size, fast=False, transcript=None))
-        return seen, out.getvalue()
-
-    def test_the_flag_accepts_the_key(self):
-        assert KEY in cli.WHISPER_MODELS
-
-    def test_japanese_title_runs_it(self, isolated_db, monkeypatch):
-        seen, _ = self._align(isolated_db, monkeypatch, "ja", KEY)
-        assert seen == [KEY]
-
-    def test_other_languages_skip_before_loading_a_model(self, isolated_db, monkeypatch):
-        seen, out = self._align(isolated_db, monkeypatch, "zh", KEY)
-        assert seen == [] and "skipped" in out and "Japanese" in out

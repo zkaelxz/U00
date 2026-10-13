@@ -427,7 +427,7 @@ LAYERS = (
     ("Translation engines (engine_backends/)", lambda r: r.startswith("engine_backends/")),
     ("Sources and site adapters (sources/)", lambda r: r.startswith("sources/")),
     ("Shared helpers (lib/, no domain knowledge)", lambda r: r.startswith("lib/")),
-    ("Root domain modules", lambda r: "/" not in r and r != "cli.py" and not r.startswith("db/")),
+    ("Root domain modules", lambda r: "/" not in r and not r.startswith("db/")),
     ("Database (db/: never open whole; list it with `repo_map.py db`)", lambda r: r.startswith("db/")),
     ("Entry points and tooling (not the app's runtime logic)", lambda r: True),
 )

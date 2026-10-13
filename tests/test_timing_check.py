@@ -391,27 +391,6 @@ class TestApi:
         assert client.post(f"/api/timing-check/dramas/{drama}/run").status_code == 400
 
 
-class TestCli:
-    def test_command_checks_and_snaps_through_the_service(self, isolated_db, drama, fake_speech, capsys):
-        import argparse
-        import cli_timing
-        _seed(isolated_db, drama, [Line(idx=0, start=8.0, end=14.0, zh="a")])
-        sub = argparse.ArgumentParser().add_subparsers()
-
-        def wait(job_id, label):
-            return "ok", "", _wait(drama)["result"]
-        cli_timing.register(sub, wait)
-        args = argparse.Namespace(id=drama, snap=True)
-        cli_timing.cmd_timing_check(args, wait)
-        out = capsys.readouterr().out
-        assert "1 flagged" in out and "snapped 1 line(s)" in out
-        assert _lines(isolated_db, drama)[0].start == 9.9
-
-    def test_waits_only_for_a_check_that_is_running(self, isolated_db, drama):
-        import cli_timing
-        cli_timing.wait_after_transcribe(drama, "#1", lambda *a: pytest.fail("no job to wait for"))
-
-
 WIN_PATH = r"C:\Users\someone\AppData\baihe\dramas\7\audio.wav"
 
 

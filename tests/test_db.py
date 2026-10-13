@@ -2633,19 +2633,6 @@ class TestInterruptedRestoreRecovery:
             db.release_restore_lock(holder)
         assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
 
-    def test_the_cli_checks_the_library_before_its_command_runs(self, tmp_path, monkeypatch, capsys):
-        import cli
-        self._aside(tmp_path, "library.pre_restore_100", b"old")
-        monkeypatch.setattr(db, "LIBRARY_DIR", str(tmp_path / "library"))
-        seen = []
-        monkeypatch.setattr(cli, "cmd_list", lambda args: seen.append(
-            (tmp_path / "library" / "library.db").read_bytes()))
-        monkeypatch.setattr(sys, "argv", ["cli.py", "list"])
-        cli.main()
-        assert seen == [b"old"]
-        assert "library.pre_restore_100" in capsys.readouterr().out
-
-
     def test_the_lock_file_goes_at_a_clean_finish(self, tmp_path):
         lock = tmp_path / "library.restore-lock"
         holder = db.hold_restore_lock(str(tmp_path / "library"))

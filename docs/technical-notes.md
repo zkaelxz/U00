@@ -336,7 +336,7 @@ Contract:
 - Review shows a language chip only on a line whose `lang` differs from the
   title's, so a single-language title looks the same as before.
 - Translation (`translate_pipeline._translate_lines_with_engine`, shared by the
-  app and `cli.py translate`): a line whose `lang` differs from the title's gets
+  app's translate runs): a line whose `lang` differs from the title's gets
   a `(spoken in Korean)` tag in the numbered prompt text and in all three Reflect
   passes (`context["line_languages"]`, `None` for a single-language batch, so
   those prompts are unchanged); `en` lines are copied to `en` without a model
@@ -344,8 +344,8 @@ Contract:
 - The other paths read it through the same helpers in `engine_backends/shared.py`
   (`tagged_line_languages`, `tagged_source_texts`, `is_english_line`):
   bulk translate tags each request's numbered lines and copies `en` lines at
-  submission (bulk Reflect tags all three stages); the DeepSeek off-peak run and
-  `cli.py translate` go through the shared translate loop; `try_line` (stronger
+  submission (bulk Reflect tags all three stages); the DeepSeek off-peak run
+  goes through the shared translate loop; `try_line` (stronger
   engine), `retry_blocked_line` and the fix-flagged job tag the single line's
   context and answer an `en` line without a call; the line AI tools
   (`line_ai_service`) pass the line's own language to their prompts. Not yet
@@ -354,12 +354,12 @@ Contract:
   (`wrap_chars_en` / `wrap_chars_source`) and breaks each line by its own text
   (`subtitle_formats._is_cjk`), so a mixed title needs no per-line language;
   `LINE_CHAR_LIMITS` is only the re-split/resegment threshold. ASS styles do
-  not vary by script. The CLI exports through the same service.
+  not vary by script.
 - Forced alignment: Re-split's "Align to audio" runs the aligner once per line
   (`restructure_service._aligned_pieces`) in `Line.lang`, else the title's
   language, and an `en` line is aligned as English (`forced_align.ALIGNER_LANGUAGE_NAMES`;
   words are kept space-separated for the aligner). English alignment quality on real audio
   has not been checked yet.
   `word_align.realign_long_segment` reads a segment's own `lang` and leaves an
-  English segment unsplit. Transcript alignment (app and `cli.py align`) runs
+  English segment unsplit. Transcript alignment runs
   on pasted text with no per-line language yet, so it still uses the title's.

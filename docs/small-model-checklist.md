@@ -22,8 +22,7 @@ there and shrink only.
    - `tests/test_<area>.py` for the area.
    - Guards: `tests/test_api_permissions.py` (one permission per route, route table),
      `tests/test_static_analysis.py` (40 KB module size guard, HTTP `timeout=`, layering),
-     `tests/test_db.py` `_INIT_DB_MIGRATED_COLUMNS` (new `library.db` columns),
-     CLI/app parity: a setting changed in the app must match `cli.py`.
+     `tests/test_db.py` `_INIT_DB_MIGRATED_COLUMNS` (new `library.db` columns).
 6. More than about four files to change? Stop. Split the task and say so.
 7. Make the smallest change. Run the matching test file first:
    `python -m pytest -q tests/test_<area>.py`. Then the guard set; `python tools/check_change.py` prints the lean pytest
@@ -176,7 +175,7 @@ draft PR into `baihe-subtitler`; the lead session merges when CI is green. Finis
 changed, commands run with pass counts, what you're unsure about.
 
 Clone in a folder of its own. The repo root has `__init__.py`, so pytest puts the clone's parent folder on `sys.path`: a
-stray `cli.py` or `core.py` next to the clone (in its parent) shadows the real module and tests fail oddly
+stray `core.py` next to the clone (in its parent) shadows the real module and tests fail oddly
 (`tests/test_local_coder_tools.py` catches it for `core`).
 
 Stop and ask the owner before touching:
