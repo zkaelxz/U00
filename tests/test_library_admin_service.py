@@ -2118,3 +2118,14 @@ def test_a_differently_cased_media_folder_in_the_zip_does_not_drop_the_media(iso
     data = _rewrite(_db_only_backup(), extra={"Dramas/9/x.wav": b"x"})
     _restore(data)
     assert os.path.isfile(audio)
+
+
+def test_restore_keeps_a_titles_release_date(isolated_db):
+    dated = _new("Dated")
+    undated = _new("Undated")
+    db.update_drama(dated, release_date="2025-03-04")
+    data = _backup_bytes()
+    db.update_drama(dated, release_date="1999-01-01")
+    _restore(data)
+    assert db.get_drama(dated)["release_date"] == "2025-03-04"
+    assert db.get_drama(undated)["release_date"] is None
