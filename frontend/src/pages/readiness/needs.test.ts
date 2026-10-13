@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SetupReadiness } from '../../types/setup'
 import {
   audioToolNeed, gpuTorchNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
-  speakerNeeds, transcribeNeeds, unavailableBackends, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
+  scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
 // A fresh GPU server: almost nothing optional is installed.
@@ -163,5 +163,26 @@ describe('the Qwen3 warning', () => {
   it('qwen3Need is gone once installed', () => {
     expect(qwen3Need(READY)).toBeNull()
     expect(whisperNeed(READY)).toBeNull()
+  })
+})
+
+describe('scanlateNeed', () => {
+  it('never blocks on unknown readiness while the backend is installed', () => {
+    expect(scanlateNeed(null, 'manga_ocr', true)).toBeNull()
+    expect(scanlateNeed(READY, 'manga_ocr', true)).toBeNull()
+  })
+  it('names OpenCV first', () => {
+    expect(scanlateNeed({ ...READY, cv2: false }, 'tesseract', false)).toMatchObject({
+      id: 'scanlate_opencv', packages: ['opencv-python'],
+    })
+  })
+  it('says the Tesseract program is missing when only the package is there', () => {
+    const n = scanlateNeed({ ...READY, tesseract_program: false }, 'tesseract', false)
+    expect(n).toMatchObject({ id: 'scanlate_ocr', packages: [] })
+    expect(n?.reason).toContain('Tesseract program')
+  })
+  it('lists the packages a backend lacks', () => {
+    expect(scanlateNeed(null, 'paddle', false)?.packages).toEqual(['paddleocr', 'paddlepaddle'])
+    expect(scanlateNeed(null, 'manga_ocr', false)?.packages).toEqual(['manga-ocr'])
   })
 })

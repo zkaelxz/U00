@@ -19,6 +19,7 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { usePcOnly } from '../../hooks/usePcOnly'
+import { useReadiness } from '../../hooks/useReadiness'
 import type { JobRecord } from '../../types/jobs'
 import type {
   ScanlateConfig,
@@ -27,6 +28,8 @@ import type {
   ScanlatePageNotes,
   ScanlateRunMode,
 } from '../../types/scanlate'
+import { scanlateNeed } from '../readiness/needs'
+import { NeedsInstall } from '../readiness/NeedsInstall'
 import { JobPanel } from '../workspace/stages/JobPanel'
 import {
   checkFiles,
@@ -60,6 +63,7 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
 
 export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, onJob }: Props) {
   const pc = usePcOnly()
+  const { readiness } = useReadiness()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
   const [notes, setNotes] = useState<ScanlatePageNotes[]>([])
   const [error, setError] = useState<unknown>(null)
@@ -124,7 +128,9 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
     }
   }, [config, jobId, setJobId])
 
-  const blocked = runBlockedReason(config, engine)
+  // A missing package or program blocks every run button; the server would refuse the run anyway.
+  const need = config ? scanlateNeed(readiness, config.ocr_backend, config.ocr_backend_installed) : null
+  const blocked = runBlockedReason(config, engine) ?? need?.reason ?? null
   const usable = usableEngines(config)
   const selectedEngine = usable.find((e) => e.name === engine)
 
@@ -299,11 +305,12 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
           onConfirm={() => void start('page')}
         />
         {blocked && (
-          <span id="scanlate-blocked" className="muted">
+          <span id="scanlate-blocked" className={need ? 'visually-hidden' : 'muted'}>
             {blocked}
           </span>
         )}
       </div>
+      {need && <NeedsInstall need={need} onInstalled={reload} />}
       <p className="muted scanlate-hint">
         {target ? `${target.todo} of ${target.pages} pages have no text yet. ` : ''}Translate skips pages that already have text. Redo replaces a page's text boxes, including edits.
       </p>

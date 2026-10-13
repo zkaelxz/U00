@@ -28,6 +28,9 @@ export async function mockScanlate(page: Page, over: Partial<ComicMockOptions> =
   const jobId = `scanlate_${id}`
   let jobDone = true
 
+  // Everything installed; a spec overrides this route to make something missing.
+  await page.route('**/api/setup/readiness', (route) => json(route, { cv2: true, pytesseract: true, tesseract_program: true, paddle_ocr: true }))
+
   await page.route(new RegExp(`${root}/config$`), (route) =>
     json(route, {
       drama_id: id, source_language: 'zh',

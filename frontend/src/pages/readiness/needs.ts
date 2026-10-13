@@ -171,6 +171,34 @@ export function ocrNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
+/**
+ * What a Scanlate run needs before it can start: OpenCV (every page fails without it) and the chosen
+ * OCR backend. `ocrInstalled` is the server's own answer for that backend, which also covers the
+ * Tesseract program; readiness only names which package is missing.
+ */
+export function scanlateNeed(r: SetupReadiness | null, ocrBackend: string, ocrInstalled: boolean): Need | null {
+  if (r && !r.cv2) {
+    return {
+      id: 'scanlate_opencv', label: 'OpenCV', action: 'diagnostics', packages: ['opencv-python'],
+      reason: "Translating pages needs opencv-python, which isn't installed.",
+    }
+  }
+  if (ocrInstalled) return null
+  if (ocrBackend === 'tesseract' && r?.pytesseract) {
+    return {
+      id: 'scanlate_ocr', label: 'Tesseract', action: 'diagnostics', packages: [],
+      reason: "The Tesseract program isn't installed or isn't on the PATH. Install it, or choose another OCR backend in Settings.",
+    }
+  }
+  const packages = ({
+    manga_ocr: ['manga-ocr'], paddle: ['paddleocr', 'paddlepaddle'], tesseract: ['pytesseract'], paddle_vl_manga: ['transformers'],
+  } as Record<string, string[]>)[ocrBackend] ?? []
+  return {
+    id: 'scanlate_ocr', label: 'OCR', action: 'diagnostics', packages,
+    reason: `The ${ocrBackend} OCR backend isn't fully installed.${packages.length ? ` Missing: ${names(packages)}.` : ''} Install it, or choose another OCR backend in Settings.`,
+  }
+}
+
 /** Ollama is a separate program Baihe talks to; it has no installer here. */
 export function ollamaNeed(r: SetupReadiness | null): Need | null {
   if (!r || (r.ollama_reachable && r.ollama_model_pulled)) return null
