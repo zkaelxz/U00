@@ -606,6 +606,21 @@ def run_auto_qc_flagging(drama_id: int) -> dict:
     return result
 
 
+# ebooklib and the packages it imports itself: a gap in any of them is a missing install,
+# and the name shown must be the one that is actually missing.
+_EPUB_PACKAGES = ("ebooklib", "lxml", "six")
+
+
+def _log_epub_import_failure(exc: ImportError) -> None:
+    """Type and module name only: the message and path can hold a filesystem path."""
+    try:
+        import applog
+        applog.get_logger().warning("EPUB export could not import: %s (module %r)",
+                                    type(exc).__name__, getattr(exc, "name", None))
+    except Exception:
+        pass
+
+
 def generate_epub(drama_id: int, field: str = "en") -> bytes:
     """Exports one novel-narration drama's lines as an .epub
     (`epub_io.export_epub`). Read-only from the caller's point of view
@@ -640,10 +655,14 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
                             source_language=drama.get("source_language"))
     except ImportError as exc:
         # ebooklib is imported inside export_epub, not at epub_io's import time.
+        package = (exc.name or "").split(".")[0]
+        _log_epub_import_failure(exc)
+        if package not in _EPUB_PACKAGES:
+            raise  # any other broken import is a bug (500 with a traceback), not a missing install
         raise DependencyUnavailableError(
-            "EPUB export needs the ebooklib package, which isn't installed. "
+            f"EPUB export needs the {package} package, which isn't installed. "
             "Install it in Diagnostics > Packages.",
-            details={"reason": "missing_package", "package": "ebooklib"}) from exc
+            details={"reason": "missing_package", "package": package}) from None
 
     with open(out_path, "rb") as f:
         return f.read()

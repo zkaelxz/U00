@@ -80,9 +80,9 @@ describe('result lines', () => {
     expect(describeNoKeySkips(null, names)).toBeNull()
     expect(describeNoKeySkips({ bulk: { skipped: {} } }, names)).toBeNull()
     expect(describeNoKeySkips({ bulk: { skipped: { no_key: { count: 1, drama_ids: [4] } } } }, names))
-      .toBe('1 title was not translated: no key (or no installed package) for its engine (T4).')
+      .toBe('1 title was not translated: no key for its engine (T4).')
     expect(describeNoKeySkips({ bulk: { skipped: { no_key: { count: 5, drama_ids: [1, 2, 3, 4] } } } }, names))
-      .toBe('5 titles were not translated: no key (or no installed package) for their engine (T1, T2, T3 and 2 more).')
+      .toBe('5 titles were not translated: no key for their engine (T1, T2, T3 and 2 more).')
   })
 
   it('sizes, scan and clean', () => {

@@ -513,6 +513,32 @@ class TestGenerateEpub:
         assert "ebooklib" in str(exc.value) and "Diagnostics" in str(exc.value)
         assert exc.value.details == {"reason": "missing_package", "package": "ebooklib"}
 
+    def test_a_missing_dependency_of_ebooklib_is_named_not_blamed_on_ebooklib(
+            self, isolated_db, monkeypatch):
+        import epub_io
+
+        def boom(*a, **k):  # what `from ebooklib import epub` raises when lxml is absent
+            raise ImportError("No module named 'lxml'", name="lxml.etree")
+
+        monkeypatch.setattr(epub_io, "export_epub", boom)
+        did = self._novel_drama_with_lines(isolated_db)
+        with pytest.raises(DependencyUnavailableError) as exc:
+            export_service.generate_epub(did)
+        assert exc.value.details == {"reason": "missing_package", "package": "lxml"}
+        assert "lxml" in str(exc.value) and "ebooklib" not in str(exc.value)
+
+    def test_an_unrelated_import_error_is_not_reported_as_a_missing_install(
+            self, isolated_db, monkeypatch):
+        import epub_io
+
+        def boom(*a, **k):
+            raise ImportError("broken", name="baihe_own_module")
+
+        monkeypatch.setattr(epub_io, "export_epub", boom)
+        did = self._novel_drama_with_lines(isolated_db)
+        with pytest.raises(ImportError):
+            export_service.generate_epub(did)
+
 
 class TestGenerateEpubWithEbooklib:
     """Only runs if ebooklib is actually installed -- see epub_io.py's

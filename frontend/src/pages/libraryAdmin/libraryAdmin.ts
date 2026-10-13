@@ -129,8 +129,7 @@ export function describeTranslateSkips(skips: readonly LibraryBulkTranslateSkip[
 }
 
 /**
- * The finished bulk-translate job leaves titles whose engine has no key (or whose package is missing)
- * untouched; without this line the run just looks like it did nothing. Null when none were skipped.
+ * The finished bulk-translate job leaves titles whose engine has no key untouched; without this line the run just looks like it did nothing. Null when none were skipped.
  */
 export function describeNoKeySkips(result: JobRecord['result'], names: Names): string | null {
   const bulk = result?.bulk as { skipped?: { no_key?: { count?: number; drama_ids?: unknown[] } } } | undefined
@@ -139,7 +138,7 @@ export function describeNoKeySkips(result: JobRecord['result'], names: Names): s
   if (count <= 0) return null
   const shown = (entry?.drama_ids ?? []).filter((x): x is number => typeof x === 'number').slice(0, 3).map(names)
   const more = count > shown.length ? ` and ${count - shown.length} more` : ''
-  return `${count} title${count === 1 ? ' was' : 's were'} not translated: no key (or no installed package) for ${count === 1 ? 'its' : 'their'} engine${shown.length ? ` (${shown.join(', ')}${more})` : ''}.`
+  return `${count} title${count === 1 ? ' was' : 's were'} not translated: no key for ${count === 1 ? 'its' : 'their'} engine${shown.length ? ` (${shown.join(', ')}${more})` : ''}.`
 }
 
 /** Decimal units, one decimal from KB up: "48.2 GB", "512 B". */

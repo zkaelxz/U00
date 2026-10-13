@@ -59,17 +59,17 @@ export function resultIsStale(currentEn: string | null | undefined, basedOnEn: s
 
 export const STALE_MESSAGE = 'This line changed after the try. Try again to translate the new version.'
 
-/**
- * Plain text for the refusals this route has its own words for, else null
- * (ErrorBanner handles the rest). A 400 is the server's own sentence (the
- * monthly cap); anything path- or key-like is dropped by safeDetail.
- */
 /** The server's 503 says which dependency is missing in `details.reason`; an older answer without it reads as a key. */
 export function isMissingPackage(err: ApiError): boolean {
   const d = err.details
   return typeof d === 'object' && d !== null && (d as { reason?: unknown }).reason === 'missing_package'
 }
 
+/**
+ * Plain text for the refusals this route has its own words for, else null
+ * (ErrorBanner handles the rest). A 400 is the server's own sentence (the
+ * monthly cap); anything path- or key-like is dropped by safeDetail.
+ */
 export function tryErrorText(err: unknown, engineLabel: string): string | null {
   if (!(err instanceof ApiError)) return null
   switch (err.status) {
