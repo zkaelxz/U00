@@ -97,12 +97,29 @@ def _cut_traditional(text: str):
     return words
 
 
-def missing_word_segmenter(language: str):
-    """The package name a language's word cuts need but which isn't installed,
-    else None. Korean words are space-delimited and need none."""
+def missing_word_segmenters(language: str) -> list:
+    """Every package a language's word cuts need but which isn't installed.
+    Korean words are space-delimited and need none."""
     import importlib.util
     needs = {"zh": ("jieba",), "ja": ("sudachipy", "sudachidict_core")}.get(language, ())
-    return next((name for name in needs if importlib.util.find_spec(name) is None), None)
+    return [name for name in needs if importlib.util.find_spec(name) is None]
+
+
+_READER_PACKAGES = {"zh": ("jieba", "pypinyin"), "ja": ("sudachipy", "sudachidict_core", "pykakasi"),
+                    "ko": ("kiwipiepy",)}
+
+
+def missing_reader_packages(language: str) -> list:
+    """Every package the Reader's word readings need for a language that isn't
+    installed, so one note can name them all rather than one per failed run."""
+    import importlib.util
+    return [name for name in _READER_PACKAGES.get(language, ())
+            if importlib.util.find_spec(name) is None]
+
+
+def missing_word_segmenter(language: str):
+    """The first package missing_word_segmenters names, else None."""
+    return next(iter(missing_word_segmenters(language)), None)
 
 
 def missing_line_word_segmenter(lines, title_language: str):

@@ -14,11 +14,12 @@ import { ActionError, EditInTranslate } from './ReaderAction'
 import { useAction } from './useReaderAction'
 import { EnginePicker } from './ReaderEngine'
 
-export function WordsSection({ dramaId, page, chapterSize, engines, engine, onEngine, onLookedUp }: {
+export function WordsSection({ dramaId, page, chapterSize, engines, enginesOff, engine, onEngine, onLookedUp }: {
   dramaId: number
   page: number
   chapterSize: number
   engines: TranslateEngine[]
+  enginesOff?: TranslateEngine[]
   engine: string
   onEngine: (name: string) => void
   onLookedUp: () => void
@@ -43,7 +44,7 @@ export function WordsSection({ dramaId, page, chapterSize, engines, engine, onEn
         <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
         Use AI for words the dictionary doesn't have
       </label>
-      {useLlm && <EnginePicker engines={engines} engine={engine} onChange={onEngine} />}
+      {useLlm && <EnginePicker engines={engines} off={enginesOff} engine={engine} onChange={onEngine} />}
       <div className="actions">
         <button type="button" className="primary" onClick={() => void lookup.run()} disabled={lookup.busy || (useLlm && !engine)}>
           {lookup.busy ? 'Looking up…' : 'Look up words on this page'}

@@ -76,3 +76,9 @@ def test_lookup_route_is_503_without_splitter(isolated_db, no_segmenter):
     r = _client().post(f"/api/reader/dramas/{did}/lookup", json={"page": 1})
     assert r.status_code == 503, r.text
     assert "jieba" in r.text and "engine call failed" not in r.text
+
+
+def test_reader_note_names_every_missing_package(isolated_db, no_segmenter):
+    from services import reader_service
+    html_str = reader_service.get_reader_page(_drama("zh"), page=1, chapter_size=10)["html"]
+    assert "<code>jieba</code>" in html_str and "<code>pypinyin</code>" in html_str
