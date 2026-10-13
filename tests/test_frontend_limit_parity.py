@@ -27,9 +27,9 @@ def test_translate_text_cap_matches_the_schema():
 
 
 def test_min_silence_bounds_match_core():
-    import core
-    assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MIN") == core.MIN_SILENCE_MS_MIN
-    assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MAX") == core.MIN_SILENCE_MS_MAX
+    import whisper_transcribe
+    assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MIN") == whisper_transcribe.MIN_SILENCE_MS_MIN
+    assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MAX") == whisper_transcribe.MIN_SILENCE_MS_MAX
 
 
 def test_min_pause_bounds_and_default_match_core():

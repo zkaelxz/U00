@@ -239,7 +239,7 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
     expected_texts: with forced_align on, the line texts to align (the
     baseline's, so a run tests the aligner alone); None aligns the run's own."""
     sys.path.insert(0, str(REPO_ROOT))
-    import core
+    import line_alignment
     from services import transcribe_pipeline as ts
 
     use_gpu = bool(profile.get("use_gpu", True))
@@ -286,7 +286,7 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
         if profile.get("forced_align"):
             import forced_align
             texts = list(expected_texts) if expected_texts else [ln.zh for ln in lines]
-            user_lines = core.split_user_transcript("\n".join(texts))
+            user_lines = line_alignment.split_user_transcript("\n".join(texts))
             t1 = time.monotonic()
             lines = forced_align.align_with_qwen3(
                 clip, user_lines, outcome["segments"], language=language, use_gpu=use_gpu)

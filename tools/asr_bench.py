@@ -34,7 +34,8 @@ import portable
 portable.activate_portable_mode()
 
 import asr_backend
-import core
+import audio_extract
+import whisper_hallucination
 import db
 import memory_headroom
 import subtitle_parse
@@ -288,7 +289,7 @@ def cut_window(plan: Plan, out_path: str) -> float:
     """Cuts the window with the helper the app uses; returns the audio's length in seconds."""
     import subprocess
     try:
-        core.extract_audio_slice(plan.audio_path, plan.start, plan.end, out_path)
+        audio_extract.extract_audio_slice(plan.audio_path, plan.start, plan.end, out_path)
     except subprocess.TimeoutExpired:
         raise Refusal("Cutting the window's audio took too long.") from None
     except (subprocess.CalledProcessError, OSError):
@@ -326,13 +327,13 @@ def match(reference: list, lines: list) -> dict:
 
 
 def _key(text: str) -> str:
-    return core._stock_key(text)
+    return whisper_hallucination._stock_key(text)
 
 
 def count_loops(lines: list) -> int:
     """Lines holding a phrase repeated past the app's loop limits, plus runs of LOOP_RUN or
     more identical neighbouring lines (the app's own repeat filter already cut longer runs)."""
-    inside = sum(1 for ln in lines if core.collapse_phrase_loop(ln["text"]) != ln["text"])
+    inside = sum(1 for ln in lines if whisper_hallucination.collapse_phrase_loop(ln["text"]) != ln["text"])
     runs, i = 0, 0
     while i < len(lines):
         j = i + 1
@@ -344,7 +345,7 @@ def count_loops(lines: list) -> int:
 
 
 def count_stock_phrases(lines: list) -> int:
-    return sum(1 for ln in lines if any(rx.fullmatch(_key(ln["text"])) for rx in core._STOCK_PHRASE_RES))
+    return sum(1 for ln in lines if any(rx.fullmatch(_key(ln["text"])) for rx in whisper_hallucination._STOCK_PHRASE_RES))
 
 
 def count_in_silence(lines: list, spans) -> int | None:

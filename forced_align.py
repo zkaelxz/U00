@@ -50,10 +50,9 @@ import tempfile
 import qwen3_native
 import memory_headroom
 from whisper_models import ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname
-from core import (
-    Line, lines_from_char_times, align_transcript_to_timing,
-    extract_audio_slice as _extract_audio_slice, LANGUAGE_NAMES,
-)
+from core import Line, LANGUAGE_NAMES
+from line_alignment import lines_from_char_times, align_transcript_to_timing
+from audio_extract import extract_audio_slice as _extract_audio_slice
 
 
 # The model's own documented cap is ~5 minutes (300s), but timing was

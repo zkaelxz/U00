@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - Python < 3.11
     import sre_parse as _sre_parse
 
 import core as core_module
+import line_alignment
 import db
 import debug_view
 import raw_transcript
@@ -218,7 +219,7 @@ def get_coverage_report(drama_id: int) -> dict:
     for gaps) added next to its idx."""
     drama, lines = _load_drama_and_lines(drama_id)
     ids = {ln.idx: ln.id for ln in lines}
-    report = core_module.diagnose_line_coverage(
+    report = line_alignment.diagnose_line_coverage(
         lines, **review_thresholds.thresholds_for(drama).coverage_kwargs())
     out = {}
     for key, entries in report.items():

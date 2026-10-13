@@ -1,5 +1,6 @@
 """Review-check thresholds by content profile (review_thresholds)."""
 import core
+import line_alignment
 import review_thresholds as rt
 import subtitle_formats
 import translate_engines
@@ -66,13 +67,13 @@ class TestPacingThresholds:
 class TestCoverageThresholds:
     def test_gap_threshold(self):
         lines = [Line(idx=0, start=0, end=2, zh="你好", en="a"), Line(idx=1, start=10, end=12, zh="你好", en="b")]
-        assert len(core.diagnose_line_coverage(lines)["large_gaps"]) == 1
-        assert core.diagnose_line_coverage(lines, **rt.STREAMER_THRESHOLDS.coverage_kwargs())["large_gaps"] == []
+        assert len(line_alignment.diagnose_line_coverage(lines)["large_gaps"]) == 1
+        assert line_alignment.diagnose_line_coverage(lines, **rt.STREAMER_THRESHOLDS.coverage_kwargs())["large_gaps"] == []
 
     def test_long_line_threshold(self):
         lines = [Line(idx=0, start=0, end=15, zh="你好吗你好吗", en="a")]
-        assert len(core.diagnose_line_coverage(lines)["long_lines"]) == 1
-        assert core.diagnose_line_coverage(lines, **rt.STREAMER_THRESHOLDS.coverage_kwargs())["long_lines"] == []
+        assert len(line_alignment.diagnose_line_coverage(lines)["long_lines"]) == 1
+        assert line_alignment.diagnose_line_coverage(lines, **rt.STREAMER_THRESHOLDS.coverage_kwargs())["long_lines"] == []
 
 
 class TestReadingSpeedMode:

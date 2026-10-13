@@ -42,6 +42,7 @@ from typing import Optional
 
 import background_jobs
 import core as core_module
+import line_alignment
 import whisper_models
 from segment_splitting import encode_line_words, line_word_index, line_words, span_words
 import db
@@ -257,7 +258,7 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             words = (words + more if words and more and more[0]["start"] >= words[-1]["start"]
                      else None)
         for ln in rest:
-            head.zh = core_module._join_source(head.zh, ln.zh)
+            head.zh = line_alignment._join_source(head.zh, ln.zh)
             head.en = (head.en.rstrip() + " " + ln.en.strip()).strip()
             if len(head.zh) > MAX_LINE_TEXT_CHARS or len(head.en) > MAX_LINE_TEXT_CHARS:
                 raise InvalidInputError(

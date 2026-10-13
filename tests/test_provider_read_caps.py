@@ -7,7 +7,7 @@ import requests
 import urllib3
 
 import bulk_providers
-import core
+import whisper_transcribe
 import qa
 from engine_backends import gemini, llm_tasks, local, openai_compat, shared
 
@@ -235,20 +235,20 @@ class TestGroq:
     def _transcribe(self, tmp_path):
         audio = tmp_path / "a.wav"
         audio.write_bytes(b"RIFF")
-        return core.transcribe_with_groq(str(audio), "zh", SECRET)
+        return whisper_transcribe.transcribe_with_groq(str(audio), "zh", SECRET)
 
     def test_reply_over_cap(self, posts, tmp_path):
-        r = posts(StreamResp(headers={"Content-Length": str(core.GROQ_RESPONSE_MAX_BYTES + 1)}))
-        with pytest.raises(core.GroqTranscriptionError) as exc:
+        r = posts(StreamResp(headers={"Content-Length": str(whisper_transcribe.GROQ_RESPONSE_MAX_BYTES + 1)}))
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError) as exc:
             self._transcribe(tmp_path)
         assert SECRET not in str(exc.value) and "http" not in str(exc.value).lower()
         assert r.chunks_read == 0 and r.closed
         assert posts.calls[0]["timeout"] == 600
 
     def test_error_detail_is_capped_and_redacted(self, posts, tmp_path):
-        posts(StreamResp(f"bad key {SECRET}".encode() + b"y" * (core.GROQ_ERROR_MAX_BYTES + 1),
+        posts(StreamResp(f"bad key {SECRET}".encode() + b"y" * (whisper_transcribe.GROQ_ERROR_MAX_BYTES + 1),
                          status=401))
-        with pytest.raises(core.GroqTranscriptionError) as exc:
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError) as exc:
             self._transcribe(tmp_path)
         # Over the error cap the body is cut, not dropped: the status and a redacted head stay.
         assert str(exc.value).startswith("Groq API returned 401: ") and SECRET not in str(exc.value)
@@ -256,7 +256,7 @@ class TestGroq:
 
     def test_error_detail_kept_and_redacted(self, posts, tmp_path):
         posts(StreamResp(f"bad key {SECRET}".encode(), status=401))
-        with pytest.raises(core.GroqTranscriptionError) as exc:
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError) as exc:
             self._transcribe(tmp_path)
         assert "bad key" in str(exc.value) and SECRET not in str(exc.value)
 
@@ -357,8 +357,8 @@ class TestGroqErrorWording:
         monkeypatch.setattr(http, "pinned_get", boom)
         audio = tmp_path / "a.wav"
         audio.write_bytes(b"RIFF")
-        with pytest.raises(core.GroqTranscriptionError) as exc:
-            core.transcribe_with_groq(str(audio), "zh", SECRET)
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError) as exc:
+            whisper_transcribe.transcribe_with_groq(str(audio), "zh", SECRET)
         assert str(exc.value) == "Couldn't reach Groq's API."
 
     def test_a_200_that_is_not_json_is_not_called_too_large_or_too_slow(self, monkeypatch, tmp_path):
@@ -366,8 +366,8 @@ class TestGroqErrorWording:
         monkeypatch.setattr(http, "pinned_get", lambda *a, **k: StreamResp(b"<html>nope</html>"))
         audio = tmp_path / "a.wav"
         audio.write_bytes(b"RIFF")
-        with pytest.raises(core.GroqTranscriptionError) as exc:
-            core.transcribe_with_groq(str(audio), "zh", SECRET)
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError) as exc:
+            whisper_transcribe.transcribe_with_groq(str(audio), "zh", SECRET)
         assert str(exc.value) == "Groq's reply wasn't valid JSON."
 
 

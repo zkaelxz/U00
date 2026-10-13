@@ -334,7 +334,7 @@ class TestGenericNovelImport:
     def test_extracts_main_text_into_the_raw_novel_path(self, isolated_db, monkeypatch,
                                                         use_trafilatura):
         import builtins
-        import core
+        import novel_text
         if use_trafilatura:
             pytest.importorskip("trafilatura")
         else:
@@ -359,7 +359,7 @@ class TestGenericNovelImport:
         assert path == os.path.join(isolated_db.drama_dir(drama_id), "raw_novel_context.txt")
         with open(path, encoding="utf-8") as f:
             saved = f.read()
-        assert saved == core.load_novel_text_for_context(res.text.encode("utf-8"), "x.txt")
+        assert saved == novel_text.load_novel_text_for_context(res.text.encode("utf-8"), "x.txt")
 
     def test_fails_cleanly_without_main_content(self, isolated_db):
         u = "https://novel.invalid/empty"

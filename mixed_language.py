@@ -10,10 +10,9 @@ once with the title's source language.
 import re
 
 from sensitivity_preset import decode_kwargs
-from core import (
-    LANGUAGE_NAMES, LINE_LANGUAGES, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS,
-    filter_hallucinated_segments,
-)
+from core import LANGUAGE_NAMES, LINE_LANGUAGES
+from whisper_transcribe import WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS
+from whisper_hallucination import filter_hallucinated_segments
 from whisper_models import is_gpu_error, load_whisper_model, supports_word_timestamps
 from segment_splitting import tighten_to_words
 

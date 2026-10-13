@@ -11,6 +11,7 @@ import sqlite3
 import pytest
 
 import core
+import line_alignment
 import db
 from core import Line
 from services import lines_service, restructure_service
@@ -170,10 +171,10 @@ class TestSplitMerge:
 
     def test_merge_adjacent_short_lines_follows_the_same_rule(self):
         same = [Line(idx=i, start=i * 0.5, end=i * 0.5 + 0.4, zh="a", lang="ko") for i in range(2)]
-        assert [ln.lang for ln in core.merge_adjacent_short_lines(same)] == ["ko"]
+        assert [ln.lang for ln in line_alignment.merge_adjacent_short_lines(same)] == ["ko"]
         mixed = [Line(idx=0, start=0, end=0.4, zh="a", lang="ko"),
                  Line(idx=1, start=0.5, end=0.9, zh="b", lang="ja")]
-        assert [ln.lang for ln in core.merge_adjacent_short_lines(mixed)] == [None]
+        assert [ln.lang for ln in line_alignment.merge_adjacent_short_lines(mixed)] == [None]
 
     def test_resegment_pieces_keep_lang(self):
         import resegment

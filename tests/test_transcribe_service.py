@@ -20,6 +20,7 @@ import pytest
 
 import background_jobs
 import core as core_module
+import whisper_transcribe
 import qwen3_native
 import whisper_models
 import segment_splitting
@@ -768,8 +769,8 @@ class TestRunTranscribeAndApplyJob:
         _seed_running_job(job_id)
 
         def boom(*a, **k):
-            raise core_module.GroqTranscriptionError("bad key")
-        monkeypatch.setattr(core_module, "transcribe_with_groq", boom)
+            raise whisper_transcribe.GroqTranscriptionError("bad key")
+        monkeypatch.setattr(whisper_transcribe, "transcribe_with_groq", boom)
 
         transcribe_service._run_transcribe_and_apply_job(
             job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
@@ -1766,7 +1767,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     seen = []
     monkeypatch.setattr(transcribe_service.settings_service, "resolve_key",
                         lambda key, env_path=None: "gsk_env_key" if key == "groq" else None)
-    monkeypatch.setattr(core_module, "transcribe_with_groq",
+    monkeypatch.setattr(whisper_transcribe, "transcribe_with_groq",
                         lambda path, lang, key, progress_cb=None: seen.append(key) or [])
     monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
@@ -1796,7 +1797,7 @@ def test_the_run_uses_the_pause_saved_when_it_started(isolated_db, monkeypatch, 
 
     seen = []
     segments = [{"start": 0.0, "end": 1.0, "text": "你好"}]
-    monkeypatch.setattr(core_module, "transcribe_with_groq",
+    monkeypatch.setattr(whisper_transcribe, "transcribe_with_groq",
                         lambda path, lang, key, progress_cb=None: segments)
     monkeypatch.setattr(segment_splitting, "split_long_segments",
                         lambda segs, **kw: seen.append(kw) or segs)
