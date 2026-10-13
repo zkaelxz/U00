@@ -115,7 +115,7 @@ def test_a_running_job_means_restart_on_windows():
 
 
 def test_no_preview_means_restart_on_windows_and_now_elsewhere(monkeypatch):
-    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: (None, "pip could not work out the change (are you online?)."))
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: (None, "pip could not work out the change (are you online?)."))
     win = plan_mod.build_plan(["paddleocr"], windows=True)
     assert win["available"] is False and win["mode"] == "restart" and "online" in win["note"]
     assert plan_mod.build_plan(["paddleocr"], windows=False)["mode"] == "now"
@@ -124,19 +124,19 @@ def test_no_preview_means_restart_on_windows_and_now_elsewhere(monkeypatch):
 def test_running_now_without_a_preview_is_a_risk_to_accept(monkeypatch):
     """Off Windows an unpreviewed install would run now with no clash or
     downgrade check, so the owner has to accept that; on Windows it waits."""
-    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: (None, "this pip cannot preview an install."))
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: (None, "this pip cannot preview an install."))
     assert plan_mod.build_plan(["paddleocr"], windows=False)["needs_confirm"] == [plan_mod.UNCHECKED_RISK]
     assert plan_mod.build_plan(["paddleocr"], windows=True)["needs_confirm"] == []
 
 
 def test_pip_saying_the_packages_conflict_blocks_the_plan(monkeypatch):
-    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: (None, "conflict"))
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: (None, "conflict"))
     p = plan_mod.build_plan(["paddleocr"], windows=True)
     assert p["blocked"] and "can't be installed together" in p["blocked"][0]
 
 
 def test_unknown_keys_and_cuda_torch_are_blocked_before_pip_runs(monkeypatch):
-    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys: pytest.fail("pip must not run"))
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: pytest.fail("pip must not run"))
     assert plan_mod.build_plan(["evil"])["blocked"] == ["Unknown or non-installable package."]
     monkeypatch.setattr(install_registry.shutil, "which", lambda n: "/x/nvidia-smi")
     assert "GPU PyTorch" in plan_mod.build_plan(["torch"])["blocked"][0]

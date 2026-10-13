@@ -91,6 +91,17 @@ describe('InstallPlanPanel', () => {
     expect(html).not.toContain('Install now')
   })
 
+  it('offers no queue for an update that must wait for a restart', () => {
+    const html = renderToStaticMarkup(createElement(InstallPlanPanel, {
+      planned: { label: 'jieba 0.42.1', keys: ['jieba'], plan: plan({ mode: 'restart' }), installNow: noop, queueable: false },
+      onQueue: noop, onCancel: noop,
+    }))
+    expect(html).toContain('Restart Baihe, then try again')
+    expect(html).not.toContain('Install when I restart')
+    expect(html).not.toContain('Install now')
+    expect(html).toContain('Close')
+  })
+
   it('shows the OpenCV removal line the plan summary carries', () => {
     const swap = 'Remove opencv-python first: PaddleOCR needs opencv-contrib-python, and the two cannot share one \'cv2\' folder.'
     expect(panel(plan({ summary: [swap, 'Install paddleocr 3.2.0.'] }))).toContain('Remove opencv-python first')

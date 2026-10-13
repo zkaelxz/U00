@@ -5,7 +5,6 @@ import type {
   DiagnosticsCacheDeleteResult,
   DiagnosticsGpuTorchStatus,
   DiagnosticsInstallPresets,
-  DiagnosticsInstallResult,
   DiagnosticsLogTail,
   DiagnosticsModelCache,
   DiagnosticsModelFolder,
@@ -21,6 +20,7 @@ import type {
   RemoteIpCheckTestResult,
 } from '../types/diagnostics'
 import type { DiagnosticsJobStarted } from '../types/diagnosticsInstalls'
+import type { PendingInstallPlan } from '../types/pendingInstall'
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -74,10 +74,18 @@ export const installDependency = (name: string, f?: Fetch, acceptedRisks: string
   )
 
 // target: the version the user confirmed (the last update check's); 409 if that check changed.
-export const upgradeDependency = (name: string, target: string, f?: Fetch) =>
-  postJson<DiagnosticsInstallResult>(
-    `${BASE}/dependencies/${encodeURIComponent(name)}/upgrade`, { confirm: true, target }, pcOnlyFetch(f),
+// The same job, re-plan and acceptedRisks rule as installDependency, for the
+// target the last update check offered (409 once that check says otherwise).
+export const upgradeDependency = (name: string, target: string, f?: Fetch, acceptedRisks: string[] = []) =>
+  postJson<DiagnosticsJobStarted>(
+    `${BASE}/dependencies/${encodeURIComponent(name)}/upgrade`,
+    acceptedRisks.length ? { confirm: true, target, accept_risk: true, accepted_risks: acceptedRisks } : { confirm: true, target },
+    pcOnlyFetch(f),
   )
+
+// What that update would change (pip --dry-run of exactly its command), as planInstall.
+export const planUpgrade = (name: string, target: string, f?: Fetch) =>
+  postJson<PendingInstallPlan>(`${BASE}/dependencies/${encodeURIComponent(name)}/upgrade/plan`, { target }, pcOnlyFetch(f))
 
 // Asks PyPI on the server (only when called; cached there, and Update installs
 // exactly the target it reports).

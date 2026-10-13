@@ -14,13 +14,11 @@ the latter
 asks PyPI (a fixed https://pypi.org/pypi/<dist>/json per static dist name,
 with a timeout) only when called, and caches the answer for Upgrade.
 
-Writes are `local_only()` plus `confirm=true`: dependency upgrade (package
-names from the service's whitelist only; it takes the `target` the user
-confirmed and is 409 when the last update check no longer says so) and the
-library reset (also `confirm_text` "RESET"). Each refuses while any
-background job runs (409). Dependency install and the GPU PyTorch setup (a
-fixed variant; versions and index come from diagnostics.py's static table,
-never the request) are background jobs: see diagnostics_installs_routes.py.
+Writes are `local_only()` plus `confirm=true`: the library reset (also
+`confirm_text` "RESET"), refused while any background job runs (409).
+Dependency install and upgrade and the GPU PyTorch setup (a fixed variant;
+versions and index come from diagnostics.py's static table, never the
+request) are background jobs: see diagnostics_installs_routes.py.
 Deleting a cached model or model
 file (torch.hub checkpoints, audio-separator models) is also
 `local_only()` + `confirm=true`, refused while a job runs, and takes only a
@@ -35,8 +33,8 @@ from fastapi import APIRouter, Path, Query
 from api.auth import local_only, require_permission
 from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsCacheDeleteResult, DiagnosticsGpuTorchStatus,
-                         DiagnosticsInstallPresets, DiagnosticsInstallResult,
-                         DiagnosticsPackageUpdates, DiagnosticsUpgradeRequest,
+                         DiagnosticsInstallPresets,
+                         DiagnosticsPackageUpdates,
                          DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
@@ -120,15 +118,6 @@ def get_gpu_torch():
              responses={409: {"model": ErrorResponse}})
 def post_gpu_torch_check():
     return torch_svc.check_gpu_torch()
-
-
-@router.post("/dependencies/{package}/upgrade", dependencies=[local_only()],
-             response_model=DiagnosticsInstallResult,
-             summary="PC only: upgrade a whitelisted optional package (confirm=true)",
-             responses=_ERRS)
-def post_upgrade(body: DiagnosticsUpgradeRequest,
-                 package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
-    return packages_svc.upgrade_dependency(package, confirm=body.confirm, target=body.target)
 
 
 @router.post("/reset-library", dependencies=[local_only()],

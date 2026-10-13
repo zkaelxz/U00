@@ -286,13 +286,13 @@ def test_a_plan_that_needs_confirming_is_refused_with_the_servers_reason(isolate
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     monkeypatch.setattr(installs.sysconfig, "get_paths",
                         lambda: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
-    monkeypatch.setattr(installs.install_plan, "build_plan", lambda keys: {
+    monkeypatch.setattr(installs.install_plan, "build_plan", lambda keys, specs=None: {
         "blocked": [], "needs_confirm": ["This would downgrade numpy."], "mode": "now", "note": None})
 
     with pytest.raises(installs.PlanNeedsConfirm, match="downgrade numpy"):
         installs.start_cuda_runtime_install(confirm=True)
 
-    monkeypatch.setattr(installs.install_plan, "build_plan", lambda keys: {
+    monkeypatch.setattr(installs.install_plan, "build_plan", lambda keys, specs=None: {
         "blocked": [], "needs_confirm": [], "mode": "restart", "note": "Baihe is using numpy."})
     with pytest.raises(installs.InstallNeedsRestart, match="using numpy"):
         installs.start_cuda_runtime_install(confirm=True)

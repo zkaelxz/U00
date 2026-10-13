@@ -66,6 +66,7 @@ __all__ = [
     "DiagnosticsLogTail",
     "DiagnosticsSupportReport",
     "DiagnosticsAdminConfirm",
+    "DiagnosticsUpgradePlanRequest",
     "DiagnosticsUpgradeRequest",
     "DiagnosticsInstallResult",
     "DiagnosticsPackageInfo",
@@ -596,13 +597,21 @@ class DiagnosticsAdminConfirm(BaseModel):
     confirm: StrictBool = False
 
 
-class DiagnosticsUpgradeRequest(BaseModel):
-    """confirm=true, and the version the user confirmed (the last update
-    check's target); 409 when that check no longer says so."""
+class DiagnosticsUpgradePlanRequest(BaseModel):
+    """The version the user is about to confirm (the last update check's
+    target); 409 when that check no longer says so."""
     model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
     target: Optional[StrictStr] = Field(None, max_length=64,
                                         pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
+
+
+class DiagnosticsUpgradeRequest(DiagnosticsUpgradePlanRequest):
+    """confirm=true and the target, plus accept_risk/accepted_risks as for
+    DiagnosticsDependencyInstallRequest: the update is re-planned here."""
+    confirm: StrictBool = False
+    accept_risk: StrictBool = False
+    accepted_risks: List[Annotated[StrictStr, StringConstraints(max_length=500)]] = Field(
+        default_factory=list, max_length=20)
 
 
 class DiagnosticsInstallResult(BaseModel):

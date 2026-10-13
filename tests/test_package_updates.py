@@ -209,8 +209,9 @@ def test_upgrade_installs_exactly_the_checked_target(monkeypatch):
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(packages_svc, "stream_tree", fake)
     with pytest.raises(admin_svc.AdminActionStale):             # the confirmed version is required
-        packages_svc.upgrade_dependency("jieba", confirm=True)
-    assert packages_svc.upgrade_dependency("jieba", confirm=True, target="0.42.1")["ok"] is True
+        packages_svc.upgrade_specs("jieba")
+    specs = packages_svc.upgrade_specs("jieba", target="0.42.1")
+    assert packages_svc.upgrade_dependency("jieba", specs)["ok"] is True
     (cmd,) = seen
     assert "jieba==0.42.1" in cmd and "--upgrade" not in cmd
     assert cmd[cmd.index("-c") + 1].endswith("constraints.txt")
@@ -225,9 +226,9 @@ def test_upgrade_refused_when_the_check_found_nothing_allowed(monkeypatch):
     monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
     packages_svc.check_package_updates()
     with pytest.raises(admin_svc.AdminActionStale):
-        packages_svc.upgrade_dependency("pypdf", confirm=True, target="5.0.0")
+        packages_svc.upgrade_specs("pypdf", target="5.0.0")
     with pytest.raises(admin_svc.AdminActionRefused):
-        packages_svc.upgrade_dependency("pypdf", confirm=True)
+        packages_svc.upgrade_specs("pypdf")
 
 
 def test_presets_carry_installed_versions(monkeypatch):
@@ -267,10 +268,10 @@ def test_upgrade_refuses_a_target_the_check_no_longer_offers(monkeypatch):
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
     with pytest.raises(admin_svc.AdminActionStale):              # no check yet
-        packages_svc.upgrade_dependency("jieba", confirm=True, target="0.42.1")
+        packages_svc.upgrade_specs("jieba", target="0.42.1")
     packages_svc.check_package_updates()
     with pytest.raises(admin_svc.AdminActionStale):              # a newer check changed it
-        packages_svc.upgrade_dependency("jieba", confirm=True, target="0.42.0")
+        packages_svc.upgrade_specs("jieba", target="0.42.0")
 
 
 def test_install_and_torch_setup_clear_the_cached_check(monkeypatch):

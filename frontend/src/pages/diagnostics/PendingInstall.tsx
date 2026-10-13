@@ -11,6 +11,8 @@ export interface PlannedInstall {
   // The installer as it ran before queuing existed: used when nothing is in use.
   // acceptedRisks: the needs_confirm lines the owner accepted (else empty).
   installNow: (acceptedRisks: string[]) => void
+  // False for an update: the restart queue installs package keys, which for an installed package changes nothing.
+  queueable?: boolean
 }
 
 // A plain preview is only worth a click when something is replaced, risky,
@@ -55,6 +57,8 @@ export function InstallPlanPanel({ planned, queueing = false, onQueue, onCancel 
   const needsRisk = plan.needs_confirm.length > 0
   const gated = needsRisk && !understood
   const restart = plan.mode === 'restart'
+  // Nothing to start now and no queue to put it in: the owner restarts first.
+  const waitForRestart = restart && planned.queueable === false
   return (
     <div className="diag-stack" role="group" aria-label={`Before installing ${label}`} data-testid="install-plan">
       <h4>Before installing {label}</h4>
@@ -73,17 +77,19 @@ export function InstallPlanPanel({ planned, queueing = false, onQueue, onCancel 
         </>
       )}
       {restart && !refused && (
-        <p data-testid="install-plan-restart">Installs when you restart Baihe. {RESTART_HELP}</p>
+        <p data-testid="install-plan-restart">
+          {waitForRestart ? `Restart Baihe, then try again before anything uses it. ${RESTART_HELP}` : `Installs when you restart Baihe. ${RESTART_HELP}`}
+        </p>
       )}
       <div className="actions">
-        {!refused && (
+        {!refused && !waitForRestart && (
           <button type="button" className={buttonClass('primary', 'sm')} disabled={gated || (restart && queueing)}
             onClick={() => (restart ? onQueue(understood) : planned.installNow(understood ? plan.needs_confirm : []))}>
             {restart ? 'Install when I restart Baihe' : 'Install now'}
           </button>
         )}
         <button type="button" className={buttonClass('secondary', 'sm')} onClick={onCancel}>
-          {refused ? 'Close' : 'Cancel'}
+          {refused || waitForRestart ? 'Close' : 'Cancel'}
         </button>
       </div>
     </div>

@@ -40,14 +40,17 @@ export function useInstallPlan({ onChecking, onChecked, onQueued, onQueueFailed 
   const [queueing, setQueueing] = useState(false)
   const [planError, setPlanError] = useState<unknown>(null)
 
-  const withPlan = async (label: string, keys: string[], installNow: (acceptedRisks: string[]) => Promise<void>) => {
+  /** `ask`: a plan other than a plain install of `keys` (an update); such a plan can't be queued for the next start. */
+  const withPlan = async (label: string, keys: string[], installNow: (acceptedRisks: string[]) => Promise<void>,
+    ask?: () => Promise<PendingInstallPlan>) => {
     setPlanError(null)
     onChecking(label)
-    const preview = await previewInstall(keys)
+    const preview = await previewInstall(keys, ask ? () => ask() : planInstall)
     if (preview.kind === 'go') return installNow([])
     onChecked()
     if (preview.kind === 'failed') return setPlanError(preview.error)
-    setPlanned({ label, keys, plan: preview.plan, installNow: (accepted) => { setPlanned(null); void installNow(accepted) } })
+    setPlanned({ label, keys, plan: preview.plan, queueable: !ask,
+      installNow: (accepted) => { setPlanned(null); void installNow(accepted) } })
   }
 
   const queueForRestart = async (acceptRisk: boolean) => {
