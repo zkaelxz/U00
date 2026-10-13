@@ -1,18 +1,12 @@
 """Built-in language packs: file validation, selection, precedence, the prompt
 text for ja/ko/zh, the API, and that the CLI gets the same prompt as the app."""
 
-import argparse
-import contextlib
-import io
 import json
 
 import pytest
 
-import cli
-import cli_translate
 import language_packs as lp
-import translate_engines
-from core import Line
+from core import Line, lines_from_rows
 from services import language_pack_service as svc
 from services import workspace_job_service
 from services.service_errors import InvalidInputError, NotFoundError
@@ -359,13 +353,13 @@ class TestTitleChoice:
         did = _drama(isolated_db, "ja", ["先輩"])
         assert not any(p["enabled"] for p in svc.get_title_packs(did)["packs"])
         _, guidelines, _ = workspace_job_service.build_run_style_context(
-            did, isolated_db.get_drama(did), cli.lines_from_rows(isolated_db.load_lines(did)), "audio_drama")
+            did, isolated_db.get_drama(did), lines_from_rows(isolated_db.load_lines(did)), "audio_drama")
         assert "LANGUAGE PACK" not in guidelines
 
     def test_enabled_pack_reaches_the_prompt_and_user_term_wins(self, isolated_db):
         did = _drama(isolated_db, "ja", ["先輩", "お兄ちゃん"])
         svc.set_title_packs(did, {"packs": {"ja-address": None}})
-        d, lines = isolated_db.get_drama(did), cli.lines_from_rows(isolated_db.load_lines(did))
+        d, lines = isolated_db.get_drama(did), lines_from_rows(isolated_db.load_lines(did))
         _, g, _ = workspace_job_service.build_run_style_context(did, d, lines, "audio_drama")
         assert "先輩 → default: senpai" in g and "お兄ちゃん → default: onii-chan" in g
         isolated_db.upsert_glossary_term(d["series_id"], "先輩", "Senior Li")
@@ -436,20 +430,3 @@ class TestTitleChoice:
             svc.get_pack("nope")
         with pytest.raises(NotFoundError):
             svc.get_title_packs(9999)
-
-    def test_cli_translate_sends_the_same_prompt_as_the_app(self, isolated_db, monkeypatch):
-        did = _drama(isolated_db, "ko", ["오빠, 가자"])
-        svc.set_title_packs(did, {"packs": {"ko-address": None}})
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
-        seen = {}
-        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
-                            lambda lines, engine, **kw: (seen.update(kw), (lines, []))[1])
-        args = argparse.Namespace(id=did, status=None, engine="claude", api_key="k", model=None,
-                                  style_note=None, style_preset="audio_drama", locale="en-US",
-                                  force=False, ollama_num_ctx=None)
-        with contextlib.redirect_stdout(io.StringIO()):
-            cli_translate.cmd_translate(args)
-        lines = cli.lines_from_rows(isolated_db.load_lines(did))
-        _, expected, _ = workspace_job_service.build_run_style_context(
-            did, isolated_db.get_drama(did), lines, "audio_drama")
-        assert seen["style_guidelines"] == expected and "오빠 → default: oppa" in expected

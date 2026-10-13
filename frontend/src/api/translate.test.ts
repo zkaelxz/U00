@@ -23,6 +23,8 @@ describe('engine display helpers', () => {
   it('shows the short name in the closed select and the notes in the help', () => {
     expect(engineOptionLabel({ name: 'deepseek', key_configured: true })).toBe('DeepSeek')
     expect(engineOptionLabel({ name: 'openai', key_configured: false })).toBe('OpenAI (no key)')
+    expect(engineOptionLabel({ name: 'openai', key_configured: false, package_installed: false })).toBe('OpenAI (not installed)')
+    expect(engineOptionLabel({ name: 'ollama', key_configured: false })).toBe('Ollama (local) (not running)')
     expect(
       engineNotesHelp([
         { name: 'claude', label: 'Paid, cloud.' },

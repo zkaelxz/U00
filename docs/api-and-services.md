@@ -21,8 +21,8 @@ frontend/ (React)
 
 - A router function validates input through a Pydantic model, calls one
   service function and returns its result under a `response_model`.
-  Business rules belong in the service so the CLI (`cli.py`) and the API
-  share them.
+  Business rules belong in the service so every caller of the API
+  shares them.
 - A service never imports `fastapi`. It takes plain values (and a
   `principal` where visibility matters) and raises a `ServiceError`
   subclass for any failure it expects.
@@ -367,8 +367,7 @@ the client to follow.
    an API test with `TestClient` covering the happy path, a 404/422 case and,
    for auth-gated routes, 401/403 and a non-owner's 404. A route with a body
    cap needs an over-cap test. Run `tests/test_api_permissions.py` and
-   `tests/test_api_ownership.py`. Where the CLI has an equivalent, keep it
-   behaving the same.
+   `tests/test_api_ownership.py`.
 7. **Frontend client**: a typed function in the right `frontend/src/api/*.ts`
    (through `client.ts`), its types, and a `*.test.ts` beside it. A
    PC-only route goes through `pcOnly.ts`.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
+import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import {
   applyRetranscribeLine,
   getRetranscribeResult,
@@ -9,10 +10,12 @@ import {
 } from '../../../../api/workspace'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
-import { TERMINAL_STATUSES } from '../../../../types/jobs'
+import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeApplyResult, RetranscribeResult } from '../../../../types/workspace'
 import { canRetranscribe, jobIsForLine, retranscribeOutcome } from './retranscribeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
+import { NeedsInstall } from '../../../readiness/NeedsInstall'
+import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 
 // Parity audit B1 (R23): re-run Whisper on just this line's audio window, for
 // one misheard line without redoing the file. A GPU-queued job that writes
@@ -42,6 +45,7 @@ export function RetranscribeLine({
   onFocused?: () => void
 }) {
   const [available, setAvailable] = useState(false)
+  const need = useAudioToolNeed()
   const [error, setError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -70,6 +74,7 @@ export function RetranscribeLine({
     }
   }, [dramaId])
 
+  const anyJob = useCancelsAnyJob()
   const { job, error: pollError } = useJob(jobId, {
     runKey,
     onDone: (j) => {
@@ -126,15 +131,16 @@ export function RetranscribeLine({
   return (
     <div className="review-origin" data-testid="retranscribe-line">
       <div className="review-actions">
-        <button ref={startRef} type="button" onClick={start} disabled={busy || applying}>
+        <button ref={startRef} type="button" onClick={start} disabled={busy || applying || !!need} title={need?.reason}>
           {busy ? 'Re-transcribing…' : 'Re-transcribe this line'}
         </button>
-        {active && job && (
+        {active && job && offersCancel(job, anyJob) && (
           <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>
             Cancel
           </button>
         )}
       </div>
+      {need && <NeedsInstall need={need} />}
       <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />
       {active && job && (
         <p className="muted" data-testid="retranscribe-progress">

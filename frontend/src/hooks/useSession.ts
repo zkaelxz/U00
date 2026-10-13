@@ -57,6 +57,12 @@ export function menuUser(s: SessionState): AuthMe['user'] {
   return s.me.user
 }
 
+/** May cancel anyone's job: auth off, the PC owner, or an admin (at the PC or away). */
+export function cancelsAnyJob(s: SessionState): boolean {
+  if (s.status !== 'ready') return false
+  return !s.me.auth_enabled || !!s.me.user?.is_local_owner || !!menuUser(s)?.is_admin
+}
+
 export const REMOTE_ADMIN_NOTE = 'Changing other people’s items is done on the main PC.'
 
 /** An admin signed in on the household (internet) address. They see everyone's items, but the
@@ -155,6 +161,11 @@ export function useSession(): SessionState {
     void loadSession()
   }, [])
   return s
+}
+
+/** cancelsAnyJob for the current session. */
+export function useCancelsAnyJob(): boolean {
+  return cancelsAnyJob(useSession())
 }
 
 /** Test-only: forget the session and the cached /me load. */

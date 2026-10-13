@@ -18,6 +18,12 @@ from api.server import create_app
 from services import diagnostics_gaps_service as diag
 from services import extension_service as ext
 
+
+@pytest.fixture(autouse=True)
+def _no_ollama_probe(monkeypatch):
+    """GET /api/translate/engines checks whether Ollama answers; no test may make that network call."""
+    monkeypatch.setattr("services.translate_run_service.ollama_reachable", lambda: False)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVE = os.path.join(ROOT, "frontend", "e2e", "serve_seeded_api.py")
 

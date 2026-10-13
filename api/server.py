@@ -56,6 +56,7 @@ from api.routers import (
     diagnostics_installs_routes,
     pending_install_routes,
     diagnostics_routes,
+    setup_routes,
     real_model_check_routes,
     diarization_routes,
     source_suspect_routes,
@@ -216,8 +217,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app = FastAPI(
         title="Baihe Studio API",
         version=API_VERSION,
-        description="HTTP API for Baihe Studio. Shares its library with the "
-                    "CLI. Authentication is off by default (local use); "
+        description="HTTP API for Baihe Studio. "
+                    "Authentication is off by default (local use); "
                     "set BAIHE_API_AUTH=on to enforce sessions and permissions.",
         # With auth on, the interactive docs/schema would publish every route
         # to anyone who can reach the port, so they are not served.
@@ -267,6 +268,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(library_routes.router)
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)
+    app.include_router(setup_routes.router)
     app.include_router(jobs_routes.router)
     app.include_router(queue_routes.router)
     app.include_router(events_routes.router)

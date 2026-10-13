@@ -26,7 +26,8 @@ export type Route =
   | { name: 'admin' }
   // card: "#/diagnostics?card=ports" opens the tab that holds that card and scrolls to it;
   // tab alone opens that tab. install=transcription (Before-you-run) lands on the Packages card.
-  | { name: 'diagnostics'; tab?: DiagnosticsTab; card?: DiagnosticsCard }
+  // pkg: with card=packages, "&package=audio-separator" scrolls to that package and picks it.
+  | { name: 'diagnostics'; tab?: DiagnosticsTab; card?: DiagnosticsCard; pkg?: string }
   // compare: the raw "engine:model,engine:model" value of ?compare= (Model
   // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
   // tab: "#/benchmark?tab=runs" opens that tab (the last one used is remembered otherwise).
@@ -49,6 +50,9 @@ export type Route =
   | { name: 'manga' }
   | { name: 'manga-series'; source: string; series: string }
   | { name: 'manga-read'; source: string; series: string; chapter: string; page: number | null }
+
+// A package key from diagnostics.OPTIONAL_DEPENDENCIES ("audio-separator", "pyannote.audio"): nothing else is read from a link.
+const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 
 export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare'
 
@@ -76,7 +80,8 @@ export function parseRoute(hash: string): Route {
     const q = new URLSearchParams(qs)
     const card = q.get('card') ?? (q.get('install') === 'transcription' ? 'packages' : null)
     const tab = q.get('tab')
-    if (isDiagnosticsCard(card)) return { name: 'diagnostics', card }
+    const pkg = q.get('package')
+    if (isDiagnosticsCard(card)) return { name: 'diagnostics', card, ...(card === 'packages' && pkg && PACKAGE_KEY.test(pkg) ? { pkg } : {}) }
     return isDiagnosticsTab(tab) ? { name: 'diagnostics', tab } : { name: 'diagnostics' }
   }
   if (head === 'benchmark' && parts.length === 1) {
@@ -169,7 +174,10 @@ export function routeHref(r: Route): string {
     return r.page ? `${base}?page=${r.page}` : base
   }
   if (r.name === 'library-tools' && r.tab) return `#/library-tools?tab=${r.tab}`
-  if (r.name === 'diagnostics' && (r.card || r.tab)) return r.card ? `#/diagnostics?card=${r.card}` : `#/diagnostics?tab=${r.tab}`
+  if (r.name === 'diagnostics' && (r.card || r.tab)) {
+    if (!r.card) return `#/diagnostics?tab=${r.tab}`
+    return r.pkg && PACKAGE_KEY.test(r.pkg) ? `#/diagnostics?card=${r.card}&package=${encodeURIComponent(r.pkg)}` : `#/diagnostics?card=${r.card}`
+  }
   if (r.name === 'sources-manage') return manageHref(r.tab)
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`

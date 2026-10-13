@@ -1,0 +1,42 @@
+// Hand-written mirror of api/schemas/setup.py (GET /api/setup/readiness). Booleans only.
+export interface SetupReadiness {
+  faster_whisper: boolean
+  torch: boolean
+  torchaudio: boolean
+  uroman: boolean
+  soundfile: boolean
+  audio_separator: boolean
+  demucs: boolean
+  pyannote: boolean
+  onnxruntime: boolean
+  openai: boolean
+  anthropic: boolean
+  yt_dlp: boolean
+  pypdf: boolean
+  genanki: boolean
+  ebooklib: boolean
+  cv2: boolean
+  jieba: boolean
+  sudachi: boolean
+  kiwi: boolean
+  nagisa: boolean
+  soynlp: boolean
+  pytesseract: boolean
+  paddle_ocr: boolean
+  transformers_ok: boolean
+  qwen3_asr: boolean
+  ffmpeg: boolean
+  ffmpeg_libass: boolean
+  js_runtime: boolean
+  tesseract_program: boolean
+  gpu_found: boolean
+  torch_cuda: boolean
+  hf_token_configured: boolean
+  key_claude: boolean
+  key_deepseek: boolean
+  key_gemini: boolean
+  key_openai: boolean
+  key_groq: boolean
+  ollama_reachable: boolean
+  ollama_model_pulled: boolean
+}

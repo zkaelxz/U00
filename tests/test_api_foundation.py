@@ -28,6 +28,12 @@ import whisper_models
 from core import Line
 
 
+@pytest.fixture(autouse=True)
+def _no_ollama_probe(monkeypatch):
+    """GET /api/translate/engines checks whether Ollama answers; no test may make that network call."""
+    monkeypatch.setattr("services.translate_run_service.ollama_reachable", lambda: False)
+
+
 @pytest.fixture
 def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
