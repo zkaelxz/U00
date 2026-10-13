@@ -44,6 +44,43 @@ def update_drama(drama_id: int, **fields):
         conn.commit()
 
 
+# Fixed literal columns: the names are interpolated into the statement.
+BLANK_FILLABLE = ("title_zh", "author", "release_date")
+
+
+def fill_blank_fields(drama_id: int, values: dict) -> list:
+    """Writes each BLANK_FILLABLE value only where that column is still
+    blank, each in one conditional statement, so text typed between a read
+    and this write is never overwritten. Returns the columns written."""
+    filled = []
+    now = datetime.datetime.utcnow().isoformat()
+    with contextlib.closing(db.get_conn()) as conn:
+        for col in BLANK_FILLABLE:
+            value = values.get(col)
+            if not value:
+                continue
+            cur = conn.execute(
+                f"UPDATE dramas SET {col} = ?, updated_at = ? "
+                f"WHERE id = ? AND TRIM(COALESCE({col}, '')) = ''", (value, now, drama_id))
+            if cur.rowcount:
+                filled.append(col)
+        conn.commit()
+    return filled
+
+
+def assign_series_if_none(drama_id: int, series_id: int) -> bool:
+    """Puts a drama in a series only while it is in none, in one statement,
+    so a series chosen meanwhile elsewhere is never replaced. Clears the
+    drama's own private flag, as every series assignment does."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE dramas SET series_id = ?, is_private = 0, updated_at = ? "
+            "WHERE id = ? AND series_id IS NULL",
+            (series_id, datetime.datetime.utcnow().isoformat(), drama_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def set_status_if(drama_id: int, expected: str, new: str) -> bool:
     """Changes the status only while it is still `expected`, in one statement,
     so a concurrent dub or export that set a later status is never undone."""

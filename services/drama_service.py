@@ -89,7 +89,7 @@ def _check_text(name, value):
     return value.strip() if name in _STRIPPED else value
 
 
-def _check_release_date(value):
+def check_release_date(value):
     """"" clears (unknown); otherwise a real calendar date as YYYY-MM-DD.
     The regex is needed because fromisoformat also accepts other spellings
     (e.g. 20260101) that would sort wrongly as text."""
@@ -150,7 +150,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     for name, value in texts.items():
         texts[name] = _check_text(name, value)
     _check_media_type(media_type)
-    release_date = _check_release_date(release_date)
+    release_date = check_release_date(release_date)
 
     if series_id is not None and new_series_name is not None:
         raise InvalidInputError("Pass series_id or new_series_name, not both.")
@@ -274,7 +274,7 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
                 raise InvalidInputError(f"{key} must be true or false.")
             value = int(value)
         elif key == "release_date":
-            value = _check_release_date(value) or None  # "" clears to NULL
+            value = check_release_date(value) or None  # "" clears to NULL
         elif key == "media_type":
             _check_media_type(value)
         elif key == "publication_status":

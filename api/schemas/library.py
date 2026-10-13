@@ -270,13 +270,16 @@ class DramaCreateRequest(BaseModel):
     series_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
     new_series_name: Optional[str] = Field(default=None, max_length=300)
     preset_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
+    # "Link (optional)": stored as the title's source link; with no name
+    # typed, the server names the title from it.
+    source_url: str = Field(default="", max_length=2000)
 
     @model_validator(mode="after")
     def _needs_a_title(self):
         # Here, not in drama_service: the CLI and importers create untitled
         # rows through the service on purpose.
-        if not (self.title_en.strip() or self.title_zh.strip()):
-            raise ValueError("A title is required.")
+        if not (self.title_en.strip() or self.title_zh.strip() or self.source_url.strip()):
+            raise ValueError("A title or a link is required.")
         return self
 
 
@@ -325,6 +328,9 @@ class DramaPresetDefaults(BaseModel):
 
 class DramaCreateResult(DramaDetail):
     preset_defaults: Optional[DramaPresetDefaults] = None
+    # With a link and no name: "link" (the link's own title) or
+    # "placeholder" (the link's host, for the owner to rename).
+    title_from_link: Optional[Literal["link", "placeholder"]] = None
 
 
 class DramaDeleteResult(BaseModel):

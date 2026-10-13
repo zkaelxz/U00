@@ -125,7 +125,7 @@ def test_download_returns_path_and_title_and_reports_progress(child_env, isolate
     child_env.mode("ok")
     seen = []
     monkeypatch.setattr(background_jobs, "update_progress", lambda jid, f, m="": seen.append(f))
-    path, title = svc._download("urlmedia_1", URL, child_env.work, True)
+    path, title, _link = svc._download("urlmedia_1", URL, child_env.work, True)
     assert os.path.isfile(path) and title == "Clip"
     assert seen == [pytest.approx(0.05 + 0.8 * 0.5)]
 
@@ -239,7 +239,7 @@ def test_a_second_path_event_is_ignored_and_logged_once(child_env, monkeypatch):
     monkeypatch.setattr(svc.applog, "get_logger", lambda: _Log())
     monkeypatch.setattr(svc.os.path, "realpath", lambda p: p)
     monkeypatch.setattr(svc.os.path, "isfile", lambda p: True)
-    path, _ = svc._download("urlmedia_two", URL, "/work", True)
+    path, _, _ = svc._download("urlmedia_two", URL, "/work", True)
     assert path == first
     assert len(warnings) == 1 and "downloaded_" not in warnings[0]
 

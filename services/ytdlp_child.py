@@ -199,9 +199,34 @@ def live_fields(info) -> dict:
             "release_timestamp": start}
 
 
+_UPLOAD_DATE_CHARS = frozenset("0123456789")
+# Longer than any real video; a bigger number is a site bug, not a length.
+_DURATION_MAX = 10 * 24 * 60 * 60
+
+
+def link_fields(info) -> dict:
+    """What "Fill from link" reads, shape-checked and capped: never the
+    description, a format, a thumbnail or any other URL."""
+    info = info if isinstance(info, dict) else {}
+    fields = live_fields(info)
+    fields.pop("id")
+    upload = info.get("upload_date")
+    if not (isinstance(upload, str) and len(upload) == 8 and set(upload) <= _UPLOAD_DATE_CHARS):
+        upload = ""
+    duration = info.get("duration")
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)) \
+            or not math.isfinite(duration) or not 0 <= duration <= _DURATION_MAX:
+        duration = None
+    fields.update(upload_date=upload, duration=duration,
+                  has_thumbnail=bool(info.get("thumbnail") or info.get("thumbnails")),
+                  is_playlist=info.get("_type") in ("playlist", "multi_video"))
+    return fields
+
+
 def run_probe_worker(spec: dict, emit) -> None:
-    """Child side of the live check: emits {"live": live_fields(info)} or
-    {"error": text}. Cookies only as the parent passes them (the saved
+    """Child side of a metadata-only read: emits {"live": live_fields(info)}
+    (mode "live_status") or {"link": link_fields(info)} (mode "link_info"),
+    or {"error": text}. Cookies only as the parent passes them (the saved
     Settings ones, for the PC owner's own follows)."""
     try:
         import yt_dlp
@@ -219,7 +244,10 @@ def run_probe_worker(spec: dict, emit) -> None:
     except Exception as exc:
         emit({"error": str(exc.__cause__ or exc)[:2000]})
         return
-    emit({"live": live_fields(info)})
+    if spec.get("mode") == "link_info":
+        emit({"link": link_fields(info)})
+    else:
+        emit({"live": live_fields(info)})
 
 
 def _part(spec):
@@ -232,7 +260,8 @@ def _part(spec):
 
 def run_worker(spec: dict, emit) -> None:
     """Child side. Emits {"progress": f}, {"rejected": refusal_detail},
-    {"estimate": bytes, "seconds": n}, {"title": t}, then {"path": p} or {"error": text}. The error text may hold the link or
+    {"estimate": bytes, "seconds": n}, {"link": link_fields}, {"title": t},
+    then {"path": p} or {"error": text}. The error text may hold the link or
     a path; the parent only pattern-matches it and never shows it."""
     import video_download
 
@@ -259,6 +288,7 @@ def run_worker(spec: dict, emit) -> None:
                     info, audio_only, detail["duration"]) or 0
             emit({"rejected": detail})
             return "Refused."
+        emit({"link": link_fields(info)})
         # The parent checks free disk against the estimate before any byte is
         # fetched, and lengthens its wall clock for a clip past the normal cap.
         if max_seconds > MAX_DURATION_SECONDS:
@@ -295,18 +325,33 @@ def main(argv=None) -> int:
         sys.stdout.write("\n" + prefix + json.dumps(event) + "\n")
         sys.stdout.flush()
 
-    (run_probe_worker if spec.get("mode") == "live_status" else run_worker)(spec, emit_line)
+    probe = spec.get("mode") in ("live_status", "link_info")
+    (run_probe_worker if probe else run_worker)(spec, emit_line)
     return 0
 
 
 _EVENT_KEYS = frozenset({"progress", "path", "title", "error", "missing", "rejected", "live",
-                         "estimate", "seconds"})
+                         "estimate", "seconds", "link"})
+_LINK_TEXT_KEYS = ("status", "title", "channel", "upload_date")
+_LINK_KEYS = frozenset(_LINK_TEXT_KEYS + ("release_timestamp", "duration", "has_thumbnail",
+                                          "is_playlist"))
 _REFUSAL_REASONS = frozenset({"playlist", "live", "upcoming", "too_long", "part_outside"})
 _REFUSAL_KEYS = frozenset({"reason", "duration", "limit", "estimated_bytes"})
 
 
 def _count(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _valid_link(link) -> bool:
+    def number(value):
+        return value is None or (isinstance(value, (int, float)) and not isinstance(value, bool)
+                                 and math.isfinite(value))
+    return (isinstance(link, dict) and set(link) == _LINK_KEYS
+            and all(isinstance(link[k], str) and len(link[k]) <= _TEXT_MAX
+                    for k in _LINK_TEXT_KEYS)
+            and number(link["release_timestamp"]) and number(link["duration"])
+            and isinstance(link["has_thumbnail"], bool) and isinstance(link["is_playlist"], bool))
 
 
 def _valid_event(event) -> bool:
@@ -320,6 +365,8 @@ def _valid_event(event) -> bool:
                                 or not isinstance(progress, (int, float))):
         return False
     if "live" in event and not isinstance(event["live"], dict):
+        return False
+    if "link" in event and not _valid_link(event["link"]):
         return False
     if any(k in event and not _count(event[k]) for k in ("estimate", "seconds")):
         return False
@@ -385,9 +432,11 @@ def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_ch
             pass
 
 
-def run_live_probe(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_chars: int):
-    """run_download for a live-status check (run_probe_worker in the child)."""
-    return run_download(tmp_dir, dict(spec, mode="live_status"), timeout, cancel,
+def run_live_probe(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_chars: int,
+                   mode: str = "live_status"):
+    """run_download for a metadata-only read (run_probe_worker in the
+    child); `mode` "link_info" for "Fill from link"."""
+    return run_download(tmp_dir, dict(spec, mode=mode), timeout, cancel,
                         max_output_chars=max_output_chars)
 
 

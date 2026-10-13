@@ -62,7 +62,7 @@ class FakeYDL:
                 "duration": s.get("duration", 60), "is_live": s.get("is_live", False)}
         if s.get("_type"):
             info["_type"] = s["_type"]
-        for key in ("live_status", "formats"):
+        for key in ("live_status", "formats", "channel", "upload_date"):
             if s.get(key):
                 info[key] = s[key]
         if s.get("before"):
@@ -191,6 +191,19 @@ def test_audio_only_download(client, env):
     assert j.status_code == 200
     assert SECRET not in j.text and "video.example" not in j.text and "Clip" not in j.text
     assert jobs_service.project_result(st["result"]) == {}
+
+
+def test_a_download_fills_blank_author_and_date_from_the_video(client, env):
+    FakeYDL.script = {"channel": "Some Channel", "upload_date": "20260301"}
+    typed = _drama(title_en="Mine", author="Typed")
+    blank = _drama()
+    for did in (typed, blank):
+        st = _run(client, did)
+        assert st["status"] == "done", st
+    assert (db.get_drama(typed)["author"], db.get_drama(typed)["release_date"]) == \
+        ("Typed", "2026-03-01")
+    assert (db.get_drama(blank)["author"], db.get_drama(blank)["release_date"]) == \
+        ("Some Channel", "2026-03-01")
 
 
 def test_video_download_extracts_audio_and_keeps_title(client, env):
