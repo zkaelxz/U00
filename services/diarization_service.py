@@ -17,6 +17,7 @@ from typing import Optional
 import background_jobs
 from jobs import job_launch
 import db
+from lib.safe_paths import plain_file_in
 import diagnostics
 import diarize
 from services import (drama_service, ownership_service, run_settings_service, settings_service,
@@ -32,8 +33,8 @@ def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
     audio_filename = drama.get("audio_filename")
     if not audio_filename:
         return None
-    path = os.path.join(db.drama_dir(drama_id), audio_filename)
-    return path if os.path.exists(path) else None
+    path = plain_file_in(db.drama_dir(drama_id), audio_filename)
+    return path if path and os.path.exists(path) else None
 
 
 def speaker_time_summary(drama_id: int) -> Optional[dict]:

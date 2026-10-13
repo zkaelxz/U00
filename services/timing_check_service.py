@@ -28,6 +28,7 @@ from typing import Optional
 import background_jobs
 from jobs import job_launch
 import db
+from lib.safe_paths import plain_file_in
 import timing_drift
 from services import speech_coverage_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -166,7 +167,7 @@ def note_dismissed(drama_id: int, line_id: int) -> None:
 
 def _audio_path(drama_id: int, drama: dict) -> Optional[str]:
     name = drama.get("audio_filename")
-    path = os.path.join(db.drama_dir(drama_id), name) if name else None
+    path = plain_file_in(db.drama_dir(drama_id), name)
     return path if path and os.path.exists(path) else None
 
 
