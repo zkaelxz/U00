@@ -157,3 +157,22 @@ describe('frost shape and primary button', () => {
     expect(frost).toContain('.btn.btn-primary:hover:not(:disabled) { filter: brightness(0.9); }')
   })
 })
+
+describe('frost wash and cards', () => {
+  const frost = readFileSync(new URL('./frost.css', import.meta.url), 'utf8')
+
+  it('paints two off-centre blobs at 60%, not four corner ones', () => {
+    const body = frost.slice(frost.indexOf('\nbody {'), frost.indexOf('/* Panels'))
+    expect(body.match(/radial-gradient/g)).toHaveLength(2)
+    expect(body.match(/60%, transparent\)/g)).toHaveLength(2)
+    expect(frost).not.toMatch(/--wash-[34]/)
+  })
+
+  it('draws a card as a top hairline inside the same 1px border box, without blur', () => {
+    const card = frost.match(/\n\.card \{([^}]*)\}/)?.[1] ?? ''
+    expect(card).toContain('border: 1px solid transparent')
+    expect(card).toContain('border-top-color: var(--border)')
+    expect(card).toContain('background: none')
+    expect(frost.slice(frost.indexOf('@supports (backdrop-filter: blur(1px)) {'))).not.toMatch(/^\s*\.card,/m)
+  })
+})
