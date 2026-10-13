@@ -263,7 +263,6 @@ export default function LibraryToolsPage() {
   const totalCost = costs.data?.items.reduce((sum, c) => sum + c.estimated_cost_usd, 0)
   return (
     <PageShell
-      as="main"
       width="standard"
       title="Library tools"
       className="library-page library-tools-page"

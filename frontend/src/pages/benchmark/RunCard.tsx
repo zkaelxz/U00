@@ -235,7 +235,8 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
         </p>
       )}
 
-      {shown && <EstimateBlock est={shown} stage={st} />}
+      {/* The region stays mounted so a screen reader announces the result when it arrives. */}
+      <div role="status">{shown && <EstimateBlock est={shown} stage={st} />}</div>
 
       <div className="actions bench-run-actions">
         <button
@@ -421,7 +422,7 @@ export function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: B
     ? `This run is estimated at ${formatCost(est.estimated_cost_usd)}, more than what's left of this month's cap.`
     : null)
   return (
-    <div className="bench-estimate" data-testid="bench-estimate" aria-live="polite">
+    <div className="bench-estimate" data-testid="bench-estimate">
       <p>
         <strong>Estimate for {est.case_count} {est.case_count === 1 ? 'case' : 'cases'}:</strong>{' '}
         <span className="num">{formatCost(est.estimated_cost_usd)}</span>

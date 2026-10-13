@@ -116,9 +116,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           <span aria-hidden="true">‹</span>
           <span className="ws-back-text" aria-hidden="true">Library</span>
         </ButtonLink>
-        <h2 data-testid="drama-title" title={title}>
+        <h1 data-testid="drama-title" title={title}>
           {title}
-        </h2>
+        </h1>
         <div className="ws-badges">
           {drama?.status && <Badge kind="status" value={drama.status} />}
           {drama?.media_type && (

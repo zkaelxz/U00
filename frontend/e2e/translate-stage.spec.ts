@@ -41,6 +41,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(page.getByTestId('estimate').or(page.getByRole('alert'))).toBeVisible()
+  await expect(page.locator('[aria-live="polite"]').filter({ has: page.getByTestId('estimate') })).toBeVisible()
 
   await run.getByText('More options', { exact: true }).click()
 

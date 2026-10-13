@@ -34,6 +34,7 @@ import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
+import { useDocumentTitle } from './nav/documentTitle'
 import { useHiddenNav } from './nav/hiddenNav'
 import { MenuButton, NavDrawer } from './nav/NavDrawer'
 import { PhoneBar } from './nav/PhoneBar'
@@ -146,6 +147,12 @@ function SignInOverlay({ configured }: { configured: boolean }) {
   )
 }
 
+// The hash is the router's, so a plain #main-content link would navigate away; focus the landmark instead.
+function skipToContent(e: React.MouseEvent) {
+  e.preventDefault()
+  document.getElementById('main-content')?.focus()
+}
+
 // Routes that render inside PageShell; the rest (a title's workspace, the readers) manage their own layout and
 // are held to the 1200px column by .app-bounded.
 const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'manga-read'])
@@ -159,7 +166,10 @@ export default function App() {
   const [hidden] = useHiddenNav(session)
   const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`)
   const headerRef = useHeaderHeight()
+  const mainRef = useRef<HTMLElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+
+  useDocumentTitle(mainRef, `${view}:${route.name}`)
 
   if (view === 'connecting') {
     return (
@@ -239,6 +249,7 @@ export default function App() {
   return (
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
+      <a className="skip-link" href="#main-content" onClick={skipToContent}>Skip to content</a>
       <div className={wide ? 'app-shell has-rail' : phoneBar ? 'app-shell has-phone-bar' : 'app-shell'}>
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
@@ -247,15 +258,16 @@ export default function App() {
           ) : (
             <header className="app-header" ref={headerRef}>
               {!phoneBar && <MenuButton open={menuOpen} onOpen={() => setMenuOpen(true)} />}
-              <h1>
-                <a href={routeHref({ name: 'library' })}>
-                  Baihe<span className="title-rest"> Studio</span>
+              <p className="app-brand">
+                <a href={routeHref({ name: 'library' })} aria-label="Baihe Studio: Library">
+                  <span aria-hidden="true" className="rail-brand-mark">B</span>
+                  <span className="brand-word" aria-hidden="true">Baihe<span className="title-rest"> Studio</span></span>
                 </a>
-              </h1>
+              </p>
               {headerEnd}
             </header>
           )}
-          {content}
+          <main id="main-content" ref={mainRef} tabIndex={-1} className="app-content">{content}</main>
         </div>
         {!wide && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} />}
         {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}

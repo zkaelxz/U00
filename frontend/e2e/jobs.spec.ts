@@ -16,7 +16,7 @@ const error = (status: number, message: string) => ({ status, json: { error: { c
 test('running jobs first, with title and stage links, a progress bar and live duration', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/jobs')
-  await expect(page.getByRole('heading', { name: 'Jobs', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Jobs', level: 1 })).toBeVisible()
   // Active is the default while anything is active: the running job, then the queued one.
   await expect(rows(page)).toHaveCount(2)
   await expect(rows(page).nth(0)).toContainText('Translate Signal')
@@ -149,7 +149,7 @@ test('error on the first read: a banner, not a blank page', async ({ page }) => 
   await page.route((u) => u.pathname === '/api/jobs', (route) => route.fulfill(error(500, 'boom')))
   await page.goto('/#/jobs')
   await expect(page.getByRole('alert')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Jobs', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Jobs', level: 1 })).toBeVisible()
 })
 
 test('404: an older server says it does not list jobs, and the header button hides', async ({ page }) => {

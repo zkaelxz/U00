@@ -272,7 +272,7 @@ test('People and access: first card open the first time, the rest closed and rem
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [] } }))
   await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: false } }))
   await page.goto('/#/admin')
-  await expect(page.getByRole('heading', { name: 'People and access', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
   await expect(navLink(page, 'People and access')).toBeVisible()
   const cards = page.locator('details.section')
   await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Public address check'])

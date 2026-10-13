@@ -22,6 +22,8 @@ async function runOnce(page: Page, label: string, promptVersion: string) {
   await expect(card.getByRole('button', { name: 'Start run' })).toBeDisabled()
   await card.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(card.getByTestId('bench-estimate')).toContainText('Estimate for 3 cases: $0.00')
+  // Announced to a screen reader: the result lands inside a status region that was already on the page.
+  await expect(card.getByRole('status').filter({ hasText: 'Estimate for 3 cases' })).toBeVisible()
   await card.getByRole('button', { name: 'Start run' }).click()
   await openBenchTab(page, 'Recent runs')
   const runs = page.getByRole('region', { name: 'Recent runs' })

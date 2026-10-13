@@ -279,7 +279,7 @@ test('header bell: unread count, the list, and opening marks them seen', async (
   await expect(panel.getByRole('listitem')).toHaveCount(3)
   await expect(panel.locator('.notify-new')).toHaveCount(0)
   // A click elsewhere closes it.
-  await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).click()
+  await page.locator('.app-brand, .rail-brand').click()
   await expect(panel).toHaveCount(0)
 
   // A new event shows up when the window regains focus.

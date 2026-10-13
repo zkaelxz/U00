@@ -13,7 +13,7 @@
 
 /* Header: one row -- back, title, badges, Read on the right. */
 .workspace-header { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
-.workspace-header h2 {
+.workspace-header h1 {
   margin: 0;
   font-size: var(--text-xl);
   min-width: 0;
@@ -114,7 +114,7 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .ws-actions { margin: var(--space-2) 0; justify-content: flex-end; }
   /* Kept to their own width: stretched full width, Read outranked each stage's own primary action. */
   .workspace .ws-actions a.btn, .workspace .ws-actions a.ws-source-add { flex: 0 1 auto; justify-content: center; min-height: 44px; }
-  .workspace-header h2 { flex: 1 1 auto; font-size: var(--text-lg); }
+  .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }
 

@@ -17,7 +17,7 @@ test('the left menu opens the page; it keeps Before you run, Options and the pri
   await page.goto('/')
   await navLink(page, 'Make subtitles').click()
   await expect(page).toHaveURL(/#\/make-subtitles$/)
-  await expect(page.getByRole('heading', { name: 'Make subtitles', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Make subtitles', level: 1 })).toBeVisible()
   const c = page.getByRole('region', { name: 'Make subtitles' })
   await expect(c.getByLabel('Audio or video file')).toBeVisible()
   await expect(c.getByLabel('Source language')).toBeVisible()

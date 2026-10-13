@@ -18,7 +18,7 @@ test('phone header: Report a problem is a 44px icon button on the title row', as
   const report = page.getByRole('button', { name: 'Report a problem' })
   await expect(report).toBeVisible()
   const box = (await report.boundingBox())!
-  const title = (await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).boundingBox())!
+  const title = (await page.locator('.app-brand, .rail-brand').boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.width).toBeLessThan(60)
   expect(box.height).toBeGreaterThanOrEqual(44)

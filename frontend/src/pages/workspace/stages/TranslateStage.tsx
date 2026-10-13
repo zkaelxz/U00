@@ -485,7 +485,8 @@ function RunPanel({
         )}
         <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
         <GlossaryRetranslateAction inline f={f} busy={busy} onStarted={onStarted} />
-        {estimate && <EstimateView e={estimate} />}
+        {/* aria-live rather than role=status: the stage already has one status line, and this region must stay mounted to be announced. */}
+        <span aria-live="polite">{estimate && <EstimateView e={estimate} />}</span>
       </div>
       {f.force && (
         <label className="inline stage-ack">

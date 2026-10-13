@@ -322,7 +322,6 @@ export default function SeriesPage({ id, tab: initialTab }: { id: number; tab?: 
 
   return (
     <PageShell
-      as="main"
       width="standard"
       className="series-page"
       title={data?.name ?? 'Series'}

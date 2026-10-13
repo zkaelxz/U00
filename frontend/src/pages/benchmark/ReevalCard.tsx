@@ -452,7 +452,7 @@ function RunBlock({ overview, options, remote, running, onStarted }: {
           </ButtonLink>
         </p>
       )}
-      {shown && <EstimateBlock est={shown} stage="translation" />}
+      <div role="status">{shown && <EstimateBlock est={shown} stage="translation" />}</div>
       <div className="actions">
         <button type="button" className={buttonClass('secondary')} disabled={noCandidates || busy !== null} onClick={() => void runEstimate()}>
           {busy === 'estimate' ? 'Estimating…' : 'Estimate cost'}

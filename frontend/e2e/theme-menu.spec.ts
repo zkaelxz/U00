@@ -97,7 +97,7 @@ test('the menu is keyboard operable and closes with Escape', async ({ page }) =>
   // A click elsewhere closes it too.
   await btn.click()
   await expect(menu).toBeVisible()
-  await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).click()
+  await page.locator('.app-brand, .rail-brand').click()
   await expect(menu).toHaveCount(0)
 })
 
