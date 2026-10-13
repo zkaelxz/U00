@@ -120,7 +120,7 @@ body {
 }
 
 /* A fold that sits on the page is a panel like the rest; one inside a card, sheet or list is only a row of it. */
-details.section { background: var(--glass); border-color: var(--glass-edge); border-radius: 22px; padding: var(--space-3) var(--space-4); }
+details.section { background: var(--glass); border-color: var(--glass-edge); border-radius: 22px; padding-inline: var(--space-4); }
 .card details.section, details.section details.section, .tools-stack details.section, .discover-panel details.section, .panel details.section, dialog.sheet details.section { background: none; backdrop-filter: none; }
 
 /* One control shape: pill with a visible edge, so a white button never vanishes on a white panel. */

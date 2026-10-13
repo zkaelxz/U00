@@ -36,23 +36,26 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
 })
 
 for (const width of [360, 390]) {
-  test(`phone ${width}: the six tabs are one row of 44px buttons that scrolls inside the bar, and search spans the width`, async ({ page }) => {
+  test(`phone ${width}: the six tabs are 44px buttons that wrap between words, and search spans the width`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/settings')
     const tabs = page.getByRole('tab')
     await expect(tabs).toHaveCount(6)
-    const boxes = await Promise.all((await tabs.all()).map((t) => t.boundingBox()))
-    for (const b of boxes) expect(b!.height).toBeGreaterThanOrEqual(44)
-    expect(new Set(boxes.map((b) => Math.round(b!.y))).size).toBe(1) // one row, however narrow
-    const search = await page.getByRole('searchbox', { name: 'Search settings' }).boundingBox()
     const list = await page.getByRole('tablist').boundingBox()
+    for (const t of await tabs.all()) {
+      const b = (await t.boundingBox())!
+      expect(b.height).toBeGreaterThanOrEqual(44)
+      // All six are on screen: a row that wraps instead of scrolling hides none of them.
+      expect(b.x).toBeGreaterThanOrEqual(list!.x - 1)
+      expect(b.x + b.width).toBeLessThanOrEqual(list!.x + list!.width + 1)
+      // A label breaks between words, never inside one: it is no wider than its own content.
+      expect(await t.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    }
+    const search = await page.getByRole('searchbox', { name: 'Search settings' }).boundingBox()
     expect(Math.abs(search!.width - list!.width)).toBeLessThan(2)
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    // The row is wider than the screen, so it scrolls inside itself; a tab off the edge is reachable.
-    expect(await page.evaluate(() => { const l = document.querySelector('[role=tablist]')!; return l.scrollWidth > l.clientWidth })).toBe(true)
+    expect(await page.evaluate(() => { const l = document.querySelector('[role=tablist]')!; return l.scrollWidth <= l.clientWidth + 1 })).toBe(true)
     await page.getByRole('tab', { name: 'System', exact: true }).click()
     await expect(page.getByRole('tab', { name: 'System', exact: true })).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByRole('tab', { name: 'System', exact: true })).toBeInViewport()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }
