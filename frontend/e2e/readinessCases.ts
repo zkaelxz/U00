@@ -28,6 +28,22 @@ async function setup(page: Page, readiness: Record<string, boolean>, config: Rec
       json: { ...(await real.json()), transcript_mode: 'whisper', asr_backend_choice: 'whisper', whisper_installed: readiness.faster_whisper, ...config },
     })
   })
+  // The Whisper row of the card reads the install presets: they must agree with readiness, as they do on a real PC.
+  const whisper = readiness.faster_whisper
+  await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({
+    json: {
+      tasks: [{
+        id: 'transcribe', group: 'Audio', label: 'Transcribe speech (Whisper)', help: 'Turn audio into timed lines.',
+        packages: ['faster_whisper'], installed_count: whisper ? 1 : 0, to_install: whisper ? [] : ['faster_whisper'], approx_mb: 80,
+      }],
+      packages: {
+        faster_whisper: {
+          name: 'faster_whisper', dist: 'faster_whisper', installed: whisper, installable: !whisper, powers: '', approx_mb: 80,
+          pulls_torch: false, source_url: 'https://pypi.org/project/faster_whisper/', not_offered_reason: null, warning: null,
+        },
+      },
+    },
+  }))
   await page.route('**/api/media/dramas/1/status', (r) =>
     r.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: false, upload_max_mb: 500 } }))
   await page.route('**/api/metadata/dramas/1/analyze-media', (r) =>
