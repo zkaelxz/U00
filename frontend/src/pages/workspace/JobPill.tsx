@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
-import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../../hooks/useSession'
-import { offersCancel, type JobRecord } from '../../types/jobs'
+import { cancelsAnyJob, useSession } from '../../hooks/useSession'
+import { CANCEL_RULE_NOTE, offersCancel, type JobRecord } from '../../types/jobs'
 import { JobPanel } from './stages/JobPanel'
 import { pillText, type PillFlash } from './jobPillState'
 import { useDramaJobs } from './useDramaJobs'
@@ -12,7 +12,7 @@ const FLASH_TEXT: Record<PillFlash, string> = { done: '✓ Done', failed: 'Faile
 // popover reuses the stage Job panel; the server still decides who may cancel.
 export function JobPill({ dramaId, onFinished }: { dramaId: number; onFinished: () => void }) {
   const { active, flash, hidden, reload } = useDramaJobs(dramaId, onFinished)
-  const remoteAdmin = isRemoteAdmin(useSession())
+  const anyJob = cancelsAnyJob(useSession())
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -50,7 +50,7 @@ export function JobPill({ dramaId, onFinished }: { dramaId: number; onFinished: 
       </span>
     )
   }
-  const noCancel = active.some((j) => !offersCancel(j, remoteAdmin))
+  const noCancel = active.some((j) => !offersCancel(j, anyJob))
 
   return (
     <div className="job-pill-wrap" ref={wrap}>
@@ -71,9 +71,9 @@ export function JobPill({ dramaId, onFinished }: { dramaId: number; onFinished: 
         <div className="job-pill-panel" id={panelId} role="region" aria-label="Running on this title">
           <p className="job-pill-title">Running on this title</p>
           {active.map((j: JobRecord) => (
-            <JobPanel key={j.job_id} job={j} pollError={null} canCancel={offersCancel(j, remoteAdmin)} onCancelled={reload} />
+            <JobPanel key={j.job_id} job={j} pollError={null} canCancel={offersCancel(j, anyJob)} onCancelled={reload} />
           ))}
-          {noCancel && <p className="muted job-pill-note">{REMOTE_ADMIN_NOTE} That includes cancelling their jobs.</p>}
+          {noCancel && <p className="muted job-pill-note">{CANCEL_RULE_NOTE}</p>}
         </div>
       )}
     </div>
