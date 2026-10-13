@@ -464,3 +464,46 @@ def test_reference_larger_than_the_text_cap_is_not_read(isolated_db, monkeypatch
     monkeypatch.setattr(svc, "MAX_TEXT_BYTES", 10)
 
     assert svc.read_reference_text(did, db.get_drama(did)) is None
+
+
+def test_has_reference_matches_what_a_run_can_read(isolated_db, monkeypatch):
+    did = _drama()
+    folder = db.drama_dir(did)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "novel_reference.txt"), "w", encoding="utf-8") as f:
+        f.write("x" * 20)
+    db.update_drama(did, novel_reference_filename="novel_reference.txt")
+    assert svc.has_reference(did, db.get_drama(did)) is True
+    monkeypatch.setattr(svc, "MAX_TEXT_BYTES", 10)
+    assert svc.has_reference(did, db.get_drama(did)) is False
+    assert translate_run_service.get_translate_config(did)["has_novel_reference"] is False
+
+
+def test_symlink_out_of_the_title_folder_is_not_read(isolated_db, tmp_path):
+    outside = tmp_path / "secret.txt"
+    outside.write_text("not a novel reference", encoding="utf-8")
+    did = _drama()
+    folder = db.drama_dir(did)
+    os.makedirs(folder, exist_ok=True)
+    try:
+        os.symlink(str(outside), os.path.join(folder, "novel_reference.txt"))
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable")
+    db.update_drama(did, novel_reference_filename="novel_reference.txt")
+    drama = db.get_drama(did)
+
+    assert svc.read_reference_text(did, drama) is None
+    assert svc.has_reference(did, drama) is False
+
+
+def test_raw_novel_over_the_cap_is_still_read_uncapped(isolated_db, monkeypatch):
+    from services import glossary_extract_service as gx
+    did = _drama()
+    folder = db.drama_dir(did)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, gx.RAW_NOVEL_FILENAME), "w", encoding="utf-8") as f:
+        f.write("y" * 20)
+    monkeypatch.setattr(svc, "MAX_TEXT_BYTES", 10)
+
+    assert gx._read_drama_file(did, gx.RAW_NOVEL_FILENAME, capped=False) == "y" * 20
+    assert gx._read_drama_file(did, gx.RAW_NOVEL_FILENAME) == ""

@@ -39,8 +39,8 @@ def novel_glossary_job_id(drama_id: int) -> str:
     return f"novel_glossary_{drama_id}"
 
 
-def _read_drama_file(drama_id: int, filename: Optional[str]) -> str:
-    return novel_files_service.read_stored_text(drama_id, filename) or ""
+def _read_drama_file(drama_id: int, filename: Optional[str], capped: bool = True) -> str:
+    return novel_files_service.read_stored_text(drama_id, filename, capped) or ""
 
 
 def _default_engine() -> str:
@@ -276,7 +276,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     text and engine and ask the model again (the new replies replace them)."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
-    orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME)
+    orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME, capped=False)
     novel = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
     if not (orig.strip() or novel.strip()):
         raise UnsupportedOperationError("Attach a novel to this title first.")
