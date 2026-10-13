@@ -13,6 +13,29 @@
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
+/* ---- inspector: from 1400px the checks and tools sit in a sticky column beside the lines, so a check can run while you keep reading.
+   Below that width everything stays stacked: a narrower lines column makes the sticky toolbar wrap into rows that cover the lines. The sticky offset is --bar-h (header + strip), the same one the toolbar uses. ---- */
+@media (min-width: 1400px) {
+  .stage-review { grid-template-columns: minmax(0, 1fr) 24rem; align-items: start; column-gap: var(--space-4); }
+  .stage-review > .review-editor { grid-column: 1; grid-row: 1; }
+  .stage-review > .review-ai {
+    grid-column: 2; grid-row: 1;
+    position: sticky; top: calc(var(--bar-h, 0px) + var(--space-3));
+    max-height: calc(100vh - var(--bar-h, 0px) - var(--space-5)); overflow-y: auto;
+  }
+}
+
+/* The tools panel inside the inspector: one padding, one gap, equal-height check buttons with their Bulk switch directly under each. */
+@media (min-width: 1400px) {
+  .stage-review .review-toolbox { padding: var(--space-3); display: grid; gap: var(--space-3); }
+  .stage-review .review-toolbox .ui-tabs { flex-wrap: wrap; }
+  .stage-review .review-toolbox-panel, .stage-review .review-tab-body { display: grid; gap: var(--space-3); margin: 0; padding: 0; }
+  .stage-review .review-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-3); align-items: start; }
+  .stage-review .review-job-row { display: grid; gap: var(--space-2); align-content: start; }
+  .stage-review .review-job-row > .btn { width: 100%; height: 52px; white-space: normal; text-align: center; line-height: 1.2; }
+  .stage-review .review-bulk { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; padding-left: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
+}
+
 /* ---- editor frame: no overflow here, so the toolbar can stick ---- */
 .review-editor, .review-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-width: 0; }
 .review-editor { gap: var(--space-4); }
