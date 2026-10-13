@@ -1869,7 +1869,8 @@ from db.library_folder import (  # noqa: E402,F401
 from db.dramas import (  # noqa: E402,F401
     create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, get_drama,
     get_library_stats, list_dramas, list_dramas_by_series, list_dramas_recently_active,
-    search_lines_globally, set_status_if, update_drama)
+    search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, has_custom_tag,
+    set_custom_tag)
 
 
 # ---------------------------------------------------------------------------
@@ -2220,34 +2221,6 @@ from db.reading import (  # noqa: E402,F401
     clear_reading_history, create_profile, delete_profile, get_personal_notes, get_profile,
     get_progress, list_continue_reading, list_profiles, list_reading_history, rename_profile,
     save_personal_notes, save_progress)
-
-
-# ---------------------------------------------------------------------------
-# Custom tags
-# ---------------------------------------------------------------------------
-
-# Personal organizational tags, kept in custom_tags alongside any
-# user-defined ones -- deliberately separate from dramas.status, which
-# tracks pipeline progress, not how the person is organizing their list.
-ORGANIZATIONAL_TAGS = ("Favorite", "On Hold", "Plan to Translate")
-
-
-def has_custom_tag(drama: dict, tag: str) -> bool:
-    """Case-insensitive, so a hand-typed "favorite" counts as Favorite."""
-    return tag.lower() in (t.strip().lower() for t in (drama.get("custom_tags") or "").split(","))
-
-
-def set_custom_tag(drama_id: int, tag: str, present: bool):
-    """Adds or removes one tag from a drama's custom_tags, leaving every
-    other tag (and every other column) untouched."""
-    drama = get_drama(drama_id)
-    if not drama:
-        return
-    tags = [t.strip() for t in (drama.get("custom_tags") or "").split(",")
-            if t.strip() and t.strip().lower() != tag.lower()]
-    if present:
-        tags.append(tag)
-    update_drama(drama_id, custom_tags=", ".join(tags))
 
 
 # ---------------------------------------------------------------------------

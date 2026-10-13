@@ -74,8 +74,8 @@ for backup and restore operations see `runbook.md`.
   `db/lines.py` (a drama's lines: `save_lines`, the compare-and-set
   edits, the per-line tables a sync carries along, the loaders),
   `db/dramas.py` (drama rows: create/update/delete, `get_drama` and the
-  list queries with `_DRAMA_SELECT`, `drama_visible_sql`, library stats and
-  global line search),
+  list queries with `_DRAMA_SELECT`, `drama_visible_sql`, library stats,
+  global line search and custom tags),
   and `db/reading.py` (profiles, progress and the Continue shelf, reading
   history, personal notes).
   Their tables are still created by `init_db` in `db/__init__.py`

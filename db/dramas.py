@@ -1,5 +1,6 @@
 """Dramas: create, update, delete and list a library title, the visibility
-filter every drama query shares, and the library-wide stats and line search."""
+filter every drama query shares, the library-wide stats and line search, and
+a title's custom tags."""
 
 import contextlib
 import datetime
@@ -252,3 +253,27 @@ def search_lines_globally(query: str, limit: int = 100, visible_to: int = None):
             LIMIT ?
         """, [like, like] + vparams + [limit]).fetchall()
     return [dict(r) for r in rows]
+
+
+# Personal organizational tags, kept in custom_tags alongside any
+# user-defined ones -- deliberately separate from dramas.status, which
+# tracks pipeline progress, not how the person is organizing their list.
+ORGANIZATIONAL_TAGS = ("Favorite", "On Hold", "Plan to Translate")
+
+
+def has_custom_tag(drama: dict, tag: str) -> bool:
+    """Case-insensitive, so a hand-typed "favorite" counts as Favorite."""
+    return tag.lower() in (t.strip().lower() for t in (drama.get("custom_tags") or "").split(","))
+
+
+def set_custom_tag(drama_id: int, tag: str, present: bool):
+    """Adds or removes one tag from a drama's custom_tags, leaving every
+    other tag (and every other column) untouched."""
+    drama = db.get_drama(drama_id)
+    if not drama:
+        return
+    tags = [t.strip() for t in (drama.get("custom_tags") or "").split(",")
+            if t.strip() and t.strip().lower() != tag.lower()]
+    if present:
+        tags.append(tag)
+    db.update_drama(drama_id, custom_tags=", ".join(tags))
