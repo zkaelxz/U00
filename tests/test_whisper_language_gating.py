@@ -9,7 +9,7 @@ import core
 import whisper_models as wm
 from lib.errors import InvalidInputError
 from services import benchmark_lab_service as lab
-from services import compare_transcription_service, transcribe_service
+from services import compare_transcription_service, transcribe_service, transcribe_options_service
 
 # (model, language, allowed). Every row follows from the rules' evidence in docs/asr-experiments.md.
 CASES = [
@@ -53,7 +53,7 @@ class TestTable:
 class TestServerRefuses:
     def test_check_helper(self, model, language):
         with pytest.raises(InvalidInputError, match=wm.WHISPER_LANGUAGE_RULES[model].reason[:30]):
-            transcribe_service.check_whisper_size_for_language(model, language)
+            transcribe_options_service.check_whisper_size_for_language(model, language)
 
     def test_update_config(self, isolated_db, model, language):
         did = isolated_db.create_drama(title_en="t", source_language=language)
@@ -90,26 +90,26 @@ class TestServerRefuses:
         did = isolated_db.create_drama(title_en="t", source_language=language)
         isolated_db.update_drama(did, whisper_size=model)
         drama = isolated_db.get_drama(did)
-        default = transcribe_service.default_whisper_size()
-        assert transcribe_service.stored_whisper_size(drama) == default
-        notice = transcribe_service.whisper_size_notice(drama)
+        default = transcribe_options_service.default_whisper_size()
+        assert transcribe_options_service.stored_whisper_size(drama) == default
+        notice = transcribe_options_service.whisper_size_notice(drama)
         assert model in notice and default in notice and wm.WHISPER_LANGUAGE_RULES[model].reason in notice
 
 
 @pytest.mark.parametrize("model,language", [(m, lang) for m, lang, ok in CASES if ok])
 class TestServerAccepts:
     def test_update_config_and_check(self, isolated_db, model, language):
-        if model not in transcribe_service._allowed_whisper_sizes():
+        if model not in transcribe_options_service._allowed_whisper_sizes():
             pytest.skip("not a stored size")
         did = isolated_db.create_drama(title_en="t", source_language=language)
-        transcribe_service.check_whisper_size_for_language(model, language)
+        transcribe_options_service.check_whisper_size_for_language(model, language)
         assert transcribe_service.update_transcribe_config(did, whisper_size=model)["whisper_size"] == model
 
     def test_a_saved_choice_is_kept_without_a_notice(self, model, language):
         drama = {"whisper_size": model, "source_language": language}
-        if model in transcribe_service._allowed_whisper_sizes():
-            assert transcribe_service.stored_whisper_size(drama) == model
-            assert transcribe_service.whisper_size_notice(drama) is None
+        if model in transcribe_options_service._allowed_whisper_sizes():
+            assert transcribe_options_service.stored_whisper_size(drama) == model
+            assert transcribe_options_service.whisper_size_notice(drama) is None
 
 
 class TestPayloads:
@@ -117,7 +117,7 @@ class TestPayloads:
         did = isolated_db.create_drama(title_en="t", source_language="ja")
         isolated_db.update_drama(did, whisper_size="medium")
         cfg = transcribe_service.get_transcribe_config(did)
-        assert cfg["whisper_size"] == transcribe_service.default_whisper_size()
+        assert cfg["whisper_size"] == transcribe_options_service.default_whisper_size()
         assert cfg["whisper_exclusions"] == wm.whisper_language_exclusions()
         assert "medium" in cfg["whisper_size_notice"]
 

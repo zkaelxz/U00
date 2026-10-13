@@ -23,7 +23,7 @@ default even so: choosing an engine spends nothing, and every run checks the
 engine it actually uses (api.auth.require_engines_allowed; a missing engine
 counts as paid), so a paid default can't be run without engines.paid. Values
 are checked with the same rules as a title's own
-(transcribe_service.check_transcribe_fields, the engine registry); the checks that depend on a title's language run per
+(transcribe_options_service.check_transcribe_fields, the engine registry); the checks that depend on a title's language run per
 title, and a default that doesn't suit a title's language is skipped there.
 
 Ownership: reading needs the series to be visible, writing and applying
@@ -40,7 +40,7 @@ import segment_splitting
 import sensitivity_preset as presets
 import translate_engines
 from services import (auth_service, ownership_service, series_service, settings_service,
-                      transcribe_service)
+                      transcribe_options_service)
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_JSON_BYTES = 4096
@@ -64,7 +64,7 @@ def _num(label, group, kind, lo, hi):
 
 
 # key -> what the Defaults tab shows and the type a value must have. Ranges
-# and choices mirror transcribe_service.check_transcribe_fields, which still
+# and choices mirror transcribe_options_service.check_transcribe_fields, which still
 # has the last word on every transcribe value.
 SETTINGS = {
     "translation_engine": _choice("Translation engine", "translate", translate_engines.ENGINES),
@@ -72,13 +72,13 @@ SETTINGS = {
     "default_female_pronouns": _bool("Default to she/her", "translate"),
     "translate_by_sentence": _bool("Translate by sentence", "translate"),
     "whisper_size": _choice("Whisper model", "transcribe",
-                            sorted(transcribe_service._allowed_whisper_sizes())),
+                            sorted(transcribe_options_service._allowed_whisper_sizes())),
     "alignment_method": _choice("Alignment", "transcribe", ("whisper_diff", "qwen3_forced_align")),
     "asr_backend_choice": _choice("Speech recognizer", "transcribe",
-                                  transcribe_service.ASR_BACKEND_CHOICES),
+                                  transcribe_options_service.ASR_BACKEND_CHOICES),
     "sensitivity_preset": _choice("Sensitivity", "transcribe", presets.PRESETS),
     "separation_backend": _choice("Vocal separation", "transcribe",
-                                  transcribe_service._SEPARATION_BACKENDS),
+                                  transcribe_options_service._SEPARATION_BACKENDS),
     "beam_size": _num("Beam size", "transcribe", "int", 1, 10),
     "min_silence_ms": _num("Minimum silence (ms)", "transcribe", "int",
                            core_module.MIN_SILENCE_MS_MIN, core_module.MIN_SILENCE_MS_MAX),
@@ -100,7 +100,7 @@ _ALLOWED = frozenset(SETTINGS)
 _TRANSCRIBE = frozenset(k for k, f in SETTINGS.items() if f["group"] == "transcribe")
 # A title's value that equals the app's own default counts as "not set by the
 # title" (most columns have a database default, so NULL alone can't tell).
-_BUILTIN = {k: v for k, v in transcribe_service._DEFAULT_TUNING.items() if k in _ALLOWED}
+_BUILTIN = {k: v for k, v in transcribe_options_service._DEFAULT_TUNING.items() if k in _ALLOWED}
 _BUILTIN.update(alignment_method="whisper_diff", whisper_repeat_guard=False,
                 split_by_sentences=False, difficult_audio=False)
 
@@ -132,7 +132,7 @@ def _check_value(key, value):
     if spec["type"] in ("int", "number") and not spec["min"] <= value <= spec["max"]:
         raise InvalidInputError(f"{key} must be between {spec['min']} and {spec['max']}.")
     if key in _TRANSCRIBE:
-        transcribe_service.check_transcribe_fields({key: value}, None)
+        transcribe_options_service.check_transcribe_fields({key: value}, None)
 
 
 def validate(settings) -> dict:
@@ -224,7 +224,7 @@ def _suits_title(key, value, drama) -> bool:
     if key not in ("whisper_size", "asr_backend_choice"):
         return True
     try:
-        transcribe_service.check_transcribe_fields({key: value},
+        transcribe_options_service.check_transcribe_fields({key: value},
                                                    drama.get("source_language") or "zh")
     except InvalidInputError:
         return False

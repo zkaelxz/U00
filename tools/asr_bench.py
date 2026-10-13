@@ -42,7 +42,7 @@ import translate_engines
 import vad_segments
 import whisper_models
 from jobs import gpu_slots
-from services import benchmark_scoring_service, settings_service, transcribe_pipeline, transcribe_service
+from services import benchmark_scoring_service, settings_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from services.service_errors import ServiceError
 from tools import self_test
 from tools import asr_bench_recipes as recipes_mod
@@ -139,7 +139,7 @@ def build_plan(args) -> Plan:
                       "see --help for the grammar.")
     if len(args.config) > MAX_RECIPES:
         raise Refusal(f"At most {MAX_RECIPES} recipes per run.")
-    default_model = transcribe_service.stored_whisper_size(drama)
+    default_model = transcribe_options_service.stored_whisper_size(drama)
     try:
         recipes = recipes_mod.unique_labels(
             [recipes_mod.parse_recipe(text, language, default_model) for text in args.config])

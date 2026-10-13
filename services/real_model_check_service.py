@@ -148,13 +148,13 @@ def _check_speech_clip_size(path: str) -> None:
 
 
 def _check_asr(speech_clip=None, expected_text=None) -> str:
-    from services import settings_service, transcribe_service
+    from services import settings_service, transcribe_options_service
     # Whisper only: a title uses Qwen3-ASR only when the user picked it, so
     # no backend is a default the check could stand in for, and Qwen3 needs
     # a title's own settings plus several GB of weights.
     backend = "whisper"
     use_gpu = settings_service.get("use_gpu")
-    size = transcribe_service.default_whisper_size()
+    size = transcribe_options_service.default_whisper_size()
     if not _installed("faster_whisper"):
         raise _Skip("faster-whisper is not installed.")
     if not whisper_models.is_whisper_model_cached(size):

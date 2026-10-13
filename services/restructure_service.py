@@ -53,7 +53,8 @@ import segment
 import translate_engines
 from engine_backends import llm_tasks
 from services import (diarization_service, drama_service, paid_job_service, settings_service,
-                      timing_settings_service, transcribe_service, translate_service)
+                      timing_settings_service, transcribe_service, translate_service,
+                      transcribe_options_service)
 from services.resplit_config import RESPLIT_MAX_CHARS, RESPLIT_SENSITIVITIES, _Resplit
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
@@ -355,7 +356,7 @@ def _reseg_inputs(drama_id: int, drama: dict):
     language = drama.get("source_language") or "zh"
     raw = raw_transcript.load_latest(db.drama_dir(drama_id))
     return (language, drama.get("chinese_script") or "simplified", (raw or {}).get("segments"),
-            transcribe_service.stored_min_pause_sec(drama))
+            transcribe_options_service.stored_min_pause_sec(drama))
 
 
 def preview_resegmentation(drama_id: int) -> dict:
@@ -925,7 +926,7 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     if max_seconds is not None and not 2 <= max_seconds <= 120:
         raise InvalidInputError("max_seconds must be between 2 and 120.")
     cfg = _Resplit(drama.get("source_language") or "zh", sensitivity, max_seconds,
-                   transcribe_service.stored_min_pause_sec(drama),
+                   transcribe_options_service.stored_min_pause_sec(drama),
                    **timing_settings_service.resplit_limits())
     if not dry_run:
         _refuse_if_job_running(drama_id)

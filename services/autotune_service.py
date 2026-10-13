@@ -22,8 +22,8 @@ from core import Line
 from services import asr_options_service, settings_service, timing_settings_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from services.transcribe_service import (_DEFAULT_TUNING, _drama_audio_path, _resolve_initial_prompt,
-                                         get_transcribe_config, stored_whisper_size)
+from services.transcribe_options_service import _DEFAULT_TUNING, stored_whisper_size
+from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt, get_transcribe_config
 from translate_engines import redact_secrets
 
 # Auto-tune functions that may spend on a paid engine: none (local ASR only).

@@ -210,11 +210,11 @@ class TestInheritance:
 
     def test_a_default_wrong_for_the_titles_language_is_skipped(self, people, monkeypatch):
         s = db.create_series("Saga", owner_user_id=people["a_id"])
-        monkeypatch.setattr(svc.transcribe_service, "check_whisper_size_for_language",
+        monkeypatch.setattr(svc.transcribe_options_service, "check_whisper_size_for_language",
                             lambda size, lang: (_ for _ in ()).throw(
                                 InvalidInputError("not for this language"))
                             if lang == "ja" else None)
-        svc.set_defaults(people["a"], s, {"whisper_size": sorted(svc.transcribe_service._allowed_whisper_sizes())[0],
+        svc.set_defaults(people["a"], s, {"whisper_size": sorted(svc.transcribe_options_service._allowed_whisper_sizes())[0],
                                           "beam_size": 7})
         d = drama_service.create_drama(source_language="ja", title_en="JP", series_id=s,
                                        principal=people["a"])

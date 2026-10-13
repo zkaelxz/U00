@@ -22,8 +22,8 @@ import source_change
 import translate_engines
 from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
                       retranscribe_worker, settings_service, timing_settings_service, transcribe_pipeline,
-                      transcribe_service,
-                      translate_run_service, translate_service, workspace_job_service)
+                      transcribe_service, translate_run_service, translate_service, workspace_job_service,
+                      retranscribe_line_service, transcribe_options_service, qwen3_requirements_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -68,15 +68,15 @@ def _backend_problem(choice: str, language: str):
         return problem
     try:
         if choice == "qwen3_asr":
-            transcribe_service.require_qwen3_packages("Qwen3-ASR")
+            qwen3_requirements_service.require_qwen3_packages("Qwen3-ASR")
         elif choice == "anime_whisper":
-            transcribe_service._require_vad_packages()
-            problem = transcribe_service.anime_whisper_package_problem()
+            transcribe_options_service._require_vad_packages()
+            problem = transcribe_options_service.anime_whisper_package_problem()
             if problem:
                 return problem
         elif choice in _VAD_BACKENDS:
-            transcribe_service.require_vad_backend_packages(choice, language)
-            transcribe_service._require_vad_packages()
+            qwen3_requirements_service.require_vad_backend_packages(choice, language)
+            transcribe_options_service._require_vad_packages()
     except (DependencyUnavailableError, InvalidInputError) as exc:
         return str(exc)
     # Whisper hears the audio first on every other backend too.
@@ -98,8 +98,8 @@ def get_options(drama_id: int) -> dict:
     language = drama.get("source_language") or "zh"
     has_audio = (drama.get("content_mode") or "audio_drama") in ("audio_drama", "streamer_vod") \
         and transcribe_service._drama_audio_path(drama_id, drama) is not None
-    saved_size = transcribe_service.stored_whisper_size(drama)
-    selectable = transcribe_service.selectable_whisper_sizes("compare")
+    saved_size = transcribe_options_service.stored_whisper_size(drama)
+    selectable = transcribe_options_service.selectable_whisper_sizes("compare")
     sizes = selectable
     # A saved size the picker hides stays listed, so the select can show what the title uses.
     if saved_size not in sizes:
@@ -110,7 +110,7 @@ def get_options(drama_id: int) -> dict:
         backends.append({"id": choice, "label": _BACKEND_LABELS[choice],
                          "available": problem is None, "reason": problem})
     try:
-        transcribe_service.require_qwen3_packages("The Qwen3 forced aligner", language)
+        qwen3_requirements_service.require_qwen3_packages("The Qwen3 forced aligner", language)
         aligner_reason = None
     except DependencyUnavailableError as exc:
         aligner_reason = exc.message
@@ -177,10 +177,10 @@ def select_lines(drama_id: int, selection: dict) -> list:
 
 def _validate_candidate(drama: dict, whisper_size, backend_choice):
     """(whisper_size, backend) falling back to the title's saved ones."""
-    size = whisper_size or transcribe_service.stored_whisper_size(drama)
-    if size not in transcribe_service._allowed_whisper_sizes():
+    size = whisper_size or transcribe_options_service.stored_whisper_size(drama)
+    if size not in transcribe_options_service._allowed_whisper_sizes():
         raise InvalidInputError(f"Unknown Whisper model size {size!r}.")
-    transcribe_service.check_whisper_size_for_language(size, drama.get("source_language") or "zh")
+    transcribe_options_service.check_whisper_size_for_language(size, drama.get("source_language") or "zh")
     backend = backend_choice or asr_options_service.stored_asr_backend(drama)
     if backend not in BACKEND_CHOICES:
         raise InvalidInputError(f"Unknown ASR backend {backend!r}.")
@@ -285,7 +285,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
     size, backend = _validate_candidate(drama, whisper_size, asr_backend_choice)
     prompt = transcribe_service._resolve_initial_prompt(drama_id, initial_prompt or "",
                                                         extra_names or "")
-    for prefix in transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES:
+    for prefix in retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):
             raise ConflictError("Another job is changing this title's lines. "
@@ -301,7 +301,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
                        "retranslate_current": bool(retranslate_current),
                        "locale": settings_service.get("default_locale"),
                        "style_note": settings_service.get("default_style_note") or ""}
-    tuning = transcribe_service._DEFAULT_TUNING
+    tuning = transcribe_options_service._DEFAULT_TUNING
     started = background_jobs.start_job(
         job_id, run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
         {"whisper_size": size, "backend": backend, "prompt": prompt,
@@ -310,7 +310,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "min_silence_ms": drama.get("min_silence_ms") or tuning["min_silence_ms"],
          "vad_threshold": timing_settings_service.vad_threshold_for(drama),
          "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
-         "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
+         "hallucination_silence_sec": transcribe_options_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
          "use_gpu": settings_service.get("use_gpu")},

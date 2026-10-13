@@ -17,7 +17,7 @@ import translate_engines
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import (compare_transcription_service as svc, gpu_process_job, transcribe_pipeline, transcribe_service,
+from services import (compare_transcription_service as svc, gpu_process_job, qwen3_requirements_service, transcribe_pipeline, transcribe_service,
                       translate_service)
 from tests.gpu_inline import run_in_child_inline
 
@@ -560,8 +560,8 @@ def test_aligner_backends_are_refused_without_the_language_tokeniser(monkeypatch
         seen.append(aligner_language)
         raise DependencyUnavailableError("needs the tokeniser")
 
-    monkeypatch.setattr(transcribe_service, "require_qwen3_packages", fake_require)
-    monkeypatch.setattr(transcribe_service, "require_vad_backend_packages",
+    monkeypatch.setattr(qwen3_requirements_service, "require_qwen3_packages", fake_require)
+    monkeypatch.setattr(qwen3_requirements_service, "require_vad_backend_packages",
                         lambda choice, lang: fake_require("Qwen3-ASR", lang))
     assert "tokeniser" in svc._backend_problem("qwen3_asr_long", language)
     assert seen == [language]

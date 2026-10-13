@@ -15,7 +15,7 @@ import mixed_language
 import qwen3_native
 import whisper_models as wm
 from lib.errors import InvalidInputError
-from services import compare_transcription_service, transcribe_pipeline, transcribe_service
+from services import compare_transcription_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from tests.test_whisper_ja_model import FakeHub, hf_home  # noqa: F401  (fixture)
 
 KEY = "kotoba-v2"
@@ -29,14 +29,14 @@ class TestRegistry:
 
     def test_registered_everywhere_a_model_key_must_be(self):
         assert KEY in wm.WHISPER_MODELS
-        assert KEY in transcribe_service._allowed_whisper_sizes()
+        assert KEY in transcribe_options_service._allowed_whisper_sizes()
         assert transcribe_pipeline._MODEL_DOWNLOAD_SIZES[KEY] == "~1.5 GB"
         assert memory_headroom.estimate_mb("whisper", KEY)
         assert KEY not in wm.LIVE_WHISPER_SIZES
 
     def test_never_the_default(self):
         assert wm.DEFAULT_WHISPER_SIZE != KEY
-        assert transcribe_service.default_whisper_size() != KEY
+        assert transcribe_options_service.default_whisper_size() != KEY
 
     @pytest.mark.parametrize("language,allowed", [("ja", True), ("zh", False), ("ko", False)])
     def test_selectable_only_for_japanese(self, language, allowed):
@@ -55,9 +55,9 @@ class TestRegistry:
             transcribe_service.update_transcribe_config(zh, whisper_size=KEY)
 
     def test_a_saved_choice_falls_back_when_the_language_changes(self):
-        assert transcribe_service.stored_whisper_size({"whisper_size": KEY, "source_language": "ja"}) == KEY
-        assert transcribe_service.stored_whisper_size(
-            {"whisper_size": KEY, "source_language": "zh"}) == transcribe_service.default_whisper_size()
+        assert transcribe_options_service.stored_whisper_size({"whisper_size": KEY, "source_language": "ja"}) == KEY
+        assert transcribe_options_service.stored_whisper_size(
+            {"whisper_size": KEY, "source_language": "zh"}) == transcribe_options_service.default_whisper_size()
 
     def test_compare_lists_it_and_refuses_it_for_chinese(self, isolated_db, monkeypatch):
         monkeypatch.setattr(compare_transcription_service, "_backend_problem", lambda *a: None)

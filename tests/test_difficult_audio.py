@@ -12,7 +12,8 @@ import audio_preprocess
 import background_jobs
 import sensitivity_preset
 from services import (difficult_audio_service, run_settings_service, series_defaults_service,
-                      timing_settings_service, transcribe_pipeline, transcribe_service)
+                      timing_settings_service, transcribe_pipeline, transcribe_service,
+                      transcribe_options_service)
 from services.service_errors import InvalidInputError
 
 
@@ -52,11 +53,11 @@ class TestStoredOption:
         assert isolated_db.get_drama(did)["difficult_audio"] == 1
 
     def test_validation_stores_a_flag_and_ignores_none(self):
-        assert transcribe_service.check_transcribe_fields({"difficult_audio": True}, "zh") == {
+        assert transcribe_options_service.check_transcribe_fields({"difficult_audio": True}, "zh") == {
             "difficult_audio": 1}
-        assert transcribe_service.check_transcribe_fields({"difficult_audio": False}, "zh") == {
+        assert transcribe_options_service.check_transcribe_fields({"difficult_audio": False}, "zh") == {
             "difficult_audio": 0}
-        assert transcribe_service.check_transcribe_fields({"difficult_audio": None}, "zh") == {}
+        assert transcribe_options_service.check_transcribe_fields({"difficult_audio": None}, "zh") == {}
 
     def test_the_effective_threshold_shown_follows_the_option(self, isolated_db):
         did = _title(isolated_db)

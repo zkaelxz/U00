@@ -38,8 +38,8 @@ import core
 import db
 import translate_engines
 from services import (fixflag_translate, ownership_service, paid_job_service, settings_service,
-                      transcribe_service,
-                      translate_run_service, translate_service, workspace_job_service)
+                      translate_run_service, translate_service, workspace_job_service,
+                      transcribe_options_service)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -246,7 +246,7 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
                 raise UnsupportedOperationError(refusal)
         audio = drama.get("audio_filename")
         audio_path = os.path.join(db.drama_dir(drama["id"]), audio) if audio else None
-        args = (lines, audio_path, transcribe_service.stored_whisper_size(drama),
+        args = (lines, audio_path, transcribe_options_service.stored_whisper_size(drama),
                 settings_service.get("use_gpu"), drama.get("source_language") or "zh", eng, name)
         # Settings' defaults, as `cli.py translate` resolves them.
         return args, {"cost_cap_usd": cap,

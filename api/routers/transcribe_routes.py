@@ -38,7 +38,7 @@ from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunRe
                          TranscribeGaps, TranscribeRunRequest, TranscribeRunResult)
 from services import (autotune_service, compare_transcription_service, model_readiness_service,
                       retime_service, retranscribe_many_service, speech_coverage_service,
-                      transcribe_gap_service, transcribe_service)
+                      transcribe_gap_service, transcribe_service, retranscribe_line_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
@@ -156,7 +156,7 @@ def post_retranscribe_line(request: Request, payload: Optional[RetranscribeLineR
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_title_whisper, drama_id)
     payload = payload or RetranscribeLineRequest()
-    return transcribe_service.start_retranscribe_line(
+    return retranscribe_line_service.start_retranscribe_line(
         drama_id, line_id, initial_prompt=payload.initial_prompt,
         extra_names=payload.extra_names)
 
@@ -168,7 +168,7 @@ def post_retranscribe_line(request: Request, payload: Optional[RetranscribeLineR
                         422: {"model": ErrorResponse}})
 def post_apply_retranscribe_line(payload: RetranscribeApplyRequest, drama_id: int = Path(ge=1),
                                  line_id: int = Path(ge=1)):
-    return transcribe_service.apply_retranscribe_line(
+    return retranscribe_line_service.apply_retranscribe_line(
         drama_id, line_id, payload.job_id, payload.expected_zh, payload.expected_proposed)
 
 
@@ -177,7 +177,7 @@ def post_apply_retranscribe_line(payload: RetranscribeApplyRequest, drama_id: in
             summary="The finished re-transcription's proposal for this line (raw line text)",
             responses={404: {"model": ErrorResponse}})
 def get_retranscribe_line(drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
-    return transcribe_service.get_retranscribe_result(drama_id, line_id)
+    return retranscribe_line_service.get_retranscribe_result(drama_id, line_id)
 
 
 _COMPARE_ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
