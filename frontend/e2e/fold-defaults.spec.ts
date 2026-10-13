@@ -84,8 +84,10 @@ test.describe('Library tools', () => {
     await mockEmptyLibrary(page)
     await page.route('**/api/library/presets', (r) => r.fulfill({ json: { items: [{ id: 7, name: 'My preset', translation_engine: null }] } }))
     await page.goto('/#/library-tools?tab=organize')
-    await expect(page.getByTestId('tools-empty')).toHaveCount(0)
+    // Loaded first, so the empty notice can't pass by not having rendered yet; then only the
+    // open tab: the hidden Activity tab rightly says it is empty once its own lists load.
     await expect.poll(() => openTitles(page, '.tools-panel')).toEqual(['Presets'])
+    await expect(page.locator('.tools-panel:not([hidden]) [data-testid=tools-empty]')).toHaveCount(0)
   })
 
   test('Backup runs Back up, Restore, Automatic copies, with one card open and no Export', async ({ page }) => {

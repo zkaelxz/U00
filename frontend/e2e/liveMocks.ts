@@ -220,9 +220,14 @@ export async function expectSwitchKeepsItsSize(live: Locator) {
   const toggle = live.getByRole('switch', { name: 'Reply without thinking' })
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
   const track = await toggle.boundingBox()
-  const thumb = await toggle.locator('.toggle-thumb').boundingBox()
   expect(track!.width).toBeCloseTo(44, 0)
   expect(track!.height).toBeCloseTo(24, 0)
-  expect(thumb!.x + thumb!.width).toBeLessThanOrEqual(track!.x + track!.width)
-  expect(track!.x + track!.width - (thumb!.x + thumb!.width)).toBeLessThanOrEqual(4)
+  // It turns on once the engine list loads, and the knob then slides there (a CSS
+  // transition): read its place until the slide has ended.
+  const knobGap = async () => {
+    const thumb = await toggle.locator('.toggle-thumb').boundingBox()
+    return track!.x + track!.width - (thumb!.x + thumb!.width)
+  }
+  await expect.poll(knobGap).toBeLessThanOrEqual(4)
+  expect(await knobGap()).toBeGreaterThanOrEqual(0)
 }
