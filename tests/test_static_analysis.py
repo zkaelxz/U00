@@ -839,12 +839,7 @@ _CAPTURE_ALLOWED = {
     "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
     "services/media_peaks_service.py::_decode": "pending: ffmpeg",
     "services/speech_coverage_service.py::_decode_chunk": "pending: ffmpeg",
-    "video_export.py::render_vertical_clip": "pending: ffmpeg",
     "video_export.py::render_preview_clip": "pending: ffmpeg",
-    "video_export.py::burn_subtitles": "pending: ffmpeg",
-    "video_export.py::burn_ass": "pending: ffmpeg",
-    "video_export.py::mux_soft_subtitles": "pending: ffmpeg",
-    "video_export.py::replace_audio_with_dub": "pending: ffmpeg",
     # pending: separate tree-killing runners that should move onto lib.proc (see B8 in docs/local-agent-backlog.md).
     "background_jobs.py::run_cancellable": "pending: own runner",
     "services/lncrawl_service.py::_run_process": "pending: own runner",

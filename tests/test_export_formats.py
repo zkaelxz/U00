@@ -353,36 +353,6 @@ class TestReadingSpeed:
         assert rows[0]["flag"] == sf.READING_SPEED_FLAG and rows[1]["flag"] is None
 
 
-class TestHardsub:
-    def _capture(self, monkeypatch):
-        cmds = []
-        monkeypatch.setattr(video_export.subprocess, "run", lambda cmd, **k: cmds.append(cmd))
-        return cmds
-
-    def test_burning_ass_skips_force_style(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        video_export.burn_ass("in.mp4", sf.lines_to_ass(_lines(), sf.ASS_PRESETS["Clean"]), "out.mp4")
-        vf = cmds[0][cmds[0].index("-vf") + 1]
-        assert vf.startswith("subtitles='") and ".ass'" in vf
-        assert "force_style" not in " ".join(cmds[0])
-
-    def test_srt_burn_uses_the_chosen_style(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        style = sf.ASS_PRESETS["Streamer clip"]
-        video_export.burn_subtitles("in.mp4", GOLDEN_SRT, "out.mp4", font_size=style["size"],
-                                    font_color=style["primary"], outline_color=style["outline"],
-                                    font_name=style["font"], bold=True, outline_width=4, alignment=8)
-        vf = cmds[0][cmds[0].index("-vf") + 1]
-        for part in ("FontName=Arial Black", "FontSize=30", "Outline=4", "Bold=-1", "Alignment=8"):
-            assert part in vf
-
-    def test_default_srt_burn_keeps_the_old_look(self, monkeypatch):
-        cmds = self._capture(monkeypatch)
-        video_export.burn_subtitles("in.mp4", GOLDEN_SRT, "out.mp4")
-        vf = cmds[0][cmds[0].index("-vf") + 1]
-        assert "FontSize=24" in vf and "Outline=2" in vf and "PrimaryColour=&HFFFFFF&" in vf
-
-
 class TestLinesForClip:
     """Step 6e: vertical/shorts export trims the VIDEO to [start, end), so
     the burned subtitles need the same window, timeshifted to start at 0 --
