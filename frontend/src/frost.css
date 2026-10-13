@@ -116,12 +116,12 @@ body {
 .review-toolbox,
 .review-lines { border: 0; box-shadow: var(--glass-shadow), 0 0 0 1px var(--glass-edge); }
 @supports (backdrop-filter: blur(1px)) {
-  .card, .panel, .tools-stack, .discover-panel, details.section, .review-toolbar, .review-toolbox, .review-lines, .drama-card { backdrop-filter: blur(22px) saturate(1.4); }
+  .card, .panel, .tools-stack, .discover-panel, .review-toolbar, .review-toolbox, .review-lines, .drama-card { backdrop-filter: blur(22px) saturate(1.4); }
 }
 
-/* A fold that sits on the page is a panel like the rest; one inside a card, sheet or list is only a row of it. */
+/* A fold that sits on the page is a panel like the rest; one inside a card, sheet or list is only a row of it. No blur here: backdrop-filter on a fold stops a toggle at its bottom edge from receiving taps on the part of its 44px target that falls below it. */
 details.section { background: var(--glass); border-color: var(--glass-edge); border-radius: 22px; padding-inline: var(--space-4); }
-.card details.section, details.section details.section, .tools-stack details.section, .discover-panel details.section, .panel details.section, dialog.sheet details.section { background: none; backdrop-filter: none; }
+.card details.section, details.section details.section, .tools-stack details.section, .discover-panel details.section, .panel details.section, dialog.sheet details.section { background: none; }
 
 /* One control shape: pill with a visible edge, so a white button never vanishes on a white panel. */
 .btn,
