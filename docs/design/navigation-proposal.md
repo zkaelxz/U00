@@ -1,6 +1,6 @@
 # Navigation proposal: left menu, Ctrl+K palette and Jobs table
 
-Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner answers"). The rest of this file is the original proposal, written when nothing was built, so read it with the build status below. Status checked against `frontend/src/nav`, `frontend/src/router.ts` and `git log` at 175d617.
+Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner answers"). The rest of this file is the original proposal, written when nothing was built, so read it with the build status below. Status re-checked 2026-10-13 against `frontend/src/nav`, `frontend/src/router.ts` and `git log` at bfad0c8.
 
 | Step or decision | Built? | Where |
 |---|---|---|
@@ -11,9 +11,9 @@ Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner ans
 | N5 Jobs page | Built | `#/jobs` (#776); the Diagnostics job-history route is retired (#791) |
 | N6 palette, screens and the open title's stages | Built | `nav/CommandPalette.tsx`, `nav/palette.ts` (#814). Screens and the open title's stages only |
 | N7 palette titles and lines | Not built | `palette.ts` has no title or line search |
-| N8 referrer-aware Back, copy link | Not built | In progress as a breadcrumb PR; the workspace back link still always goes to Library |
+| N8 referrer-aware Back, copy link | Partly built | A breadcrumb trail inside titles, the reader, comic and nested pages is built (`nav/BreadcrumbNav.tsx`, `nav/breadcrumbs.ts`, #819); a referrer-aware Back and copy link are not |
 | N9 doc fold-in | Not built | |
-| D4 rename "Quick translate" | Built | now "Translate text" in `navItems.ts` |
+| D4 rename "Quick translate" | Reversed | renamed to "Translate text" (#774), then back to "Quick translate" in the UI naming pass (#1045); `navItems.ts` says "Quick translate" |
 | D6 Diagnostics and Benchmark Lab gated by `admin.diagnostics` | Built | `navItems.ts` (#795) |
 | D9 `?find=` / `?line=` and Settings fold anchors | Not built | no such parameter in `router.ts` |
 | D13 Customize menu | Built | `nav/hiddenNav.ts` (#813) |
@@ -38,7 +38,7 @@ The owner's brief refers to an earlier "all-tabs" information-architecture (IA) 
 |---|---|
 | `docs/react-ui-guidelines.md` rules 1-22, `docs/design/ui-refresh-spec.md` | The UI rules this proposal follows (single primary, `ButtonLink` for navigation, humanized labels, disabled primary names its fix). |
 | `docs/archive/ux-workspace-shell-and-review.md`, "Decisions (user, 2026-09-29)" | Three owner decisions: the API badge only shows when the API is down (built); delete is two-step; stage progress comes from `GET /api/workflow/dramas/{id}/progress`, with no interim mapping (built). |
-| #150 (`docs/archive/ux-click-through-audit.md`) | The 8 questions asked of every workflow: where am I, what's next, is the primary obvious, anything unnecessary, scrolling, related controls together, can I get back, is the current project obvious. I reuse them as the test for each PR in section 4. |
+| #150 (the Step 19 click-through audit, since deleted (it tested the removed Streamlit app; see `git log` for `docs/archive/ux-click-through-audit.md`)) | The 8 questions asked of every workflow: where am I, what's next, is the primary obvious, anything unnecessary, scrolling, related controls together, can I get back, is the current project obvious. I reuse them as the test for each PR in section 4. |
 | #690 `ui-shell-sticky-next` | Sticky title and stage strip (`--bar-h`), a `Next:` button, creating a drama opens its workspace. |
 | #696 `ia-review-folds` and #715 `ia-source-stage` | Two IA clean-ups already merged: Review's lower tools became four folds and flag tools moved from Export to Review; Source got one "Fill in details" fold. Both branches are named `ia-*`, so they were probably part of the lost series. That is my inference, not a recorded fact. |
 | #704, #705, #706, #697 | Sentence case, phone spacing, stacked cards on phone, the indigo type scale. |
@@ -54,7 +54,7 @@ The owner's brief refers to an earlier "all-tabs" information-architecture (IA) 
 **Stale claims found while checking** (rule: re-check docs against code):
 - `ui-refresh-spec.md` §3.3 says the workspace stage defaults to Source and that nothing calls the progress endpoint. Both are out of date: `router.ts` has `stage: string | null`, `WorkspaceShell.tsx` calls `getWorkflowProgress` and opens `progress.stage` (#150's bug is long fixed).
 - The same spec's §3.1 Library redesign is built (`Library.tsx` has `ContinueShelf`, a `Sheet` for New drama, grid cards).
-- `docs/react-ui-guidelines.md` still contains an unresolved merge conflict (lines 3 and 5 and 46, `<<<<<<< HEAD`, `=======`, `>>>>>>> origin/baihe-subtitler`). I did not touch it; it belongs in a separate fix.
+- `docs/react-ui-guidelines.md` contained an unresolved merge conflict when this was written; it has none now.
 
 ## 1. Inventory of screens and routes
 

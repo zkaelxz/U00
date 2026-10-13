@@ -1,85 +1,50 @@
 # Documentation index
 
-A short map of what lives in `docs/` and where the rest of the project's
-planning material actually is. For the module map, see `FILE_ORGANIZATION.md` at the repo root: one line per package, then every
-non-test Python module with its group (a short purpose where one helps). `tests/test_file_organization.py`
-keeps it in step with the code; this page is just a shorter front door plus the roadmap pointer, since the
-roadmap itself isn't a file in this directory.
+A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for local models); the module map is `FILE_ORGANIZATION.md` at the repo root (kept in step with the code by `tests/test_file_organization.py`). The numbered roadmap, `docs/baihe-roadmap.md`, is not in this repo: it lives on the planning branch `claude/baihe-subtitle-planning-95qyvq`.
 
 ## Start here
 
-Current state, what's in flight and what's next: **`STATUS.md`**. Repo rules: the root `CLAUDE.md`.
-Shared review policy: `engineering-standards.md`; testing and CI: `testing-and-ci.md`.
-The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
-`claude/baihe-subtitle-planning-95qyvq`, not in this repo.
+- **`STATUS.md`**: what works, known limits, what is next.
+- **`user-guide.md`**: feature walkthroughs, dev setup and ports, troubleshooting, Diagnostics and Benchmark Lab.
+- **`engineering-standards.md`**: precedence, scope, review policy, verification, git and safety.
+- **`testing-and-ci.md`**: test commands, the guard set, the CI jobs and which a change runs.
+- **`runbook.md`**: maintainer steps (installer lock, restore, certificate, benchmark, break-glass admin).
 
-## What's in this directory
+## How the code fits together
 
-- **`adding-source.md`** — how to write a new `sources/adapters/*.py`
-  adapter, including the pre-coding site checklist.
-- **`content-sources.md`** — every source the Sources tab can reach and
-  what was actually checked; updated per adapter.
-- **`known-working-sources.md`** — a short "can I point the app at this
-  site" status board, companion to `content-sources.md`'s full detail.
-- **`browser-extension.md`** — the Translate-the-page-you're-reading
-  feature (Step 34/34b/96): what it does, what was verified against a
-  real site.
-- **`react-ui-guidelines.md`** — concise-UI rules for the React app.
-- **`frontend-design-system.md`** — map of how the React frontend is built: layout, routing, tokens and themes, shared components, phone rules, testing and an add-a-screen checklist.
-- **`engineering-standards.md`** — shared principles: precedence, scope,
-  review policy, verification, git/safety.
-- **`starting-a-project.md`** — a retrospective: the day-one setup, session habits and feature rules to follow when starting a project like this from scratch.
-- **`user-guide.md`** — the feature walkthroughs, dev setup and ports, troubleshooting, Diagnostics and Benchmark Lab that used to be in the root `README.md`.
-- **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
-  CI-minutes notes.
-- **`household-access.md`** — step-by-step guide to reach Baihe from
-  household devices through Caddy (`deploy/caddy/Caddyfile.template`).
-- **`windows-installer-design.md`** — the Windows installer/uninstaller:
-  what `installer/` builds and why: install layout, build steps, upgrade and uninstall, the boot service. Cut history: `archive/windows-installer-design-history.md`.
-- **`technical-notes.md`** — an engineering changelog of real bugs found
-  and how they were fixed, kept separate from the user-facing docs.
-- **`RELEASE.md`** — building the Windows installer and the frontend release zip.
-- **`database.md`** — the database layer: the `db` package and `sources.db`, migrations and the guard test, a table map, the rules learned from bugs, backups, and what sits on disk beside the database.
-- **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
-- **`api-and-services.md`** — how the FastAPI layer fits together: request flow, errors, route declarations, ownership, schemas, and an "adding an endpoint" checklist.
-- **`remote-access-decision.md`** — the remote-access design as built. **`route-permissions.md`** — the route table `tests/test_api_permissions.py` enforces.
-- **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
-- **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API, with an add-a-job checklist.
-- **`local-agent-backlog.md`** — open follow-ups sorted by who can do them (local model, free tier, paid burst), with briefs for the paid ones. **`small-model-checklist.md`** — working with a 64k local model.
-- **`asr-experiments.md`** — the transcription options (backends, batch size, mixed languages, vocal separation), install and failure-mode notes, and a dated snapshot of the benchmarks.
-- **`research/twmanga-vetting.md`** — dated browser-tier vetting of `twmanga.com` (a `baozimh.com` mirror): headers, image delivery, redirect chain, policies, verdict.
-- **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
-- **`design/`** and **`specs/`** — the UI refresh spec (after screenshots; the before set is in `archive/screens-before/`), the navigation proposal, the GPU-worker plan and the Step 141 proposal.
-- **`specs/stereo-track.md`** — the stereo-track DSP (`stereo_cues.py`, `stereo_render.py`, `loudness.py`): method, conventions, measured accuracy and limits.
-- **`STATUS.md`** — current state, in-flight work and what's next.
-- **`archive/`** — historical records kept for reference, not sources of
-  truth: the migration review, handoff and React/FastAPI phase log, the
-  old roadmap master tracker, the superseded remote-access handoff, the
-  installer research notes and cut installer-design history, the Step 19
-  click-through audit, the unbuilt Jellyfin/Plex metadata design, the full
-  ASR experiment write-up (`asr-experiments-history.md`), the built
-  Scanlate, Discover/Sources/Live and workspace-shell specs and the UI
-  refresh's before screenshots (`screens-before/`).
+- **`api-and-services.md`**: request flow, errors, route declarations, ownership, schemas, an adding-an-endpoint checklist.
+- **`database.md`**: the `db` package and `sources.db`, migrations and their guard test, a table map, rules learned from bugs, backups, what sits on disk beside the database.
+- **`background-jobs.md`**: the `jobs/` modules, thread and process jobs, the GPU guard, cancel, holds, the Jobs API, an add-a-job checklist.
+- **`engine-backends.md`**: translation engines, transcription and dubbing engines, rules learned from bugs, an adding-an-engine checklist.
+- **`asr-experiments.md`**: transcription options and a dated benchmark snapshot.
+- **`technical-notes.md`**: an engineering changelog of real bugs and their fixes.
+- **`windows-installer-design.md`** and **`RELEASE.md`**: the installer and boot service, and building the installer and frontend release zip.
 
-## `docs/secondary-review-notes.md` — not present here
+## Frontend
 
-A second Claude Code session wrote this file during a 2026-09-27
-cross-check of a third-party bug audit. Its content (confirmed
-real-bug verdicts, decision-needed items, the external-tool review) was
-folded into the roadmap directly, and the file was then deleted from
-this repo's own history (commit `5b376b7`, "folded into
-docs/baihe-roadmap.md"). The user later instructed that it must never be
-deleted going forward. Its full original text is still retrievable, and
-is **not** to be deleted, from branch `notes/secondary-review-2026-09-27`
-at commit `6301ab7` (the last commit before the deletion on that
-branch) — that branch's current tip no longer has the file in its
-working tree, only that earlier commit does. The roadmap's own §8 is the
-durable, actively-read copy of everything that mattered from it; the
-branch/commit above is the redundant original, kept per that
-instruction, not a second place to look for anything new.
+- **`frontend-design-system.md`**: layout, routing, tokens and themes, shared components, phone rules, testing, an add-a-screen checklist.
+- **`react-ui-guidelines.md`**: concise-UI rules for the React app.
+- **`design/`**: `ui-refresh-spec.md` (the original 2026-09 UI refresh spec, history), `navigation-proposal.md` (left menu, Ctrl+K, Jobs page, with its build status), `screens/after/` (screenshots taken after the refresh).
 
-## Is there a broader docs index anywhere else?
+## Remote access
 
-No — this file is it. No other `README.md` under `docs/` exists on any
-branch checked. If one turns up on another branch, cross-link it here
-and in `FILE_ORGANIZATION.md` rather than letting the two drift apart.
+- **`remote-access-decision.md`**: the design as built (sign-in, ownership, the two listeners, permissions, sharing).
+- **`route-permissions.md`**: the route table `tests/test_api_permissions.py` enforces; regenerate with `python tools/route_table.py --write`.
+- **`household-access.md`**: step-by-step setup through Caddy.
+
+## Sources
+
+- **`adding-source.md`**: writing a `sources/adapters/*.py` adapter, with the pre-coding site checklist.
+- **`content-sources.md`**: every source and what was checked. **`known-working-sources.md`**: the status board (data in `source-status.json`, built by `scripts/source_status.py`).
+- **`sources-credential-audit.md`**: how adapters handle credentials and cookies. **`browser-extension.md`**: the browser extension and its bridge.
+
+## Working with a small or local model
+
+- **`small-model-checklist.md`**, **`local-model-card.md`**, **`local-coder-recipes.md`**, **`local-agent-backlog.md`** (open follow-ups sorted by who can do them), **`lead-troubleshooting.md`** (checks for lead and fix sessions), **`package-readme-template.md`** (template for a package `README.md`), **`starting-a-project.md`** (a retrospective on starting a project like this).
+
+## Plans, research and history
+
+- **`specs/`**: `gpu-worker-plan.md` (deferred), `step-141-pc-shell-and-connect.md` (spec only), `stereo-track.md` (the stereo-track DSP as built).
+- **`research/`**: dated surveys (`oss-gap-report.md`, `timing-constants-inventory.md`, `twmanga-vetting.md`, `vtuber-terminology-zh-ja.md`). Each states the commit it was checked against; the code wins over them.
+- **`session-harvest/`**: findings that only existed in cloud-session chats (see its own `README.md`).
+- **`archive/`**: historical records, not sources of truth: the migration review, handoff and phase log, the roadmap master tracker, the superseded remote-access design, installer research and cut design history, the unbuilt Jellyfin/Plex metadata design, the full ASR experiment write-up, the built Scanlate, Discover/Sources/Live and workspace-shell specs, the UI refresh's before screenshots, and `file-organization-full.md` (the old long per-file descriptions).

@@ -27,9 +27,10 @@ the five guard files that `guards` already runs, in four parallel shards; tests 
 through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
 `frontend` (build, vitest, lint), `e2e` (Playwright in four shards) and `windows-scripts` (see "Windows script checks" below; `test`
-also fails if it failed, and passes when it was skipped). `windows-bootstrap.yml` (its own workflow,
-path-filtered to `start.bat`, the requirements and constraints files, `check_setup.py`, `api/**`, `frontend/**` and itself) and
-`windows-installer.yml` cover the installer. The five guard files are ignored only in the workflow's `test-shard` command lines;
+also fails if it failed, and passes when it was skipped). `windows-bootstrap.yml` (its own workflow with one job,
+`bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
+and `windows-installer.yml` (job `installer`, plus `release` for a tag) cover the installer. `dependency-canary.yml` and
+`dependency-audit.yml` are weekly scheduled runs, never a PR gate (see "Testing a dependency upgrade" below). The five guard files are ignored only in the workflow's `test-shard` command lines;
 `python run_tests.py` and the local commands above still run everything.
 
 Each shard prints its slowest 25 tests and its wall time in the job summary (information only, never a gate). A frontend/docs-only
@@ -259,9 +260,7 @@ The weekly `dependency-canary.yml` workflow installs the newest versions the req
 secrets. A failure means a new release broke something; reproduce with `scripts/dependency_canary.py <package>`.
 
 Scheduled and manually dispatched workflows (`dependency-canary.yml`, `dependency-audit.yml`) and Dependabot
-only run from the repository's default branch, which is still `main`. They take effect when the default
-branch is `baihe-subtitler`; until then the check in `tests.yml` (which runs on pull requests into
-`baihe-subtitler`) is the only part that works.
+only run from the repository's default branch, which is `baihe-subtitler` (the old `main` branch no longer exists).
 
 ### Before and after an upgrade on your PC (smoke pack)
 
