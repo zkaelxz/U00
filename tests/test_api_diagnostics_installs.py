@@ -22,6 +22,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from services import diagnostics_gaps_service as gaps
+from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_installs_service as svc
 
 REMOTE = "https://baihe.example.com"
@@ -108,7 +109,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     yield state
     for jid in (svc.DENO_JOB_ID, svc.UPGRADE_CHECK_JOB_ID):
         background_jobs.clear_job(jid)
-    gaps._UPDATES.update(checked_at=None, packages={})
+    packages_svc._UPDATES.update(checked_at=None, packages={})
 
 
 def _serve_release(state, zip_bytes=None, checksum=None):
@@ -244,7 +245,7 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
 
 
 def _cache_update(name="pydub", target="2.0.0"):
-    gaps._UPDATES.update(checked_at=time.time(), packages={
+    packages_svc._UPDATES.update(checked_at=time.time(), packages={
         name: {"name": name, "dist": "pydub", "installed_version": "1.0.0",
                "status": "update", "latest": target, "target": target, "reason": ""}})
 

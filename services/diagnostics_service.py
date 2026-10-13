@@ -4,11 +4,12 @@ GET /api/diagnostics.
 
 This wraps `diagnostics.py`'s and `background_jobs.py`'s existing
 read-only checks verbatim -- no new logic, no admin action (those are in
-diagnostics_gaps_service and diagnostics_installs_service, behind PC-only
+diagnostics_admin_service, diagnostics_packages_service,
+diagnostics_gpu_torch_service and diagnostics_installs_service, behind PC-only
 routes). Every check here is local (imports,
 filesystem, GPU driver, in-process job state) -- never a network call,
 matching this service's own "diagnostics overview" scope; version
-freshness checks hit PyPI, so they live in diagnostics_gaps_service.
+freshness checks hit PyPI, so they live in diagnostics_packages_service.
 check_package_updates, behind an explicit click.
 
 No HTTP types: takes no arguments, returns a plain

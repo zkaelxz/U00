@@ -15,7 +15,7 @@ import background_jobs
 import install_plan
 import install_registry
 import pending_install
-from services import diagnostics_gaps_service as gaps
+from services import diagnostics_admin_service as admin_svc
 from services.service_errors import ConflictError, InvalidInputError
 
 PLAN_CACHE_SECONDS = 600
@@ -30,7 +30,7 @@ _PROBLEMS = {
 }
 
 
-class PlanNeedsConfirm(gaps.AdminActionRefused, ConflictError):
+class PlanNeedsConfirm(admin_svc.AdminActionRefused, ConflictError):
     """The plan downgrades something Baihe needs; accept_risk=true is required (409)."""
 
 
@@ -38,7 +38,7 @@ def _keys(packages) -> list:
     keys = list(dict.fromkeys(packages))
     reason = install_registry.unqueueable_reason(keys)
     if reason:
-        raise gaps.AdminActionUnknownPackage(reason)
+        raise admin_svc.AdminActionUnknownPackage(reason)
     return keys
 
 
@@ -87,7 +87,7 @@ def queue(packages, confirm: bool = False, accept_risk: bool = False) -> dict:
     run now this only says so (install_now) and the caller uses the normal
     install; a plan with a hard block, or a risk not accepted, is refused."""
     if confirm is not True:
-        raise gaps.AdminActionUnconfirmed("Confirmation required.")
+        raise admin_svc.AdminActionUnconfirmed("Confirmation required.")
     # A merged queue runs a fresh dry run, so it takes the preview's lock and re-check.
     if background_jobs.exclusive_held() or not _PREVIEW_LOCK.acquire(blocking=False):
         raise ConflictError("An install, restore or another preview is in progress; "
@@ -109,7 +109,7 @@ def _queue(packages, accept_risk: bool) -> dict:
     keys = _keys(queued + list(packages))
     plan = _plan(keys, fresh=bool(queued))
     if plan["blocked"]:
-        raise gaps.AdminActionNotPossible(plan["blocked"][0])
+        raise admin_svc.AdminActionNotPossible(plan["blocked"][0])
     if plan["needs_confirm"] and accept_risk is not True:
         raise PlanNeedsConfirm(" ".join(plan["needs_confirm"])
                                + " Confirm again to go ahead anyway.")

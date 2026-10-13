@@ -42,6 +42,9 @@ from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
                          DiagnosticsSupportReport, ErrorResponse)
 from services import diagnostics_gaps_service as svc
+from services import diagnostics_admin_service as admin_svc
+from services import diagnostics_packages_service as packages_svc
+from services import diagnostics_gpu_torch_service as torch_svc
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
@@ -92,7 +95,7 @@ def get_support_report():
             response_model=DiagnosticsInstallPresets,
             summary="Packages grouped by task, with approx. sizes, PyPI links and caveats")
 def get_install_presets():
-    return svc.get_install_presets()
+    return packages_svc.get_install_presets()
 
 
 @router.post("/package-updates/check", dependencies=[require_permission("admin.diagnostics")],
@@ -100,14 +103,14 @@ def get_install_presets():
              summary="Ask PyPI for newer releases of installed packages; the newest one "
                      "constraints.txt and installed dependents allow (explicit click only)")
 def post_package_updates_check():
-    return svc.check_package_updates()
+    return packages_svc.check_package_updates()
 
 
 @router.get("/gpu-torch", dependencies=[require_permission("admin.diagnostics")],
             response_model=DiagnosticsGpuTorchStatus,
             summary="NVIDIA GPU/driver, installed torch family, recommended matched triple")
 def get_gpu_torch():
-    return svc.get_gpu_torch_status()
+    return torch_svc.get_gpu_torch_status()
 
 
 @router.post("/gpu-torch/check", dependencies=[require_permission("admin.diagnostics")],
@@ -116,7 +119,7 @@ def get_gpu_torch():
                      "409 while a job or another check runs)",
              responses={409: {"model": ErrorResponse}})
 def post_gpu_torch_check():
-    return svc.check_gpu_torch()
+    return torch_svc.check_gpu_torch()
 
 
 @router.post("/dependencies/{package}/upgrade", dependencies=[local_only()],
@@ -125,7 +128,7 @@ def post_gpu_torch_check():
              responses=_ERRS)
 def post_upgrade(body: DiagnosticsUpgradeRequest,
                  package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
-    return svc.upgrade_dependency(package, confirm=body.confirm, target=body.target)
+    return packages_svc.upgrade_dependency(package, confirm=body.confirm, target=body.target)
 
 
 @router.post("/reset-library", dependencies=[local_only()],
@@ -133,7 +136,7 @@ def post_upgrade(body: DiagnosticsUpgradeRequest,
              summary='PC only: erase the whole library (confirm=true, confirm_text "RESET")',
              responses=_ERRS)
 def post_reset_library(body: DiagnosticsResetRequest):
-    return svc.reset_library(confirm=body.confirm, confirm_text=body.confirm_text)
+    return admin_svc.reset_library(confirm=body.confirm, confirm_text=body.confirm_text)
 
 
 @router.post("/model-cache/hf/{revision}/delete", dependencies=[local_only()],
@@ -142,7 +145,7 @@ def post_reset_library(body: DiagnosticsResetRequest):
              responses=_ERRS)
 def post_delete_hf_revision(body: DiagnosticsAdminConfirm,
                             revision: str = Path(pattern=r"^[0-9a-f]{40}$")):
-    return svc.delete_hf_revision(revision, confirm=body.confirm)
+    return admin_svc.delete_hf_revision(revision, confirm=body.confirm)
 
 
 @router.post("/model-cache/files/{kind}/{name}/delete", dependencies=[local_only()],
@@ -154,4 +157,4 @@ def post_delete_model_file(body: DiagnosticsAdminConfirm,
                            kind: Literal["torch", "audio_separator"],
                            name: str = Path(min_length=1, max_length=200,
                                             pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
-    return svc.delete_model_file(kind, name, confirm=body.confirm)
+    return admin_svc.delete_model_file(kind, name, confirm=body.confirm)
