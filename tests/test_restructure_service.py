@@ -10,7 +10,7 @@ import background_jobs
 import db
 import resegment
 from core import Line
-from services import drama_service, restructure_service as svc
+from services import drama_service, resegmentation_service, restructure_service as svc
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 LONG = "我今天早上很早就起床了然后去公园跑步。" * 3  # well over the zh cap, splits at 。
@@ -248,7 +248,7 @@ def _wait(job_id):
 class TestResegment:
     def test_preview_is_read_only(self):
         did, ids = _seed([("a", ""), (LONG, "translated")])
-        p = svc.preview_resegmentation(did)
+        p = resegmentation_service.preview_resegmentation(did)
         assert p["source_line_ids"] == ids and p["line_count_after"] == 4
         assert p["changed"][0]["line_id"] == ids[1] and p["needs_confirm"] and p["translated"] == 1
         assert [r["id"] for r in _rows(did)] == ids and not db.list_line_history(did)
@@ -257,8 +257,8 @@ class TestResegment:
         did, ids = _seed([("a", "A"), (LONG, "translated"), ("c", "C"), ("d", "D")])
         _decorate(did, ids)
         with pytest.raises(InvalidInputError):
-            svc.start_resegmentation(did, ids)
-        out = svc.start_resegmentation(did, ids, confirm=True)
+            resegmentation_service.start_resegmentation(did, ids)
+        out = resegmentation_service.start_resegmentation(did, ids, confirm=True)
         job = _wait(out["job_id"])
         assert job["status"] == "done", job
         rows = _rows(did)
@@ -278,7 +278,7 @@ class TestResegment:
             db.save_lines(did, db.load_line_objects(did) + [Line(idx=9, start=9, end=10, zh="x")])
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
-        job = _wait(svc.start_resegmentation(did, ids)["job_id"])
+        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
         assert job["status"] == "error"
         assert len(_rows(did)) == 3  # the other writer's line kept, nothing duplicated
 
@@ -286,7 +286,7 @@ class TestResegment:
         did, ids = _seed([("a", ""), (LONG, "")])
         monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
-            svc.start_resegmentation(did, ids)
+            resegmentation_service.start_resegmentation(did, ids)
 
 
 class TestApi:

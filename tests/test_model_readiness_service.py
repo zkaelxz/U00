@@ -123,7 +123,7 @@ ROUTES = [
     ("/api/transcribe/dramas/{did}/retime/run", {"line_ids": [1]}, "retime_service",
      "start_retime", _aligner),
     ("/api/restructure/dramas/{did}/resplit", {"expected_line_ids": [], "align_to_audio": True},
-     "restructure_service", "resplit_long_lines", _aligner),
+     "resplit_service", "resplit_long_lines", _aligner),
     ("/api/diarization/dramas/{did}/run", None, "diarization_service",
      "start_diarization_run", _pyannote),
     ("/api/dub/dramas/{did}/run", {}, "dub_service", "start_dub_run",
@@ -240,7 +240,7 @@ def test_household_non_model_jobs_unaffected(isolated_db, caches, monkeypatch):
                     headers=_h(session))
     assert r.status_code == 200
     # Resplit without aligning to the audio loads nothing.
-    started = _stub(monkeypatch, "restructure_service", "resplit_long_lines")
+    started = _stub(monkeypatch, "resplit_service", "resplit_long_lines")
     r = client.post(f"/api/restructure/dramas/{did}/resplit", json={"expected_line_ids": []},
                     headers=_h(session))
     assert _reached(r) and len(started) == 1

@@ -169,7 +169,7 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
 - **"Can't do this" messages.** `TRANSLATION_ONLY_ENGINES` (empty now) names engines with no
   instruction following. Services that need it refuse with
   "`<engine>` is a translation-only engine and can't do this." (see
-  `line_ai_service`, `reader_service`, `restructure_service`,
+  `line_ai_service`, `reader_service`, `resegmentation_service`,
   `review_extras_service`); Reflect is refused with "`<engine>` can't run
   Reflect mode." (`translate_run_service`). Line helpers fall back to the
   `llm.instructions` capability engine. Bulk mode refuses anything but

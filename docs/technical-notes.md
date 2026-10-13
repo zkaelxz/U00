@@ -356,7 +356,7 @@ Contract:
   `LINE_CHAR_LIMITS` is only the re-split/resegment threshold. ASS styles do
   not vary by script.
 - Forced alignment: Re-split's "Align to audio" runs the aligner once per line
-  (`restructure_service._aligned_pieces`) in `Line.lang`, else the title's
+  (`resplit_service._aligned_pieces`) in `Line.lang`, else the title's
   language, and an `en` line is aligned as English (`forced_align.ALIGNER_LANGUAGE_NAMES`;
   words are kept space-separated for the aligner). English alignment quality on real audio
   has not been checked yet.
