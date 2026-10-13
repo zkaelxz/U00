@@ -110,7 +110,7 @@ body {
   background: var(--glass);
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-shadow);
-  border-radius: 22px;
+  border-radius: var(--radius-panel);
 }
 /* These two had no border: the edge is a ring that takes no space, so the page keeps its height (the phone Review toolbar's scroll thresholds depend on it). */
 .review-toolbox,
@@ -120,10 +120,10 @@ body {
 }
 
 /* A fold that sits on the page is a panel like the rest; one inside a card, sheet or list is only a row of it. No blur here: backdrop-filter on a fold stops a toggle at its bottom edge from receiving taps on the part of its 44px target that falls below it. */
-details.section { background: var(--glass); border-color: var(--glass-edge); border-radius: 22px; padding-inline: var(--space-4); }
+details.section { background: var(--glass); border-color: var(--glass-edge); border-radius: var(--radius-panel); padding-inline: var(--space-4); }
 .card details.section, details.section details.section, .tools-stack details.section, .discover-panel details.section, .panel details.section, dialog.sheet details.section { background: none; }
 
-/* One control shape: pill with a visible edge, so a white button never vanishes on a white panel. */
+/* One control shape: the 8px control radius with a visible edge, so a white button never vanishes on a white panel. */
 .btn,
 .palette-btn,
 .jobs-menu-btn,
@@ -133,21 +133,21 @@ details.section { background: var(--glass); border-color: var(--glass-edge); bor
   border: 1px solid var(--btn-edge);
   background: var(--btn);
   box-shadow: var(--btn-shadow);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius);
   color: var(--text);
 }
-/* No background transition on buttons: a gradient and a flat colour cannot interpolate, so animating `background` between them (hover,
+/* No background transition on buttons: a flat colour and a transparent start cannot interpolate, so animating `background` between them (hover,
    a pill turning primary, a disabled button enabling) passed through the transparent start colour and flashed white. State changes
-   snap; hover darkens with `filter`, which animates smoothly and keeps the gradient. */
+   snap; hover darkens with `filter`, which animates smoothly. */
 .btn {
   transition: border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), filter var(--dur-2) var(--ease);
 }
 .btn.btn-primary,
 .btn.btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, white), var(--accent));
-  border-color: transparent;
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 78%, black);
   color: var(--on-accent);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: none;
 }
 .btn.btn-primary:hover:not(:disabled) { filter: brightness(0.9); }
 .btn.btn-ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--accent-text); }
@@ -164,7 +164,7 @@ textarea {
 /* Chips and segmented controls */
 /* Colour and edge only: sizes stay with review.css, whose phone rule keeps the chip row inside the screen. */
 .review-chip span {
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius);
   border: 1px solid var(--btn-edge);
   background: var(--btn);
   box-shadow: var(--btn-shadow);
@@ -176,27 +176,27 @@ textarea {
   box-shadow: none;
 }
 fieldset.segmented {
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius);
   background: var(--glass);
   border: 1px solid var(--btn-edge);
 }
-.segmented label { border-radius: var(--radius-pill); }
+.segmented label { border-radius: var(--radius-sm); }
 .segmented label:has(input:checked) { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 
-/* Tabs: a rounded tray with the selected tab raised on it. */
+/* Tabs: a tray with the selected tab raised on it. */
 .stage-tabs {
   border: 1px solid var(--btn-edge);
   background: var(--glass);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-panel);
   padding: 5px;
   gap: 2px;
   max-width: 100%;
   overflow: hidden;
 }
-.stage-tabs a { border: 0; border-radius: var(--radius-pill); flex: 1 1 auto; min-width: 0; justify-content: center; text-align: center; white-space: nowrap; }
+.stage-tabs a { border: 0; border-radius: var(--radius); flex: 1 1 auto; min-width: 0; justify-content: center; text-align: center; white-space: nowrap; }
 .stage-tabs a[aria-current='page'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
-.ui-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: 22px; background: var(--glass); }
-.ui-tabs .ui-tab { border: 0; border-radius: var(--radius-pill); box-shadow: none; background: transparent; }
+.ui-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: var(--radius-panel); background: var(--glass); }
+.ui-tabs .ui-tab { border: 0; border-radius: var(--radius); box-shadow: none; background: transparent; }
 .ui-tab[aria-selected='true'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 /* On phones the tray adds no height: the Review toolbar collapses on scroll and hides these tabs, and its two scroll thresholds
    (LinesPanel.tsx) only hold when that layout shift stays small. The ring is drawn inset instead of as a border and padding. */
@@ -210,8 +210,8 @@ fieldset.segmented {
   .ui-tabs .ui-tab { flex: 1 1 auto; min-width: 44px; white-space: nowrap; }
 }
 /* Discover's tabs were the one underline tab bar left; they match the others. */
-.discover-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: 22px; background: var(--glass); overflow-x: auto; }
-.discover-tabs .discover-tab { border: 0; border-radius: var(--radius-pill); }
+.discover-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: var(--radius-panel); background: var(--glass); overflow-x: auto; }
+.discover-tabs .discover-tab { border: 0; border-radius: var(--radius); }
 .discover-tabs .discover-tab[aria-selected='true'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 .discover-panel { padding: var(--space-4) var(--space-5); }
 
@@ -261,7 +261,7 @@ fieldset.segmented {
   .app-header::before, .ws-strip::before { opacity: 0; animation: bar-backing linear both; animation-timeline: scroll(root block); animation-range: 0 40px; }
   @keyframes bar-backing { to { opacity: 1; } }
 }
-.review-toolbar { background: var(--surface); backdrop-filter: none; border-radius: 22px; }
+.review-toolbar { background: var(--surface); backdrop-filter: none; border-radius: var(--radius-panel); }
 /* backdrop-filter on a rounded, clipped, scrolling panel leaves square corners in Chromium, so these stay un-blurred. */
 .review-toolbox, .review-lines { backdrop-filter: none; }
 .review-line.is-active { border-radius: 14px; }
