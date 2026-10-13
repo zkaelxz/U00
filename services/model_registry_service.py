@@ -108,7 +108,7 @@ def configured_models() -> list:
     """Every place a model string is set: [{engine, model, where, kind,
     preset_id?}] (kind: "default", "tier" or "preset")."""
     out = []
-    for e in translate_service.list_engines():
+    for e in translate_service.list_engines(probe_ollama=False):
         if e["name"] not in _PROVIDER_LISTS and e["models"] is None:
             continue
         model = _default_model(e["name"])
@@ -203,7 +203,7 @@ def _offered(engine: str) -> list:
     """Models this app offers for `engine`; an engine without a model picker
     (DeepSeek, ...) offers only its built-in default, as
     translate_run_service._require_offered_model treats it."""
-    entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
+    entry = next((e for e in translate_service.list_engines(probe_ollama=False) if e["name"] == engine), None)
     if entry is None:
         return []
     if entry["models"] is not None:
