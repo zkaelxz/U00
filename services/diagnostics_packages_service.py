@@ -179,39 +179,39 @@ def install_dependency(name: str, confirm: bool = False, job_id: str = None,
         _clear_update_cache()      # a new package can hold back (or allow) others
 
 
-def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> dict:
-    """Upgrades to the version the last "Check for updates" found allowed
-    (pinned exactly, with constraints.txt); refuses when that check found
-    no allowed update, or (409) when `target`, the version the user
-    confirmed, isn't that check's target any more. Without a check (and no
-    target), `--upgrade` with constraints.txt as before."""
+def upgrade_specs(name: str, target: str = None) -> list:
+    """The pip requirements an update runs: the version the last "Check for
+    updates" found allowed (pinned exactly); refuses when that check found no
+    allowed update, or (409) when `target`, the version the user confirmed,
+    isn't that check's target any more. Without a check (and no target),
+    `--upgrade`. Its plan and its install both use this list, so the preview
+    is of exactly what pip will run."""
     if name in gpu_torch.TORCH_FAMILY:
-        guard(confirm)
         raise AdminActionNotPossible(
             "torch, torchvision and torchaudio are upgraded together: use GPU PyTorch setup.")
     checked = cached_update(name)
     if checked is not None and target is None:
-        guard(confirm)
         raise AdminActionStale("Say which version to update to (the update check's target).")
     if target is not None and (checked is None or checked["status"] != "update"
                                or checked["target"] != target):
-        guard(confirm)
         raise AdminActionStale("The update check has changed since; check for updates again.")
     if checked is not None and checked["status"] != "update":
-        guard(confirm)
         raise AdminActionNotPossible(
             "The last update check found no update allowed for this package; check again.")
+    if checked is not None:
+        return [f"{checked['dist']}=={checked['target']}"]
+    return ["--upgrade", diagnostics.pip_install_name(name)]
 
-    def cmds(n):
-        dist = diagnostics.pip_install_name(n)
-        if checked is not None:
-            args = [f"{checked['dist']}=={checked['target']}"]
-            args += dependency_updates.constraints_pip_args(default_project_root())
-        else:
-            args = dependency_updates.upgrade_pip_args(dist, default_project_root())
+
+def upgrade_dependency(name: str, specs: list, job_id: str = None) -> dict:
+    """Runs the update as the install job `job_id`, which already holds the
+    library and passed the start checks (see
+    diagnostics_installs_service.start_dependency_upgrade)."""
+    def cmds(_n):
+        args = [*specs, *dependency_updates.constraints_pip_args(default_project_root())]
         return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]
     try:
-        return _run_pip(name, confirm, cmds)
+        return _run_pip(name, True, cmds, job_id=job_id)
     finally:
         # pip may have moved other packages too (a dependency pulled up or
         # capped), so no cached target is safe any more: the next Update

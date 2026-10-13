@@ -59,12 +59,15 @@ def install_dists(keys) -> list:
 
 
 def install_argv(keys, python: str = None, torch_pins_path: str = None,
-                 project_root: str = None) -> list:
+                 project_root: str = None, specs: list = None) -> list:
     """The literal `pip install` argv for these keys: the registry's dist
     names, constraints.txt's caps, and a pin file holding the installed torch
-    family so a dependent package can't swap a CUDA torch for a CPU one."""
+    family so a dependent package can't swap a CUDA torch for a CPU one.
+    `specs` replaces the dist names when an update asks for something else
+    (`dist==target`, or `--upgrade dist`)."""
+    reqs = install_dists(keys) if specs is None else specs
     argv = [python or sys.executable, "-m", "pip", "install", *diagnostics.PIP_INSTALL_FLAGS,
-            *install_dists(keys), *dependency_updates.constraints_pip_args(project_root or ROOT)]
+            *reqs, *dependency_updates.constraints_pip_args(project_root or ROOT)]
     if torch_pins_path:
         argv += ["-c", torch_pins_path]
     return argv

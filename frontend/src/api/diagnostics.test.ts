@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   deleteModelFile, getDiagnostics, getLog, getModelCache, getPyannote, getPorts, getSetupChecks,
-  getSupportReport, installDependency, resetLibrary, upgradeDependency,
+  getSupportReport, installDependency, planUpgrade, resetLibrary, upgradeDependency,
 } from './diagnostics'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
@@ -67,6 +67,18 @@ describe('diagnostics api', () => {
     expect(JSON.parse(i2.body)).toEqual({ confirm: true, target: '2026.9.1' })
     expect(i1.method).toBe('POST')
     expect(localHeader(i1)).toBe('1')
+  })
+
+  it('upgrade previews its own plan and sends the accepted risks with the target', async () => {
+    const { mock, f } = reply(200, { job_id: 'dependency_install', started: true })
+    const risk = 'numpy 2.5.3 -> 2.3.5 is a downgrade of a package Baihe itself needs.'
+    await planUpgrade('yt-dlp', '2026.9.1', f)
+    await upgradeDependency('yt-dlp', '2026.9.1', f, [risk])
+    const [[u1, plan], [, accepted]] = mock.mock.calls
+    expect(u1).toBe('/api/diagnostics/dependencies/yt-dlp/upgrade/plan')
+    expect(JSON.parse(plan.body)).toEqual({ target: '2026.9.1' })
+    expect(localHeader(plan)).toBe('1')
+    expect(JSON.parse(accepted.body)).toEqual({ confirm: true, target: '2026.9.1', accept_risk: true, accepted_risks: [risk] })
   })
 
   it('install sends accept_risk only with the risks the owner accepted', async () => {

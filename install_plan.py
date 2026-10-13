@@ -211,11 +211,12 @@ def _dry_run(argv: list, runner):
             pass
 
 
-def run_dry_run(keys: list, runner=run_captured):
+def run_dry_run(keys: list, runner=run_captured, specs: list = None):
     """(report doc or None, why) from `pip install --dry-run --report`."""
     pins = install_registry.write_torch_pins(keys)
     try:
-        return _dry_run(install_registry.install_argv(keys, torch_pins_path=pins), runner)
+        return _dry_run(install_registry.install_argv(keys, torch_pins_path=pins, specs=specs),
+                        runner)
     finally:
         if pins:
             try:
@@ -240,9 +241,11 @@ def downgrade_risks(argv: list, runner=run_captured, installed: dict = None,
 
 def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, report=None,
                installed: dict = None, in_use=dist_in_use, mins: dict = None,
-               required: set = None) -> dict:
+               required: set = None, specs: list = None) -> dict:
     """The plan shown before the owner confirms, and the install-now/
-    install-at-restart decision.
+    install-at-restart decision. `specs`: the pip requirements an update
+    really runs (see install_registry.install_argv), so its preview is of
+    the update and not of an install that would change nothing.
 
     mode "restart": a package pip would replace is in use here (Windows only),
     a job is running, or no preview was possible on Windows. blocked: reasons
@@ -259,7 +262,7 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
         return plan
     why = None
     if report is None:
-        report, why = run_dry_run(keys)
+        report, why = run_dry_run(keys, specs=specs)
     if why == "conflict":
         plan["blocked"].append("pip says these packages can't be installed together with what "
                                "you have, so nothing was changed.")

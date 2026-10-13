@@ -153,18 +153,21 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
     sent.push(r.request())
     return r.fulfill({ json: UPDATES })
   })
-  // Installs and the PyTorch setup are a job (started by a POST, read back by polling);
-  // upgrade is still one request.
+  // Installs, upgrades and the PyTorch setup are a job (started by a POST, read back by polling).
   await mockDependencyInstall(page, (name) => name === 'torch'
     ? { ok: true, output_tail: ['Successfully installed torch'], variant: 'cu128', verify: VERIFY }
     : name !== 'opencc-python-reimplemented'
       ? { ok: true, output_tail: [`Successfully installed ${name}`] }
       : { ok: false, output_tail: ['ERROR: [Errno 13] Permission denied'], hint: HINT },
   { onStart: (r) => sent.push(r) })
-  await page.route('**/api/diagnostics/dependencies/*/upgrade', (r) => {
+  await page.route('**/api/diagnostics/dependencies/*/upgrade/plan', (r) => {
     sent.push(r.request())
     const name = decodeURIComponent(r.request().url().split('/dependencies/')[1].split('/')[0])
-    return r.fulfill({ json: { package: name, ok: true, output_tail: [`Successfully installed ${name}`], hint: null } })
+    return r.fulfill({ json: {
+      packages: [name], available: true, mode: 'now', loaded: [], blocked: [], needs_confirm: [], note: null,
+      changes: [{ name, from_version: '0.53.0', to_version: '0.55.0', kind: 'upgrade' }],
+      summary: [`Upgrade ${name} 0.53.0 -> 0.55.0.`],
+    } })
   })
   return { sent, unmocked }
 }
@@ -293,9 +296,16 @@ test('installed packages show versions; Update appears only after a check, with 
 
   await pinyin.getByRole('button', { name: 'Update pypinyin to 0.55.0' }).click()
   await page.getByRole('button', { name: 'Confirm update pypinyin to 0.55.0' }).click()
+  // The update is previewed first and runs only from the plan panel.
+  const plan = page.getByTestId('install-plan')
+  await expect(plan).toContainText('Upgrade pypinyin 0.53.0 -> 0.55.0.')
+  expect(sent.map((r) => new URL(r.url()).pathname)).toEqual([
+    '/api/diagnostics/package-updates/check', '/api/diagnostics/dependencies/pypinyin/upgrade/plan'])
+  expect(sent[1].postDataJSON()).toEqual({ target: '0.55.0' })
+  await plan.getByRole('button', { name: 'Install now' }).click()
   await expect(page.getByTestId('install-result')).toContainText('Updated pypinyin.')
-  expect(new URL(sent[1].url()).pathname).toBe('/api/diagnostics/dependencies/pypinyin/upgrade')
-  expect(sent[1].postDataJSON()).toEqual({ confirm: true, target: '0.55.0' })
+  expect(new URL(sent[2].url()).pathname).toBe('/api/diagnostics/dependencies/pypinyin/upgrade')
+  expect(sent[2].postDataJSON()).toEqual({ confirm: true, target: '0.55.0' })
   // An update can move other packages too, so the whole check is dropped:
   // no stale targets or Update buttons stay on the page until the next check.
   // (The version shown comes from the page's reload of Diagnostics.)

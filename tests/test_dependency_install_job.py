@@ -44,7 +44,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     monkeypatch.setattr(diagnostics_torch, "torch_pin_lines", lambda: [])
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: ({"install": []}, None))
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: ({"install": []}, None))
     site = tmp_path / "site-packages"
     site.mkdir()
     monkeypatch.setattr(svc.sysconfig, "get_paths",
@@ -219,7 +219,7 @@ def _report(*pairs):
 
 
 def test_install_now_refuses_a_blocked_plan(env, monkeypatch):
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: (None, "conflict"))
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (None, "conflict"))
     with pytest.raises(admin_svc.AdminActionNotPossible, match="can't be installed together"):
         svc.start_dependency_install("jieba", confirm=True)
     assert background_jobs.get_status(JOB) is None
@@ -229,7 +229,7 @@ RISK = "numpy 2.0 -> 1.0 is a downgrade of a package Baihe itself needs."
 
 
 def _downgrade_plan(monkeypatch):
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: (_report(("numpy", "1.0")), None))
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (_report(("numpy", "1.0")), None))
     monkeypatch.setattr(pending_install, "snapshot", lambda: {"numpy": "2.0"})
     monkeypatch.setattr(install_plan, "app_required_names", lambda: {"numpy"})
 
@@ -258,7 +258,7 @@ def test_accepting_covers_only_the_risks_that_were_shown(env, monkeypatch):
 
 
 def test_install_now_without_a_preview_needs_that_accepted(env, monkeypatch):
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: (None, "this pip cannot preview an install."))
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (None, "this pip cannot preview an install."))
     monkeypatch.setattr(svc.os, "name", "posix")
     monkeypatch.setattr(install_plan.os, "name", "posix")
     with pytest.raises(svc.PlanNeedsConfirm, match="couldn't check"):
@@ -274,7 +274,7 @@ def test_install_now_refuses_while_another_plan_or_hold_is_live(env, monkeypatch
     """Two near-simultaneous Install now presses must not both plan against
     the environment the first is about to change."""
     from services import pending_install_service
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: pytest.fail("no second plan"))
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: pytest.fail("no second plan"))
     with pending_install_service._PREVIEW_LOCK:
         with pytest.raises(svc.ConflictError, match="in progress"):
             svc.start_dependency_install("jieba", confirm=True)
@@ -291,7 +291,7 @@ def test_install_now_refuses_while_another_plan_or_hold_is_live(env, monkeypatch
 
 def test_install_now_refuses_what_must_wait_for_a_restart(env, monkeypatch):
     real = install_plan.build_plan
-    monkeypatch.setattr(install_plan, "build_plan", lambda keys: real(
+    monkeypatch.setattr(install_plan, "build_plan", lambda keys, specs=None: real(
         keys, windows=True, report=_report(("numpy", "2.1")), installed={"numpy": "2.0"},
         in_use=lambda name: True, mins={}, required=set()))
     with pytest.raises(svc.InstallNeedsRestart, match="Queue it for the next start"):
@@ -316,7 +316,7 @@ def test_a_read_only_install_folder_refuses_before_a_job_exists(env, monkeypatch
             raise PermissionError(13, "Access is denied")
         return real_tf(*a, dir=dir, **k)
     monkeypatch.setattr(svc.tempfile, "TemporaryFile", denied)
-    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys: pytest.fail("no preview"))
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: pytest.fail("no preview"))
     with pytest.raises(admin_svc.AdminActionNotPossible, match="Stop the service"):
         svc.start_dependency_install("jieba", confirm=True)
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
@@ -438,6 +438,89 @@ def test_a_failed_gpu_setup_points_back_to_the_setup(env, monkeypatch, restore):
     _wait(_finished)
     hint = svc.get_dependency_install()["result"]["hint"]
     assert "could not be put back: torch. Set up PyTorch again under GPU PyTorch." in hint
+
+
+# ---- Upgrade: the same plan, write probe and restore as an install ----
+
+def _no_update_check(monkeypatch):
+    # No "Check for updates" ran: the update is `--upgrade jieba`.
+    monkeypatch.setattr(packages_svc, "cached_update", lambda name: None)
+
+
+def test_upgrade_plans_exactly_the_pip_command_it_runs(env, monkeypatch):
+    _no_update_check(monkeypatch)
+    asked = []
+    monkeypatch.setattr(install_plan, "run_dry_run",
+                        lambda keys, specs=None: asked.append(specs) or (_report(("jieba", "0.43")), None))
+    monkeypatch.setattr(pending_install, "snapshot", lambda: {"jieba": "0.42"})
+    plan = svc.preview_upgrade("jieba")
+    assert plan["changes"] == [{"name": "jieba", "from_version": "0.42", "to_version": "0.43",
+                                "kind": "upgrade"}]
+    seen = []
+
+    def fake_tree(cmd, timeout, **_kw):
+        seen.append(cmd)
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(packages_svc, "stream_tree", fake_tree)
+    assert svc.start_dependency_upgrade("jieba", confirm=True)["started"] is True
+    assert _wait(_finished)["status"] == "done"
+    assert asked == [["--upgrade", "jieba"], ["--upgrade", "jieba"]]
+    assert seen[0][seen[0].index("install") + 1:][-4:-2] == ["--upgrade", "jieba"]
+    state = svc.get_dependency_install()
+    assert state["kind"] == "upgrade" and state["package"] == "jieba"
+
+
+def test_upgrade_refuses_an_unaccepted_risk_and_honours_accepted_risks(env, monkeypatch):
+    _no_update_check(monkeypatch)
+    _downgrade_plan(monkeypatch)
+    with pytest.raises(svc.PlanNeedsConfirm, match="numpy 2.0 -> 1.0") as exc:
+        svc.start_dependency_upgrade("jieba", confirm=True, accept_risk=True,
+                                     accepted_risks=["some other risk"])
+    assert getattr(exc.value, "http_status", 409) == 409
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="can't be installed together"):
+        monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: (None, "conflict"))
+        svc.start_dependency_upgrade("jieba", confirm=True, accept_risk=True, accepted_risks=[RISK])
+    assert background_jobs.get_status(JOB) is None
+    _downgrade_plan(monkeypatch)
+    monkeypatch.setattr(packages_svc, "stream_tree",
+                        lambda cmd, timeout, **_kw: iter([{"returncode": 0, "timed_out": False}]))
+    assert svc.start_dependency_upgrade("jieba", confirm=True, accept_risk=True,
+                                        accepted_risks=[RISK])["started"] is True
+    assert _wait(_finished)["status"] == "done"
+
+
+def test_upgrade_that_must_wait_for_a_restart_is_refused_without_a_queue_hint(env, monkeypatch):
+    _no_update_check(monkeypatch)
+    real = install_plan.build_plan
+    monkeypatch.setattr(install_plan, "build_plan", lambda keys, specs=None: real(
+        keys, windows=True, report=_report(("jieba", "0.43")), installed={"jieba": "0.42"},
+        in_use=lambda name: True, mins={}, required=set()))
+    with pytest.raises(svc.InstallNeedsRestart, match="Restart Baihe") as exc:
+        svc.start_dependency_upgrade("jieba", confirm=True)
+    assert "Queue" not in str(exc.value)
+    assert background_jobs.get_status(JOB) is None
+
+
+def test_upgrade_refuses_a_read_only_install_folder_before_anything_runs(env, monkeypatch, tmp_path):
+    _no_update_check(monkeypatch)
+    monkeypatch.setattr(svc, "_writable", lambda folder: False)
+    monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: pytest.fail("no preview"))
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="Stop the service"):
+        svc.start_dependency_upgrade("jieba", confirm=True)
+    assert background_jobs.get_status(JOB) is None
+
+
+def test_a_failed_upgrade_puts_the_earlier_packages_back(env, monkeypatch, restore):
+    _no_update_check(monkeypatch)
+    restore["env"]["jieba"] = "0.42"
+    _pip_moves(restore, monkeypatch, {"numpy": "2.1", "jieba": "0.43"})
+    svc.start_dependency_upgrade("jieba", confirm=True)
+    assert _wait(_finished)["status"] == "error"
+    assert [c["specs"] for c in restore["calls"]] == [["jieba==0.42", "numpy==2.0"]]
+    assert restore["env"] == {"numpy": "2.0", "jieba": "0.42"}
+    assert "Your earlier packages were put back." in svc.get_dependency_install()["result"]["hint"]
+    assert job_launch.exclusive_active() is False
 
 
 def test_non_index_dists_reads_direct_url(monkeypatch):
