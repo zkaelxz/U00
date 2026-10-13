@@ -7,7 +7,7 @@ included): consistency check, emotion tagging, translation notes, the
 Each start function validates, builds the engine from settings-resolved keys
 (never a client-supplied key or URL; D2), copies the drama's lines from the
 DB (with their permanent ids and `orig` baseline) and hands them to the same
-runner the Workspace buttons use (services/workspace_job_service.py), so the
+runner the Workspace buttons use (services/workspace_review_job_service.py), so the
 writes stay field-scoped: flag/flag_note (flag), the consistency-issues /
 emotions / translation-notes tables (keyed by permanent line id), and
 zh/en/flag/flag_note for fix-flagged. Never `fields=None`, and a field the
@@ -38,7 +38,7 @@ import core
 import db
 import translate_engines
 from services import (fixflag_translate, ownership_service, paid_job_service, settings_service,
-                      translate_run_service, translate_service, workspace_job_service,
+                      translate_run_service, translate_service, workspace_review_job_service,
                       transcribe_options_service)
 from services.service_errors import (
     ConflictError,
@@ -175,7 +175,7 @@ def start_consistency_check(drama_id: int, engine_name: str = None, model: str =
                             gemini_free_tier: bool = None, bulk: bool = False) -> dict:
     """Same-term-translated-differently check; saves the consistency issues."""
     return _start("consistency", drama_id, engine_name, model, gemini_free_tier,
-                  workspace_job_service.run_consistency_job,
+                  workspace_review_job_service.run_consistency_job,
                   lambda d, lines, eng, name: ((lines, eng, name), _job_language(d)), bulk=bulk,
                   bulk_kwargs=_language_kwargs)
 
@@ -191,7 +191,7 @@ def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = N
     def make_args(drama, lines, eng, name):
         return (lines, eng, cues(drama), name), {}
     return _start("emotion", drama_id, engine_name, model, gemini_free_tier,
-                  workspace_job_service.run_emotion_job, make_args, bulk=bulk,
+                  workspace_review_job_service.run_emotion_job, make_args, bulk=bulk,
                   bulk_kwargs=lambda drama: {"use_audio_cues": cues(drama)})
 
 
@@ -199,7 +199,7 @@ def start_translation_notes(drama_id: int, engine_name: str = None, model: str =
                             gemini_free_tier: bool = None, bulk: bool = False) -> dict:
     """Notes for readers, saved to the notes table by permanent line id."""
     return _start("notes", drama_id, engine_name, model, gemini_free_tier,
-                  workspace_job_service.run_translation_notes_job,
+                  workspace_review_job_service.run_translation_notes_job,
                   lambda d, lines, eng, name: ((lines, eng, name), {}), bulk=bulk)
 
 
@@ -210,7 +210,7 @@ def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
         if not any((ln.en or "").strip() for ln in lines):
             raise UnsupportedOperationError("There are no translated lines to review yet.")
     return _start("flag", drama_id, engine_name, model, gemini_free_tier,
-                  workspace_job_service.run_flag_job,
+                  workspace_review_job_service.run_flag_job,
                   lambda d, lines, eng, name: ((lines, eng, name), _job_language(d)),
                   precheck=precheck, bulk=bulk, bulk_kwargs=_language_kwargs)
 
@@ -256,7 +256,7 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
                       "default_female_pronouns": default_female_pronouns,
                       "gpu_touching": bool(audio_path) or translate_engines.ollama_touches_local_gpu(name, model)}
     started = _start("fix-flagged", drama_id, engine_name, model, gemini_free_tier,
-                     workspace_job_service.run_fix_flagged_lines_job, make_args,
+                     workspace_review_job_service.run_fix_flagged_lines_job, make_args,
                      allow_translation_only=True, precheck=precheck)
     translate_run_service.save_style_toggles(drama_id, include_genre_notes,
                                              default_female_pronouns)

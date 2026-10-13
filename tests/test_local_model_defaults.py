@@ -108,15 +108,15 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
         whisper_models._whisper_model_cache[(whisper_size, "cuda")] = object()  # what loading does
         return [{"start": 0.0, "end": 1.0, "text": "你好"}]
     # Migration Slice 2: run_transcribe_job now lives in and resolves
-    # transcribe_for_timing from services.workspace_job_service's own
+    # transcribe_for_timing from services.workspace_audio_job_service's own
     # globals, not tabs.workspace_tab's.
-    from services import workspace_job_service
-    monkeypatch.setattr(workspace_job_service, "transcribe_for_timing", fake_transcribe)
+    from services import workspace_audio_job_service
+    monkeypatch.setattr(workspace_audio_job_service, "transcribe_for_timing", fake_transcribe)
     job_id = "test_release_after_transcribe"
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     # Repointed from the Workspace tab's run_transcribe_job (a re-export of this).
-    workspace_job_service.run_transcribe_job(job_id, "a.wav", "medium", "zh", True, None, None, None, 5, 2000)
+    workspace_audio_job_service.run_transcribe_job(job_id, "a.wav", "medium", "zh", True, None, None, None, 5, 2000)
     assert background_jobs.get_status(job_id)["result"]["segments"]
     assert whisper_models._whisper_model_cache == {}
     assert loaded_models["asr"] == {} and loaded_models["aligner"] == {}

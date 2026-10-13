@@ -17,7 +17,7 @@ from core import Line
 from services import (compare_transcription_service as compare, fixflag_translate, lines_service,
                       resegmentation_service, restructure_service, retranscribe_many_service as many, source_change_service,
                       subtitle_import_service, translate_run_service,
-                      workspace_job_service, retranscribe_line_service)
+                      workspace_review_job_service, retranscribe_line_service)
 from services.service_errors import ConflictError
 
 FLAG = source_change.SOURCE_CHANGED_FLAG
@@ -277,19 +277,19 @@ class _HearEngine:
 
 class TestFixFlagged:
     def _run(self, did, engine, monkeypatch, heard):
-        monkeypatch.setattr(workspace_job_service.fixflag_transcribe, "hear_flagged",
+        monkeypatch.setattr(workspace_review_job_service.fixflag_transcribe, "hear_flagged",
                             lambda job_id, flagged, audio, settings: (
                                 [{"idx": ln.idx, "text": heard.get(ln.zh, "")} for ln in flagged],
                                 False, None))
-        monkeypatch.setattr(workspace_job_service.fixflag_transcribe, "hearing_settings",
+        monkeypatch.setattr(workspace_review_job_service.fixflag_transcribe, "hearing_settings",
                             lambda *a: {})
-        monkeypatch.setattr(workspace_job_service.whisper_models, "release_gpu_models",
+        monkeypatch.setattr(workspace_review_job_service.whisper_models, "release_gpu_models",
                             lambda: None)
-        monkeypatch.setattr(workspace_job_service.os.path, "exists", lambda p: True)
+        monkeypatch.setattr(workspace_review_job_service.os.path, "exists", lambda p: True)
         job_id = f"fixflag_{did}"
         background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                          "error": None, "cancel_requested": False, "result": None}
-        workspace_job_service.run_fix_flagged_lines_job(
+        workspace_review_job_service.run_fix_flagged_lines_job(
             job_id, did, db.load_line_objects(did), "audio.wav", "small", False, "zh", engine,
             "fake")
         return background_jobs.get_status(job_id)["result"]

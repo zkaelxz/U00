@@ -1,18 +1,21 @@
 """
-Tests that services/workspace_job_service.py exports every expected job
-function (a guard against a move or rename dropping one).
+Tests that services/workspace_job_service.py and its audio and review
+siblings export every expected job function (a guard against a move or rename dropping one).
 """
 
+import services.workspace_audio_job_service as wajs
 import services.workspace_job_service as wjs
+import services.workspace_review_job_service as wrjs
 from tests.saved_settings import patch_setting
 
 
 def test_every_moved_workspace_function_is_exported():
-    for name in ("run_translate_job", "run_transcribe_job", "run_hardsub_ocr_job",
-                "run_emotion_job", "run_sensevoice_job", "run_flag_job",
-                "run_consistency_job", "run_translation_notes_job",
-                "run_fix_flagged_lines_job"):
-        assert callable(getattr(wjs, name, None)), f"{name} missing or not callable"
+    for mod, names in ((wjs, ("run_translate_job",)),
+                       (wajs, ("run_transcribe_job", "run_hardsub_ocr_job", "run_sensevoice_job")),
+                       (wrjs, ("run_emotion_job", "run_flag_job", "run_consistency_job",
+                               "run_translation_notes_job", "run_fix_flagged_lines_job"))):
+        for name in names:
+            assert callable(getattr(mod, name, None)), f"{name} missing or not callable"
 
 
 def test_every_moved_library_function_is_exported():
@@ -146,7 +149,7 @@ def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
     import core
     lines = core.lines_from_rows(isolated_db.load_lines(did))
     background_jobs.clear_job("fix_ctx")
-    wjs.run_fix_flagged_lines_job("fix_ctx", did, lines, None, "small", False, "zh",
+    wrjs.run_fix_flagged_lines_job("fix_ctx", did, lines, None, "small", False, "zh",
                                   Engine(), "fake", locale="en-GB")
     ctx = Engine.context
     assert ctx["locale"] == "en-GB" and ctx["source_language"] == "zh"
@@ -160,14 +163,14 @@ def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
     background_jobs.clear_job("fix_ctx")
 
 
-def _spy_style_context(monkeypatch):
+def _spy_style_context(monkeypatch, module=wjs):
     calls = []
-    real = wjs.build_run_style_context
+    real = module.build_run_style_context
 
     def spy(*a, **k):
         calls.append(k)
         return real(*a, **k)
-    monkeypatch.setattr(wjs, "build_run_style_context", spy)
+    monkeypatch.setattr(module, "build_run_style_context", spy)
     return calls
 
 
@@ -176,7 +179,7 @@ def test_fix_flagged_passes_translate_toggles(isolated_db, monkeypatch, genre, p
     did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
                                    content_mode="audio_drama", status="translated")
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句", en="x", flag="bad")])
-    calls = _spy_style_context(monkeypatch)
+    calls = _spy_style_context(monkeypatch, wrjs)
 
     class Engine:
         name = "fake"
@@ -186,7 +189,7 @@ def test_fix_flagged_passes_translate_toggles(isolated_db, monkeypatch, genre, p
     import core
     lines = core.lines_from_rows(isolated_db.load_lines(did))
     background_jobs.clear_job("fix_toggles")
-    wjs.run_fix_flagged_lines_job("fix_toggles", did, lines, None, "small", False, "zh",
+    wrjs.run_fix_flagged_lines_job("fix_toggles", did, lines, None, "small", False, "zh",
                                   Engine(), "fake", include_genre_notes=genre,
                                   default_female_pronouns=pronouns)
     assert calls[0]["include_genre_notes"] is genre
@@ -231,7 +234,7 @@ def test_fix_flagged_reads_each_lines_language(isolated_db, monkeypatch):
     import core
     lines = core.lines_from_rows(isolated_db.load_lines(did))
     background_jobs.clear_job("fix_lang")
-    wjs.run_fix_flagged_lines_job("fix_lang", did, lines, None, "small", False, "ja",
+    wrjs.run_fix_flagged_lines_job("fix_lang", did, lines, None, "small", False, "ja",
                                   Engine(), "fake")
     assert calls == [(["안녕", "やあ"], ["ko", None])]
     rows = {r["zh"]: r for r in isolated_db.load_lines(did)}
