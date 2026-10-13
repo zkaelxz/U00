@@ -98,6 +98,27 @@ def _plain_file(drama_id: int, filename):
     return path
 
 
+def read_stored_text(drama_id: int, filename) -> Optional[str]:
+    """The UTF-8 text of a stored novel file, or None when the name is not a
+    plain file in the title folder, is missing, or is over MAX_TEXT_BYTES. A
+    restored or imported row can hold any filename, and this text goes to
+    the translation engine."""
+    path = _plain_file(drama_id, filename)
+    if path is None or not os.path.isfile(path) or os.path.getsize(path) > MAX_TEXT_BYTES:
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def has_reference(drama_id: int, drama: dict) -> bool:
+    path = _plain_file(drama_id, drama.get("novel_reference_filename"))
+    return path is not None and os.path.isfile(path)
+
+
+def read_reference_text(drama_id: int, drama: dict) -> Optional[str]:
+    return read_stored_text(drama_id, drama.get("novel_reference_filename"))
+
+
 def _extension(client_filename, allowed) -> str:
     name = str(client_filename or "").replace("\\", "/").rsplit("/", 1)[-1]
     ext = os.path.splitext(name)[1].lower()

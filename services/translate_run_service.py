@@ -25,7 +25,6 @@ DB, not unsaved browser state. D2: keys/secrets, client-supplied URLs and
 the novel text are never returned -- booleans only.
 """
 import json
-import os
 import re
 import threading
 from types import SimpleNamespace
@@ -44,8 +43,9 @@ import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (bulk_job_view, bulk_submit_service, engine_routing_service,
-                      ownership_service, paid_job_service, run_settings_service, settings_service,
-                      translate_service, workspace_job_service)
+                      novel_files_service, ownership_service, paid_job_service,
+                      run_settings_service, settings_service, translate_service,
+                      workspace_job_service)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -114,9 +114,7 @@ def get_translate_config_defaults(is_novel: bool, engine=None, model=None) -> di
 def get_translate_config(drama_id: int) -> dict:
     drama = require_drama(drama_id)
     is_novel = drama.get("content_mode") == "novel_narration"
-    filename = drama.get("novel_reference_filename")
-    has_novel = bool(filename) and os.path.isfile(
-        os.path.join(db.DRAMAS_DIR, str(drama_id), filename))
+    has_novel = novel_files_service.has_reference(drama_id, drama)
     lines = db.load_lines(drama_id)
     monthly_cap = month_cap_usd()
     free_tier = settings_service.get("gemini_free_tier")
@@ -275,14 +273,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
 
 
 def load_novel_reference(drama_id: int, drama: dict) -> Optional[str]:
-    filename = drama.get("novel_reference_filename")
-    if not filename:
-        return None
-    path = os.path.join(db.drama_dir(drama_id), filename)
-    if not os.path.isfile(path):
-        return None
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+    return novel_files_service.read_reference_text(drama_id, drama)
 
 
 def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True):

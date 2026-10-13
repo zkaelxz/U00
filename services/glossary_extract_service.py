@@ -6,7 +6,6 @@ glossary_service describes the contract; import these names from there.
 
 No FastAPI import.
 """
-import os
 import threading
 import uuid
 from typing import Optional
@@ -18,7 +17,7 @@ import translate_engines
 import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
-from services import job_checkpoint_service, paid_job_service
+from services import job_checkpoint_service, novel_files_service, paid_job_service
 from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
 from services.service_errors import (
     ConflictError,
@@ -41,13 +40,7 @@ def novel_glossary_job_id(drama_id: int) -> str:
 
 
 def _read_drama_file(drama_id: int, filename: Optional[str]) -> str:
-    if not filename:
-        return ""
-    path = os.path.join(db.drama_dir(drama_id), filename)
-    if not os.path.isfile(path):
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+    return novel_files_service.read_stored_text(drama_id, filename) or ""
 
 
 def _default_engine() -> str:
