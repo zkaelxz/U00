@@ -12,7 +12,7 @@ function ErrorFallback({ error }: { error: unknown }) {
   // The Diagnostics page is admin-only, so a member's crash screen must not send them there.
   const canDiagnose = useHolds('admin.diagnostics')
   return (
-    <main className="error-fallback" role="alert" data-testid="error-fallback">
+    <div className="error-fallback" role="alert" data-testid="error-fallback">
       <h2>This page hit an error.</h2>
       <p className="muted">
         The rest of the app still works: use the menu above{canDiagnose ? ', reload, or check Diagnostics' : ' or reload'}.
@@ -30,7 +30,7 @@ function ErrorFallback({ error }: { error: unknown }) {
         </button>
         {canDiagnose && <a href="#/diagnostics">Open Diagnostics</a>}
       </div>
-    </main>
+    </div>
   )
 }
 

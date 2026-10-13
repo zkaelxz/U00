@@ -1,6 +1,12 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { buildEpub } from '../src/pages/translateEpubFixture'
+
+// The engine is picked once the engine list has loaded; Translate pressed before that only
+// says "Pick an engine.", so a test that keeps the default engine waits for it first.
+async function engineChosen(page: Page) {
+  await expect(page.getByLabel('Engine', { exact: true })).not.toHaveValue('')
+}
 
 // Reaches the page at `#/translate`.
 test('translates with the offline engine and lists it in history', async ({ page }) => {
@@ -22,6 +28,7 @@ test('shows source and result side by side on desktop, with humanized history', 
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/#/translate')
   await page.getByLabel('Text to translate').fill('早上好')
+  await engineChosen(page)
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const result = page.getByRole('region', { name: 'Result' })
   await expect(result.getByTestId('translate-result')).not.toBeEmpty()
@@ -66,6 +73,7 @@ test('Clear empties the text and the result', async ({ page }) => {
   const clear = page.getByRole('button', { name: 'Clear', exact: true })
   await expect(clear).toBeDisabled()
   await page.getByLabel('Text to translate').fill('谢谢')
+  await engineChosen(page)
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   await expect(page.getByTestId('translate-result')).not.toBeEmpty()
   await clear.click()
@@ -141,6 +149,7 @@ test('opens an .epub in the browser: chapter text in spine order, nothing in it 
   await expect(page.getByLabel('Text to translate')).toHaveValue('第一章\n你好，世界。\n\n第二章\n\n你好')
   expect(await page.evaluate(() => (window as unknown as { __epubRan?: boolean }).__epubRan)).toBeUndefined()
 
+  await engineChosen(page)
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   await expect(page.getByRole('button', { name: /Download result \(book\.en\.txt\)/ })).toBeVisible()
 

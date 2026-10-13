@@ -89,7 +89,7 @@ test('hidden with sign-in off (the owner at the PC has no sessions)', async ({ p
   const s = await mockDevices(page, ME.authOff)
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Sharing and devices')
-  await expect(page.getByRole('heading', { name: 'Settings', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Sharing' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Signed-in devices' })).toHaveCount(0)
   expect(s.sent).toEqual([])

@@ -4,11 +4,11 @@ import type { BenchSectionId } from './benchmarkHelp'
 
 export type BenchmarkTab = BenchSectionId
 
-export const BENCHMARK_TABS: { id: BenchmarkTab; label: string }[] = [
+export const BENCHMARK_TABS: { id: BenchmarkTab; label: string; short?: string }[] = [
   { id: 'sets', label: 'Golden sets' },
-  { id: 'run', label: 'Run a benchmark' },
-  { id: 'reeval', label: 'Model re-evaluation' },
-  { id: 'runs', label: 'Recent runs' },
+  { id: 'run', label: 'Run a benchmark', short: 'Run' },
+  { id: 'reeval', label: 'Model re-evaluation', short: 'Re-evaluate' },
+  { id: 'runs', label: 'Recent runs', short: 'Recent' },
 ]
 
 export const isBenchmarkTab = (v: unknown): v is BenchmarkTab => BENCHMARK_TABS.some((t) => t.id === v)

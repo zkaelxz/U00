@@ -24,7 +24,7 @@ test('every tab fits at 1280x800 in light and dark, with one level of tabs', asy
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await openManage(page)
-    await expect(page.getByRole('heading', { level: 2, name: 'Sources' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Sources' })).toBeVisible()
     for (const name of TABS) {
       await page.getByRole('tab', { name }).click()
       await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
@@ -42,7 +42,7 @@ test('the header is the Sources page header with its tabs; switching tabs keeps 
   await mockSources(page)
   await page.goto('/#/sources')
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)
-  await expect(page.locator('header.page-head').getByRole('heading', { level: 2 })).toHaveText('Sources')
+  await expect(page.locator('header.page-head').getByRole('heading', { level: 1 })).toHaveText('Sources')
   await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
   await page.getByRole('tab', { name: 'Manage sources' }).click()
   await expect(page).toHaveURL(/#\/sources\?tab=manage$/)

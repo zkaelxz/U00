@@ -315,6 +315,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `line_provenance_service.py`
 - `line_tools_service.py`
 - `lines_service.py`
+- `link_details_service.py` ("Fill from link": what a video, stream or Sources link says about a title, read without downloading; blank-only fills; the read-only scan of old titles)
 - `live_follow_poller.py` (the followed-channel live checks: the manual-check queue, the optional hourly scheduler, one yt-dlp metadata read at a time, backoff, the extra check before a scheduled start, notify once per stream, the PC owner's automatic start)
 - `live_follow_service.py` (followed YouTube channels on the Live page: channel input, ownership, limits, saved Live options, Start Live from a follow)
 - `live_service.py`
@@ -468,6 +469,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `disk_usage.py` (the per-title size split in the Disk usage scan)
 - `language_packs.py` (/api/language-packs: the built-in language packs, a title's choice of packs, and the per-language default)
 - `library.py` (Library shapes: dramas, series, bulk actions, storage, media and export)
+- `link_details.py` ("Fill from link" shapes: link probe, blank-only apply, old-titles scan)
 - `loaded_models.py` (the "Models in memory" panel: names, sizes and states)
 - `novel_chapters.py` (the chapters saved in a drama's raw novel)
 - `pending_install.py` (Pydantic models for api/routers/pending_install_routes.py)
@@ -533,6 +535,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `library_admin_routes.py`
 - `library_routes.py`
 - `line_ai_routes.py`
+- `link_details_routes.py` ("Fill from link": link probe, blank-only apply, old-titles scan; PC only)
 - `lines_routes.py`
 - `live_follow_routes.py`
 - `live_routes.py`

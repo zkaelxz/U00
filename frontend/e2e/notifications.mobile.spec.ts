@@ -32,7 +32,7 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
   const box = (await bell.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
-  const title = (await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).boundingBox())!
+  const title = (await page.locator('.app-brand, .rail-brand').boundingBox())!
   expect(box.y).toBeLessThan(title.y + title.height) // on the title row
   expect(box.y + box.height).toBeGreaterThan(title.y)
   await noSideways(page)
@@ -51,7 +51,7 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
   }
 
   // Tapping elsewhere closes it; the count stays cleared.
-  await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).tap()
+  await page.locator('.app-brand, .rail-brand').tap()
   await expect(panel).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
 })

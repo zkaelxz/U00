@@ -2,7 +2,7 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 import { glossaryTab } from './glossaryTabs'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
-import { mediaTab } from './mediaTabs'
+import { selectMediaTab } from './mediaTabs'
 import { openAdvanced } from './sourceHelpers'
 import { showTranslateCard } from './translateTabs'
 
@@ -32,7 +32,7 @@ async function openSection(page: Page, title: string) {
   await showTranslateCard(page, title)
   await openFoldFor(page, title)
   // Auto-tune and the Advanced options folds are on the Tools tab.
-  if (title === 'Auto-tune min silence') await mediaTab(page, 'tools').click()
+  if (title === 'Auto-tune min silence') await selectMediaTab(page, 'tools')
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
@@ -499,13 +499,13 @@ test.describe('PC-only stage deletes', () => {
     await openSection(page, 'Novel text')
     await expect(page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
     // The raw novel's own panel sits on the Tools tab.
-    await mediaTab(page, 'tools').click()
+    await selectMediaTab(page, 'tools')
     const raw = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
     await raw.locator('.section-title').click()
     await raw.getByRole('button', { name: 'Remove raw novel', exact: true }).click()
     await raw.getByRole('button', { name: 'Confirm remove raw novel' }).click()
     await expect(raw.getByRole('status')).toHaveText('Removed.')
-    await mediaTab(page, 'add').click()
+    await selectMediaTab(page, 'add')
     await expect(page.getByRole('link', { name: /Build the glossary from this novel/ })).toHaveCount(0)
     expect(posted.map((u) => new URL(u).pathname)).toEqual([
       '/api/media/dramas/1/remove',

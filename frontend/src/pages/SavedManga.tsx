@@ -37,7 +37,7 @@ function SeriesList() {
     listSavedSeries().then(setItems, setError)
   }, [])
   return (
-    <PageShell as="main" width="standard" className="manga-page" title="Saved manga" meta="Chapters saved as CBZ files, to read here or in any comic reader.">
+    <PageShell width="standard" className="manga-page" title="Saved manga" meta="Chapters saved as CBZ files, to read here or in any comic reader.">
       <ErrorBanner error={error} />
       {items === null ? (
         !error && <p className="muted">Loading…</p>
@@ -95,7 +95,6 @@ function ChapterList({ source, series }: { source: string; series: string }) {
   const resume = continueHref(source, series, last)
   return (
     <PageShell
-      as="main"
       width="standard"
       className="manga-page"
       title={seriesTitle(series)}
