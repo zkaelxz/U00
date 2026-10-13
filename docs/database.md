@@ -90,26 +90,29 @@ for backup and restore operations see `runbook.md`.
   `db/wiki.py` (universe wiki entries),
   `db/known_titles.py` (the known-titles discovery library) and
   `db/model_candidates.py` (model re-evaluation candidates and decisions).
-  Their tables are still created by `init_db` in `db/__init__.py`
-  (`_init_benchmark_lab_schema`, `_create_auth_tables`,
-  `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
-  `_migrate_scanlate_columns` included).
+  Their tables are still created and migrated by `init_db` in
+  `db/__init__.py`, which calls the `CREATE TABLE` helpers in `db/schema.py`
+  (library content) and `db/schema_system.py` (jobs, sign-in, Benchmark Lab)
+  and the `_migrate_*` helpers in the order below.
 
 ## 2. Schema creation and migrations
 
-`init_db()` runs, in a fixed order (later steps read tables and columns earlier
-ones create):
+`init_db()` (in `db/__init__.py`) runs, in a fixed order (later steps read tables
+and columns earlier ones create):
 
 1. `_create_*_tables` helpers: `CREATE TABLE IF NOT EXISTS` for every table
    (`library`, `series`, `line_annotation`, `bulk_job`, `reading`, `review`,
    `library_tool`, `job`, `metadata_research`), then `_create_core_indexes`.
-2. `_create_auth_tables` (users, permissions, sessions, audit log).
+   They live in `db/schema.py`, except `_create_job_tables` in
+   `db/schema_system.py`.
+2. `_create_auth_tables` (users, permissions, sessions, audit log), in
+   `db/schema_system.py`.
 3. `_migrate_*_columns` helpers: for a database created before a column existed,
    read `PRAGMA table_info(<table>)` and, if the column is missing, run
    `ALTER TABLE ... ADD COLUMN` through `_safe_alter`.
 4. `_migrate_off_removed_test_engine` and similar small data fixes.
-5. Outside the shared connection: `_init_benchmark_lab_schema`,
-   `_migrate_gpu_lock_slots`, `_migrate_line_refs_to_ids`,
+5. Outside the shared connection: `_init_benchmark_lab_schema` (in
+   `db/schema_system.py`), `_migrate_gpu_lock_slots`, `_migrate_line_refs_to_ids`,
    `_migrate_step26e_profiles`.
 
 Things to know:
