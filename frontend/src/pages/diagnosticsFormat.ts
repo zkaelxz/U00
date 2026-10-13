@@ -1,5 +1,5 @@
 import type { DependencyStatus, GpuStatus } from '../types/diagnostics'
-import { jobName, shownStatus, type JobRecord } from '../types/jobs'
+import { cancellingText, isCancellingMessage, jobName, shownStatus, type JobRecord } from '../types/jobs'
 
 export const isActive = (status: string) => status === 'queued' || status === 'running'
 
@@ -75,10 +75,11 @@ export function formatSeconds(seconds: number): string {
 // the error for a failed job, nothing once it is done or cancelled (its
 // last progress text, e.g. "Transcribing... 99%", would read as stuck),
 // except why a cancelled job ended when the server says (Baihe restarted).
-export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'>): string | null {
+export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'> & { job_id?: string }): string | null {
   if (job.status === 'cancelled') return job.error || null
   if (job.status === 'done') return null
   if (job.status === 'error') return job.error || job.message || null
+  if (isCancellingMessage(job.message) && job.job_id) return cancellingText(job.job_id)
   return job.message || null
 }
 

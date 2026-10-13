@@ -143,7 +143,41 @@ export interface JobForceStopResult {
 }
 
 export const FORCE_STOP_HINT =
-  'Cancel was sent but the job has not stopped. Force stop ends it here; its worker may keep running in the background until it finishes.'
+  'Cancel was sent but the job has not stopped. Force stop ends it here; its worker keeps running in the background until it finishes, and a hosted AI request already sent keeps running and is still billed.'
+
+const AT_ONCE = 'stops at once'
+const AFTER_AI = 'stops after the current AI request (usually under a minute, up to 5; an AI request already sent is still billed)'
+const AFTER_BATCH = 'stops after the current batch'
+const AFTER_STEP = 'stops after the current step'
+
+// How fast Cancel takes effect, by job-id prefix. Process jobs and ffmpeg
+// are killed; hosted AI calls cannot be interrupted mid-request (SDK timeout
+// 300 s, Ollama up to 900 s) and are billed even when the result is dropped.
+// Ids with no entry get the generic step wording.
+const CANCEL_HINTS: [prefix: string, hint: string][] = [
+  ['transcribe_', AT_ONCE], ['retranscribe_', AT_ONCE], ['diarize_', AT_ONCE], ['resegment_', AT_ONCE],
+  ['autotune_', AT_ONCE], ['dub_', AT_ONCE], ['extract_audio_', AT_ONCE], ['burned_video_', AT_ONCE],
+  ['softsub_video_', AT_ONCE], ['dubbed_video_', AT_ONCE], ['burnpreview_', AT_ONCE],
+  ['translate_', AFTER_AI], ['novel_glossary_', AFTER_AI], ['lines_glossary_', AFTER_AI],
+  ['spelling_suggest_', AFTER_AI], ['flag_', AFTER_AI], ['fixflag_', AFTER_AI], ['consistency_', AFTER_AI],
+  ['emotion_', AFTER_AI], ['notes_', AFTER_AI],
+  ['bulk_', AFTER_BATCH],
+]
+
+const upperFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+/** The Cancel button's tooltip: "Cancel: stops at once." for a job id. */
+export function cancelHint(jobId: string | null | undefined): string {
+  const hint = CANCEL_HINTS.find(([prefix]) => (jobId ?? '').startsWith(prefix))?.[1] ?? AFTER_STEP
+  return `Cancel: ${hint}.`
+}
+
+/** The job line while a cancel is pending: the server's "Cancelling..." with this kind's wait. */
+export function cancellingText(jobId: string | null | undefined): string {
+  return `Cancelling... ${upperFirst(cancelHint(jobId).slice('Cancel: '.length))}`
+}
+
+export const isCancellingMessage = (message: string | null | undefined) => !!message && message.startsWith('Cancelling...')
 
 // Force stop shares Cancel's permission, so it follows the same rule.
 export function offersForceStop(job: Pick<JobRecord, 'status' | 'can_force_stop' | 'owned_by_me'>, anyJob: boolean): boolean {
