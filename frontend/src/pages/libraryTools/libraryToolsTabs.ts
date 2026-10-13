@@ -20,6 +20,7 @@ export const CARDS = {
   presets: { tab: 'organize', title: 'Presets' },
   'voice-bank': { tab: 'organize', title: 'Voice bank' },
   'saved-manga': { tab: 'organize', title: 'Saved manga' },
+  'link-check': { tab: 'organize', title: 'Check old titles from links' },
   cost: { tab: 'activity', title: 'Cost by title' },
   history: { tab: 'activity', title: 'Reading history' },
   backup: { tab: 'backup', title: 'Back up' },

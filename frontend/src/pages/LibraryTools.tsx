@@ -42,6 +42,7 @@ import { useRoute } from '../router'
 import { seedPageTabFolds } from '../components/sectionStorage'
 import { BackupTab } from './libraryTools/BackupTab'
 import { StorageTab } from './libraryTools/StorageTab'
+import { LinkCheckCard } from './libraryTools/LinkCheckCard'
 import { TabCard } from './libraryTools/TabCard'
 import { CARDS, LIBRARY_TOOLS_TABS, cardStorageKey, cardsOf, isLibraryToolsTab, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
 
@@ -331,6 +332,7 @@ export default function LibraryToolsPage() {
         <ToolSection card="saved-manga" ready={organizeReady} first={firstOf(organizeShown) === 3} count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
           {saved.data && <SavedSeriesRows items={saved.data} />}
         </ToolSection>
+        {pc !== 'remote' && <TabCard card="link-check"><LinkCheckCard pc={pc} /></TabCard>}
         {!organizeReady && <p className="muted">Loading…</p>}
         {organizeReady && !organizeShown.some(Boolean) && <EmptyTab>{ORGANIZE_EMPTY}</EmptyTab>}
         {pc !== 'remote' && (
