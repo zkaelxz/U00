@@ -140,7 +140,7 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
 Never delete these when cleaning up branches; they are the only record of the work they hold.
 - `legacy/streamlit` (and the `pre-streamlit-removal` tag): the removed Streamlit app.
 - `claude/baihe-subtitle-planning-95qyvq`: the earlier planning steps, which exist nowhere else.
-- `main`: the original default branch.
+- `baihe-subtitler` is the default branch; the old `main` branch no longer exists.
 
 ## Logs, support report, locked-out admin
 - Log: `logs/app.log` in the library folder (installed default: `%LOCALAPPDATA%\Baihe Studio\library\logs`). Diagnostics -> "Log" shows recent lines.
