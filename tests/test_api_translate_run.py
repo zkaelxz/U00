@@ -79,7 +79,7 @@ def test_no_secrets_in_responses(client, monkeypatch):
 # --- Slice 51: bulk batch list + cancel -------------------------------------
 
 def test_bulk_list_and_cancel(client, monkeypatch):
-    import bulk_translate
+    import bulk_poll
     did = _seed()
     other = _seed()
     jid = db.create_bulk_job(did, "claude", "m", "submitted", [(1, "k", "h", "")],
@@ -97,7 +97,7 @@ def test_bulk_list_and_cancel(client, monkeypatch):
     assert "SECRET" not in r.text
 
     calls = []
-    monkeypatch.setattr(bulk_translate, "cancel_bulk_job",
+    monkeypatch.setattr(bulk_poll, "cancel_bulk_job",
                         lambda i, p=None: calls.append((i, p)) or db.update_bulk_job(i, status="cancelled") or "ok")
     assert client.post(f"{BASE}/{did}/bulk/{foreign}/cancel").status_code == 404
     assert client.post(f"{BASE}/{did}/bulk/{done}/cancel").status_code == 409

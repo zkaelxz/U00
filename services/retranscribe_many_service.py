@@ -21,7 +21,7 @@ and the user retranslates or keeps it; clearing the English would lose it.
 import functools
 
 import background_jobs
-import bulk_translate
+import translation_finish
 import core as core_module
 import whisper_models
 import db
@@ -197,4 +197,4 @@ def apply_retranscribe_many(drama_id: int, job_id, items) -> dict:
     if applied:
         translate_service.sync_translation_status(drama_id)
     return {"applied": applied, "skipped": [lid for lid in order if lid in skipped],
-            "untranslated_count": bulk_translate.untranslated_line_count(drama_id)}
+            "untranslated_count": translation_finish.untranslated_line_count(drama_id)}

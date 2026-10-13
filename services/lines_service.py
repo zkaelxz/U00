@@ -23,7 +23,6 @@ Error messages never echo user text, and no path or key is returned.
 """
 import math
 
-import bulk_translate
 import core as core_module
 import db
 import source_change

@@ -96,8 +96,11 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**
 
 - `auto_qc.py`
+- `bulk_apply.py` (applies finished bulk results by line id, per kind)
+- `bulk_poll.py` (polling, scheduled off-peak run, resume, cancel)
 - `bulk_providers.py`
-- `bulk_translate.py`
+- `bulk_reflect.py` (the staged Reflect pipeline as bulk jobs)
+- `bulk_translate.py` (building and submitting bulk requests)
 - `emotion.py`
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
@@ -115,6 +118,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
 - `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
+- `translation_finish.py` (untranslated count, aligned -> translated, the shared end of a translation run)
 - `translation_guide.py`
 - `translation_memory.py`
 

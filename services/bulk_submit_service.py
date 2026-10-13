@@ -3,6 +3,7 @@ services/bulk_submit_service.py -- builds the zero-argument callable that submit
 bulk translation (provider batch, bulk Reflect, or the DeepSeek off-peak schedule)
 from inside the background job, so the provider call never blocks the request.
 """
+import bulk_reflect
 import bulk_translate
 import db
 import translate_engines
@@ -24,7 +25,7 @@ def bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referenc
         if force_retranslate and any(ln.en for ln in lines):
             db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
         if reflect:
-            return bulk_translate.submit_reflect_pipeline(
+            return bulk_reflect.submit_reflect_pipeline(
                 drama_id, lines, engine, engine_name,
                 {"style_note": style_note, "drama_meta": drama, "novel_reference": novel_reference,
                  "locale": locale, "glossary_terms": glossary_terms,

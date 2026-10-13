@@ -7,7 +7,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import bulk_providers as bp
-import bulk_translate as bt
+import bulk_poll
+import translation_finish
 from core import Line
 from services import lines_service
 
@@ -51,7 +52,7 @@ def test_tm_suggestion_filling_the_last_line_marks_translated(isolated_db):
     # Accepting a TM entry writes through update_line_fields_if.
     # Accepting a TM entry (lines_service.accept_tm_suggestion) is a CAS write
     assert isolated_db.update_line_fields_if(did, last, {"en": "two"}, {"en": ""})
-    assert bt.mark_translated_if_complete(did)
+    assert translation_finish.mark_translated_if_complete(did)
     assert _status(isolated_db, did) == "translated"
 
 
@@ -61,12 +62,12 @@ class TestStartupRepair:
         partial = _two_line_drama(isolated_db)
         empty = isolated_db.create_drama(title_en="E", status="aligned")
         dubbed = _two_line_drama(isolated_db, status="dubbed", en=("a", "b"))
-        assert bt.repair_stale_aligned_statuses() == 1
+        assert translation_finish.repair_stale_aligned_statuses() == 1
         assert _status(isolated_db, stuck) == "translated"
         assert _status(isolated_db, partial) == "aligned"
         assert _status(isolated_db, empty) == "aligned"
         assert _status(isolated_db, dubbed) == "dubbed"
-        assert bt.repair_stale_aligned_statuses() == 0   # idempotent
+        assert translation_finish.repair_stale_aligned_statuses() == 0   # idempotent
 
 
 class TestBulkApplyWithNothingNewlyApplied:
@@ -84,7 +85,7 @@ class TestBulkApplyWithNothingNewlyApplied:
         batches = engine.client.messages.batches
         _answer_every_request(batches)
         batches.status = "ended"
-        bt.check_once(bulk_id, bp.make_provider("claude", engine))
+        bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
 
         assert isolated_db.get_bulk_job(bulk_id)["result_summary"]["applied"] == 0
         assert _status(isolated_db, did) == "translated"
@@ -98,6 +99,6 @@ def test_retranscribe_then_full_finish_run_marks_translated(isolated_db):
     for ln in lines:
         ln.en = "x"
     isolated_db.save_lines(did, lines, fields=("en",))
-    bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+    translation_finish.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
                               glossary_terms=[], errors=[], enforce_ids={ln.id for ln in lines})
     assert _status(isolated_db, did) == "translated"
