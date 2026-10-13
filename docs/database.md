@@ -76,8 +76,9 @@ for backup and restore operations see `runbook.md`.
   `db/dramas.py` (drama rows: create/update/delete, `get_drama` and the
   list queries with `_DRAMA_SELECT`, `drama_visible_sql`, library stats,
   global line search and custom tags),
-  and `db/reading.py` (profiles, progress and the Continue shelf, reading
-  history, personal notes).
+  `db/reading.py` (profiles, progress and the Continue shelf, reading
+  history, personal notes) and `db/glossary.py` (series rows, glossary term
+  writes, the translation memory).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
