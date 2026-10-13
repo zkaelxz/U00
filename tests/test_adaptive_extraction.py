@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from sources import adaptive, ai_extract as ax, generic_import, novel_follow, profiles, store
+from sources import adaptive, ai_extract as ax, ai_extract_comic as axc, ai_extract_media as axm, ai_extract_novel as axn, generic_import, novel_follow, profiles, store
 
 from .sources_helpers import ScriptedTransport, html as html_resp, make_client
 
@@ -221,7 +221,7 @@ class TestNovelExtraction:
     def test_unknown_ids_are_ignored_not_matched_by_position(self, isolated_db):
         h, u = _page(12)
         page = ax.PageModel(h, u)
-        data = ax.novel_from_picks(page, {"body_blocks": ["b999", "nonsense"], "next_link": "L999"})
+        data = axn.novel_from_picks(page, {"body_blocks": ["b999", "nonsense"], "next_link": "L999"})
         assert data["paragraphs"] == [] and data["next_url"] is None
 
 
@@ -424,11 +424,11 @@ class TestIndependentValidation:
         assert any("too short to be a chapter" in l for l in report.lines)
 
         page = ax.PageModel(h, u)
-        tiny = ax.novel_data(page, [page.blocks[-1]], method="llm")
-        ax.validate_novel(tiny, page, {"content": 0.99})
+        tiny = axn.novel_data(page, [page.blocks[-1]], method="llm")
+        axn.validate_novel(tiny, page, {"content": 0.99})
         assert tiny["confidence"]["content"]["bucket"] == "FAILED" and not tiny["valid"]
-        huge = ax.novel_data(page, [ax.Block("x", "p", "字" * (ax.MAX_NOVEL_CHARS + 1))], method="llm")
-        ax.validate_novel(huge, page, {"content": 0.99})
+        huge = axn.novel_data(page, [ax.Block("x", "p", "字" * (ax.MAX_NOVEL_CHARS + 1))], method="llm")
+        axn.validate_novel(huge, page, {"content": 0.99})
         assert "implausibly long" in huge["confidence"]["content"]["checks"][0] and not huge["valid"]
 
     def test_high_duplicate_rate_is_rejected(self, isolated_db):
@@ -436,16 +436,16 @@ class TestIndependentValidation:
         page = ax.PageModel(h, u)
         nav = [b for b in page.blocks if b.link_only][:1] * 20 + \
             [b for b in page.blocks if b.tag == "p"][:3]
-        data = ax.novel_data(page, nav, method="llm")
-        ax.validate_novel(data, page, {"content": 1.0})
+        data = axn.novel_data(page, nav, method="llm")
+        axn.validate_novel(data, page, {"content": 1.0})
         assert not data["valid"] and any("repeats" in c for c in data["confidence"]["content"]["checks"])
 
-        cands = ax.comic_candidates(
+        cands = axc.comic_candidates(
             "".join(f'<img src="https://c.example/p/{i}.jpg">' for i in range(4)), COMIC_URL)
-        cdata = ax.comic_data(ax.PageModel("", COMIC_URL), cands, {c.url: "content" for c in cands},
+        cdata = axc.comic_data(ax.PageModel("", COMIC_URL), cands, {c.url: "content" for c in cands},
                               method="llm", confidences={c.url: 0.99 for c in cands})
         same = {c.url: {"width": 800, "height": 1200, "sha256": "same"} for c in cands}
-        ax.validate_comic(cdata, ax.PageModel("", COMIC_URL), same, {"page_images": 0.99})
+        axc.validate_comic(cdata, ax.PageModel("", COMIC_URL), same, {"page_images": 0.99})
         assert cdata["confidence"]["page_images"]["bucket"] == "FAILED" and not cdata["valid"]
         assert "same image" in cdata["confidence"]["page_images"]["checks"][0]
 
@@ -645,7 +645,7 @@ class TestExtractionCache:
         engine = FakeEngine(media_answer)
         adaptive.identify_media(VIDEO_URL, VIDEO_HTML, engine)
         page = ax.PageModel(VIDEO_HTML, VIDEO_URL)
-        h = ax.content_hash("video", ax.media_payload(page, ax.media_candidates(VIDEO_HTML, VIDEO_URL)))
+        h = ax.content_hash("video", axm.media_payload(page, axm.media_candidates(VIDEO_HTML, VIDEO_URL)))
         entry = store.get_extraction("video", h)
         assert entry["schema_version"] == ax.EXTRACTION_SCHEMA_VERSION
         assert entry["provider"] == "FakeEngine" and entry["model"] == "fake-model-1"

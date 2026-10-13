@@ -371,7 +371,7 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
             tiers[AccessTier.RENDERED_BROWSER] = ladder.rendered_tier(client, rendered_fetch)
     result = ladder.run_ladder(url, tiers, source=client.source)
     if result.ok:
-        from .ai_extract import content_access_for, resource_types
+        from .ai_extract_media import content_access_for, resource_types
         result.resource_types = resource_types(result.html, url)
         if result.content_access == ContentAccess.UNKNOWN.value:
             result.content_access = content_access_for(result.resource_types)
