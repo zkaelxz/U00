@@ -339,6 +339,65 @@ def test_a_series_is_made_only_when_ticked_and_only_for_a_title_in_none(client, 
     assert db.get_drama(did2)["series_id"] == other
 
 
+def test_a_new_series_takes_the_titles_own_owner_and_privacy(client, env):
+    did = db.create_drama(title_en="Private", is_private=1)
+    assert client.post(f"/api/dramas/{did}/link-details/apply",
+                       json={"series": "Fresh"}).json()["applied"] == ["series"]
+    series = db.get_item_ownership("series", db.get_drama(did)["series_id"])
+    assert (series["owner_user_id"], series["is_private"]) == (None, 1)
+
+
+def test_the_owners_own_series_with_the_same_privacy_is_joined(client, env):
+    sid = db.create_series("Some Channel")
+    did = db.create_drama(title_en="Mine")
+    assert client.post(f"/api/dramas/{did}/link-details/apply",
+                       json={"series": "Some Channel"}).json()["applied"] == ["series"]
+    assert db.get_drama(did)["series_id"] == sid
+
+
+@pytest.mark.parametrize("series_kw, drama_private", [
+    ({"owner": True, "is_private": True}, False),    # a member's private series
+    ({"owner": True, "is_private": False}, True),    # a member's shared series, private title
+    ({"owner": False, "is_private": False}, True),   # the owner's shared series, private title
+])
+def test_a_site_named_series_never_joins_someone_elses_or_a_differently_shared_one(
+        client, env, series_kw, drama_private):
+    member = db.auth_create_user("member@example.com")
+    sid = db.create_series("Some Channel", owner_user_id=member if series_kw["owner"] else None,
+                           is_private=series_kw["is_private"])
+    did = db.create_drama(title_en="Mine", author="", is_private=int(drama_private))
+    r = client.post(f"/api/dramas/{did}/link-details/apply",
+                    json={"series": "Some Channel", "author": "A"})
+    assert r.status_code == 409, r.text
+    d = db.get_drama(did)
+    assert d["series_id"] is None and d["is_private"] == int(drama_private) and not d["author"]
+    assert db.list_dramas_by_series(sid) == []
+
+
+def test_a_series_chosen_meanwhile_is_not_replaced(client, env, monkeypatch):
+    did = db.create_drama(title_en="Mine")
+    chosen = db.get_or_create_series("Chosen elsewhere")
+    real = svc._series_for
+
+    def racing(drama_id, name):
+        series_id = real(drama_id, name)
+        db.update_drama(drama_id, series_id=chosen)   # another tab saves a series now
+        return series_id
+    monkeypatch.setattr(svc, "_series_for", racing)
+    r = client.post(f"/api/dramas/{did}/link-details/apply", json={"series": "Some Channel"})
+    assert r.json() == {"applied": [], "kept": ["series"]}
+    assert db.get_drama(did)["series_id"] == chosen
+
+
+def test_the_pc_owner_cannot_fill_another_users_private_title(client, env):
+    owner = db.auth_create_user("owner@example.com")
+    did = db.create_drama(title_en="Private", owner_user_id=owner, is_private=1,
+                          source_url="https://www.youtube.com/watch")
+    assert client.post(f"/api/dramas/{did}/link-details/apply", json={"author": "x"}).status_code == 404
+    assert client.post(f"/api/dramas/{did}/link-details/probe").status_code == 404
+    assert FakeYDL.calls == [] and not db.get_drama(did)["author"]
+
+
 def test_another_users_private_title_is_not_found_for_a_member(env):
     owner = db.auth_create_user("owner@example.com")
     member = db.auth_create_user("member@example.com")
@@ -459,6 +518,18 @@ def test_the_scan_is_cancellable_and_refuses_a_second_start(client, env):
     st = _wait("link_scan")
     assert st["status"] == "cancelled", st
     assert len(FakeYDL.calls) <= svc.MAX_PARALLEL_PROBES
+
+
+def test_a_new_scan_never_clears_the_previous_job_entry(client, env, monkeypatch):
+    db.create_drama(title_en="T", source_url="https://www.youtube.com/watch")
+    _scan(client)
+    assert _wait("link_scan")["status"] == "done"
+    real_clear, cleared = background_jobs.clear_job, []
+    monkeypatch.setattr(background_jobs, "clear_job", cleared.append)
+    assert _scan(client)["total"] == 1
+    assert _wait("link_scan")["status"] == "done"
+    monkeypatch.setattr(background_jobs, "clear_job", real_clear)
+    assert cleared == []   # clearing would drop a force-stopped, still-running scan's cancel flag
 
 
 def test_the_scan_runs_three_at_a_time_with_a_pause_between_starts(env, monkeypatch):
