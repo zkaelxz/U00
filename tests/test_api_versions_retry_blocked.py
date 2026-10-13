@@ -559,7 +559,7 @@ class TestBatchCompareAndSet:
     def test_activate_is_all_or_nothing(self, isolated_db, monkeypatch):
         did, ids = _seed()
         vid = _version_over_current(did, ["Hi there", "Goodbye"])
-        real = db._line_cas_sql
+        real = db.lines._line_cas_sql
         calls = []
 
         def second_fails(d, lid, values, expected):
@@ -567,7 +567,7 @@ class TestBatchCompareAndSet:
             sql, params = real(d, lid, values, expected)
             return (sql, params) if len(calls) == 1 else ("UPDATE no_such_table SET x = 1", [])
 
-        monkeypatch.setattr(db, "_line_cas_sql", second_fails)
+        monkeypatch.setattr(db.lines, "_line_cas_sql", second_fails)
         with pytest.raises(Exception):
             tvs.activate_version(did, vid, confirm=True)
         assert [r["en"] for r in db.load_lines(did)] == ["Hello", ""]

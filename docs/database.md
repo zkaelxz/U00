@@ -67,10 +67,12 @@ for backup and restore operations see `runbook.md`.
   `db/speakers.py` (characters, speaker rename and merge with its undo,
   series characters and voice links, the voice bank), `db/comic_pages.py`
   (comic pages and their bubbles for scanlation: page rows, the id-preserving
-  bubble edits that bump a page's rev, the legacy full replace) and
+  bubble edits that bump a page's rev, the legacy full replace),
   `db/media_journal.py` (the media journal of backup imports and restores:
   staging folders, the journal, crash recovery, `claim_new_drama_folder`;
-  `_media_lock` and `STALE_MEDIA_STAGING_SECONDS` stay in `db/__init__.py`).
+  `_media_lock` and `STALE_MEDIA_STAGING_SECONDS` stay in `db/__init__.py`)
+  and `db/lines.py` (a drama's lines: `save_lines`, the compare-and-set
+  edits, the per-line tables a sync carries along, the loaders).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and
