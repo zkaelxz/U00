@@ -130,7 +130,10 @@ def clamp_overlaps(lines):
     never produces them."""
     out = [copy.copy(ln) for ln in lines]
     clamped = []
-    for cur, nxt in zip(out, out[1:]):
+    # Pairs follow time order, not list order: after a manual retime a later
+    # list entry can start earlier, and clamping against it would zero a good cue.
+    by_time = sorted(out, key=lambda ln: ln.start)
+    for cur, nxt in zip(by_time, by_time[1:]):
         if cur.end > nxt.start:
             cur.end = max(nxt.start, cur.start)
             clamped.append(cur.idx)

@@ -336,6 +336,9 @@ class Qwen3ASRBackend:
                                                language_name, tmp_dir, prompt)
                 for i, text in texts.items():
                     seg = whisper_segments[i]
+                    # An empty result for a span Whisper did hear would delete the line.
+                    if not (text or "").strip() and (seg.get("text") or "").strip():
+                        continue
                     out[i] = {"start": seg["start"], "end": seg["end"], "text": text}
                 if progress_cb:
                     progress_cb(min(pos + len(batch), len(todo)) / len(todo))

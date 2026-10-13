@@ -263,13 +263,18 @@ def sfx_cue_text(text: str, italic_tags: bool = True) -> str:
     return f"<i>[{inner}]</i>" if italic_tags else f"[{inner}]"
 
 
+def _srt_text(text: str) -> str:
+    """A blank line ends a cue in SRT, so blank lines inside one are dropped."""
+    return "\n".join(part for part in (text or "").splitlines() if part.strip())
+
+
 def lines_to_srt(lines, field="en", notes_by_idx: dict = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
         text = getattr(ln, field)
         if getattr(ln, "sfx", False):
             text = sfx_cue_text(text)
-        text += notes_suffix(ln.idx, notes_by_idx)
+        text = _srt_text(text + notes_suffix(ln.idx, notes_by_idx))
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 
@@ -280,8 +285,9 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
         en, zh = ln.en, ln.zh
         if getattr(ln, "sfx", False):
             en, zh = sfx_cue_text(en), sfx_cue_text(zh)
+        en, zh = _srt_text(en), _srt_text(zh)
         text = f"{en}\n{zh}" if en else zh
-        text += notes_suffix(ln.idx, notes_by_idx)
+        text = _srt_text(text + notes_suffix(ln.idx, notes_by_idx))
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 

@@ -18,7 +18,8 @@ def chunk_novel_text(raw_text: str, max_chars: int = 200):
         if len(para) <= max_chars:
             chunks.append(para)
         else:
-            sentences = re.split(r"(?<=[。！？…～])", para)
+            # ASCII . ! ? only end a sentence before whitespace, so "3.5" and "e.g." stay whole.
+            sentences = re.split(r"(?<=[。！？…～])|(?<=[.!?])(?=\s)", para)
             buf = ""
             for s in sentences:
                 if len(buf) + len(s) > max_chars and buf:
@@ -26,9 +27,13 @@ def chunk_novel_text(raw_text: str, max_chars: int = 200):
                     buf = s
                 else:
                     buf += s
+                # No sentence end to split on: wrap at the limit rather than emit an oversized line.
+                while len(buf) > max_chars:
+                    chunks.append(buf[:max_chars])
+                    buf = buf[max_chars:]
             if buf:
                 chunks.append(buf)
-    return chunks
+    return [c.strip() for c in chunks if c.strip()]
 
 
 def novel_paragraph_ends(lines, source_text: str):
@@ -88,6 +93,33 @@ def combine_initial_prompt(name_prompt: str, novel_excerpt: str, max_chars: int 
     return combined[:max_chars]
 
 
+_NOVEL_FALLBACK_ENCODINGS = ("utf-8-sig", "gb18030", "cp949", "big5", "cp932")
+_KANA = re.compile(r"[\u3040-\u30ff]")
+
+
+def decode_novel_bytes(data: bytes) -> str:
+    """Novel text from a .txt/.md file in the encoding it was saved in. Chinese web
+    novels are often GBK and Japanese ones Shift-JIS; decoding those as UTF-8 with
+    errors ignored leaves a mostly empty text with no error."""
+    for encoding in _NOVEL_FALLBACK_ENCODINGS:
+        try:
+            text = data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        # GB18030 accepts most Shift-JIS byte pairs and returns CJK noise, so text
+        # that reads as Japanese kana under Shift-JIS is taken as Shift-JIS.
+        if encoding != "utf-8-sig":
+            try:
+                japanese = data.decode("cp932")
+            except UnicodeDecodeError:
+                return text
+            if len(_KANA.findall(japanese)) >= 0.1 * max(len(japanese), 1):
+                return japanese
+        return text
+    raise ValueError("This text file is not in a text encoding Baihe can read "
+                     "(tried UTF-8, GBK, Shift-JIS, Korean and Big5). Save it as UTF-8 and try again.")
+
+
 def load_novel_text_for_context(file_bytes: bytes, filename: str) -> str:
     """
     Extracts plain text from an uploaded novel file for use as
@@ -112,4 +144,4 @@ def load_novel_text_for_context(file_bytes: bytes, filename: str) -> str:
             return epub_io.import_epub_text(tmp_path)
         finally:
             _os.unlink(tmp_path)
-    return file_bytes.decode("utf-8", errors="ignore")
+    return decode_novel_bytes(file_bytes)
