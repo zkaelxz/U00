@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 
-import { applyResearch, getResearchBudget, researchMetadata } from '../../../api/research'
+import { applyResearch, getCachedResearch, getResearchBudget, researchMetadata } from '../../../api/research'
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { useStoredRun } from '../../../hooks/useStoredRun'
 import { capFirst } from '../../../labels'
 import type { ResearchBudget, ResearchChoice, ResearchMode, ResearchResult } from '../../../types/research'
 import {
@@ -32,6 +33,9 @@ const MODEL_LABELS: Record<string, string> = {
   'gemini-flash-latest': 'Gemini Flash',
 }
 
+const RESEARCH_DRAFT_STAGE = 'research'
+const DEFAULT_FORM = { mode: 'quick' as ResearchMode, model: 'gemini-flash-lite-latest', allowPaid: false }
+
 function Choice({ name, label, value, options, onChange }: {
   name: string; label: string; value: ResearchChoice
   options: { value: ResearchChoice; label: string }[]; onChange: (v: ResearchChoice) => void
@@ -56,11 +60,26 @@ export function ResearchPanel() {
   const { dramaId, refetchDrama } = useStage()
   const [budget, setBudget] = useState<ResearchBudget | null>(null)
   const [budgetFailed, setBudgetFailed] = useState(false)
-  const [mode, setMode] = useState<ResearchMode>('quick')
-  const [model, setModel] = useState('gemini-flash-lite-latest')
-  const [allowPaid, setAllowPaid] = useState(false)
   const [result, setResult] = useState<ResearchResult | null>(null)
   const [choices, setChoices] = useState<Record<string, ResearchChoice>>({})
+  // The lookup is not a job: the server keeps its result by title, mode and model, so the form is
+  // remembered here and the same lookup is read back from that cache (no search is spent).
+  const { draft, save: saveDraft } = useStoredRun({
+    dramaId,
+    kind: RESEARCH_DRAFT_STAGE,
+    jobIds: [],
+    adopt: () => undefined,
+    fetchResult: (id, d) => getCachedResearch(id, d.mode ?? DEFAULT_FORM.mode, d.model ?? DEFAULT_FORM.model),
+    onResult: (r) => {
+      setResult((cur) => cur ?? r)
+      setChoices((cur) => (Object.keys(cur).length ? cur : defaultChoices(r.fields)))
+    },
+    draftShape: DEFAULT_FORM,
+  })
+  const [mode, setMode] = useState<ResearchMode>(() => (MODES.some(([m]) => m === draft.mode) ? (draft.mode as ResearchMode) : DEFAULT_FORM.mode))
+  const [model, setModel] = useState(draft.model ?? DEFAULT_FORM.model)
+  const [allowPaid, setAllowPaid] = useState(draft.allowPaid ?? DEFAULT_FORM.allowPaid)
+  useEffect(() => saveDraft({ mode, model, allowPaid }), [saveDraft, mode, model, allowPaid])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
