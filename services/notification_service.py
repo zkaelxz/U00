@@ -452,8 +452,15 @@ def _pinned_post(url, ip, body: bytes, headers: dict):
     watchdog.name = "notify-deadline"
     watchdog.start()
     try:
-        resp = session.post(url, data=body, headers=headers, timeout=HTTP_TIMEOUT,
-                            allow_redirects=False, stream=True)
+        try:
+            resp = session.post(url, data=body, headers=headers, timeout=HTTP_TIMEOUT,
+                                allow_redirects=False, stream=True)
+        except Exception:
+            if expired.is_set():
+                # The watchdog's shutdown can surface as a connection reset
+                # instead of a clean return; it is still the deadline.
+                raise TimeoutError("send deadline passed") from None
+            raise
         try:
             status = resp.status_code
         finally:
