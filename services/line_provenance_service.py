@@ -152,7 +152,7 @@ def describe(prov) -> str:
     if not prov:
         return ("No per-line record for this translation: it was made before Baihe "
                 "started recording them, or changed since by an edit, an activated "
-                "version or a run that doesn't record one (CLI, off-peak).")
+                "version or a run that doesn't record one (such as an off-peak run).")
     when = time.strftime("%Y-%m-%d %H:%M", time.localtime(prov["created_at"]))
     glossary = (f"glossary version {prov['glossary_hash']}" if prov.get("glossary_hash")
                 else "no glossary")
