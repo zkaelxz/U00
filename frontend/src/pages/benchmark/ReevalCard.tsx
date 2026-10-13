@@ -25,7 +25,7 @@ import { engineOptionLabel } from '../translatePage'
 import { BenchSection } from './BenchSection'
 import { EstimateBlock, JobProgress } from './RunCard'
 import {
-  TIER_LABELS, deltaTone, formatCost, formatDelta, formatLatency, formatScore, formatWhen, plainError, runStatusLabel,
+  TIER_LABELS, casesInSelection, deltaTone, formatCost, formatDelta, formatLatency, formatScore, formatWhen, plainError, runStatusLabel,
   runStatusTone, runningStatus, setOptions, tierLabel,
 } from './benchmarkForm'
 import {
@@ -143,6 +143,7 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
       <RunBlock
         overview={overview}
         options={options}
+        sets={sets}
         remote={remote}
         running={running}
         onStarted={(res) => {
@@ -389,9 +390,10 @@ function AddCandidate({ options, openCount, onAdded }: { options: BenchmarkOptio
 
 // ---- estimate and run ----
 
-function RunBlock({ overview, options, remote, running, onStarted }: {
+function RunBlock({ overview, options, sets, remote, running, onStarted }: {
   overview: ReevalOverview
   options: BenchmarkOptions
+  sets: BenchmarkSet[]
   remote: boolean
   running: boolean
   onStarted: (res: ReevalRunStarted) => void
@@ -400,10 +402,12 @@ function RunBlock({ overview, options, remote, running, onStarted }: {
   const [estimateFor, setEstimateFor] = useState<string | null>(null)
   const [busy, setBusy] = useState<'estimate' | 'run' | null>(null)
   const [failure, setFailure] = useState<{ key: string; text: string } | null>(null)
-  const key = reevalEstimateKey(overview)
+  // Importing a bigger golden set changes what a run costs, so the count is part of the key.
+  const caseCount = casesInSelection(sets, 'translation', overview.settings.tier ?? '', overview.settings.set_name ?? '')
+  const key = reevalEstimateKey(overview, caseCount)
   const shown = estimate && estimateFor === key ? estimate : null
   const missingKeys = reevalMissingKeys(overview, options.translation_engines)
-  const state = runNowState({ overview, estimate, estimateFor, pcRemote: remote, running, missingKeys })
+  const state = runNowState({ overview, estimate, estimateFor, caseCount, pcRemote: remote, running, missingKeys })
   const noCandidates = runCandidates(overview).length === 0
   const error = failure && failure.key === key ? failure.text : null
   const reasonId = 'reeval-run-reason'

@@ -245,7 +245,9 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
         stand_in = SimpleNamespace(name=engine_name, model=resolved_model, free_tier=free_tier)
         fn = (translate_engines.estimate_reflect_mode_cost if reflect
               else translate_engines.estimate_translation_cost)
-        estimated = float(fn(stand_in, [ln["zh"] for ln in targets]))
+        batch_size = get_translate_config_defaults(
+            drama.get("content_mode") == "novel_narration", engine_name, model)["batch_size"]
+        estimated = float(fn(stand_in, [ln["zh"] for ln in targets], batch_size))
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR
 

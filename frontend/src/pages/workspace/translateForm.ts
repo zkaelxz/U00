@@ -418,6 +418,12 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
   }
 }
 
+// What a shown estimate was made for: an estimate is hidden once the form no longer matches it.
+export function estimateKeyFor(f: RunForm): string | null {
+  const params = buildEstimateParams(f)
+  return params ? JSON.stringify(params) : null
+}
+
 // A monthly cap of 0 (or less) means "no cap" (translate_engines.resolve_cost_cap),
 // so it must not read as "$X of $0.00", which looks like the cap was reached.
 export function monthSpendText(spend: number, cap: number): string {

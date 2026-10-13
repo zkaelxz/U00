@@ -25,6 +25,11 @@ _FALLBACK_NAME_HINTS = ("timeout", "connectionerror", "apiconnection", "authenti
                         "permissiondenied", "unauthorized")
 
 
+def _is_server_outage(status) -> bool:
+    """5xx other than 501 (not implemented, which repeats identically)."""
+    return isinstance(status, int) and 500 <= status < 600 and status != 501
+
+
 def is_fallback_error(e: Exception) -> bool:
     """True only for a real transient/credential failure worth trying the
     next engine for: auth failure (401/403), rate limit, timeout, or
@@ -37,7 +42,7 @@ def is_fallback_error(e: Exception) -> bool:
     resp = getattr(e, "response", None)
     if resp is not None:
         status = status or getattr(resp, "status_code", None)
-    if status in (401, 403) or _is_rate_limit_error(e):
+    if status in (401, 403) or _is_rate_limit_error(e) or _is_server_outage(status):
         return True
     return isinstance(e, FetchError) or any(
         hint in cls.__name__.lower()
@@ -65,7 +70,7 @@ def is_transient_fallback_error(e: Exception) -> bool:
         status = status or getattr(resp, "status_code", None)
     if status in (401, 403):
         return False
-    if _is_rate_limit_error(e):
+    if _is_rate_limit_error(e) or _is_server_outage(status):
         return True
     if isinstance(e, ProviderRedirected):  # repeats identically; switch engines instead
         return False

@@ -122,6 +122,15 @@ describe('run request', () => {
     expect(estimateKey(sel({ configs: [{ engine: 'deepseek' }] }))).not.toBe(base)
   })
 
+  it('a bigger case count makes the estimate stale and turns Start off', () => {
+    const s = sel()
+    const small = estimateKey(s, 5)
+    expect(estimateKey(s, 500)).not.toBe(small)
+    const args = { sel: s, maxConfigs: 4, estimate: estimate(), estimateFor: small, pcRemote: false, running: false, missingKeys: [] }
+    expect(startState({ ...args, caseCount: 5 }).ok).toBe(true)
+    expect(startState({ ...args, caseCount: 500 })).toEqual({ ok: false, reasons: ['Estimate the cost of this selection first.'] })
+  })
+
   it('default configs pick the next unused engine, usable ones first', () => {
     expect(defaultConfig('translation', options)).toEqual({ engine: 'ollama' })
     expect(defaultConfig('translation', options, [{ engine: 'ollama' }])).toEqual({ engine: 'deepseek' })
