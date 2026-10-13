@@ -114,15 +114,6 @@ REQUEST_TIMEOUT_SECONDS = 120.0
 # actually serve.
 ALLOWED_TEXT_LANGUAGES = {"zh", "ja", "ko", "en"}
 
-# Only formats the pipeline can actually read (PIL/cv2), mapped to the
-# extension `sources.pipeline.add_page_images` expects.
-ALLOWED_IMAGE_TYPES = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/jpg": ".jpg",
-    "image/webp": ".webp",
-}
-
 PIPELINE_LOCK = threading.Lock()
 
 _server_lock = threading.Lock()
@@ -343,23 +334,13 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     import scanlate
     import translate_engines
 
-    ext = ALLOWED_IMAGE_TYPES.get((content_type or "").lower().split(";")[0].strip())
-    if ext is None:
-        raise EndpointError(415, "only PNG, JPEG and WebP images are accepted")
     if not data:
         raise EndpointError(400, "the image was empty")
     if len(data) > MAX_IMAGE_BYTES:
         raise EndpointError(413, f"image is larger than {MAX_IMAGE_BYTES // (1024 * 1024)}MB")
-    # The claimed type is only a hint: the bytes decide, and the pixel cap is
-    # read from the header so a huge image is refused before anything decodes it.
-    from services import page_import_limits
-    try:
-        fmt, _w, _h = page_import_limits.check_image(data)
-    except page_import_limits.ImageRejected as exc:
-        reason = str(exc)
-        raise EndpointError(413 if reason.startswith("over the") else 415, reason) from None
-    ext = page_import_limits._EXT_FOR[fmt]
-
+    ext, refusal = page_capture_checks.sniff_image(data)
+    if refusal:
+        raise EndpointError(*refusal)
     drama = db.get_drama(int(drama_id)) if drama_id else None
     if drama_id and drama is None:
         raise EndpointError(404, "no such drama")
