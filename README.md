@@ -8,7 +8,7 @@ at scale. Inspired by
 persistent filterable library for managing dozens of titles.
 
 It is a Python app with a FastAPI server and a React frontend, started with
-`start.bat` (or `python -m api`), plus a headless CLI (`cli.py`). The older
+`start.bat` (or `python -m api`). The older
 Streamlit UI has been removed (`legacy/streamlit` and the
 `pre-streamlit-removal` tag hold the last version).
 
@@ -30,7 +30,6 @@ URL you have the right to download from, only.
 - **Scanlate** (manga/comic typesetting): detect bubbles, clean, translate, place text, adjust, render.
 - **Sources and Discover**: site adapters for importing chapters, metadata auto-fill from public listing pages, a known-titles catalog (its Discover tab is currently hidden), and a site navigation helper.
 - **Video input**: upload `.mp4`/`.mov`/`.mkv`/`.webm` or download from a URL via yt-dlp.
-- **CLI** (`cli.py`): headless batch runs across your library.
 
 How each feature works, with options and limits: [`docs/user-guide.md`](docs/user-guide.md).
 

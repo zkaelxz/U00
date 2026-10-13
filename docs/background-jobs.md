@@ -1,14 +1,14 @@
 # Background jobs
 
 How long-running work (transcribe, translate, dub, export, imports, backups) runs
-outside the HTTP request, and how the GPU guard, cancel, holds, the Jobs API and the
-CLI fit around it. The code is the authority: this page cites modules and functions,
+outside the HTTP request, and how the GPU guard, cancel, holds and the Jobs API
+fit around it. The code is the authority: this page cites modules and functions,
 so re-check against them before relying on a detail.
 
 Modules: `background_jobs.py` (the runner), `services/jobs_service.py` (what a client
 sees), `jobs/job_store.py` (every write and close of a `job_records` row), `db/job_records.py`
 (`job_records`) and `db/__init__.py` (`gpu_lock`), `services/shutdown_service.py`,
-`api/background.py`, `services/job_timing_service.py`, `cli.py`.
+`api/background.py`, `services/job_timing_service.py`.
 
 One machine, one process owning each job. This is not a distributed queue.
 
@@ -182,7 +182,7 @@ end runs a promotion. With the GPU limit off there is no GPU queue, so it is ref
 items inside `user_caps.refuse_at_cap()`: an item whose adder is at the running cap is
 refused instead of queued, goes back to waiting with a reason and the runner tries the
 next item, and a GPU job the runner starts is never held back for its starter's cap, so
-one member can't stall the shared queue. Starter None (the PC owner, auth off, the CLI,
+one member can't stall the shared queue. Starter None (the PC owner, auth off,
 jobs started by jobs, older records) is never capped.
 
 A GPU job is queued instead of started when an earlier GPU job is already waiting
@@ -199,8 +199,8 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
    the `gpu_lock` table, for every process: `acquire(holder, description, job_id=,
    check_external_load=)` claims a row (`BEGIN IMMEDIATE`, so the read-then-write is
    atomic across processes), `release`, `heartbeat`, `reap`, `status`. Holders are
-   `"<scope>:<name>"`: `ui:<job_id>`, `cli:<pid>`, `live-whisper:<pid>` (an abandoned
-   Live decode) and `check:<pid>` (the CLI real-model check). Each row records its
+   `"<scope>:<name>"`: `ui:<job_id>` and `live-whisper:<pid>` (an abandoned
+   Live decode). Each row records its
    `owner_pid`, `owner_instance` (`job_store.INSTANCE_ID`) and, for `ui:`, `job_id`, and
    whether it still counts is decided from those, never from the holder string: it is
    dead when its pid has exited, when the pid is this process's but the instance is not
@@ -240,8 +240,7 @@ mirrored to `job_records`.
 
 Nothing polls by itself; a queue is re-checked when a GPU job ends, and by
 `recheck_gpu_queue` on a timer from `api/background.start_gpu_queue_poller` (every
-`GPU_QUEUE_POLL_SECONDS` = 20 s, only while background services are on). A job queued by a
-CLI run's lock therefore resumes within about that interval, not instantly.
+`GPU_QUEUE_POLL_SECONDS` = 20 s, only while background services are on). A job queued behind another process's lock therefore resumes within about that interval, not instantly.
 
 ### CPU fallback notices
 
@@ -249,8 +248,7 @@ The guard decides when a job may start, not what device it uses. When a model ca
 load on the GPU, the job falls back to CPU, finishes `done`, and says so in its result:
 `gpu_fallback` (a short redacted reason) and `device_notice`
 (`whisper_models.gpu_fallback_notice`: "<Task> ran on the CPU because the GPU couldn't be used
-(...)"). `jobs_service.derive_outcome` reports such a job as `partial`, not `ok`. The
-CLI prints the same sentence.
+(...)"). `jobs_service.derive_outcome` reports such a job as `partial`, not `ok`.
 
 ## Cancel
 
@@ -282,8 +280,7 @@ Related: `cancel_queued` ends a still-queued job as `cancelled` and keeps its re
 the Jobs page lists the cancelled run (re-checking under the lock that it was not just
 promoted); `clear_job` removes a finished record, and for a live process job
 also stops the process; `cancel_line_jobs(drama_id)` cancels the line-writing jobs
-(`LINE_WRITING_JOB_PREFIXES`) before something replaces all of a title's lines. The CLI
-does the same plus the `job_records` flag for jobs run by the API.
+(`LINE_WRITING_JOB_PREFIXES`) before something replaces all of a title's lines.
 
 A GPU job's worker is started through `services/gpu_process_job.py`: `run_in_child` for a thread job whose GPU stage must be killable and whose next stage needs the parent (`comparetx_`, `fixflag_`); the worker may send each finished unit as `("item", x)` so a cancel or timeout keeps what was done. It runs the body under `run_worker` (own process group, a deadline watchdog that closes the result queue before `os._exit`, scratch folder as the temp dir). The child never reads the database: the parent resolves settings and passes plain values.
 
@@ -316,8 +313,6 @@ Three controls stop new jobs from starting. All are in `background_jobs.py`.
   refused, so nothing started during the grace wait is killed mid-write. The clean stop
   then cancels every active job through `jobs_service.cancel_job`, queued ones first
   (`cancel_queued`), and `wait_for_jobs` waits up to `JOB_GRACE_SECONDS`.
-
-None of the holds applies to the CLI, which starts no background jobs.
 
 ## How services start jobs
 
@@ -478,25 +473,6 @@ The client reads the `job_records` row, never the in-memory dict, with these cha
 A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and outcome
 `interrupted`.
 
-## The CLI
-
-`cli.py` is a headless batch runner. It does not use `start_job`: each command runs its
-work inline in the CLI process (for example `translate_engines.translate_lines_with_engine`
-in `cmd_translate`) and writes no `job_records` rows. Differences that matter:
-
-- **GPU slot.** A GPU step wraps its work in `_gpu_lock`, which loops on
-  `gpu_slots.acquire("cli:<pid>", ...)` (waiting, printing what it is
-  busy with) and releases the row on exit. So the "GPU jobs at once" cap and the free-VRAM
-  check apply to the CLI like app jobs, and a CLI GPU run blocks a UI job (and the reverse).
-  The CLI does not pass `check_external_load`, so it skips the nvidia-smi external-load
-  check. It refreshes its row with `gpu_slots.heartbeat`.
-- **Not seen by the Jobs API.** A CLI run is visible to other code only while it holds the
-  GPU lock (`gpu_slots.status`); a CLI run of non-GPU steps leaves no trace.
-- **Replacing lines.** Before writing a wholesale result it calls `cancel_line_jobs` and
-  sets `job_records` cancel flags for the API's line-writing jobs.
-- CLI and app must behave the same for glossary, style guide, locale and character names:
-  when you change the job path, check the CLI path too.
-
 ## Rules learned from bugs
 
 - Jobs write only the fields they own (`fields=...`); match results to lines by id.
@@ -535,6 +511,5 @@ in `cmd_translate`) and writes no `job_records` rows. Differences that matter:
    `partial` or `failed`.
 8. Redact anything stored or shown (`redact_secrets`); never put keys, paths or URLs in
    results.
-9. If it uses the CLI too, make the CLI path match (including the GPU slot).
-10. Tests: mock the worker, use the `isolated_db` fixture, wait for job threads before
+9. Tests: mock the worker, use the `isolated_db` fixture, wait for job threads before
     asserting. Register new routes with a permission (`tests/test_api_permissions.py`).

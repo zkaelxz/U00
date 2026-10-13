@@ -1,6 +1,6 @@
 # services/
 
-UI-free application logic shared by `api/routers/` and `cli.py`. Mostly
+UI-free application logic used by `api/routers/`. Mostly
 `<area>_service.py`; a few helpers have other names (`safe_fetch.py`, `egress_proxy.py`).
 Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib/`.
 
@@ -21,7 +21,6 @@ Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib
 - Every HTTP call has `timeout=` (enforced for all of `services/`). Fetch user-given
   URLs through `safe_fetch.py` / `lib/url_guard.py`.
 - Pass error text through `translate_engines.redact_secrets` before storing or returning it.
-- CLI and app must match: if `cli.py` uses the same setting, check it too.
 
 ## Tests
 - `tests/test_<name>_service.py` or `tests/test_<area>.py`, e.g. `test_drama_service.py`,
