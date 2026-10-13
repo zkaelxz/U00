@@ -53,6 +53,16 @@ for (const width of WIDTHS) {
         })
         expect(box).toBeTruthy()
         expect(Math.abs(text.left - text.right)).toBeLessThanOrEqual(2)
+        // A one-word label never breaks inside the word.
+        for (const label of await group.locator('label').all()) {
+          const lineHeight = await label.evaluate((l) => parseFloat(getComputedStyle(l).lineHeight))
+          const textHeight = await label.evaluate((l) => {
+            const r = document.createRange()
+            r.selectNodeContents(document.createTreeWalker(l, NodeFilter.SHOW_TEXT).nextNode()!)
+            return r.getBoundingClientRect().height
+          })
+          expect(textHeight).toBeLessThanOrEqual(lineHeight * 1.5)
+        }
         expect(text.left).toBeGreaterThanOrEqual(8)
       }
       for (const select of await toolbar.locator('.toolbar-row select').all()) {
