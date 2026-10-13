@@ -737,7 +737,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
             own_audio = window.audio_seconds - window.pad_seconds
             pending = [c for c in new_cues if c.get("translation") == live_cue_feed.PENDING]
             if pending:
-                worker.submit(idx, pending, timing, own_audio)
+                worker.submit(idx, pending, timing, own_audio, keep_all=final)
             else:
                 stats.chunk_done(own_audio, timing.report(idx, note, cues=0))
             if new_cues:

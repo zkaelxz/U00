@@ -248,7 +248,8 @@ class _Work:
 class TranslationWorker:
     """Translates chunks on one thread, oldest first. submit() never blocks: past
     MAX_TRANSLATE_BACKLOG the oldest waiting chunk's lines are marked skipped and
-    counted. finish() lets the queue run dry; abandon() drops it and aborts the
+    counted, except with keep_all: the drain after Stop has no stream left to keep
+    up with. finish() lets the queue run dry; abandon() drops it and aborts the
     request in flight (an Ollama request at its next poll, any other at its own
     timeout). Both return only once the thread has ended, so it never outlives
     the session."""
@@ -266,12 +267,12 @@ class TranslationWorker:
     def _stop_now(self) -> bool:
         return self._abandoned or self._cancelled()
 
-    def submit(self, idx: int, cues: list, timing, audio: float) -> None:
+    def submit(self, idx: int, cues: list, timing, audio: float, keep_all: bool = False) -> None:
         with self._cond:
             if self._abandoned:
                 return
             dropped = []
-            while len(self._queue) >= MAX_TRANSLATE_BACKLOG:
+            while not keep_all and len(self._queue) >= MAX_TRANSLATE_BACKLOG:
                 dropped.append(self._queue.popleft())
             self._queue.append(_Work(idx, cues, timing, audio))
             self._stats.queue = len(self._queue)
