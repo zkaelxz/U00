@@ -50,6 +50,7 @@ import core as core_module
 import whisper_models
 import segment_splitting
 import db
+from lib.safe_paths import plain_file_in
 import diagnostics
 import diagnostics_torch
 import raw_transcript
@@ -80,8 +81,8 @@ def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
     audio_filename = drama.get("audio_filename")
     if not audio_filename:
         return None
-    path = os.path.join(db.drama_dir(drama_id), audio_filename)
-    return path if os.path.exists(path) else None
+    path = plain_file_in(db.drama_dir(drama_id), audio_filename)
+    return path if path and os.path.exists(path) else None
 
 
 def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
@@ -92,7 +93,7 @@ def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
     video_filename = drama.get("source_video_filename")
     if not video_filename:
         return None
-    return os.path.join(db.drama_dir(drama_id), video_filename)
+    return plain_file_in(db.drama_dir(drama_id), video_filename)
 
 
 def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
