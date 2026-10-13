@@ -17,7 +17,7 @@ test('the header is one slim row and the drawer lists the pages, each link 44px 
   const header = (await page.locator('.app-header').boundingBox())!
   // Brand, Menu, Jobs, bell, report, theme and account in one row: no 3 by 2 nav grid under them.
   expect(header.height, 'header height').toBeLessThanOrEqual(72)
-  await page.getByRole('button', { name: 'Menu', exact: true }).tap()
+  await page.getByRole('button', { name: /^(Menu|More)$/ }).tap()
   const links = page.getByRole('dialog', { name: 'Main menu' }).getByRole('navigation', { name: 'Main' }).getByRole('link')
   await expect(links.first()).toBeVisible()
   const texts = (await links.allTextContents()).map((t) => t.trim())

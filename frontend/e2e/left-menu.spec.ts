@@ -106,7 +106,7 @@ test('the dock shows icons at rest, opens to labelled rows on hover, and swaps f
 
   await page.setViewportSize({ width: 560, height: 900 })
   await expect(page.locator('.app-rail')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^(Menu|More)$/ })).toBeVisible()
 })
 
 test('a wide screen at 1280 keeps the form-page column at its 860px preset beside the dock', async ({ page }) => {

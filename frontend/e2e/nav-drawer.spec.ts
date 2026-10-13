@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 // The drawer below 600px at a desktop browser's narrow window, and the
 // hand-over to the dock when the window grows past 600px.
 
-const menuButton = (page: Page) => page.getByRole('button', { name: 'Menu', exact: true })
+const menuButton = (page: Page) => page.getByRole('button', { name: /^(Menu|More)$/ })
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Main menu' })
 
 test.describe('500px wide', () => {

@@ -35,7 +35,8 @@ import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
 import { useHiddenNav } from './nav/hiddenNav'
-import { NavDrawer } from './nav/NavDrawer'
+import { MenuButton, NavDrawer } from './nav/NavDrawer'
+import { PhoneBar } from './nav/PhoneBar'
 import { DOCK_MIN_WIDTH } from './nav/navItems'
 import { SideNav } from './nav/SideNav'
 import { useHeaderHeight } from './nav/useHeaderHeight'
@@ -158,6 +159,7 @@ export default function App() {
   const [hidden] = useHiddenNav(session)
   const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`)
   const headerRef = useHeaderHeight()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   if (view === 'connecting') {
     return (
@@ -171,6 +173,8 @@ export default function App() {
   if (view === 'login' && !signedOut) return <LoginPage configured={signInConfigured} />
   const user = menuUser(session)
   const navContext = { session, pcMode, developerMode, hidden }
+  // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
+  const phoneBar = !wide && !BOUNDED_ROUTES.has(route.name)
 
   const headerEnd = (
     <div className="header-end">
@@ -235,14 +239,14 @@ export default function App() {
   return (
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
-      <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
+      <div className={wide ? 'app-shell has-rail' : phoneBar ? 'app-shell has-phone-bar' : 'app-shell'}>
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
           {wide ? (
             <header className="app-header" ref={headerRef}>{headerEnd}</header>
           ) : (
             <header className="app-header" ref={headerRef}>
-              <NavDrawer route={route} context={navContext} />
+              {!phoneBar && <MenuButton open={menuOpen} onOpen={() => setMenuOpen(true)} />}
               <h1>
                 <a href={routeHref({ name: 'library' })}>
                   Baihe<span className="title-rest"> Studio</span>
@@ -253,6 +257,8 @@ export default function App() {
           )}
           {content}
         </div>
+        {!wide && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} />}
+        {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
       </div>
     </JobsProvider>
   )

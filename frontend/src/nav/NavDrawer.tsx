@@ -1,9 +1,9 @@
 /*
- * Menu button and left drawer for screens narrower than 1024px. The drawer is a
+ * Left drawer for screens narrower than 600px, opened by the Menu button or the phone bar's More. The drawer is a
  * modal <dialog>, so the page behind is inert, Esc closes it and the browser
- * returns focus to the button; the same NavGroups as the wide rail fill it.
+ * returns focus to whatever opened it; the same NavGroups as the dock fill it.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 
 import { trapTabWithin, useModalDialog } from '../hooks/useModalDialog'
 import type { Route } from '../router'
@@ -18,10 +18,20 @@ const FOCUSABLE = 'a[href], button:not([disabled])'
 
 const trapTab = trapTabWithin(FOCUSABLE)
 
-export function NavDrawer({ route, context }: { route: Route; context: NavContext }) {
-  const [open, setOpen] = useState(false)
+/** The header's hamburger, for pages where the phone bar is not shown. */
+export function MenuButton({ open, onOpen }: { open: boolean; onOpen: () => void }) {
+  return (
+    <button type="button" className="menu-btn" aria-label="Menu" aria-expanded={open} aria-controls={DRAWER_ID} onClick={onOpen}>
+      <Icon d="M4 6h16M4 12h16M4 18h16" />
+    </button>
+  )
+}
+
+export const NAV_DRAWER_ID = DRAWER_ID
+
+export function NavDrawer({ route, context, open, onOpenChange }: { route: Route; context: NavContext; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const setOpen = onOpenChange
   const dialog = useModalDialog(open)
-  const button = useRef<HTMLButtonElement>(null)
 
   // A modal dialog does not stop the page behind it from scrolling.
   useEffect(() => {
@@ -32,21 +42,10 @@ export function NavDrawer({ route, context }: { route: Route; context: NavContex
 
   // Back/forward and links that change the hash from elsewhere also leave the drawer.
   const routeKey = JSON.stringify(route)
-  useEffect(() => setOpen(false), [routeKey])
+  useEffect(() => setOpen(false), [routeKey, setOpen])
 
   return (
     <>
-      <button
-        ref={button}
-        type="button"
-        className="menu-btn"
-        aria-label="Menu"
-        aria-expanded={open}
-        aria-controls={DRAWER_ID}
-        onClick={() => setOpen(true)}
-      >
-        <Icon d="M4 6h16M4 12h16M4 18h16" />
-      </button>
       <dialog
         ref={dialog}
         id={DRAWER_ID}

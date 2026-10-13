@@ -28,11 +28,11 @@ export async function openSettingsGroups(page: Page, tab: SettingsTabName) {
 export const navLink = (page: Page, name: string): Locator =>
   page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name, exact: true })
 
-// Opens the drawer when there is a Menu button (below 1024px); a no-op beside the always-visible rail.
+// Opens the drawer when there is a Menu button (the header's) or a More button (the phone bar), below 600px; a no-op beside the always-visible dock.
 export async function openMenu(page: Page) {
   // The header (and with it the Menu button) only renders once the session has answered.
   await page.locator('.app-header').waitFor()
-  const button = page.getByRole('button', { name: 'Menu', exact: true })
+  const button = page.getByRole('button', { name: /^(Menu|More)$/ })
   if ((await button.count()) === 0) return
   if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click()
   await page.getByRole('dialog', { name: 'Main menu' }).waitFor()
