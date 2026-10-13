@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import db
+import dependency_updates
 import diagnostics
 import diagnostics_report
 import diagnostics_torch
@@ -352,7 +353,7 @@ def test_auth_on_writes_are_pc_only(fakes):
 
 def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monkeypatch):
     asked = []
-    monkeypatch.setattr(diagnostics, "pypi_release_versions",
+    monkeypatch.setattr(dependency_updates, "pypi_release_versions",
                         lambda dist: asked.append(dist) or ["99.0.0"])
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
     svc._UPDATES.update(checked_at=None, packages={})
@@ -373,7 +374,7 @@ def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monk
 
 
 def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
-    monkeypatch.setattr(diagnostics, "pypi_release_versions", lambda dist: ["1.0.0", "2.0.0"])
+    monkeypatch.setattr(dependency_updates, "pypi_release_versions", lambda dist: ["1.0.0", "2.0.0"])
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
     svc._UPDATES.update(checked_at=None, packages={})
     assert client.post("/api/diagnostics/package-updates/check", json={}).status_code == 200
