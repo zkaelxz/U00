@@ -28,6 +28,8 @@ import background_jobs
 import db
 import ocr
 import scanlate
+import scanlate_render
+import scanlate_translate
 import translate_engines
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -361,7 +363,7 @@ class _LLM:
 ])
 def test_untrusted_answers_apply_nothing(monkeypatch, answer):
     monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: answer)
-    got, ctx = scanlate.translate_regions_by_id({"0": "你好", "1": "再见"}, _LLM(), {},
+    got, ctx = scanlate_translate.translate_regions_by_id({"0": "你好", "1": "再见"}, _LLM(), {},
                                                 previous_context="before")
     assert got is None and ctx == "before"
 
@@ -373,7 +375,7 @@ def test_reordered_answer_is_matched_by_id(monkeypatch):
         seen["prompt"] = prompt
         return '```json\n{"translations": {"1": "Bye", "0": "Hello"}, "context_summary": "ctx2"}\n```'
     monkeypatch.setattr(translate_engines, "call_llm_json", fake)
-    got, ctx = scanlate.translate_regions_by_id({"0": "你好", "1": "再见"}, _LLM(), {},
+    got, ctx = scanlate_translate.translate_regions_by_id({"0": "你好", "1": "再见"}, _LLM(), {},
                                                 previous_context="ctx1")
     assert got == {"0": "Hello", "1": "Bye"} and ctx == "ctx2"
     assert "ctx1" in seen["prompt"] and '"id": "0"' in seen["prompt"]
@@ -555,7 +557,7 @@ def test_source_language_and_usage_reach_machine_translation(isolated_db):
             self.last_usage = {"input_tokens": len(lines[0])}
             return ["T" + lines[0]]
     spent, engine = [], MT()
-    result, _ = scanlate.translate_regions_by_id(
+    result, _ = scanlate_translate.translate_regions_by_id(
         {"0": "こんにちは", "1": "さよなら"}, engine, {"source_language": "ja"},
         usage_cb=lambda i, o: spent.append(i))
     assert result == {"0": "Tこんにちは", "1": "Tさよなら"}
@@ -570,7 +572,7 @@ def test_llm_prompt_names_the_source_language(monkeypatch):
         prompts.append(prompt)
         return json.dumps({"translations": {"0": "A"}})
     monkeypatch.setattr(translate_engines, "call_llm_json", fake)
-    scanlate.translate_regions_by_id({"0": "あ"}, _LLM(), {"source_language": "ja"})
+    scanlate_translate.translate_regions_by_id({"0": "あ"}, _LLM(), {"source_language": "ja"})
     assert "Japanese" in prompts[0]
 
 
@@ -771,7 +773,7 @@ def test_concurrent_renders_do_not_collide(tmp_path):
 
     def go():
         try:
-            scanlate.process_page(str(src), [_region(5, translated_text="Hi")], out)
+            scanlate_render.process_page(str(src), [_region(5, translated_text="Hi")], out)
         except Exception as e:  # pragma: no cover - the failure being guarded against
             errors.append(e)
     threads = [threading.Thread(target=go) for _ in range(4)]
@@ -957,7 +959,7 @@ def test_translate_helper_does_not_turn_a_timeout_into_a_warning(monkeypatch):
 
     def hangs(*a, **k):
         raise llm_tasks.LLMTaskTimeout("did not answer")
-    monkeypatch.setattr(scanlate, "translate_regions_by_id", hangs)
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", hangs)
     notes = []
     with pytest.raises(llm_tasks.LLMTaskTimeout):
         run_svc._translate([_region(5)], _LLM(), "claude", {}, None,
@@ -1010,7 +1012,7 @@ def test_a_headroom_refusal_in_translate_stops_the_job_once(client, fake_detect,
     def refuse(*a, **kw):
         attempts.append(1)
         raise HeadroomError("Not loading the model: Keep free graphics memory.")
-    monkeypatch.setattr(scanlate, "translate_regions_by_id", refuse)
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", refuse)
     _run(client, did, mode="all", confirm=True, engine="fake")
     st = _wait(f"scanlate_{did}")
     assert st["status"] == "error" and "Keep free graphics memory" in st["error"]

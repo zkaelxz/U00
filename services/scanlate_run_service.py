@@ -11,7 +11,7 @@ Modes (user decision 2026-09-29):
 - "all" ("Redo all"): every page's regions are replaced; needs confirm.
 
 Safety (spec §4):
-- Translation is id-keyed (scanlate.translate_regions_by_id): a short,
+- Translation is id-keyed (scanlate_translate.translate_regions_by_id): a short,
   reordered, padded or unparseable answer applies nothing to that page;
   its OCR text is still saved and a note says so.
 - A page's regions are replaced only if its region ids and rev are still
@@ -175,9 +175,10 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     built here, never by the position of the answer. Returns (ok, context):
     ok is False when a translation was wanted but not applied (the notes
     say why); context is the new rolling context, or None if none."""
-    import scanlate
+    import scanlate_regions
+    import scanlate_translate
     by_key = {str(i): b for i, b in enumerate(bubbles)
-              if not b.get("skip") and not scanlate.region_excluded_from_auto(b)
+              if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
               and (b.get("source_text") or "").strip()}
     if not by_key:
         return True, None
@@ -189,7 +190,7 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
                      translate_engines.estimate_cost_for_engine(engine, inp, out))
 
     try:
-        result, new_context = scanlate.translate_regions_by_id(
+        result, new_context = scanlate_translate.translate_regions_by_id(
             keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
             glossary_terms=glossary)
     except (HeadroomError, LLMTaskTimeout, TranslateRunStopped):

@@ -150,6 +150,9 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
 - `scanlate.py`
 - `scanlate_detect.py`
 - `scanlate_inpaint.py`
+- `scanlate_regions.py` (text-region classification, script/orientation guesses, SFX exclusion)
+- `scanlate_render.py` (font choice, text fitting, the inpaint-and-draw render pass, font-style sampling)
+- `scanlate_translate.py` (id-keyed translation of a page's regions)
 - `segment.py`
 
 **Story & learning**
