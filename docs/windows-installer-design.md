@@ -330,6 +330,46 @@ Running a newer `BaiheStudio-Setup-<v>.exe`:
 - There are no delta updates: an upgrade re-downloads the whole ~100 MB
   installer; model files in the data folder are never re-downloaded.
 
+### Release signature (in-app updates)
+
+The release job signs each `v*` release with an Ed25519 key held in the
+`BAIHE_RELEASE_SIGNING_KEY` Actions secret, and attaches
+`BaiheStudio-Setup-<v>.exe.sig` next to the `.exe` and `.sha256`. Without the
+secret it publishes exactly as before and its log says the release is
+UNSIGNED; with a malformed secret it publishes nothing. The job still checks
+out no repository code: it signs with the runner's `openssl`. It runs in the
+`release` environment, so the key can be an environment secret behind a
+required reviewer and a `v*` tag rule (a repository secret also works), and
+it logs the installer's SHA-256 whether it signs or not, so hand-signing
+can be checked against the tag run's own record (docs/runbook.md §1a).
+
+- **What is signed:** the text `baihe-studio-release-signature-v1`, the
+  installer's file name and its SHA-256 (`lib/release_signature.signed_message`),
+  not the raw bytes. The name carries the version, so an old, correctly
+  signed installer can't be re-published under a newer tag (a signed
+  downgrade). The hash is taken while streaming, so there's no need to hold a
+  600 MB installer in memory (Ed25519 is one-shot). The SHA-256 is computed
+  locally from the bytes that are kept and later run. It is never taken from
+  the `.sha256` file.
+- **Trust anchor:** `installer/release_public_key.txt`. It is shipped in the
+  payload (`RUNTIME_INSTALLER_FILES`, required by `check_payload`, which also
+  refuses a file holding a private key) and read only from the installed
+  app's own folder. It is never fetched. With no key line, updates are
+  SHA-256 only and the card says "Not signature-checked". A key file that is
+  present but unreadable or malformed refuses every update, and does not fall
+  back to SHA-256 only.
+- **Checks:** the `.sig` (capped at 1 KB) comes from the same release as the
+  `.exe` and `.sha256`, and it is fetched before the installer, so an unsigned
+  release is refused before a large download starts. The kept file is
+  verified after download, and the private temp copy is verified again
+  immediately before Setup starts from it. A missing, malformed or wrong
+  signature is refused, nothing is run, and the download is deleted.
+  `cryptography` (an installer dependency through `authlib`) does the
+  Ed25519; when it is missing and a key is set, updates are refused.
+- **Keys, rotation and a leaked key:** docs/runbook.md §1a. A leaked key
+  can't be revoked from inside the app. Installed copies trust it until a new
+  installer, run by hand, replaces the key file.
+
 ## 8. Uninstall
 
 Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
@@ -452,8 +492,9 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   What exists: Settings → App updates checks the public GitHub Releases
   (`BAIHE_UPDATE_REPO`, default `zkaelxz/U00`; no token) for a newer `v*`
   release, and on the user's clicks downloads the whole installer into
-  `<data>\library\updates\`, checks it against the release's `.sha256` and
-  opens its normal Setup from a private temp copy (hashed again; the server's
+  `<data>\library\updates\`, checks it against the release's `.sha256` and,
+  once the copy has a release public key, its Ed25519 `.sig` (§7), and
+  opens its normal Setup from a private temp copy (hashed and signature-checked again; the server's
   environment minus the shutdown token, job name and secret-named variables;
   let out of the server's Job Object only for that launch). It picks the
   newest `v*` release that has the installer and its `.sha256`, so other
@@ -461,7 +502,7 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   until the user clicks Install in Setup, which stops the server as in §7; a
   cancelled Setup changes nothing. That SHA-256 comes
   from the same release as the installer, so it detects a broken or truncated
-  download, not a tampered release: it is not a signature. The version shown
+  download, not a tampered release: the `.sig` is what catches that. The version shown
   is `manifest.json`'s `app_version`. A daily check is a setting, off by
   default; nothing is ever downloaded or installed without a click.
   The app sends no credentials, so it reads public releases only; a private

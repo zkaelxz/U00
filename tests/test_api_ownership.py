@@ -1263,3 +1263,24 @@ class TestLibrarySharingFlags:
         assert mine[0]["is_private"] is True and mine[0]["owned_by_me"] is True
         admin = client.get("/api/library/series", headers=w["admin"]).json()["items"]
         assert admin[0]["owned_by_me"] is False
+
+
+class TestReleaseDate:
+    def test_member_cannot_see_or_set_the_date_of_a_title_they_cannot_see(self, world):
+        db.update_drama(world["private"], release_date="2025-05-05")
+        client = _client(_app())
+        assert client.get(f"/api/library/dramas/{world['private']}",
+                          headers=world["b"]).status_code == 404
+        listed = client.get("/api/library/dramas", headers=world["b"]).json()["items"]
+        assert world["private"] not in {i["id"] for i in listed}
+        assert "2025-05-05" not in repr(listed)
+        r = client.post(f"/api/dramas/{world['private']}/metadata", headers=world["b"],
+                        json={"release_date": "2030-01-01"})
+        assert r.status_code in (403, 404)
+        assert db.get_drama(world["private"])["release_date"] == "2025-05-05"
+
+    def test_admin_can_set_and_read_it(self, world):
+        client = _client(_app())
+        r = client.post(f"/api/dramas/{world['private']}/metadata", headers=world["admin"],
+                        json={"release_date": "2026-06-07"})
+        assert r.status_code == 200 and r.json()["release_date"] == "2026-06-07"

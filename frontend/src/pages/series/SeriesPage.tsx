@@ -19,6 +19,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { useHolds } from '../../hooks/useHolds'
 import { useLoad } from '../../hooks/useLoad'
 import { usePcOnly } from '../../hooks/usePcOnly'
+import { usePersistedState } from '../../hooks/usePersistedState'
 import { mediaTypeLabel } from '../../labels'
 import { routeHref } from '../../router'
 import {
@@ -26,6 +27,7 @@ import {
   type SeriesTab,
 } from './seriesModel'
 import { DefaultsTab } from './DefaultsTab'
+import { TITLE_SORTS, defaultSeriesSort, isTitleSort, sortTitles, type TitleSort } from '../titleOrder'
 import './seriesPage.css'
 
 const glossaryHref = (dramaId: number) => routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })
@@ -33,6 +35,10 @@ const glossaryHref = (dramaId: number) => routeHref({ name: 'drama', id: dramaId
 const lineCount = (n: number) => (n === 1 ? '1 line' : `${n} lines`)
 
 function TitlesTab({ data }: { data: SeriesPageData }) {
+  // Remembered per series in this browser (no server state). Until the viewer picks one:
+  // oldest first once any title has a date, else the order the server sends.
+  const [stored, setStoredSort] = usePersistedState(`series.sort.v1.${data.id}`, '')
+  const sort: TitleSort = isTitleSort(stored) ? stored : defaultSeriesSort(data.titles)
   if (!data.titles.length) {
     return (
       <p className="muted" data-testid="series-no-titles">
@@ -40,9 +46,16 @@ function TitlesTab({ data }: { data: SeriesPageData }) {
       </p>
     )
   }
+  const ordered = sortTitles(data.titles, sort)
   return (
+    <>
+    <Field label="Sort titles by">
+      <select value={sort} onChange={(e) => setStoredSort(e.target.value)} data-testid="series-sort">
+        {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+      </select>
+    </Field>
     <ul className="series-titles" data-testid="series-titles">
-      {data.titles.map((t) => (
+      {ordered.map((t) => (
         <li key={t.id} className="series-title-row">
           <div className="series-title-text">
             <a className="table-title" href={workspaceHref(t.id)}>
@@ -52,12 +65,13 @@ function TitlesTab({ data }: { data: SeriesPageData }) {
             {t.title_en && t.title_zh && <span className="muted">{t.title_zh}</span>}
           </div>
           <span className="series-title-meta">
-            {mediaTypeLabel(t.media_type)} · {lineCount(t.line_count)}
+            {t.release_date && <>{t.release_date} · </>}{mediaTypeLabel(t.media_type)} · {lineCount(t.line_count)}
             {t.status && <> <Badge kind="status" value={t.status} /></>}
           </span>
         </li>
       ))}
     </ul>
+    </>
   )
 }
 
@@ -333,7 +347,7 @@ export default function SeriesPage({ id, tab: initialTab }: { id: number; tab?: 
       {!data && !page.error && <p className="muted">Loading…</p>}
       {shown && (
         <>
-          {panel('titles', <TitlesTab data={shown} />)}
+          {panel('titles', <TitlesTab key={shown.id} data={shown} />)}
           {panel('defaults', <DefaultsTab data={shown} />)}
           {panel('glossary', <GlossaryTab data={shown} onCopied={reload} />)}
           {panel('settings', (

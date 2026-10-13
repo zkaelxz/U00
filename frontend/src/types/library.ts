@@ -125,6 +125,7 @@ export interface DramaCreateRequest {
   voice_actors?: string
   summary?: string
   media_type?: string
+  release_date?: string
   // series_id and new_series_name are mutually exclusive.
   series_id?: number
   new_series_name?: string
@@ -151,6 +152,7 @@ export interface DramaMetadataUpdate {
   translate_by_sentence?: boolean // the Translate stage's whole-sentence mode
   keep_original?: boolean // the Media stage's "Keep original files" pin
   media_type?: string
+  release_date?: string // '' clears; else YYYY-MM-DD
   publication_status?: string // unknown / ongoing / completed / hiatus
   series_id?: number // 0 takes the drama out of its series
   new_series_name?: string // not with series_id

@@ -1030,6 +1030,9 @@ class UpdateStatus(BaseModel):
     verified_version: Optional[str] = Field(None, description="The version Install would start.")
     verified_name: Optional[str] = None
     can_install: bool
+    signature_check: bool = Field(description="This copy has a release public key, so an update is "
+                                              "accepted only with a valid release signature.")
+    signature_verified: bool = Field(description="The verified download's release signature was checked.")
     auto_check: bool
     custom_source: bool = Field(description="BAIHE_UPDATE_REPO names another repository than the default.")
 

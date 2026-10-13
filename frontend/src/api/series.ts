@@ -21,6 +21,7 @@ export interface SeriesTitle {
   media_type: string | null
   status: string | null
   episode_number: number | null
+  release_date: string | null
   line_count: number
 }
 

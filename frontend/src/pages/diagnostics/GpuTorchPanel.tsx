@@ -5,6 +5,7 @@ import { Badge } from '../../components/Badge'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { adminErrorText } from './diagnosticsAdmin'
+import { GpuBanner } from './GpuBanner'
 import type { DiagnosticsGpuTorchStatus, DiagnosticsTorchVariant } from '../../types/diagnostics'
 import {
   driverText, gpuTorchSummary, packageVersionText, setupBlockedReason, stateBadge, stateIsProblem, stateText, verifyText,
@@ -56,6 +57,7 @@ export function GpuTorchPanel({ refreshKey, action }: {
             data-testid="gpu-torch-state">
             {stateText(status)}
           </p>
+          <GpuBanner status={status} />
           <p data-testid="gpu-torch-driver" className={status.nvidia.status === 'too_old' ? 'warn' : undefined}>
             {driverText(status.nvidia)}
           </p>
