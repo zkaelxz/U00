@@ -572,7 +572,7 @@ test('restore a line-history snapshot with the typed word', async ({ page }) => 
   await open(page)
   const ids = await rows(page).evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-line-id'))))
   await openFoldFor(page, 'Records')
-  await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).click()
+  await page.getByTestId('history-list').getByRole('button', { name: /^Restore snapshot/ }).click()
   await page.getByLabel('Type restore to confirm').fill('restore')
   await page.getByRole('button', { name: 'Restore snapshot' }).click()
   await expect(page.getByTestId('restore-status')).toContainText('Restored “before merge”')
@@ -964,7 +964,7 @@ test('delete and restore keep header, Review tab and chips in step', async ({ pa
   await expectCounts(page, 2, 0)
 
   await openFoldFor(page, 'Records')
-  await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).first().click()
+  await page.getByTestId('history-list').getByRole('button', { name: /^Restore snapshot/ }).first().click()
   await page.getByLabel('Type restore to confirm').fill('restore')
   await page.getByRole('button', { name: 'Restore snapshot' }).click()
   await expect(page.getByTestId('restore-status')).toBeVisible()

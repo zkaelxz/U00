@@ -485,7 +485,7 @@ function RunPanel({
         )}
         <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
         <GlossaryRetranslateAction inline f={f} busy={busy} onStarted={onStarted} />
-        {estimate && <EstimateView e={estimate} />}
+        <span role="status">{estimate && <EstimateView e={estimate} />}</span>
       </div>
       {f.force && (
         <label className="inline stage-ack">
