@@ -13,7 +13,7 @@ export type AdvancedFieldId =
   | 'beam_size' | 'separation_backend' | 'hardsub_ocr_backend'
   | 'hallucination_silence_sec'
   | 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'split_by_sentences'
-  | 'vocabulary_hint' | 'whisper_repeat_guard' | 'use_groq'
+  | 'difficult_audio' | 'vocabulary_hint' | 'whisper_repeat_guard' | 'use_groq'
 
 export interface AdvancedGroup {
   id: 'speakers' | 'timing' | 'models' | 'guards' | 'switches'
@@ -36,7 +36,7 @@ const GROUPS: Omit<AdvancedGroup, 'storageKey' | 'defaultOpen'>[] = [
   {
     id: 'switches',
     label: 'Switches',
-    fields: ['separate_vocals_first', 'realign_long_segments', 'whisper_fast_mode', 'split_by_sentences', 'vocabulary_hint', 'whisper_repeat_guard', 'use_groq'],
+    fields: ['separate_vocals_first', 'realign_long_segments', 'whisper_fast_mode', 'split_by_sentences', 'difficult_audio', 'vocabulary_hint', 'whisper_repeat_guard', 'use_groq'],
   },
 ]
 
@@ -52,7 +52,7 @@ const FIELD_GROUP: Record<AdvancedFieldId, SettingGroup> = {
   hardsub_interval_sec: 'hardsub', hardsub_ocr_backend: 'hardsub',
   alignment_method: 'speech_tuning', asr_backend_choice: 'speech_tuning', voice_detector: 'speech_tuning', prompt: 'speech_tuning',
   beam_size: 'speech_tuning', hallucination_silence_sec: 'speech_tuning', realign_long_segments: 'speech_tuning',
-  whisper_fast_mode: 'speech_tuning', split_by_sentences: 'speech_tuning', vocabulary_hint: 'speech_tuning',
+  whisper_fast_mode: 'speech_tuning', split_by_sentences: 'speech_tuning', difficult_audio: 'speech_tuning', vocabulary_hint: 'speech_tuning',
   whisper_repeat_guard: 'speech_tuning', use_groq: 'speech_tuning',
   separation_backend: 'audio_prep', separate_vocals_first: 'audio_prep',
 }

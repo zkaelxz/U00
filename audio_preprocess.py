@@ -347,6 +347,85 @@ def _load_with_download_guard(model: str, load, cancel_check_cb=None) -> None:
         lock.release()
 
 
+# dynaudnorm, not loudnorm: it levels frame by frame (150 ms frames, gain smoothed over
+# five of them, so a whisper after a scream is lifted within a second) and caps the gain
+# at 8x, so a silent stretch is not pumped up into something the speech detector takes
+# for speech. loudnorm's single-pass mode also levels but has no gain cap, resamples to
+# 192 kHz internally and is the slower of the two; its accurate mode is one linear gain
+# for the whole file, which cannot bring a whisper up to a scream.
+LEVEL_FILTER = "dynaudnorm=f=150:g=5:p=0.9:m=8"
+# A multi-hour episode decodes in minutes; this only stops a hung ffmpeg.
+LEVEL_TIMEOUT_SECONDS = 2 * 3600
+
+
+class AudioLevelingUnavailable(RuntimeError):
+    """ffmpeg is missing or failed; the message is a plain note for the job result."""
+
+
+class AudioLevelingCancelled(RuntimeError):
+    pass
+
+
+# 16 kHz mono 16-bit PCM, with a tenth extra and room for the WAV header.
+_LEVELLED_BYTES_PER_SECOND = 16000 * 2 * 1.1
+_LEVELLED_SLACK_BYTES = 64 * 1024 * 1024
+
+
+def _space_problem(src_path: str, out_path: str):
+    """A plain note when the folder `out_path` goes in is short of room for the copy
+    (about 115 MB per hour of audio), else None. A length ffprobe cannot read is not a
+    reason to skip: only the slack is then required."""
+    import media_inspect
+    try:
+        seconds = float((media_inspect.run_ffprobe(src_path, timeout=30).get("format") or {})
+                        .get("duration") or 0.0)
+        free = shutil.disk_usage(os.path.dirname(os.path.abspath(out_path))).free
+    except Exception:
+        return None
+    if free < seconds * _LEVELLED_BYTES_PER_SECOND + _LEVELLED_SLACK_BYTES:
+        return "There was not enough free disk space for the levelled copy, so the original audio was used."
+    return None
+
+
+def level_audio(src_path: str, out_path: str, cancel=None,
+                timeout: float = LEVEL_TIMEOUT_SECONDS, own_group: bool = True) -> str:
+    """Writes a levelled 16 kHz mono copy of `src_path` at `out_path` (the stored audio is
+    never touched) and returns `out_path`. Raises AudioLevelingUnavailable when ffmpeg is
+    missing, cannot start, fails, or the disk is short of room, and AudioLevelingCancelled
+    when `cancel()` turns true; either way no partial file is left behind.
+
+    `own_group=False` for a caller that is a kill_whole_tree job worker: ffmpeg then stays
+    in the worker's process group, so a cancel or kill of the worker takes it too (see
+    lib.proc.run_captured). Anywhere else it runs in a group of its own and is killed on
+    `cancel`/timeout."""
+    import video_export
+    from lib import proc
+    if shutil.which("ffmpeg") is None:
+        raise AudioLevelingUnavailable("ffmpeg was not found, so the audio was not levelled.")
+    problem = _space_problem(src_path, out_path)
+    if problem:
+        raise AudioLevelingUnavailable(problem)
+    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", src_path, "-vn",
+           "-af", LEVEL_FILTER, "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_path]
+    try:
+        run = proc.run_captured(cmd, timeout=timeout, cancel=cancel, own_group=own_group)
+    except OSError:
+        # On PATH but not startable (not executable, a broken install).
+        _remove(out_path)
+        raise AudioLevelingUnavailable(
+            "ffmpeg could not be started, so the audio was not levelled.") from None
+    except BaseException:
+        _remove(out_path)
+        raise
+    if run.cancelled:
+        _remove(out_path)
+        raise AudioLevelingCancelled()
+    if run.timed_out or run.returncode != 0 or not os.path.exists(out_path):
+        _remove(out_path)
+        raise AudioLevelingUnavailable("ffmpeg could not level the audio, so the original was used.")
+    return out_path
+
+
 class VocalSeparationError(RuntimeError):
     """Raised when a separation backend isn't installed, or separation
     itself fails, so callers can show a clear message instead of a raw

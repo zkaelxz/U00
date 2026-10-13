@@ -32,7 +32,9 @@ _CAPTURE_LIMIT_CHARS = 4_000_000
 _EOF = object()
 
 
-def _group_kwargs() -> dict:
+def _group_kwargs(own_group: bool = True) -> dict:
+    if not own_group:
+        return {}
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
@@ -49,7 +51,7 @@ def _child_env(env: dict, utf8_env: bool) -> dict:
 
 
 def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stderr: bool,
-            cwd, env, warn=None, utf8_env: bool = True):
+            cwd, env, warn=None, utf8_env: bool = True, own_group: bool = True):
     """Yields ("out" | "err", line) per output line, then
     ("end", {"returncode", "timed_out", "cancelled"}). returncode is None if
     the child could not be reaped."""
@@ -57,8 +59,13 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
         cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE, text=True,
         encoding="utf-8", errors="replace", bufsize=1, cwd=cwd, env=_child_env(env, utf8_env),
-        **_group_kwargs())
+        **_group_kwargs(own_group))
     items = queue.Queue()
+
+    def kill():
+        # Without a group of its own the child is killed alone: killpg on its pid
+        # would name no group, and the caller's group kill is what reaches it.
+        kill_tree(proc, warn) if own_group else proc.kill()
 
     def reader(stream, tag):
         try:
@@ -87,7 +94,7 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
                 elif now >= deadline:
                     timed_out = True
                 if cancelled or timed_out:
-                    kill_tree(proc, warn)
+                    kill()
                     stop_by = now + drain_seconds
                 elif proc.poll() is not None:
                     stop_by = now + drain_seconds     # exited; finish reading
@@ -108,7 +115,7 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
         # open; killpg reaches it after the parent is reaped, so callers that
         # clean up afterwards (browser install) don't race with it.
         if proc.poll() is None or open_streams:
-            kill_tree(proc, warn)
+            kill()
         try:
             returncode = proc.wait(timeout=drain_seconds)
         except subprocess.TimeoutExpired:
@@ -145,16 +152,20 @@ class CapturedRun:
 
 def run_captured(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS,
                  cwd: str = None, env: dict = None, cancel=None, warn=None,
-                 utf8_env: bool = True) -> CapturedRun:
+                 utf8_env: bool = True, own_group: bool = True) -> CapturedRun:
     """subprocess.run(capture_output=True, text=True) with the tree-kill and
     bounded drain of stream_tree. Does not raise on timeout; check
     `timed_out`. Each stream keeps its newest _CAPTURE_LIMIT_CHARS.
-    `utf8_env=False` leaves the child's Python I/O encoding alone."""
+    `utf8_env=False` leaves the child's Python I/O encoding alone.
+    `own_group=False` keeps the child in the caller's process group, for a caller that is
+    itself a kill_whole_tree job worker: the worker's group is what every kill path signals
+    (a child in a group of its own would survive a cancel), and it must start no
+    grandchildren, since only the child is killed on a timeout."""
     chunks = {"out": [], "err": []}
     sizes = {"out": 0, "err": 0}
     end = None
     for tag, payload in _events(cmd, timeout, drain_seconds, cancel, False, cwd, env, warn,
-                                utf8_env):
+                                utf8_env, own_group):
         if tag == "end":
             end = payload
             continue

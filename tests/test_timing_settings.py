@@ -43,6 +43,8 @@ def _constants():
     return {
         "sentence_split_min_silence_ms": asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS,
         "sensitive_vad_threshold": sensitivity_preset.SENSITIVE_VAD_THRESHOLD,
+        "difficult_no_speech_threshold": sensitivity_preset.DIFFICULT_NO_SPEECH_THRESHOLD,
+        "difficult_log_prob_threshold": sensitivity_preset.DIFFICULT_LOG_PROB_THRESHOLD,
         "qwen_vad_threshold": vad_segments.THRESHOLD,
         "qwen_vad_min_silence_ms": vad_segments.MIN_SILENCE_MS,
         "qwen_vad_min_speech_ms": vad_segments.MIN_SPEECH_MS,

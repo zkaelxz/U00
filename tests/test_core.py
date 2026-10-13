@@ -722,6 +722,115 @@ class TestHallucinationSilenceThreshold:
         assert seen == {"ok": True}
 
 
+class TestDifficultAudioSkipRule:
+    """Difficult audio hands faster-whisper a relaxed skip rule; a default run hands it nothing new."""
+
+    def _run(self, model_cls, **kwargs):
+        return TestHallucinationSilenceThreshold()._run(model_cls, **kwargs)
+
+    @staticmethod
+    def _recording_model(seen):
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.clear()
+                seen.update(kwargs)
+                return iter([]), None
+        return Model
+
+    def test_a_default_run_passes_neither_threshold(self):
+        seen = {}
+        self._run(self._recording_model(seen))
+        assert "no_speech_threshold" not in seen and "log_prob_threshold" not in seen
+        assert set(seen) == {"language", "vad_filter", "beam_size", "vad_parameters",
+                             "word_timestamps", "condition_on_previous_text"}
+
+    def test_difficult_audio_adds_only_the_two_thresholds(self):
+        import sensitivity_preset
+        base, relaxed = {}, {}
+        self._run(self._recording_model(base))
+        self._run(self._recording_model(relaxed), difficult_audio=True)
+        assert {k: v for k, v in relaxed.items() if k not in base} == {
+            "no_speech_threshold": sensitivity_preset.DIFFICULT_NO_SPEECH_THRESHOLD,
+            "log_prob_threshold": sensitivity_preset.DIFFICULT_LOG_PROB_THRESHOLD}
+        assert {k: v for k, v in relaxed.items() if k in base} == base
+
+    def test_the_numbers_can_be_overridden(self):
+        seen = {}
+        self._run(self._recording_model(seen), difficult_audio=True,
+                  no_speech_threshold=0.95, log_prob_threshold=-2.0)
+        assert (seen["no_speech_threshold"], seen["log_prob_threshold"]) == (0.95, -2.0)
+
+    def test_thresholds_are_ignored_without_the_option(self):
+        seen = {}
+        self._run(self._recording_model(seen), no_speech_threshold=0.95, log_prob_threshold=-2.0)
+        assert "no_speech_threshold" not in seen and "log_prob_threshold" not in seen
+
+    def test_a_faster_whisper_that_lacks_a_threshold_is_not_given_it(self):
+        seen = {}
+
+        class OnlyLogProb:
+            def transcribe(self, audio_path, language=None, vad_filter=False, beam_size=5,
+                           vad_parameters=None, word_timestamps=False,
+                           condition_on_previous_text=True, no_repeat_ngram_size=0,
+                           repetition_penalty=1.0, log_prob_threshold=-1.0):
+                seen["log_prob_threshold"] = log_prob_threshold
+                return iter([]), None
+
+        self._run(OnlyLogProb, difficult_audio=True)
+        assert seen == {"log_prob_threshold": -1.5}
+
+    def test_the_sensitivity_preset_argument_reaches_the_decode_settings(self, monkeypatch):
+        import sensitivity_preset
+        given = []
+        real = sensitivity_preset.decode_kwargs
+        monkeypatch.setattr(sensitivity_preset, "decode_kwargs",
+                            lambda preset, *a, **k: given.append(preset) or real(preset, *a, **k))
+        seen = {}
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([]), None
+        self._run(Model, sensitivity_preset="sensitive", difficult_audio=True)
+        assert given == ["sensitive"]
+        assert "no_repeat_ngram_size" not in seen and "repetition_penalty" not in seen
+
+    def test_fast_mode_keeps_the_batched_pipelines_own_rule(self, monkeypatch):
+        import sys, types
+        seen = {}
+
+        class Batched:
+            def __init__(self, model):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([]), None
+        sys.modules["faster_whisper"] = types.SimpleNamespace(BatchedInferencePipeline=Batched)
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                return iter([]), None
+        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
+        import core
+        core.transcribe_for_timing("/fake/audio.mp3", fast_mode=True, difficult_audio=True)
+        assert "no_speech_threshold" not in seen and "log_prob_threshold" not in seen
+
+    def test_repeat_filter_still_runs_on_the_brought_back_lines(self):
+        import sys, types
+
+        class Seg:
+            def __init__(self, start, text):
+                self.start, self.end, self.text, self.words = start, start + 1, text, None
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                return iter([Seg(i * 2, "谢谢") for i in range(6)]), types.SimpleNamespace(duration=12)
+
+        # A run of six identical lines collapses to its first.
+        assert [x["text"] for x in self._run(Model, difficult_audio=True)] == ["谢谢"]
+
+
 class TestTranscribeForTimingHallucinationFilter:
     def _stub_faster_whisper(self, texts):
         import sys, types

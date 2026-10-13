@@ -20,6 +20,7 @@ export type ConfigForm = {
   whisper_fast_mode: boolean
   whisper_repeat_guard: boolean
   split_by_sentences: boolean
+  difficult_audio: boolean
   vocabulary_hint: boolean
   use_groq: boolean
 }
@@ -42,6 +43,7 @@ export const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   whisper_fast_mode: c.whisper_fast_mode,
   whisper_repeat_guard: c.whisper_repeat_guard ?? false,
   split_by_sentences: c.split_by_sentences ?? false,
+  difficult_audio: c.difficult_audio ?? false,
   vocabulary_hint: c.vocabulary_hint ?? false,
   use_groq: c.use_groq,
 })
@@ -95,6 +97,7 @@ export const SWITCH_LABELS = {
   realign_long_segments: 'Realign long segments',
   whisper_fast_mode: 'Whisper fast mode',
   split_by_sentences: 'Split lines by sentences',
+  difficult_audio: 'Difficult audio',
   vocabulary_hint: 'Name hint for Qwen3 ASR',
   whisper_repeat_guard: 'Whisper repeat guard',
   use_groq: 'Use Groq',

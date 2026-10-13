@@ -13,6 +13,8 @@ export type SettingsToggleKey =
 export interface TimingPreferences {
   sentence_split_min_silence_ms?: number
   sensitive_vad_threshold?: number
+  difficult_no_speech_threshold?: number
+  difficult_log_prob_threshold?: number
   qwen_vad_threshold?: number
   qwen_vad_min_silence_ms?: number
   qwen_vad_min_speech_ms?: number

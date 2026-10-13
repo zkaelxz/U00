@@ -132,6 +132,27 @@ def test_bad_recipes_are_refused_with_a_reason(text, language, message):
         parse(text, language)
 
 
+def test_difficult_recipe_parses_and_labels():
+    r = parse("whisper:large-v3,difficult=on", language="zh")
+    assert (r.backend, r.model, r.difficult) == ("whisper", "large-v3", True)
+    assert r.label == "whisper:large-v3,difficult=on"
+    assert parse("whisper:large-v3,vad=sensitive,difficult=off", "zh").label == (
+        "whisper:large-v3,vad=sensitive,difficult=off")
+    assert parse("qwen3_asr,difficult=on", "zh").difficult is True
+    assert parse("whisper:large-v3", "zh").difficult is None     # None = what the title has saved
+
+
+@pytest.mark.parametrize("text,message", [
+    ("whisper:large-v3,difficult=yes", "difficult= must be on or off"),
+    ("whisper:large-v3,difficult=on,difficult=off", "given twice"),
+    ("qwen3_asr_vad,difficult=on", "qwen3_asr_vad does not use difficult="),
+    ("anime_whisper,difficult=on", "anime_whisper does not use difficult="),
+])
+def test_difficult_is_refused_where_it_does_not_apply(text, message):
+    with pytest.raises(recipes.RecipeError, match=message):
+        parse(text, "zh")
+
+
 def test_duplicate_recipes_get_distinct_labels():
     labels = [r.label for r in recipes.unique_labels([parse("whisper:small"), parse("whisper:small")])]
     assert labels == ["whisper:small", "whisper:small #2"]
@@ -142,7 +163,7 @@ def test_help_documents_the_grammar(capsys):
         bench.main(["--help"])
     text = capsys.readouterr().out
     for word in ("BACKEND[:MODEL]", "vad=normal|sensitive", "beam=1..20", "prompt=on|off", "align=on|off",
-                 "detector=standard|asmr", "kotoba-v2", "ja-1.5b", "qwen3_asr_long", "baseline"):
+                 "detector=standard|asmr", "difficult=on|off", "whisper:large-v3,difficult=on", "kotoba-v2", "ja-1.5b", "qwen3_asr_long", "baseline"):
         assert word in text
 
 
@@ -175,6 +196,15 @@ def test_dry_run_prints_the_plan_loads_nothing_and_writes_nothing(title, engine,
                      "Whisper kotoba-v2 + Qwen3 forced aligner", "Qwen3-ASR", "Rough total", "3 lines"):
         assert expected in text
     assert not os.path.exists(bench.default_report_path())
+
+
+def test_dry_run_lists_the_difficult_recipe_next_to_its_baselines(title, engine, capsys, tmp_path):
+    rc = bench.main([str(title), "--config", "whisper:large-v3-turbo",
+                     "--config", "whisper:large-v3-turbo,vad=sensitive",
+                     "--config", "whisper:large-v3-turbo,difficult=on", "--out", str(tmp_path / "r.md")])
+    text = capsys.readouterr().out
+    assert rc == 0 and "Dry run only" in text and "whisper:large-v3-turbo,difficult=on" in text
+    assert engine.events == [] and engine.cuts == []
 
 
 def test_zh_title_refuses_a_japanese_model_up_front(isolated_db, monkeypatch, engine, capsys):
@@ -527,6 +557,65 @@ def test_align_refines_after_whisper_has_released_its_model(app_calls):
     recipes.run_whisper(ctx_for(), parse("whisper:kotoba-v2,align=on"))
     assert [c[0] for c in app_calls] == ["whisper", "release", "align"]
     assert app_calls[2][1] == "ja"
+
+
+@pytest.fixture
+def levelling(monkeypatch, tmp_path):
+    seen = {"levelled": []}
+
+    def fake_level(src, out, cancel=None, **k):
+        seen["levelled"].append((src, out))
+        open(out, "wb").write(b"x")
+        seen["existed_in_run"] = True
+        return out
+    monkeypatch.setattr(recipes.audio_preprocess, "level_audio", fake_level)
+    return seen
+
+
+def test_a_default_recipe_passes_no_difficult_keywords_and_levels_nothing(app_calls, levelling):
+    recipes.run_whisper(ctx_for(), parse("whisper:small"))
+    _, _, kw = app_calls[0]
+    assert not {"difficult_audio", "no_speech_threshold", "log_prob_threshold"} & set(kw)
+    assert levelling["levelled"] == []
+
+
+def test_difficult_recipe_levels_a_temporary_copy_and_relaxes_the_skip_rule(
+        app_calls, levelling, isolated_db, tmp_path):
+    ctx = recipes.RunContext(1, {"sensitivity_preset": "normal", "min_silence_ms": 400}, "zh",
+                             str(tmp_path / "window.wav"), False, None)
+    recipes.run_whisper(ctx, parse("whisper:large-v3,difficult=on", "zh"))
+    _, _, kw = app_calls[0]
+    (src, out), = levelling["levelled"]
+    assert src == ctx.wav and out != src and not os.path.exists(out)
+    assert kw["difficult_audio"] is True and kw["no_speech_threshold"] == 0.8
+    assert kw["log_prob_threshold"] == -1.5
+    assert kw["sensitivity_preset"] == "sensitive" and kw["vad_threshold"] == 0.35
+    assert kw["min_silence_duration_ms"] == 400
+
+
+def test_an_explicit_vad_wins_over_the_difficult_preset(app_calls, levelling, isolated_db):
+    recipes.run_whisper(ctx_for(), parse("whisper:small,vad=normal,difficult=on"))
+    _, _, kw = app_calls[0]
+    assert kw["sensitivity_preset"] == "normal" and kw["vad_threshold"] == 0.5
+    assert kw["difficult_audio"] is True
+
+
+def test_difficult_off_overrides_a_title_that_has_it_on(app_calls, levelling):
+    ctx = ctx_for({"sensitivity_preset": "normal", "difficult_audio": 1})
+    recipes.run_whisper(ctx, parse("whisper:small,difficult=off"))
+    assert "difficult_audio" not in app_calls[0][2] and levelling["levelled"] == []
+    recipes.run_whisper(ctx, parse("whisper:small"))
+    assert app_calls[1][2]["difficult_audio"] is True
+
+
+def test_without_ffmpeg_the_difficult_recipe_runs_on_the_clip_and_says_so(
+        app_calls, monkeypatch, isolated_db):
+    def missing(src, out, cancel=None, **k):
+        raise recipes.audio_preprocess.AudioLevelingUnavailable("ffmpeg was not found, so the audio was not levelled.")
+    monkeypatch.setattr(recipes.audio_preprocess, "level_audio", missing)
+    ctx = ctx_for()
+    recipes.run_whisper(ctx, parse("whisper:small,difficult=on"))
+    assert ctx.notes == ["ffmpeg was not found, so the audio was not levelled."]
 
 
 def test_qwen3_asr_hears_whispers_segments_after_whisper_is_released(app_calls, monkeypatch):
