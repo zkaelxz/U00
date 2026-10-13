@@ -2,8 +2,6 @@
 content (dramas, lines, series, annotations, reading, review, tools, bulk jobs,
 metadata research). init_db in db/__init__.py runs them in a fixed order."""
 
-import db
-
 
 def _create_library_tables(conn):
     conn.executescript("""
