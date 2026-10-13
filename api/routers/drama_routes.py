@@ -27,13 +27,13 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartException
 
-from api.auth import local_only, require_permission
+from api.auth import is_at_pc, local_only, require_permission
 from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaMetadataUpdate, DramaSourceLink,
                          ErrorResponse)
-from services import cover_art_service, drama_service, source_link_service
+from services import cover_art_service, drama_service, link_details_service, source_link_service
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
@@ -44,10 +44,18 @@ router = APIRouter(prefix="/api/dramas", tags=["dramas"])
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
 def post_drama(payload: DramaCreateRequest, request: Request):
-    result = drama_service.create_drama(**payload.model_dump(),
-                                        principal=request.state.principal)
+    fields = payload.model_dump()
+    url = fields.pop("source_url").strip()
+    if url:
+        # Only a request at the PC reads the link; elsewhere a nameless
+        # title is named after the link's host.
+        result = link_details_service.create_with_link(
+            fields, url, is_at_pc(request), principal=request.state.principal)
+    else:
+        result = drama_service.create_drama(**fields, principal=request.state.principal)
     return DramaCreateResult(**to_detail(result).model_dump(),
-                             preset_defaults=result.get("preset_defaults"))
+                             preset_defaults=result.get("preset_defaults"),
+                             title_from_link=result.get("title_from_link"))
 
 
 @router.post("/{drama_id}/metadata", dependencies=[require_permission("admin.library")], response_model=DramaDetail,

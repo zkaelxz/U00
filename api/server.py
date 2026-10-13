@@ -78,6 +78,7 @@ from api.routers import (
     queue_routes,
     library_admin_routes,
     library_routes,
+    link_details_routes,
     line_ai_routes,
     lines_routes,
     live_follow_routes,
@@ -295,6 +296,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(lines_routes.router)
     app.include_router(artifact_routes.router)
     app.include_router(media_routes.router)
+    app.include_router(link_details_routes.router)
     app.include_router(narration_routes.router)
     app.include_router(metadata_routes.router)
     app.include_router(metadata_research_routes.router)

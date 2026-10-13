@@ -165,6 +165,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
 | `POST /api/dramas/{drama_id}/cover` | local_only() |
+| `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
+| `POST /api/dramas/{drama_id}/link-details/probe` | local_only() |
 | `POST /api/dramas/{drama_id}/metadata` | admin.library |
 | `GET /api/dramas/{drama_id}/source-link` | local_only() |
 | `GET /api/dub/dramas/{drama_id}/config` | library.read |
@@ -267,6 +269,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/library/filter-options` | library.read |
 | `GET /api/library/history` | library.read |
 | `POST /api/library/history/clear` | local_only() |
+| `GET /api/library/link-scan` | local_only() |
+| `POST /api/library/link-scan` | local_only() |
 | `GET /api/library/presets` | library.read |
 | `POST /api/library/presets/{preset_id}/delete` | local_only() |
 | `POST /api/library/presets/{preset_id}/rename` | admin.library |
@@ -305,6 +309,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/live/sessions` | media.import_url |
 | `GET /api/live/sessions/{session_id}` | library.read |
 | `POST /api/live/sessions/{session_id}/stop` | jobs.cancel |
+| `POST /api/media-link/probe` | local_only() |
 | `GET /api/media/dramas/{drama_id}/audio` | media.stream |
 | `HEAD /api/media/dramas/{drama_id}/audio` | media.stream |
 | `POST /api/media/dramas/{drama_id}/download-url` | local_only() |
