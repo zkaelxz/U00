@@ -49,6 +49,7 @@
   --radius-md: var(--radius);
   --radius-lg: var(--radius);
   --radius-pill: 999px;
+  --radius-panel: 14px;
   /* One type scale, "Comfortable": the root is 15px and everything is rem, so browser zoom scales it.
      --text-xs (12px) is for badges and tiny marks only; running text is --text-sm (14px) or larger. */
   --text-xs: 0.8rem;
@@ -648,8 +649,8 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 }
 .btn.btn-sm { min-height: 32px; padding: 4px 10px; font-size: var(--text-sm); }
 .btn.btn-secondary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
-.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: var(--weight-bold); }
-.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); border-color: var(--accent); color: var(--on-accent); }
+.btn.btn-primary { background: var(--accent); border-color: color-mix(in srgb, var(--accent) 78%, black); color: var(--on-accent); font-weight: var(--weight-bold); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); border-color: color-mix(in srgb, var(--accent) 78%, black); color: var(--on-accent); }
 .btn.btn-ghost { background: transparent; border-color: transparent; color: var(--accent-text); }
 .btn.btn-ghost:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
 .btn.btn-danger { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
