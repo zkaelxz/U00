@@ -87,7 +87,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
 
   const title = drama ? drama.title_en || drama.title_zh || `Title #${id}` : `Title #${id}`
 
-  // On a phone the sticky strip has no room for a second row, so the buttons sit just below it and scroll away.
+  // On a phone the sticky strip has no room for a second row, so the buttons sit just below it and scroll away. Review leaves
+  // them out: its first screen is for lines, and Read stays one tap away on every other stage.
   const actions = (
     <div className="ws-actions">
       <SourceLink href={drama?.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
@@ -177,7 +178,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
         })}
       </nav>
       </div>
-      {phone && actions}
+      {phone && active !== 'review' && actions}
       <ErrorBanner error={error} />
       {comicNotice ? (
         <ComicStageNotice id={id} />
