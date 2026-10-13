@@ -126,6 +126,8 @@ export interface DramaCreateRequest {
   summary?: string
   media_type?: string
   release_date?: string
+  // "Link (optional)": with no name typed, the server names the title from it.
+  source_url?: string
   // series_id and new_series_name are mutually exclusive.
   series_id?: number
   new_series_name?: string
@@ -178,6 +180,8 @@ export interface DramaPresetDefaults {
 // api/schemas/library.py DramaCreateResult: the new drama plus its preset's values.
 export interface DramaCreateResult extends DramaDetail {
   preset_defaults?: DramaPresetDefaults | null
+  // Set when the title was named from the link: its own title, or its website.
+  title_from_link?: 'link' | 'placeholder' | null
 }
 
 interface Items<T> {

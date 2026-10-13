@@ -31,6 +31,7 @@ import type { MediaTab } from '../mediaTabs'
 import { useStage } from '../StageContext'
 import { CreditsCover } from './CreditsCoverPanel'
 import { EpisodeSummaryGenerate } from './EpisodeSummaryGenerate'
+import { FillFromLink } from './FillFromLink'
 import { MediaTabPanel } from './MediaTabPanel'
 import { ContentModeField } from './SourceModes'
 import { SERIES_HELP } from '../../../helpText'
@@ -238,6 +239,16 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
                 <textarea rows={2} value={form.summary} onChange={set('summary')} />
               </Field>
               {text('source_url', 'The page this title came from. The full link is kept for the PC owner; everyone else sees it without any ?query part, which can hold a download token.', 'url')}
+              <FillFromLink
+                dramaId={dramaId}
+                link={form.source_url}
+                savedLink={initial.source_url}
+                current={form}
+                onUse={(values) => {
+                  setNotice(null)
+                  setForm((f) => ({ ...f, ...values }))
+                }}
+              />
               <Section
                 storageKey="source.details.more"
                 openSignal={moreSignal}
