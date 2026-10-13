@@ -1,0 +1,45 @@
+/* The one segmented control (radio group drawn as a pill). Two markups share it: label > input + span (Library, Research,
+   Backups) and label > input + text with a class on the selected label (Sources, Source stage). The label is always the chip
+   and the span adds no box of its own, so the highlight sits inside its own text with equal padding and never reaches a
+   neighbour. Colours for the Frost theme are in frost.css. */
+.segmented {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  flex: none;
+  justify-self: start;
+  margin: 0;
+  padding: 3px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+.segmented label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 4px var(--space-4);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
+}
+.segmented label > span { display: contents; }
+.segmented label:hover { color: var(--text); }
+.segmented label:has(input:checked) { background: var(--accent-soft); color: var(--accent-text); }
+.segmented input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.segmented label:has(input:focus-visible) { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 1px; }
+
+/* On a phone the control spans the row, the segments share it and a long label wraps between words inside its own segment, never inside a word (min-content). */
+@media (pointer: coarse), (max-width: 640px) {
+  .segmented { display: flex; justify-self: stretch; }
+  .segmented label { flex: 1 1 auto; min-width: min-content; min-height: 44px; padding-inline: var(--space-2); white-space: normal; text-align: center; }
+}

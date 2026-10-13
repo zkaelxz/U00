@@ -56,6 +56,10 @@
 .queue-item-actions { align-items: center; }
 .queue-add, .queue-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
 .queue-controls { flex-direction: column; align-items: stretch; }
+/* One gap (--space-3) between blocks; a control's own help line sits right under it instead of floating a block away. */
+.queue-controls .setting-list { margin: 0; }
+.queue-add + .queue-help,
+.queue-controls > :is(.queue-row, .setting-list) + p { margin-top: calc(var(--space-1) - var(--space-3)); }
 .queue-add .field-item { flex: 1 1 12rem; min-width: 0; }
 .queue-add select { width: 100%; }
 .queue-settings { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); }
