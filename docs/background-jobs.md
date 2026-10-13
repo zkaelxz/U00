@@ -439,8 +439,9 @@ Routes in `api/routers/jobs_routes.py`, logic in `services/jobs_service.py`:
 |---|---|---|
 | `GET /api/jobs` | `library.read` | every visible `job_records` row, newest started first (sweeps stale rows first) |
 | `GET /api/jobs/{id}` | `library.read` | one record |
-| `POST /api/jobs/{id}/cancel` | `jobs.cancel` | `cancel_job`: 404 unknown or not visible, 409 already finished, else `{cancel_requested, status}`; asynchronous |
-| `POST /api/jobs/{id}/force-stop` | `jobs.cancel` | `force_stop_job`: 404 unknown or not visible, 409 unless a thread job has been Cancelling for over a minute, else closes the record as `cancelled` and returns `{force_stopped, status, worker_still_running}`; the thread itself cannot be killed |
+| `GET /api/jobs/queue-summary` | `library.read` | `queue_summary`: running and waiting counts for everyone, and the place in the GPU queue of each of the caller's own waiting jobs |
+| `POST /api/jobs/{id}/cancel` | `jobs.cancel` | `cancel_job`: 404 unknown or not visible, 403 visible but not the caller's to stop (`may_cancel_job`), 409 already finished or restarted by someone else, else `{cancel_requested, status}`; asynchronous |
+| `POST /api/jobs/{id}/force-stop` | `jobs.cancel` | `force_stop_job`: 404 unknown or not visible, 403 as cancel, 409 unless a thread job has been Cancelling for over a minute, else closes the record as `cancelled` and returns `{force_stopped, status, worker_still_running}`; the thread itself cannot be killed |
 | `POST /api/jobs/{id}/delete` | `local_only()` | removes one finished record (needs `confirm=true`; 409 if still active) |
 | `POST /api/jobs/clear-finished` | `local_only()` | removes every finished record (needs `confirm=true`) |
 
@@ -470,6 +471,9 @@ The client reads the `job_records` row, never the in-memory dict, with these cha
   every job. Otherwise a `<prefix><drama_id>` job follows its title's visibility and any
   other job is visible only to its starter. A job you may not see is a 404. The list
   reads its titles' ownership once (`ownership_service.job_drama_ownership`), not per job.
+- **Who may stop it.** `ownership_service.may_cancel_job`: admins, the PC owner and auth-off
+  stop any job; a member only their own (`owns_job`, the response's `owned_by_me`): ones
+  they started, and any job on a title they own. See `remote-access-decision.md` ("Jobs").
 
 A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and outcome
 `interrupted`.

@@ -72,6 +72,16 @@ test('phone: a failed job with a long name and error fits', async ({ page }) => 
   await noSideways(page)
 })
 
+test('phone: the queue line and my place in the queue fit', async ({ page }) => {
+  const jobs = pageJobs()
+  jobs[1] = { ...jobs[1], owned_by_me: true }
+  await mockJobsApi(page, jobs, true)
+  await page.goto('/#/jobs')
+  await expect(page.getByTestId('jobs-queue-line')).toHaveText('1 job running (all lanes), 1 waiting in the GPU queue')
+  await expect(page.getByTestId('jobs-cards').getByTestId('job-place-dub_4')).toHaveText('Waiting: #1 in the GPU queue')
+  await noSideways(page)
+})
+
 test('phone: the popover job name opens its stage', async ({ page }) => {
   await mockJobsApi(page, pageJobs())
   await page.goto('/#/library')

@@ -86,6 +86,11 @@ export async function mockJobsApi(page: Page, initial = sampleJobs() as Record<s
         { stage: 'Translating', started_at: 103.4, duration_seconds: 86.6, cost_usd: 0.03 },
       ] }] })
     }
+    if (path === '/api/jobs/queue-summary') {
+      const queued = jobs.filter((j) => j.status === 'queued')
+      const mine = queued.flatMap((j, i) => (j.owned_by_me ? [{ job_id: j.job_id, position: i + 1 }] : []))
+      return json({ lane: 'gpu', running: jobs.filter((j) => j.status === 'running').length, waiting: queued.length, mine })
+    }
     if (path === '/api/jobs') return json({ items: jobs, count: jobs.length })
     return route.fallback()
   })

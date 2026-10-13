@@ -12,7 +12,9 @@
  *   - per-row PC-only deletes are not rendered; show one muted line instead;
  *   - 'unknown' renders like 'local' (optimistic; the server enforces),
  *     except the Diagnostics/Settings admin blocks (packages, danger zone,
- *     extension), which wait for 'local' and show usePcPendingNote() meanwhile.
+ *     extension) and Library tools' Storage and Data folder tabs (they read
+ *     the PC's disk on mount), which wait for 'local' and show
+ *     usePcPendingNote() meanwhile.
  * Send PC-only mutations with pcOnlyFetch() from api/pcOnly.ts.
  */
 import { useEffect, useSyncExternalStore } from 'react'

@@ -413,8 +413,8 @@ def start_scan(principal) -> dict:
 
 def cancel_scan(principal, job_id: Optional[str] = None) -> dict:
     """Cancels the caller's own running scan, or another person's `job_id` when the caller
-    may act on other people's jobs (the PC owner, or an admin at the PC); anyone else is
-    refused with ForbiddenError."""
+    may stop other people's jobs (ownership_service.may_cancel_job: the PC owner or an
+    admin); anyone else is refused with ForbiddenError."""
     own = job_id_for(principal)
     target = own if job_id is None else job_id
     if not isinstance(target, str) or not re.fullmatch(re.escape(JOB_PREFIX) + r"[A-Za-z0-9]{1,20}", target):

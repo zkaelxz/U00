@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '../../../../api/client'
 import { cancelJob, getJob } from '../../../../api/jobs'
+import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import {
   applyCompare,
   estimateCompare,
@@ -22,7 +23,7 @@ import { useStageFocus } from '../../StageContext'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { transcribeExtraNames, whisperExclusionReason } from '../../sourceForm'
 import { promptFields } from '../transcribePrompt'
-import { TERMINAL_STATUSES } from '../../../../types/jobs'
+import { TERMINAL_STATUSES, offersCancel } from '../../../../types/jobs'
 import type { CompareEstimate, CompareOptions, CompareProposal, CompareResult } from '../../../../types/workspace'
 import {
   COMPARE_DRAFT_SHAPE,
@@ -202,6 +203,7 @@ export function CompareTranscription({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dramaId, selectionKey, translate, retranslate, options?.has_audio])
 
+  const anyJob = useCancelsAnyJob()
   const { job, error: pollError } = useJob(jobId, {
     runKey,
     onDone: (j) => {
@@ -423,7 +425,7 @@ export function CompareTranscription({
           <button type="button" onClick={start} disabled={busy || applying || !!blockedMessage || !chosenBackend?.available}>
             {busy ? 'Comparing…' : 'Compare'}
           </button>
-          {active && job && (
+          {active && job && offersCancel(job, anyJob) && (
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => cancelJob(job.job_id).catch(setError)}>Cancel</button>
           )}
           <button

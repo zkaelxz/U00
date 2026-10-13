@@ -6,6 +6,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJobs, useNow } from '../../../hooks/useJobs'
+import { useCancelsAnyJob } from '../../../hooks/useSession'
 import { capFirst } from '../../../labels'
 import type { ApiError } from '../../../api/client'
 import type { JobRecord } from '../../../types/jobs'
@@ -14,7 +15,7 @@ import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample 
 import { formatElapsed } from './autotuneGlossary'
 import { stripStallNote, stuckText, watchStuck, type StuckInfo } from './jobStuck'
 import { lastRunCounts, lastRunFor } from './lastRun'
-import { TERMINAL_STATUSES, jobFailed, jobName, jobOutcomeText } from '../../../types/jobs'
+import { TERMINAL_STATUSES, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
 import './jobPanel.css'
 
 export interface LastRunProps {
@@ -42,7 +43,8 @@ interface Props {
   // Transcribe only: the run's expected seconds from this PC's recorded speed,
   // shown as the ETA until the live readings settle.
   expectedSeconds?: number | null
-  // False hides Cancel (a remote admin may stop only their own jobs); default true.
+  // False hides Cancel. Default: whatever the server allows this viewer
+  // (offersCancel: their own job, or they may stop any).
   canCancel?: boolean
   // Runs after a Cancel request succeeds, so a caller can refresh its job list.
   onCancelled?: () => void
@@ -114,7 +116,9 @@ function useStuck(job: JobRecord | null): StuckInfo | null {
   return info
 }
 
-export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false, expectedSeconds, canCancel = true, onCancelled }: Props) {
+export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false, expectedSeconds, canCancel: canCancelProp, onCancelled }: Props) {
+  const anyJob = useCancelsAnyJob()
+  const canCancel = canCancelProp ?? (job !== null && offersCancel(job, anyJob))
   const { elapsed, left } = useLiveProgress(job, liveEta, expectedSeconds)
   const stuck = useStuck(job)
   const [cancelError, setCancelError] = useState<unknown>(null)

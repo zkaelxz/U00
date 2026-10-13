@@ -308,7 +308,7 @@ def test_the_start_limit_lapses(isolated_db, monkeypatch):
     _wait(report.job_id_for(ADA))
 
 
-def test_the_pc_owner_and_an_admin_at_the_pc_can_cancel_anyones_scan_a_member_cannot(isolated_db, monkeypatch):
+def test_the_pc_owner_and_admins_can_cancel_anyones_scan_a_member_cannot(isolated_db, monkeypatch):
     _three_titles()
     gate = _gated_scan(monkeypatch)
     try:
@@ -316,8 +316,8 @@ def test_the_pc_owner_and_an_admin_at_the_pc_can_cancel_anyones_scan_a_member_ca
         ada_job = report.job_id_for(ADA)
         with pytest.raises(ForbiddenError):
             report.cancel_scan(BEN, job_id=ada_job)
-        with pytest.raises(ForbiddenError):
-            report.cancel_scan(ADMIN, job_id=ada_job)   # an admin away from the PC changes only a member's own
+        # An admin may stop anyone's job from away too (owner decision 2026-10-12).
+        assert report.cancel_scan(ADMIN, job_id=ada_job)["cancel_requested"] is True
         with pytest.raises(InvalidInputError):
             report.cancel_scan(LOCAL, job_id="translate_1")
         assert report.cancel_scan(ADMIN_AT_PC, job_id=ada_job)["cancel_requested"] is True

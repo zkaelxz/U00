@@ -719,11 +719,14 @@ def list_bulk_translations(drama_id: int) -> dict:
             "jobs": [bulk_job_view.bulk_entry(j) for j in db.list_bulk_jobs(drama_id)]}
 
 
-def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
+def cancel_bulk_translation(drama_id: int, bulk_job_id: int, principal) -> dict:
     """Cancel: stops polling, marks the job cancelled and
     asks the provider to cancel when a server-side key exists (best effort,
-    same as bulk_poll.cancel_bulk_job)."""
+    same as bulk_poll.cancel_bulk_job). A batch records no starter, so
+    only the title's owner and admins may cancel it
+    (ownership_service.require_drama_work_cancellable)."""
     require_drama(drama_id)
+    ownership_service.require_drama_work_cancellable(principal, drama_id)
     job = db.get_bulk_job(bulk_job_id)
     if not job or job["drama_id"] != drama_id:
         raise NotFoundError(f"Bulk job {bulk_job_id} not found for title {drama_id}.")

@@ -131,7 +131,7 @@ def test_a_missing_hugging_face_token_is_its_own_error(drama, monkeypatch):
 def test_cancelling_a_bulk_job_still_cancels_locally_when_the_package_is_missing(drama):
     did, _ = drama
     jid = db.create_bulk_job(did, "claude", "m", "submitted", [(0, "k", "h", "")])
-    out = translate_run_service.cancel_bulk_translation(did, jid)
+    out = translate_run_service.cancel_bulk_translation(did, jid, None)
     assert out["bulk_job"]["status"] == "cancelled"
     assert db.get_bulk_job(jid)["status"] == "cancelled"
     assert "provider's console" in out["message"]

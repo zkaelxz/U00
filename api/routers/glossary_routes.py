@@ -147,7 +147,7 @@ def get_name_report(request: Request):
 
 @router.post("/name-report/cancel", dependencies=[require_permission("jobs.cancel")],
              response_model=JobCancelResult,
-             summary="Cancel your running name check (the PC owner may name another person's)",
+             summary="Cancel your running name check (an admin or the PC owner may name another person's)",
              responses={403: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
 def post_cancel_name_report(request: Request, payload: Optional[NameReportCancelRequest] = None):
@@ -201,10 +201,10 @@ def get_spelling_suggestions(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/spelling-suggestions/cancel", dependencies=[require_permission("jobs.cancel")],
              response_model=JobCancelResult,
              summary="Cancel this drama's spelling suggestions, only if it is still run run_id",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
-def post_cancel_spelling_suggestions(payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
-    return glossary_spelling_service.cancel_spelling_run(drama_id, payload.run_id)
+def post_cancel_spelling_suggestions(request: Request, payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_spelling_service.cancel_spelling_run(drama_id, payload.run_id, request.state.principal)
 
 
 @router.get("/dramas/{drama_id}/name-consistency", dependencies=[require_permission("lines.read")],
@@ -278,10 +278,10 @@ def post_apply_novel_glossary(payload: GlossaryProposalsApplyRequest, drama_id: 
 @router.post("/dramas/{drama_id}/from-novel/cancel", dependencies=[require_permission("jobs.cancel")],
              response_model=JobCancelResult,
              summary="Cancel this drama's novel extraction, only if it is still run run_id",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
-def post_cancel_novel_glossary(payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
-    return glossary_service.cancel_novel_glossary_run(drama_id, payload.run_id)
+def post_cancel_novel_glossary(request: Request, payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.cancel_novel_glossary_run(drama_id, payload.run_id, request.state.principal)
 
 
 def _status_body(s: dict) -> dict:
@@ -362,7 +362,7 @@ def post_apply_lines_glossary(payload: LinesGlossaryApplyRequest, drama_id: int 
 @router.post("/dramas/{drama_id}/from-lines/cancel", dependencies=[require_permission("jobs.cancel")],
              response_model=JobCancelResult,
              summary="Cancel this drama's lines extraction, only if it is still run run_id",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
-def post_cancel_lines_glossary(payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
-    return glossary_service.cancel_lines_glossary_run(drama_id, payload.run_id)
+def post_cancel_lines_glossary(request: Request, payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.cancel_lines_glossary_run(drama_id, payload.run_id, request.state.principal)

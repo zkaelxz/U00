@@ -212,7 +212,7 @@ class TestSuggest:
         did, _, tid = _title(isolated_db)
         _run(did, tid)
         with pytest.raises(ConflictError):
-            sp.cancel_spelling_run(did, "not-the-run")
+            sp.cancel_spelling_run(did, "not-the-run", None)
 
     def test_engine_error_is_redacted(self, isolated_db, engine, reply):
         did, _, tid = _title(isolated_db)

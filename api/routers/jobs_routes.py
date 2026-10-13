@@ -14,7 +14,7 @@ user can never erase it.
 from fastapi import APIRouter, Path, Request
 from api.auth import local_only, require_permission
 from api.schemas import (DeleteConfirm, ErrorResponse, JobCancelResult, JobDeleteResult, JobForceStopResult,
-                         JobListResponse, JobRecord, JobsClearFinishedResult)
+                         JobListResponse, JobQueueSummary, JobRecord, JobsClearFinishedResult)
 from services import jobs_service
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -25,6 +25,14 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 def list_jobs(request: Request):
     items = [JobRecord(**r) for r in jobs_service.list_jobs(principal=request.state.principal)]
     return JobListResponse(items=items, count=len(items))
+
+
+# Declared before /{job_id}, which would otherwise take this path.
+@router.get("/queue-summary", dependencies=[require_permission("library.read")],
+            response_model=JobQueueSummary,
+            summary="How many jobs run and wait, and the caller's own places in the GPU queue")
+def queue_summary(request: Request):
+    return JobQueueSummary(**jobs_service.queue_summary(principal=request.state.principal))
 
 
 @router.get("/{job_id}", dependencies=[require_permission("library.read")], response_model=JobRecord, summary="One job's cross-process record",

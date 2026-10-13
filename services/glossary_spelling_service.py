@@ -243,8 +243,8 @@ def get_spelling_status(drama_id: int) -> dict:
             "run_id": extract._current_run_id(job_id, job), "result": result}
 
 
-def cancel_spelling_run(drama_id: int, run_id: str) -> dict:
-    return extract._cancel_extraction(drama_id, spelling_job_id(drama_id), run_id)
+def cancel_spelling_run(drama_id: int, run_id: str, principal) -> dict:
+    return extract._cancel_extraction(drama_id, spelling_job_id(drama_id), run_id, principal)
 
 
 # --- Read-only consistency check ---------------------------------------------

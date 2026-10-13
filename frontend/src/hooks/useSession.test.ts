@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AuthMe } from '../api/auth'
 import { ApiError, getJson } from '../api/client'
 import {
-  canSignOut, gateView, getSession, isRemoteAdmin, loadSession, markSignedOut, ME_RETRY_MS, menuUser, recheckSession,
+  canSignOut, cancelsAnyJob, gateView, getSession, isRemoteAdmin, loadSession, markSignedOut, ME_RETRY_MS, menuUser, recheckSession,
   resetSessionForTests, sessionExpired, signOut, subscribeSession,
   type SessionState,
 } from './useSession'
@@ -214,5 +214,18 @@ describe('isRemoteAdmin', () => {
     expect(isRemoteAdmin(ready({ auth_enabled: false }))).toBe(false)
     expect(isRemoteAdmin({ status: 'unavailable' })).toBe(false)
     expect(isRemoteAdmin({ status: 'loading' })).toBe(false)
+  })
+})
+
+describe('cancelsAnyJob', () => {
+  it('is an admin anywhere, the local owner, or auth off', () => {
+    expect(cancelsAnyJob(ready({ permissions: ['library.read', 'admin.users.read'] }))).toBe(true)
+    expect(cancelsAnyJob(ready({ user: { ...user, is_admin: false, is_local_owner: true } }))).toBe(true)
+    expect(cancelsAnyJob(ready({ auth_enabled: false }))).toBe(true)
+  })
+  it('is not a member, or a session not known yet', () => {
+    expect(cancelsAnyJob(ready({ user: { ...user, is_admin: false } }))).toBe(false)
+    expect(cancelsAnyJob({ status: 'unavailable' })).toBe(false)
+    expect(cancelsAnyJob({ status: 'loading' })).toBe(false)
   })
 })

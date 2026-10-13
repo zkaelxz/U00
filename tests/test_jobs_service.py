@@ -4,6 +4,8 @@ cross-process job list, reading db.job_records (Migration Slice 7's
 mirror) rather than background_jobs.py's own in-memory state.
 """
 
+import os
+
 import db
 from services import jobs_service
 from services.service_errors import NotFoundError
@@ -372,3 +374,25 @@ class TestJobPage:
         data = JobRecord(**by_id["sources_search"]).model_dump(mode="json")
         assert data["page"] == "sources" and JobRecord(**data).model_dump(mode="json") == data
         assert JobRecord(job_id="x", status="done", updated_at=1.0).page is None
+
+
+def test_cancel_reaches_another_processes_run_past_a_finished_one_here(isolated_db):
+    """A member's run of this id finished here; the CLI (another process,
+    no starter) now runs it. Cancelling the CLI's run must flag its row,
+    not be refused because the finished run here had another starter."""
+    import background_jobs
+    from jobs import job_store
+    job_id = "translate_77"
+    with background_jobs._lock:
+        background_jobs._jobs[job_id] = {"status": "done", "owner_user_id": 5,
+                                         "started_at": 1.0, "finished_at": 2.0}
+    try:
+        db.save_job_record(job_id, "running", started_at=3.0, owner_user_id=None,
+                           owner_pid=os.getppid())
+        out = jobs_service.cancel_job(job_id, principal=None)
+        assert out["cancel_requested"] is True
+        assert db.get_job_record(job_id)["cancel_requested"]
+        assert job_store.row_cancel_time(job_id) is not None
+    finally:
+        with background_jobs._lock:
+            background_jobs._jobs.pop(job_id, None)

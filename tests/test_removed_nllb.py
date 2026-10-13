@@ -90,7 +90,7 @@ class TestBulkResume:
 
     def test_cancelling_it_does_not_crash(self, isolated_db):
         did, jid = self._job("submitted")
-        assert svc.cancel_bulk_translation(did, jid)["bulk_job"]["status"] == "cancelled"
+        assert svc.cancel_bulk_translation(did, jid, None)["bulk_job"]["status"] == "cancelled"
 
 
 class TestLibraryBulkQueue:
