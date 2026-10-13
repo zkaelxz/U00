@@ -42,8 +42,8 @@ import { useRoute } from '../router'
 import { seedPageTabFolds } from '../components/sectionStorage'
 import { BackupTab } from './libraryTools/BackupTab'
 import { StorageTab } from './libraryTools/StorageTab'
-import { LinkCheckCard } from './libraryTools/LinkCheckCard'
 import { TabCard } from './libraryTools/TabCard'
+import { LinkCheckCard } from './libraryTools/LinkCheckCard'
 import { CARDS, LIBRARY_TOOLS_TABS, cardStorageKey, cardsOf, isLibraryToolsTab, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
@@ -332,13 +332,18 @@ export default function LibraryToolsPage() {
         <ToolSection card="saved-manga" ready={organizeReady} first={firstOf(organizeShown) === 3} count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
           {saved.data && <SavedSeriesRows items={saved.data} />}
         </ToolSection>
-        {pc !== 'remote' && <TabCard card="link-check"><LinkCheckCard pc={pc} /></TabCard>}
         {!organizeReady && <p className="muted">Loading…</p>}
         {organizeReady && !organizeShown.some(Boolean) && <EmptyTab>{ORGANIZE_EMPTY}</EmptyTab>}
         {pc !== 'remote' && (
           <div className="tools-export">
             <h3 className="tools-group-title">Export</h3>
             <ExportBlock exportable={exportableCount(stats.data?.by_status)} job={exporter} />
+          </div>
+        )}
+        {pc !== 'remote' && (
+          <div className="tools-export">
+            <h3 className="tools-group-title">Check old titles from links</h3>
+            <LinkCheckCard pc={pc} />
           </div>
         )}
           </>
