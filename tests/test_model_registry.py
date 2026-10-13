@@ -469,7 +469,7 @@ class TestModelOverrides:
         assert translate_engines.estimate_cost_for_engine(engine, 1_000_000, 1_000_000) > 0
 
     def test_tier_override_applies_to_tiers_and_offered(self, isolated_db):
-        from services import translate_run_service as run
+        from services import translate_preset_service as run
         tier = translate_engines.WORKFLOW_TIERS["standard"]
         svc.set_model_override("tier", "standard", tier["engine_model"], "claude-opus-4-8")
         assert translate_engines.effective_tier_model("standard") == "claude-opus-4-8"

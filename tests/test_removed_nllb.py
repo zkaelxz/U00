@@ -8,7 +8,7 @@ import db
 import translate_engines
 from core import Line
 from services import (benchmark_lab_service, engine_routing_service,
-                      translate_run_service as svc, translate_service)
+                      translate_preset_service, translate_run_service as svc, translate_service)
 from services.service_errors import InvalidInputError
 from tests.saved_settings import patch_setting
 
@@ -112,7 +112,7 @@ class TestOldSavedData:
         did = _drama(translation_engine="claude")
         pid = db.save_preset("Old", translation_engine="nllb",
                              engine_model="facebook/nllb-200-distilled-600M")
-        applied = svc.apply_translate_preset(did, pid)
+        applied = translate_preset_service.apply_translate_preset(did, pid)
         assert applied["translation_engine"] is None and applied["engine_model"] is None
         assert db.get_drama(did)["translation_engine"] == "claude"
         assert [p["translation_engine"] for p in db.list_presets()] == ["nllb"]
