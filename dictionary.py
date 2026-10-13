@@ -79,10 +79,12 @@ def load_cedict():
             m = line_re.match(line.strip())
             if not m:
                 continue
-            _trad, simp, pinyin, defs = m.groups()
-            entries.setdefault(simp, []).append({
-                "pinyin": pinyin, "definitions": defs.split("/"),
-            })
+            trad, simp, pinyin, defs = m.groups()
+            entry = {"pinyin": pinyin, "definitions": defs.split("/")}
+            entries.setdefault(simp, []).append(entry)
+            # A Traditional-script title looks words up by their Traditional form.
+            if trad != simp:
+                entries.setdefault(trad, []).append(entry)
     _cedict_cache = entries
     return entries
 

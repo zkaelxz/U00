@@ -296,3 +296,14 @@ def test_downgrade_risks_previews_the_literal_argv():
 def test_downgrade_risks_without_a_preview_is_the_unchecked_risk():
     assert plan_mod.downgrade_risks(["pip"], runner=fake_runner(rc=1, text="no network"),
                                     installed={}, required=set(), mins={}) == [plan_mod.UNCHECKED_RISK]
+
+
+def test_a_plan_with_no_preview_keeps_its_restart_mode_and_note_when_in_use_is_rechecked(monkeypatch):
+    # Windows, pip cannot preview: the plan says restart and why, whatever is in use.
+    monkeypatch.setattr(plan_mod, "run_dry_run", lambda keys, specs=None: (None, "no network"))
+    plan = plan_mod.build_plan(["paddleocr"], windows=True, installed={}, in_use=lambda n: False)
+    assert plan["available"] is False and plan["mode"] == "restart"
+    note = plan["note"]
+    assert "install when you restart" in note
+    again = plan_mod.apply_in_use(plan, jobs_running=False, windows=True, in_use=lambda n: False)
+    assert again["mode"] == "restart" and again["note"] == note

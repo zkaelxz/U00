@@ -55,13 +55,14 @@ def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
     Samples one frame every `interval_sec` seconds via ffmpeg's own fps
     filter (which decodes once, straight through -- far faster than
     seeking frame-by-frame from Python for a multi-hour file), saved as
-    numbered PNGs in out_dir. Returns [(timestamp_seconds, path), ...] in
+    numbered JPEGs in out_dir (near-lossless; a PNG per second of a long 1080p
+    video would take tens of GB). Returns [(timestamp_seconds, path), ...] in
     order. With job_id, the ffmpeg run is killed when that job's cancel is
     requested (JobCancelled); either way it is killed after
     EXTRACT_FRAMES_TIMEOUT_SECONDS.
     """
     os.makedirs(out_dir, exist_ok=True)
-    pattern = os.path.join(out_dir, "frame_%06d.png")
+    pattern = os.path.join(out_dir, "frame_%06d.jpg")
     cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path, "-vf", f"fps=1/{interval_sec}",
            "-q:v", "2", pattern]
     if job_id:
@@ -202,6 +203,8 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd:
     PaddleOCR language for backend "paddle". on_timeout is called when
     Tesseract timed out on the frame (only Tesseract has a per-frame timeout)."""
     img = cv2.imread(path)
+    if img is None:  # an unreadable frame reads as no caption, not a crash
+        return ""
     h, _w = img.shape[:2]
     y0, y1 = int(region[0] * h), int(region[1] * h)
     crop = _upscale_for_ocr(img[y0:y1, :])

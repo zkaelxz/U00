@@ -239,6 +239,32 @@ def downgrade_risks(argv: list, runner=run_captured, installed: dict = None,
                   dependency_updates.required_min_versions() if mins is None else mins)
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def apply_in_use(plan: dict, jobs_running: bool, windows: bool = None, in_use=None) -> dict:
+    """Sets `loaded`, `note` and `mode` of a previewed plan from what is in use
+    right now. Also re-run on a cached plan, whose answer goes stale as soon as
+    a job imports one of the packages it would replace."""
+    if not plan["available"]:
+        return plan     # no preview: its restart mode and note don't depend on what is in use
+    windows = _is_windows() if windows is None else windows
+    in_use = dist_in_use if in_use is None else in_use
+    names = {c["name"] for c in plan["changes"] if c["kind"] != "install"} | set(plan["swap"])
+    plan["loaded"] = sorted(n for n in names if windows and in_use(n))
+    plan["note"] = None
+    plan["mode"] = "now"
+    if plan["loaded"]:
+        plan["note"] = ("Baihe is using " + ", ".join(plan["loaded"]) + " right now, and "
+                        "Windows can't replace files in use.")
+    elif windows and jobs_running:
+        plan["note"] = "A job is running and may load these packages while pip works."
+    if windows and (plan["loaded"] or jobs_running):
+        plan["mode"] = "restart"
+    return plan
+
+
 def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, report=None,
                installed: dict = None, in_use=dist_in_use, mins: dict = None,
                required: set = None, specs: list = None) -> dict:
@@ -301,13 +327,5 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool = None, rep
     plan["needs_confirm"] = _risks(changes, required, mins)
     replaced = [c for c in changes if c["kind"] != "install"]
     plan["before"] = {**{n: installed[n] for n in swap}, **{c["name"]: c["from"] for c in replaced}}
-    plan["loaded"] = sorted(n for n in {c["name"] for c in replaced} | set(swap)
-                            if windows and in_use(n))
-    if plan["loaded"]:
-        plan["note"] = ("Baihe is using " + ", ".join(plan["loaded"]) + " right now, and "
-                        "Windows can't replace files in use.")
-    elif windows and jobs_running:
-        plan["note"] = "A job is running and may load these packages while pip works."
-    if windows and (plan["loaded"] or jobs_running):
-        plan["mode"] = "restart"
+    apply_in_use(plan, jobs_running, windows, in_use)
     return plan

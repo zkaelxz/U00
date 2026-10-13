@@ -157,7 +157,7 @@ class TestQwen3ASRBackendTranscription:
                                         progress_cb=seen.append)
         assert seen == pytest.approx([1 / 3, 2 / 3, 1.0])
 
-    def test_empty_model_result_becomes_empty_text(self, monkeypatch):
+    def test_empty_model_result_keeps_whispers_text(self, monkeypatch):
         import asr_backend as ab
         self._stub_audio_slicing(monkeypatch, ab)
 
@@ -169,7 +169,7 @@ class TestQwen3ASRBackendTranscription:
         backend = ab.Qwen3ASRBackend()
         result = backend.transcribe("/fake.wav", "ko",
                                      whisper_segments=[{"start": 0.0, "end": 1.0, "text": "x"}])
-        assert result[0]["text"] == ""
+        assert result[0]["text"] == "x"
 
 
 class TestLoadQwen3Asr:

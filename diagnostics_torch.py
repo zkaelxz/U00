@@ -486,7 +486,7 @@ try:
         for i in range(torch.cuda.device_count()):
             major, minor = torch.cuda.get_device_capability(i)
             # Native kernels, or PTX built for this arch or an older one (JIT-compiled).
-            ptx = [int(m.group(1)) for m in (re.match(r"compute_(\d+)", a) for a in archs) if m]
+            ptx = [int(m.group(1)) for m in (re.match(r"compute_([0-9]+)", a) for a in archs) if m]
             supported = ("sm_%d%d" % (major, minor)) in archs or any(
                 p <= major * 10 + minor for p in ptx)
             out["devices"].append({"index": i, "name": torch.cuda.get_device_name(i)[:120],
