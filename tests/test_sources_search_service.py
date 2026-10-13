@@ -14,8 +14,9 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
 from sources import generic_import, registry
 from sources.base import SourceAdapter
-from sources.http import (PacingPolicy, ResponseRefused, ResponseTooLarge, ResponseTooSlow,
-                          UnsupportedEncoding)
+from sources.http import PacingPolicy
+from sources.http_transport import (ResponseRefused, ResponseTooLarge, ResponseTooSlow,
+                                    UnsupportedEncoding)
 from sources.models import (ChallengeDetected, ChapterInfo, ContentHidden, FailureReason,
                             FetchFailed, NotSupportedError, SearchResult, SeriesInfo,
                             SourceError, SourceUnavailable, TermsProhibited)

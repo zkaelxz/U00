@@ -9,9 +9,9 @@ import json
 import pytest
 
 from lib import url_guard
-from sources import chapter_check, http, store
+from sources import chapter_check, http, http_transport, store
 from sources.base import SourceAdapter
-from sources.http import Response
+from sources.http_transport import Response
 from sources.models import ChapterInfo
 
 from .sources_helpers import make_client
@@ -221,7 +221,7 @@ class _Session:
         self.server, self.calls = server, []
 
     def request(self, method, url, headers=None, **kw):
-        http._guard(url)  # the real session guards every hop
+        http_transport._guard(url)  # the real session guards every hop
         assert kw["timeout"] and kw["allow_redirects"] is False and kw["stream"] is True
         self.calls.append(dict(headers))
         r = self.server(method, url, headers, None, kw["timeout"])
@@ -232,7 +232,7 @@ def test_real_transport_fake_server_304(tracked, monkeypatch):
     monkeypatch.setattr(url_guard.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("93.184.216.34", port))])
     session = _Session(FakeServer())
-    monkeypatch.setattr(http, "_thread_session", lambda: session)
+    monkeypatch.setattr(http_transport, "_thread_session", lambda: session)
     client = make_client("condtest")
     client.transport = client._limited_transport
     adapter = ListAdapter(client)
@@ -245,11 +245,11 @@ def test_real_transport_still_refuses_private_hosts(tracked, monkeypatch):
     monkeypatch.setattr(url_guard.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("127.0.0.1", port))])
     session = _Session(FakeServer())
-    monkeypatch.setattr(http, "_thread_session", lambda: session)
+    monkeypatch.setattr(http_transport, "_thread_session", lambda: session)
     store.save_poll_validators("condtest", "s1", (LIST, ETAG, LAST_MOD))
     client = make_client("condtest", max_retries=0)
     client.transport = client._limited_transport
-    with pytest.raises(http.UnsafeRedirect):
+    with pytest.raises(http_transport.UnsafeRedirect):
         chapter_check.check_series(ListAdapter(client), tracked)
     assert session.calls == []
 
@@ -355,7 +355,7 @@ def test_validators_never_follow_a_redirect_hop(tracked, monkeypatch):
             return _Resp(200, {"content-type": "application/json", "ETag": '"m1"'},
                          b'["c1"]', url)
     session = Redirecting()
-    monkeypatch.setattr(http, "_thread_session", lambda: session)
+    monkeypatch.setattr(http_transport, "_thread_session", lambda: session)
     store.save_poll_validators("condtest", "s1", (LIST, ETAG, LAST_MOD))
     client = make_client("condtest")
     client.transport = client._limited_transport

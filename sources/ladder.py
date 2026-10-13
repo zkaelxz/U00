@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import detect, store
-from .http import REDIRECT_REFUSED, ResponseRefused, UnsafeRedirect, ascii_url
+from .http_transport import REDIRECT_REFUSED, ResponseRefused, UnsafeRedirect, ascii_url
 from .models import (AccessTier, AiMlUse, AttemptRecord, AutomationPermission,
                      CapabilityStatus, CHALLENGE_REASONS, ChallengeDetected, ContentAccess,
                      ENVIRONMENT_BLOCK_REASONS, FailureReason, LADDER_ORDER, PROTECTION_REASONS,

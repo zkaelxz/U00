@@ -9,7 +9,7 @@ refused before any connection. It returns the first validated address so
 the caller can pin its connection to it.
 
 Callers: `lib.http` (and through it `services.safe_fetch`,
-`services.metadata_service`), `services.metadata_service.check_public_url`, `sources.http._requests_transport` and
+`services.metadata_service`), `services.metadata_service.check_public_url`, `sources.http_transport._requests_transport` and
 `page_fetch.fetch_static`, which re-validate every redirect hop, and
 `services.egress_proxy`, which checks every connection ffmpeg and yt-dlp
 make during live capture. Error

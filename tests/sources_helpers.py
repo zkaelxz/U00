@@ -6,7 +6,7 @@ Nothing here touches the network.
 
 import io
 
-from sources.http import Response
+from sources.http_transport import Response
 
 
 class FakeClock:

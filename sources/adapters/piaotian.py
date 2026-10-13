@@ -39,7 +39,7 @@ reference scraper's code was used:
                                                searchtype=..&searchkey=..&page=<n>.
 
 Pages declare GBK (`gbk` on book pages, `gb2312` on chapters) in a <meta> and
-send no charset header; sources.http.decode_html reads the meta and decodes
+send no charset header; sources.http_transport.decode_html reads the meta and decodes
 with the GB18030 superset, so `resp.text` is already text.
 
 A missing book page is served with HTTP 200 and a page titled 出现错误！ ("错误原因：

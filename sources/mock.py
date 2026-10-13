@@ -13,7 +13,7 @@ import io
 import re
 
 from .base import SourceAdapter
-from .http import Response
+from .http_transport import Response
 from .models import ChapterInfo, ContentType, PageRef, SearchResult, SeriesInfo
 from .registry import register
 

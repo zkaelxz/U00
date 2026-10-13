@@ -836,14 +836,14 @@ class TestFollowNovel:
         assert out.stop == "unreachable" and len(out.pages) == 1 and len(t.calls) == 2
 
     def test_an_oversized_or_slow_page_stops_the_chain_keeping_the_pages(self, isolated_db):
-        from sources.http import ResponseTooLarge, ResponseTooSlow
+        from sources.http_transport import ResponseTooLarge, ResponseTooSlow
         for refused in (ResponseTooLarge(), ResponseTooSlow()):
             out, t = self._follow(self._routes(12, 13, **{chapter_url(14): refused}))
             assert out.stop == "unreachable" and len(t.calls) == 3
             assert [p.url for p in out.pages] == [chapter_url(12), chapter_url(13)]
 
     def test_an_oversized_first_page_still_fails_as_before(self, isolated_db):
-        from sources.http import ResponseTooLarge
+        from sources.http_transport import ResponseTooLarge
         with pytest.raises(ResponseTooLarge):
             self._follow({chapter_url(12): ResponseTooLarge()})
 
@@ -877,7 +877,7 @@ class TestFollowNovel:
         assert out.stop == "chars" and len(out.pages) == 1 and len(t.calls) == 2
 
     def test_cancel_between_pages(self, isolated_db):
-        from sources.http import Cancelled
+        from sources.http_transport import Cancelled
         routes = self._routes(12, 13)
         with pytest.raises(Cancelled):
             self._follow(routes, cancel_check=lambda: True)

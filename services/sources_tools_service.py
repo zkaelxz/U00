@@ -45,7 +45,7 @@ from services.sources_search_service import error_view, JobFailed, start_job
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
                                           preview_view, source_client, without_urls)
 from sources import adaptive, front_door, generic_import, pipeline, preflight
-from sources.http import Cancelled
+from sources.http_transport import Cancelled
 
 PREFLIGHT_JOB_ID = "sources_url_preflight"
 IDENTIFY_JOB_ID = "sources_url_identify"

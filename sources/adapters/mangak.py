@@ -30,7 +30,7 @@ import re
 from urllib.parse import quote, urljoin, urlsplit
 
 from ..base import SourceAdapter
-from ..http import header
+from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
 from ..registry import register

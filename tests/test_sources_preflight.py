@@ -101,7 +101,7 @@ class TestEveryOrdinaryNoIsAnAnswerNotAnException:
         assert "terms" in result.verdict.lower()
 
     def test_an_unreachable_page_is_reported(self, isolated_db):
-        from sources.http import Response
+        from sources.http_transport import Response
         result = _run({URL: Response(404, {"content-type": "text/html"}, b"nope", URL)})
         assert result.ok is False
         assert result.reachable is False

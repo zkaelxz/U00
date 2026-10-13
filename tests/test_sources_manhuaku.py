@@ -249,7 +249,7 @@ class TestChapterImportKeepsEveryPageKind:
     ICON_URL = "https://img.example.invalid/pages/icon.png"
 
     def _routes(self):
-        from sources.http import Response
+        from sources.http_transport import Response
         from .sources_helpers import png
         return {self.GIF_URL: Response(200, {"content-type": "image/gif"}, _gif(800, 1200), ""),
                 self.PLAIN_URL: Response(200, {"content-type": "text/plain"},

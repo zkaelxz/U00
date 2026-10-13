@@ -25,7 +25,7 @@ from lib import url_guard
 from sources import chapter_check, detect, health, http, ladder, registry, store
 from sources.base import SourceAdapter
 from sources.cache import RawCache
-from sources.http import Response
+from sources.http_transport import Response
 from sources.models import AccessTier, SourceError
 
 from .sources_helpers import make_client
@@ -39,10 +39,10 @@ TICKET = "TICKETSENTINEL0a1b"
 SENTINELS = (REQ_COOKIE, AUTH, SET_COOKIE, TICKET)
 
 # Where `.cookies` may be read -- the exact expression, not the whole
-# function (so e.g. `session.cookies`, the process-wide jar http.py warns
+# function (so e.g. `session.cookies`, the process-wide jar http_transport.py warns
 # against, is never allowed) -- and why (see the audit note).
 COOKIE_READS_ALLOWED = {
-    ("sources/http.py", "_requests_transport", "hop.cookies"):
+    ("sources/http_transport.py", "_requests_transport", "hop.cookies"):
         "builds Response.cookies from each redirect hop's own jar; returned, never stored",
 }
 # Calls that write to sources.db, the capability record or a log.

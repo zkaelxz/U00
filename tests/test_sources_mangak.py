@@ -8,7 +8,8 @@ import json
 import pytest
 
 from sources.adapters import mangak
-from sources.http import FetchFailed, Response
+from sources.http import FetchFailed
+from sources.http_transport import Response
 from sources.models import ChapterInfo, PageRef, SourceError
 
 from .sources_helpers import FakeClock, ScriptedTransport, html, make_client

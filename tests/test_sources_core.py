@@ -11,7 +11,8 @@ import pytest
 from sources import cache as cache_mod
 from sources import health, ladder, store
 from sources.base import SourceAdapter
-from sources.http import PacingPolicy, SourceClient, _requests_transport, reset_pacing_state
+from sources.http import PacingPolicy, SourceClient, reset_pacing_state
+from sources.http_transport import _requests_transport
 from sources.models import (AccessTier, CapabilityStatus, ChallengeDetected, ChapterInfo,
                             ContentAccess, FailureReason, FetchFailed, NotSupportedError,
                             PageRef, SearchResult, SeriesInfo, SourceCapabilities,
@@ -312,7 +313,7 @@ class TestPerHostPacing:
     def test_cancel_interrupts_a_thread_queued_behind_another_hosts_wait(self, isolated_db):
         import threading
         from sources import http
-        from sources.http import Cancelled
+        from sources.http_transport import Cancelled
         reset_pacing_state()
         clock = FakeClock()
         t = ScriptedTransport({"https://q.invalid/1": html("x"), "https://q.invalid/2": html("x"),
@@ -1215,7 +1216,7 @@ class TestRequestsTransport:
         hop = self._FakeResp(302, {"location": "/final"}, b"", "https://x.invalid/start",
                              cookies=_cookie_jar(**{"x.invalid": {"virgo!__ticket": "tick-1"}}))
         final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final", history=[hop])
-        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        monkeypatch.setattr("sources.http_transport._thread_session", lambda: self._FakeSession(final))
         resp = _requests_transport("GET", "https://x.invalid/start", {}, None, 20)
         assert dict(resp.cookies) == {"virgo!__ticket": "tick-1"}
 
@@ -1225,14 +1226,14 @@ class TestRequestsTransport:
         final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final",
                                cookies=_cookie_jar(**{"x.invalid": {"session": "new"}}),
                                history=[hop])
-        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        monkeypatch.setattr("sources.http_transport._thread_session", lambda: self._FakeSession(final))
         resp = _requests_transport("GET", "https://x.invalid/start", {}, None, 20)
         assert dict(resp.cookies) == {"session": "new"}
 
     def test_no_redirect_still_returns_the_final_responses_own_cookies(self, monkeypatch):
         final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final",
                                cookies=_cookie_jar(**{"x.invalid": {"a": "b"}}))
-        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        monkeypatch.setattr("sources.http_transport._thread_session", lambda: self._FakeSession(final))
         resp = _requests_transport("GET", "https://x.invalid/final", {}, None, 20)
         assert dict(resp.cookies) == {"a": "b"}
 
@@ -1254,7 +1255,7 @@ class TestRequestsTransport:
             dict(shared_session_cookies)   # proves the rejected approach really does blow up
         assert "CookieConflictError" in type(exc_info.value).__name__
 
-        monkeypatch.setattr("sources.http._thread_session",
+        monkeypatch.setattr("sources.http_transport._thread_session",
                             lambda: self._FakeSession(final, cookies=shared_session_cookies))
         resp = _requests_transport("GET", "https://vw.invalid/ticket", {}, None, 20)
         assert dict(resp.cookies) == {"session": "vw-value"}
@@ -1272,7 +1273,7 @@ class TestRequestsTransport:
         (this fix) never goes through that lookup path regardless."""
         final = self._FakeResp(200, {}, b"ok", "https://kuaikan.invalid/page",
                                cookies=_cookie_jar(**{"kuaikan.invalid": {"referer_name": ""}}))
-        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        monkeypatch.setattr("sources.http_transport._thread_session", lambda: self._FakeSession(final))
         resp = _requests_transport("GET", "https://kuaikan.invalid/page", {}, None, 20)
         assert dict(resp.cookies) == {"referer_name": ""}
 
@@ -1282,7 +1283,7 @@ class TestRequestsTransport:
         # direct-connection adapter unchanged.
         final = self._FakeResp(200, {}, b"ok", "https://x.invalid/")
         fake = self._FakeSession(final)
-        monkeypatch.setattr("sources.http._thread_session", lambda: fake)
+        monkeypatch.setattr("sources.http_transport._thread_session", lambda: fake)
         _requests_transport("GET", "https://x.invalid/", {}, None, 20)
         assert fake.last_proxies is None
 
@@ -1290,7 +1291,7 @@ class TestRequestsTransport:
         store.set_setting("http_proxy_url", "http://127.0.0.1:8080")
         final = self._FakeResp(200, {}, b"ok", "https://x.invalid/")
         fake = self._FakeSession(final)
-        monkeypatch.setattr("sources.http._thread_session", lambda: fake)
+        monkeypatch.setattr("sources.http_transport._thread_session", lambda: fake)
         _requests_transport("GET", "https://x.invalid/", {}, None, 20)
         assert fake.last_proxies == {"http": "http://127.0.0.1:8080",
                                      "https": "http://127.0.0.1:8080"}

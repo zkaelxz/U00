@@ -620,6 +620,7 @@ Site adapters, the fetch ladder and the source store (`sources.db`).
 - `generic_import.py` (one-off "paste a URL" imports for sites with no registered adapter)
 - `health.py` (per-source health, last success/failure and the backoff window that keeps a failing source from being hit again too soon)
 - `http.py` (the one paced HTTP client every adapter and the generic importer go through)
+- `http_transport.py` (the real network transport under it: SSRF-guarded hand-followed redirects, capped streamed body reads, the request deadline, and the `Response` and refusal types)
 - `ladder.py` (the access-method ladder)
 - `limiter.py` (the per-source concurrency limit)
 - `live_follow_store.py` (the `followed_channels` rows in `sources.db` behind `services/live_follow_service.py`)
