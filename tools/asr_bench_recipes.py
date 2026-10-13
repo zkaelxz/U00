@@ -9,22 +9,25 @@ A new recipe backend (an `anime_whisper`, say) is one BackendSpec in BACKENDS
 below: the keys it honours, what it loads, and a runner returning
 {"start", "end", "text"} segments with times relative to the window.
 """
+import contextlib
 import math
+import os
 from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 import asr_backend
+import audio_preprocess
 import core
 import forced_align
 import memory_headroom
 import qwen3_native
 import sensitivity_preset as presets
 import whisper_models
-from services import asr_options_service, settings_service, transcribe_service
+from services import asr_options_service, settings_service, timing_settings_service, transcribe_service
 
 MAX_BEAM = 20
 DETECTORS = ("standard", "asmr")
-PRESET_KEYS = ("beam", "vad", "prompt", "align", "detector")
+PRESET_KEYS = ("beam", "vad", "prompt", "align", "detector", "difficult")
 
 GRAMMAR = """\
 recipe grammar:  BACKEND[:MODEL][,KEY=VALUE]...
@@ -46,6 +49,9 @@ recipe grammar:  BACKEND[:MODEL][,KEY=VALUE]...
     detector=standard|asmr  voice detector (default: the Settings choice, auto)
                                                           qwen3_asr_vad, qwen3_asr_long,
                                                           anime_whisper
+    difficult=on|off        the title's "Difficult audio" option: levels the audio, uses the
+                            sensitive detector (an explicit vad= wins) and relaxes Whisper's
+                            skip rule (default: the title's saved choice)  whisper, qwen3_asr
 
 anime_whisper is Japanese only and for personal, non-commercial use; it downloads its
 own pinned model on first use and takes no MODEL.
@@ -54,6 +60,7 @@ examples:
   whisper:large-v3-turbo
   whisper:kotoba-v2,align=on
   whisper:large-v3-turbo,vad=sensitive,beam=1
+  whisper:large-v3,difficult=on
   qwen3_asr_vad,detector=asmr
   qwen3_asr_long
   anime_whisper
@@ -75,6 +82,7 @@ class Recipe:
     prompt: bool = True
     align: bool = False
     detector: Optional[str] = None
+    difficult: Optional[bool] = None
     label: str = ""
 
 
@@ -108,14 +116,46 @@ class BackendSpec:
 # Runners
 # ---------------------------------------------------------------------------
 
-def _whisper_pass(ctx: RunContext, r: Recipe) -> list:
+def _difficult(ctx: RunContext, r: Recipe) -> bool:
+    return bool(ctx.drama.get("difficult_audio") if r.difficult is None else r.difficult)
+
+
+@contextlib.contextmanager
+def _levelled_wav(ctx: RunContext, r: Recipe):
+    """The clip to transcribe: a levelled temporary copy for a Difficult audio recipe
+    (the same ffmpeg step the app runs), else the clip itself. Without ffmpeg the clip
+    is used and the report says so."""
+    path, out = ctx.wav, os.path.join(os.path.dirname(os.path.abspath(ctx.wav)), "leveled.wav")
+    if _difficult(ctx, r):
+        try:
+            path = audio_preprocess.level_audio(ctx.wav, out)
+        except audio_preprocess.AudioLevelingUnavailable as exc:
+            ctx.notes.append(str(exc))
+    try:
+        yield path
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(out)
+
+
+def _whisper_pass(ctx: RunContext, r: Recipe, wav: str = None) -> list:
     drama = ctx.drama
-    preset = presets.normalize(r.vad or drama.get("sensitivity_preset"))
+    difficult = _difficult(ctx, r)
+    row = presets.difficult_audio_view({**drama, "difficult_audio": difficult})
+    preset = presets.normalize(r.vad or row.get("sensitivity_preset"))
+    # Only a Difficult audio recipe passes the skip-rule numbers, so every other recipe
+    # calls the app's code exactly as before.
+    extra = {}
+    if difficult:
+        values = timing_settings_service.values()
+        extra = {"difficult_audio": True,
+                 "no_speech_threshold": values["difficult_no_speech_threshold"],
+                 "log_prob_threshold": values["difficult_log_prob_threshold"]}
     prompt = ""
     if r.prompt:
         prompt = transcribe_service.build_auto_initial_prompt(ctx.title_id)
     segments = core.transcribe_for_timing(
-        ctx.wav, r.model, language=ctx.language, use_gpu=ctx.use_gpu,
+        wav or ctx.wav, r.model, language=ctx.language, use_gpu=ctx.use_gpu,
         local_model_path=ctx.local_model_path, hf_token=None, initial_prompt=prompt,
         beam_size=r.beam or drama.get("beam_size") or transcribe_service._DEFAULT_TUNING["beam_size"],
         min_silence_duration_ms=(drama.get("min_silence_ms")
@@ -124,7 +164,7 @@ def _whisper_pass(ctx: RunContext, r: Recipe) -> list:
         on_gpu_fallback=ctx.note_gpu_fallback,
         fast_mode=bool(drama.get("whisper_fast_mode")),
         hallucination_silence_sec=transcribe_service.stored_hallucination_silence_sec(drama),
-        repeat_guard=bool(drama.get("whisper_repeat_guard")), sensitivity_preset=preset)
+        repeat_guard=bool(drama.get("whisper_repeat_guard")), sensitivity_preset=preset, **extra)
     info = whisper_models.get_whisper_device_info(r.model, ctx.use_gpu, ctx.local_model_path)
     if info.get("gpu_error"):
         ctx.notes.append("GPU unavailable, ran on CPU: " + info["gpu_error"])
@@ -132,25 +172,27 @@ def _whisper_pass(ctx: RunContext, r: Recipe) -> list:
 
 
 def run_whisper(ctx: RunContext, r: Recipe) -> list:
-    segments = _whisper_pass(ctx, r)
-    if r.align and segments:
-        # The aligner's load is judged against free memory, and Whisper has finished.
-        whisper_models.release_gpu_models()
-        segments = forced_align.refine_whisper_segments(
-            ctx.wav, segments, ctx.language, use_gpu=ctx.use_gpu,
-            on_gpu_fallback=lambda task, exc: ctx.note_gpu_fallback(exc))
+    with _levelled_wav(ctx, r) as wav:
+        segments = _whisper_pass(ctx, r, wav)
+        if r.align and segments:
+            # The aligner's load is judged against free memory, and Whisper has finished.
+            whisper_models.release_gpu_models()
+            segments = forced_align.refine_whisper_segments(
+                wav, segments, ctx.language, use_gpu=ctx.use_gpu,
+                on_gpu_fallback=lambda task, exc: ctx.note_gpu_fallback(exc))
     return segments
 
 
 def run_qwen3_asr(ctx: RunContext, r: Recipe) -> list:
-    segments = _whisper_pass(ctx, r)
-    if not segments:
-        return []
-    whisper_models.release_gpu_models()
-    return asr_backend.get_backend("qwen3_asr").transcribe(
-        ctx.wav, ctx.language, segments, use_gpu=ctx.use_gpu,
-        batch_size=asr_options_service.get_qwen_asr_batch_size(),
-        on_gpu_fallback=lambda task, exc: ctx.note_gpu_fallback(exc))
+    with _levelled_wav(ctx, r) as wav:
+        segments = _whisper_pass(ctx, r, wav)
+        if not segments:
+            return []
+        whisper_models.release_gpu_models()
+        return asr_backend.get_backend("qwen3_asr").transcribe(
+            wav, ctx.language, segments, use_gpu=ctx.use_gpu,
+            batch_size=asr_options_service.get_qwen_asr_batch_size(),
+            on_gpu_fallback=lambda task, exc: ctx.note_gpu_fallback(exc))
 
 
 def run_qwen3_vad(ctx: RunContext, r: Recipe) -> list:
@@ -186,10 +228,10 @@ def _qwen_load():
 
 BACKENDS = {
     "whisper": BackendSpec(
-        "whisper", frozenset({"vad", "beam", "prompt", "align"}), True, run_whisper,
+        "whisper", frozenset({"vad", "beam", "prompt", "align", "difficult"}), True, run_whisper,
         lambda r: _whisper_load(r) + (_aligner_load() if r.align else []), (0.12, 1.0)),
     "qwen3_asr": BackendSpec(
-        "qwen3_asr", frozenset({"vad", "beam", "prompt"}), True, run_qwen3_asr,
+        "qwen3_asr", frozenset({"vad", "beam", "prompt", "difficult"}), True, run_qwen3_asr,
         lambda r: _whisper_load(r) + _qwen_load(), (0.3, 2.0)),
     "qwen3_asr_vad": BackendSpec(
         "qwen3_asr_vad", frozenset({"align", "detector"}), False, run_qwen3_vad,
@@ -269,6 +311,8 @@ def parse_recipe(text: str, language: str, default_model: str) -> Recipe:
         fields["align"] = _on_off("align", values["align"])
     if "detector" in values:
         fields["detector"] = _choice("detector", values["detector"], DETECTORS)
+    if "difficult" in values:
+        fields["difficult"] = _on_off("difficult", values["difficult"])
     recipe = Recipe(backend, model or None, **fields)
     return replace(recipe, label=canonical_label(recipe))
 
@@ -285,6 +329,8 @@ def canonical_label(r: Recipe) -> str:
         parts.append("align=on")
     if r.detector:
         parts.append(f"detector={r.detector}")
+    if r.difficult is not None:
+        parts.append(f"difficult={'on' if r.difficult else 'off'}")
     return ",".join(parts)
 
 

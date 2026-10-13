@@ -62,6 +62,8 @@ class TimingPreferences(BaseModel):
     settings schema, not repeated here."""
     sentence_split_min_silence_ms: int = 2000
     sensitive_vad_threshold: float = 0.35
+    difficult_no_speech_threshold: float = 0.8
+    difficult_log_prob_threshold: float = -1.5
     qwen_vad_threshold: float = 0.5
     qwen_vad_min_silence_ms: int = 300
     qwen_vad_min_speech_ms: int = 250
@@ -104,6 +106,8 @@ class TimingPreferencesUpdate(BaseModel):
     every value and refuses a Developer Mode row while Developer Mode is off."""
     sentence_split_min_silence_ms: Optional[StrictInt] = None
     sensitive_vad_threshold: Optional[Union[StrictInt, StrictFloat]] = None
+    difficult_no_speech_threshold: Optional[Union[StrictInt, StrictFloat]] = None
+    difficult_log_prob_threshold: Optional[Union[StrictInt, StrictFloat]] = None
     qwen_vad_threshold: Optional[Union[StrictInt, StrictFloat]] = None
     qwen_vad_min_silence_ms: Optional[StrictInt] = None
     qwen_vad_min_speech_ms: Optional[StrictInt] = None

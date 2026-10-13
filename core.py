@@ -543,7 +543,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
                            hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
                            repeat_guard: bool = False, sensitivity_preset: str = "normal",
-                           stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC):
+                           stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
+                           difficult_audio: bool = False, no_speech_threshold: float = None,
+                           log_prob_threshold: float = None):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -614,8 +616,14 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     fast_mode: opt-in -- runs faster-whisper's BatchedInferencePipeline,
     which decodes several VAD chunks at once (roughly 4x faster on a GPU).
     Same settings, same output shape; uses more VRAM while it runs.
+
+    difficult_audio: relaxes Whisper's own skip rule (no_speech_threshold /
+    log_prob_threshold, None = the preset's numbers) so low-confidence screamed or
+    whispered speech is kept. Off, neither is passed and faster-whisper's defaults
+    apply. The hallucination filters below still run on what comes back.
     """
     # Imported here: db.py's import check copies core.py alone into a temp folder.
+    import sensitivity_preset
     from sensitivity_preset import decode_kwargs
     model = whisper_models.load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
@@ -631,6 +639,15 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(
             model, "hallucination_silence_threshold"):
         kwargs["hallucination_silence_threshold"] = float(hallucination_silence_sec)
+    if difficult_audio and not fast_mode:
+        # Each is passed only to a faster-whisper that knows it, like the one above; the
+        # batched pipeline of fast mode is a different method that is not probed here.
+        relaxed = {
+            "no_speech_threshold": (sensitivity_preset.DIFFICULT_NO_SPEECH_THRESHOLD
+                                    if no_speech_threshold is None else no_speech_threshold),
+            "log_prob_threshold": (sensitivity_preset.DIFFICULT_LOG_PROB_THRESHOLD
+                                   if log_prob_threshold is None else log_prob_threshold)}
+        kwargs.update({k: float(v) for k, v in relaxed.items() if _accepts_transcribe_kwarg(model, k)})
 
     def _collect(segments, info):
         duration = getattr(info, "duration", None) or 0

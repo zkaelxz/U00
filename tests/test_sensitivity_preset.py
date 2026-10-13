@@ -153,3 +153,22 @@ class TestSavedPerTitle:
         assert raw_transcript.build_run_settings(sensitivity_preset="x")["sensitivity_preset"] == "normal"
         assert set(raw_transcript.build_run_settings()) == set(raw_transcript.SETTINGS_KEYS)
 
+
+
+class TestDifficultAudioView:
+    def test_a_title_without_the_option_is_returned_untouched(self):
+        row = {"sensitivity_preset": "normal", "vad_threshold": 0.5}
+        assert presets.difficult_audio_view(row) is row
+        assert presets.difficult_audio_view({**row, "difficult_audio": 0}) == {
+            **row, "difficult_audio": 0}
+
+    def test_the_option_means_the_sensitive_preset_and_the_stored_row_is_not_changed(self):
+        row = {"sensitivity_preset": "normal", "vad_threshold": 0.5, "difficult_audio": 1}
+        view = presets.difficult_audio_view(row)
+        assert view["sensitivity_preset"] == "sensitive" and row["sensitivity_preset"] == "normal"
+        assert presets.stored_vad_threshold(view) == presets.SENSITIVE_VAD_THRESHOLD
+
+    def test_a_threshold_the_owner_changed_wins(self):
+        view = presets.difficult_audio_view(
+            {"sensitivity_preset": "normal", "vad_threshold": 0.6, "difficult_audio": 1})
+        assert presets.stored_vad_threshold(view) == 0.6

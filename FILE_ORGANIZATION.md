@@ -229,6 +229,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `pending_install_service.py` (preview, queue, cancel and report installs that wait for restart)
 - `previous_library_service.py` (the library copies kept beside the library folder after a restore or before a Reset library: size for Disk usage, delete, the reset safety copy)
 - `diarization_service.py`
+- `difficult_audio_service.py` (the per-title Difficult audio option for a transcription run: which of its parts each recognizer honours, and the temporary levelled copy of the audio)
 - `discover_catalog_service.py`
 - `discover_lookup_service.py`
 - `disk_usage_clips_service.py`

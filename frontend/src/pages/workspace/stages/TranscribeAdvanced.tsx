@@ -33,7 +33,7 @@ import { QWEN3_BACKENDS, unavailableBackends, type Need, type TranscribeNeeds } 
 
 type NumKey = 'beam_size' | 'min_silence_ms' | 'min_pause_sec' | 'vad_threshold' | 'hallucination_silence_sec' | 'hardsub_interval_sec'
 type SelectKey = 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend' | 'sensitivity_preset'
-type ToggleKey = 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'whisper_repeat_guard' | 'split_by_sentences' | 'vocabulary_hint' | 'use_groq'
+type ToggleKey = 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'whisper_repeat_guard' | 'split_by_sentences' | 'difficult_audio' | 'vocabulary_hint' | 'use_groq'
 
 export interface SpeakerInputs {
   expected: string
@@ -250,6 +250,12 @@ export function TranscribeAdvanced(p: Props) {
         'whisper_fast_mode',
         "Off by default. Decodes several chunks of speech at once (about 2-4x faster on a GPU, uses more GPU memory). It can make lines fewer and longer than a normal run (Baihe's own test: 44 lines against 150, and a higher error rate); try Compare transcription first.",
         'fast_mode',
+      ),
+    difficult_audio: () =>
+      toggle(
+        'Difficult audio',
+        'difficult_audio',
+        'Use when speakers scream, whisper or talk over each other; slower and may add a few false lines.',
       ),
     vocabulary_hint: () =>
       toggle(

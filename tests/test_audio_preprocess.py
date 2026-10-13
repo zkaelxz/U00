@@ -19,6 +19,7 @@ needs soundfile importable -- skipped cleanly via importorskip where a
 core-only install wouldn't have it.
 """
 import os
+import shutil
 import sys
 import types
 
@@ -803,3 +804,102 @@ class TestWindowsPidLiveness:
 
     def test_no_such_process_is_dead(self):
         assert not audio_preprocess._windows_pid_alive(5, self._K32(handle=0), lambda: 87)
+
+
+class TestLevelAudio:
+    """The Difficult audio levelling copy: one ffmpeg call, never the stored file."""
+
+    @pytest.fixture
+    def ffmpeg(self, monkeypatch):
+        from lib import proc
+        calls = []
+        monkeypatch.setattr(audio_preprocess.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+        def fake_run(cmd, timeout, **kw):
+            calls.append((cmd, timeout, kw))
+            with open(cmd[-1], "wb") as f:
+                f.write(b"RIFF")
+            return proc.CapturedRun(0, "", "", False, False)
+        monkeypatch.setattr(proc, "run_captured", fake_run)
+        return calls
+
+    def test_builds_a_dynaudnorm_command_for_a_separate_copy(self, ffmpeg, tmp_path):
+        src, out = str(tmp_path / "stored.wav"), str(tmp_path / "leveled.wav")
+        assert audio_preprocess.level_audio(src, out) == out
+        cmd, timeout, kw = ffmpeg[0]
+        assert cmd[0] == "ffmpeg" and cmd[cmd.index("-i") + 1] == src and cmd[-1] == out
+        assert cmd[cmd.index("-af") + 1] == audio_preprocess.LEVEL_FILTER
+        assert cmd[cmd.index("-ar") + 1] == "16000" and cmd[cmd.index("-ac") + 1] == "1"
+        assert "-protocol_whitelist" in cmd and timeout == audio_preprocess.LEVEL_TIMEOUT_SECONDS
+        assert audio_preprocess.LEVEL_FILTER.startswith("dynaudnorm=")
+
+    def test_without_ffmpeg_it_says_so_and_runs_nothing(self, monkeypatch, tmp_path):
+        from lib import proc
+        monkeypatch.setattr(audio_preprocess.shutil, "which", lambda name: None)
+        monkeypatch.setattr(proc, "run_captured", lambda *a, **k: pytest.fail("ran ffmpeg"))
+        with pytest.raises(audio_preprocess.AudioLevelingUnavailable, match="ffmpeg was not found"):
+            audio_preprocess.level_audio("a.wav", str(tmp_path / "out.wav"))
+
+    @pytest.mark.parametrize("result", [
+        dict(returncode=1, timed_out=False), dict(returncode=None, timed_out=True)])
+    def test_a_failed_run_leaves_no_partial_copy(self, monkeypatch, tmp_path, result):
+        from lib import proc
+        out = str(tmp_path / "out.wav")
+        monkeypatch.setattr(audio_preprocess.shutil, "which", lambda name: "ffmpeg")
+
+        def fake_run(cmd, timeout, **kw):
+            open(cmd[-1], "wb").close()
+            return proc.CapturedRun(result["returncode"], "", "boom /secret/path", result["timed_out"], False)
+        monkeypatch.setattr(proc, "run_captured", fake_run)
+        with pytest.raises(audio_preprocess.AudioLevelingUnavailable) as caught:
+            audio_preprocess.level_audio("a.wav", out)
+        assert not os.path.exists(out) and "/secret/path" not in str(caught.value)
+
+    def test_a_cancel_leaves_no_partial_copy(self, monkeypatch, tmp_path):
+        from lib import proc
+        out = str(tmp_path / "out.wav")
+        monkeypatch.setattr(audio_preprocess.shutil, "which", lambda name: "ffmpeg")
+
+        def fake_run(cmd, timeout, cancel=None, **kw):
+            assert cancel() is True
+            open(cmd[-1], "wb").close()
+            return proc.CapturedRun(-9, "", "", False, True)
+        monkeypatch.setattr(proc, "run_captured", fake_run)
+        with pytest.raises(audio_preprocess.AudioLevelingCancelled):
+            audio_preprocess.level_audio("a.wav", out, cancel=lambda: True)
+        assert not os.path.exists(out)
+
+    def test_a_crash_while_running_leaves_no_partial_copy(self, monkeypatch, tmp_path):
+        from lib import proc
+        out = str(tmp_path / "out.wav")
+        monkeypatch.setattr(audio_preprocess.shutil, "which", lambda name: "ffmpeg")
+
+        def fake_run(cmd, timeout, **kw):
+            open(cmd[-1], "wb").close()
+            raise KeyboardInterrupt
+        monkeypatch.setattr(proc, "run_captured", fake_run)
+        with pytest.raises(KeyboardInterrupt):
+            audio_preprocess.level_audio("a.wav", out)
+        assert not os.path.exists(out)
+
+    @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+    def test_real_ffmpeg_lifts_quiet_speech_without_clipping_loud_speech(self, tmp_path):
+        import math
+        import struct
+        import wave
+        src = str(tmp_path / "in.wav")
+        frames = []
+        for amp in (400, 20000, 400, 20000):
+            frames += [int(amp * math.sin(2 * math.pi * 220 * i / 16000)) for i in range(16000 * 4)]
+        with wave.open(src, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(struct.pack(f"<{len(frames)}h", *frames))
+        before = os.path.getsize(src)
+        out = audio_preprocess.level_audio(src, str(tmp_path / "out.wav"))
+        with wave.open(out, "rb") as w:
+            data = struct.unpack(f"<{w.getnframes()}h", w.readframes(w.getnframes()))
+        peak = lambda k: max(abs(x) for x in data[16000 * (4 * k + 1):16000 * (4 * k + 3)])
+        assert peak(2) > 400 * 5 and peak(3) < 32000
+        assert os.path.getsize(src) == before
