@@ -44,6 +44,7 @@ descriptions are kept in `docs/archive/file-organization-full.md`.
   - `db/auth.py` (auth storage: users, permissions, sessions, audit log, and drama/series ownership and sharing fields)
   - `db/benchmark.py` (accuracy benchmark cases and runs, Benchmark Lab sessions and results)
   - `db/comic_pages.py` (comic pages and their text regions for scanlation and typesetting: page rows, id-preserving bubble edits, the legacy full replace)
+  - `db/dramas.py` (library titles: create, update, delete and list a drama, the visibility filter drama queries share, library-wide stats and line search)
   - `db/lines.py` (a drama's lines: the id-keyed save, full sync or field-scoped, the compare-and-set edits, the per-line tables a sync carries along, the loaders)
   - `db/library_folder.py` (the library folder on disk: `fsync_dir`, and the start-up check that puts back a library an interrupted restore left renamed aside)
   - `db/media_journal.py` (the media journal for backup imports and restores: staging folders, the journal of drama folders moved in, crash recovery, claiming a new drama's folder)
