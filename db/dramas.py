@@ -68,6 +68,19 @@ def fill_blank_fields(drama_id: int, values: dict) -> list:
     return filled
 
 
+def assign_series_if_none(drama_id: int, series_id: int) -> bool:
+    """Puts a drama in a series only while it is in none, in one statement,
+    so a series chosen meanwhile elsewhere is never replaced. Clears the
+    drama's own private flag, as every series assignment does."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE dramas SET series_id = ?, is_private = 0, updated_at = ? "
+            "WHERE id = ? AND series_id IS NULL",
+            (series_id, datetime.datetime.utcnow().isoformat(), drama_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def set_status_if(drama_id: int, expected: str, new: str) -> bool:
     """Changes the status only while it is still `expected`, in one statement,
     so a concurrent dub or export that set a later status is never undone."""

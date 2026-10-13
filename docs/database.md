@@ -77,8 +77,11 @@ for backup and restore operations see `runbook.md`.
   list queries with `_DRAMA_SELECT`, `drama_visible_sql`, library stats,
   global line search and custom tags),
   `db/reading.py` (profiles, progress and the Continue shelf, reading
-  history, personal notes) and `db/glossary.py` (series rows, glossary
-  terms and their ignore list, the translation memory).
+  history, personal notes), `db/glossary.py` (series rows, glossary
+  terms and their ignore list, the translation memory), `db/style.py`
+  (edit samples, the style profile and its history) and
+  `db/line_annotations.py` (translation notes, consistency issues, emotion
+  tags; `_line_id_for_idx` stays in `db/__init__.py`).
   Their tables are still created by `init_db` in `db/__init__.py`
   (`_init_benchmark_lab_schema`, `_create_auth_tables`,
   `_migrate_job_records_columns`, `_migrate_gpu_lock_slots` and

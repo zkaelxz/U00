@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-import { checkPackageUpdates, getInstallPresets, installDependency, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
+import { checkPackageUpdates, getInstallPresets, installDependency, planUpgrade, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
 import { getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
 import { cancelPendingInstall, dismissInstallResult, getPendingInstall } from '../../api/pendingInstall'
 import { Badge } from '../../components/Badge'
@@ -48,9 +48,8 @@ export type Outcome =
 
 /**
  * "Packages": optional packages with Install… / Upgrade… (PC only). An
- * install (and the PyTorch setup) is a server job with progress and Cancel;
- * an upgrade is still one request that stays open. Either way every admin
- * button on the page waits for it.
+ * install, an upgrade (each previewed first) and the PyTorch setup are a
+ * server job with progress and Cancel; every admin button on the page waits for it.
  */
 export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted, onQueuedChange, openSignal, pickPackage }: {
   overview: DiagnosticsOverview
@@ -167,10 +166,11 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     onBusy({ kind, name })
     setOutcome(null)
     try {
-      const r = kind === 'install'
-        ? await runInstallJob(() => installDependency(name, undefined, acceptedRisks), (job) => onBusy({ kind, name, job }), name)
-        : await upgradeDependency(name, target ?? '')
-      const cancelled = 'cancelled' in r && r.cancelled
+      const start = kind === 'install'
+        ? () => installDependency(name, undefined, acceptedRisks)
+        : () => upgradeDependency(name, target ?? '', undefined, acceptedRisks)
+      const r = await runInstallJob(start, (job) => onBusy({ kind, name, job }), name)
+      const cancelled = r.cancelled
       setOutcome({ kind, name, ok: r.ok, output: r.output_tail, hint: r.hint,
         text: cancelled ? cancelledText(name) : undefined })
       // An install or update can move other packages too: the server dropped its check, so does this.
@@ -297,7 +297,9 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         disabled={!!blocked}
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={busy?.name === name && busy.kind === kind}
-        onConfirm={() => void (kind === 'install' ? withPlan(name, [name], (accepted) => run(kind, name, target, accepted)) : run(kind, name, target))}
+        onConfirm={() => void (kind === 'install'
+          ? withPlan(name, [name], (accepted) => run(kind, name, target, accepted))
+          : withPlan(`${name} ${target}`, [name], (accepted) => run(kind, name, target, accepted), () => planUpgrade(name, target ?? '')))}
       />
     )
 

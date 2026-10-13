@@ -33,6 +33,7 @@ import datetime
 import math
 import random
 import shutil
+import sqlite3
 import threading
 import time
 
@@ -61,7 +62,8 @@ _NO_LINK = "This title has no link."
 _PAGE_NOTE = ("This link is not a video or a supported source, so nothing was read. "
               "The AI autofill can read the page instead (it costs money).")
 _SCAN_PAGE_NOTE = "Not a video or supported-source link; the scan reads only those."
-_KINDS = ("video", "source", "page")
+_SERIES_TAKEN = ("A series with that name already exists and belongs to someone else or is shared "
+                 "differently. Pick a series in Details instead.")
 _sleep = time.sleep
 _random = random.Random()
 
@@ -231,6 +233,10 @@ def _suggestions(view: dict) -> dict:
 
 def _editable_drama(principal, drama_id) -> dict:
     ownership_service.require_editable(principal, "drama", drama_id)
+    # As the scan: the PC owner can edit everything, but another user's
+    # private title is theirs to fill.
+    if _others_private(principal, int(drama_id)):
+        raise NotFoundError(f"No title with id {drama_id}.")
     drama = db.get_drama(int(drama_id))
     if drama is None:
         raise NotFoundError(f"No title with id {drama_id}.")
@@ -266,16 +272,37 @@ def apply(drama_id, values: dict, principal=None) -> dict:
             raise InvalidInputError(f"{name} is too long or not plain text.")
         if value:
             clean[name] = value
-    drama = _editable_drama(principal, drama_id)
+    _editable_drama(principal, drama_id)
+    if clean.get("series"):
+        series_id = _series_for(int(drama_id), clean["series"])
     applied = db.dramas.fill_blank_fields(int(drama_id), clean)
-    series = clean.get("series")
-    if series:
-        fresh = db.get_drama(int(drama_id)) or drama
-        if fresh.get("series_id") is None:
-            drama_service.update_drama_metadata(int(drama_id), principal=principal,
-                                                new_series_name=series)
-            applied.append("series")
+    if clean.get("series") and series_id is not None \
+            and db.dramas.assign_series_if_none(int(drama_id), series_id):
+        applied.append("series")
     return {"applied": applied, "kept": sorted(set(clean) - set(applied))}
+
+
+def _series_for(drama_id: int, name: str):
+    """The series a ticked suggestion puts the title in, or None when the
+    title is already in one. The name comes from the site (a channel or
+    work title), so it never joins a series someone else owns or one more
+    or less private than the title: either it is new, made with the title's
+    own owner and privacy so nothing becomes visible that was not, or it is
+    the owner's own series with the same privacy; anything else is 409."""
+    row = db.get_item_ownership("drama", drama_id) or {}
+    if row.get("series_id") is not None:
+        return None
+    owner, private = row.get("owner_user_id"), bool(row.get("is_private"))
+    existing = db.get_series_id_by_name(name)
+    if existing is not None:
+        series = db.get_item_ownership("series", existing) or {}
+        if series.get("owner_user_id") != owner or bool(series.get("is_private")) != private:
+            raise ConflictError(_SERIES_TAKEN)
+        return existing
+    try:
+        return db.create_series(name, owner_user_id=owner, is_private=private)
+    except sqlite3.IntegrityError:
+        raise ConflictError(_SERIES_TAKEN) from None
 
 
 def fill_after_download(drama_id: int, link: dict) -> list:
@@ -441,7 +468,9 @@ def start_scan(principal=None) -> dict:
         if background_jobs.is_running(SCAN_JOB_ID):
             raise ConflictError("A link check is already running.")
         ids = scan_candidates(principal)
-        background_jobs.clear_job(SCAN_JOB_ID)
+        # No clear_job first: start_job replaces a finished entry under its
+        # own lock, and clearing a force-stopped scan whose thread still runs
+        # would drop its cancel flag.
         if not job_launch.start_job(SCAN_JOB_ID, _scan_job, SCAN_JOB_ID, ids,
                                     description="Check old titles from links"):
             raise ConflictError("A link check is already running.")
