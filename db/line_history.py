@@ -60,16 +60,18 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
         ).lastrowid
         # Prune old snapshots. Inside the same transaction so a failure here
         # can't leave the prune applied without the new snapshot written.
+        # By id, not created_at: after the clock is set back the snapshot
+        # just written would sort oldest and be pruned at once.
         ids = conn.execute(
-            "SELECT id FROM line_history WHERE drama_id = ? ORDER BY created_at DESC", (drama_id,)
+            "SELECT id FROM line_history WHERE drama_id = ? ORDER BY id DESC", (drama_id,)
         ).fetchall()
         if len(ids) > keep_last:
             old_ids = [r["id"] for r in ids[keep_last:]]
             conn.executemany("DELETE FROM line_history WHERE id = ?", [(i,) for i in old_ids])
         for old_id, text in conn.execute(
                 "SELECT id, snapshot_json FROM line_history WHERE typeof(snapshot_json) = 'text' "
-                "AND id IN (SELECT id FROM line_history WHERE drama_id = ? ORDER BY created_at DESC,"
-                " id DESC LIMIT -1 OFFSET ?)", (drama_id, db.PLAIN_SNAPSHOTS)).fetchall():
+                "AND id IN (SELECT id FROM line_history WHERE drama_id = ? ORDER BY id DESC "
+                "LIMIT -1 OFFSET ?)", (drama_id, db.PLAIN_SNAPSHOTS)).fetchall():
             packed = gzip_text.pack(text)
             if gzip_text.unpack(packed) == text:
                 conn.execute("UPDATE line_history SET snapshot_json = ? WHERE id = ?", (packed, old_id))
@@ -85,7 +87,7 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
 def list_line_history(drama_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute(
-            "SELECT id, drama_id, label, created_at FROM line_history WHERE drama_id = ? ORDER BY created_at DESC",
+            "SELECT id, drama_id, label, created_at FROM line_history WHERE drama_id = ? ORDER BY id DESC",
             (drama_id,)
         ).fetchall()
     return [dict(r) for r in rows]

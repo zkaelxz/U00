@@ -80,7 +80,26 @@ RESTORE_NOT_PUT_BACK = ("The restore failed and the previous library could not b
                         "is in the folder ending in .pre_restore_ beside the library folder. "
                         "Don't delete it; if a restart doesn't bring your library back, close "
                         "Baihe and rename that folder to the library folder's name.")
-RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED, RESTORED_DB_FAILED)
+RESTORE_DISK_FULL = ("The disk ran out of space while the backup was being prepared; nothing "
+                     "was changed. Free some space and try again.")
+RESTORE_DB_ERRORS = (BAD_LIBRARY_DB, BAD_SOURCES_DB, SOURCES_DB_NOT_CARRIED, RESTORED_DB_FAILED,
+                     RESTORE_DISK_FULL)
+
+
+def _ran_out_of_disk(exc) -> bool:
+    """Whether a failed database rebuild was the disk filling up, which the
+    rebuild's own errors report as a bad backup. Follows the chain that
+    `raise ... from None` keeps in __context__."""
+    import errno
+    import sqlite3
+    while exc is not None:
+        if isinstance(exc, sqlite3.Error) and getattr(exc, "sqlite_errorcode", None) == \
+                sqlite3.SQLITE_FULL:
+            return True
+        if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def _check_uploaded_db(db_path: str, message: str, need_table: str = None) -> None:
@@ -450,8 +469,13 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
         if os.path.lexists(staged_src):
             _check_uploaded_db(staged_src, BAD_SOURCES_DB)
         marker = _current_state_marker(library_dir)
-        accounts_restored, titles_reassigned = _build_staged_databases(staging_dir,
-                                                                       library_dir)
+        try:
+            accounts_restored, titles_reassigned = _build_staged_databases(staging_dir,
+                                                                           library_dir)
+        except (ValueError, OSError) as exc:
+            if _ran_out_of_disk(exc):
+                raise ValueError(RESTORE_DISK_FULL) from None
+            raise
         if before_swap is not None:
             before_swap()
         if _current_state_marker(library_dir) != marker:

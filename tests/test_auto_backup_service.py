@@ -547,6 +547,22 @@ class TestDueCheck:
         assert abs_.check_and_run(now=attempt + datetime.timedelta(hours=23)) == "not_due"
         assert abs_.check_and_run(now=attempt + datetime.timedelta(days=1)) == "started"
 
+    def test_cancelled_run_waits_a_day_like_a_failed_one(self, isolated_db, started,
+                                                         monkeypatch):
+        _enable(frequency="daily")
+
+        def cancel(*a, **k):
+            raise background_jobs.JobCancelled(abs_.JOB_ID)
+        monkeypatch.setattr(lbs, "write_backup_zip", cancel)
+        with pytest.raises(background_jobs.JobCancelled):
+            abs_._backup_job(abs_.JOB_ID, False)
+        state = abt_._get_state()
+        assert not state.get("last_error")
+        attempt = datetime.datetime.fromisoformat(state["last_attempt_at"])
+        assert abs_.check_and_run(now=attempt + datetime.timedelta(hours=1)) == "not_due"
+        assert started == []
+        assert abs_.check_and_run(now=attempt + datetime.timedelta(days=1)) == "started"
+
     def test_future_last_success_is_due(self, isolated_db, started, monkeypatch):
         """A last run dated in the future (the clock ran ahead, then was
         corrected) doesn't hold the next backup off until that date."""
@@ -3014,6 +3030,26 @@ class TestCleanupStaleLeftovers:
         p.write_bytes(b"x")
         assert abs_.cleanup_stale_leftovers(now=time.time() + 2 * 24 * 3600) == 1
         assert not p.exists()
+
+    def test_partial_manual_backups_and_exports_swept(self, isolated_db):
+        from services import library_admin_service as las
+        stale, kept = [], []
+        for kind in las.ARTIFACT_SUBDIRS:
+            folder = las._artifact_dir(kind, create=True)
+            old = os.path.join(folder, f".partial_{kind}.zip")
+            new = os.path.join(folder, f".partial_{kind}_now.zip")
+            done = os.path.join(folder, f"{kind}_20260101_000000.zip")
+            for p in (old, new, done):
+                with open(p, "wb") as fh:
+                    fh.write(b"x")
+            t = time.time() - 2 * 24 * 3600
+            os.utime(old, (t, t))
+            os.utime(done, (t, t))
+            stale.append(old)
+            kept += [new, done]
+        assert abs_.cleanup_stale_leftovers() == len(stale)
+        assert not any(os.path.exists(p) for p in stale)
+        assert all(os.path.exists(p) for p in kept)
 
     def test_missing_folders_never_raise(self, isolated_db):
         if os.path.isdir(db.DRAMAS_DIR):

@@ -1051,6 +1051,19 @@ class TestTrashRestore:
         assert "same name" in self._conflict(done["trash_id"])
         assert os.path.getsize(os.path.join(tree, "library", "source_cache", "new.html")) == 3
 
+    def test_an_empty_folder_the_app_recreated_does_not_block_restore(self, tree):
+        done = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        os.makedirs(os.path.join(tree, "library", "dramas", "2"))
+        assert dts.trash_list()["items"][0]["restorable"] is True
+        dts.trash_restore(done["trash_id"], confirm=True)
+        assert os.path.exists(os.path.join(tree, "library", "dramas", "2", "audio.mp3"))
+        assert os.listdir(_trash_dir(tree)) == []
+
+    def test_an_empty_folder_at_a_files_old_place_still_blocks_restore(self, tree):
+        done = _trash_one("library/source_cache/x.html")
+        os.makedirs(os.path.join(tree, "library", "source_cache", "x.html"))
+        assert "same name" in self._conflict(done["trash_id"])
+
     def test_the_old_parent_became_a_link_409(self, tree, tmp_path):
         done = _trash_one("library/dramas/1/dub_clips", 700, 1)
         import shutil

@@ -283,6 +283,35 @@ class TestResegment:
         assert job["status"] == "error"
         assert len(_rows(did)) == 3  # the other writer's line kept, nothing duplicated
 
+    def test_apply_keeps_an_edit_to_a_line_being_split(self, monkeypatch):
+        did, ids = _seed([("a", ""), (LONG, "")])
+        real = resegment.resegment_lines
+
+        def slow(*a, **k):
+            lines = db.load_line_objects(did)
+            lines[1].en = "typed meanwhile"
+            db.save_lines(did, lines, fields=("en",))
+            return real(*a, **k)
+        monkeypatch.setattr(resegment, "resegment_lines", slow)
+        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        assert job["status"] == "error"
+        rows = _rows(did)
+        assert [r["id"] for r in rows] == ids and rows[1]["en"] == "typed meanwhile"
+        assert not db.list_line_history(did)
+
+    def test_apply_refuses_a_split_that_now_loses_a_note(self, monkeypatch):
+        did, ids = _seed([("a", ""), (LONG, "")])
+        real = resegment.resegment_lines
+
+        def slow(*a, **k):
+            db.save_translation_notes(did, [{"line_id": ids[1], "line_idx": 1, "term": "t",
+                                             "note": "n"}])
+            return real(*a, **k)
+        monkeypatch.setattr(resegment, "resegment_lines", slow)
+        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        assert job["status"] == "error"
+        assert [r["id"] for r in _rows(did)] == ids and _notes(did)["t"] == ids[1]
+
     def test_duplicate_start_409(self, monkeypatch):
         did, ids = _seed([("a", ""), (LONG, "")])
         monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
