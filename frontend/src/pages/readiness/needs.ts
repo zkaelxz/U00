@@ -3,11 +3,10 @@
 // ready, so a control is never switched off on a guess; the server still refuses what cannot run.
 import type { SetupReadiness } from '../../types/setup'
 
-/** What the person can do about it. Only whisper, gpu_torch and engine packages install in place. */
+/** What the person can do about it. Only Whisper and GPU PyTorch install in place; the rest open Diagnostics or Settings. */
 export type NeedAction =
   | 'install_whisper'
   | 'install_gpu_torch'
-  | 'install_package'
   | 'recheck'
   | 'diagnostics'
   | 'settings'

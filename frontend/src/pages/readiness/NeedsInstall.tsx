@@ -19,7 +19,7 @@ export const packagesHref = (need: Pick<Need, 'packages'>) =>
 
 /**
  * A missing need: why a control is off, and the way to fix it. The action installs in place only where
- * the shared install flow can (Whisper, GPU PyTorch, engine packages); everything else opens
+ * the shared install flow can (Whisper, GPU PyTorch); everything else opens
  * Diagnostics > Packages with the package picked, or Settings for a key. Without admin rights, or away
  * from the main PC, it says who to ask instead, since the buttons would only be refused.
  */
@@ -50,13 +50,6 @@ export function NeedsInstall({ need, onInstalled }: { need: Need; onInstalled?: 
             confirmLabel={`Confirm GPU setup (${need.size ?? 'about 2.5 GB'})`}
             busy={!!install.busy} disabled={!!install.blocked} onConfirm={() => void install.installGpuTorch()} />
         )
-      case 'install_package':
-        return (
-          <button type="button" className={buttonClass('secondary', 'sm')} disabled={!!install.busy || !!install.blocked}
-            onClick={() => void install.installKeys(need.packages.join(', '), need.packages)}>
-            Install {need.packages.join(', ')}
-          </button>
-        )
       case 'settings':
         return <ButtonLink variant="secondary" size="sm" href={routeHref({ name: 'settings' })}>Add in Settings</ButtonLink>
       default:
@@ -78,7 +71,7 @@ export function NeedsInstall({ need, onInstalled }: { need: Need; onInstalled?: 
       {canInstall && install.busy && (install.busy.job
         ? <InstallProgress job={install.busy.job} name={install.busy.name} />
         : <p className="muted" role="status">{install.busy.name.startsWith('Checking') ? `${install.busy.name}…` : 'Starting the install…'}</p>)}
-      {canInstall && !install.busy && install.blocked && ['install_whisper', 'install_gpu_torch', 'install_package'].includes(need.action) && (
+      {canInstall && !install.busy && install.blocked && ['install_whisper', 'install_gpu_torch'].includes(need.action) && (
         <p className="muted" role="note">{install.blocked}</p>
       )}
       {install.note && <p className="muted" role="status">{install.note}</p>}

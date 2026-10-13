@@ -149,6 +149,22 @@ def test_cache_expires(monkeypatch, bare_pc):
     assert len(calls) == 2
 
 
+def test_a_slow_compute_is_not_stale_the_moment_it_is_stored(monkeypatch, bare_pc):
+    """Probes can take many seconds; callers queued behind the first must reuse its answer, not re-run them."""
+    clock = [1000.0]
+    monkeypatch.setattr(svc.time, "monotonic", lambda: clock[0])
+    calls = []
+
+    def slow():
+        calls.append(1)
+        clock[0] += svc.CACHE_SECONDS + 10  # the probes outlast the cache lifetime
+        return None
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", slow)
+    svc.get_readiness()
+    svc.get_readiness()  # a caller that was waiting on the lock
+    assert len(calls) == 1
+
+
 def test_a_failing_check_reads_as_not_ready_not_as_an_error(monkeypatch, bare_pc):
     def boom(*a, **k):
         raise RuntimeError("C:\\Users\\someone\\secret")

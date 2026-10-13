@@ -130,9 +130,10 @@ def get_readiness() -> dict:
     callers shares one set of probes."""
     global _cached
     with _lock:
-        now = time.monotonic()
-        if _cached and now - _cached[0] < CACHE_SECONDS:
+        if _cached and time.monotonic() - _cached[0] < CACHE_SECONDS:
             return dict(_cached[1])
         answer = _compute()
-        _cached = (now, answer)
+        # Stamped after the probes: they can take longer than the cache lives, and callers queued on
+        # the lock must reuse this answer instead of re-running them back to back.
+        _cached = (time.monotonic(), answer)
         return dict(answer)

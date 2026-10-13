@@ -17,6 +17,12 @@ from services import (benchmark_lab_service, engine_routing_service,
 from services.service_errors import InvalidInputError
 from tests.saved_settings import patch_setting
 
+
+@pytest.fixture(autouse=True)
+def _no_ollama_probe(monkeypatch):
+    """GET /api/translate/engines checks whether Ollama answers; no test may make that network call."""
+    monkeypatch.setattr("services.translate_run_service.ollama_reachable", lambda: False)
+
 MESSAGE = "The nllb engine was removed. Pick another engine."
 
 
