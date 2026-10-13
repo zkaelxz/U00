@@ -20,7 +20,10 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import disk_usage_clips_service as clips
-from services import disk_usage_service as dus
+from services import disk_usage_guard as guard
+from services import disk_usage_hold as hold
+from services import disk_usage_trash_store as store
+from services.service_errors import ConflictError, ServiceError
 
 BASE = "/api/data-usage/unused-voice-clips"
 HEX = "a" * 32
@@ -200,12 +203,12 @@ def test_clip_picked_during_the_move_is_put_back(c, monkeypatch):
     did = _drama()
     path = _clip(did, f"clone_ref_{HEX}.wav")
     cid = _ids(c)[1][0]["id"]
-    real = dus._rename
+    real = store._rename
 
     def pick_then_rename(src, dst):
         real(src, dst)
         _point(did, "A", f"voice_refs/clone_ref_{HEX}.wav")
-    monkeypatch.setattr(dus, "_rename", pick_then_rename)
+    monkeypatch.setattr(store, "_rename", pick_then_rename)
     r = c.post(f"{BASE}/to-trash", json={"clips": [{"id": cid, "expected_size_bytes": 100}],
                                          "confirm": True})
     assert r.status_code == 200 and r.json()["moved_count"] == 0
@@ -286,15 +289,15 @@ def _body(clips):
 
 def test_batch_failing_midway_reports_what_was_moved(c, monkeypatch):
     _did, clips = _two_clips(c)
-    real = dus._move_to_trash
+    real = store._move_to_trash
     calls = []
 
     def second_fails(*a, **kw):
         calls.append(1)
         if len(calls) == 2:
-            raise dus.ServiceError(dus.TRASH_FAILED)
+            raise ServiceError(store.TRASH_FAILED)
         return real(*a, **kw)
-    monkeypatch.setattr(dus, "_move_to_trash", second_fails)
+    monkeypatch.setattr(store, "_move_to_trash", second_fails)
     r = c.post(f"{BASE}/to-trash", json=_body(clips))
     assert r.status_code == 500
     details = r.json()["error"]["details"]
@@ -304,15 +307,15 @@ def test_batch_failing_midway_reports_what_was_moved(c, monkeypatch):
 
 def test_busy_midway_is_a_conflict_with_totals(c, monkeypatch):
     _did, clips = _two_clips(c)
-    real = dus._move_to_trash
+    real = store._move_to_trash
     calls = []
 
     def second_busy(*a, **kw):
         calls.append(1)
         if len(calls) == 2:
-            raise dus.ConflictError(dus.BUSY)
+            raise ConflictError(hold.BUSY)
         return real(*a, **kw)
-    monkeypatch.setattr(dus, "_move_to_trash", second_busy)
+    monkeypatch.setattr(store, "_move_to_trash", second_busy)
     r = c.post(f"{BASE}/to-trash", json=_body(clips))
     assert r.status_code == 409
     assert r.json()["error"]["details"]["moved_count"] == 1
@@ -322,14 +325,14 @@ def test_put_back_never_overwrites_what_is_already_there(c, monkeypatch):
     did = _drama()
     path = _clip(did, f"clone_ref_{HEX}.wav", 100)
     cid = _ids(c)[1][0]["id"]
-    real = dus._rename
+    real = store._rename
 
     def pick_and_recreate(src, dst):
         real(src, dst)
         _point(did, "A", f"voice_refs/clone_ref_{HEX}.wav")
         with open(src, "wb") as fh:             # a newer file now sits at the old place
             fh.write(b"newer")
-    monkeypatch.setattr(dus, "_rename", pick_and_recreate)
+    monkeypatch.setattr(store, "_rename", pick_and_recreate)
     r = c.post(f"{BASE}/to-trash", json=_body([{"id": cid, "size_bytes": 100}]))
     assert r.status_code == 200 and r.json()["moved_count"] == 0
     with open(path, "rb") as fh:
@@ -373,7 +376,7 @@ def test_a_live_undo_record_protects_its_clip_and_an_expired_one_does_not(c):
 
 def test_drive_root_data_folder_says_why_instead_of_skipping(c, monkeypatch):
     _did, clips = _two_clips(c)
-    monkeypatch.setattr(dus, "_root_blocker", lambda root: dus.ROOT_TOO_BROAD)
+    monkeypatch.setattr(guard, "_root_blocker", lambda root: guard.ROOT_TOO_BROAD)
     r = c.post(f"{BASE}/to-trash", json=_body(clips))
     assert r.status_code == 422 and "whole drive" in r.json()["error"]["message"]
 
@@ -416,14 +419,14 @@ def test_pick_between_check_and_rename_cannot_lose_the_file(c, monkeypatch):
     _candidate(did, HEX2)
     clip = _clip(did, f"clone_pick_{HEX2}.wav", 100)     # left by an earlier pick, no row
     cid = _ids(c)[1][0]["id"]
-    real, errors, threads = dus._rename, [], []
+    real, errors, threads = store._rename, [], []
 
     def pick_then_rename(src, dst):
         threads.append(_pick_in_thread(did, HEX2, errors))
         threads[0].join(0.3)
         assert threads[0].is_alive(), "the pick should wait for the title's clip lock"
         real(src, dst)
-    monkeypatch.setattr(dus, "_rename", pick_then_rename)
+    monkeypatch.setattr(store, "_rename", pick_then_rename)
     r = c.post(f"{BASE}/to-trash", json=_body([{"id": cid, "size_bytes": 100}]))
     threads[0].join(10)
     assert not errors and r.status_code == 200 and r.json()["moved_count"] == 1

@@ -18,7 +18,7 @@ import time
 
 import background_jobs
 import db
-from services import disk_usage_service as du
+from services import disk_usage_measure as measure
 from services import disk_usage_trash_service as trash_svc
 from services.service_errors import ConflictError, InvalidInputError, ServiceError
 
@@ -122,10 +122,10 @@ def _stale(name: str, path: str) -> bool:
 def summary() -> dict:
     """{present, size_bytes, file_count, folder_count, partial, label}."""
     size = files = 0
-    budget = du._Budget()
+    budget = measure._Budget()
     folders = _folders()
     for name, path in folders:
-        m = du._measure(path, (name,), budget)
+        m = measure._measure(path, (name,), budget)
         size += m.size
         files += m.files
     return {"present": bool(folders), "label": LABEL, "size_bytes": size, "file_count": files,
@@ -154,11 +154,11 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
             if expected_size_bytes is not None and seen["size_bytes"] != expected_size_bytes:
                 raise ConflictError(CHANGED)
             removed = freed = 0
-            budget = du._Budget()
+            budget = measure._Budget()
             for name, path in _folders():
                 if not _stale(name, path):
                     continue
-                size = du._measure(path, (name,), budget).size
+                size = measure._measure(path, (name,), budget).size
                 try:
                     trash_svc._remove_tree(path)
                 except OSError:

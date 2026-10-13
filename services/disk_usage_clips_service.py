@@ -14,7 +14,11 @@ import stat
 import time
 
 import db
+from services import disk_usage_guard as guard
+from services import disk_usage_hold as hold
+from services import disk_usage_measure as measure
 from services import disk_usage_service as dus
+from services import disk_usage_trash_store as store
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -70,7 +74,7 @@ def _clip_still_unused(drama_id: int, name: str) -> bool:
         return False
 
 
-def _unused_clips_of(drama_id: int, ctx: dus._Ctx):
+def _unused_clips_of(drama_id: int, ctx: guard._Ctx):
     """[{name, parts, size, mtime}] for one title's unreferenced clips, or
     None when a job that reads clips is running for it. Empty when the folder
     is missing, a link, or can't be read."""
@@ -78,8 +82,8 @@ def _unused_clips_of(drama_id: int, ctx: dus._Ctx):
     lib = os.path.dirname(os.path.abspath(db.LIBRARY_DIR))
     folder = os.path.join(db.DRAMAS_DIR, str(drama_id), VOICE_REFS_DIRNAME)
     try:
-        folder_parts = dus.split_rel(os.path.relpath(os.path.abspath(folder), lib))
-        dus._resolve(folder_parts)
+        folder_parts = guard.split_rel(os.path.relpath(os.path.abspath(folder), lib))
+        guard._resolve(folder_parts)
         if voice_clone_service._clip_reading_job_active(drama_id):
             return None
         used = {_ref_key(r["ref_audio_filename"]) for r in db.list_characters(drama_id)
@@ -93,10 +97,10 @@ def _unused_clips_of(drama_id: int, ctx: dus._Ctx):
             continue
         try:
             st = e.stat(follow_symlinks=False)
-            parts = dus.split_rel("/".join(folder_parts + [e.name]))
+            parts = guard.split_rel("/".join(folder_parts + [e.name]))
         except (OSError, ServiceError):
             continue
-        if stat.S_ISREG(st.st_mode) and not dus._is_link_stat(st):
+        if stat.S_ISREG(st.st_mode) and not guard._is_link_stat(st):
             out.append({"name": e.name, "parts": parts, "size": st.st_size, "mtime": st.st_mtime})
     return out
 
@@ -105,7 +109,7 @@ def _unused_clip_index() -> tuple:
     """({id: (drama_id, name, parts, size)}, titles, titles_in_use), where
     `titles` is [(title, [clip, ...])] for every title with something to
     offer. One pass over the library; the same code serves list and remove."""
-    ctx = dus._Ctx()
+    ctx = guard._Ctx()
     index, titles, in_use = {}, [], 0
     for drama in db.list_dramas():
         found = _unused_clips_of(drama["id"], ctx)
@@ -131,12 +135,12 @@ def unused_voice_clips() -> dict:
         rows = []
         for c in clips:
             rows.append({"id": c["id"], "file_type": os.path.splitext(c["name"])[1][1:].lower(),
-                         "size_bytes": c["size"], "modified_at": dus._iso(c["mtime"])})
+                         "size_bytes": c["size"], "modified_at": measure._iso(c["mtime"])})
         shown.append({"title": title, "size_bytes": sum(c["size"] for c in clips), "clips": rows})
         total_bytes += shown[-1]["size_bytes"]
         total_count += len(rows)
     return {"titles": shown, "total_bytes": total_bytes, "total_count": total_count,
-            "titles_in_use": in_use, "busy_reason": dus.busy_reason()}
+            "titles_in_use": in_use, "busy_reason": hold.busy_reason()}
 
 
 def trash_unused_voice_clips(clips, confirm=False) -> dict:
@@ -146,7 +150,7 @@ def trash_unused_voice_clips(clips, confirm=False) -> dict:
     whose title started a clip-reading job since the list is skipped, not
     moved. A busy library or a failed move stops the batch: the error's details carry
     moved_count, moved_bytes and skipped for what was done before it."""
-    dus._require_confirm(confirm)
+    hold._require_confirm(confirm)
     if not isinstance(clips, list) or not clips or len(clips) > MAX_CLIP_BATCH:
         raise InvalidInputError(f"Choose between 1 and {MAX_CLIP_BATCH} clips.")
     wanted = []
@@ -160,12 +164,12 @@ def trash_unused_voice_clips(clips, confirm=False) -> dict:
         raise InvalidInputError("A clip is listed twice.")
     from services import voice_clone_service
     moved_bytes, moved, skipped = 0, 0, []
-    with dus._changing("Disk usage voice clips"):
-        if dus._root_blocker(dus._root()):
+    with hold._changing("Disk usage voice clips"):
+        if guard._root_blocker(guard._root()):
             # Checked here so the clips aren't reported as "changed": every
             # path is protected when the data folder is a drive root or a
             # home folder, and the person needs to hear that.
-            raise InvalidInputError(dus.ROOT_TOO_BROAD)
+            raise InvalidInputError(guard.ROOT_TOO_BROAD)
         index, _titles, _in_use = _unused_clip_index()
         try:
             for cid, expected in wanted:
@@ -177,11 +181,11 @@ def trash_unused_voice_clips(clips, confirm=False) -> dict:
                 try:
                     parts, real, item = dus._inspect_for_change("/".join(parts), "moving it")
                     if item["kind"] != "file" or item["size_bytes"] != expected:
-                        raise ConflictError(dus.CHANGED, details={"reason": "changed"})
+                        raise ConflictError(store.CHANGED, details={"reason": "changed"})
                     # The title's clip lock makes "no speaker points at it" and
                     # the rename one step against a pick or upload.
                     with voice_clone_service.clip_lock(drama_id):
-                        dus._move_to_trash(parts, real, item,
+                        store._move_to_trash(parts, real, item,
                                        still_ok=lambda d=drama_id, n=name: _clip_still_unused(d, n))
                 except ConflictError as exc:
                     if (exc.details or {}).get("reason") != "changed":

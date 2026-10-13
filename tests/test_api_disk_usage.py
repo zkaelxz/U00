@@ -19,7 +19,9 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
+from services import disk_usage_guard as guard
 from services import disk_usage_service as dus
+from services import disk_usage_trash_store as store
 
 BASE = "/api/data-usage"
 REMOTE = "https://baihe.example.com"
@@ -51,12 +53,12 @@ def tree(isolated_db, monkeypatch):
 @pytest.fixture
 def renames(monkeypatch):
     calls = []
-    real = dus._rename
+    real = store._rename
 
     def spy(src, dst):
         calls.append(dst)
         real(src, dst)
-    monkeypatch.setattr(dus, "_rename", spy)
+    monkeypatch.setattr(store, "_rename", spy)
     return calls
 
 
@@ -255,7 +257,7 @@ def test_trash_restore_and_purge_refusals(tree):
         r = c.post(f"{BASE}/trash/purge", json=body)
         assert r.status_code in (404, 409, 422), (body, r.text)
     assert c.post(f"{BASE}/trash/empty", json={"confirm_text": "nope", "expected_item_count": 0, "expected_size_bytes": 0}).status_code == 422
-    assert os.path.exists(os.path.join(tree, dus.TRASH_DIRNAME, tid, "payload", "x.html"))
+    assert os.path.exists(os.path.join(tree, guard.TRASH_DIRNAME, tid, "payload", "x.html"))
 
 
 def test_trash_requests_reject_unknown_and_loose_fields(tree):
@@ -286,7 +288,7 @@ def test_the_trash_folder_cannot_be_cleared_through_the_normal_route(tree):
         r = c.post(f"{BASE}/to-trash", json={"path": rel, "confirm": True,
                                              "expected_size_bytes": 0, "expected_file_count": 0})
         assert r.status_code == 422, (rel, r.text)
-    assert os.path.exists(os.path.join(tree, dus.TRASH_DIRNAME, tid, "payload", "x.html"))
+    assert os.path.exists(os.path.join(tree, guard.TRASH_DIRNAME, tid, "payload", "x.html"))
 
 
 @pytest.mark.parametrize("body", [{}, {"confirm": False}, {"confirm": "true"}, {"confirm": True, "x": 1}])
