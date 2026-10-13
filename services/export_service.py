@@ -5,10 +5,10 @@ ASS, pure, no writes), the three flagging actions, EPUB export
 (novel-narration dramas only) and mark_exported (writes only the drama's
 `status`).
 
-Every flagging function writes ONLY the flag/flag_note fields
-(`db.save_lines(..., fields=("flag", "flag_note"))`) -- a field-scoped
-write that can't clobber a concurrent edit to a line's text/timing/
-speaker (root CLAUDE.md: background jobs write only the fields they own).
+Every flagging function writes ONLY the flag/flag_note fields, as a
+compare-and-set (`save_flags`): a line whose flag, or the text or timing
+the flag was computed from (its own or the next line's), changed since it
+was read keeps that edit and isn't counted.
 Audiobook/burned-in-video export (each its own subprocess dependency,
 ffmpeg) live in services/media_export_service.py.
 
@@ -475,6 +475,16 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     return _export_result(text, report, fps if tidy_timing else None)
 
 
+def save_flags(drama_id: int, lines, guard_fields, with_next: bool = False) -> set:
+    """Writes flag/flag_note only where the database still holds what was
+    read, flag and `guard_fields` alike -- and, with_next, the next line's
+    `guard_fields` too, for a flag computed from it. `lines` are the whole
+    title in order. Returns the ids left unwritten."""
+    following = {a.id: [b] for a, b in zip(lines, lines[1:])} if with_next else None
+    return db.save_lines(drama_id, lines, fields=("flag", "flag_note"), only_if_unchanged=True,
+                         guard_fields=guard_fields, guard_neighbours=following)
+
+
 def flag_overlapping_lines(drama_id: int) -> dict:
     """Flags every currently-overlapping, not-yet-flagged line for review
     (subtitle_formats.OVERLAP_FLAG). A line already flagged for some other
@@ -490,11 +500,8 @@ def flag_overlapping_lines(drama_id: int) -> dict:
         ln.flag = subtitle_formats.OVERLAP_FLAG
         ln.flag_note = subtitle_formats.overlap_note(ln, next_start[ln.idx])
 
-    if unflagged:
-        # flag/flag_note only: a concurrent edit to a line's text, timing or
-        # speaker must survive this write.
-        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
-    return {"flagged_count": len(unflagged)}
+    kept = save_flags(drama_id, lines, ("start", "end"), with_next=True) if unflagged else set()
+    return {"flagged_count": sum(1 for ln in unflagged if ln.id not in kept)}
 
 
 def flag_dense_lines(drama_id: int) -> dict:
@@ -505,13 +512,13 @@ def flag_dense_lines(drama_id: int) -> dict:
     {"flagged_count": int}."""
     drama, lines = _load_drama_and_lines(drama_id)
 
+    unflagged = [ln for ln in lines if not ln.flag]
     newly_flagged = subtitle_formats.flag_dense_lines(
         lines, mode=subtitle_formats.flagging_mode_of(drama),
         dismissed=reading_speed_dismissal_service.load_dismissed(drama_id))
     if newly_flagged:
-        # flag/flag_note only: a concurrent edit to a line's text, timing or
-        # speaker must survive this write.
-        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
+        kept = save_flags(drama_id, lines, ("en", "start", "end"), with_next=True)
+        newly_flagged = sum(1 for ln in unflagged if ln.flag and ln.id not in kept)
     return {"flagged_count": newly_flagged}
 
 
@@ -558,12 +565,17 @@ def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
             for ln in targets:
                 ln.flag = None
                 ln.flag_note = ""
+        unflagged = [ln for ln in lines if not ln.flag]
         reflagged = (subtitle_formats.flag_dense_lines(
             lines, mode=subtitle_formats.flagging_mode_of(drama),
             dismissed=reading_speed_dismissal_service.load_dismissed(drama_id)) if recheck else 0)
+        cleared = len(targets)
         if targets or reflagged:
-            db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
-    return {"cleared_count": len(targets), "flagged_count": reflagged, "history_id": history_id}
+            # The drama lock doesn't keep out single-line edits (they don't take it).
+            kept = save_flags(drama_id, lines, ("en", "start", "end"), with_next=recheck)
+            cleared = sum(1 for ln in targets if ln.id not in kept)
+            reflagged = sum(1 for ln in unflagged if ln.flag and ln.id not in kept)
+    return {"cleared_count": cleared, "flagged_count": reflagged, "history_id": history_id}
 
 
 def run_auto_qc_flagging(drama_id: int) -> dict:
@@ -582,11 +594,15 @@ def run_auto_qc_flagging(drama_id: int) -> dict:
         glossary_terms, db.list_series_characters(series_id) if series_id else [])
     banned_terms = auto_qc.build_banned_terms(glossary_terms)
 
+    before = {ln.id: ln.flag for ln in lines}
     result = auto_qc.run_auto_qc(lines, names, banned_terms)
     if result["flagged"] or result["cleared"]:
-        # flag/flag_note only: a concurrent edit to a line's text, timing or
-        # speaker must survive this write.
-        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
+        kept = save_flags(drama_id, lines, ("zh", "en"))
+        for ln in lines:
+            if ln.id in kept and ln.flag == auto_qc.AUTO_QC_FLAG:
+                result["flagged"] -= 1
+            elif ln.id in kept and before[ln.id] == auto_qc.AUTO_QC_FLAG and not ln.flag:
+                result["cleared"] -= 1
     return result
 
 
