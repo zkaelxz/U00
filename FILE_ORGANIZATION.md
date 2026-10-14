@@ -97,7 +97,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `long_line_split.py` (last-resort even split for lines no punctuation or pause can cut, and the plain-words reasons a re-split found nothing)
 - `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
-- `model_pins.py` (the one table of tested Hugging Face commits every Whisper, Qwen3-ASR, aligner, OCR and scanlate download is fetched at; an unpinned repo or a vanished commit is refused, never fetched at latest)
+- `model_pins.py` (the one table of tested Hugging Face commits the Whisper, Qwen3-ASR, aligner, PaddleOCR-VL, manga-ocr and scanlate downloads are fetched at; an unpinned repo or a vanished commit is refused, never fetched at latest; classic PaddleOCR is not pinned)
 - `novel_text.py` (the raw source novel: chunking it into narration lines, paragraph ends, and use as transcription context)
 - `ollama_unload.py`
 - `raw_transcript.py`

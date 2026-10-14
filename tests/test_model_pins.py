@@ -30,8 +30,11 @@ def _repos_the_loaders_name():
     import qwen3_native
     import scanlate_detect
     import scanlate_inpaint
-    sizes = {*whisper_models.WHISPER_MODELS, *whisper_models.HIDDEN_WHISPER_SIZES,
-             *whisper_models.LIVE_WHISPER_SIZES} - set(whisper_models.PINNED_CT2_REPOS)
+    from services import transcribe_options_service
+    # Every size a title may store or Live may pick.
+    sizes = {*transcribe_options_service._allowed_whisper_sizes(), *whisper_models.WHISPER_MODELS,
+             *whisper_models.HIDDEN_WHISPER_SIZES, *whisper_models.LIVE_WHISPER_SIZES} - set(
+                 whisper_models.PINNED_CT2_REPOS)
     repos = {whisper_models.faster_whisper_repo(size) for size in sizes}
     repos |= {repo for repo, _rev in whisper_models.PINNED_CT2_REPOS.values()}
     repos.add(whisper_models.ANIME_WHISPER_PIN["repo"])
@@ -148,12 +151,17 @@ def test_a_whisper_size_downloads_at_its_pin_even_without_a_token(hub):
 def test_another_revision_on_disk_is_not_the_downloaded_model(hub):
     repo = "Systran/faster-whisper-small"
     snaps = hub.root / ("models--" + repo.replace("/", "--")) / "snapshots"
-    (snaps / ("0" * 40)).mkdir(parents=True)
-    (snaps / ("0" * 40) / "model.bin").write_bytes(b"x")
-    assert not whisper_models.is_whisper_model_cached("small")
-    (snaps / model_pins.REVISIONS[repo]).mkdir()
-    (snaps / model_pins.REVISIONS[repo] / "model.bin").write_bytes(b"x")
+    from lib.ct2_repo import CT2_REQUIRED
+    for revision in ("0" * 40, model_pins.REVISIONS[repo]):
+        (snaps / revision).mkdir(parents=True)
+        for name in CT2_REQUIRED:
+            (snaps / revision / name).write_bytes(b"x")
+        if revision != model_pins.REVISIONS[repo]:
+            assert not whisper_models.is_whisper_model_cached("small")
     assert whisper_models.is_whisper_model_cached("small")
+    # Without its tokenizer, faster-whisper would fetch one from an unpinned repo.
+    (snaps / model_pins.REVISIONS[repo] / "tokenizer.json").unlink()
+    assert not whisper_models.is_whisper_model_cached("small")
 
 
 def test_a_vanished_whisper_revision_stops_without_trying_latest(hub, monkeypatch):
@@ -175,3 +183,25 @@ def test_an_unpinned_repo_id_is_never_downloaded(hub):
     with pytest.raises(model_pins.UnpinnedModelError):
         whisper_models.load_whisper_model("someone/faster-whisper-custom")
     assert hub.calls == [] and hub.built == []
+
+
+@pytest.mark.parametrize("fetch", ["pinned_ct2", "anime"])
+def test_a_vanished_pin_of_a_fine_tune_reads_plainly_not_as_network_trouble(
+        fetch, monkeypatch, tmp_path):
+    class RevisionNotFoundError(Exception):
+        pass
+
+    def model_info(repo, **kw):
+        # Its text names the Hub, which alone would read as a network problem.
+        raise RevisionNotFoundError("404 Client Error for https://huggingface.co/api/models/x")
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path))
+    import portable
+    monkeypatch.setattr(portable, "data_dir", lambda: str(tmp_path))
+    monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
+        HfApi=lambda: types.SimpleNamespace(model_info=model_info),
+        snapshot_download=lambda *a, **k: pytest.fail("downloaded")))
+    with pytest.raises(whisper_models.ModelDownloadError, match="does not fall back"):
+        if fetch == "anime":
+            whisper_models._fetch_anime_whisper(None)
+        else:
+            whisper_models._fetch_pinned_model("ja-1.5b", None)

@@ -108,7 +108,8 @@ class TestCacheLocation:
         make_snapshot(cache)
         generic = cache / "models--Systran--faster-whisper-small" / "snapshots" / SMALL_REVISION
         generic.mkdir(parents=True)
-        (generic / "model.bin").write_bytes(b"x")
+        for name in ct2_repo.CT2_REQUIRED:
+            (generic / name).write_bytes(b"x")
         assert wm.is_whisper_model_cached(KEY) and wm.is_whisper_model_cached("small")
 
 
@@ -199,7 +200,8 @@ class TestCacheAndEstimates:
     def test_other_models_are_still_matched_by_exact_name(self, hf_home):
         folder = hf_home / "models--Systran--faster-whisper-small" / "snapshots" / SMALL_REVISION
         folder.mkdir(parents=True)
-        (folder / "model.bin").write_bytes(b"x")
+        for name in ct2_repo.CT2_REQUIRED:
+            (folder / name).write_bytes(b"x")
         assert wm.is_whisper_model_cached("small") and not wm.is_whisper_model_cached(KEY)
 
     def test_download_size_and_memory_estimate_are_known(self):

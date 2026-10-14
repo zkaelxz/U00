@@ -59,7 +59,9 @@ def _whisper(caches, size=None):
     repo = whisper_models.faster_whisper_repo(size)
     snap = caches["hf"] / f"models--{repo.replace('/', '--')}" / "snapshots" / model_pins.REVISIONS[repo]
     snap.mkdir(parents=True)
-    (snap / "model.bin").write_bytes(b"x")
+    from lib.ct2_repo import CT2_REQUIRED
+    for name in CT2_REQUIRED:
+        (snap / name).write_bytes(b"x")
 
 
 def _transformers_repo(repo_id):

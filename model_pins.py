@@ -5,8 +5,10 @@ aligner, the OCR and scanlate models) is fetched and loaded at exactly the
 commit recorded here, never at a branch: a branch can move to files nobody
 has tested. A repo missing from the table is an error, not a quiet fall back
 to the newest files, and tests/test_model_pins.py fails when a loader names a
-repo with no pin. Pyannote diarization (gated, the owner's own token) and the
-frozen dub models are not pinned yet.
+repo with no pin. Not pinned yet: pyannote diarization (gated, the owner's
+own token), classic PaddleOCR (PaddleX fetches its models by name, with no
+revision), SenseVoice (ModelScope), the vocal separator and the frozen dub
+models.
 
 To move a pin: test the new revision on real audio or pages first, then
 change its hash here; downloads already on disk at the old revision are not
@@ -24,6 +26,9 @@ REVISIONS = {
     "Systran/faster-whisper-small": "536b0662742c02347bc0e980a01041f333bce120",
     "Systran/faster-whisper-medium": "08e178d48790749d25932bbc082711ddcfdfbc4f",
     "Systran/faster-whisper-large-v3": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
+    # Older sizes a title may still have stored (transcribe_options_service).
+    "Systran/faster-whisper-large-v2": "f0fe81560cb8b68660e564f55dd99207059c092e",
+    "Systran/faster-whisper-large-v1": "b07c8d4be0be90092aa01a29c975077acb8d15c9",
     # Renamed on the Hub to dropbox-dash/faster-whisper-large-v3-turbo; the old
     # name still resolves and is the one faster-whisper's own table uses.
     "mobiuslabsgmbh/faster-whisper-large-v3-turbo": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",

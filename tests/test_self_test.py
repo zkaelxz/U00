@@ -104,23 +104,23 @@ def test_gpu_whisper_never_loads_a_model_that_is_not_fully_local(monkeypatch):
     assert status == st.SKIPPED and "not fully downloaded" in reason and "/" not in reason
 
 
-def test_local_model_folder_resolves_offline_and_exactly(monkeypatch):
-    import sys
-    calls = []
+def test_local_model_folder_resolves_offline_and_exactly(monkeypatch, tmp_path):
+    import model_pins
+    from lib.ct2_repo import CT2_REQUIRED
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path))
 
-    def download_model(model, local_files_only=False, **kw):
-        calls.append(local_files_only)
-        if model == "large-v3":  # only large-v3-turbo is on disk
-            raise ValueError("not cached")
-        return "/cache/" + model
-    pkg = types.ModuleType("faster_whisper")
-    utils = types.ModuleType("faster_whisper.utils")
-    utils.download_model = download_model
-    monkeypatch.setitem(sys.modules, "faster_whisper", pkg)
-    monkeypatch.setitem(sys.modules, "faster_whisper.utils", utils)
+    def snapshot(repo, revision):
+        folder = tmp_path / ("models--" + repo.replace("/", "--")) / "snapshots" / revision
+        folder.mkdir(parents=True)
+        for name in CT2_REQUIRED:
+            (folder / name).write_bytes(b"x")
+        return folder
+    turbo = "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
+    on_disk = snapshot(turbo, model_pins.REVISIONS[turbo])
+    # Another revision of large-v3 is not the tested one, and turbo is not large-v3.
+    snapshot("Systran/faster-whisper-large-v3", "0" * 40)
     assert st._local_model_folder("large-v3") is None
-    assert st._local_model_folder("large-v3-turbo") == "/cache/large-v3-turbo"
-    assert calls == [True, True]
+    assert st._local_model_folder("large-v3-turbo") == str(on_disk)
 
 
 def _fake_gpu_whisper(monkeypatch, device, gpu_error=None, transcribe=None):

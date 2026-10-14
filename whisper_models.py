@@ -304,8 +304,11 @@ def _generic_snapshot(model_size: str):
     if revision is None:
         return None
     folder = os.path.join(_hub_dir(), "models--" + repo_id.replace("/", "--"), "snapshots", revision)
-    # An interrupted download leaves the folder without the weights.
-    return folder if os.path.isfile(os.path.join(folder, "model.bin")) else None
+    # Every required file, not just the weights: an interrupted download lacks
+    # some, and faster-whisper fetches a missing tokenizer.json from the
+    # unpinned openai/whisper-tiny repo.
+    from lib.ct2_repo import CT2_REQUIRED
+    return folder if all(os.path.isfile(os.path.join(folder, n)) for n in CT2_REQUIRED) else None
 
 
 # faster-whisper's own size -> repo table (faster_whisper.utils._MODELS), for
@@ -451,6 +454,8 @@ def _fetch_pinned_model(model_size: str, token) -> str:
     except ModelDownloadError:
         raise
     except Exception as exc:
+        if model_pins.is_revision_gone(exc):
+            raise ModelDownloadError(model_pins.revision_gone_message(repo)) from exc
         if is_network_error(exc):
             raise
         # Fixed text: the raw error can carry URLs and local paths.
@@ -581,6 +586,8 @@ def _fetch_anime_whisper(token) -> str:
     except ModelDownloadError:
         raise
     except Exception as exc:
+        if model_pins.is_revision_gone(exc):
+            raise ModelDownloadError(model_pins.revision_gone_message(repo)) from exc
         if is_network_error(exc):
             raise
         # Fixed text: the raw error can carry URLs and local paths.

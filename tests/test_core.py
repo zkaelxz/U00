@@ -1544,7 +1544,9 @@ class TestWhisperModelCache:
         snap.mkdir(parents=True)
         (snap / "config.json").write_text("{}")
         if weights:
-            (snap / "model.bin").write_bytes(b"x")
+            from lib.ct2_repo import CT2_REQUIRED
+            for name in CT2_REQUIRED:
+                (snap / name).write_bytes(b"x")
 
     def test_turbo_alone_does_not_make_large_v3_cached(self, monkeypatch, tmp_path):
         hub = self._hub(monkeypatch, tmp_path)
