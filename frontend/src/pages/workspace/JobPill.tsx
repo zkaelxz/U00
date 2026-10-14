@@ -35,25 +35,51 @@ export function JobPill({ dramaId, onFinished }: { dramaId: number; onFinished: 
     }
   }, [open])
 
-  // Nothing left to show: the popover would be empty.
+  // Nothing left to show: the popover would be empty. Its button disappears with it, so
+  // focus would fall to the page; the finished flash takes it instead.
+  const handOffFocus = useRef(false)
   useEffect(() => {
-    if (open && active.length === 0) setOpen(false)
+    if (open && active.length === 0) {
+      handOffFocus.current = wrap.current?.contains(document.activeElement) ?? false
+      setOpen(false)
+    }
   }, [open, active.length])
 
   const text = active.length > 0 ? pillText(active) : flash ? FLASH_TEXT[flash] : null
-  if (hidden || !text) return null
   const running = active.length > 0
+  // Always mounted: a live region that appears already holding its text is often not announced.
+  const announcer = (
+    <span className="visually-hidden" role="status">
+      {!running && !hidden && flash ? FLASH_TEXT[flash] : ''}
+    </span>
+  )
+  if (hidden || !text) return announcer
   if (!running) {
     return (
-      <span className="job-pill" data-testid="job-pill" data-state={flash} role="status">
-        {text}
-      </span>
+      <>
+        {announcer}
+        <span
+          className="job-pill"
+          data-testid="job-pill"
+          data-state={flash}
+          tabIndex={-1}
+          ref={(el) => {
+            if (el && handOffFocus.current) {
+              handOffFocus.current = false
+              el.focus()
+            }
+          }}
+        >
+          {text}
+        </span>
+      </>
     )
   }
   const noCancel = active.some((j) => !offersCancel(j, anyJob))
 
   return (
     <div className="job-pill-wrap" ref={wrap}>
+      {announcer}
       <button
         ref={button}
         type="button"
