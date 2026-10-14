@@ -162,7 +162,7 @@ def _read(payload: dict) -> dict:
 def _find_match(clean_url: str, host: str, original: str, english: str, kind: str):
     wanted = {term_key(n) for n in (original, english) if n}
     for drama in db.list_dramas():
-        if drama.get("media_type") not in _MEDIA_BY_KIND[kind]:
+        if drama.get("media_type") not in _MEDIA_BY_KIND[kind] or db.has_custom_tag(drama, db.MERGED_TAG):
             continue
         # Another user's private title (or one in their private series) is theirs to fill.
         if link_details_service._others_private(_BRIDGE_PRINCIPAL, drama["id"]):
@@ -186,7 +186,8 @@ def _join_series(drama_id: int, name: str):
     except ConflictError:
         series_id = None
     if series_id is not None:
-        db.dramas.assign_series_if_none(drama_id, series_id)
+        if db.dramas.assign_series_if_none(drama_id, series_id):
+            drama_service.inherit_series_defaults_on_join(drama_id, series_id)
     return (db.get_item_ownership("drama", drama_id) or {}).get("series_id")
 
 

@@ -5,8 +5,8 @@ sees leftovers pile up after a crash or a killed job.
 
 Refused with a ConflictError while anything could still be using that folder:
 a job in this process, a maintenance run, a job another app process recorded
-as running, or a live holder of the cross-process GPU lock (all a CLI run
-leaves). Returns counts and megabytes only, never a path.
+as running, or a live holder of the cross-process GPU lock (all a run in
+another process leaves). Returns counts and megabytes only, never a path.
 """
 import background_jobs
 from jobs import job_launch

@@ -213,6 +213,12 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 *, *::before, *::after { box-sizing: border-box; }
 
 html { scrollbar-gutter: stable; font-size: 93.75%; }
+/* Display preferences (src/display.ts). Overriding the tokens on html reaches PageShell's --page-* aliases and the dock's cap. */
+html[data-width='wide'] { --content-max: 1800px; }
+html[data-width='full'] { --content-max: none; --content-max-wide: none; }
+html[data-text='small'] { font-size: 87.5%; }
+html[data-text='large'] { font-size: 106.25%; }
+html[data-text='larger'] { font-size: 118.75%; }
 /* CJK text uses each language's system fonts, then the Latin face for any Latin in it. */
 :lang(zh) { font-family: var(--font-zh), var(--font-sans); line-height: var(--leading-cjk); }
 :lang(ja) { font-family: var(--font-ja), var(--font-sans); line-height: var(--leading-cjk); }
@@ -520,7 +526,14 @@ input[type='file']::file-selector-button:hover { border-color: var(--accent); }
 input[type='file'] { color: var(--muted); max-width: 100%; }
 .check-col input { width: 1.1rem; height: 1.1rem; margin: 0; }
 .selection-bar { position: sticky; z-index: 4; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
-.selection-bar.wide { top: 0; }
+/* Fixed to the bottom, not in the flow: opening select mode, or the hint line changing height, must not push the list around, and a top bar would cover the page header. The page keeps room below its last row (scroll-padding and content padding) so no row is stuck under the bar. */
+.selection-bar.wide { position: fixed; bottom: var(--space-3); left: 4.5rem; right: var(--space-4); max-width: 80rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
+/* Compact controls keep the bar short, so it covers as little of the list as possible. */
+.selection-bar.wide { padding: var(--space-1) var(--space-3); gap: var(--space-1); }
+.selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { gap: var(--space-1) var(--space-2); }
+.selection-bar.wide button, .selection-bar.wide select { min-height: 32px; padding-block: 2px; }
+html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
+.app-shell:has(.selection-bar.wide) .app-content { padding-bottom: 6rem; }
 .selection-bar p { margin: 0; }
 .bar-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .bar-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; flex: 1 1 auto; }
@@ -816,8 +829,9 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .library-list { display: grid; gap: var(--space-3); min-width: 0; }
 .library-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .toolbar-search { display: flex; gap: var(--space-2); flex: 1 1 18rem; min-width: 0; }
-.toolbar-filters { display: flex; gap: var(--space-2); flex: 0 1 auto; min-width: 0; }
-.toolbar-filters select { width: 11rem; }
+/* No shrink: shrinking let the selects (12rem global minimum) spill over the "More filters" summary beside them; the toolbar wraps instead. */
+.toolbar-filters { display: flex; gap: var(--space-2); flex: 0 0 auto; min-width: 0; }
+.toolbar-filters select { width: 11rem; min-width: 0; }
 .toolbar-row { display: flex; align-items: center; gap: var(--space-3); flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
 /* Selects in a toolbar row keep a natural width: the global 100% would make each one a full-width row. */
 .toolbar-row select { width: auto; flex: 0 1 15rem; min-width: 10rem; }

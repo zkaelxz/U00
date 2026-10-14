@@ -116,6 +116,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade/plan` | local_only() |
 | `GET /api/diagnostics/dependency-install` | admin.diagnostics |
+| `GET /api/diagnostics/gpu` | local_only() |
 | `GET /api/diagnostics/gpu-torch` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/check` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/setup` | local_only() |
@@ -169,6 +170,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/probe` | local_only() |
 | `POST /api/dramas/{drama_id}/metadata` | admin.library |
+| `GET /api/dramas/{drama_id}/restructure` | local_only() |
+| `POST /api/dramas/{drama_id}/restructure` | local_only() |
+| `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |
 | `GET /api/dramas/{drama_id}/source-link` | local_only() |
 | `GET /api/dub/dramas/{drama_id}/config` | library.read |
 | `GET /api/dub/dramas/{drama_id}/pacing` | library.read |

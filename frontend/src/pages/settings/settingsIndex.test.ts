@@ -56,8 +56,8 @@ describe('settings tabs', () => {
     expect(cardStartsOpen('not-a-card')).toBe(false)
   })
 
-  it('keeps the four cards a member sees together on the Sharing and devices tab', () => {
-    expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'customize-menu', 'devices', 'extension-devices'])
+  it('keeps the five cards a member sees together on the Sharing and devices tab', () => {
+    expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices'])
   })
 })
 

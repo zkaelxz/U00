@@ -12,7 +12,7 @@ cancel_job flags the job_records row, which the
 owning process's throttled check in background_jobs picks up.
 
 No HTTP types: takes plain values, returns plain
-dicts, so `cli.py` or a script could call it too.
+dicts, so a script could call it too.
 """
 
 import json
@@ -562,7 +562,7 @@ JOB_KIND_BY_PREFIX = {
     "dubbed_video_": "export", "burnpreview_": "export",
     "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
     "extract_audio_": "import",
-    "scanlate_": "other",
+    "scanlate_": "other", "restructure_": "other",
 }
 
 
@@ -640,7 +640,7 @@ def _still_active_here(job_id) -> bool:
 
 
 def list_jobs(principal=None) -> list:
-    """Every job_records row `principal` may see (auth B2:
+    """Every job_records row `principal` may see (
     ownership_service.can_see_job; None = auth off, all), newest-started
     first, redacted for HTTP. Stale rows of dead owners are closed first
     (sweep_stale_job_records), so they don't list as running forever."""
@@ -710,7 +710,7 @@ def cancel_job(job_id: str, principal=None) -> dict:
     # Only the run just checked: a shared id (sources_search,
     # bulk_series_translate...) may have been restarted by someone else.
     # A finished run of this id here says nothing about another process's
-    # (the CLI's) run, which job_store's owner check covers.
+    # run, which job_store's owner check covers.
     if not background_jobs.request_cancel(job_id, owner_user_id=owner) or (
             not job_store.request_cancel(job_id, owner_user_id=owner)
             and _restarted_by_someone_else(job_id, owner)):

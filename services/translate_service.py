@@ -2,8 +2,7 @@
 services/translate_service.py -- metadata and translate action for the
 standalone translate tool.
 The read-only "list engines" / "list history" half (docs/archive/migration-review.md
-section 3.7) is paired with translate() itself, resolving a server-side key per engine (D2 --
-docs/archive/migration-review.md section 6) rather than accepting one from the
+section 3.7) is paired with translate() itself, resolving a server-side key per engine rather than accepting one from the
 caller.
 
 clear_history() is the one piece deliberately
@@ -126,7 +125,7 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
 
 def list_history(limit: int = 50, principal=None) -> list:
     """Thin wrapper over db.list_translate_history -- most recent first.
-    A household user (auth B2) sees only their own rows."""
+    A household user sees only their own rows."""
     return db.list_translate_history(
         limit=limit, visible_to=ownership_service.visible_to_filter(principal))
 

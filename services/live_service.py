@@ -479,7 +479,7 @@ def _visible(principal, session_id, entry) -> bool:
 
 
 def _require(session_id, principal=None) -> dict:
-    """Another user's session is a 404 like an unknown one (auth B2)."""
+    """Another user's session is a 404 like an unknown one."""
     with _lock:
         entry = _sessions.get(session_id) if isinstance(session_id, str) else None
     if entry is None or not _visible(principal, session_id, entry):

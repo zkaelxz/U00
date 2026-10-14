@@ -13,7 +13,7 @@ freshness checks hit PyPI, so they live in diagnostics_packages_service.
 check_package_updates, behind an explicit click.
 
 No HTTP types: takes no arguments, returns a plain
-dict, so `cli.py` or a script could call it too.
+dict, so a script could call it too.
 """
 
 import os
@@ -45,6 +45,11 @@ def _job_summary(job_id: str, job: dict) -> dict:
         "started_at": job.get("started_at"),
         "finished_at": job.get("finished_at"),
     }
+
+
+def get_gpu_reading() -> dict:
+    """Just the GPU name and memory, without the rest of the overview."""
+    return diagnostics_torch.gpu_reading()
 
 
 def get_diagnostics_overview() -> dict:

@@ -141,7 +141,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     before anything is written, so a rejected call creates nothing.
     `principal` (None = auth off) goes through ownership_service: a series
     the caller can't see is a 404, as is a name taken by one (409). The
-    new drama is stamped with `new_item_defaults(principal)` (auth B2): its
+    new drama is stamped with `new_item_defaults(principal)`: its
     creator (None = the PC owner) and private unless they share by default."""
     if source_language not in SOURCE_LANGUAGES:
         raise InvalidInputError("source_language is required and must be one of zh, ja, ko.",
@@ -323,6 +323,13 @@ def _inherit_series_defaults(how, drama_id, series_id, **kw) -> None:
         log.warning("Could not apply series defaults to title %s", drama_id, exc_info=True)
 
 
+def inherit_series_defaults_on_join(drama_id, series_id) -> None:
+    """For paths that put a title in a series without update_drama_metadata
+    (a site-named series from link details or the extension): the same
+    fill-only-blanks inheritance a move gets."""
+    _inherit_series_defaults("inherit_moved", drama_id, series_id)
+
+
 def set_source_url_once(drama_id, url) -> bool:
     """Records where an import came from, only while the title has no link,
     so what the owner typed is never overwritten. Stores the display-safe
@@ -357,8 +364,7 @@ LEFTOVER_FILES_MESSAGE = ("The title was deleted from the library, but some of i
 
 def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     """In-process jobs, plus fresh running/queued job_records rows written
-    by another process (e.g. the CLI; the in-memory tracker only sees its
-    own). exclude_job_id:
+    by another process (the in-memory tracker only sees its own). exclude_job_id:
     a running job asking whether any other job is on its drama."""
     if (background_jobs.any_job_running_for_drama(drama_id, exclude_job_id=exclude_job_id)
             if exclude_job_id else background_jobs.any_job_running_for_drama(drama_id)):

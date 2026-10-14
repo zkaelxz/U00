@@ -1,7 +1,7 @@
 """
 qwen3_requirements_service.py -- what a Qwen3 choice (Qwen3-ASR, speech
 detection, forced alignment) needs installed, as plain sentences.
-transcribe_service re-exports these names, which other services, the CLI and
+transcribe_service re-exports these names, which other services and
 tests call through it.
 """
 

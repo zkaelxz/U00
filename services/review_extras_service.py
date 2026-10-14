@@ -12,7 +12,7 @@ UI-free (inventory rows R46, R37, R35, R03):
   recorded edit (one synchronous LLM call), saved per
   scope (series, else global). The apply toggle is stored on the profile as
   `"apply": false`, which `adaptive_style.profile_to_prompt_block` honours, so
-  every translate path (API run, CLI, line AI) skips a paused profile the
+  every translate path (API run, line AI) skips a paused profile the
   same way. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
   meanwhile is kept, and a reset/re-learn made meanwhile makes it a 409.
 - SenseVoice audio tags (R35): `workspace_audio_job_service.run_sensevoice_job` as a
@@ -171,7 +171,8 @@ CLEANUP_LABEL = "before English cleanup"
 
 def cleanup_plan(drama_id: int, lines) -> list:
     """[(line, new_en, rules)] for the lines the cleanup would change. The
-    CLI uses this too, so the glossary and title style are read one way."""
+    Kept apart from the apply step so the preview and the write read the
+    glossary and title style one way."""
     drama = _require_drama(drama_id)
     terms = [t["term_translation"] for t in db.list_glossary_terms(drama["series_id"])] \
         if drama.get("series_id") else []

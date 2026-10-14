@@ -294,10 +294,10 @@ def _promote_next_queued_gpu_job():
     or process-based starter depending on how that entry was queued.
 
     The GPU can also be free-in-this-process but still held
-    cross-process (a `cli.py` run) -- checked via _gpu_slot_available_locked,
+    cross-process (another process) -- checked via _gpu_slot_available_locked,
     same as start_job/start_process_job. If that's the case, this leaves
     the entry at the head of the queue and returns rather than popping it;
-    there's no cross-process notification when the CLI later releases it,
+    there's no cross-process notification when the other process later releases it,
     so a still-queued job resumes the next time some other job's finish
     triggers this function again, not immediately -- an accepted latency
     for this same soft, best-effort guard, not a correctness gap (the GPU

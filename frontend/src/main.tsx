@@ -7,10 +7,12 @@ import App from './App.tsx'
 import { installBootFallback, renderBootFallback } from './bootFallback'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import { installCapture } from './report/capture'
+import { applyDisplay, loadDisplay } from './display'
 import { applyTheme, loadTheme } from './theme'
 
 // The saved theme (index.html already set it before paint; this covers dev/HMR).
 applyTheme(loadTheme())
+applyDisplay(loadDisplay())
 
 const rootEl = document.getElementById('root')!
 // Installed before the first render so a crash in it still shows a message.
