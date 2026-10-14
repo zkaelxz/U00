@@ -583,7 +583,7 @@ def spawn_app_update(root) -> None:
 def finish_app_update(headless: bool, stop=None) -> bool:
     """An app-only update left unfinished (docs/windows-installer-design.md,
     "App-only updates") is rolled back or completed before anything starts
-    from app\. True when a queued switch was handed to the helper, which
+    from app\\. True when a queued switch was handed to the helper, which
     starts the app itself."""
     from installer import app_swap
     root = APP_DIR.parent
