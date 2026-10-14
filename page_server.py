@@ -340,6 +340,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     ext, refusal = page_capture_checks.sniff_image(data)
     if refusal:
         raise EndpointError(*refusal)
+    data, ext = page_capture_checks.upright(data, ext)
     drama = db.get_drama(int(drama_id)) if drama_id else None
     if drama_id and drama is None:
         raise EndpointError(404, "no such drama")

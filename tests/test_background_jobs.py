@@ -3171,6 +3171,8 @@ class TestGpuSlotWorkUnderTheJobLock:
         finally:
             go.set()
             _wait("rel_taken")
+            # The slot is freed after the status reads final; join the thread first.
+            assert job_runner.wait_for_job_threads(5.0, job_ids={"rel_taken"})
             bg.clear_job("rel_taken")
         assert gpu_slots.holder_count() == 0
 

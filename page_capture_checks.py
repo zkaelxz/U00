@@ -181,7 +181,7 @@ def log_page_failure(e: Exception) -> None:
 def select_page_images(images, page_url: str):
     """Which of the sent images are real pages, decided by
     `sources/generic_import.py`'s existing filter -- size floor, aspect
-    and width clustering, duplicate and third-party rejection -- rather
+    and width clustering and duplicate rejection -- rather
     than by a second implementation in JavaScript that would drift from
     it.
 
@@ -196,11 +196,27 @@ def select_page_images(images, page_url: str):
         c.content = image.get("content") or b""
         generic_import.measure(c)
         candidates.append(c)
-    kept, rejected = generic_import.filter_page_images(candidates, page_url)
+    # The extension labels a canvas page with the page's address and a
+    # downloaded one with its CDN's: those are not where each image came
+    # from, so the third-party rule would drop real pages of a mixed batch.
+    kept, rejected = generic_import.filter_page_images(candidates, page_url,
+                                                       judge_domains=False)
     kept_set = {c.order for c in kept}
     return ([images[c.order] for c in kept],
             [(images[c.order], c.reject_reason) for c in rejected
              if c.order not in kept_set])
+
+
+def upright(data: bytes, ext: str):
+    """(data, ext) with the image's EXIF orientation applied. A downloaded
+    JPEG can be stored sideways with a rotate tag the browser obeys, and
+    boxes found on the raw pixels would then sit wrong over the page the
+    person sees. Strips are not sliced: the bridge answers per image sent."""
+    from services import page_import_limits
+    try:
+        return page_import_limits.prepare_page(data, slice_strips=False)[0]
+    except page_import_limits.ImageRejected:
+        return data, ext
 
 
 def sniff_image(data: bytes):

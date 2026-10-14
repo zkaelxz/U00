@@ -256,10 +256,13 @@ def _cluster(values, tolerance: float):
     return set(best)
 
 
-def filter_page_images(candidates, page_url: str, seen_elsewhere=frozenset()) -> tuple:
+def filter_page_images(candidates, page_url: str, seen_elsewhere=frozenset(),
+                       judge_domains: bool = True) -> tuple:
     """Splits measured candidates into (kept, rejected). Pure: no network,
     no database -- `seen_elsewhere` is the set of hashes already seen on
-    other chapters of this site."""
+    other chapters of this site. judge_domains=False skips the third-party
+    rule, for candidates whose URLs are labels rather than where the image
+    was served from."""
     kept, rejected = [], []
     within = set()
     for c in candidates:
@@ -280,7 +283,7 @@ def filter_page_images(candidates, page_url: str, seen_elsewhere=frozenset()) ->
 
     # Third-party domains: keep the page's own domain and whichever domain
     # most of the surviving page-sized images come from (a site's own CDN).
-    if kept:
+    if kept and judge_domains:
         page_dom = _domain(page_url)
         counts = {}
         for c in kept:

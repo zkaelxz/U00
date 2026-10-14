@@ -597,3 +597,17 @@ def test_an_oversized_gemini_response_is_refused(monkeypatch):
     with pytest.raises(http.ResponseTooLarge, match="larger than expected"):
         mrs._call_gemini(KEY, "gemini-flash-lite-latest", "p")
     assert Endless.closed
+
+
+def test_source_links_lose_userinfo_query_and_fragment_but_keep_their_path():
+    """A grounding link can carry credentials or a signed query; the API
+    shows scheme, host and path only. The path stays: Gemini's own
+    grounding links are redirects whose opaque path is the whole link."""
+    redirect = ("https://vertexaisearch.cloud.google.com/grounding-api-redirect/"
+                "AUZIYQHx3kQ9bLq7Vf0aT2mRZpWj8nE5cY1uKo4sDfGhJ6lPqX")
+    data = _response({}, chunks=[
+        {"web": {"uri": "https://user:pw@wiki.example/b?token=abc#top", "title": "wiki.example"}},
+        {"web": {"uri": redirect + "?x=1", "title": "example.org"}},
+    ], supports=[{"segment": {"text": "{}"}, "groundingChunkIndices": [0, 1]}])
+    urls = [s["url"] for s in mrs._parse_response(data)["sources"]]
+    assert urls == ["https://wiki.example/b", redirect]
