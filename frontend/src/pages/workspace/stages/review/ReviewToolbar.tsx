@@ -147,8 +147,9 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   const count =
     p.resultCount !== null ? (
       <span className="muted review-count" role="status" data-testid="search-count">
-        {p.resultCount} match{p.resultCount === 1 ? '' : 'es'}
-        {p.resultCount >= 200 ? ' (max 200)' : ''}
+        {p.resultCount >= 200
+          ? 'First 200 matches shown; more may exist. Type more of the line to narrow it.'
+          : `${p.resultCount} match${p.resultCount === 1 ? '' : 'es'}`}
       </span>
     ) : null
 

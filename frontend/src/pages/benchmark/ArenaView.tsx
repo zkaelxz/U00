@@ -10,7 +10,7 @@ import { buttonClass } from '../../components/uiClasses'
 import {
   arenaRunNames, deltaTone, leftOutLine, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
   mixedMetricNote, mixedScorerNote, plainError,
-  runConfigLabel, runStatusLabel, scriptCountsLine, runStatusTone, tierLabel, tierTone,
+  runConfigLabel, runExtraLabel, runStatusLabel, scriptCountsLine, runStatusTone, tierLabel, tierTone,
 } from './benchmarkForm'
 
 /** What to show: 2-4 runs side by side, or one run's own results. */
@@ -103,7 +103,7 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                 <li key={r.id} className="bench-arena-run">
                   <strong>{runConfigLabel(r)}</strong>
                   <span className="muted">
-                    {r.label || `Run ${r.id}`}
+                    {runExtraLabel(r) || `Run ${r.id}`}
                     {r.prompt_version ? ` · prompt ${r.prompt_version}` : ''}
                   </span>
                   <span className="bench-score num">{formatScore(r.aggregate_score)}</span>

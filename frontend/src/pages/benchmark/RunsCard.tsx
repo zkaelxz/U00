@@ -7,7 +7,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { BenchSection } from './BenchSection'
 import {
   STAGE_LABELS, arenaGroups, compareProblem, formatCost, formatLatency, formatScore, formatWhen, judgeRunLine, runConfigLabel,
-  plainError, runStatusLabel, runStatusTone, stageLabel, toggleCompare,
+  plainError, runExtraLabel, runStatusLabel, runStatusTone, stageLabel, toggleCompare,
 } from './benchmarkForm'
 
 type Props = {
@@ -159,7 +159,7 @@ function RunTable({ runs, selected, onToggle, onOpen, del }: ListProps) {
                 <input type="checkbox" aria-label={`Compare run ${r.id} ${runName(r)}`} checked={selected.includes(r.id)} onChange={() => onToggle(r.id)} />
               </td>
               <td>
-                {r.label || <span className="muted">Run {r.id}</span>}
+                {runExtraLabel(r) || <span className="muted">Run {r.id}</span>}
                 <div className="muted">{stageLabel(r.stage)}{r.arena_group ? ' · arena' : ''}</div>
               </td>
               <td>{runConfigLabel(r)}</td>
@@ -169,7 +169,10 @@ function RunTable({ runs, selected, onToggle, onOpen, del }: ListProps) {
                 {r.note && <div className="muted bench-note-text">{r.note}</div>}
               </td>
               <td className="num"><ScoreCell r={r} /></td>
-              <td className="num">{r.passed_count}/{r.scored_count}</td>
+              <td className="num">
+                {r.passed_count}/{r.scored_count}
+                {r.error_count ? <div className="muted">{r.error_count} errors</div> : null}
+              </td>
               <td className="num">{formatLatency(r.avg_latency_seconds)}</td>
               <td className="num">
                 {formatCost(r.total_cost_usd)}
@@ -199,7 +202,7 @@ function RunCards({ runs, selected, onToggle, onOpen, del }: ListProps) {
             <input type="checkbox" checked={selected.includes(r.id)} onChange={() => onToggle(r.id)} aria-label={`Compare run ${r.id} ${runName(r)}`} />
             <span>
               <strong>{runName(r)}</strong>
-              <span className="muted"> · {runConfigLabel(r)}</span>
+              {runExtraLabel(r) && <span className="muted"> · {runConfigLabel(r)}</span>}
             </span>
           </label>
           <p className="pill-row">
@@ -208,7 +211,7 @@ function RunCards({ runs, selected, onToggle, onOpen, del }: ListProps) {
             {r.prompt_version && <Badge tone="neutral">{r.prompt_version}</Badge>}
           </p>
           <p className="num">
-            Score <strong><ScoreCell r={r} /></strong> · {r.passed_count}/{r.scored_count} passed · {formatLatency(r.avg_latency_seconds)} ·{' '}
+            Score <strong><ScoreCell r={r} /></strong> · {r.passed_count}/{r.scored_count} passed{r.error_count ? ` · ${r.error_count} errors` : ''} · {formatLatency(r.avg_latency_seconds)} ·{' '}
             {formatCost(r.total_cost_usd)}
             {r.judge ? ` (+ ${formatCost(r.judge.cost_usd)} judge)` : ''}
           </p>

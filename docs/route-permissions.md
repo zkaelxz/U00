@@ -591,6 +591,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | local_only() |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
+| `POST /api/system/update/app/apply` | local_only() |
+| `POST /api/system/update/app/download` | local_only() |
 | `POST /api/system/update/check` | local_only() |
 | `POST /api/system/update/download` | local_only() |
 | `POST /api/system/update/install` | local_only() |
