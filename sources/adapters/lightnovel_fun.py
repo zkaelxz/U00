@@ -53,7 +53,7 @@ import logging
 import re
 from urllib.parse import quote, urljoin
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class, soup as _soup
 from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason,
                       FetchFailed, SearchResult, SeriesInfo, SourceError)
 from ..registry import register
@@ -92,18 +92,7 @@ _LOCKERS = {"pan.baidu.com": "百度网盘 (Baidu Pan)", "123pan.com": "123云�
 _WRAPPERS = {"Reactive", "ShallowReactive", "Ref", "ShallowRef", "NuxtError", "Island"}
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"轻之国度's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("轻之国度")
 
 
 def _devalue(arr):

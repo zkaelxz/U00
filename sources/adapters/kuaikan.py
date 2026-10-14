@@ -84,21 +84,14 @@ not re-read this pass.
 import re
 from urllib.parse import urljoin
 
-from ..base import SourceAdapter
-from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo, SourceError
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class
+from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo
 from ..registry import register
 
 BASE_URL = "https://www.kuaikanmanhua.com"
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup or its SSR state shape. Reported plainly,
-    never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"Kuaikan's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+LayoutChanged = layout_changed_class("Kuaikan")
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +423,7 @@ def _extract_nuxt_state(html: str):
 
 
 @register
-class KuaikanSource(SourceAdapter):
+class KuaikanSource(PlainImageDownload, SourceAdapter):
     name = "kuaikan"
     display_name = "快看漫画 Kuaikan Manhua"
     content_types = [ContentType.MANHUA.value]
@@ -502,13 +495,6 @@ class KuaikanSource(SourceAdapter):
             raise LayoutChanged("any page images in this chapter's embedded state")
         return [PageRef(self.name, chapter.chapter_id, i, img["url"])
                for i, img in enumerate(images) if img.get("url")]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        name = page.url.split("?", 1)[0]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         m = re.search(r"kuaikanmanhua\.com/web/topic/(\d+)", url or "")

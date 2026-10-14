@@ -29,7 +29,7 @@ import json
 import re
 from urllib.parse import quote, urljoin, urlsplit
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
@@ -48,14 +48,7 @@ _RESERVED = {"search", "genres", "authors", "tags", "browse", "ranking", "trendi
 _TYPES = {t.value for t in (ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA)}
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup or its embedded data. Reported plainly, never
-    guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"MangaK's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+LayoutChanged = layout_changed_class("MangaK")
 
 
 def _safe_slug(value, what: str) -> str:
