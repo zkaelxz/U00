@@ -22,6 +22,7 @@ folder could recompute it, which is why the file is never trusted for more than
 names the registry already offers.
 """
 
+import contextlib
 import hashlib
 import importlib.metadata
 import json
@@ -557,6 +558,96 @@ def without_clashing_cv2(wanted: dict, now: dict, before: dict):
     return wanted, []
 
 
+def kept_wheels_dir():
+    """{install}\\wheels, where Setup keeps the core wheels it installed from
+    (installer/baihe.iss), or None unless this is an installed copy run by its
+    own bundled Python. A checkout on a system Python must never read a
+    folder beside that Python: any user who can write there could plant one."""
+    if not portable.is_installed():
+        return None
+    root = os.path.dirname(portable.APP_DIR)
+    if (_norm(os.path.dirname(os.path.abspath(sys.executable))) != _norm(os.path.join(root, "python"))
+            or not os.path.isfile(os.path.join(root, "manifest.json"))):
+        return None
+    return os.path.join(root, "wheels")
+
+
+def _app_wheel_lock() -> str:
+    # The lock shipped inside the app, not the copy beside the wheels: the
+    # hashes must not come from the folder they vouch for.
+    return os.path.join(portable.APP_DIR, "installer", "wheels.lock.txt")
+
+
+def kept_wheels(wanted: dict, folder: str = None, lock_path: str = None) -> dict:
+    """{name: sha256 hashes} for the names in `wanted` ({name: version}) that
+    a kept wheel can put back: the app's lock pins exactly that version, and
+    every wheel in the folder named for the package is that version with a
+    pinned hash. Empty when there is no kept folder."""
+    folder = kept_wheels_dir() if folder is None else folder
+    if not folder:
+        return {}
+    try:
+        from installer import postinstall
+    except ImportError:
+        return {}
+    try:
+        with open(lock_path or _app_wheel_lock(), encoding="utf-8") as f:
+            lock = postinstall.parse_lock(f.read())
+        files = os.listdir(folder)
+    except (OSError, ValueError, postinstall.LockError):
+        return {}
+    good, bad = set(), set()
+    for fname in files:
+        try:
+            name, version = postinstall.wheel_identity(fname)
+        except postinstall.LockError:
+            continue
+        if name not in wanted:
+            continue
+        pin = lock.get(name)
+        ok = bool(pin) and pin[0] == version == str(wanted[name]).lower()
+        if ok:
+            try:
+                ok = postinstall.sha256_file(os.path.join(folder, fname)) in pin[1]
+            except OSError:
+                ok = False
+        (good if ok else bad).add(name)
+    return {n: sorted(lock[n][1]) for n in good - bad}
+
+
+@contextlib.contextmanager
+def restore_commands(wanted: dict, folder: str = None, lock_path: str = None):
+    """Yields the pip commands that put `wanted` back, no dependencies. The
+    kept wheels go first with no index and --require-hashes, as postinstall
+    installs them, so those come back with the network down; the rest come
+    from the index. pip picks the kept ones by name==version, so no
+    direct_url.json marks them as local afterwards."""
+    base = _python() + ["-m", "pip", "install", "--no-deps", "--no-cache-dir",
+                        "--disable-pip-version-check"]
+    folder = kept_wheels_dir() if folder is None else folder
+    kept = kept_wheels(wanted, folder, lock_path)
+    argvs, req_path = [], None
+    try:
+        if kept:
+            os.makedirs(state_dir(), exist_ok=True)
+            fd, req_path = tempfile.mkstemp(prefix="restore-", suffix=".txt", dir=state_dir())
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("".join(f"{n}=={wanted[n]} " + " ".join(f"--hash=sha256:{h}" for h in kept[n])
+                                + "\n" for n in sorted(kept)))
+            argvs.append(base + ["--no-index", "--find-links", folder, "--require-hashes",
+                                 "-r", req_path])
+        rest = sorted(set(wanted) - set(kept))
+        if rest:
+            argvs.append(base + [f"{n}=={wanted[n]}" for n in rest])
+        yield argvs
+    finally:
+        if req_path:
+            try:
+                os.remove(req_path)
+            except OSError:
+                pass
+
+
 def _restore(before: dict, now_versions: dict, budget: float, echo: bool):
     """Puts back every package whose version changed or that went missing.
     Returns (restored, failed) dist names and pip's output lines."""
@@ -567,10 +658,10 @@ def _restore(before: dict, now_versions: dict, budget: float, echo: bool):
     failed = sorted(set(wanted) - set(safe))
     if not safe:
         return [], failed, []
-    argv = _python() + ["-m", "pip", "install", "--no-deps", "--no-cache-dir",
-                        "--disable-pip-version-check",
-                        *[f"{n}=={v}" for n, v in sorted(safe.items())]]
-    _rc, lines, _timed_out = run_capture(argv, budget, echo)
+    lines, end = [], time.monotonic() + budget
+    with restore_commands(safe) as argvs:
+        for argv in argvs:
+            lines += run_capture(argv, end - time.monotonic(), echo)[1]
     after = snapshot()
     ok = [n for n, v in safe.items() if after.get(n) == v]
     return sorted(ok), sorted(failed + [n for n in safe if n not in ok]), lines

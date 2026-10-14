@@ -122,7 +122,7 @@ def wheel_identity(filename: str):
     return canonical_name(parts[0]), parts[1].lower()
 
 
-def _sha256_file(path) -> str:
+def sha256_file(path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -150,8 +150,8 @@ def verify_wheels(wheels_dir, lock_text: str) -> int:
             problems.append(f"{whl.name}: not in wheels.lock.txt (an unpinned wheel)")
         elif lock[name][0] != version:
             problems.append(f"{whl.name}: the lock pins {name}=={lock[name][0]}")
-        elif _sha256_file(whl) not in lock[name][1]:
-            problems.append(f"{whl.name}: SHA-256 {_sha256_file(whl)} isn't in wheels.lock.txt")
+        elif sha256_file(whl) not in lock[name][1]:
+            problems.append(f"{whl.name}: SHA-256 {sha256_file(whl)} isn't in wheels.lock.txt")
     for name in sorted(set(lock) - seen):
         problems.append(f"{name}: pinned in wheels.lock.txt but no wheel for it is bundled")
     if problems:
