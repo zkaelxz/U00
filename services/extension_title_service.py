@@ -18,6 +18,7 @@ import re
 import threading
 from urllib.parse import urlsplit
 
+import comic_chapter_links
 import db
 import page_server
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, ServiceError
@@ -156,7 +157,7 @@ def _read(payload: dict) -> dict:
         raise InvalidInputError("kind must be comic or novel.")
     return {"url": url, "titles": raw, "kind": kind, "language": payload.get("language"),
             "create": _flag(payload, "create"), "fill": _flag(payload, "fill"),
-            "series": _flag(payload, "series")}
+            "series": _flag(payload, "series"), "chapter_links": payload.get("chapter_links")}
 
 
 def _find_match(clean_url: str, host: str, original: str, english: str, kind: str):
@@ -189,6 +190,13 @@ def _join_series(drama_id: int, name: str):
         if db.dramas.assign_series_if_none(drama_id, series_id):
             drama_service.inherit_series_defaults_on_join(drama_id, series_id)
     return (db.get_item_ownership("drama", drama_id) or {}).get("series_id")
+
+
+def _remember_links(drama_id: int, page: dict, host: str) -> None:
+    """The chapter links the page listed, for the reader's chapter list. Comics only,
+    and only links on the page's own site: a link elsewhere is not a chapter of it."""
+    if page["kind"] == "comic" and host:
+        comic_chapter_links.remember(drama_id, comic_chapter_links.clean(page["chapter_links"], host))
 
 
 def _answer(drama_id: int, created: bool, filled: list) -> dict:
@@ -224,6 +232,7 @@ def resolve_title(payload: dict) -> dict:
                     filled.append("source_url")
             if page["series"] and series_name:
                 _join_series(drama_id, series_name)
+            _remember_links(drama_id, page, host)
             return _answer(drama_id, False, filled)
         if not page["create"]:
             raise InvalidInputError(_NO_TITLE)
@@ -238,6 +247,7 @@ def resolve_title(payload: dict) -> dict:
             drama_service.set_source_url_once(drama_id, page["url"])
         if page["series"] and series_name:
             _join_series(drama_id, series_name)
+        _remember_links(drama_id, page, host)
         return _answer(drama_id, True, [f for f in ("title_zh", "title_en") if created.get(f)]
                        + (["source_url"] if clean_url else []))
 

@@ -162,6 +162,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 **OCR, scanlation & reading**
 
 - `comic_chapters.py` (chapter labels and hidden pages per comic page, kept in the drama folder's `chapters.json`)
+- `comic_chapter_links.py` (chapter links the extension saw on a series page, kept in the drama folder's `chapter_links.json`)
 - `dictionary.py`
 - `hardsub_ocr.py`
 - `ocr.py`
@@ -258,6 +259,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `bug_report_service.py`
 - `characters_service.py`
 - `comic_chapters_service.py`
+- `comic_source_chapters_service.py`
 - `comic_view_service.py`
 - `compare_transcription_service.py`
 - `cover_art_service.py`

@@ -255,6 +255,11 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       chapters: groups,
     })
   })
+  // The sheet asks where the title's other chapters come from; none here.
+  await page.route(new RegExp(`${root}/source-chapters$`), (route) => {
+    record(route)
+    return json(route, { mode: 'none', source: '', series_id: '', imported_ids: [], chapters: [] })
+  })
   // Hide / restore pages; the list answers with the new state afterwards.
   await page.route(new RegExp(`${root}/pages/visibility$`), (route) => {
     record(route)

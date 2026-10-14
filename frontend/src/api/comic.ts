@@ -6,6 +6,7 @@ import type {
   ComicPagesResponse,
   ComicProgress,
   ComicRegionsResponse,
+  ComicSourceChapters,
   ComicVisibilityRequest,
   ComicVisibilityResult,
   ComicVariant,
@@ -52,6 +53,7 @@ export const comicApi = {
   // Only the page is sent; the server works out percent_complete.
   saveProgress: (id: number, page: number, f?: Fetch) =>
     postJson<ComicProgress>(`${root(id)}/progress`, { page }, f),
+  sourceChapters: (id: number, f?: Fetch) => getJson<ComicSourceChapters>(`${root(id)}/source-chapters`, f),
   setVisibility: (id: number, body: ComicVisibilityRequest, f?: Fetch) =>
     postJson<ComicVisibilityResult>(`${root(id)}/pages/visibility`, body, f),
 }
