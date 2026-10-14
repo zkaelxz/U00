@@ -18,6 +18,7 @@ def slept(monkeypatch):
     waits = []
     monkeypatch.setattr(shared, "_cancellable_sleep", waits.append)
     monkeypatch.setattr(shared, "charge_rate_limit_wait", lambda s: None)
+    monkeypatch.setattr(shared, "_jitter", lambda: 1.0)
     return waits
 
 
@@ -54,3 +55,18 @@ def test_a_provider_outage_switches_engines_and_is_worth_retrying(status):
 def test_501_and_a_plain_400_do_not_switch_engines():
     assert not is_fallback_error(_HttpError(501))
     assert not is_fallback_error(_HttpError(400))
+
+
+def test_backoff_waits_are_jittered_up_to_a_quarter_longer(monkeypatch):
+    waits = []
+    monkeypatch.setattr(shared, "_cancellable_sleep", waits.append)
+    monkeypatch.setattr(shared, "charge_rate_limit_wait", lambda s: None)
+
+    def always_429():
+        raise _HttpError(429)
+
+    for _ in range(20):
+        with pytest.raises(_HttpError):
+            shared.call_with_backoff(always_429, max_retries=2)
+    firsts = waits[::1]
+    assert all(2 <= w <= 2.5 for w in firsts) and len(set(firsts)) > 1

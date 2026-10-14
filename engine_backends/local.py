@@ -13,6 +13,7 @@ from .shared import (
     PROVIDER_RESPONSE_MAX_BYTES,
     ContentModerationBlocked,
     TranslationCancelled,
+    TruncatedReply,
     _is_rate_limit_error,
     read_json_capped,
     redact_secrets,
@@ -640,8 +641,10 @@ class OllamaEngine:
                 self.last_usage[key] += value
             check_ollama_reply(resp, num_ctx, estimated)
             # A reply cut off by num_predict (done_reason "length") is still
-            # returned: its complete pairs are kept and the rest asked again.
-            return strip_ollama_thinking(resp["message"]["content"])
+            # returned: its complete pairs are kept and the rest asked again,
+            # in smaller batches.
+            text = strip_ollama_thinking(resp["message"]["content"])
+            return TruncatedReply(text) if resp.get("done_reason") == "length" else text
 
         def send(payload):
             choice = thinking_choice(context)

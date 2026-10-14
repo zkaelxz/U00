@@ -51,7 +51,8 @@ class ClaudeEngine:
             text = "".join(b.text for b in resp.content if b.type == "text").strip()
             # Cut off at max_tokens: the pairs that finished are kept and only
             # the missing lines are asked for again.
-            return TruncatedReply(text) if getattr(resp, "stop_reason", None) == "max_tokens" else text
+            cut_off = getattr(resp, "stop_reason", None) in ("max_tokens", "model_context_window_exceeded")
+            return TruncatedReply(text) if cut_off else text
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="claude",
