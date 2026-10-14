@@ -335,7 +335,8 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
     the learned preferences for this drama's scope. Keeps the profile's
     apply toggle. Nothing is saved when no clear pattern is found. Refused
     before the LLM call when this month's spending cap is used up (capped
-    engines only)."""
+    engines only), and (409) when the stored profile is one the principal
+    may not see (ownership_service.sees_learned_style)."""
     drama = _require_drama(drama_id)
     samples = _visible_edit_samples(principal)
     if len(samples) < adaptive_style.MIN_SAMPLES_TO_LEARN:
@@ -347,12 +348,15 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
         name, settings_service.resolve_gemini_free_tier(gemini_free_tier))
     scope = _scope(drama)
     existing = (db.get_style_profile(scope) or {}).get("profile") or {}
+    if existing.get("preferences") and not _visible_profile(principal, existing):
+        # Replacing it would discard a profile this member can't see or restore.
+        raise ConflictError("Someone else's learned style is in use for this series; "
+                            "an admin can reset it at the PC first.")
 
     usage = paid_calls.usage_logger(None, name, engine, "adaptive_style")
     try:
-        result = adaptive_style.analyze_edit_patterns(
-            samples, engine, existing_profile=_visible_profile(principal, existing),
-            usage_cb=usage)
+        result = adaptive_style.analyze_edit_patterns(samples, engine, existing_profile=existing,
+                                                      usage_cb=usage)
     except ServiceError:
         raise
     except Exception as e:  # engine/network failure: never leak a key
@@ -376,7 +380,7 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
         if (current.get("preferences") or []) != (existing.get("preferences") or []):
             raise ConflictError("The learned style was reset or changed while learning; "
                                 "nothing was saved. Learn again if you still want to.")
-        if _visible_profile(principal, current).get("apply") is False:
+        if current.get("apply") is False:
             profile["apply"] = False
         db.replace_style_profile(scope, profile, sample_count=len(samples))
     return _style_view(drama_id, drama, message=f"Learned {len(prefs)} preference(s).",

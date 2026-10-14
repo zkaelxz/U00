@@ -1,8 +1,9 @@
 """
 A learned style profile is distilled from every edit its learner could
 see, so it reaches only those who see everything (auth off, the PC owner,
-admins) and the member who learned it: never another member, neither in
-the style view nor in their translate prompts (owner decision 2026-10-14).
+admins; owner decision 2026-10-14) and the member who learned it, whose
+profile is built only from edits they could see: never another member,
+neither in the style view nor in their translate prompts.
 Fully mocked: no network.
 """
 import time
@@ -21,7 +22,7 @@ from services import (library_admin_service, line_ai_service, ownership_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services import workspace_review_job_service as wrjs
 from services.auth_service import PERMISSIONS
-from services.service_errors import NotFoundError
+from services.service_errors import ConflictError, NotFoundError
 
 PREF = "Always use contractions in dialogue"
 MINE = "Keep honorifics"
@@ -213,30 +214,68 @@ def test_bulk_translate_job_uses_its_starters_view(people, monkeypatch):
     assert seen and PREF not in seen[0]
 
 
-def test_member_learns_only_from_their_own_view(people, monkeypatch):
-    admin, member, other = people
-    did = _shared_title(admin["user_id"])
+@pytest.fixture
+def learner(monkeypatch):
+    """learn_style's engine and LLM call, faked; returns the analyze calls."""
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda _n: "k")
 
     class Engine:
         supports_reference = True
         model = "fake-model"
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Engine())
-    prior = []
+    calls = []
 
     def analyze(samples, engine, existing_profile=None, usage_cb=None):
-        prior.append(existing_profile)
+        calls.append(existing_profile)
         return {"preferences": [MINE], "summary": "Mine", "confidence": "high"}
     monkeypatch.setattr(adaptive_style, "analyze_edit_patterns", analyze)
+    return calls
+
+
+def _scope_of(did):
+    return f"series:{db.get_drama(did)['series_id']}"
+
+
+def test_member_learn_never_replaces_a_profile_they_cannot_see(people, learner):
+    admin, member, _ = people
+    did = _shared_title(admin["user_id"])
+    with pytest.raises(ConflictError):
+        review_extras_service.learn_style(did, principal=member)
+    assert learner == []  # refused before the LLM call
+    stored = db.get_style_profile(_scope_of(did))["profile"]
+    assert stored["preferences"] == [PREF] and stored["learned_by"] == admin["user_id"]
+
+
+def test_member_learns_their_own_profile(people, learner):
+    admin, member, other = people
+    did = _shared_title(admin["user_id"])
+    db.replace_style_profile(_scope_of(did), {"preferences": []}, 0)  # reset at the PC
     view = review_extras_service.learn_style(did, principal=member)
-    # Someone else's preferences are not handed to the LLM to "refine".
-    assert PREF not in str(prior[0])
     assert view["profile"]["preferences"] == [MINE]
     assert view["history"] == []  # the replaced profiles were someone else's
     assert MINE in _guidelines(did, member)
     assert review_extras_service.get_style(did, principal=other)["profile"] is None
     assert MINE not in _guidelines(did, other)
     assert review_extras_service.get_style(did, principal=admin)["profile"]["preferences"] == [MINE]
+
+
+def test_member_relearn_keeps_an_admins_pause(people, learner, acting, monkeypatch):
+    admin, member, _ = people
+    did = _shared_title(member["user_id"], status="aligned")
+    review_extras_service.set_style_applied(did, False, principal=admin)
+    review_extras_service.learn_style(did, principal=member)
+    stored = db.get_style_profile(_scope_of(did))["profile"]
+    assert stored["preferences"] == [MINE] and stored["apply"] is False
+    seen = []
+    real = translate_run_service.translation_guide.build_style_guidelines
+
+    def spy(*a, **k):
+        seen.append(real(*a, **k))
+        return seen[-1]
+    monkeypatch.setattr(translate_run_service.translation_guide, "build_style_guidelines", spy)
+    acting(admin)
+    _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
+    assert seen and MINE not in seen[0]
 
 
 def test_member_cannot_pause_a_profile_they_cannot_see(people):

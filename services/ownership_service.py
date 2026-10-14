@@ -438,9 +438,11 @@ def acting_principal():
 def sees_learned_style(principal, profile) -> bool:
     """A learned style profile is distilled from every edit its learner
     could see, which for an admin or the PC owner includes other members'
-    private edits. So it reaches only those who see everything, and the
-    member who learned it (owner decision 2026-10-14). A profile with
-    no `learned_by` was learned at the PC or before this rule."""
+    private edits, so only owner and admins may see or apply it (owner
+    decision 2026-10-14). A member also gets the profile they learned
+    themselves: it is built only from edits they could see, so it leaks
+    nothing. A profile with no `learned_by` was learned at the PC or
+    before this rule."""
     if _sees_everything(principal):
         return True
     uid = user_id(principal)
