@@ -276,15 +276,37 @@ def owner_process_alive(pid) -> bool:
         return True
 
 
+def _note_cancel_locked(job, requested_at=None) -> None:
+    """Caller holds _lock: sets `job`'s cancel flag. The first cancel decides
+    whether the run was stopped by someone or by Baihe's own clean stop."""
+    from jobs import job_launch
+    if not job.get("cancel_requested") and job_launch.is_stopping():
+        job["cancelled_by_stop"] = True
+    job["cancel_requested"] = True
+    job.setdefault("cancel_requested_at", requested_at or time.time())
+
+
+def _interrupted_by_stop_locked(job) -> None:
+    """Caller holds _lock and has just ended `job` "cancelled". A run the
+    clean stop cancelled reads as interrupted (outcome "interrupted"), the
+    same as a row the next start closes for a server that died: nobody
+    pressed Cancel. Set only now: job_store rewrites detail_state while a
+    job is active."""
+    if job.get("cancelled_by_stop"):
+        job["detail_state"] = "interrupted"
+        job["error"] = INTERRUPTED_MESSAGE
+        job["message"] = INTERRUPTED_MESSAGE
+
+
 def _cancel_queued_locked(job_id, job, requested_at=None) -> list:
     """Caller holds _lock and has seen `job` still queued: it ends
     "cancelled" without ever starting, and its record stays so the Jobs
     page lists the cancelled run. Returns the finish hooks to run once
     _lock is released."""
-    job["cancel_requested"] = True
-    job.setdefault("cancel_requested_at", requested_at or time.time())
+    _note_cancel_locked(job, requested_at)
     job["status"] = "cancelled"
     job["finished_at"] = time.time()
+    _interrupted_by_stop_locked(job)
     hooks = _take_queued_locked(job_id)
     _mirror_locked(job_id)
     _refresh_queue_messages_locked()
@@ -322,8 +344,7 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
         if job.get("status") == "queued":
             hooks = _cancel_queued_locked(job_id, job, requested_at)
         else:
-            job["cancel_requested"] = True
-            job.setdefault("cancel_requested_at", requested_at or time.time())
+            _note_cancel_locked(job, requested_at)
         if job.get("status") == "running" and job.get("message") != CANCELLING_MESSAGE:
             job["message"] = CANCELLING_MESSAGE
             _mirror_locked(job_id)

@@ -15,7 +15,7 @@ import traceback
 import gpu_probe
 import job_process_result
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
-                             is_cancel_requested, stage_ticker, update_progress)
+                             _interrupted_by_stop_locked, is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
 from jobs import user_caps
 from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
@@ -468,6 +468,7 @@ def _mark_cancelled_locked(job_id):
         job["finished_at"] = time.time()
         if job.get("cancel_requested"):
             job["message"] = CANCELLED_MESSAGE
+        _interrupted_by_stop_locked(job)
         _mirror_locked(job_id)
 
 

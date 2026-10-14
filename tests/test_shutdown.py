@@ -572,3 +572,59 @@ def test_queued_jobs_leave_the_queue_first(monkeypatch):
     monkeypatch.setattr(jobs_service, "cancel_job", lambda j, principal=None: order.append(("cancel", j)))
     shutdown_service.cancel_all_jobs()
     assert order == [("unqueue", "q"), ("unqueue", "r"), ("cancel", "q"), ("cancel", "r")]
+
+
+class TestStopCancelIsAnInterruption:
+    """A job the clean stop cancels was interrupted by Baihe stopping, not
+    cancelled by anyone: its record says "interrupted", like a row the next
+    start closes for a server that died."""
+
+    @staticmethod
+    def _until_cancelled(job_id, started):
+        def work():
+            started.set()
+            while not background_jobs.is_cancel_requested(job_id):
+                threading.Event().wait(0.01)
+            raise background_jobs.JobCancelled(job_id)
+        return work
+
+    def _outcome(self, job_id):
+        from services import jobs_service
+        return jobs_service.get_job(job_id)["outcome"]
+
+    def test_a_running_job_the_stop_cancels_is_interrupted(self, isolated_db):
+        from jobs import job_runner
+        started = threading.Event()
+        assert job_launch.start_job("stop_run", self._until_cancelled("stop_run", started))
+        assert started.wait(5)
+        job_launch.refuse_new_jobs()
+        assert shutdown_service.cancel_all_jobs() == ["stop_run"]
+        assert job_runner.wait_for_job_threads(5.0)
+        assert background_jobs.get_status("stop_run")["status"] == "cancelled"
+        assert self._outcome("stop_run") == "interrupted"
+
+    def test_a_queued_job_the_stop_cancels_is_interrupted(self, isolated_db):
+        from jobs import job_runner, job_settings
+        job_settings.set_gpu_limit_enabled(True)
+        started = threading.Event()
+        assert job_launch.start_job("stop_gpu", self._until_cancelled("stop_gpu", started),
+                                    gpu_touching=True)
+        assert started.wait(5)
+        assert job_launch.start_job("stop_wait", lambda: None, gpu_touching=True)
+        assert background_jobs.get_status("stop_wait")["status"] == "queued"
+        job_launch.refuse_new_jobs()
+        shutdown_service.cancel_all_jobs()
+        assert job_runner.wait_for_job_threads(5.0)
+        assert self._outcome("stop_wait") == "interrupted"
+        assert self._outcome("stop_gpu") == "interrupted"
+
+    def test_a_cancel_pressed_before_the_stop_stays_cancelled(self, isolated_db):
+        from jobs import job_runner
+        started = threading.Event()
+        assert job_launch.start_job("user_cancel", self._until_cancelled("user_cancel", started))
+        assert started.wait(5)
+        background_jobs.request_cancel("user_cancel")
+        job_launch.refuse_new_jobs()
+        shutdown_service.cancel_all_jobs()
+        assert job_runner.wait_for_job_threads(5.0)
+        assert self._outcome("user_cancel") == "cancelled"
