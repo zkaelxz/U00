@@ -220,3 +220,28 @@ class TestVisibleTextOnHostilePages:
         assert "real paragraph" in detect.visible_text(page)
         reasons = detect.classify(200, {}, page, "https://example.com/")
         assert detect.FailureReason.EMPTY_SPA_SHELL not in reasons
+
+
+class TestAppendedTranslationInATitle:
+    """A bilingual-mode translator appends its translation to each heading, so the page
+    title reads as the source name with an English one glued on and no separator."""
+
+    @pytest.mark.parametrize("title, expected", [
+        ("被弃养的金丝雀强取豪夺了_猫The abandoned canary was forcibly taken", "被弃养的金丝雀强取豪夺了_猫"),
+        ("一直被当成无能的魔导The mage, always considered incompetent, rises", "一直被当成无能的魔导"),
+        ("捨てられたカナリアSome English Words", "捨てられたカナリア"),
+        # Left alone: a separator, a single word, no Latin text, or no source script.
+        ("魔道祖师 Grandmaster of Demonic Cultivation", "魔道祖师 Grandmaster of Demonic Cultivation"),
+        ("Re零Zero", "Re零Zero"),
+        ("天官赐福", "天官赐福"),
+        ("Heaven Official's Blessing", "Heaven Official's Blessing"),
+        ("", ""),
+    ])
+    def test_cuts_only_a_glued_on_translation(self, title, expected):
+        assert detect.without_appended_translation(title) == expected
+
+    def test_a_previewed_page_title_is_the_source_name_only(self):
+        from sources import front_door
+        page = ("<html><head><title>被弃养的金丝雀强取豪夺了The abandoned canary was forcibly taken"
+                "</title></head><body></body></html>")
+        assert front_door.classify_html("https://x.invalid/s/1", page).title == "被弃养的金丝雀强取豪夺了"

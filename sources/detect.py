@@ -97,6 +97,28 @@ def page_title(html: str) -> str:
     return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
 
 
+# A source-script character with a Latin letter right against it: how a bilingual-mode
+# translator leaves an English name glued onto the original one.
+_SOURCE_SCRIPT = "\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af"
+_GLUED_TRANSLATION_RE = re.compile(rf"(?<=[{_SOURCE_SCRIPT}_])(?=[A-Za-z])")
+_SOURCE_SCRIPT_RE = re.compile(rf"[{_SOURCE_SCRIPT}]")
+_MIN_APPENDED_WORDS = 2
+
+
+def without_appended_translation(title: str) -> str:
+    """The title minus an English translation glued onto it with no separator.
+
+    Only that exact shape is cut: a real bilingual name has a space or a mark between
+    its parts, and a name with no source script has nothing to protect. Two or more
+    Latin words after the join, so "Re零Zero" stays.
+    """
+    for m in _GLUED_TRANSLATION_RE.finditer(title or ""):
+        rest = title[m.start():]
+        if len(rest.split()) >= _MIN_APPENDED_WORDS and not _SOURCE_SCRIPT_RE.search(rest):
+            return title[:m.start()].rstrip()
+    return title or ""
+
+
 def _strip_blocks(html: str) -> str:
     parts = []
     pos = 0
