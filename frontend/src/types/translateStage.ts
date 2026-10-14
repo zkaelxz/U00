@@ -108,6 +108,8 @@ export interface EstimateParams {
   reflect?: boolean
   bulk?: boolean
   thinking?: boolean
+  /** The run's own batch size; omitted, the engine's default. */
+  batch_size?: number
 }
 
 export interface FallbackEngine {

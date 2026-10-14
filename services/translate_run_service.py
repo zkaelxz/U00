@@ -202,9 +202,11 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
 def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool = None,
-                            job_cost_cap_usd: float = None, line_ids=None) -> dict:
+                            job_cost_cap_usd: float = None, line_ids=None,
+                            batch_size: int = None) -> dict:
     """line_ids (optional): estimate only these lines (of those the run
-    would translate)."""
+    would translate). batch_size (optional): the run's own batch size, which
+    sets how many times the instructions are sent; omitted, the engine's default."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = require_drama(drama_id)
     engine_name = (engine_name or drama.get("translation_engine")
@@ -239,8 +241,9 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
         stand_in = SimpleNamespace(name=engine_name, model=resolved_model, free_tier=free_tier)
         fn = (translate_engines.estimate_reflect_mode_cost if reflect
               else translate_engines.estimate_translation_cost)
-        batch_size = get_translate_config_defaults(
-            drama.get("content_mode") == "novel_narration", engine_name, model)["batch_size"]
+        if batch_size is None:
+            batch_size = get_translate_config_defaults(
+                drama.get("content_mode") == "novel_narration", engine_name, model)["batch_size"]
         estimated = float(fn(stand_in, [ln["zh"] for ln in targets], batch_size))
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR

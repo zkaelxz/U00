@@ -123,6 +123,16 @@ def test_estimate_relationships(isolated_db, cap):
     assert forced["estimated_usd"] > plain["estimated_usd"]
 
 
+def test_estimate_uses_the_runs_own_batch_size(isolated_db, cap):
+    cap(0)
+    did = _drama()
+    _seed(did, [("你好世界" * 5, "")] * 40)
+    default = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
+    small = svc.estimate_translate_cost(did, "claude", batch_size=2)["estimated_usd"]
+    one = svc.estimate_translate_cost(did, "claude", batch_size=svc.MAX_BATCH_SIZE)["estimated_usd"]
+    assert small > default >= one
+
+
 def test_free_engines(isolated_db, cap, monkeypatch):
     patch_setting(monkeypatch, "gemini_free_tier", True)  # a request alone can't grant the free tier
     cap(0)

@@ -65,12 +65,14 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                bulk: bool = False,
                                thinking: Optional[bool] = None,
                                gemini_free_tier: Optional[bool] = None,
-                               job_cost_cap_usd: Optional[float] = Query(None, ge=0)):
+                               job_cost_cap_usd: Optional[float] = Query(None, ge=0),
+                               batch_size: Optional[int] = Query(None, ge=1, le=translate_run_service.MAX_BATCH_SIZE)):
     return translate_thinking_service.annotate_estimate(
         translate_run_service.estimate_translate_cost(
             drama_id, engine_name=engine, model=model, reflect=reflect,
             force_retranslate=force_retranslate, bulk=bulk,
-            gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd),
+            gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd,
+            batch_size=batch_size),
         drama_id, thinking, reflect)
 
 

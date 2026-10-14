@@ -174,6 +174,9 @@ describe('translate form', () => {
     expect(estimateKeyFor({ ...base, engine: 'claude' })).not.toBe(key)
     expect(estimateKeyFor({ ...base, reflect: true })).not.toBe(key)
     expect(estimateKeyFor({ ...base, cost_cap: 'x' })).toBeNull()
+    expect(estimateKeyFor({ ...base, batch_size: '8' })).not.toBe(key)
+    expect(buildEstimateParams({ ...base, batch_size: '8' })).toMatchObject({ batch_size: 8 })
+    expect(buildEstimateParams({ ...base, batch_size: '99999' })?.batch_size).toBeUndefined()
   })
 
   it('describes month spend without implying a zero cap was reached', () => {

@@ -240,3 +240,10 @@ def test_gemini_empty_stop_reply_is_retried_not_blocked(gemini_replies):
 def test_gemini_recitation_with_text_keeps_the_text(gemini_replies):
     gemini_replies.append(_gemini_body(['{"1":"E1"}'], finish="RECITATION"))
     assert _gemini().translate_batch(["a"], {}) == ["E1"]
+
+
+def test_claude_context_window_stop_is_a_cut_off_too():
+    replies = [lambda kw: _claude_resp('{"1":"E1","2":"cu', stop="model_context_window_exceeded"),
+               lambda kw: _claude_resp('{"2":"E2"}')]
+    engine = _claude(replies)
+    assert engine.translate_batch(["a", "b"], {}) == ["E1", "E2"]

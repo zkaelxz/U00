@@ -66,6 +66,9 @@ def test_estimate_validation(client):
     assert "error" in r.json()
     r = client.get(f"{BASE}/{did}/estimate", params={"job_cost_cap_usd": -1})
     assert r.status_code == 422
+    for bad in (0, 1000):
+        assert client.get(f"{BASE}/{did}/estimate", params={"batch_size": bad}).status_code == 422
+    assert client.get(f"{BASE}/{did}/estimate", params={"engine": "fake", "batch_size": 5}).status_code == 200
 
 
 def test_no_secrets_in_responses(client, monkeypatch):
