@@ -678,10 +678,8 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     """Reinstalls every package whose version pip changed or removed; the
     sentence says how that went (dist names only)."""
     background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.95, "Putting your earlier packages back...")
-    probe = admin_svc._cancel_probe(DEPENDENCY_JOB_ID)
-    # Cancel is sticky: after a cancelled pip the probe is already true, and
-    # honouring it would skip the very restore the Cancel asked for.
-    cancel = None if probe() else probe
+    # After a cancelled pip, only a later Cancel stops the restore it asked for.
+    cancel = background_jobs.later_cancel_probe(DEPENDENCY_JOB_ID)
     try:
         restored, failed, skipped, stopped, added, left_out = _restore(before, skip, cancel)
     except Exception:     # noqa: BLE001 -- the install's own outcome must still be stored

@@ -415,6 +415,30 @@ def test_a_transcribe_over_lines_needs_lines_edit_as_for_a_click(isolated_db):
     assert item["reason"] == f"Skipped: {ownership_service._REPLACE_NEEDS_EDIT}"
 
 
+def test_a_start_time_passed_long_ago_while_the_pc_slept_is_missed(jobs):
+    # A sleeping PC runs no tick: on wake, hours late, the queue must not
+    # start on its own any more than after a restart.
+    did = _drama()
+    q.add_item(None, did, "transcribe", True, at_pc=True)
+    now = 1_900_000_000.0
+    q.set_schedule(None, "02:00", now=now)
+    start_at = q.get_queue(None)["schedule"]["start_at"]
+    q.tick(now=start_at + q.SCHEDULE_LATE_SECONDS + 1)
+    assert jobs.started == []
+    state = q.get_queue(None)
+    assert state["state"] == "idle" and state["schedule"]["missed"] is True
+
+
+def test_a_start_time_a_little_late_still_fires(jobs):
+    did = _drama()
+    q.add_item(None, did, "transcribe", True, at_pc=True)
+    now = 1_900_000_000.0
+    q.set_schedule(None, "02:00", now=now)
+    start_at = q.get_queue(None)["schedule"]["start_at"]
+    q.tick(now=start_at + q.SCHEDULE_LATE_SECONDS - 1)
+    assert jobs.started == [f"transcribe_{did}"]
+
+
 def test_a_restored_backup_document_never_resumes_on_its_own(jobs):
     # A library restore swaps app_settings under the running server: the
     # document from the backup says "running" and holds an unfired schedule.

@@ -117,9 +117,15 @@ class TestForceStop:
                      (gpu_slots.GPU_LOCK_STALE_SECONDS + 60,))
         conn.commit()
         conn.close()
-        assert gpu_slots.holder_count() == 0, "stale rows are ignored without the heartbeat"
+        # This server knows its abandoned worker still runs; another process
+        # only has the heartbeat to go on.
+        assert gpu_slots.holder_count() == 1, "this server's live abandoned worker still counts"
         job_table._heartbeat_once()
-        assert _slot_held("hung_g"), "the heartbeat keeps the abandoned worker's row live"
+        conn = db.get_conn()
+        beat = conn.execute("SELECT heartbeat_at FROM gpu_lock WHERE holder = 'ui:hung_g'").fetchone()[0]
+        conn.close()
+        assert time.time() - beat < gpu_slots.GPU_LOCK_STALE_SECONDS, \
+            "the heartbeat keeps the abandoned worker's row live for other processes"
 
         second = threading.Event()
         assert job_launch.start_job("second_g", second.set, gpu_touching=True) is True

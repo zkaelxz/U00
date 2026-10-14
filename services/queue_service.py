@@ -15,8 +15,9 @@ document, never while a job runs, and reads job state through
 `jobs_service.get_job`, the same call the Jobs page uses.
 
 Nothing is resumed after a restart: a running item becomes interrupted and a
-start time that passed while the app was off becomes "missed", which only
-the owner can turn into a run.
+start time that passed while the app was off (or the PC slept through it)
+becomes "missed", which only the owner can turn into a run, and a restored
+library brings back no start time.
 """
 
 import datetime
@@ -46,6 +47,10 @@ MAX_ITEMS = 200
 MAX_ITEMS_PER_MEMBER = 50
 STEPS = ("transcribe", "translate", "export")
 POLL_SECONDS = 5.0
+# A start time first seen this late was slept through (the PC was asleep, so
+# nothing ticked) and becomes "missed", like one that passed while Baihe was
+# off. Far above any tick delay: an export the runner does itself, a slow disk.
+SCHEDULE_LATE_SECONDS = 30 * 60
 
 WAITING, RUNNING, DONE, FAILED, SKIPPED, INTERRUPTED, CANCELLED = (
     "waiting", "running", "done", "failed", "skipped", "interrupted", "cancelled")
@@ -703,7 +708,10 @@ def tick(now: float = None) -> None:
         doc = _load(now)
         changed = doc.get("settled", False)
         sched = doc["schedule"]
-        if sched and not sched["missed"] and now >= sched["start_at"]:
+        if sched and not sched["missed"] and now >= sched["start_at"] + SCHEDULE_LATE_SECONDS:
+            sched["missed"] = True
+            changed = True
+        elif sched and not sched["missed"] and now >= sched["start_at"]:
             doc["schedule"] = None
             doc["state"] = ACTIVE
             doc["notice"] = None
@@ -790,6 +798,16 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         _start_next(now, deferred | {claimed["id"]})
     elif status != RUNNING:
         _wake.set()     # straight on to the next item
+
+
+def clear_schedule(conn) -> None:
+    """Drops the start time from the document on `conn` (a restored library:
+    its start time is from the moment the backup was taken, and one still
+    ahead would start the queue on its own), and its instance, so the next
+    read settles it even when this same server wrote the backup (a running
+    queue would otherwise go on starting items). The caller commits."""
+    conn.execute("UPDATE app_settings SET value = json_remove(json_set(value, '$.schedule', "
+                 "json('null')), '$.instance') WHERE key = ? AND json_valid(value)", (QUEUE_KEY,))
 
 
 def restore_at_startup(now: float = None) -> None:
