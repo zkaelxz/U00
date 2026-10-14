@@ -1061,6 +1061,14 @@ def test_a_young_staging_folder_without_journal_is_kept_until_stale(client):
     assert not os.path.lexists(staging)
 
 
+def test_recovery_staleness_limit_is_read_when_called(client, monkeypatch):
+    staging = os.path.join(db.DRAMAS_DIR, db.MEDIA_STAGING_PREFIX + "cd" * 16)
+    _folder_with(os.path.join(staging, "drama-1"), "a.mp3", b"a")
+    monkeypatch.setattr(db, "STALE_MEDIA_STAGING_SECONDS", 0)
+    assert db.recover_media_imports(now=time.time() + 1)["settled"] == 1
+    assert not os.path.lexists(staging)
+
+
 @pytest.mark.parametrize("journal", [
     b"[" * 200000,
     b"\xff\xfe",
