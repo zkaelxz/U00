@@ -51,6 +51,7 @@ from urllib.parse import urlsplit
 import background_jobs
 from jobs import job_launch
 import db
+import storage
 from services import drama_service, novel_attach_service, settings_service
 from lib import proc as proc_run, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -421,22 +422,11 @@ def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float = 
                 continue
             if drama.isdigit() and background_jobs.is_running(job_id_for(int(drama))):
                 continue
-            names = os.listdir(base)
         except OSError:
             continue
-        for name in names:
-            if not name.startswith(".lncrawl_"):
-                continue
-            path = os.path.join(base, name)
-            try:
-                if os.path.islink(path) or not os.path.isdir(path):
-                    continue
-                if now - os.lstat(path).st_mtime < max_age:
-                    continue
-                shutil.rmtree(path)
-                removed += 1
-            except OSError:
-                pass
+        removed += storage._sweep_folder(
+            base, lambda name, path: name.startswith(".lncrawl_") and os.path.isdir(path),
+            max_age, now, set(), False)["removed"]
     return removed
 
 

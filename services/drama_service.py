@@ -35,6 +35,7 @@ import uuid
 
 import background_jobs
 import db
+import storage
 from jobs import job_store
 from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
@@ -432,33 +433,26 @@ def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: fl
     delete whose rename-back also failed) are left alone. Returns how many were removed; never
     raises."""
     now = time.time() if now is None else now
-    removed = 0
-    try:
-        names = os.listdir(db.DRAMAS_DIR)
-    except OSError:
-        return 0
-    for name in names:
-        if not _TOMBSTONE_RE.match(name):
-            continue
-        path = os.path.join(db.DRAMAS_DIR, name)
+
+    def stale_tombstone(name, path):
+        if not _TOMBSTONE_RE.match(name) or not os.path.isdir(path):
+            return False
         try:
-            if os.path.islink(path) or not os.path.isdir(path):
-                continue
-            # A delete whose row delete failed AND whose rename-back failed
+            # A delete whose row delete failed AND whose rename-back also failed
             # leaves a live drama's files here: keep them for manual recovery.
             if db.get_drama(int(name.split(".", 1)[0])) is not None:
                 log.warning("A leftover deleted-drama folder belongs to a drama that still "
                             "exists; it was kept")
-                continue
-            if now - os.path.getmtime(path) < max_age:
-                continue
-            shutil.rmtree(path)
-            removed += 1
-        except (OSError, ValueError, OverflowError):
-            # OverflowError: an absurdly long all-digit name can't be looked
-            # up; skip that folder and keep sweeping.
-            log.warning("Could not check or remove a leftover deleted-drama folder")
-    return removed
+                return False
+        except (ValueError, OverflowError):
+            # An absurdly long all-digit name can't be looked up; skip it and keep sweeping.
+            log.warning("Could not check a leftover deleted-drama folder")
+            return False
+        return True
+
+    # realpath: a dramas folder moved to another drive behind a link is still swept.
+    return storage._sweep_folder(os.path.realpath(db.DRAMAS_DIR), stale_tombstone, max_age, now,
+                                 set(), False)["removed"]
 
 
 def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:

@@ -44,11 +44,11 @@ import codecs
 import io
 import logging
 import os
-import tempfile
 from typing import Optional
 
 import db
 import subtitle_parse
+from lib.atomic_write import atomic_write
 from lib.safe_paths import plain_file_in
 from services import drama_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
@@ -214,16 +214,9 @@ def _with_warning(result: dict, guessed) -> dict:
 
 
 def _write_atomic(drama_id: int, filename: str, text: str):
-    final = os.path.join(db.drama_dir(drama_id), filename)
-    fd, tmp = tempfile.mkstemp(prefix=".novelfile_", suffix=".part", dir=os.path.dirname(final))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp, final)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        raise
+    # .part, not .tmp: the "Leftover temp files" cleanup deletes any *.tmp in the title's folder.
+    atomic_write(os.path.join(db.drama_dir(drama_id), filename), text,
+                 prefix=".novelfile_", suffix=".part")
 
 
 def _file_status(path) -> dict:
