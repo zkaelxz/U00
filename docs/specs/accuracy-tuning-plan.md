@@ -55,6 +55,7 @@ The owner wants better transcription and translation accuracy, and evidence for 
 5. **Adopt a change only if it beats the default on the hold-out by the margin:**
    - Transcription: at least 2 CER points and at least twice the measured noise.
    - Translation: at least 1.5 chrF points, with the judge score no lower.
+   - **Results are kept separate per language** and never averaged across Chinese, Japanese and Korean. Each language gets its own scores and its own recommendation, because the best setting can differ: the earlier tests found beam 1 cost large-v3 1.5 CER on Japanese but not on Chinese.
    - Results are also shown per tag (music, whisper, crosstalk…), so a setting that helps one kind of audio and hurts another is promoted only for that kind.
    - Otherwise the default stays.
 6. **Compare like with like.** Two runs are compared only on the clips both scored; excluding or deleting a clip never skews a comparison.
@@ -90,6 +91,8 @@ One PR each, in this order.
 ### A1. Clip-set import and clean-up controls
 
 - Import a clip folder plus manifest (format in Method). Clips are copied into `db.BENCHMARK_DIR`; each line makes a transcription case and a translation case, with title, tags and scene order kept. Size and count caps like `MAX_IMPORT_CASES`; paths are never returned in API responses.
+- **Language per clip, not per import.** `language` (`zh`, `ja` or `ko`) is required on every manifest line, so one clip set can mix all three. Today's text import takes one `source_language` for the whole import; the clip import does not.
+- **Mismatch check on import.** Kana in a transcript points to Japanese and Hangul to Korean. When the text doesn't match the label, the import warns and names the clip rather than silently relabelling it.
 - **Exclude or include per case.** Safer than deleting: a suspect clip drops out of scoring and can be brought back later.
 - **Edit a reference in place.** Fix a case's transcript or translation without deleting it, so its past results stay tied to it. The edit is recorded (when and what changed), so a score from before the fix can be told apart from one after it.
 - **Delete a run** from the Runs list, with a confirmation, for runs that crashed, used the wrong settings or were otherwise bad. Its results go with it (`ON DELETE CASCADE`). Deleting a case stays as it is today.
