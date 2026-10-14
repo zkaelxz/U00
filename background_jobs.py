@@ -437,7 +437,8 @@ def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: floa
     # ffmpeg reads no Python I/O settings, so the child keeps the caller's environment.
     run = proc.run_captured(cmd, math.inf if timeout is None else timeout,
                             drain_seconds=kill_timeout, cwd=cwd,
-                            cancel=lambda: is_cancel_requested(job_id), utf8_env=False,
+                            cancel=lambda: is_cancel_requested(job_id), warn=_warn,
+                            utf8_env=False,
                             on_start=note_child, poll_seconds=poll_interval)
     if run.cancelled:
         raise JobCancelled(job_id)
