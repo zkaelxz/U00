@@ -213,6 +213,12 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 *, *::before, *::after { box-sizing: border-box; }
 
 html { scrollbar-gutter: stable; font-size: 93.75%; }
+/* Display preferences (src/display.ts). Overriding the tokens on html reaches PageShell's --page-* aliases and the dock's cap. */
+html[data-width='wide'] { --content-max: 1800px; }
+html[data-width='full'] { --content-max: none; --content-max-wide: none; }
+html[data-text='small'] { font-size: 87.5%; }
+html[data-text='large'] { font-size: 106.25%; }
+html[data-text='larger'] { font-size: 118.75%; }
 /* CJK text uses each language's system fonts, then the Latin face for any Latin in it. */
 :lang(zh) { font-family: var(--font-zh), var(--font-sans); line-height: var(--leading-cjk); }
 :lang(ja) { font-family: var(--font-ja), var(--font-sans); line-height: var(--leading-cjk); }

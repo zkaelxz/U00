@@ -30,6 +30,7 @@ import { NotificationsSection } from './settings/NotificationsSection'
 import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
+import { DisplayCard } from './settings/DisplayCard'
 import { AdvancedCard, DefaultsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
@@ -279,6 +280,7 @@ export default function SettingsPage() {
         {panel('sharing', (
           <>
             <SettingsCard id="sharing"><SharingCard /></SettingsCard>
+            <SettingsCard id="display"><DisplayCard /></SettingsCard>
             <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
             <SettingsCard id="devices"><DevicesCard /></SettingsCard>
             <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
