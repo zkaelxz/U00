@@ -223,13 +223,15 @@ class TestVisibleTextOnHostilePages:
 
 
 class TestAppendedTranslationInATitle:
-    """A bilingual-mode translator appends its translation to each heading, so the page
-    title reads as the source name with an English one glued on and no separator."""
+    """A bilingual-mode translator puts its translation into the heading, so the page title
+    reads as the source name with an English run glued in and no separator."""
 
     @pytest.mark.parametrize("title, expected", [
         ("被弃养的金丝雀强取豪夺了_猫The abandoned canary was forcibly taken", "被弃养的金丝雀强取豪夺了_猫"),
         ("一直被当成无能的魔导The mage, always considered incompetent, rises", "一直被当成无能的魔导"),
         ("捨てられたカナリアSome English Words", "捨てられたカナリア"),
+        ("一直被当成无能的魔导The mage, always considered incompetent, is actually the world's strongest."
+         "师其实是世界最强，却因遭到幽禁而毫无自觉", "一直被当成无能的魔导师其实是世界最强，却因遭到幽禁而毫无自觉"),
         # Left alone: a separator, a single word, no Latin text, or no source script.
         ("魔道祖师 Grandmaster of Demonic Cultivation", "魔道祖师 Grandmaster of Demonic Cultivation"),
         ("Re零Zero", "Re零Zero"),
