@@ -563,7 +563,41 @@ def _port_busy_message(port: int, url: str, stored) -> str:
             f"({url}api/health doesn't answer). Close that program, or {fix}.")
 
 
+def spawn_app_update(root) -> None:
+    """Starts the copied swap helper detached; it stops nothing (no server is
+    up yet), switches, starts the new version and opens its window."""
+    from installer import app_swap
+    kwargs = {"cwd": str(app_swap.work_dir(root)), "close_fds": True}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(app_swap.helper_command(root, "apply"), **kwargs)
+
+
+def finish_app_update(headless: bool, stop=None) -> bool:
+    """An app-only update left unfinished (docs/windows-installer-design.md,
+    "App-only updates") is rolled back or completed before anything starts
+    from app\. True when a queued switch was handed to the helper, which
+    starts the app itself."""
+    from installer import app_swap
+    root = APP_DIR.parent
+    defer = os.environ.pop(app_swap.DEFER_ENV, "") == "1"
+    if app_swap.read_journal(root) is None:
+        return False
+    # Windows won't rename the folder that is this process's current one
+    # (the shortcut starts it in app\).
+    os.chdir(root)
+    outcome = app_swap.recover(root, stop=stop or stop_server)
+    if outcome == "broken":
+        raise LaunchError(app_swap.BROKEN_MESSAGE)
+    if outcome == "queued" and not defer and not headless:
+        spawn_app_update(root)
+        return True
+    return False
+
+
 def launch(headless: bool = False) -> int:
+    if finish_app_update(headless):
+        return 0
     env = server_env()
     stored = service_port()
     if stored is not None:

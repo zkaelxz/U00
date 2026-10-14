@@ -46,9 +46,21 @@ def test_signature_binds_name_and_hash(keys):
     assert not rs.verify(other_public, sig, NAME, SHA)
 
 
+def test_an_installer_signature_never_verifies_an_app_zip_or_back(keys):
+    seed, public, _, _ = keys
+    app = "BaiheStudio-App-0.2.0.zip"
+    assert rs.verify(public, rs.sign(seed, app, SHA), app, SHA)
+    assert not rs.verify(public, rs.sign(seed, NAME, SHA), app, SHA)
+    assert not rs.verify(public, rs.sign(seed, app, SHA), NAME, SHA)
+
+
 @pytest.mark.parametrize("name,sha", [
     ("BaiheStudio-Setup-0.2.0.exe\nsha256: x", SHA), ("other.exe", SHA),
-    (NAME, SHA.upper()), (NAME, SHA[:-1])])
+    (NAME, SHA.upper()), (NAME, SHA[:-1]),
+    # Only the two release file names, each with a version.
+    ("BaiheStudio-App-0.2.0.exe", SHA), ("BaiheStudio-Setup-0.2.0.zip", SHA),
+    ("BaiheStudio-App-latest.zip", SHA), ("BaiheStudio-App-.zip", SHA),
+    ("BaiheStudio-App-0.2.0.zip.sig", SHA), ("BaiheStudio-Other-0.2.0.zip", SHA)])
 def test_message_parts_cannot_add_lines(name, sha):
     with pytest.raises(rs.SignatureFormatError):
         rs.signed_message(name, sha)
@@ -148,14 +160,21 @@ fi
 """
 
 
-def _run_release(tmp_path, key):
+FAKE_GH_WITH_APP_ZIP = FAKE_GH.replace(
+    "printf 'MZ fake installer' > \"$d/$n/$n.exe\"",
+    "printf 'MZ fake installer' > \"$d/$n/$n.exe\"\n"
+    "  printf 'PK fake app' > \"$d/$n/BaiheStudio-App-0.2.0.zip\"\n"
+    "  printf '{}' > \"$d/$n/BaiheStudio-App-0.2.0.json\"")
+
+
+def _run_release(tmp_path, key, fake_gh=FAKE_GH):
     if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
                                and shutil.which("base64")):
         pytest.skip("needs bash, openssl and coreutils (the release job runs on ubuntu)")
     script = _release_script()
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    (bindir / "gh").write_text(FAKE_GH, encoding="utf-8")
+    (bindir / "gh").write_text(fake_gh, encoding="utf-8")
     (bindir / "gh").chmod(0o755)
     work = tmp_path / "work"
     work.mkdir()
@@ -204,3 +223,21 @@ def test_release_job_with_a_broken_secret_publishes_nothing(tmp_path, bad):
     proc, gh_args, _ = _run_release(tmp_path, bad)
     assert proc.returncode != 0 and gh_args is None
     assert bad not in proc.stdout
+
+
+def test_release_job_signs_the_app_zip_too(tmp_path, keys):
+    seed, public, private, _ = keys
+    proc, gh_args, work = _run_release(tmp_path, private, FAKE_GH_WITH_APP_ZIP)
+    assert proc.returncode == 0, proc.stderr
+    out = work / "out" / "BaiheStudio-Setup-0.2.0"
+    app = "BaiheStudio-App-0.2.0.zip"
+    assert sorted(Path(a).name for a in gh_args if a.startswith("out/")) == sorted([
+        NAME, NAME + ".sha256", NAME + ".sig", app, app + ".sha256", app + ".sig",
+        "BaiheStudio-App-0.2.0.json"])
+    for name in (NAME, app):
+        data = (out / name).read_bytes()
+        sig = rs.parse_signature((out / (name + ".sig")).read_bytes())
+        assert rs.verify(public, sig, name, hashlib.sha256(data).hexdigest())
+        assert (out / (name + ".sha256")).read_text().split() == [
+            hashlib.sha256(data).hexdigest(), name]
+    assert private.split(":", 1)[1] not in proc.stdout + proc.stderr

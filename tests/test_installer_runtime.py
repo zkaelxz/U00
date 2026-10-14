@@ -901,3 +901,62 @@ class TestPythonVersionMatchesTheInstaller:
         text = Path(ROOT, ".github", "workflows", workflow).read_text(encoding="utf-8")
         found = re.findall(r'python-version:\s*"([^"]+)"', text)
         assert found and set(found) == {want}, f"{workflow} must test on Python {want}"
+
+
+class TestFinishAppUpdate:
+    """launcher.finish_app_update: an app-only update left unfinished is
+    settled before anything starts from app\\ (installer/app_swap.py)."""
+
+    @pytest.fixture
+    def root(self, tmp_path, monkeypatch):
+        from installer import app_swap
+        root = tmp_path / "Baihe Studio"
+        (root / "app").mkdir(parents=True)
+        (root / "app" / "VERSION").write_text("0.1.0")
+        (root / "manifest.json").write_text(json.dumps({"product": "Baihe Studio",
+                                                        "app_version": "0.1.0"}))
+        monkeypatch.setattr(launcher, "APP_DIR", root / "app")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv(app_swap.DEFER_ENV, raising=False)
+        spawned = []
+        monkeypatch.setattr(launcher, "spawn_app_update", spawned.append)
+        return root, app_swap, spawned
+
+    def test_nothing_to_do_without_a_journal(self, root):
+        root, _, spawned = root
+        assert launcher.finish_app_update(headless=False) is False
+        assert spawned == []
+
+    def test_a_queued_switch_is_handed_to_the_helper(self, root):
+        root, sw, spawned = root
+        sw.write_journal(root, sw.QUEUED, "0.1.0", "0.2.0", "0.1.0")
+        assert launcher.finish_app_update(headless=False) is True
+        assert spawned == [root]
+
+    def test_the_start_right_after_queueing_leaves_it_for_the_next(self, root, monkeypatch):
+        root, sw, spawned = root
+        sw.write_journal(root, sw.QUEUED, "0.1.0", "0.2.0", "0.1.0")
+        monkeypatch.setenv(sw.DEFER_ENV, "1")
+        assert launcher.finish_app_update(headless=False) is False
+        assert spawned == [] and sw.DEFER_ENV not in os.environ
+        assert sw.read_journal(root)["state"] == sw.QUEUED
+
+    def test_an_interrupted_check_is_rolled_back_after_stopping_the_server(self, root):
+        root, sw, _ = root
+        os.rename(root / "app", root / "app-0.1.0")
+        (root / "app").mkdir()
+        (root / "app" / "VERSION").write_text("0.2.0")
+        sw.write_journal(root, sw.CHECKING, "0.1.0", "0.2.0", "0.1.0")
+        stopped = []
+        assert launcher.finish_app_update(headless=False, stop=lambda: stopped.append(1)) is False
+        assert stopped == [1]
+        assert (root / "app" / "VERSION").read_text() == "0.1.0"
+        assert sw.read_result(root)["code"] == "recovered"
+
+    def test_an_update_it_cant_settle_stops_the_start(self, root):
+        root, sw, _ = root
+        os.rename(root / "app", root / "app-0.1.0")
+        (root / "app-update").mkdir()
+        (root / "app-update" / "swap.json").write_text("{}")
+        with pytest.raises(launcher.LaunchError, match="installer again"):
+            launcher.finish_app_update(headless=False)

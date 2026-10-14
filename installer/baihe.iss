@@ -96,6 +96,14 @@ Name: "service"; Description: "Run Baihe Studio in the &background from startup 
 ; but keeps {app}\python, where optional packages added through Diagnostics live.
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\service"
+; App-only updates (installer/app_swap.py): the kept previous versions and the
+; swap's journal. A full install replaces whatever state they describe.
+Type: filesandordirs; Name: "{app}\app-*"
+
+[Registry]
+; The sign-in recovery an interrupted app-only update registers; a full
+; install or an uninstall leaves nothing for it to recover.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\RunOnce"; ValueName: "BaiheStudioAppUpdate"; ValueType: none; Flags: deletevalue uninsdeletevalue
 
 [Files]
 Source: "{#PayloadDir}\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -1133,6 +1141,9 @@ begin
     DeleteTree(ExpandConstant('{app}\python'), 'the bundled Python and its packages', Removed, Left);
     DeleteTree(ExpandConstant('{app}\app'), 'the program files', Removed, Left);
     DeleteTree(ExpandConstant('{app}\service'), 'the background service''s files', Removed, Left);
+    // Earlier versions kept by app-only updates, and the swap's journal.
+    if DeleteMatchingFolders(ExpandConstant('{app}'), 'app-*') > 0 then
+      AddLine(Removed, 'earlier app versions kept by app updates');
   end;
   RemoveDir(ExpandConstant('{app}'));
 
