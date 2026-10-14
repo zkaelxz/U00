@@ -8,6 +8,7 @@ import { modelOptionLabel } from '../../api/translate'
 import { ButtonLink } from '../../components/Button'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
+import { TranscribeOptionsFields } from './TranscribeOptionsFields'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
@@ -283,21 +284,40 @@ function ConfigRow({ stage, options, config, index, onChange }: {
   if (stage === 'transcription') {
     const whisperGroups = whisperChoiceGroups(options)
     const limitedPick = whisperGroups.limited.find((m) => m.size === config.model)
+    const recogniser = options.transcription_backends.find((b) => b.name === config.engine)
+    const help = recogniser
+      ? `${recogniser.label} runs only when it is installed and its model is already downloaded; the Lab never downloads a model.${config.engine === 'anime_whisper' ? ' Japanese only.' : ''}`
+      : limitedPick ? `${limitedPick.reasons.join(' ')} The run is refused on a case in a language this does not fit.` : undefined
+    // Switching recogniser keeps the options typed so far: comparing two models at the same settings is the common case.
+    const pick = (value: string) => {
+      const keep = config.options ? { options: config.options } : {}
+      onChange(options.transcription_backends.some((b) => b.name === value) ? { engine: value, ...keep } : { engine: 'whisper', model: value, ...keep })
+    }
     return (
-      <Field label={`Whisper model ${n}`} help={limitedPick ? `${limitedPick.reasons.join(' ')} The run is refused on a case in a language this does not fit.` : undefined}>
-        <select value={config.model ?? ''} onChange={(e) => onChange({ engine: 'whisper', model: e.target.value })}>
-          {whisperGroups.everywhere.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-          {whisperGroups.limited.length > 0 && (
-            <optgroup label="Not recommended for every language">
-              {whisperGroups.limited.map((m) => (
-                <option key={m.size} value={m.size} title={m.reasons.join(' ')}>{m.size}</option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-      </Field>
+      <div className="bench-transcribe-config">
+        <Field label={`Speech recogniser ${n}`} help={help}>
+          <select value={recogniser ? config.engine : config.model ?? ''} onChange={(e) => pick(e.target.value)}>
+            {whisperGroups.everywhere.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+            {whisperGroups.limited.length > 0 && (
+              <optgroup label="Not recommended for every language">
+                {whisperGroups.limited.map((m) => (
+                  <option key={m.size} value={m.size} title={m.reasons.join(' ')}>{m.size}</option>
+                ))}
+              </optgroup>
+            )}
+            {options.transcription_backends.length > 0 && (
+              <optgroup label="Other recognisers (must be installed)">
+                {options.transcription_backends.map((b) => (
+                  <option key={b.name} value={b.name}>{b.label}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </Field>
+        <TranscribeOptionsFields options={options} config={config} onChange={onChange} />
+      </div>
     )
   }
   if (stage === 'ocr') {

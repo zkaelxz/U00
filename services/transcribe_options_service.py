@@ -140,6 +140,62 @@ def check_transcribe_fields(fields: dict, source_language) -> dict:
     return updates
 
 
+# The per-title options a Benchmark Lab transcription run may set, as the title stores them.
+# A field a Lab run leaves out takes what a title with nothing saved uses, never
+# transcribe_for_timing's own defaults (a 2000 ms silence where titles use 300).
+LAB_OPTION_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
+                     "hallucination_silence_sec", "whisper_repeat_guard", "difficult_audio",
+                     "separate_vocals_first")
+LAB_MAX_INITIAL_PROMPT_CHARS = 1000
+_LAB_NUMBER_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "hallucination_silence_sec")
+_LAB_FLAG_FIELDS = ("whisper_repeat_guard", "difficult_audio", "separate_vocals_first")
+
+
+def lab_option_defaults() -> dict:
+    """What a title with no saved options transcribes with, for the Lab's option form."""
+    return {
+        "beam_size": _DEFAULT_TUNING["beam_size"],
+        "min_silence_ms": _DEFAULT_TUNING["min_silence_ms"],
+        "vad_threshold": _DEFAULT_TUNING["vad_threshold"],
+        "sensitivity_preset": presets.NORMAL,
+        "hallucination_silence_sec": _DEFAULT_TUNING["hallucination_silence_sec"],
+        "whisper_repeat_guard": False,
+        "difficult_audio": False,
+        "separate_vocals_first": _DEFAULT_TUNING["separate_vocals_first"],
+        "initial_prompt": "",
+    }
+
+
+def resolve_lab_options(options) -> dict:
+    """The complete option set for one Lab transcription arm: the fields given, checked
+    by check_transcribe_fields (the same ranges as a title's Transcribe stage), and the
+    app's default for each one left out. InvalidInputError for an unknown field, a value
+    of the wrong kind or one out of range."""
+    if options is None:
+        options = {}
+    if not isinstance(options, dict):
+        raise InvalidInputError("Transcription options must be an object.")
+    unknown = sorted(set(options) - set(LAB_OPTION_FIELDS) - {"initial_prompt"})
+    if unknown:
+        raise InvalidInputError(f"Unknown transcription option {unknown[0]!r}.")
+    given = {k: v for k, v in options.items() if v is not None}
+    for key in _LAB_NUMBER_FIELDS:
+        if key in given and (isinstance(given[key], bool) or not isinstance(given[key], (int, float))):
+            raise InvalidInputError(f"{key} must be a number.")
+    for key in _LAB_FLAG_FIELDS:
+        if key in given and not isinstance(given[key], bool):
+            raise InvalidInputError(f"{key} must be true or false.")
+    prompt = given.pop("initial_prompt", "")
+    if not isinstance(prompt, str) or len(prompt) > LAB_MAX_INITIAL_PROMPT_CHARS:
+        raise InvalidInputError(
+            f"initial_prompt must be text of at most {LAB_MAX_INITIAL_PROMPT_CHARS} characters.")
+    checked = check_transcribe_fields(given, None)
+    resolved = lab_option_defaults()
+    resolved.update({k: bool(v) if k in _LAB_FLAG_FIELDS else v for k, v in checked.items()})
+    resolved["initial_prompt"] = prompt.strip()
+    return resolved
+
+
 def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language) -> None:
     """Refusals shared by start_transcribe_run and validate_transcribe_options."""
     if transcript_mode == "whisper":

@@ -8,6 +8,8 @@ from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
+    "BenchmarkTranscribeOptions",
+    "BenchmarkBackendOption",
     "BenchmarkJudgeConfig",
     "BenchmarkJudgeScore",
     "BenchmarkJudgeSummary",
@@ -161,3 +163,24 @@ class BenchmarkLeftOut(BaseModel):
 class BenchmarkRunDelete(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: bool = False
+
+
+class BenchmarkTranscribeOptions(BaseModel):
+    """A Lab transcription arm's per-title options (services/transcribe_options_service.py
+    checks the values); a field left out takes the app's default."""
+    model_config = ConfigDict(extra="forbid")
+
+    beam_size: Optional[int] = None
+    min_silence_ms: Optional[int] = None
+    vad_threshold: Optional[float] = None
+    sensitivity_preset: Optional[str] = Field(default=None, max_length=20)
+    hallucination_silence_sec: Optional[float] = None
+    whisper_repeat_guard: Optional[bool] = None
+    difficult_audio: Optional[bool] = None
+    separate_vocals_first: Optional[bool] = None
+    initial_prompt: Optional[str] = Field(default=None, max_length=1000)
+
+
+class BenchmarkBackendOption(BaseModel):
+    name: str
+    label: str

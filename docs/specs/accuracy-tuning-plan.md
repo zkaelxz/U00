@@ -1,6 +1,6 @@
 # Accuracy tuning: test the owner's own clips, pick models and settings by measurement (plan)
 
-Status: **plan; step A1 built, A2 onward not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
+Status: **plan; steps A1 and A2 built, A3 onward not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
 
 ## Why
 
@@ -114,6 +114,7 @@ One PR each, in this order.
 - A missing option takes the app's default, not `transcribe_for_timing`'s.
 - Offer Qwen3-ASR and anime-whisper as Lab models.
 - Record the options in `benchmark_sessions.context_settings`, plus the app version and the model's identity (Whisper size or folder, Ollama digest, API model name), so a result can be traced and re-run.
+- **Built.** An arm is `{engine, model, options}`; `options` holds only what the arm changed, and `transcribe_options_service.resolve_lab_options` fills the rest from the app's defaults (`lab_option_defaults`). `services/benchmark_case_service.run_transcription` levels and separates the audio as a title's run does, then hands Whisper or the backend the values a title would. Qwen3-ASR (the speech-detection backend) and anime-whisper run only when their packages and model are already on the PC; the Lab never downloads one. The Lab scores text only: line timing, realigning and per-span language detection are not part of it, and Whisper's initial prompt is typed (a title builds it from its glossary). Each session's `context_settings` carries `transcribe_options`, `transcribe_changes` (what differs from the defaults, shown beside the model in run lists), `transcribe_options_ignored` (options the recogniser does not read), `app_version` and `model_identity`, next to the `text_normaliser` marker.
 
 ### A3. Line timing scores and timing settings
 

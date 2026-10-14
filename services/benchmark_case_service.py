@@ -4,15 +4,22 @@ engine or a stage runner and returns its output, cost and timing. The run
 loop, scoring and persistence stay in benchmark_lab_service.
 """
 
+import json
+import os
+import tempfile
 import time
 
+import audio_preprocess
 import benchmark
 import db
+import sensitivity_preset as presets
 import translate_engines
 import whisper_models
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
-from lib.errors import InvalidInputError
+from lib import http
+from lib.errors import DependencyUnavailableError, InvalidInputError
+from services import asr_options_service, difficult_audio_service as difficult, timing_settings_service
 
 
 def redact(text, key=None):
@@ -29,10 +36,62 @@ def redact(text, key=None):
     return jobs_service.redact_text(text)
 
 
+# Recognisers the Lab offers besides Whisper, as asr_backend names. Qwen3-ASR is the
+# speech-detection backend: the one that needs no Whisper model.
+LAB_BACKENDS = {"qwen3_asr_vad": "Qwen3-ASR", "anime_whisper": "anime-whisper"}
+_BACKEND_PROBLEMS = {
+    "qwen3_asr_vad": "Qwen3-ASR isn't downloaded yet.",
+    "anime_whisper": "anime-whisper isn't downloaded yet.",
+}
+_LAB_NEVER_DOWNLOADS = " Run it once from a title's Transcribe page to download it; the Lab never downloads models."
+# Options a recogniser does not read, so a result is never taken to have been tuned by them.
+_IGNORED_OPTIONS = {
+    "whisper": (),
+    "qwen3_asr_vad": ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
+                      "hallucination_silence_sec", "whisper_repeat_guard", "initial_prompt"),
+    "anime_whisper": ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
+                      "hallucination_silence_sec", "initial_prompt"),
+}
+
+
 def whisper_options() -> dict:
     """The Whisper choices the Lab offers, and the per-language table the picker reads."""
     return {"whisper_sizes": [*whisper_models.WHISPER_MODELS, benchmark.LOCAL_FOLDER_MODEL],
-            "whisper_exclusions": whisper_models.whisper_language_exclusions()}
+            "whisper_exclusions": whisper_models.whisper_language_exclusions(),
+            "transcription_backends": [{"name": name, "label": label} for name, label in LAB_BACKENDS.items()]}
+
+
+def ignored_options(backend: str) -> list:
+    return list(_IGNORED_OPTIONS.get(backend, ()))
+
+
+def require_backend_ready(backend: str) -> None:
+    """A recogniser other than Whisper runs only when its packages and model are already on
+    this PC: refused with the app's plain sentence otherwise, never downloaded from here."""
+    from services import model_readiness_service as ready
+    from services.transcribe_options_service import (_require_vad_packages, anime_whisper_package_problem)
+    from services.qwen3_requirements_service import require_qwen3_packages
+    if backend == "qwen3_asr_vad":
+        require_qwen3_packages("Qwen3-ASR")
+        _require_vad_packages()
+        found = ready.qwen_asr_ready()
+    else:
+        _require_vad_packages()
+        problem = anime_whisper_package_problem()
+        if problem:
+            raise DependencyUnavailableError(problem)
+        found = ready.whisper_ready(whisper_models.ANIME_WHISPER_KEY)
+    if not found:
+        raise DependencyUnavailableError(_BACKEND_PROBLEMS[backend] + _LAB_NEVER_DOWNLOADS)
+
+
+def require_backend_fits_cases(backend: str, cases) -> None:
+    """The language rule a title's backend choice has (anime-whisper is Japanese only)."""
+    for case in cases:
+        problem = asr_options_service.asr_backend_language_problem(
+            backend, case.get("source_language") or "zh")
+        if problem:
+            raise InvalidInputError(problem)
 
 
 def require_whisper_fits_cases(stage, configs, cases):
@@ -87,14 +146,136 @@ def run_translation(engine, case: dict, key: str = None) -> dict:
             "duration_seconds": time.monotonic() - started, "stop_reason": stop_reason}
 
 
-def run_file_case(stage: str, cfg: dict, case: dict, use_gpu: bool) -> dict:
-    import os
+def run_ocr(cfg: dict, case: dict) -> dict:
     if not case.get("input_filename"):
         return {"output_text": "", "error": "This case has no input file.", "duration_seconds": 0.0}
     prepared = dict(case, input_path=os.path.join(db.BENCHMARK_DIR, case["input_filename"]))
-    if stage == "transcription":
-        r = benchmark.run_transcription_case(prepared, whisper_size=cfg["model"], use_gpu=use_gpu)
-    else:
-        r = benchmark.run_ocr_case(prepared, backend=cfg["engine"])
+    r = benchmark.run_ocr_case(prepared, backend=cfg["engine"])
     r["error"] = redact(r.get("error"))
     return r
+
+
+class _Quiet:
+    """The reporter difficult_audio_service.prepare wants; the Lab shows progress per case."""
+
+    def progress(self, frac, message=""):
+        pass
+
+    def cancelled(self) -> bool:
+        return False
+
+
+def _whisper_kwargs(options: dict, timing: dict, tuning) -> dict:
+    row = {"vad_threshold": options["vad_threshold"], "sensitivity_preset": options["sensitivity_preset"],
+           "difficult_audio": options["difficult_audio"]}
+    # A Difficult audio run uses the Sensitive preset, as a title's run does.
+    run_row = presets.difficult_audio_view(row)
+    return {
+        "initial_prompt": options["initial_prompt"], "beam_size": options["beam_size"],
+        "min_silence_duration_ms": options["min_silence_ms"],
+        "vad_threshold": timing_settings_service.vad_threshold_for(run_row),
+        "hallucination_silence_sec": options["hallucination_silence_sec"],
+        "repeat_guard": options["whisper_repeat_guard"],
+        "sensitivity_preset": presets.normalize(run_row.get("sensitivity_preset")),
+        "filter_hallucination_repeats": tuning.repeat_min_repeats,
+        "stock_isolation_sec": tuning.stock_isolation_sec,
+        **difficult.whisper_kwargs(timing),
+    }
+
+
+def _backend_kwargs(backend: str, options: dict, tuning, language: str) -> dict:
+    detector = asr_options_service.resolve_voice_detector({}, language)
+    if backend == "anime_whisper":
+        return {"detector": detector, "repeat_guard": options["whisper_repeat_guard"]}
+    return {"batch_size": asr_options_service.get_qwen_asr_batch_size(),
+            "refine_timing": asr_options_service.get_vad_refine_timing(),
+            "mixed_languages": asr_options_service.get_mixed_languages(),
+            "detector": detector, "tuning": tuning}
+
+
+def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str = None) -> dict:
+    """One transcription case at the options of `cfg` (a checked config: engine is
+    "whisper" or a LAB_BACKENDS name, "options" the complete set from
+    transcribe_options_service.resolve_lab_options). Mirrors what a title's run does to
+    the audio first (levelling, vocal separation) and which values it hands the
+    recogniser, so the score is the one a real title would get. Scores the text only:
+    line timing, realigning and mixed-language splitting are not part of it."""
+    started = time.monotonic()
+    if not case.get("input_filename"):
+        return {"output_text": "", "error": "This case has no input file.", "duration_seconds": 0.0}
+    options, backend = cfg["options"], cfg["engine"]
+    language = case.get("source_language") or "zh"
+    try:
+        with tempfile.TemporaryDirectory(prefix="benchmark_") as scratch:
+            timing = difficult.mark(timing_settings_service.values(), options)
+            prepared = difficult.prepare(
+                _Quiet(), os.path.join(db.BENCHMARK_DIR, case["input_filename"]), scratch, "whisper",
+                backend, False, False, timing)
+            audio = prepared.audio_path
+            if options["separate_vocals_first"]:
+                audio = audio_preprocess.separate_vocals(
+                    audio, os.path.join(scratch, "vocals.wav"), use_gpu=use_gpu)
+            tuning = timing_settings_service.asr_tuning(prepared.timing)
+            if backend == "whisper":
+                kwargs = _whisper_kwargs(options, prepared.timing, tuning)
+            else:
+                kwargs = _backend_kwargs(backend, options, tuning, language)
+            result = benchmark.run_transcription_case(
+                dict(case, input_path=audio), whisper_size=cfg["model"], use_gpu=use_gpu,
+                local_model_path=folder if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else None,
+                options=kwargs, backend=backend)
+    except audio_preprocess.VocalSeparationError as exc:
+        result = {"output_text": "", "error": str(exc)}
+    result["duration_seconds"] = time.monotonic() - started
+    result["error"] = redact(result.get("error"))
+    return result
+
+
+def app_version() -> str:
+    """The installed version, else the checked-out commit, so a result can be tied to the code that made it."""
+    from services import update_service
+    from services.auto_backup_files import _app_version
+    return update_service.current_version() or _app_version()
+
+
+def _ollama_digest(model: str):
+    """The digest Ollama reports for a pulled tag, or None when the server or the tag can't be read:
+    a tag can be re-pulled to different weights under the same name, so the name alone doesn't identify a result."""
+    from services import settings_service
+    base_url = (settings_service.resolve_key("ollama_url") or "http://localhost:11434").rstrip("/")
+    wanted = model if ":" in model else f"{model}:latest"
+    try:
+        # guard=None: the address is the Ollama server the owner configured, as for every other Ollama call.
+        resp = http.get(f"{base_url}/api/tags", timeout=3, max_bytes=2 * 1024 * 1024, guard=None, trust_env=False)
+        if resp.status >= 400:
+            return None
+        for entry in json.loads(resp.body).get("models") or []:
+            if isinstance(entry, dict) and wanted in (entry.get("name"), entry.get("model")):
+                digest = entry.get("digest")
+                return digest if isinstance(digest, str) else None
+    except Exception:
+        return None
+    return None
+
+
+def model_identity(stage: str, cfg: dict) -> dict:
+    """What model a config ran, without a path: a Whisper size, the offline folder by name only, a
+    model repo and revision, an Ollama tag with its digest, or a provider's model name."""
+    engine, model = cfg["engine"], cfg.get("model")
+    if stage == "transcription":
+        if engine == "qwen3_asr_vad":
+            import qwen3_native
+            return {"model": qwen3_native.asr_repo_id("1.7B")}
+        if engine == "anime_whisper":
+            return {"model": whisper_models.ANIME_WHISPER_PIN["repo"],
+                    "revision": whisper_models.ANIME_WHISPER_PIN["revision"]}
+        if model == benchmark.LOCAL_FOLDER_MODEL:
+            return {"model": benchmark.LOCAL_FOLDER_LABEL}
+        return {"model": model}
+    if stage == "ocr":
+        return {"model": engine}
+    resolved = model or translate_engines.effective_default_model(engine)
+    identity = {"model": resolved}
+    if engine == "ollama" and resolved:
+        identity["digest"] = _ollama_digest(resolved)
+    return identity
