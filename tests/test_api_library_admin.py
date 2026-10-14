@@ -281,7 +281,7 @@ class TestExportBackupArtifacts:
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "export", "application/zip")
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            assert any(n.endswith("english.srt") for n in zf.namelist())
+            assert any(n.endswith("(en).srt") for n in zf.namelist())
 
     def test_export_explicit_ids_and_duplicate(self, client):
         a = _new("A", "translated", translated=True)
@@ -428,7 +428,8 @@ class TestRestore:
         assert r.status_code == 200, r.text
         assert r.json() == {"restored": True, "sessions_revoked": 0, "media_kept": False,
                             "previous_library_kept": False, "accounts_restored": 0,
-                            "titles_reassigned": 0, "folders_left_behind": []}
+                            "titles_reassigned": 0, "backup_has_accounts": True,
+                            "folders_left_behind": []}
         assert [d["id"] for d in db.list_dramas()] == [a]
 
     def test_the_response_says_how_many_accounts_came_and_which_folders_stayed(self, client):

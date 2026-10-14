@@ -245,6 +245,24 @@ def _shutdown(sock):
         pass
 
 
+class SequenceAlign:
+    """Makes several pumps follow the same stream's renditions (video and audio
+    playlists of one broadcast) start at the same media sequence number, which on
+    those playlists is the same moment, so recorders that each restart their clock
+    at their first packet begin in step. The first pump to join picks the start;
+    the others take it, or the nearest sequence their own playlist still lists."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._seq = None
+
+    def agree(self, own: int, first: int, last: int) -> int:
+        with self._lock:
+            if self._seq is None:
+                self._seq = own
+            return min(max(self._seq, first), last)
+
+
 class StreamPump:
     """Fetches `url` on one thread and writes the bytes to `sink` (ffmpeg's
     stdin) on another, through a queue of at most QUEUE_CHUNKS chunks.
@@ -256,8 +274,10 @@ class StreamPump:
     so ffmpeg sees end of input. `error` is the first failure (a fixed
     message), None after a clean end or a halt()."""
 
-    def __init__(self, url: str, sink, proxy: str = None, stall_timeout: float = None):
+    def __init__(self, url: str, sink, proxy: str = None, stall_timeout: float = None,
+                 align: SequenceAlign = None):
         self.url = url
+        self._align = align
         self.error = None
         self._sink = sink
         self._stall_timeout = STALL_TIMEOUT if stall_timeout is None else stall_timeout
@@ -541,6 +561,8 @@ class StreamPump:
             if segments and next_seq is None:
                 start = 0 if playlist["endlist"] else max(0, len(segments) - LIVE_EDGE_SEGMENTS)
                 next_seq = segments[start]["seq"]
+                if self._align is not None:
+                    next_seq = self._align.agree(next_seq, segments[0]["seq"], segments[-1]["seq"])
             new = [s for s in segments if next_seq is not None and s["seq"] >= next_seq]
             for segment in new:
                 if self._segment(segment, keys, init_uri):

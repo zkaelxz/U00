@@ -191,13 +191,32 @@ class TestApplyDiarizationResult:
         diarization_service.apply_diarization_result(
             did, {"segments": turns, "model": "m", "embeddings": {}}, expected_speakers=2)
 
-        assert saves == [{"fields": ("speaker", "speaker_manual")}]
+        assert saves == [{"fields": ("speaker", "speaker_manual"), "only_if_unchanged": True}]
         rows = isolated_db.load_line_objects(did)
         assert rows[0].speaker == "SPEAKER_00"
         assert rows[1].speaker == "Manual" and rows[1].speaker_manual
         saved = diarize.load_turns(ddir)
         assert saved is not None
         assert diarize.load_last_speaker_count(ddir) == 2
+
+    def test_a_speaker_edited_while_applying_is_not_overwritten(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        real_merge = diarize.merge_speakers
+
+        def merge_then_user_edits(lines, turns, **kw):
+            real_merge(lines, turns, **kw)
+            edited = isolated_db.load_line_objects(did)
+            edited[0].speaker = "Edited"
+            edited[0].speaker_manual = True
+            isolated_db.save_lines(did, edited, fields=("speaker", "speaker_manual"))
+
+        monkeypatch.setattr(diarize, "merge_speakers", merge_then_user_edits)
+        diarization_service.apply_diarization_result(
+            did, {"segments": [{"start": 0.0, "end": 6.0, "speaker": "S0"}], "model": "m"})
+
+        first = isolated_db.load_line_objects(did)[0]
+        assert (first.speaker, first.speaker_manual) == ("Edited", True)
 
     def test_no_segments_is_a_noop(self, isolated_db):
         did, ddir = _drama_with_audio(isolated_db)
@@ -225,7 +244,29 @@ class TestApplyDiarizationResult:
         diarization_service.start_diarization_run(did, expected_speakers=4)
         captured["on_done"]("j", {"segments": []})
         assert applied == [((did, {"segments": []}, 4, False),
-                            {"min_speakers": None, "max_speakers": None})]
+                            {"min_speakers": None, "max_speakers": None,
+                             "speakers_at_start": {}})]
+
+    def test_a_speaker_edited_during_detection_survives_the_result(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        captured = {}
+        monkeypatch.setattr(job_launch, "start_process_job",
+                            lambda *a, **k: captured.update(k) or True)
+        diarization_service.start_diarization_run(did, overwrite_manual=True, confirm=True)
+        # The user corrects line 0 while pyannote runs.
+        edited = isolated_db.load_line_objects(did)
+        edited[0].speaker = "Alice"
+        edited[0].speaker_manual = True
+        isolated_db.save_lines(did, edited, fields=("speaker", "speaker_manual"))
+
+        captured["on_done"]("j", {"segments": [{"start": 0.0, "end": 6.0, "speaker": "S0"}],
+                                  "model": "m"})
+
+        rows = isolated_db.load_line_objects(did)
+        assert (rows[0].speaker, rows[0].speaker_manual) == ("Alice", True)
+        assert rows[1].speaker == "S0"      # the line nobody touched is still relabelled
 
     def test_start_run_passes_range_to_worker_and_on_done(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
@@ -240,7 +281,7 @@ class TestApplyDiarizationResult:
         options = captured["args"][3]
         assert (options["min_speakers"], options["max_speakers"]) == (2, 4)
         captured["on_done"]("j", {"segments": []})
-        assert applied[0][1] == {"min_speakers": 2, "max_speakers": 4}
+        assert applied[0][1] == {"min_speakers": 2, "max_speakers": 4, "speakers_at_start": {}}
 
 
 class TestOverwriteManual:
