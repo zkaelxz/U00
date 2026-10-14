@@ -404,3 +404,75 @@ def test_cancel_reaches_another_processes_run_past_a_finished_one_here(isolated_
     finally:
         with job_table._lock:
             job_table._jobs.pop(job_id, None)
+
+
+class TestListJobsReadsTheRecordsOnce:
+    """GET /api/jobs is polled while the Jobs page is open: one job_records
+    scan per call, whatever the job count, and none for the stale sweep
+    when nothing is queued or running."""
+
+    @staticmethod
+    def _count_scans(monkeypatch):
+        scans = []
+        real = db.list_job_records
+        monkeypatch.setattr(db, "list_job_records", lambda: (scans.append(1), real())[1])
+        return scans
+
+    def test_finished_jobs_cost_one_scan_and_no_sweep(self, isolated_db, monkeypatch):
+        from jobs import job_store
+        for n in range(25):
+            db.save_job_record(f"j{n}", status="done")
+        swept = []
+        real_sweep = job_store.sweep_dead_owners
+        monkeypatch.setattr(job_store, "sweep_dead_owners",
+                            lambda *a, **k: (swept.append(1), real_sweep(*a, **k))[1])
+        scans = self._count_scans(monkeypatch)
+        assert len(jobs_service.list_jobs()) == 25
+        assert scans == [1] and swept == []
+
+    def test_a_live_running_job_is_swept_from_the_same_scan(self, isolated_db, monkeypatch):
+        import threading
+        import background_jobs
+        from jobs import job_launch
+        gate = threading.Event()
+        assert job_launch.start_job("live_one", gate.wait, 10)
+        try:
+            for n in range(10):
+                db.save_job_record(f"old{n}", status="done")
+            scans = self._count_scans(monkeypatch)
+            listed = {j["job_id"]: j["status"] for j in jobs_service.list_jobs()}
+            assert listed["live_one"] == "running" and len(listed) == 11
+            assert scans == [1]
+        finally:
+            gate.set()
+            background_jobs.clear_job("live_one")
+
+    def test_a_dead_owners_row_still_lists_as_interrupted(self, isolated_db, monkeypatch):
+        """The sweep closing a row is the one case that reads the rows again,
+        so the list never shows a row the sweep just closed as running."""
+        import subprocess
+        import sys
+        import background_jobs
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(timeout=30)
+        db.save_job_record("dead_one", "running", owner_pid=gone.pid)
+        scans = self._count_scans(monkeypatch)
+        job = jobs_service.list_jobs()[0]
+        assert (job["job_id"], job["status"]) == ("dead_one", "cancelled")
+        assert job["error"] == background_jobs.INTERRUPTED_MESSAGE
+        assert len(scans) == 2
+
+    def test_the_account_names_are_read_once_per_list_and_still_redacted(
+            self, isolated_db, monkeypatch):
+        import getpass
+        for n in range(20):
+            db.save_job_record(f"e{n}", status="error", error=f"run {n} failed for zoya",
+                               message="zoya was here")
+        calls = []
+        monkeypatch.setattr(getpass, "getuser", lambda: calls.append(1) or "zoya")
+        jobs = jobs_service.list_jobs()
+        assert len(jobs) == 20 and len(calls) == 1
+        assert all("zoya" not in (j["error"] + j["message"]) for j in jobs)
+        # Outside a list, each redaction reads the names afresh.
+        monkeypatch.setattr(getpass, "getuser", lambda: calls.append(1) or "yuki")
+        assert jobs_service.get_job("e0")["message"] == "zoya was here"

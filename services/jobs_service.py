@@ -629,10 +629,10 @@ def _for_caller(principal, record, drama_rows=None) -> dict:
     return out
 
 
-def sweep_stale_job_records() -> int:
+def sweep_stale_job_records(records=None) -> int:
     """Closes every queued/running row left behind by a crashed, killed or
     restarted process (jobs/job_store.sweep_dead_owners). Returns how many."""
-    return job_store.sweep_dead_owners(STALE_JOB_SECONDS)
+    return job_store.sweep_dead_owners(STALE_JOB_SECONDS, records=records)
 
 
 def list_jobs(principal=None) -> list:
@@ -640,10 +640,17 @@ def list_jobs(principal=None) -> list:
     ownership_service.can_see_job; None = auth off, all), newest-started
     first, redacted for HTTP. Stale rows of dead owners are closed first
     (sweep_stale_job_records), so they don't list as running forever."""
-    sweep_stale_job_records()
     records = db.list_job_records()
+    # The list is polled: with nothing queued or running, here or in a row,
+    # the sweep has nothing to close. Rows are read again only when it
+    # closed one.
+    if (any(r.get("status") in job_store.ACTIVE for r in records)
+            or background_jobs.active_job_ids()):
+        if sweep_stale_job_records(records):
+            records = db.list_job_records()
     rows = ownership_service.job_drama_ownership(principal, [r.get("job_id") for r in records])
-    return [_for_caller(principal, r, rows) for r in records if _visible(principal, r, rows)]
+    with diagnostics_report.reusing_account_names():
+        return [_for_caller(principal, r, rows) for r in records if _visible(principal, r, rows)]
 
 
 def get_job(job_id: str, principal=None) -> dict:
