@@ -183,7 +183,7 @@ def _require_vad_packages() -> None:
     Silero VAD and decodes the audio for it)."""
     if importlib.util.find_spec("faster_whisper") is None:
         raise DependencyUnavailableError(
-            "Qwen3 speech detection needs transcription, which isn't installed yet. "
+            "Speech detection needs transcription, which isn't installed yet. "
             "Open Diagnostics to install it.")
 
 

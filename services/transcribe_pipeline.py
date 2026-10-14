@@ -64,7 +64,7 @@ MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnos
 # Hard-subtitle reading is OCR, not speech recognition: saying "Transcription isn't installed"
 # would send the user to install Whisper while the missing piece is an OCR package.
 MISSING_OCR_MESSAGE = "Reading on-screen text needs an OCR package that isn't installed yet. Open Diagnostics to install one."
-_MISSING_VAD_MESSAGE = ("Qwen3 speech detection needs transcription, which isn't installed yet. "
+_MISSING_VAD_MESSAGE = ("Speech detection needs transcription, which isn't installed yet. "
                         "Open Diagnostics to install it.")
 
 
@@ -482,7 +482,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             except whisper_models.ModelDownloadError as exc:
                 return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
             except ValueError as exc:
-                return {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))}
+                return {"failed_reason": "anime_whisper" if anime_run else "qwen3_asr",
+                        "detail": redact_secrets(str(exc))}
             except background_jobs.JobCancelled:
                 whisper_models.release_gpu_models()
                 raise

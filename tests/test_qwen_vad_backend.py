@@ -262,14 +262,17 @@ class _Rep:
             raise background_jobs.JobCancelled()
 
 
-def _pipeline(rep, tmp_path, monkeypatch, fake_transcribe):
+def _pipeline(rep, tmp_path, monkeypatch, fake_transcribe, backend="qwen3_asr_vad",
+              language="zh"):
     from services import transcribe_pipeline, transcribe_service
+    import anime_whisper
     monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake_transcribe)
+    monkeypatch.setattr(anime_whisper.AnimeWhisperBackend, "transcribe", fake_transcribe)
     monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: None)
     monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 10.0)
     return transcribe_pipeline._transcribe_pipeline(
-        rep, str(tmp_path / "a.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
-        False, "auto", False, False, False, None, "", False, "qwen3_asr_vad", "whisper_diff",
+        rep, str(tmp_path / "a.wav"), "whisper", None, language, "simplified", "medium", 5, 300, 0.5,
+        False, "auto", False, False, False, None, "", False, backend, "whisper_diff",
         vad_refine_timing=True)
 
 
@@ -298,6 +301,29 @@ def test_pipeline_missing_vad_is_a_dependency_error(tmp_path, monkeypatch):
     assert out["failed_reason"] == "dependency_missing"
     assert out["detail"] == transcribe_pipeline._MISSING_VAD_MESSAGE
     assert "faster_whisper" not in out["detail"]
+
+
+def test_pipeline_missing_vad_message_names_no_engine(tmp_path, monkeypatch):
+    from vad_segments import VadNotInstalledError
+
+    def fake(self, *a, **k):
+        raise VadNotInstalledError("No module named 'faster_whisper'")
+    out = _pipeline(_Rep(), tmp_path, monkeypatch, fake, backend="anime_whisper", language="ja")
+    assert out["failed_reason"] == "dependency_missing"
+    assert "Qwen" not in out["detail"]
+
+
+@pytest.mark.parametrize("backend,language,reason", [("qwen3_asr_vad", "zh", "qwen3_asr"),
+                                                     ("anime_whisper", "ja", "anime_whisper")])
+def test_pipeline_value_error_is_reported_under_the_backend_that_raised_it(
+        tmp_path, monkeypatch, backend, language, reason):
+    from services import jobs_service
+
+    def fake(self, *a, **k):
+        raise ValueError("bad audio")
+    out = _pipeline(_Rep(), tmp_path, monkeypatch, fake, backend=backend, language=language)
+    assert out["failed_reason"] == reason
+    assert reason in jobs_service.FAILED_REASON_MESSAGES
 
 
 def test_pipeline_cancel_before_start_returns_cancelled(tmp_path, monkeypatch):
