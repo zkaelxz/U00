@@ -6,7 +6,7 @@
  */
 import { ApiError } from '../../api/client'
 import type {
-  BenchmarkConfig, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
+  BenchmarkConfig, BenchmarkLeftOut, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
   BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
   ScriptCounts,
 } from '../../api/benchmark'
@@ -362,11 +362,11 @@ export function setOptions(sets: BenchmarkSet[], stage: string, tier: string): s
   return [...new Set(names)].sort((a, b) => a.localeCompare(b))
 }
 
-/** How many cases a selection covers, from the set list (before the server's own count). */
+/** How many cases a selection covers, from the set list (before the server's own count): excluded cases are not run. */
 export function casesInSelection(sets: BenchmarkSet[], stage: string, tier: string, setName: string): number {
   return sets
     .filter((s) => (s.stage ?? '') === stage && (!tier || s.tier === tier) && (!setName || s.set_name === setName))
-    .reduce((n, s) => n + s.case_count, 0)
+    .reduce((n, s) => n + s.case_count - (s.excluded ?? 0), 0)
 }
 
 // ---- runs and the Arena ----
@@ -526,4 +526,17 @@ export function benchSectionOpen(storage: StorageLike | null, id: BenchSectionId
 export function runningStatus(job: JobRecord | null): string {
   const pct = job?.progress != null ? Math.round(job.progress * 100) : null
   return `Running${pct != null ? ` · ${pct}%` : '…'}`
+}
+
+/** What an Arena comparison covered and what it left out, so a score is never read as covering more than it did. */
+export function leftOutLine(compared: number, left: BenchmarkLeftOut | null | undefined): string {
+  const head = `Compared on the ${compared} ${compared === 1 ? 'case' : 'cases'} every run scored against the same reference.`
+  if (!left || left.total === 0) return head
+  const parts = [
+    left.edited && `${left.edited} edited between the runs`,
+    left.excluded && `${left.excluded} excluded`,
+    left.removed && `${left.removed} deleted`,
+    left.not_in_every_run && `${left.not_in_every_run} not scored in every run`,
+  ].filter(Boolean)
+  return `${head} ${left.total} left out: ${parts.join(', ')}.`
 }

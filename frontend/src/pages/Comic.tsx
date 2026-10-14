@@ -17,6 +17,7 @@ import { api, keepaliveFetch } from '../api/client'
 import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
 import { RetryBanner } from '../components/RetryBanner'
 import { Sheet } from '../components/Sheet'
+import { buttonClass } from '../components/uiClasses'
 import { SourceLink } from './discover/ExternalLink'
 import { useJob } from '../hooks/useJob'
 import { useDelayedSave } from '../hooks/useDelayedSave'
@@ -565,7 +566,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       ) : (
         <div className="comic-top comic-head">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
-          <SourceLink href={sourceUrl} dramaId={id} />
+          <SourceLink href={sourceUrl} dramaId={id} className={buttonClass('secondary', 'sm')} />
           {current !== null && count > 0 ? (
             <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} />
           ) : (

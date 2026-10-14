@@ -2110,8 +2110,9 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "users": ("share_by_default",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label",),
-    "benchmark_results": ("scorer",),
-    "benchmark_cases": ("tier", "set_name", "origin_drama_id", "origin_line_id"),
+    "benchmark_results": ("scorer", "ref_version"),
+    "benchmark_cases": ("tier", "set_name", "origin_drama_id", "origin_line_id", "title", "tags",
+                        "scene_order", "clip_key", "excluded", "ref_version"),
 }
 
 
