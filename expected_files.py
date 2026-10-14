@@ -25,6 +25,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "bulk_translate.py",
     "check_setup.py",
     "comic_chapters.py",
+    "comic_chapter_links.py",
     "core.py",
     "db/__init__.py",
     "db/app_settings.py",

@@ -85,3 +85,18 @@ class ComicVisibilityRequest(BaseModel):
 class ComicVisibilityResult(BaseModel):
     changed: int
     hidden_count: int
+
+
+class ComicSourceChapter(BaseModel):
+    chapter_id: str = ""
+    title: str
+    # Display-safe link on the source site; "" for a chapter imported by id.
+    url: str = ""
+    imported: bool
+
+
+class ComicSourceChapters(BaseModel):
+    mode: Literal["adapter", "links", "none"]
+    source: str = ""
+    series_id: str = ""
+    chapters: List[ComicSourceChapter] = Field(default_factory=list)
