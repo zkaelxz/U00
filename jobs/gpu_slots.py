@@ -41,11 +41,12 @@ def _owner_alive(pid) -> bool:
     return background_jobs.owner_process_alive(pid)
 
 
-def _alive(row, now) -> bool:
+def _alive(row, now, owners=None) -> bool:
     """A row counts while its heartbeat is fresh and its owner still runs. An
     owner is gone when its pid has exited, or the pid is this process's but
     the instance is not (an earlier server had the pid). A row written before
-    the owner columns existed has only the heartbeat to go on."""
+    the owner columns existed has only the heartbeat to go on. `owners` holds
+    pid liveness already probed (see _probe_owners)."""
     if now - row["heartbeat_at"] >= GPU_LOCK_STALE_SECONDS:
         return False
     pid = row["owner_pid"]
@@ -53,7 +54,17 @@ def _alive(row, now) -> bool:
         return True
     if pid == os.getpid():
         return row["owner_instance"] == job_store.INSTANCE_ID
+    if owners is not None and pid in owners:
+        return owners[pid]
     return _owner_alive(pid)
+
+
+def _probe_owners(rows) -> dict:
+    """{pid: alive} for the other processes owning `rows`. take() probes them
+    before BEGIN IMMEDIATE, because every other process's take waits on that
+    write lock; a row written in between is still probed, inside it."""
+    pids = {r["owner_pid"] for r in rows} - {None, os.getpid()}
+    return {pid: _owner_alive(pid) for pid in pids}
 
 
 def _mine(row) -> bool:
@@ -86,9 +97,10 @@ def take(holder: str, description: str = None, *, max_holders: int = 1,
     now = time.time()
     max_holders = max(1, min(int(max_holders), GPU_LOCK_MAX_SLOTS))
     with contextlib.closing(db.get_conn()) as conn:
+        owners = _probe_owners(_rows(conn))
         conn.execute("BEGIN IMMEDIATE")
         rows = _rows(conn)
-        live = [r for r in rows if _alive(r, now)]
+        live = [r for r in rows if _alive(r, now, owners)]
         mine = next((r for r in live if r["holder"] == holder and _mine(r)), None)
         if mine is not None:
             slot = mine["id"]
