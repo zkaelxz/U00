@@ -1,19 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 
 import {
-  getBenchmarkArena, getBenchmarkRun, type BenchmarkArena, type BenchmarkResult, type BenchmarkRun,
+  arenaExportUrl, getBenchmarkArena, getBenchmarkRun, runExportUrl,
+  type BenchmarkArena, type BenchmarkResult, type BenchmarkRun,
 } from '../../api/benchmark'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import {
-  arenaRunNames, deltaTone, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
+  arenaRunNames, deltaTone, leftOutLine, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
   mixedMetricNote, mixedScorerNote, plainError,
   runConfigLabel, runStatusLabel, scriptCountsLine, runStatusTone, tierLabel, tierTone,
 } from './benchmarkForm'
 
 /** What to show: 2-4 runs side by side, or one run's own results. */
 export type ArenaTarget = { kind: 'arena'; runIds: number[] } | { kind: 'run'; runId: number }
+
+const exportUrl = (target: ArenaTarget, format: 'csv' | 'json') =>
+  target.kind === 'arena' ? arenaExportUrl(target.runIds, format) : runExportUrl(target.runId, format)
 
 /** A single run's results in the Arena's shape (no source/reference: GET /runs/{id} doesn't carry them). */
 function singleRunArena(run: BenchmarkRun, results: BenchmarkResult[]): BenchmarkArena {
@@ -60,9 +64,17 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
         title={title}
         meta={arena ? `${arena.rows.length} ${arena.rows.length === 1 ? 'case' : 'cases'}${many ? ` · ${arena.runs.length} runs` : ''}` : undefined}
         actions={
-          <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>
-            Close
-          </button>
+          <>
+            {arena && (
+              <span className="bench-export" role="group" aria-label="Export">
+                <a className={buttonClass('ghost', 'sm')} href={exportUrl(target, 'csv')} download>Export CSV</a>
+                <a className={buttonClass('ghost', 'sm')} href={exportUrl(target, 'json')} download>Export JSON</a>
+              </span>
+            )}
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>
+              Close
+            </button>
+          </>
         }
         className="bench-arena"
         aria-label={title}
@@ -76,6 +88,11 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
         {arena && (
           <>
             <p className="muted">{metricNote(stage)}</p>
+            {many && (
+              <p className={arena.left_out?.total ? 'warn' : 'muted'} role="note" data-testid="arena-left-out">
+                {leftOutLine(arena.rows.length, arena.left_out)}
+              </p>
+            )}
             {(mixedScorerNote(arena.rows) || mixedMetricNote(arena.rows)) && (
               <p className="warn" role="note" data-testid="bench-mixed-scorers">
                 {mixedScorerNote(arena.rows) || mixedMetricNote(arena.rows)}

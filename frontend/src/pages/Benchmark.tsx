@@ -240,6 +240,12 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           phone={phone}
           onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
           onOpen={(id) => setTarget({ kind: 'run', runId: id })}
+          canDelete={pc !== 'remote'}
+          onDeleted={(id) => {
+            // A results view of a deleted run would only show an error.
+            setTarget((t) => (t && (t.kind === 'run' ? t.runId === id : t.runIds.includes(id)) ? null : t))
+            loadRuns()
+          }}
         />
       )}
 

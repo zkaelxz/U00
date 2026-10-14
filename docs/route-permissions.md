@@ -51,9 +51,15 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/backups/snapshot/dramas` | local_only() |
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
 | `GET /api/benchmark/arena` | admin.diagnostics |
+| `GET /api/benchmark/arena/export` | admin.diagnostics |
 | `GET /api/benchmark/cases` | admin.diagnostics |
 | `POST /api/benchmark/cases` | local_only() |
 | `POST /api/benchmark/cases/{case_id}/delete` | local_only() |
+| `GET /api/benchmark/cases/{case_id}/edits` | admin.diagnostics |
+| `POST /api/benchmark/cases/{case_id}/excluded` | local_only() |
+| `POST /api/benchmark/cases/{case_id}/reference` | local_only() |
+| `POST /api/benchmark/clips/check` | admin.diagnostics |
+| `POST /api/benchmark/clips/import` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/lines/{line_id}/regression` | local_only() |
 | `POST /api/benchmark/estimate` | admin.diagnostics |
 | `POST /api/benchmark/import` | local_only() |
@@ -61,6 +67,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/benchmark/runs` | admin.diagnostics |
 | `POST /api/benchmark/runs` | local_only() |
 | `GET /api/benchmark/runs/{run_id}` | admin.diagnostics |
+| `POST /api/benchmark/runs/{run_id}/delete` | local_only() |
+| `GET /api/benchmark/runs/{run_id}/export` | admin.diagnostics |
 | `GET /api/benchmark/sets` | admin.diagnostics |
 | `POST /api/benchmark/sets/from-title` | local_only() |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |

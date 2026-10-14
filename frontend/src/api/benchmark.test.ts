@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  arenaExportUrl, checkBenchmarkClips, deleteBenchmarkRun, editCaseReference, getCaseEdits, importBenchmarkClips, runExportUrl, setCaseExcluded,
   addRegressionCase, buildBenchmarkSet, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
   getBenchmarkOptions, getBenchmarkRun, getBenchmarkSets, importGoldenSet, listBenchmarkRuns, startBenchmarkRun,
 } from './benchmark'
@@ -108,5 +109,44 @@ describe('benchmark api', () => {
     expect(url).toBe('/api/benchmark/dramas/3/lines/42/regression')
     expect(init.method).toBe('POST')
     expect(localHeader(init)).toBe('1')
+  })
+})
+
+describe('benchmark api: clips, case clean-up, run delete and export', () => {
+  it('uploads the audio as multipart with the rows beside it, PC only', async () => {
+    const { mock, f } = reply(200, { warnings: [] })
+    const file = new File(['x'], 'scene one.wav')
+    const clips = [{ filename: 'scene one.wav', language: 'ja' as const, transcript: 'はい' }]
+    await importBenchmarkClips({ set_name: 'mine', clips, files: [file] }, f)
+    const [url, init] = (mock.mock.calls as [string, RequestInit][])[0]
+    expect(url).toBe('/api/benchmark/clips/import')
+    expect(localHeader(init)).toBe('1')
+    const form = init.body as FormData
+    expect(form.get('set_name')).toBe('mine')
+    expect(JSON.parse(String(form.get('clips')))).toEqual(clips)
+    expect((form.getAll('files')[0] as File).name).toBe('scene one.wav')
+    expect(new Headers(init.headers).has('Content-Type')).toBe(false)
+  })
+
+  it('checks rows without the PC-only header and posts case changes with it', async () => {
+    const { mock, f } = reply(200, {})
+    await checkBenchmarkClips([], f)
+    await setCaseExcluded(4, true, f)
+    await editCaseReference(4, 'fixed', f)
+    await getCaseEdits(4, f)
+    await deleteBenchmarkRun(9, f)
+    const calls = mock.mock.calls as [string, RequestInit][]
+    expect(calls.map((c) => c[0])).toEqual([
+      '/api/benchmark/clips/check', '/api/benchmark/cases/4/excluded', '/api/benchmark/cases/4/reference',
+      '/api/benchmark/cases/4/edits', '/api/benchmark/runs/9/delete'])
+    expect(bodyOf(calls[1][1])).toEqual({ excluded: true })
+    expect(bodyOf(calls[2][1])).toEqual({ reference_text: 'fixed' })
+    expect(bodyOf(calls[4][1])).toEqual({ confirm: true })
+    expect([1, 2, 4].map((i) => localHeader(calls[i][1]))).toEqual(['1', '1', '1'])
+  })
+
+  it('links to the export of a run and of a comparison', () => {
+    expect(runExportUrl(3, 'csv')).toBe('/api/benchmark/runs/3/export?format=csv')
+    expect(arenaExportUrl([3, 5], 'json')).toBe('/api/benchmark/arena/export?run_ids=3&run_ids=5&format=json')
   })
 })
