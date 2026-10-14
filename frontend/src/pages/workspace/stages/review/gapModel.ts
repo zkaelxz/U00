@@ -16,3 +16,10 @@ export function nextGap(gaps: TranscribeGap[], time: number): TranscribeGap | nu
   const sorted = [...gaps].sort((a, b) => a.start - b.start)
   return sorted.find((g) => g.start > time + 0.05) ?? sorted[0]
 }
+
+// The last gap that starts before `time`, else the last of all, so stepping back from the first wraps to the end.
+export function prevGap(gaps: TranscribeGap[], time: number): TranscribeGap | null {
+  if (gaps.length === 0) return null
+  const sorted = [...gaps].sort((a, b) => a.start - b.start)
+  return [...sorted].reverse().find((g) => g.start < time - 0.05) ?? sorted[sorted.length - 1]
+}

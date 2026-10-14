@@ -23,7 +23,7 @@ import { PhoneEditBar } from './PhoneEditBar'
 import { Player, type PlayerHandle } from './Player'
 import { ReviewWaveform } from './ReviewWaveform'
 import { gapLabel } from './retranscribeLinesLogic'
-import { nextGap } from './gapModel'
+import { nextGap, prevGap } from './gapModel'
 import { useWaveformGaps } from './useWaveformGaps'
 import type { TranscribeGap } from '../../../../types/workspace'
 import { draftFromLine } from './reviewDraft'
@@ -407,8 +407,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     onTranscribe: (ids) => onRetranscribeLines?.(ids),
   })
   const [gapFocus, setGapFocus] = useState<{ gap: TranscribeGap; seq: number } | null>(null)
-  const jumpToNextGap = () => {
-    const g = nextGap(gaps.gaps, player.current?.getTime() ?? 0)
+  const jumpToGap = (find: typeof nextGap) => {
+    const g = find(gaps.gaps, player.current?.getTime() ?? 0)
     if (!g) return
     setWaveOpen(true)
     player.current?.seek(g.start)
@@ -444,7 +444,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           filter={filter}
           counts={counts}
           gapCount={gaps.gaps.length}
-          onNextGap={jumpToNextGap}
+          onNextGap={() => jumpToGap(nextGap)}
+          onPrevGap={() => jumpToGap(prevGap)}
           suspectCount={suspects.length}
           suspectOpen={suspectOpen}
           onToggleSuspect={() => setSuspectOpen((o) => !o)}

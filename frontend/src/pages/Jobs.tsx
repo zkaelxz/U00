@@ -365,8 +365,8 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
         <tr>
           <th>Job</th>
           <th>Title</th>
-          <th>Stage</th>
-          <th>Status</th>
+          <th className="jobs-nowrap">Stage</th>
+          <th className="jobs-nowrap">Status</th>
           <th className="jobs-nowrap">Progress</th>
           <th className="jobs-nowrap" aria-sort={ariaSort('started')}>
             <button type="button" className="link" onClick={() => onSort('started')}>Started</button>

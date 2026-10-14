@@ -156,7 +156,8 @@ textarea {
   color: var(--accent-text);
   box-shadow: none;
 }
-fieldset.segmented {
+/* Every segmented control, not just the fieldset markup: the div markup (Backups, Sources) kept the pill outline around square chips. */
+.segmented {
   border-radius: var(--radius);
   background: var(--glass);
   border: 1px solid var(--btn-edge);
