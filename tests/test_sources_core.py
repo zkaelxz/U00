@@ -357,6 +357,30 @@ class TestPerHostPacing:
             worker.join(10)
         assert "https://q.invalid/3" not in t.urls()
 
+    @pytest.mark.parametrize("cancel_on_call", [1, 2])
+    def test_cancel_after_taking_a_free_turn_lock_releases_it(self, isolated_db, cancel_on_call):
+        """A cancel noticed right after a lock was taken (session break lock,
+        then host lock) raises Cancelled and leaves the lock free."""
+        from sources import http
+        from sources.http_transport import Cancelled
+        reset_pacing_state()
+        clock = FakeClock()
+        calls = []
+
+        def cancel_check():
+            calls.append(1)
+            return len(calls) >= cancel_on_call
+        client = self._client("freeturn", ScriptedTransport({}, clock), clock,
+                              cancel_check=cancel_check)
+        st = http._state("freeturn")
+        with pytest.raises(Cancelled):
+            client._wait_turn("freeturn.invalid", st)
+        assert st["break_lock"].acquire(blocking=False)
+        st["break_lock"].release()
+        hs = http._host("freeturn.invalid", 0.0)
+        assert hs["lock"].acquire(blocking=False)
+        hs["lock"].release()
+
     def test_host_spellings_share_one_clock(self, isolated_db):
         reset_pacing_state()
         clock = FakeClock()
