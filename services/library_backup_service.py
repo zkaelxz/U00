@@ -199,7 +199,9 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
     `progress(fraction, message)`, if given, is called at most a few times a
     second while files are written. `should_cancel()`, if given, is checked
     between files; when true this raises background_jobs.JobCancelled (the
-    caller removes the partial file)."""
+    caller removes the partial file). Returns the archive names of listed
+    files that were gone by the time they were copied: one deleted mid-backup
+    (a job's temp files, a cleanup) is skipped, never a failed backup."""
     library_dir = db.LIBRARY_DIR
     skip = {p + x for p in (db.DB_PATH, src_store.db_path()) for x in ("", "-wal", "-shm")}
     excluded = _backup_excluded_top_level()
@@ -208,6 +210,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         if should_cancel is not None and should_cancel():
             raise background_jobs.JobCancelled()
 
+    skipped = []
     with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
@@ -223,7 +226,10 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                 last_report = 0.0
                 for n, (full, arcname, size) in enumerate(files, 1):
                     check_cancel()
-                    zf.write(full, arcname)
+                    try:
+                        zf.write(full, arcname)
+                    except FileNotFoundError:
+                        skipped.append(arcname)
                     done_bytes += size
                     now = time.monotonic()
                     if progress is not None and now - last_report >= _BACKUP_PROGRESS_INTERVAL:
@@ -239,18 +245,28 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                 zf.write(src_snap, "sources.db")
             if manifest is not None:
                 zf.writestr("manifest.json", manifest(snap))
+    return skipped
 
 
 def _backup_job(job_id):
     background_jobs.update_progress(job_id, 0.0, "Copying the database...")
+    skipped = []
     name, size = _write_artifact(
         "backup", ".zip", "The backup could not be written.",
-        lambda dest: write_backup_zip(
+        lambda dest: skipped.extend(write_backup_zip(
             dest,
             progress=lambda frac, msg: background_jobs.update_progress(job_id, frac, msg),
-            should_cancel=lambda: background_jobs.is_cancel_requested(job_id)))
-    background_jobs.set_result(job_id, {"name": name, "size": size})
-    background_jobs.update_progress(job_id, 1.0, "Backup ready.")
+            should_cancel=lambda: background_jobs.is_cancel_requested(job_id))))
+    background_jobs.set_result(job_id, {"name": name, "size": size, "skipped_count": len(skipped)})
+    background_jobs.update_progress(job_id, 1.0, skipped_note("Backup ready.", len(skipped)))
+
+
+def skipped_note(message: str, skipped: int) -> str:
+    """`message`, plus how many files write_backup_zip had to skip."""
+    if not skipped:
+        return message
+    files = "1 file was" if skipped == 1 else f"{skipped} files were"
+    return f"{message} {files} removed while it ran and is not in it."
 
 
 def start_backup() -> dict:

@@ -505,7 +505,11 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     if job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before deleting.")
-    leftover = hard_delete_drama(drama_id)
+    # A backup reading the library would list the title's files and then
+    # miss them; the restore and bulk delete are held off the same way.
+    from services import library_admin_service
+    with library_admin_service.maintenance("deleting a title"):
+        leftover = hard_delete_drama(drama_id)
     result = {"deleted": True, "drama_id": drama_id}
     if leftover:
         result["warning"] = LEFTOVER_FILES_MESSAGE
