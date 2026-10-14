@@ -12,19 +12,16 @@ the version was saved over a different set of lines.
 from fastapi import APIRouter, Path
 
 from api.auth import require_permission
-from api.schemas import (ErrorResponse, TranslationVersionActivateRequest,
-                         TranslationVersionActivateResult)
+from api.schemas import (TranslationVersionActivateRequest,
+                         TranslationVersionActivateResult, error_responses)
 from services import translation_version_service
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
-
 
 @router.post("/dramas/{drama_id}/versions/{version_id}/activate",
              dependencies=[require_permission("lines.edit")],
-             response_model=TranslationVersionActivateResult, responses=_ERRS,
+             response_model=TranslationVersionActivateResult, responses=error_responses(404, 409, 422),
              summary="Use a saved translation version as the current English (confirm=true)")
 def post_activate_version(body: TranslationVersionActivateRequest, drama_id: int = Path(ge=1),
                           version_id: int = Path(ge=1)):
