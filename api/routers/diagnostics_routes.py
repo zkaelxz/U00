@@ -20,9 +20,9 @@ from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from api.auth import local_only, require_permission
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
-from api.schemas import (DiagnosticsOverview, ErrorResponse, PortsOverview, RemoteHealth,
+from api.schemas import (DiagnosticsOverview, PortsOverview, RemoteHealth,
                          RemoteIpCheckClearRequest, RemoteIpCheckSetRequest,
-                         RemoteIpCheckStatus, RemoteIpCheckTestResult)
+                         RemoteIpCheckStatus, RemoteIpCheckTestResult, error_responses)
 from services import diagnostics_service, remote_health_service, settings_service
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
@@ -65,7 +65,7 @@ def get_ip_check():
              response_model=RemoteIpCheckStatus,
              summary="PC only: set the https address that reports this PC's public IP "
                      "(write-only; key writes must be on)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 async def set_ip_check(request: Request):
     require_local_admin(request)
     body = await read_body(request, RemoteIpCheckSetRequest)
@@ -78,7 +78,7 @@ async def set_ip_check(request: Request):
 @router.post("/remote-health/ip-check/clear", dependencies=[local_only()],
              response_model=RemoteIpCheckStatus,
              summary="PC only: remove the public-address check from .env",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 async def clear_ip_check(request: Request):
     require_local_admin(request)
     body = await read_body(request, RemoteIpCheckClearRequest)
@@ -89,7 +89,6 @@ async def clear_ip_check(request: Request):
 @router.post("/remote-health/ip-check/test", dependencies=[local_only()],
              response_model=RemoteIpCheckTestResult,
              summary="PC only: run the public-address check once now (state only)",
-             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                        429: {"model": ErrorResponse}})
+             responses=error_responses(409, 422, 429))
 def test_ip_check(request: Request):
     return remote_health_service.run_ip_check_test(request.app.state.settings.public_url)
