@@ -17,6 +17,7 @@ under a generated name; no path or client file name is stored or returned.
 import json
 import os
 import re
+import time
 import uuid
 
 import db
@@ -52,8 +53,10 @@ def language_warning(language: str, transcript: str):
 
 
 def _name(row: dict, position: int) -> str:
-    """How a clip is named in a message: its file name, else its place."""
-    return str(row.get("filename") or "")[:MAX_LABEL_CHARS] or f"Clip {position}"
+    """How a clip is named in a message: its file name (never the client's
+    folders, which can carry a user name), else its place."""
+    base = re.split(r"[\\/]", str(row.get("filename") or ""))[-1]
+    return base[:MAX_LABEL_CHARS] or f"Clip {position}"
 
 
 def _clean_tags(raw, who: str) -> list:
@@ -228,6 +231,29 @@ def _scene_orders(clean: list) -> None:
             item["scene_order"] = count[item["title"]]
 
 
+_GENERATED = re.compile(r"^clip_[0-9a-f]{16}\.(?:[a-z0-9]+)(?:\.part)?$")
+_STALE_SECONDS = 3600
+
+
+def _sweep_leftovers():
+    """Removes clip files a crashed import left behind: part files and
+    generated clips no case uses. The age floor keeps a concurrent import's
+    files safe."""
+    try:
+        names = os.listdir(db.BENCHMARK_DIR)
+    except OSError:
+        return
+    cutoff = time.time() - _STALE_SECONDS
+    for name in names:
+        path = os.path.join(db.BENCHMARK_DIR, name)
+        try:
+            if (_GENERATED.match(name) and os.path.getmtime(path) < cutoff
+                    and (name.endswith(".part") or not db.count_benchmark_cases_with_file(name))):
+                os.remove(path)
+        except OSError:
+            pass
+
+
 def import_clips(set_name: str, rows, files: dict) -> dict:
     """Adds the clips to a set. `files` maps each upload's file name to a
     binary file object. Nothing is written when any row is refused; a
@@ -237,6 +263,7 @@ def import_clips(set_name: str, rows, files: dict) -> dict:
     clean, warnings, total = _plan(rows, files)
     _scene_orders(clean)
     os.makedirs(db.BENCHMARK_DIR, exist_ok=True)
+    _sweep_leftovers()
     check_room_for(db.BENCHMARK_DIR, total)
     written, cases = [], []
     try:

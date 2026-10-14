@@ -186,7 +186,10 @@ def get_arena(run_ids: List[int] = Query(min_length=2, max_length=4)):
 
 # ---- the owner's clip set, case clean-up, run delete and export --------------------------------
 
-_CLIP_OVERHEAD = 4 * 1024 * 1024
+# 250 rows of 4000 CJK characters, JSON-escaped (\uXXXX, six bytes each), reach about 12 MB in the
+# one "clips" field; the margin covers the other fields and the multipart framing.
+_CLIP_ROWS_BYTES = 16 * 1024 * 1024
+_CLIP_OVERHEAD = 20 * 1024 * 1024
 _CLIP_FORM_HELP = ("Send multipart/form-data: 'set_name', the audio in 'files', and either 'clips' "
                    "(a JSON list of rows) or 'manifest' (JSON lines).")
 _CLIP_TOO_LARGE = (f"The clips total more than {clip_svc.MAX_IMPORT_BYTES // (1024 * 1024)} MB; "
@@ -230,7 +233,7 @@ def _clip_rows(form) -> list:
 async def post_clips_import(request: Request):
     form = await read_capped_form(
         request, clip_svc.MAX_IMPORT_BYTES + _CLIP_OVERHEAD, "the clips", _CLIP_TOO_LARGE,
-        _CLIP_FORM_HELP, max_files=clip_svc.MAX_CLIPS, max_fields=4, max_part_size=3_000_000)
+        _CLIP_FORM_HELP, max_files=clip_svc.MAX_CLIPS, max_fields=4, max_part_size=_CLIP_ROWS_BYTES)
     try:
         files = {}
         for upload in form.getlist("files"):

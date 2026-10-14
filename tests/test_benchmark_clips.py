@@ -372,3 +372,67 @@ class TestOneNormaliser:
 
     def test_ocr_keeps_punctuation_and_width(self):
         assert scoring.score_output("ocr", "你好，世界", "你好世界")[0] < 1.0
+
+
+class TestReviewFixes:
+    def test_an_old_case_keeps_a_file_this_app_did_not_generate(self, isolated_db):
+        os.makedirs(db.BENCHMARK_DIR, exist_ok=True)
+        path = os.path.join(db.BENCHMARK_DIR, "p.png")
+        with open(path, "wb") as f:
+            f.write(b"png")
+        case_id = db.create_benchmark_case("old", "ocr", "comic", input_filename="p.png",
+                                           reference_text="x")
+        svc.delete_case(case_id)
+        assert os.path.exists(path)
+
+    def test_warnings_and_problems_name_only_the_file_not_its_folders(self):
+        out = clips.check_clips([_row("C:\\Users\\kae\\Music\\a.wav", transcript="こんにちは"),
+                                 _row("/home/kae/b.wav", language="en")])
+        assert [w["clip"] for w in out["warnings"]] == ["a.wav"]
+        assert [p["clip"] for p in out["problems"]] == ["b.wav"]
+        assert "kae" not in json.dumps(out)
+
+    def test_stale_leftovers_are_swept_but_used_and_fresh_files_stay(self, isolated_db):
+        _import([_row("a.wav")])
+        os.makedirs(db.BENCHMARK_DIR, exist_ok=True)
+        old = time.time() - 7200
+        names = {"stale": "clip_0123456789abcdef.wav.part", "orphan": "clip_fedcba9876543210.mp3",
+                 "fresh": "clip_aaaaaaaaaaaaaaaa.wav.part", "other": "notes.txt"}
+        for key, name in names.items():
+            path = os.path.join(db.BENCHMARK_DIR, name)
+            with open(path, "wb") as f:
+                f.write(b"x")
+            if key != "fresh":
+                os.utime(path, (old, old))
+        before = set(_clip_files())
+        _import([_row("b.wav")])
+        left = set(_clip_files())
+        assert names["stale"] not in left and names["orphan"] not in left
+        assert names["fresh"] in left and names["other"] in left
+        assert len(left - set(names.values())) == 2 and (before - set(names.values())) <= left
+
+
+class TestScoringRulesAndOldReferences:
+    def test_runs_scored_under_different_text_rules_are_not_compared(self, isolated_db, monkeypatch):
+        _import([_row("a.wav")])
+        a = _scored_run(monkeypatch, lambda c: "你好世界")
+        b = _scored_run(monkeypatch, lambda c: "你好世界")
+        with db.get_conn() as conn:
+            conn.execute("UPDATE benchmark_sessions SET context_settings = ? WHERE id = ?",
+                         (json.dumps({"script_normaliser": "x"}), a))
+            conn.commit()
+        with pytest.raises(InvalidInputError, match="different text rules"):
+            svc.arena([a, b])
+
+    def test_a_row_shows_the_reference_its_scores_were_made_against(self, isolated_db, monkeypatch):
+        _import([_row("a.wav")])
+        (case,) = db.list_benchmark_cases("transcription")
+        a = _scored_run(monkeypatch, lambda c: "你好世界")
+        b = _scored_run(monkeypatch, lambda c: "你好世")
+        clips.edit_reference(case["id"], "你好朋友")
+        # Both runs were scored on version 1, the case now reads version 2.
+        (row,) = svc.arena([a, b])["rows"]
+        assert (row["ref_version"], row["reference_text"]) == (1, "你好世界")
+        data = export.comparison_data([a, b])
+        assert {r["reference_text"] for r in data["rows"][0]["results"]} == {"你好世界"}
+        assert export.run_data(a)["results"][0]["reference_text"] == "你好世界"

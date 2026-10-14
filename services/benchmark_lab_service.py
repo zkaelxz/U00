@@ -46,6 +46,7 @@ the auto-derived Translation Profile and a COMET scorer.
 import whisper_models
 import json
 import os
+import re
 import uuid
 
 import background_jobs
@@ -212,14 +213,21 @@ def delete_case(case_id: int) -> dict:
     if not case:
         raise NotFoundError("Benchmark case not found.")
     db.delete_benchmark_case(case_id)
-    _remove_orphaned_clip(case.get("input_filename"))
+    _remove_orphaned_clip(case)
     return {"deleted": True, "id": case_id}
 
 
-def _remove_orphaned_clip(name):
-    """An uploaded clip's audio goes with its last case. The name is one this
-    app generated, so a name that isn't a plain file name is never touched."""
+_GENERATED_CLIP = re.compile(r"^clip_[0-9a-f]{16}\.(mp3|wav|m4a|flac|ogg)$")
+
+
+def _remove_orphaned_clip(case: dict):
+    """An uploaded clip's audio goes with its last case. Older cases may point
+    at files this app didn't generate (an OCR image, a hand-placed file), so
+    only a clip-imported case or a generated clip name is ever removed."""
+    name = case.get("input_filename")
     if not name or name != os.path.basename(name) or db.count_benchmark_cases_with_file(name):
+        return
+    if not (case.get("clip_key") or _GENERATED_CLIP.match(name)):
         return
     try:
         os.remove(os.path.join(db.BENCHMARK_DIR, name))

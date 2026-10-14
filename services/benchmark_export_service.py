@@ -28,6 +28,10 @@ def _case_info(stage) -> dict:
 
 
 def _result_fields(result: dict, case: dict) -> dict:
+    # The texts the result was scored against, not whatever the case reads now.
+    if case:
+        source, reference = runs_svc.texts_at(case, result.get("ref_version") or 1)
+        case = dict(case, source_text=source, reference_text=reference)
     return {"case_id": result.get("case_id"), "case_label": result.get("case_label"),
             "language": case.get("source_language"), "reference_version": result.get("ref_version"),
             "source_text": case.get("source_text"), "reference_text": case.get("reference_text"),

@@ -71,7 +71,9 @@ class TestImportRoute:
 
     def test_a_body_over_the_cap_is_413(self, isolated_db, monkeypatch):
         from services import benchmark_clip_service as clips
+        from api.routers import benchmark_routes
         monkeypatch.setattr(clips, "MAX_IMPORT_BYTES", 10)
+        monkeypatch.setattr(benchmark_routes, "_CLIP_OVERHEAD", 1_000)
         r = _upload(_local(), files=[("files", ("scene one.wav", b"x" * 5_000_000, "audio/wav"))])
         assert r.status_code == 413 and db.list_benchmark_cases() == []
 
@@ -150,3 +152,17 @@ class TestRunRoutes:
         r = c.get(f"{BASE}/arena/export", params={"run_ids": [a, b], "format": "json"})
         assert r.status_code == 200 and r.json()["compared_cases"] == 1
         assert c.get(f"{BASE}/arena/export", params={"run_ids": [a]}).status_code == 422
+
+
+class TestMaxSizeImport:
+    def test_250_clips_of_4000_cjk_characters_fit(self, isolated_db, monkeypatch):
+        from services import benchmark_clip_service as clips
+        monkeypatch.setattr(clips, "check_room_for", lambda *_a, **_k: None)
+        text = "你" * 4000
+        rows = [{"filename": f"c{i}.wav", "language": "zh", "transcript": text} for i in range(250)]
+        files = [("files", (f"c{i}.wav", b"RIFF", "audio/wav")) for i in range(250)]
+        # ensure_ascii makes each character six bytes, the largest the field gets.
+        assert len(json.dumps(rows)) > 6_000_000
+        r = _upload(_local(), rows=rows, files=files)
+        assert r.status_code == 200, r.text[:300]
+        assert r.json()["clips"] == 250

@@ -48,6 +48,20 @@ def _result_out(r: dict, stage=None, language=None) -> dict:
             "error": redact(r.get("error")), "ref_version": _version(r.get("ref_version"))}
 
 
+def _text_at(case: dict, edits: list, field: str, version: int):
+    """A case text as it read at `version`: the old text of the first later
+    edit of that field, else the current text (no later edit changed it)."""
+    later = [e for e in edits if e["field"] == field and e["version"] > version]
+    return min(later, key=lambda e: e["version"])["old_text"] if later else case.get(field)
+
+
+def texts_at(case: dict, version: int):
+    """(source, reference) of a case as they read at `version`."""
+    edits = db.list_benchmark_case_edits(case["id"]) if version != _version(case.get("ref_version")) else []
+    return (_text_at(case, edits, "source_text", version),
+            _text_at(case, edits, "reference_text", version))
+
+
 def _version(value) -> int:
     # Results saved before references were versioned were scored on version 1.
     return value or 1
@@ -83,6 +97,21 @@ def delete_run(run_id: int) -> dict:
         raise NotFoundError("Benchmark run not found.")
     db.delete_benchmark_sessions([run_id])
     return {"deleted": True, "id": run_id}
+
+
+_SCORER_MARKERS = ("text_normaliser", "script_normaliser")
+
+
+def _check_same_scoring(runs: list):
+    """Runs scored under different text rules would show the rule change as a
+    model difference, so they are not compared."""
+    def markers(s):
+        ctx = session_out(s)["context_settings"]
+        return tuple(ctx.get(k) for k in _SCORER_MARKERS)
+    if len({markers(s) for s in runs}) > 1:
+        raise InvalidInputError(
+            "These runs were scored with different text rules, so their scores can't be "
+            "compared. Run the older one again.")
 
 
 def _compared_cases(runs: list, cases: dict):
@@ -142,15 +171,18 @@ def arena(run_ids: list) -> dict:
     if len({s["stage"] for s in runs}) > 1:
         raise InvalidInputError("Only runs of the same stage can be compared.")
     stage = runs[0]["stage"]
+    _check_same_scoring(runs)
     cases = {c["id"]: c for c in db.list_benchmark_cases(stage)}
     shared, by_run, why = _compared_cases(runs, cases)
     rows = []
     for cid in shared:
         c = cases[cid]
+        version = _version(by_run[0][cid].get("ref_version"))
+        source_text, reference_text = texts_at(c, version)
         cells = [_result_out(res[cid], stage, c.get("source_language")) for res in by_run]
         rows.append({"case_id": cid, "label": c.get("label") or cells[0]["case_label"],
-                     "source_text": c.get("source_text"), "reference_text": c.get("reference_text"),
-                     "tier": c.get("tier"), "ref_version": cells[0]["ref_version"],
+                     "source_text": source_text, "reference_text": reference_text,
+                     "tier": c.get("tier"), "ref_version": version,
                      "results": cells})
     summary = []
     for i, s in enumerate(runs):
