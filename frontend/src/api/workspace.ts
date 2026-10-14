@@ -168,7 +168,7 @@ export const lncrawlJobId = (id: number) => `lncrawl_${id}`
 export const startLncrawlImport = (id: number, body: LncrawlImportRequest, f?: Fetch) =>
   postJson<JobStarted>(`/api/novel/dramas/${id}/lncrawl`, body, pcOnlyFetch(f))
 
-// Parity audit B1 (R23): re-run Whisper on one line's audio window; the job
+// Parity R23: re-run Whisper on one line's audio window; the job
 // proposes text without writing. Poll GET /api/jobs/{job_id} for status (its
 // result carries only line_id), then read the proposal with getRetranscribeResult.
 export const startRetranscribeLine = (

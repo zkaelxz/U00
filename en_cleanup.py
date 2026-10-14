@@ -1,7 +1,7 @@
 """
 en_cleanup.py -- deterministic, no-AI tidy-up of English subtitle text.
 
-Pure functions only (no db, no I/O) so the Review preview/apply and the CLI
+Pure functions only (no db, no I/O) so the Review preview and apply
 share one definition of each rule. Every rule is conservative: when a fix
 is ambiguous ("i" as a list marker, an odd number of straight quotes, "that
 that") the text is left alone, because a wrong auto-fix is worse than a

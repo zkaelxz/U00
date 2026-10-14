@@ -18,7 +18,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { NeedsInstall } from '../../../readiness/NeedsInstall'
 import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 
-// Parity audit B1 (R23): re-run Whisper on just this line's audio window, for
+// Parity R23: re-run Whisper on just this line's audio window, for
 // one misheard line without redoing the file. A GPU-queued job that writes
 // nothing. The job record carries no line text: when it finishes, the
 // proposal is read from GET .../retranscribe and shown raw ("Heard" next to
