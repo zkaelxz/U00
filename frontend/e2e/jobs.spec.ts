@@ -196,6 +196,25 @@ test('Force stop shows only for a job stuck in Cancelling, and needs two presses
   await expect(rows(page)).toHaveCount(1)
 })
 
+test('a finished row\'s Actions controls share one size and variant', async ({ page }) => {
+  await mockJobsApi(page, pageJobs(), true)
+  await page.goto('/#/jobs')
+  await chip(page, 'All').click()
+  const row = rows(page).filter({ hasText: 'Transcribe Signal' }).first()
+  const controls = [
+    row.getByRole('link', { name: /^Open .* for Transcribe Signal/ }),
+    row.getByRole('button', { name: 'Details for Transcribe Signal' }),
+    row.getByRole('button', { name: 'Delete Transcribe Signal' }),
+  ]
+  const heights: number[] = []
+  for (const c of controls) {
+    await expect(c).toHaveClass(/btn-secondary/)
+    await expect(c).toHaveClass(/btn-sm/)
+    heights.push((await c.boundingBox())!.height)
+  }
+  expect(new Set(heights.map(Math.round)).size).toBe(1)
+})
+
 test('Delete is two-step and permanent; only finished jobs offer it', async ({ page }) => {
   const log = await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/jobs')

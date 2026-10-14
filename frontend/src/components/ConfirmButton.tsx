@@ -21,6 +21,8 @@
  *                 announcement (default "delete": "Confirm delete ‹name›")
  *   tone          second-step style: 'danger' (default) or 'primary' for a
  *                 non-destructive but overwriting action
+ *   size          'sm' renders the first step as a small secondary button so it
+ *                 matches its neighbours in a row of buttons (default: plain)
  *   disabled      cannot run now (show the reason next to it)
  *   ariaLabel     first-step accessible name when "‹label› ‹name›" would repeat
  *                 itself (e.g. label "Show token…", name "extension token")
@@ -46,9 +48,10 @@ type Props = {
   tone?: 'danger' | 'primary'
   ariaLabel?: string
   describedBy?: string
+  size?: 'sm'
 }
 
-export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger', ariaLabel, describedBy }: Props) {
+export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger', ariaLabel, describedBy, size }: Props) {
   const blocked = !!(busy || disabled)
   const [armed, setArmed] = useState(false)
   // Becoming busy/disabled disarms (state adjusted during render, no effect).
@@ -98,7 +101,7 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
     >
       {live ? (
         <>
-          <button ref={confirmRef} type="button" className={tone} onClick={() => on('press')}>
+          <button ref={confirmRef} type="button" className={size ? buttonClass(tone, size) : tone} onClick={() => on('press')}>
             {confirmLabel ?? confirmLabelFor(name, verb)}
           </button>
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => on('cancel')}>
@@ -109,6 +112,7 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
         <button
           ref={firstRef}
           type="button"
+          className={size ? buttonClass('secondary', size) : undefined}
           disabled={blocked}
           aria-label={ariaLabel ?? `${label.replace(/…$/, '')} ${name}`}
           aria-describedby={describedBy}
