@@ -89,7 +89,7 @@ test('video page: identify media, pick the main resource, download that one', as
   await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Radio Play' })
   await card.getByRole('button', { name: 'Download' }).click()
   await expect.poll(() => posted(s, '/api/media/dramas/13/download-url')[0]?.body).toEqual({
-    url: FULL_RESOURCE, audio_only: true, confirm_replace_audio: false,
+    url: FULL_RESOURCE, audio_only: false, confirm_replace_audio: false,
   })
   expect(s.unmocked).toEqual([])
 })

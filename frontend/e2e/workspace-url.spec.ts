@@ -66,12 +66,12 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   await expect(page.getByText('Enter a link that starts with http:// or https://.')).toBeVisible()
   await expect(download).toBeDisabled()
   await link.fill('https://video.example/watch?v=1')
-  // Audio drama: audio only starts on. The drama has audio, so replacing needs a tick.
-  await expect(page.getByRole('switch', { name: 'Audio only' })).toBeChecked()
+  // A video page link: audio only starts off. The drama has audio, so replacing needs a tick.
+  await expect(page.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
   await expect(page.getByText('Still needed: tick “Replace the current audio”.')).toBeVisible()
   await page.getByRole('checkbox', { name: 'Replace the current audio' }).check()
   await download.click()
-  await expect.poll(() => s.bodies).toEqual([{ url: 'https://video.example/watch?v=1', audio_only: true, confirm_replace_audio: true }])
+  await expect.poll(() => s.bodies).toEqual([{ url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true }])
   await expect(page.getByTestId('job-status')).toContainText('Done')
 
   // The choice is remembered.
@@ -86,10 +86,10 @@ test('From a URL: audio only over a video says the video is set aside', async ({
   await expect(page.getByTestId('media-status')).toContainText('Source video attached')
   await page.getByRole('radio', { name: 'From a URL' }).check()
   const note = page.getByTestId('url-sets-video-aside')
-  await expect(page.getByRole('switch', { name: 'Audio only' })).toBeChecked()
-  await expect(note).toContainText('This link will give audio only, so it also sets the current video aside')
-  await page.getByRole('switch', { name: 'Audio only' }).click()
+  await expect(page.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
   await expect(note).toHaveCount(0)
+  await page.getByRole('switch', { name: 'Audio only' }).click()
+  await expect(note).toContainText('This link will give audio only, so it also sets the current video aside')
   expect(s.unmocked).toEqual([])
 })
 
@@ -99,7 +99,6 @@ test('From a URL: a direct audio link with Audio only off still says the video i
   await page.getByRole('radio', { name: 'From a URL' }).check()
   const note = page.getByTestId('url-sets-video-aside')
   const link = page.getByRole('textbox', { name: 'Video or audio link' })
-  await page.getByRole('switch', { name: 'Audio only' }).click()
   await expect(page.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
   await expect(page.getByText('Keeps the video too and extracts its audio.')).toBeVisible()
 
@@ -120,6 +119,7 @@ test('From a URL: the note says when it also leaves reading burned-in subtitles'
   const s = await mockUrlDownload(page, { hasAudio: true, hasSourceVideo: true, hardsub: true })
   await page.goto('/#/drama/1/source')
   await page.getByRole('radio', { name: 'From a URL' }).check()
+  await page.getByRole('switch', { name: 'Audio only' }).click()
   await expect(page.getByTestId('url-sets-video-aside')).toContainText(
     'switches this title from reading burned-in subtitles to transcribing the audio',
   )
@@ -148,7 +148,7 @@ test('From a URL: a refused long video offers a part or Download anyway', async 
   await expect(page.getByLabel('Part start (h:mm:ss)')).toBeFocused()
   await page.getByRole('button', { name: 'Download anyway' }).click()
   await expect.poll(() => s.bodies.length).toBe(2)
-  expect(s.bodies[1]).toEqual({ url: 'https://video.example/watch?v=long', audio_only: true, confirm_replace_audio: false, allow_long: true })
+  expect(s.bodies[1]).toEqual({ url: 'https://video.example/watch?v=long', audio_only: false, confirm_replace_audio: false, allow_long: true })
   await expect(page.getByTestId('url-download-long')).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
@@ -169,7 +169,7 @@ test('From a URL: Only this part sends the times and says subtitles start at 0',
   await page.getByRole('checkbox', { name: 'Exact cuts' }).check()
   await download.click()
   await expect.poll(() => s.bodies).toEqual([{
-    url: 'https://video.example/watch?v=part', audio_only: true, confirm_replace_audio: false,
+    url: 'https://video.example/watch?v=part', audio_only: false, confirm_replace_audio: false,
     part_start: '1:00:00', part_end: '1:30:00', exact_cuts: true,
   }])
   expect(s.unmocked).toEqual([])

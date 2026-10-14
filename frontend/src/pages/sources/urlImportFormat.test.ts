@@ -14,7 +14,6 @@ import {
   checkUrl,
   comicNote,
   contentTypeLabel,
-  defaultAudioOnly,
   downloadReason,
   dramaLabel,
   importIds,
@@ -115,9 +114,6 @@ describe('title pickers', () => {
     expect(videoDramas(list).map((d) => d.id)).toEqual([1, 2, 3, 5])
     expect(canTakeMedia(null)).toBe(true)
     expect(canTakeMedia('novel_narration')).toBe(false)
-    expect(defaultAudioOnly('streamer_vod')).toBe(false)
-    expect(defaultAudioOnly('audio_drama')).toBe(true)
-    expect(defaultAudioOnly(null)).toBe(true)
   })
   it('labels a title by its Chinese name, else by id', () => {
     expect(dramaLabel({ id: 9, title_en: '', title_zh: '天官' })).toBe('天官')

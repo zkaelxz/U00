@@ -183,7 +183,7 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
   // The finished download was Stream VOD's: it is not shown under Radio Play.
   await expect(card.getByRole('link', { name: /in the workspace$/ })).toHaveCount(0)
   await expect(card.getByTestId('job-status')).toHaveCount(0)
-  await expect(card.getByRole('switch', { name: 'Audio only' })).toBeChecked()
+  await expect(card.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
   await card.getByRole('checkbox', { name: 'Replace the current audio' }).check()
   await card.getByRole('button', { name: 'Download' }).click()
   await expect(page.getByText('Importing from a link is PC only for now.')).toBeVisible()
