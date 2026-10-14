@@ -572,20 +572,37 @@ def word_cut_times(index: "_WordIndex", spans, start: float, end: float) -> Opti
     return None
 
 
+# Whisper's word times tend to end before the last syllable has finished and to start
+# after the first one has begun, so lines cut to the bare words clip speech. The end
+# gets more because trailing sounds fade out where the start is a sharper onset.
+WORD_EDGE_PAD_START = 0.1
+WORD_EDGE_PAD_END = 0.2
+
+
 def tighten_to_words(start: float, end: float, words) -> tuple:
     """A segment's own start/end come from its VAD chunk, so a line can show
     during silence before the voice starts or stay up after it stops. Narrow
-    them to the first and last spoken word, never widening, and keep the
-    segment's times when there are no usable word times."""
+    them to the first and last spoken word plus a small pad (see
+    WORD_EDGE_PAD_*), never widening past the segment, and keep the segment's
+    times when there are no usable word times."""
     try:
         spoken = [w for w in (words or []) if w.end > w.start]
         if not spoken:
             return start, end
-        new_start = max(start, min(w.start for w in spoken))
-        new_end = min(end, max(w.end for w in spoken))
+        new_start = max(start, min(w.start for w in spoken) - WORD_EDGE_PAD_START)
+        new_end = min(end, max(w.end for w in spoken) + WORD_EDGE_PAD_END)
     except (AttributeError, TypeError):
         return start, end
     return (new_start, new_end) if new_end > new_start else (start, end)
+
+
+def settle_overlaps(segments: list) -> list:
+    """Meet in the middle where the pads of two neighbouring segments overlap,
+    so padding never makes one line start before the previous one has ended."""
+    for prev, cur in zip(segments, segments[1:]):
+        if prev["end"] > cur["start"]:
+            prev["end"] = cur["start"] = (prev["end"] + cur["start"]) / 2
+    return segments
 
 
 def _word_dicts(words) -> list:
