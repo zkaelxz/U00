@@ -48,6 +48,8 @@ interface Props {
   dramaId: number
   // The page on screen (for "Redo this page"), or null when there is none.
   pageId: number | null
+  // The reader's Typeset toggle: off exports the original pages.
+  typeset: boolean
   // Opens a page by its 1-based position, for the list of pages with warnings.
   onGoToPage?: (ordinal: number) => void
   pageNumber: number | null
@@ -73,7 +75,7 @@ function firstLine(message: string): string {
   return line.length > 140 ? `${line.slice(0, 139)}…` : line
 }
 
-export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, onJob, onGoToPage }: Props) {
+export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, onChanged, onJob, onGoToPage }: Props) {
   const pc = usePcOnly()
   const { readiness } = useReadiness()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
@@ -185,7 +187,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
     setExported([])
     pendingExport.current = formats
     try {
-      const r = await scanlateApi.export(dramaId, formats)
+      const r = await scanlateApi.export(dramaId, formats, undefined, typeset)
       setJobKind('export')
       setJobId(r.job_id)
     } catch (e) {

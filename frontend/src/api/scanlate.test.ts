@@ -53,10 +53,12 @@ describe('scanlate api', () => {
     await scanlateApi.render(4, null, f)
     await scanlateApi.render(4, 9, f)
     await scanlateApi.export(4, ['zip', 'pdf'], f)
+    await scanlateApi.export(4, ['pdf'], f, false)
     expect(calls.map((c) => c.url)).toEqual([
       '/api/scanlate/dramas/4/run',
       '/api/scanlate/dramas/4/render',
       '/api/scanlate/dramas/4/render',
+      '/api/scanlate/dramas/4/export',
       '/api/scanlate/dramas/4/export',
     ])
     expect(calls.map((c) => JSON.parse(String(c.init?.body)))).toEqual([
@@ -64,6 +66,7 @@ describe('scanlate api', () => {
       {},
       { page_id: 9 },
       { formats: ['zip', 'pdf'] },
+      { formats: ['pdf'], typeset: false },
     ])
   })
 
