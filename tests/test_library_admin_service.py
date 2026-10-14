@@ -567,6 +567,18 @@ def test_backup_restore_restore_no_phantom_job(isolated_db):
     assert db.get_job_record(las.BACKUP_JOB_ID)["status"] == "cancelled"
 
 
+def test_a_restored_queue_start_time_is_dropped(isolated_db):
+    # The backup's start time belongs to the moment it was taken: restored
+    # within a day it would still lie ahead and start the queue on its own.
+    from services import queue_service
+    _new("A")
+    queue_service.set_schedule(None, "02:00")
+    data = _backup_bytes()
+    queue_service.set_schedule(None, None)
+    _restore(data)
+    assert queue_service.get_queue(None)["schedule"] is None
+
+
 def test_restore_revokes_sessions_and_audits(isolated_db):
     _new("A")
     uid = auth_service.add_user("a@example.com")["id"]
