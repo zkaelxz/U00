@@ -11,6 +11,7 @@ import types
 import pytest
 
 import memory_headroom
+import model_pins
 import whisper_models as wm
 from lib import ct2_repo
 from lib.errors import InvalidInputError
@@ -77,6 +78,9 @@ def hf_home(monkeypatch, tmp_path):
     return tmp_path / "hf" / "hub"
 
 
+SMALL_REVISION = model_pins.REVISIONS["Systran/faster-whisper-small"]
+
+
 def make_snapshot(hf_home, revision=REVISION, weights=True):
     folder = hf_home / ("models--" + REPO.replace("/", "--")) / "snapshots" / revision
     folder.mkdir(parents=True)
@@ -102,9 +106,10 @@ class TestCacheLocation:
         cache = tmp_path / "hubcache"
         monkeypatch.setenv("HF_HUB_CACHE", str(cache))
         make_snapshot(cache)
-        generic = cache / "models--Systran--faster-whisper-small" / "snapshots" / "r1"
+        generic = cache / "models--Systran--faster-whisper-small" / "snapshots" / SMALL_REVISION
         generic.mkdir(parents=True)
-        (generic / "model.bin").write_bytes(b"x")
+        for name in ct2_repo.CT2_REQUIRED:
+            (generic / name).write_bytes(b"x")
         assert wm.is_whisper_model_cached(KEY) and wm.is_whisper_model_cached("small")
 
 
@@ -193,9 +198,10 @@ class TestCacheAndEstimates:
         assert wm.is_whisper_model_cached(KEY)
 
     def test_other_models_are_still_matched_by_exact_name(self, hf_home):
-        folder = hf_home / "models--Systran--faster-whisper-small" / "snapshots" / "r1"
+        folder = hf_home / "models--Systran--faster-whisper-small" / "snapshots" / SMALL_REVISION
         folder.mkdir(parents=True)
-        (folder / "model.bin").write_bytes(b"x")
+        for name in ct2_repo.CT2_REQUIRED:
+            (folder / name).write_bytes(b"x")
         assert wm.is_whisper_model_cached("small") and not wm.is_whisper_model_cached(KEY)
 
     def test_download_size_and_memory_estimate_are_known(self):
