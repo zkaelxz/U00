@@ -123,3 +123,18 @@ test('a timing-uncertain line offers Snap to speech, Check timing and the Whispe
   await actions.getByRole('button', { name: 'Check timing' }).click()
   await expect.poll(() => runs).toBe(1)
 })
+
+test('the opened nav dock draws above the sticky Review panel', async ({ page }) => {
+  await page.setViewportSize({ width: 640, height: 1110 })
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-toolbar').first()).toBeVisible()
+  await page.locator('.app-rail').hover()
+  await expect.poll(async () => (await page.locator('.app-rail').boundingBox())!.width).toBeGreaterThan(200)
+  const rail = (await page.locator('.app-rail').boundingBox())!
+  const panel = (await page.locator('.review-toolbar').first().boundingBox())!
+  // A point inside both the opened dock and the panel: the dock must be the topmost element there.
+  const x = rail.x + 150
+  const y = Math.max(rail.y + 10, panel.y + 20)
+  expect(y).toBeLessThan(Math.min(rail.y + rail.height, panel.y + panel.height))
+  expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.app-rail'), [x, y])).toBe(true)
+})
