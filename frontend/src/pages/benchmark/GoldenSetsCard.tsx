@@ -338,7 +338,7 @@ function AddCaseSection({ options, pc, onDone }: { options: BenchmarkOptions; pc
 
   if (pc === 'remote') {
     return (
-      <Section title="Add one case" summary={PC_ONLY_SUMMARY} storageKey="benchmark.addCase">
+      <Section title="Add one case" summary={PC_ONLY_SUMMARY} storageKey="benchmark.addCase" defaultOpen>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
@@ -372,7 +372,7 @@ function AddCaseSection({ options, pc, onDone }: { options: BenchmarkOptions; pc
   }
 
   return (
-    <Section title="Add one case" summary="A translation case by hand" storageKey="benchmark.addCase">
+    <Section title="Add one case" summary="A translation case by hand" storageKey="benchmark.addCase" defaultOpen>
       <div className="field-row">
         <Field label="Label">
           <input value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />
