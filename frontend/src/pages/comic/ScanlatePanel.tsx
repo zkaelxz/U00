@@ -48,6 +48,8 @@ interface Props {
   dramaId: number
   // The page on screen (for "Redo this page"), or null when there is none.
   pageId: number | null
+  // The reader's Typeset toggle: off exports the original pages.
+  typeset: boolean
   pageNumber: number | null
   // Page counts for "this chapter" and "all chapters" (hidden pages never count).
   scopes?: ScopeCounts
@@ -65,7 +67,7 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
 // The form is remembered per title, so leaving the page does not reset the engine, detector and scope.
 const SCANLATE_DRAFT = { engine: '', detector: 'auto' as string, slice: true, scope: 'all' as string }
 
-export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, onJob }: Props) {
+export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, onChanged, onJob }: Props) {
   const pc = usePcOnly()
   const { readiness } = useReadiness()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
@@ -177,7 +179,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
     setExported([])
     pendingExport.current = formats
     try {
-      const r = await scanlateApi.export(dramaId, formats)
+      const r = await scanlateApi.export(dramaId, formats, undefined, typeset)
       setJobKind('export')
       setJobId(r.job_id)
     } catch (e) {

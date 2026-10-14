@@ -430,6 +430,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     <ScanlatePanel
       dramaId={id}
       pageId={currentPage?.id ?? null}
+      typeset={prefs.typeset}
       pageNumber={currentPage ? current : null}
       scopes={scopes}
       onChanged={refreshPages}

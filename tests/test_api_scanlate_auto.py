@@ -931,7 +931,7 @@ def test_export_zip_and_pdf(client):
     r = client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip", "pdf"]})
     assert r.status_code == 200, r.text
     st = _wait(f"scanlate_{did}")
-    assert st["status"] == "done" and "1 without typeset" in st["message"]
+    assert st["status"] == "done" and "1 page(s) have no translated text" in st["message"]
     z = client.get(f"/api/artifacts/dramas/{did}/scanlate_zip")
     assert z.status_code == 200
     names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
@@ -1172,3 +1172,26 @@ def test_a_headroom_refusal_in_ocr_is_not_turned_into_blank_text(monkeypatch):
     monkeypatch.setattr(scanlate, "ocr_box_region", refuse)
     with pytest.raises(HeadroomError):
         scanlate.detect_and_ocr_page("page.png", "zh")
+
+
+def test_export_without_typeset_text_writes_the_original_pages(client, monkeypatch):
+    did = _drama()
+    p1, p2 = _page(did, 0), _page(did, 1)
+    db.save_bubbles(p1, [_region(5, translated_text="Hello")])
+    monkeypatch.setattr(run_svc.render_svc, "render_page",
+                        lambda *a, **k: pytest.fail("rendered for an original-pages export"))
+    r = client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip"], "typeset": False})
+    assert r.status_code == 200, r.text
+    st = _wait(f"scanlate_{did}")
+    assert st["status"] == "done" and "original" in st["message"] and "typeset" not in st["message"]
+    z = client.get(f"/api/artifacts/dramas/{did}/scanlate_zip")
+    orig = open(os.path.join(db.drama_dir(did), "pages", "page_0000.png"), "rb").read()
+    assert zipfile.ZipFile(io.BytesIO(z.content)).read("page_0001.png") == orig
+
+
+def test_export_message_names_the_pages_left_untranslated(client):
+    did = _drama()
+    _page(did, 0)
+    client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip"]})
+    st = _wait(f"scanlate_{did}")
+    assert "1 page(s) have no translated text and are the original" in st["message"]
