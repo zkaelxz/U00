@@ -5,7 +5,7 @@
 import { ApiError } from '../../api/client'
 import { isRegionsError, orderedLines, type RegionsState } from './comicLogic'
 
-export function ComicLines({ page, state }: { page: number; state: RegionsState | undefined | 'none' }) {
+export function ComicLines({ page, state, onRetry }: { page: number; state: RegionsState | undefined | 'none'; onRetry?: () => void }) {
   if (state === 'none') return <p className="muted">No text found on page {page}. If it has not been read yet, run Translate / detect on this page.</p>
   if (!state) return <p className="muted">Loading page {page} text…</p>
   if (isRegionsError(state)) {
@@ -13,6 +13,12 @@ export function ComicLines({ page, state }: { page: number; state: RegionsState 
     return (
       <p className="muted" role="alert">
         {forbidden ? 'Seeing the text needs permission to read lines — ask the owner.' : 'Could not load the text for this page.'}
+        {!forbidden && onRetry && (
+          <>
+            {' '}
+            <button type="button" className="link" onClick={onRetry}>Try again</button>
+          </>
+        )}
       </p>
     )
   }

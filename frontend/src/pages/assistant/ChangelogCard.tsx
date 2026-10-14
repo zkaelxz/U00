@@ -35,6 +35,8 @@ export function ChangelogCard({ engine, model, onModeOff }: Props) {
     if (!from.trim() || busy) return
     setBusy(true)
     setError(null)
+    // A failure must not leave the previous refs' summary standing under it.
+    setResult(null)
     generateChangelog(from, to, engine, model).then(
       (r) => {
         setResult(r)
