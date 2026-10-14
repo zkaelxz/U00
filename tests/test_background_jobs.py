@@ -2953,3 +2953,101 @@ class TestPerUserJobCaps:
         assert job_launch.start_job("cpu_d", self._block) is True
         owner_gate.set()
         assert ran.wait(2.0), "the runner's job was held for its starter's cap"
+
+
+class TestAClearedRunNeverWritesIntoTheNextRun:
+    """A run cleared while it still works (a library reset's clear_all_jobs)
+    can be followed by a new run of the same id. The old run's progress,
+    result and outcome belong to it alone, never to the new run."""
+
+    def test_old_thread_run_leaves_the_new_run_alone(self, monkeypatch):
+        told = []
+        monkeypatch.setattr(job_runner, "_notify_job_finished",
+                            lambda *a, **k: told.append(k.get("job_id")))
+        job_id = "rerun_thread"
+        go_old, go_new = threading.Event(), threading.Event()
+        old_thread = []
+
+        def old():
+            old_thread.append(threading.current_thread())
+            go_old.wait(5)
+            bg.update_progress(job_id, 0.9, "old run")
+            bg.set_result(job_id, "old result")
+
+        job_launch.start_job(job_id, old)
+        assert _wait_for(lambda: old_thread)
+        # Held across both calls so the old run cannot notice the gap.
+        with job_table._lock:
+            bg.clear_job(job_id)
+            job_launch.start_job(job_id, lambda: go_new.wait(5))
+        try:
+            go_old.set()
+            old_thread[0].join(5)
+            assert not old_thread[0].is_alive()
+            new = bg.get_status(job_id)
+            assert new["status"] == "running"
+            assert new["progress"] == 0.0 and new["message"] != "old run"
+            assert new["result"] is None
+            assert told == []   # the cleared run's outcome is nobody's news
+        finally:
+            go_new.set()
+            _wait(job_id)
+            bg.clear_job(job_id)
+
+    def test_old_process_watcher_stops_its_own_process_not_the_new_run(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        job_id = "rerun_process"
+        job_launch.start_process_job(job_id, lambda result_queue: None, args=())
+        assert _wait_for(lambda: bg.is_running(job_id))
+        with job_table._lock:
+            bg.clear_job(job_id)
+            job_launch.start_process_job(job_id, lambda result_queue: None, args=())
+        try:
+            assert _wait_for(lambda: instances[0].terminated)
+            time.sleep(0.5)     # several watcher polls
+            assert bg.get_status(job_id)["status"] == "running"
+            assert instances[1].terminated is False
+        finally:
+            bg.request_cancel(job_id)
+            _wait_for_status(job_id, "running")
+            bg.clear_job(job_id)
+
+
+class TestClearFinishedJob:
+    def test_a_running_run_is_kept(self):
+        go = threading.Event()
+        job_launch.start_job("cf_live", lambda: go.wait(5))
+        try:
+            assert bg.clear_finished_job("cf_live") is False
+            assert bg.get_status("cf_live")["status"] == "running"
+            assert db.get_job_record("cf_live")["status"] == "running"
+        finally:
+            go.set()
+            _wait("cf_live")
+        assert bg.clear_finished_job("cf_live") is True
+        assert bg.get_status("cf_live") is None and db.get_job_record("cf_live") is None
+
+    def test_another_processes_new_run_keeps_its_row(self):
+        db.save_job_record("cf_other", status="running", started_at=2.0)
+        assert bg.clear_finished_job("cf_other", started_at=1.0) is False
+        assert db.get_job_record("cf_other")["status"] == "running"
+
+    def test_a_newer_finished_run_here_keeps_its_unread_result(self):
+        job_launch.start_job("cf_rerun", lambda: bg.set_result("cf_rerun", "first"))
+        assert _wait_for(lambda: bg.get_status("cf_rerun")["status"] == "done")
+        seen = db.get_job_record("cf_rerun")["started_at"]
+        time.sleep(0.01)    # a distinct started_at for the second run
+        job_launch.start_job("cf_rerun", lambda: bg.set_result("cf_rerun", "second"))
+        assert _wait_for(lambda: bg.get_status("cf_rerun")["result"] == "second"
+                         and bg.get_status("cf_rerun")["status"] == "done")
+        assert bg.clear_finished_job("cf_rerun", started_at=seen) is False
+        assert bg.get_status("cf_rerun")["result"] == "second"
+        assert db.get_job_record("cf_rerun") is not None
+        bg.clear_job("cf_rerun")
+
+    def test_a_newer_finished_run_keeps_its_row(self):
+        db.save_job_record("cf_newer", status="done", started_at=2.0)
+        assert bg.clear_finished_job("cf_newer", started_at=1.0) is False
+        assert db.get_job_record("cf_newer") is not None
+        assert bg.clear_finished_job("cf_newer", started_at=2.0) is True
+        assert db.get_job_record("cf_newer") is None
