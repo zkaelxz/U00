@@ -426,6 +426,25 @@ def test_open_folder_without_a_file_manager_is_400(client, monkeypatch):
     assert _error(r)["message"] == "This PC has no file manager the app can open."
 
 
+def test_open_folder_when_its_name_is_taken_is_409(client, opened):
+    import os
+    drama_id = db.create_drama(title_en="A")
+    os.makedirs(db.DRAMAS_DIR, exist_ok=True)
+    with open(os.path.join(db.DRAMAS_DIR, str(drama_id)), "w") as f:
+        f.write("not a folder")
+    r = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
+    assert r.status_code == 409 and opened == []
+    assert db.DRAMAS_DIR not in r.text
+
+
+def test_open_folder_takes_the_frontends_json_post_and_refuses_a_bare_one(client, opened):
+    drama_id = db.create_drama(title_en="A")
+    # pcOnlyFetch sends a JSON body; a form-style POST with neither is refused.
+    assert client.post(f"/api/dramas/{drama_id}/folder/open", json={}).status_code == 200
+    assert client.post(f"/api/dramas/{drama_id}/folder/open").status_code == 403
+    assert len(opened) == 1
+
+
 def test_open_folder_route_is_pc_only():
     from api.auth import iter_route_declarations
     decls = {(path, tuple(sorted(methods))): d

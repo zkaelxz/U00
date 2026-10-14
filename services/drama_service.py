@@ -388,7 +388,8 @@ def open_drama_folder(drama_id: int, principal) -> dict:
     try:
         os.makedirs(folder, exist_ok=True)
     except OSError as e:
-        raise ServiceError("The title's folder could not be created.") from e
+        raise ConflictError("The title's folder could not be made: something else has its name, "
+                            "or the library folder can't be written to.") from e
     try:
         file_manager.open_folder(folder)
     except OSError:

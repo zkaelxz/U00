@@ -88,7 +88,7 @@ def get_source_link(drama_id: int = Path(ge=1, le=2**31 - 1)):
 @router.post("/{drama_id}/folder/open", dependencies=[local_only()],
              response_model=DramaFolderOpened,
              summary="PC only: open the title's folder in this PC's file manager",
-             responses=error_responses(400, 404, 422))
+             responses=error_responses(400, 404, 409, 422))
 def post_open_folder(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
     return drama_service.open_drama_folder(drama_id, request.state.principal)
 
