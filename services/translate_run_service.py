@@ -419,7 +419,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     if bulk and reflect and engine_name == "deepseek":
         raise UnsupportedOperationError("Bulk Reflect needs Claude or Gemini's batch API.")
 
-    lines = core.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     if not lines:
         raise UnsupportedOperationError("This title has no lines to translate yet.")
     target_ids = None

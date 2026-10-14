@@ -152,12 +152,8 @@ def find_gaps(speech_spans, lines, raw_segments, min_gap_seconds: float) -> dict
 
 
 def _audio_seconds(path) -> Optional[float]:
-    try:
-        import media_inspect
-        info = media_inspect.run_ffprobe(path, timeout=_PROBE_TIMEOUT_SECONDS)
-        return float((info.get("format") or {}).get("duration") or 0.0) or None
-    except Exception:
-        return None
+    import media_inspect
+    return media_inspect.duration_seconds(path, timeout=_PROBE_TIMEOUT_SECONDS)
 
 
 def _decode_chunk(path: str, start: float, seconds: float):

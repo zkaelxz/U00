@@ -170,7 +170,7 @@ def _require_drama(drama_id) -> dict:
 
 
 def _lines(drama_id: int) -> list:
-    return core_module.lines_from_rows(db.load_lines(drama_id))
+    return db.load_line_objects(drama_id)
 
 
 def _require_lines(drama_id: int) -> list:

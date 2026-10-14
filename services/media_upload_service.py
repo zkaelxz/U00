@@ -567,8 +567,7 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     ddir = db.drama_dir(drama_id)
     part_path = os.path.join(ddir, ".audio.extract.wav")
     background_jobs.update_progress(job_id, 0.05, "Extracting audio from the video...")
-    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", staged, "-vn",
-           "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", part_path]
+    cmd = video_export.extract_audio_cmd(staged, part_path)
     failed = _EXTRACT_FAILED
     try:
         # ffmpeg writes into the title's folder, so this work folder only carries

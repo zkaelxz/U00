@@ -40,12 +40,8 @@ VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
 
 def _audio_duration_seconds(path) -> Optional[float]:
     """Best-effort audio length via ffprobe; None when it can't be read."""
-    try:
-        import media_inspect
-        info = media_inspect.run_ffprobe(path, timeout=30)
-        return float((info.get("format") or {}).get("duration") or 0.0) or None
-    except Exception:
-        return None
+    import media_inspect
+    return media_inspect.duration_seconds(path, timeout=30)
 
 
 # A running job never reports 100%: only completion does. When Qwen3-ASR

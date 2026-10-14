@@ -14,6 +14,7 @@ import dataclasses
 import json
 import os
 import subprocess
+from typing import Optional
 
 import video_export
 
@@ -57,6 +58,15 @@ class MediaAnalysis:
 # overlap is duplicated rather than shared.
 _STREAMER_KEYWORDS = ("vtuber", "stream", "live", "vod", "broadcast")
 _ASMR_KEYWORDS = ("asmr", "binaural", "roleplay", " rp ", "-rp-")
+
+
+def duration_seconds(path: str, timeout: int = 30) -> Optional[float]:
+    """Best-effort media length via ffprobe; None when it can't be read."""
+    try:
+        info = run_ffprobe(path, timeout=timeout)
+        return float((info.get("format") or {}).get("duration") or 0.0) or None
+    except Exception:
+        return None
 
 
 def run_ffprobe(path: str, timeout: int = 30) -> dict:

@@ -217,7 +217,7 @@ def list_tm_suggestions(drama_id: int, line_ids: Optional[list] = None) -> list:
     if not series_id:
         return []
     entries = db.list_translation_memory(series_id)
-    lines = core_module.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     if line_ids is not None:
         wanted = set(line_ids)
         lines = [ln for ln in lines if ln.id in wanted]

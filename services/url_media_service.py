@@ -175,9 +175,7 @@ class _SpaceWatch:
             return False
 
 
-def _extract_cmd(video_path: str, wav_path: str) -> list:
-    return ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path, "-vn",
-            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wav_path]
+_extract_cmd = video_export.extract_audio_cmd
 
 
 def direct_media_ext(url: str):

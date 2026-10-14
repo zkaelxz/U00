@@ -167,7 +167,7 @@ def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subti
 
 def _load_drama_and_lines(drama_id: int):
     drama = ownership_service.require_drama(drama_id)
-    lines = core_module.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     return drama, lines
 
 

@@ -119,7 +119,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     prefix, label = _KINDS[kind]
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = translate_run_service.require_drama(drama_id)
-    lines = core.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     if not lines:
         raise UnsupportedOperationError("This title has no lines yet.")
     if precheck:
