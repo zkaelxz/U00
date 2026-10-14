@@ -15,7 +15,7 @@ model, report, page or manifest carries it.
 from urllib.parse import urlsplit
 
 import db
-from services import library_service
+import translate_engines
 from services.service_errors import NotFoundError
 
 
@@ -23,7 +23,7 @@ def split_source_url(raw) -> tuple:
     """(clean, full) for storing a link: full is the raw link only when
     cleaning changed it and left something usable, else ""."""
     raw = str(raw or "").strip()
-    clean = library_service.display_source_url(raw)
+    clean = translate_engines.display_url(raw)
     return clean, (raw if clean and raw != clean else "")
 
 
@@ -45,4 +45,4 @@ def source_link(drama_id) -> dict:
     full = (drama.get("source_url_full") or drama.get("source_url") or "").strip()
     if _is_http(full):
         return {"url": full}
-    return {"url": library_service.display_source_url(drama.get("source_url"))}
+    return {"url": translate_engines.display_url(drama.get("source_url"))}

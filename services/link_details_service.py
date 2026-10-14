@@ -40,6 +40,7 @@ import time
 import background_jobs
 import db
 import storage
+import translate_engines
 from jobs import job_launch
 from services import drama_service, library_service, ownership_service, ytdlp_child
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -71,7 +72,7 @@ _random = random.Random()
 def _empty(kind: str, url: str) -> dict:
     return {"kind": kind, "title": "", "channel": "", "release_date": "", "is_live": False,
             "summary": "", "platform": "", "series_suggestion": "", "note": "",
-            "display_url": library_service.display_source_url(url)}
+            "display_url": translate_engines.display_url(url)}
 
 
 def release_date_of(link: dict) -> str:
@@ -384,7 +385,7 @@ def scan_candidates(principal=None) -> list:
 def _scan_row(drama_id: int, cancel, series_names: dict) -> dict:
     drama = db.get_drama(drama_id) or {}
     row = {"drama_id": drama_id, "name": drama.get("title_en") or drama.get("title_zh") or "",
-           "display_url": library_service.display_source_url(drama.get("source_url")),
+           "display_url": translate_engines.display_url(drama.get("source_url")),
            "blank": _blank_fields(drama), "current": _current(drama, series_names), "suggested": None,
            "note": ""}
     try:

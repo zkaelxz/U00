@@ -195,7 +195,7 @@ def test_offered_or_default_models_pass_the_check():
     svc._require_offered_model("fake", None)
     svc._require_offered_model("ollama", next(iter(translate_engines.OLLAMA_MODELS)))
     svc._require_offered_model("claude", next(iter(translate_engines.CLAUDE_MODELS)))
-    svc._require_offered_model("deepseek", svc._default_model("deepseek"))
+    svc._require_offered_model("deepseek", translate_engines.effective_default_model("deepseek"))
     with pytest.raises(InvalidInputError):
         svc._require_offered_model("deepseek", "other-model")
 

@@ -54,16 +54,3 @@ export interface SubtitleImportOptions {
   splitBilingual: boolean
   translationFirst: boolean
 }
-
-export interface SidecarCandidate {
-  name: string
-  format: string
-  language_token: string | null
-  language: string | null
-  exact: boolean
-}
-
-export interface SidecarMatchResult {
-  candidates: SidecarCandidate[]
-  ambiguous: boolean
-}

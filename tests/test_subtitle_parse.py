@@ -192,24 +192,7 @@ class TestBilingualAndMatching:
             0: ["in a", "also a"], 1: ["zero length inside b"], 2: ["in c"]}
 
 
-class TestSidecars:
-    NAMES = ["track.srt", "track.ja.vtt", "track.mp3.vtt", "track.en.srt", "Track.zh-Hans.ass",
-             "other.srt", "track.final.srt", "track.mp3", "track.txt", "track.mp3.ko.lrc"]
-
-    def test_accepted_patterns_only(self):
-        got = [c.name for c in sc.rank_sidecars("track.mp3", self.NAMES)]
-        assert set(got) == {"track.srt", "track.ja.vtt", "track.mp3.vtt", "track.en.srt",
-                            "Track.zh-Hans.ass", "track.mp3.ko.lrc"}
-
-    def test_ranking_prefers_the_titles_language_then_unlabelled(self):
-        got = sc.rank_sidecars("track.mp3", self.NAMES, prefer_language="ja")
-        assert got[0].name == "track.ja.vtt"
-        assert [c.exact for c in got[1:3]] == [True, True]  # unlabelled before other languages
-        assert got[-1].language in {"en", "ko", "zh"}
-
-    def test_full_width_names_match(self):
-        assert [c.name for c in sc.rank_sidecars("ｔｒａｃｋ.mp3", ["track.srt"])] == ["track.srt"]
-
+class TestDetectLanguage:
     @pytest.mark.parametrize("text,expected", [
         ("你好世界", "zh"), ("こんにちは、世界の皆さん", "ja"), ("안녕하세요", "ko"),
         ("hello there friends", "latin"), ("12 !!", None), ("日本語のテキスト and some english", "ja")])

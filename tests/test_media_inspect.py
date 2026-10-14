@@ -30,6 +30,11 @@ def _fake_run(stdout_obj):
     return run
 
 
+def _probe_media(path, filename=None):
+    # Runs ffprobe through run_ffprobe (the tests stub subprocess.run beneath it) like the real callers.
+    return mi.analysis_from_probe(mi.run_ffprobe(path), filename or os.path.basename(path))
+
+
 class TestProbeMediaParsing:
     def test_video_with_audio_and_no_subtitles(self, monkeypatch):
         probe_json = {
@@ -42,7 +47,7 @@ class TestProbeMediaParsing:
             ],
         }
         monkeypatch.setattr(mi.subprocess, "run", _fake_run(probe_json))
-        analysis = mi.probe_media("video.mp4", filename="video.mp4")
+        analysis = _probe_media("video.mp4", filename="video.mp4")
 
         assert analysis.duration_seconds == pytest.approx(125.5)
         assert analysis.has_video is True
@@ -61,7 +66,7 @@ class TestProbeMediaParsing:
             ],
         }
         monkeypatch.setattr(mi.subprocess, "run", _fake_run(probe_json))
-        analysis = mi.probe_media("audio.mp3", filename="audio.mp3")
+        analysis = _probe_media("audio.mp3", filename="audio.mp3")
 
         assert analysis.has_video is False
         assert analysis.width is None and analysis.height is None and analysis.fps is None
@@ -82,7 +87,7 @@ class TestProbeMediaParsing:
             ],
         }
         monkeypatch.setattr(mi.subprocess, "run", _fake_run(probe_json))
-        analysis = mi.probe_media("audio.mp3", filename="audio.mp3")
+        analysis = _probe_media("audio.mp3", filename="audio.mp3")
 
         assert analysis.has_video is False
         assert analysis.width is None
@@ -99,7 +104,7 @@ class TestProbeMediaParsing:
             ],
         }
         monkeypatch.setattr(mi.subprocess, "run", _fake_run(probe_json))
-        analysis = mi.probe_media("video.mp4", filename="video.mp4")
+        analysis = _probe_media("video.mp4", filename="video.mp4")
 
         assert len(analysis.subtitle_tracks) == 1
         assert analysis.subtitle_tracks[0].language == "eng"
@@ -111,14 +116,14 @@ class TestProbeMediaParsing:
             raise FileNotFoundError("no ffprobe")
         monkeypatch.setattr(mi.subprocess, "run", run)
         with pytest.raises(mi.ProbeError, match="ffprobe isn't installed"):
-            mi.probe_media("video.mp4")
+            _probe_media("video.mp4")
 
     def test_ffprobe_failure_raises_probe_error_with_stderr(self, monkeypatch):
         def run(cmd, **kwargs):
             raise subprocess.CalledProcessError(1, cmd, stderr="Invalid data found")
         monkeypatch.setattr(mi.subprocess, "run", run)
         with pytest.raises(mi.ProbeError, match="Invalid data found"):
-            mi.probe_media("not_media.txt")
+            _probe_media("not_media.txt")
 
     def test_ffprobe_decodes_utf8_with_replacement(self, monkeypatch):
         seen = {}
@@ -215,7 +220,7 @@ class TestRealFfprobe:
              "-t", "2", "-pix_fmt", "yuv420p", "-shortest", out],
             check=True, capture_output=True,
         )
-        analysis = mi.probe_media(out, filename="fixture.mp4")
+        analysis = _probe_media(out, filename="fixture.mp4")
 
         assert analysis.duration_seconds == pytest.approx(2.0, abs=0.2)
         assert analysis.has_video is True
@@ -232,7 +237,7 @@ class TestRealFfprobe:
             w.setframerate(8000)
             w.writeframes(b"\x00\x00" * 8000 * 3)
 
-        analysis = mi.probe_media(str(wav_path), filename="fixture.wav")
+        analysis = _probe_media(str(wav_path), filename="fixture.wav")
 
         assert analysis.duration_seconds == pytest.approx(3.0, abs=0.1)
         assert analysis.has_video is False

@@ -39,6 +39,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.auth import listener_principal, require_permission, session_token
+from api.background import log_warning
 from api.notification_schemas import NotificationList
 from api.schemas import ErrorResponse, JobRecord, LiveSessionStatus
 from services import auth_service
@@ -139,7 +140,7 @@ async def _stream(request, sub, principal, revalidate):
                 except Exception as exc:
                     # e.g. "database is locked": the client re-reads instead
                     # of losing the stream.
-                    _log("event batch failed, sending resync: %s", exc)
+                    log_warning("event batch failed, sending resync: %s", exc)
                     frames = [_frame("resync", {"topics": list(sub.topics)})]
                 for frame in frames:
                     yield frame
@@ -155,15 +156,6 @@ async def _stream(request, sub, principal, revalidate):
                 last_write = loop.time()
     finally:
         events.close_subscription(sub)
-
-
-def _log(fmt, *args):
-    try:
-        from applog import get_logger
-        from translate_engines import redact_secrets
-        get_logger().warning(fmt, *(redact_secrets(str(a)) for a in args))
-    except Exception:
-        pass
 
 
 @router.get("", dependencies=[require_permission(PERMISSION)],

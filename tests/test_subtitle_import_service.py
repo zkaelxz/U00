@@ -182,21 +182,6 @@ class TestUploadBounds:
         assert "secret" not in text and "Users" not in text
 
 
-class TestSidecarsRoute:
-    def test_ranks_names_and_never_binds(self, client):
-        did = _drama(source_language="ja")
-        r = client.post(f"{B}/{did}/sidecars", json={
-            "media_name": "track.mp3", "names": ["track.en.srt", "track.ja.vtt", "track.mp3.vtt", "x.srt"]})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["ambiguous"] is True
-        assert [c["name"] for c in body["candidates"]] == ["track.ja.vtt", "track.mp3.vtt", "track.en.srt"]
-
-    def test_rejects_paths_in_names(self, client):
-        r = client.post(f"{B}/{_drama()}/sidecars", json={"media_name": "t.mp3", "names": ["../t.srt"]})
-        assert r.status_code == 422
-
-
 class TestAccess:
     @pytest.fixture
     def world(self, isolated_db):
@@ -221,12 +206,6 @@ class TestAccess:
                 r = client.post(f"{B}/{did}/{route}", files={"file": ("a.srt", SRT)}, headers=headers)
                 assert r.status_code == 403, (route, r.status_code)
         assert db.load_lines(did) == []
-
-    def test_sidecar_ranking_still_follows_ownership(self, world):
-        client, did, a, b = world
-        body = {"media_name": "ep1.mkv", "names": ["ep1.srt"]}
-        assert client.post(f"{B}/{did}/sidecars", json=body, headers=b).status_code == 404
-        assert client.post(f"{B}/{did}/sidecars", json=body, headers=a).status_code == 200
 
     def test_signed_out_and_without_lines_edit_are_refused(self, world):
         client, did, a, _ = world

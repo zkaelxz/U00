@@ -175,10 +175,6 @@ def ollama_reachable() -> bool:
         settings_service.resolve_key("ollama_url") or "http://localhost:11434"))
 
 
-def _default_model(engine_name: str) -> Optional[str]:
-    return translate_engines.effective_default_model(engine_name)
-
-
 def validate_run_options(engine_name: str, model, *, locale: str, style_preset: str,
                          context_window: int, context_window_ahead: int, batch_size: int,
                          job_cost_cap_usd, gemini_free_tier: bool) -> None:
@@ -227,7 +223,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
 
     free_tier = engine_name == "gemini" and gemini_free_tier
-    resolved_model = model or _default_model(engine_name)
+    resolved_model = model or translate_engines.effective_default_model(engine_name)
     cap_applies = engine_cap_applies(engine_name, gemini_free_tier)
     free = engine_name in translate_engines.FREE_ENGINES or free_tier
 
@@ -329,7 +325,7 @@ def _require_offered_model(engine_name: str, model) -> None:
     models = next((e["models"] for e in translate_service.list_engines()
                    if e["name"] == engine_name), None)
     allowed = models if models is not None else [
-        translate_engines.builtin_default_model(engine_name), _default_model(engine_name)]
+        translate_engines.builtin_default_model(engine_name), translate_engines.effective_default_model(engine_name)]
     if not isinstance(model, str) or model not in (*allowed, *legacy_ids(engine_name)):
         raise InvalidInputError("That model isn't offered for this engine.")
 

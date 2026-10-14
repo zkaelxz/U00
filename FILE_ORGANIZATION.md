@@ -152,7 +152,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
 - `stereo_cues.py` (stereo-track placement cues from the script, numpy only; `docs/specs/stereo-track.md`)
 - `stereo_render.py` (stereo-track renderers: pan, delay and level per line, numpy only; `docs/specs/stereo-track.md`)
-- `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
+- `subtitle_sidecar.py` (language from characters)
 - `source_suspect.py` (pure: the Review "Source text looks off" rules, the `source_suspect` flag)
 - `timing_drift.py` (pure: line times vs detected speech spans, the `timing_drift` review flag)
 - `video_download.py`

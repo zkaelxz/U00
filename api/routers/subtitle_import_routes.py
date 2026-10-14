@@ -1,15 +1,13 @@
 """
 api/routers/subtitle_import_routes.py -- import a timed subtitle or lyric file
-(SRT, VTT, ASS/SSA, LRC) into one drama, and rank subtitle file names against a
-media file name. The logic is in services/subtitle_import_service.py.
+(SRT, VTT, ASS/SSA, LRC) into one drama. The logic is in services/subtitle_import_service.py.
 
-Both file routes take multipart/form-data: a 'file' part plus small text
+Both routes take multipart/form-data: a 'file' part plus small text
 fields. The upload is refused past the file cap before it is read; the file
 itself is parsed in memory and never stored.
 
 Preview and apply are local_only(): uploads are PC-only unless the owner
-records a decision otherwise (docs/remote-access-decision.md). The sidecar
-ranking takes names only, so it stays on lines.edit.
+records a decision otherwise (docs/remote-access-decision.md).
 """
 
 from fastapi import APIRouter, Path, Request
@@ -21,8 +19,7 @@ from starlette.formparsers import MultiPartException
 import subtitle_parse
 from api.auth import local_only, require_permission
 from api.routers.bug_report_routes import BodyTooLarge, capped
-from api.schemas import (ErrorResponse, SidecarMatchRequest, SidecarMatchResult,
-                         SubtitleImportPreview, SubtitleImportResult)
+from api.schemas import ErrorResponse, SubtitleImportPreview, SubtitleImportResult
 from services import subtitle_import_service as svc
 from services.service_errors import InvalidInputError
 
@@ -115,10 +112,3 @@ async def post_apply(request: Request, drama_id: int = Path(ge=1)):
         svc.import_subtitle, drama_id, data, filename, encoding=opts["encoding"], mode=opts["mode"],
         split_bilingual=opts["split_bilingual"], translation_first=opts["translation_first"],
         confirm_replace_lines=opts["confirm_replace_lines"], confirm_overwrite=opts["confirm_overwrite"])
-
-
-@router.post("/dramas/{drama_id}/sidecars", dependencies=[require_permission("lines.edit")],
-             response_model=SidecarMatchResult, responses=_ERRORS,
-             summary="Rank subtitle file names against a media file name (names only; nothing is bound)")
-def post_sidecars(payload: SidecarMatchRequest, drama_id: int = Path(ge=1)):
-    return svc.rank_sidecar_names(drama_id, payload.media_name, payload.names)

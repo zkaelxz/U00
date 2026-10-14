@@ -72,7 +72,7 @@ Reply with only a JSON object keyed by candidate number, each value an object wi
 
 
 def _effective(cfg: dict):
-    return cfg["engine"], cfg.get("model") or lab.default_model(cfg["engine"])
+    return cfg["engine"], cfg.get("model") or translate_engines.effective_default_model(cfg["engine"])
 
 
 def _label(cfg: dict) -> str:

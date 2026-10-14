@@ -42,11 +42,6 @@ import zipfile
 
 import memory_headroom
 
-SEPARATION_BACKENDS = {
-    "auto": "Auto -- Mel-Band RoFormer if installed, otherwise Demucs",
-    "audio_separator": "Mel-Band RoFormer (audio-separator) -- cleanest vocals",
-    "demucs": "Demucs -- older fallback",
-}
 # Kimberley Jensen's Mel-Band RoFormer vocal model, as named in
 # audio-separator's own model registry (models.json).
 MEL_ROFORMER_VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"

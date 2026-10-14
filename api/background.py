@@ -66,17 +66,17 @@ def start_gpu_queue_poller(interval: float = None) -> bool:
                     from jobs import job_runner
                     job_runner.recheck_gpu_queue()
                 except Exception as exc:
-                    _log("GPU queue re-check failed: %s", exc)
+                    log_warning("GPU queue re-check failed: %s", exc)
                 try:
                     from services import auto_backup_service
                     auto_backup_service.periodic_tick()
                 except Exception as exc:
-                    _log("automatic backup check failed: %s", exc)
+                    log_warning("automatic backup check failed: %s", exc)
                 try:
                     from services import update_service
                     update_service.periodic_tick()
                 except Exception as exc:
-                    _log("update check failed: %s", exc)
+                    log_warning("update check failed: %s", exc)
 
         thread = threading.Thread(target=loop, daemon=True, name="api-gpu-queue-poller")
         _gpu_poller = (thread, stop)
@@ -122,7 +122,7 @@ def start_reeval_scheduler(interval: float = None) -> bool:
                     from services import model_reeval_service
                     model_reeval_service.run_if_due()
                 except Exception as exc:
-                    _log("model re-evaluation check failed: %s", exc)
+                    log_warning("model re-evaluation check failed: %s", exc)
 
         thread = threading.Thread(target=loop, daemon=True, name="api-model-reeval")
         _reeval_poller = (thread, stop)
@@ -172,7 +172,7 @@ def start_remote_health_monitor(settings, interval: float = None,
                     rhs.run_check(settings.public_url, settings.household_port, settings.host,
                                   stop=stop)
                 except Exception as exc:
-                    _log("remote access health check failed: %s", type(exc).__name__)
+                    log_warning("remote access health check failed: %s", type(exc).__name__)
 
         thread = threading.Thread(target=loop, daemon=True, name="api-remote-health")
         _remote_health_poller = (thread, stop)
@@ -201,63 +201,63 @@ def start_background_services() -> dict:
         from services import drama_service
         drama_service.cleanup_stale_tombstones()
     except Exception as exc:
-        _log("leftover deleted-drama folders were not swept: %s", exc)
+        log_warning("leftover deleted-drama folders were not swept: %s", exc)
     try:
         import translation_finish
         translation_finish.repair_stale_aligned_statuses()
     except Exception as exc:
-        _log("stale 'aligned' statuses were not corrected: %s", exc)
+        log_warning("stale 'aligned' statuses were not corrected: %s", exc)
     try:
         import storage
         storage.stop_orphaned_job_children()
     except Exception as exc:
         from translate_engines import redact_secrets
-        _log("leftover job processes were not stopped: %s", redact_secrets(str(exc)))
+        log_warning("leftover job processes were not stopped: %s", redact_secrets(str(exc)))
     try:
         import storage
         storage.sweep_stale_temp()
     except Exception as exc:
         from translate_engines import redact_secrets
-        _log("leftover temp files were not swept: %s", redact_secrets(str(exc)))
+        log_warning("leftover temp files were not swept: %s", redact_secrets(str(exc)))
     try:
         import storage
         storage.sweep_legacy_system_temp()
     except Exception as exc:
         from translate_engines import redact_secrets
-        _log("old Baihe folders in the system temp were not swept: %s", redact_secrets(str(exc)))
+        log_warning("old Baihe folders in the system temp were not swept: %s", redact_secrets(str(exc)))
     try:
         from services import media_upload_service
         media_upload_service.recover_all_stale_uploads()
     except Exception as exc:
         from translate_engines import redact_secrets
-        _log("leftover uploads were not moved to kept_media: %s", redact_secrets(str(exc)))
+        log_warning("leftover uploads were not moved to kept_media: %s", redact_secrets(str(exc)))
     try:
         from services import lncrawl_service
         lncrawl_service.cleanup_stale_workdirs()
     except Exception as exc:
-        _log("leftover lightnovel-crawler folders were not swept: %s", exc)
+        log_warning("leftover lightnovel-crawler folders were not swept: %s", exc)
     try:
         from services import auto_backup_service
         auto_backup_service.cleanup_stale_leftovers()
         auto_backup_service.periodic_tick()   # the startup due-check
     except Exception as exc:
-        _log("automatic backup check failed: %s", exc)
+        log_warning("automatic backup check failed: %s", exc)
     try:
         from services import update_service
         update_service.cleanup_leftovers()
     except Exception as exc:
-        _log("leftover update installers were not swept: %s", exc)
+        log_warning("leftover update installers were not swept: %s", exc)
     try:
         from services import translate_run_service
         translate_run_service.resume_interrupted_at_startup()
     except Exception as exc:
-        _log("bulk batches were not resumed: %s", exc)
+        log_warning("bulk batches were not resumed: %s", exc)
     try:
         from sources import chapter_check
         chapter_check.ensure_scheduler_started()
         state["chapter_scheduler"] = True
     except Exception as exc:
-        _log("chapter-check scheduler did not start: %s", exc)
+        log_warning("chapter-check scheduler did not start: %s", exc)
     try:
         from sources import store as src_store
         if bool(src_store.get_setting("page_server_enabled")):
@@ -266,16 +266,16 @@ def start_background_services() -> dict:
                 from services import extension_service
                 extension_service.push_translation_config()
             except Exception as exc:
-                _log("browser-extension engine was not set: %s", exc)
+                log_warning("browser-extension engine was not set: %s", exc)
             page_server.ensure_server_started()
             state["page_server"] = page_server.server_running()
     except Exception as exc:
-        _log("browser-extension endpoint did not start: %s", exc)
+        log_warning("browser-extension endpoint did not start: %s", exc)
     _started = state
     return dict(state)
 
 
-def _log(fmt, *args):
+def log_warning(fmt, *args):
     try:
         from applog import get_logger
         from translate_engines import redact_secrets

@@ -164,7 +164,7 @@ class TestApi:
 
 def test_the_default_model_is_the_same_in_the_builtin_and_the_app(isolated_db):
     assert translate_engines.builtin_default_model("ollama") == "gemma4:12b"
-    assert svc._default_model("ollama") == "gemma4:12b"
+    assert translate_engines.effective_default_model("ollama") == "gemma4:12b"
 
 
 class TestOllamaDefaultAgrees:
@@ -173,8 +173,8 @@ class TestOllamaDefaultAgrees:
     def test_every_surface_names_the_same_default(self, isolated_db):
         from services import model_registry_service, model_reeval_service, settings_service
         assert translate_engines.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
-        assert benchmark_lab_service.default_model("ollama") == "gemma4:12b"
-        assert svc._default_model("ollama") == "gemma4:12b"
+        assert translate_engines.effective_default_model("ollama") == "gemma4:12b"
+        assert translate_engines.effective_default_model("ollama") == "gemma4:12b"
         settings_service.set_settings({"default_engine": "ollama"})
         assert model_reeval_service.get_production()["model"] == "gemma4:12b"
         row = next(r for r in model_registry_service.configured_models()

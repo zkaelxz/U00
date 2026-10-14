@@ -351,7 +351,7 @@ def check_config(stage: str, cfg) -> dict:
                 if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
                         or ".." in model or model.startswith("/"):
                     raise InvalidInputError("That model isn't offered for this engine.")
-            elif entry["models"] is None and model == default_model(engine):
+            elif entry["models"] is None and model == translate_engines.effective_default_model(engine):
                 model = None   # an engine without a model picker: its built-in model
             elif entry["models"] is None or model not in entry["models"]:
                 raise InvalidInputError("That model isn't offered for this engine.")
@@ -398,15 +398,11 @@ def _estimate_config(cfg: dict, cases: list):
     engine_cls = translate_engines.ENGINES[cfg["engine"]]
     probe = type("Probe", (), {})()
     probe.name = getattr(engine_cls, "name", cfg["engine"])
-    probe.model = cfg["model"] or default_model(cfg["engine"])
+    probe.model = cfg["model"] or translate_engines.effective_default_model(cfg["engine"])
     probe.free_tier = False
     # One call per case, so the fixed instructions overhead is paid per case.
     return sum(translate_engines.estimate_translation_cost(probe, [c.get("source_text") or ""])
                for c in cases)
-
-
-def default_model(engine: str):
-    return translate_engines.effective_default_model(engine)
 
 
 def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
@@ -477,7 +473,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         session_ids.append(db.create_benchmark_session({
             "label": label, "stage": stage, "engine": cfg["engine"], "model": (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL
                       else cfg["model"])
-            or (default_model(cfg["engine"]) if stage == "translation" else None),
+            or (translate_engines.effective_default_model(cfg["engine"]) if stage == "translation" else None),
             "prompt_version": prompt_version, "context_settings": json.dumps(context),
             "case_filter": case_filter, "arena_group": arena_group, "status": "queued",
             "case_count": len(cases)}))
