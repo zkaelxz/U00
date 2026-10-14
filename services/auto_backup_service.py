@@ -169,9 +169,11 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
             foreign_above = floor > ident["sequence"]
             owner = _identity(bump_from=floor)
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
-        lbs.write_backup_zip(tmp, include_media=include_media,
-                             manifest=lambda snap: _manifest_bytes(snap, include_media, owner),
-                             should_cancel=lambda: background_jobs.is_cancel_requested(job_id))
+        skipped = lbs.write_backup_zip(tmp, include_media=include_media,
+                                       manifest=lambda snap: _manifest_bytes(snap, include_media,
+                                                                             owner),
+                                       should_cancel=lambda: background_jobs.is_cancel_requested(
+                                           job_id))
         background_jobs.update_progress(job_id, 0.8, "Checking the backup...")
         _verify_snapshot(tmp)
         # On disk before any old copy is deleted: a power cut must not
@@ -218,8 +220,9 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
     kind = space.copy_kind(include_media)
     _update_state(last_success_at=started, last_error=None, last_copy_size=size,
                   last_copy_kind=kind)
-    background_jobs.set_result(job_id, {"size": size, "kind": kind})
-    background_jobs.update_progress(job_id, 1.0, "Backup ready.")
+    background_jobs.set_result(job_id, {"size": size, "kind": kind,
+                                        "skipped_count": len(skipped)})
+    background_jobs.update_progress(job_id, 1.0, lbs.skipped_note("Backup ready.", len(skipped)))
 
 
 def _start(include_media: bool, scheduled: bool = False) -> bool:
