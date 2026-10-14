@@ -17,8 +17,15 @@ import diagnostics
 import sensitivity_preset as presets
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS
-from services import asr_options_service, diarization_service, settings_service, transcribe_pipeline
-from services.qwen3_requirements_service import require_qwen3_packages, require_vad_backend_packages
+from services import (
+    asr_options_service,
+    diarization_service,
+    ownership_service,
+    settings_service,
+    transcribe_pipeline,
+)
+from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
+                                                 require_vad_backend_packages)
 from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
 # The per-drama tuning values used when the drama has none stored.
@@ -182,9 +189,7 @@ def _require_vad_packages() -> None:
     """The speech-detection backends need faster-whisper (it bundles the
     Silero VAD and decodes the audio for it)."""
     if importlib.util.find_spec("faster_whisper") is None:
-        raise DependencyUnavailableError(
-            "Qwen3 speech detection needs transcription, which isn't installed yet. "
-            "Open Diagnostics to install it.")
+        raise DependencyUnavailableError(MISSING_VAD_MESSAGE)
 
 
 _CHINESE_SCRIPTS = ("simplified", "traditional")
@@ -201,9 +206,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     start_transcribe_run for everything that doesn't depend on the audio or
     video file being on disk yet; starts nothing. Keep in step with
     start_transcribe_run's checks."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
@@ -234,11 +237,7 @@ def _allowed_whisper_sizes() -> frozenset:
 
 
 def selectable_whisper_sizes(context: str) -> list:
-    """The sizes a Workspace picker lists: whisper_models' table, plus the hidden ones when
-    Developer Mode is on. Read here (not in whisper_models) so that module stays free of settings."""
-    from services import maintenance_assistant_service
-    return whisper_models.selectable_whisper_sizes(
-        context, developer_mode=maintenance_assistant_service.developer_mode_enabled())
+    return whisper_models.selectable_whisper_sizes(context)
 
 
 def default_whisper_size() -> str:

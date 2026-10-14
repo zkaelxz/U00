@@ -16,10 +16,10 @@ depend on context only a person reading the story can settle.
 """
 
 import re
-import json
 from core import LANGUAGE_NAMES
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from engine_backends.run_limits import TranslateRunStopped
+from engine_backends.shared import load_json_reply
 from translate_engines import PRONOUN_DEFAULT_MARKER, call_llm_json, parse_json_array
 
 
@@ -756,10 +756,6 @@ def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh", usa
     )
 
     text = call_llm_json(engine, prompt, max_tokens=800, fallback="{}", usage_cb=usage_cb)
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
+    data = load_json_reply(text, {})
     return {k: str(v).strip() for k, v in data.items()
             if k in METADATA_FIELDS and str(v).strip()}

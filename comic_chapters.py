@@ -207,6 +207,56 @@ def set_hidden(drama_id: int, filenames, hidden: bool) -> None:
         _save(drama_id, manifest)
 
 
+def load_checked(drama_id: int) -> tuple:
+    """(manifest, readable), so a caller about to move pages can refuse up
+    front instead of finding out halfway."""
+    with _lock(drama_id):
+        return _read(drama_id)
+
+
+def move_labels(source_id: int, target_id: int, renames: dict, keep_both: bool) -> None:
+    """Carries the labels and hidden flags of pages moved to another drama:
+    `renames` maps each moved page's filename in the source to its filename
+    in the target. The target is written first, so a failure in between
+    leaves a label on both sides rather than on neither. With `keep_both`,
+    a chapter the target already has stays a separate chapter there (a key
+    of its own) instead of joining the existing one."""
+    first, second = sorted((int(source_id), int(target_id)))
+    with _lock(first), _lock(second):
+        src = _load_for_write(source_id)
+        dst = _load_for_write(target_id)
+        had = {c["key"] for c in dst["chapters"]}
+        keys = set(had)
+        new_key = {}
+        for c in src["chapters"]:
+            moved = [renames[f] for f in c["files"] if f in renames]
+            if not moved:
+                continue
+            key = c["key"]
+            if keep_both and key in had:
+                if key not in new_key:
+                    n = 2
+                    while f"{key}#{n}" in keys:
+                        n += 1
+                    new_key[key] = f"{key}#{n}"
+                    keys.add(new_key[key])
+                key = new_key[key]
+            entry = next((e for e in dst["chapters"] if e["key"] == key), None)
+            if entry is None:
+                entry = {"key": key, "id": c["id"], "title": c["title"], "url": c.get("url", ""),
+                         "files": []}
+                dst["chapters"].append(entry)
+            entry["files"].extend(f for f in moved if f not in entry["files"])
+        dst["hidden"] = sorted(set(dst["hidden"]) | {renames[f] for f in src["hidden"]
+                                                       if f in renames})
+        _save(target_id, dst)
+        for c in src["chapters"]:
+            c["files"] = [f for f in c["files"] if f not in renames]
+        src["chapters"] = [c for c in src["chapters"] if c["files"]]
+        src["hidden"] = [f for f in src["hidden"] if f not in renames]
+        _save(source_id, src)
+
+
 def group_pages(pages, manifest: dict) -> list:
     """Reading-order chapter groups for `pages` (db.list_pages rows, in
     idx order). A group is a run of adjacent pages with the same chapter, so a

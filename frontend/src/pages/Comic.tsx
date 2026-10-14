@@ -13,13 +13,16 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
-import { api } from '../api/client'
+import { api, keepaliveFetch } from '../api/client'
 import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
 import { RetryBanner } from '../components/RetryBanner'
 import { Sheet } from '../components/Sheet'
+import { buttonClass } from '../components/uiClasses'
 import { SourceLink } from './discover/ExternalLink'
 import { useJob } from '../hooks/useJob'
+import { useDelayedSave } from '../hooks/useDelayedSave'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { usePreloadImages } from '../hooks/usePreloadImages'
 import { useShortcut } from '../hooks/useShortcut'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
 import { ChapterBar } from './comic/ChapterBar'
@@ -76,24 +79,6 @@ function replacePage(id: number, page: number) {
   window.location.replace(comicHref(id, page))
 }
 
-// Keeps the next pages' images warm in the browser cache.
-function usePreload(urls: string[]) {
-  const held = useRef(new Map<string, HTMLImageElement>())
-  const key = urls.join('\n')
-  useEffect(() => {
-    const want = key ? key.split('\n') : []
-    for (const u of want) {
-      if (held.current.has(u)) continue
-      const img = new Image()
-      img.decoding = 'async'
-      img.src = u
-      held.current.set(u, img)
-    }
-    // Only the current window is held; older ones can be collected.
-    for (const u of [...held.current.keys()]) if (!want.includes(u)) held.current.delete(u)
-  }, [key])
-}
-
 export default function ComicPage({ id, page: routePage }: { id: number; page: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const [title, setTitle] = useState<string | null>(null)
@@ -130,7 +115,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   // The page the server already has, so an unchanged page is not re-sent.
   const lastSaved = useRef<number | null>(null)
   // The reader has been on a page other than the start page.
-  const moved = useRef(false)
+  const [moved, setMoved] = useState(false)
   // Text-box requests already sent, by page id.
   const requested = useRef(new Set<number>())
 
@@ -154,8 +139,17 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     }
   }, [id, titleTick])
 
+  const loadPages = useCallback(() => {
+    comicApi.pages(id).then(
+      (d) => {
+        setError(null)
+        setData(d)
+      },
+      setError,
+    )
+  }, [id])
   useEffect(() => {
-    comicApi.pages(id).then(setData, setError)
+    loadPages()
     comicApi.progress(id).then(
       (p) => {
         lastSaved.current = p.last_page
@@ -165,15 +159,15 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       // Unknown (refused or failed): start at page 1 but don't save it.
       () => setSavedPage(1),
     )
-  }, [id])
+  }, [id, loadPages])
 
   // After an upload or a Scanlate job: reload the page list (new pages, new
   // typeset images via image_version) and drop the cached text boxes.
   const refreshPages = useCallback(() => {
-    comicApi.pages(id).then(setData, setError)
+    loadPages()
     requested.current.clear()
     setRegions({})
-  }, [id])
+  }, [loadPages])
 
   // The Translate panel unmounts when closed; its job must still reload the
   // pages when it finishes. While the panel is open it follows the job itself.
@@ -310,23 +304,22 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
   // Save progress a second after the page settles; a refusal (no lines.edit) is ignored.
   // Without the server's saved page, only a page the reader moved to is saved.
-  useEffect(() => {
-    if (current === null || !count) return
-    if (current !== start) moved.current = true
-    if (!progressKnown && !moved.current) return
-    const t = setTimeout(() => {
-      if (lastSaved.current === current) return
-      comicApi.saveProgress(id, current).then(
-        (p) => {
-          lastSaved.current = p.last_page
-        },
-        () => {
-          // Reading still works without saving.
-        },
-      )
-    }, PROGRESS_DELAY_MS)
-    return () => clearTimeout(t)
-  }, [id, current, count, start, progressKnown])
+  if (!moved && current !== null && count && current !== start) setMoved(true)
+  const pageToSave = useMemo(
+    () => (current === null || !count || (!progressKnown && !moved) ? null : { id, page: current }),
+    [id, current, count, progressKnown, moved],
+  )
+  useDelayedSave(pageToSave, PROGRESS_DELAY_MS, (p, leaving) => {
+    if (lastSaved.current === p.page) return
+    comicApi.saveProgress(p.id, p.page, leaving ? keepaliveFetch : undefined).then(
+      (r) => {
+        lastSaved.current = r.last_page
+      },
+      () => {
+        // Reading still works without saving.
+      },
+    )
+  })
 
   const srcFor = useCallback(
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered ? 'rendered' : 'original', p.image_version),
@@ -337,11 +330,18 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     () => (current === null ? [] : preloadWindow(current, count, prefs.mode).map((n) => pages[n - 1]).filter(Boolean).map(srcFor)),
     [current, count, prefs.mode, pages, srcFor],
   )
-  usePreload(forbidden ? [] : preload)
+  usePreloadImages(forbidden ? [] : preload)
 
   // Text boxes for the page(s) in view, fetched once each.
   const wantText = prefs.text || linesOpen
   const textKey = current === null || !wantText ? '' : textPages(current, count, prefs.mode).join(',')
+  const [textTick, setTextTick] = useState(0)
+  // A failed request is forgotten, so asking again fetches it again.
+  const retryText = (pageId: number) => {
+    requested.current.delete(pageId)
+    setRegions((r) => Object.fromEntries(Object.entries(r).filter(([k]) => Number(k) !== pageId)))
+    setTextTick((n) => n + 1)
+  }
   useEffect(() => {
     if (!textKey) return
     for (const n of textKey.split(',').map(Number)) {
@@ -353,7 +353,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         (e: unknown) => setRegions((r) => ({ ...r, [p.id]: { error: e } })),
       )
     }
-  }, [textKey, pages, id])
+  }, [textKey, pages, id, textTick])
 
   const onProblem = useCallback((kind: ImageProblem) => {
     if (kind === 'forbidden') setForbidden(true)
@@ -415,13 +415,21 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       aria-controls="comic-scanlate"
       onClick={() => {
         setToolsOpen((v) => !v)
-        // The panel sits above the stage and shifts every page; scroll back to the current one.
-        if (current !== null) requestJump(current)
+        // Closing removes the panel above the stage and shifts every page; scroll back to the current
+        // one. Opening scrolls to the panel instead (see the effect on toolsOpen).
+        if (toolsOpen && current !== null) requestJump(current)
       }}
     >
       Translate
     </button>
   )
+  // The desktop panel renders above the pages, so a reader scrolled down would never see it open.
+  useEffect(() => {
+    if (!toolsOpen || phone) return
+    const el = document.getElementById('comic-scanlate')
+    el?.scrollIntoView({ block: 'start' })
+    el?.focus({ preventScroll: true })
+  }, [toolsOpen, phone])
   const scopes = useMemo(
     () => scopeCounts(pages, chapters, currentPage?.chapter_id ?? null),
     [pages, chapters, currentPage],
@@ -430,16 +438,18 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     <ScanlatePanel
       dramaId={id}
       pageId={currentPage?.id ?? null}
+      typeset={prefs.typeset}
       pageNumber={currentPage ? current : null}
       scopes={scopes}
       onChanged={refreshPages}
       onJob={setWatchedJob}
+      onGoToPage={(n) => go(n, false, true)}
     />
   )
 
   const view = (
     <ComicViewControl prefs={prefs} onChange={setPrefs} canTypeset={canTypeset} phone={phone}>
-      {phone && current !== null && count > 1 && <ComicGoTo count={count} onGo={go} />}
+      {phone && current !== null && count > 1 && <ComicGoTo count={visible.length || count} onGo={goListed} />}
     </ComicViewControl>
   )
 
@@ -556,7 +566,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       ) : (
         <div className="comic-top comic-head">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
-          <SourceLink href={sourceUrl} dramaId={id} />
+          <SourceLink href={sourceUrl} dramaId={id} className={buttonClass('secondary', 'sm')} />
           {current !== null && count > 0 ? (
             <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} />
           ) : (
@@ -569,7 +579,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         </div>
       )}
       {!phone && toolsOpen && !empty && (
-        <div id="comic-scanlate" className="comic-scanlate">
+        <div id="comic-scanlate" className="comic-scanlate" tabIndex={-1}>
           {panel}
         </div>
       )}
@@ -608,7 +618,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           {!phone && prefs.text && currentPage && (
             <aside className="comic-panel" aria-label="Page text">
               <h2>Page {current} text</h2>
-              <ComicLines page={current} state={regionsFor(currentPage)} />
+              <ComicLines page={current} state={regionsFor(currentPage)} onRetry={() => retryText(currentPage.id)} />
             </aside>
           )}
         </div>
@@ -637,7 +647,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       )}
       {phone && currentPage && current !== null && (
         <Sheet open={linesOpen} title={`Page ${current} text`} onClose={() => setLinesOpen(false)}>
-          <ComicLines page={current} state={regionsFor(currentPage)} />
+          <ComicLines page={current} state={regionsFor(currentPage)} onRetry={() => retryText(currentPage.id)} />
           {prefs.text && (
             <button
               type="button"

@@ -88,6 +88,8 @@ JOB_ROUTES = {
     ("GET", "/api/live/sessions/{session_id}"): "live_service.get_session -> can_see_job",
     ("POST", "/api/live/sessions/{session_id}/stop"):
         "live_service.stop_session -> can_see_job",
+    ("GET", "/api/live/player/{session_id}/{name}"):
+        "local_only(), then live_service.player_file -> can_see_job",
 }
 JOB_PARAMS = {"job_id", "session_id"}
 # Children that only appear under a guarded `{drama_id}`/`{series_id}`.
@@ -865,6 +867,18 @@ class TestJobs:
             db.save_job_record(job_id, "running", started_at=1.0, owner_user_id=owners[key])
         return rows
 
+    def test_probe_answers_a_hidden_job_like_an_unknown_one(self, world, jobs):
+        client = _client(_app())
+        probe = {"X-Baihe-Probe": "1"}
+        unknown = client.get("/api/jobs/translate_999999", headers={**world["b"], **probe})
+        assert unknown.status_code == 204
+        for key in ("priv", "a_fixed", "pc_fixed"):
+            hidden = client.get(f"/api/jobs/{jobs[key]}", headers={**world["b"], **probe})
+            assert (hidden.status_code, hidden.content) == (unknown.status_code, unknown.content)
+        # What B may see is unchanged by the header, and a plain read of a hidden job is still a 404.
+        assert client.get(f"/api/jobs/{jobs['shared']}", headers={**world["b"], **probe}).status_code == 200
+        assert client.get(f"/api/jobs/{jobs['priv']}", headers=world["b"]).status_code == 404
+
     def test_list_get_cancel(self, world, jobs):
         client = _client(_app())
         seen = {j["job_id"] for j in client.get("/api/jobs", headers=world["b"]).json()["items"]}
@@ -1202,10 +1216,11 @@ class TestJobs:
         db.save_job_record("sources_search", "done", started_at=1.0, owner_user_id=world["a_id"])
         client = _client(_app())
         for method, path in JOB_ROUTES:
-            url = path.replace("{job_id}", "sources_search").replace("{session_id}", sid)
+            url = (path.replace("{job_id}", "sources_search").replace("{session_id}", sid)
+                   .replace("{name}", "master.m3u8"))
             r = client.request(method, url, headers=world["b"])
             # PC-only: refused for any remote caller before the owner check.
-            expected = 403 if path.endswith("/delete") else 404
+            expected = 403 if path.endswith("/delete") or path.startswith("/api/live/player/") else 404
             if path == "/api/sources/jobs/{job_id}/result":
                 # Another user's run of a shared id reads as "nothing ran".
                 assert r.status_code == 200, (method, url, r.status_code)
@@ -1213,7 +1228,8 @@ class TestJobs:
                 assert client.get(url, headers=world["a"]).json()["status"] == "done"
                 continue
             assert r.status_code == expected, (method, url, r.status_code)
-            if method == "GET":
+            # local_only() makes the caller the local owner, who sees every session; the served files are covered in tests/test_api_live.py.
+            if method == "GET" and not path.startswith("/api/live/player/"):
                 assert client.get(url, headers=world["a"]).status_code == 200, url
 
     def test_import_job_result_follows_drama_visibility(self, world, monkeypatch):

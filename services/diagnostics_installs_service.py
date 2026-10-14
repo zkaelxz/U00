@@ -636,17 +636,7 @@ def _store_dependency_result(result: dict, status: str):
 
 
 def _non_index_dists() -> set:
-    """Installed dists pip took from git, a link or a local wheel or folder:
-    pip writes direct_url.json only for those, and `name==version` from the
-    index would not bring them back."""
-    out = set()
-    for dist in importlib.metadata.distributions():
-        try:
-            if dist.read_text("direct_url.json") is not None:
-                out.add(diagnostics.canonical_dist(dist.metadata["Name"] or ""))
-        except Exception:     # noqa: BLE001 -- unreadable metadata just isn't skipped
-            continue
-    return out
+    return pending_install.non_index_dists()
 
 
 def _restore(before: dict, skip: set, cancel):
@@ -678,10 +668,8 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     """Reinstalls every package whose version pip changed or removed; the
     sentence says how that went (dist names only)."""
     background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.95, "Putting your earlier packages back...")
-    probe = admin_svc._cancel_probe(DEPENDENCY_JOB_ID)
-    # Cancel is sticky: after a cancelled pip the probe is already true, and
-    # honouring it would skip the very restore the Cancel asked for.
-    cancel = None if probe() else probe
+    # After a cancelled pip, only a later Cancel stops the restore it asked for.
+    cancel = background_jobs.later_cancel_probe(DEPENDENCY_JOB_ID)
     try:
         restored, failed, skipped, stopped, added, left_out = _restore(before, skip, cancel)
     except Exception:     # noqa: BLE001 -- the install's own outcome must still be stored

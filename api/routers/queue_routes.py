@@ -13,14 +13,13 @@ from typing import Literal
 from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import holds_paid_engines, is_at_pc, require_permission
-from api.schemas import (ErrorResponse, QueueAddItem, QueueMove, QueuePolicy,
-                         QueueScheduleSet, QueueState, QueueStepSettings)
+from api.schemas import (QueueAddItem, QueueMove, QueuePolicy,
+                         QueueScheduleSet, QueueState, QueueStepSettings, error_responses)
 from services import queue_service
 
 router = APIRouter(prefix="/api/queue", tags=["queue"])
 
-_ERRORS = {403: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-           409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERRORS = error_responses(403, 404, 409, 422)
 _ITEM = Path(ge=1, lt=2**63)
 
 

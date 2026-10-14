@@ -18,18 +18,16 @@ Sources route shape matches.
 from fastapi import APIRouter, Path
 
 from api.auth import local_only
-from api.schemas import (ErrorResponse, SourceSigninForgetRequest, SourceSigninForgetResult,
+from api.schemas import (SourceSigninForgetRequest, SourceSigninForgetResult,
                          SourceSigninOpenRequest, SourcesJobStarted, SourcesProxyRequest,
-                         SourcesSettings, SourceTierTestRequest)
+                         SourcesSettings, SourceTierTestRequest, error_responses)
 from services import sources_registry_service as registry_svc
 from services import sources_signin_service as svc
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
 _NAME = Path(min_length=1, max_length=60)
-_ERRS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+_ERRS = error_responses(400, 404, 409, 422, 503)
 
 
 @router.post("/settings/proxy", dependencies=[local_only()], response_model=SourcesSettings,

@@ -213,6 +213,12 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 *, *::before, *::after { box-sizing: border-box; }
 
 html { scrollbar-gutter: stable; font-size: 93.75%; }
+/* Display preferences (src/display.ts). Overriding the tokens on html reaches PageShell's --page-* aliases and the dock's cap. */
+html[data-width='wide'] { --content-max: 1800px; }
+html[data-width='full'] { --content-max: none; --content-max-wide: none; }
+html[data-text='small'] { font-size: 87.5%; }
+html[data-text='large'] { font-size: 106.25%; }
+html[data-text='larger'] { font-size: 118.75%; }
 /* CJK text uses each language's system fonts, then the Latin face for any Latin in it. */
 :lang(zh) { font-family: var(--font-zh), var(--font-sans); line-height: var(--leading-cjk); }
 :lang(ja) { font-family: var(--font-ja), var(--font-sans); line-height: var(--leading-cjk); }
@@ -257,6 +263,9 @@ h1 { margin: 0; font-size: var(--text-xl); }
 h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
 h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
 
+.app-back { gap: var(--space-1); }
+/* Wide headers only: a phone's own back gesture does the same, and its six header controls leave no room. The header-end cluster must stay at the right edge. */
+.app-header > .app-back + .header-end { margin-left: auto; }
 .app-brand { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold); }
 .app-brand a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; min-width: 44px; color: inherit; text-decoration: none; }
 /* The circle mark stands in for the word where the six header controls leave no room for it (login.css). */
@@ -265,7 +274,9 @@ h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
 .skip-link:focus { top: var(--space-2); }
 #main-content:focus { outline: none; }
 
-a { color: var(--accent-text); }
+a { color: var(--accent-text); text-decoration-line: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); transition: text-decoration-color var(--dur-2) var(--ease); }
+/* A faint underline keeps inline links findable without the heavy default; hover and focus restore it. */
+a:hover { text-decoration-color: currentColor; }
 :focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 4px var(--focus); }
 /* A transparent outline is drawn in a system colour under forced colours, so focus never disappears. */
 @media (forced-colors: active) {
@@ -459,15 +470,10 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: var(--text-xs); line-height: 1; font-style: italic; color: var(--muted); }
-.field-help-text { position: absolute; z-index: 5; top: calc(100% + var(--space-1)); left: 0; width: max-content; max-width: min(18rem, 80vw); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--text-sm); font-weight: 400; box-shadow: var(--shadow-pop); white-space: pre-line; }
+.field-help-text { position: absolute; z-index: 5; top: calc(100% + var(--space-1)); left: 0; width: max-content; max-width: min(18rem, calc(100vw - 16px)); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--text-sm); font-weight: 400; box-shadow: var(--shadow-pop); white-space: pre-line; }
 .panel:has(.field-help-text:not([hidden])) { overflow: visible; }
 .field-help-text[hidden] { display: none; }
-/* Anchored to the label row, not the small (i), so long help stays inside a phone screen. */
-@media (max-width: 640px) {
-  .field-label-row { position: relative; }
-  .field-help { position: static; }
-  .field-help-text { left: 0; right: 0; width: auto; max-width: none; }
-}
+
 .field-error { margin: 0; font-size: var(--text-sm); }
 
 /* Settings/Diagnostics */
@@ -515,11 +521,22 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 th.check-col, td.check-col { width: 2.5rem; padding: 0; cursor: default; }
 .check-hit { display: flex; justify-content: center; align-items: flex-start; padding: 10px 10px 8px; cursor: pointer; }
 .preset-row { max-width: 28rem; }
-input[type='file']::file-selector-button { font: inherit; padding: 6px 12px; margin-right: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; }
+input[type='file']::file-selector-button { font: inherit; padding: 6px 14px; margin-right: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; transition: border-color var(--dur-2) var(--ease); }
+input[type='file']::file-selector-button:hover { border-color: var(--accent); }
 input[type='file'] { color: var(--muted); max-width: 100%; }
 .check-col input { width: 1.1rem; height: 1.1rem; margin: 0; }
 .selection-bar { position: sticky; z-index: 4; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
-.selection-bar.wide { top: 0; }
+/* Fixed to the bottom, not in the flow: opening select mode, or the hint line changing height, must not push the list around, and a top bar would cover the page header. The page keeps room below its last row (scroll-padding and content padding) so no row is stuck under the bar. */
+.selection-bar.wide { position: fixed; bottom: var(--space-3); left: 4.5rem; right: var(--space-4); max-width: 80rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
+/* Compact controls keep the bar short, so it covers as little of the list as possible. */
+.selection-bar.wide { padding: var(--space-1) var(--space-3); gap: var(--space-1); }
+.selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { gap: var(--space-1) var(--space-2); }
+.selection-bar.wide button, .selection-bar.wide select { min-height: 32px; padding-block: 2px; }
+/* The global select's percentage min/max width made each group measure narrower than its contents, so a button dropped under its own select and the next group sat stranded mid-bar. A fixed select width lets a group wrap as a whole. */
+.selection-bar.wide .bar-group { flex-wrap: nowrap; }
+.selection-bar.wide .bar-group select { width: 11rem; min-width: 0; max-width: none; }
+html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
+.app-shell:has(.selection-bar.wide) .app-content { padding-bottom: 6rem; }
 .selection-bar p { margin: 0; }
 .bar-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .bar-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; flex: 1 1 auto; }
@@ -603,7 +620,26 @@ button.toggle {
 button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); }
 button.toggle[aria-checked='true'] { background: var(--toggle-on); border-color: var(--toggle-on); }
 button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-on) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-on) 85%, var(--text)); }
-input[type='checkbox'], input[type='radio'] { accent-color: var(--toggle-on); }
+input[type='radio'] { accent-color: var(--toggle-on); }
+/* Native checkboxes ignore the theme, so draw one; :checked and :indeterminate keep the state readable without colour alone. */
+input[type='checkbox'] {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  vertical-align: middle;
+  border: 1.5px solid var(--toggle-off);
+  border-radius: 5px;
+  background: var(--field-bg);
+  cursor: pointer;
+  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+input[type='checkbox']:hover:not(:disabled) { border-color: var(--toggle-on); }
+input[type='checkbox']:checked, input[type='checkbox']:indeterminate { background-color: var(--toggle-on); border-color: var(--toggle-on); }
+input[type='checkbox']:checked { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-size: 100% 100%; }
+input[type='checkbox']:indeterminate { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8h8' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); background-size: 100% 100%; }
+input[type='checkbox']:disabled { opacity: 0.5; cursor: not-allowed; }
 /* The check shows the state without relying on colour alone. */
 button.toggle[aria-checked='true']::before {
   content: '';
@@ -635,6 +671,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 /* Settings-style rows: label (+ help) on the left, control on the right. */
 .setting-list { display: grid; margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
 .setting-list > .field-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); min-height: 52px; }
+.setting-list > .muted { padding: var(--space-2) var(--space-4); }
 .setting-list > .field-item + .field-item { border-top: 1px solid var(--border); }
 .setting-list .field-label-row { font-size: var(--text-md); color: var(--text); }
 .setting-list .field-label-row label { font-weight: var(--weight-medium); cursor: pointer; }
@@ -739,7 +776,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 
 @media (pointer: coarse), (max-width: 640px) {
   button.toggle::after { inset: -11px -8px; }
-  .setting-list > .field-item { padding-inline: var(--space-3); }
+  .setting-list > .field-item, .setting-list > .muted { padding-inline: var(--space-3); }
   .btn { min-height: 44px; }
   /* Dense buttons look 32px but keep a 44px hit area: the ::after reaches 6px beyond the border box above and below (the Toggle trick; the inset is one more because it is measured from the padding box).
      Rows holding several of them keep a gap of at least --space-3 so the areas never overlap. */
@@ -779,16 +816,17 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 /* Continue shelf */
 .stats-placeholder { min-height: 1.5em; }
 .continue-skeleton { min-height: 140px; }
-.continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: var(--space-3); }
+.continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
 .continue-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); }
 .continue-tile { overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
 .continue-text { display: grid; min-width: 0; }
 .continue-title { font-weight: var(--weight-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.continue-card { padding-inline: 0; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
 @media (max-width: 640px) {
-  .continue-card { padding: var(--space-3); }
+  .continue-card { padding: var(--space-3) 0; }
   .continue-item { padding: var(--space-2); }
 }
 
@@ -796,8 +834,9 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .library-list { display: grid; gap: var(--space-3); min-width: 0; }
 .library-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .toolbar-search { display: flex; gap: var(--space-2); flex: 1 1 18rem; min-width: 0; }
-.toolbar-filters { display: flex; gap: var(--space-2); flex: 0 1 auto; min-width: 0; }
-.toolbar-filters select { width: 11rem; }
+/* No shrink: shrinking let the selects (12rem global minimum) spill over the "More filters" summary beside them; the toolbar wraps instead. */
+.toolbar-filters { display: flex; gap: var(--space-2); flex: 0 0 auto; min-width: 0; }
+.toolbar-filters select { width: 11rem; min-width: 0; }
 .toolbar-row { display: flex; align-items: center; gap: var(--space-3); flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
 /* Selects in a toolbar row keep a natural width: the global 100% would make each one a full-width row. */
 .toolbar-row select { width: auto; flex: 0 1 15rem; min-width: 10rem; }

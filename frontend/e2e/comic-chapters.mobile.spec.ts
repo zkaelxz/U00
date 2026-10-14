@@ -36,3 +36,17 @@ test('phone: chapter row, divider, hidden toggle and scope fit the screen', asyn
   await expect(scope.locator('option')).toHaveCount(2)
   expect(s.unmocked).toEqual([])
 })
+
+test('phone: Go to counts pages the way the pager does when some are hidden', async ({ page }) => {
+  const s = await mockScanlate(page, { mediaType: 'manhwa', chapters: CHAPTERS, hidden: [1], pageCount: 6 })
+  await page.goto('/#/comic/7?page=1')
+  await expect(page.getByTestId('comic-page-label')).toHaveText('1 / 5')
+  await page.getByRole('button', { name: 'View settings' }).tap()
+  const sheet = page.getByRole('dialog')
+  await sheet.getByLabel('Go to page').fill('5')
+  await sheet.getByRole('button', { name: 'Go', exact: true }).tap()
+  // Fifth listed page is the sixth page of the file, because page 2 is hidden.
+  await expect(page).toHaveURL(/page=6$/)
+  await expect(page.getByTestId('comic-page-label')).toHaveText('5 / 5')
+  expect(s.unmocked).toEqual([])
+})

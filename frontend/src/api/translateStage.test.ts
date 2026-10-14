@@ -43,6 +43,7 @@ describe('translate stage api', () => {
     expect(buildEstimateQuery({ engine: 'openai', force_retranslate: true, job_cost_cap_usd: 0 })).toBe(
       '?engine=openai&force_retranslate=true&job_cost_cap_usd=0',
     )
+    expect(buildEstimateQuery({ batch_size: 8 })).toBe('?batch_size=8')
   })
 
   it('requests the estimate and posts the run body as JSON', async () => {

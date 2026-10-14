@@ -7,8 +7,8 @@ touches transcript text or timing (see diarize.merge_speakers's own
 docstring).
 
 No FastAPI import: plain functions, plain dicts in, plain
-values out, so a CLI or another service could call them too. The HF
-token itself is never returned (D2 -- server-side keys are never
+values out, so another service could call them too. The HF
+token itself is never returned (server-side keys are never
 exposed over an API), only whether one is configured.
 """
 import os
@@ -44,9 +44,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
     percents add to 100) and turns, biggest first. uncovered_seconds is the
     drama's audio not inside any turn (overlaps merged), None if the audio
     length is unknown. Raises NotFoundError for an unknown drama."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     turns = diarize.load_turns(db.drama_dir(drama_id))
     if not turns:
         return None
@@ -110,9 +108,7 @@ def get_diarization_config(drama_id: int) -> dict:
     detection run (diarize.load_last_speaker_count), and whether audio is
     actually available to diarize. Raises NotFoundError for an unknown
     drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     ddir = db.drama_dir(drama_id)
     audio_path = _drama_audio_path(drama_id, drama)
@@ -141,7 +137,8 @@ def apply_diarization_result(drama_id: int, result: dict,
                              expected_speakers: Optional[int] = None,
                              overwrite_manual: bool = False,
                              min_speakers: Optional[int] = None,
-                             max_speakers: Optional[int] = None) -> None:
+                             max_speakers: Optional[int] = None,
+                             speakers_at_start: Optional[dict] = None) -> None:
     """The process job's on_done hook, so a diarization run persists its
     own result: saves the turns (+model,
     embeddings, the count the job was started with), re-merges speakers
@@ -165,10 +162,16 @@ def apply_diarization_result(drama_id: int, result: dict,
                        min_speakers=min_speakers or None, max_speakers=max_speakers or None,
                        device=result.get("device"))
     lines = db.load_line_objects(drama_id)
+    for ln in lines:
+        # Detection takes minutes: the compare-and-set must run against what the
+        # user saw when it started, or an edit made meanwhile reads as unchanged.
+        then = (speakers_at_start or {}).get(ln.id)
+        if then is not None:
+            ln.orig = {**(ln.orig or {}), **then}
     diarize.merge_speakers(lines, turns, overwrite_manual=overwrite_manual)
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
-    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"))
+    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
 
 
 def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
@@ -178,8 +181,7 @@ def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
     unknown drama, ConflictError if no turns were saved yet or a job is running
     for the drama. The saved turns are tied to whatever audio detection last
     ran on, so this is only ever done on request, never after a transcription."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before re-assigning speakers.")
@@ -223,9 +225,16 @@ def _record_run_speed(drama_id: int, result) -> None:
         pass
 
 
+def speakers_snapshot(drama_id: int) -> dict:
+    """{line id: speaker fields} as they are now, for apply_diarization_result."""
+    return {ln.id: {f: db.line_value(ln, f) for f in ("speaker", "speaker_manual")}
+            for ln in db.load_line_objects(drama_id)}
+
+
 def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        overwrite_manual: bool = False, min_speakers: Optional[int] = None,
-                       max_speakers: Optional[int] = None):
+                       max_speakers: Optional[int] = None,
+                       speakers_at_start: Optional[dict] = None):
     """The on_done hook for a diarize_<drama_id> process job."""
     def _on_done(job_id, result):
         fell_back = bool((result or {}).get("fell_back_to_cpu"))
@@ -233,7 +242,8 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
         background_jobs.update_progress(
             job_id, 0.97, (notice + " " if fell_back else "") + "Matching speakers to lines...")
         apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
-                                 min_speakers=min_speakers, max_speakers=max_speakers)
+                                 min_speakers=min_speakers, max_speakers=max_speakers,
+                                 speakers_at_start=speakers_at_start)
         _record_run_speed(drama_id, result)
         if fell_back:
             # Replaces the stored result so the finished job still says it.
@@ -281,9 +291,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     is combined with an exact expected_speakers.
     Returns {"job_id": ...} -- poll it via the existing GET /api/jobs/
     {job_id}."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     if overwrite_manual and confirm is not True:
         raise InvalidInputError("overwrite_manual=true replaces speakers you corrected by hand "
@@ -317,7 +325,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         gpu_touching=True, description=f"Diarization (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
-                                   min_speakers, max_speakers),
+                                   min_speakers, max_speakers,
+                                   speakers_at_start=speakers_snapshot(drama_id)),
         run_settings=run_settings_service.for_diarize(
             expected_speakers, min_speakers, max_speakers, settings_service.get("use_gpu"),
             overwrite_manual=overwrite_manual))

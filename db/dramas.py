@@ -45,7 +45,7 @@ def update_drama(drama_id: int, **fields):
 
 
 # Fixed literal columns: the names are interpolated into the statement.
-BLANK_FILLABLE = ("title_zh", "author", "release_date")
+BLANK_FILLABLE = ("title_zh", "title_en", "author", "release_date")
 
 
 def fill_blank_fields(drama_id: int, values: dict) -> list:
@@ -155,6 +155,18 @@ def _contains_pattern(term: str) -> str:
     return f"%{escaped}%"
 
 
+def _fold_if_needed(conn, term: str) -> tuple:
+    """(term, SQL column wrapper). SQLite's LIKE only ignores ASCII case, so
+    a term with a cased non-ASCII letter (é, Ä, Ж) compares casefolded
+    text; anything else, CJK included, keeps the plain fast LIKE."""
+    if not any(not c.isascii() and c.lower() != c.upper() for c in term):
+        return term, "{}"
+    conn.create_function("baihe_casefold", 1,
+                         lambda s: s.casefold() if isinstance(s, str) else s,
+                         deterministic=True)
+    return term.casefold(), "baihe_casefold({})"
+
+
 def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
                  media_type: str = "", visible_to: int = None):
@@ -171,8 +183,9 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
             query += " AND " + clause
             params.extend(extra)
         if search:
-            query += (" AND (title_zh LIKE ? ESCAPE '\\' OR title_en LIKE ? ESCAPE '\\'"
-                      " OR summary LIKE ? ESCAPE '\\')")
+            search, col = _fold_if_needed(conn, search)
+            query += " AND (" + " OR ".join(
+                f"{col.format(c)} LIKE ? ESCAPE '\\'" for c in ("title_zh", "title_en", "summary")) + ")"
             like = _contains_pattern(search)
             params += [like, like, like]
         if studio:
@@ -282,11 +295,13 @@ def search_lines_globally(query: str, limit: int = 100, visible_to: int = None):
         clause, vparams = db.drama_visible_sql("d", visible_to)
         visible = " AND " + clause
     with contextlib.closing(db.get_conn()) as conn:
+        query, col = _fold_if_needed(conn, query)
         like = _contains_pattern(query)
         rows = conn.execute(f"""
             SELECT l.drama_id, l.idx, l.zh, l.en, d.title_en, d.title_zh
             FROM lines l JOIN dramas d ON d.id = l.drama_id
-            WHERE (l.zh LIKE ? ESCAPE '\\' OR l.en LIKE ? ESCAPE '\\'){visible}
+            WHERE ({col.format("l.zh")} LIKE ? ESCAPE '\\'
+                   OR {col.format("l.en")} LIKE ? ESCAPE '\\'){visible}
             LIMIT ?
         """, [like, like] + vparams + [limit]).fetchall()
     return [dict(r) for r in rows]
@@ -296,6 +311,10 @@ def search_lines_globally(query: str, limit: int = 100, visible_to: int = None):
 # user-defined ones -- deliberately separate from dramas.status, which
 # tracks pipeline progress, not how the person is organizing their list.
 ORGANIZATIONAL_TAGS = ("Favorite", "On Hold", "Plan to Translate")
+# Set on a title whose chapters were all merged into another, so the Library
+# shows which empty titles are left to delete and the extension's automatic
+# title match stops sending new chapters to it.
+MERGED_TAG = "Merged"
 
 
 def has_custom_tag(drama: dict, tag: str) -> bool:

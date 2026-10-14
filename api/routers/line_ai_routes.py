@@ -7,51 +7,55 @@ suggestion via the compare-and-set line patch. Logic lives in
 services/line_ai_service.py. Both take a slot from the shared LLM cap
 (api/llm_slots.py; 429 when busy).
 
-Also here: "Alternatives" and "Grammar" are
-read-only (`lines.read`) but call an LLM, so the handler also runs
+Also here: "Alternatives" and "Grammar". All four are read-only
+(`lines.read`) but call an LLM, so the handler also runs
 `require_engines_allowed` on the engine the call will use: the named one,
 else the drama's own translation engine (resolved here, then passed on).
-Both take an LLM slot, since each holds a worker thread on a network call.
+A member without `engines.paid` may use them with a free engine only
+(owner decision 2026-10-14). Each takes an LLM slot, since each holds a
+worker thread on a network call.
 """
 
 from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
-from api.schemas import (ErrorResponse, LineAlternatives, LineExplainRequest, LineExplanation,
-                         LineGrammar, LineImproveRequest, LineImprovement)
+from api.schemas import (LineAlternatives, LineExplainRequest, LineExplanation,
+                         LineGrammar, LineImproveRequest, LineImprovement, error_responses)
 from services import line_ai_service
 
 router = APIRouter(prefix="/api/line-ai", tags=["line-ai"])
 
-_ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-           422: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
-           503: {"model": ErrorResponse}}
 
-
-@router.post("/dramas/{drama_id}/lines/{line_id}/improve", dependencies=[require_permission("engines.paid")], response_model=LineImprovement,
+@router.post("/dramas/{drama_id}/lines/{line_id}/improve", dependencies=[require_permission("lines.read")],
+             response_model=LineImprovement,
              summary="Suggest a better translation for one line (writes nothing)",
-             responses=_ERRORS)
+             responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_improve(body: LineImproveRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
+    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
+    require_engines_allowed(request, engine, model=body.model)
     with llm_slot(request):
-        return line_ai_service.improve_line(drama_id, line_id, body.engine, body.model,
+        return line_ai_service.improve_line(drama_id, line_id, engine, body.model,
                                             body.gemini_free_tier, body.issue)
 
 
-@router.post("/dramas/{drama_id}/lines/{line_id}/explain", dependencies=[require_permission("engines.paid")], response_model=LineExplanation,
+@router.post("/dramas/{drama_id}/lines/{line_id}/explain", dependencies=[require_permission("lines.read")],
+             response_model=LineExplanation,
              summary="Explain how one line was translated (writes nothing)",
-             responses=_ERRORS)
+             responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_explain(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
+    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
+    require_engines_allowed(request, engine, model=body.model)
     with llm_slot(request):
-        return line_ai_service.explain_line(drama_id, line_id, body.engine, body.model,
+        return line_ai_service.explain_line(drama_id, line_id, engine, body.model,
                                             body.gemini_free_tier)
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/alternatives", dependencies=[require_permission("lines.read")],
              response_model=LineAlternatives,
              summary="Other valid translations of one line (writes nothing)",
-             responses={**_ERRORS, 403: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                       line_id: int = Path(ge=1)):
     engine = line_ai_service.tool_engine_name(drama_id, body.engine)
@@ -64,7 +68,7 @@ def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int 
 @router.post("/dramas/{drama_id}/lines/{line_id}/grammar", dependencies=[require_permission("lines.read")],
              response_model=LineGrammar,
              summary="Word-by-word breakdown of one line's source text (writes nothing)",
-             responses={**_ERRORS, 403: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_grammar(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
     engine = line_ai_service.tool_engine_name(drama_id, body.engine)

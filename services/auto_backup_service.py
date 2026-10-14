@@ -25,7 +25,6 @@ No FastAPI import.
 import contextlib
 import logging
 import os
-import shutil
 import tempfile
 import threading
 import time
@@ -33,6 +32,7 @@ import time
 import background_jobs
 from jobs import job_launch
 import db
+import storage
 from db import fsync_dir as _fsync_dir
 from services import backup_space_check as space
 from services import library_admin_service as las
@@ -169,9 +169,11 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
             foreign_above = floor > ident["sequence"]
             owner = _identity(bump_from=floor)
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
-        lbs.write_backup_zip(tmp, include_media=include_media,
-                             manifest=lambda snap: _manifest_bytes(snap, include_media, owner),
-                             should_cancel=lambda: background_jobs.is_cancel_requested(job_id))
+        skipped = lbs.write_backup_zip(tmp, include_media=include_media,
+                                       manifest=lambda snap: _manifest_bytes(snap, include_media,
+                                                                             owner),
+                                       should_cancel=lambda: background_jobs.is_cancel_requested(
+                                           job_id))
         background_jobs.update_progress(job_id, 0.8, "Checking the backup...")
         _verify_snapshot(tmp)
         # On disk before any old copy is deleted: a power cut must not
@@ -218,8 +220,9 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
     kind = space.copy_kind(include_media)
     _update_state(last_success_at=started, last_error=None, last_copy_size=size,
                   last_copy_kind=kind)
-    background_jobs.set_result(job_id, {"size": size, "kind": kind})
-    background_jobs.update_progress(job_id, 1.0, "Backup ready.")
+    background_jobs.set_result(job_id, {"size": size, "kind": kind,
+                                        "skipped_count": len(skipped)})
+    background_jobs.update_progress(job_id, 1.0, lbs.skipped_note("Backup ready.", len(skipped)))
 
 
 def _start(include_media: bool, scheduled: bool = False) -> bool:
@@ -305,26 +308,12 @@ def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float 
     targets += [(os.path.join(db.LIBRARY_DIR, *sub), ".partial_", False)
                 for sub in las.ARTIFACT_SUBDIRS.values()]
     for folder, prefix, is_dir in targets:
-        try:
-            names = os.listdir(folder)
-        except OSError:
-            continue
-        for name in names:
-            if not name.startswith(prefix):
-                continue
-            path = os.path.join(folder, name)
-            try:
-                if os.path.islink(path) or (os.path.isdir(path) != is_dir):
-                    continue
-                if now - os.path.getmtime(path) < max_age:
-                    continue
-                if is_dir:
-                    shutil.rmtree(path)
-                else:
-                    os.remove(path)
-                removed += 1
-            except OSError:
-                log.warning("Could not remove a leftover backup/restore file")
+        # realpath: a backup or dramas folder behind a link is still swept.
+        removed += storage._sweep_folder(
+            os.path.realpath(folder),
+            lambda name, path, prefix=prefix, is_dir=is_dir: (
+                name.startswith(prefix) and os.path.isdir(path) == is_dir),
+            max_age, now, set(), False)["removed"]
     return removed
 
 

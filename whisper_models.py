@@ -30,9 +30,9 @@ WHISPER_MODELS = {
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
 
-# Sizes the Workspace pickers no longer offer. The API, the CLI and titles that saved
-# one still accept them; Developer Mode shows them again. tiny and base exist only here
-# and in Live's list, not in WHISPER_MODELS.
+# Sizes the Workspace pickers no longer offer (Live keeps them). The API and
+# titles that saved one still accept them. tiny and base exist only here and in Live's
+# list, not in WHISPER_MODELS.
 HIDDEN_WHISPER_SIZES = ("tiny", "base", "small", "medium")
 
 # Keys that name a pinned Hugging Face repo instead of a faster-whisper size. The
@@ -44,7 +44,7 @@ PINNED_CT2_REPOS = {
 }
 
 # anime-whisper (litagin/anime-whisper) is NOT a key of WHISPER_MODELS or PINNED_CT2_REPOS:
-# it must not reach the size picker, Live, mixed-language, Benchmark Lab or the CLI, and
+# it must not reach the size picker, Live, mixed-language or Benchmark Lab, and
 # only asr_backend.AnimeWhisperBackend loads it, by this name. The CTranslate2 build is
 # byte-identical to `tools/ja_whisper_models.py convert-anime-whisper` (same model.bin
 # sha256). Personal, non-commercial use only: the training data forbids commercial use of
@@ -59,6 +59,11 @@ ANIME_WHISPER_PIN = {
     "alignment_heads": [[1, 14], [1, 8], [1, 12]],
 }
 ANIME_WHISPER_MANIFEST = "baihe-manifest.json"
+
+# Approximate download sizes in GB. A member can start these downloads, so free space
+# is checked first rather than letting a full drive fail partway through.
+_DOWNLOAD_GB = {ANIME_WHISPER_KEY: 1.5, "ja-1.5b": 3, "kotoba-v2": 1.5}
+_DOWNLOAD_MARGIN_BYTES = 256 * 1024 ** 2
 
 # Models that must not be asked for word timestamps. kotoba's CTranslate2 config copies
 # large-v3's alignment_heads (decoder layers 7-19) onto a 2-layer decoder, so
@@ -137,18 +142,26 @@ LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo")
 
 
 
-def selectable_whisper_sizes(context: str, developer_mode: bool = False) -> list:
+def selectable_whisper_sizes(context: str) -> list:
     """The Whisper sizes a picker offers, in display order. `context` is "live" (its own
     list) or any Workspace picker ("transcribe", "compare"). One place decides this so
     the pickers cannot drift; server validation does not use it and keeps accepting the
     hidden sizes."""
     if context == "live":
         return list(LIVE_WHISPER_SIZES)
-    shown = ["large-v3", "large-v3-turbo", *(k for k in WHISPER_MODELS if k not in HIDDEN_WHISPER_SIZES
-                                              and k not in ("large-v3", "large-v3-turbo"))]
-    if developer_mode:
-        return [*shown, *HIDDEN_WHISPER_SIZES]
-    return shown
+    return ["large-v3", "large-v3-turbo", *(k for k in WHISPER_MODELS if k not in HIDDEN_WHISPER_SIZES
+                                            and k not in ("large-v3", "large-v3-turbo"))]
+
+
+def forget_gpu_model(model_size: str, local_model_path: str = None):
+    """Drops the cached GPU copy of this Whisper model after its CUDA failed
+    at inference, so the next run loads afresh instead of failing on it
+    again, and the copy's VRAM can be freed before the CPU retry loads."""
+    import gc
+    key = f"{local_model_path or model_size}_gpu"
+    _whisper_model_cache.pop(key, None)
+    _whisper_device_info.pop(key, None)
+    gc.collect()
 
 
 def release_gpu_models():
@@ -384,6 +397,23 @@ def _download_model(model_size: str, token: str) -> str:
                                               "model.bin", "tokenizer.json", "vocabulary.*"])
 
 
+def _refuse_without_room(folder: str, model_key: str) -> None:
+    """Raises ModelDownloadError when `folder`'s drive can't hold the model plus a margin.
+    The folder may not exist yet, so the nearest existing parent is measured. A drive
+    that doesn't report its free space never blocks a download."""
+    import shutil
+    gb = _DOWNLOAD_GB[model_key]
+    while not os.path.isdir(folder) and os.path.dirname(folder) != folder:
+        folder = os.path.dirname(folder)
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
+        return
+    if free < gb * 1024 ** 3 + _DOWNLOAD_MARGIN_BYTES:
+        raise ModelDownloadError(f"Not enough free disk space for this model: it needs about "
+                                 f"{gb:g} GB; free some space and try again.")
+
+
 def _fetch_pinned_model(model_size: str, token) -> str:
     """Local folder of a pinned repo, listed before anything is downloaded.
 
@@ -404,6 +434,7 @@ def _fetch_pinned_model(model_size: str, token) -> str:
             raise ModelDownloadError(
                 f"Not downloading the '{model_size}' model: {exc}. Nothing was downloaded. "
                 "This model is only used when its repository holds plain CTranslate2 files.") from exc
+        _refuse_without_room(_hub_dir(), model_size)
         return huggingface_hub.snapshot_download(
             repo, revision=revision, token=token, allow_patterns=wanted, etag_timeout=30)
     except ModelDownloadError:
@@ -522,6 +553,7 @@ def _fetch_anime_whisper(token) -> str:
             for name in os.listdir(parent):
                 if name.startswith("anime_whisper.") and name.endswith((".partial", ".old")):
                     shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
+            _refuse_without_room(parent, ANIME_WHISPER_KEY)
             partial = tempfile.mkdtemp(prefix="anime_whisper.", suffix=".partial", dir=parent)
             huggingface_hub.snapshot_download(
                 repo, revision=revision, token=token, allow_patterns=wanted, local_dir=partial,

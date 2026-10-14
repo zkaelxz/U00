@@ -77,6 +77,7 @@ import live_audio
 import live_cue_feed
 import live_fetch
 import live_pipeline
+import live_player
 import live_whisper
 from live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
 from live_cue_translation import CueTranslator
@@ -116,7 +117,7 @@ _NON_RETRYABLE_STREAM_ERROR_PHRASES = (
 
 
 def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str = None,
-                       proxy: str = None) -> str:
+                       proxy: str = None, ladder=None) -> str:
     """
     Resolves a page URL (YouTube live, or anything yt-dlp supports) to a
     direct, ffmpeg-playable media URL WITHOUT downloading anything -- the
@@ -156,8 +157,8 @@ def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str 
 
     last_exc = None
     for fmt, player_client in (
-        [("bestaudio/best", None), ("best", None)]
-        + [("best", c) for c in _YOUTUBE_CLIENT_FALLBACKS]
+        ladder or [("bestaudio/best", None), ("best", None),
+                   *(("best", c) for c in _YOUTUBE_CLIENT_FALLBACKS)]
     ):
         try:
             info = _try(fmt, player_client)
@@ -562,7 +563,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None,
                   stream_url_check=None, proxy: str = None, report_stage=None,
                   reply_without_thinking: bool = True, report_note=None, whisper_clock=None,
-                  report_stats=None, term_hints=None, spend_guard=None):
+                  report_stats=None, term_hints=None, spend_guard=None, delayed_player=False):
     """
     The background-thread target (see job_launch.start_job). Runs
     until request_cancel(job_id) is set, live_pipeline.request_finish(job_id)
@@ -774,12 +775,15 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                     pass
 
     control = live_pipeline.register(job_id)
-    proc = None
+    proc = player = None
     capture_stopped = False
     try:
         with live_pipeline.translation_worker(translator, board, stage, stats, note, should_stop,
                                               control.wake) as worker:
             proc = start_segment_capture(source_url, out_dir, segment_seconds, proxy=proxy)
+            player = live_player.start_if_possible(
+                delayed_player, url, source_url, out_dir, note, should_stop, stream_url_check,
+                proxy, cookies_browser, cookies_file)
             finishing = False
             while not should_stop():
                 if control.finish.is_set():
@@ -789,6 +793,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                     background_jobs.update_progress(job_id, 0.0, "Stopped: time limit reached.")
                     finishing = True
                     break
+                player = live_player.watch(player, note)
                 if proc.error:
                     raise LiveCaptureError(proc.error)
                 if proc.poll() is not None:
@@ -838,6 +843,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
             board.mark_pending(board.cues, live_cue_feed.CANCELLED)
         # A cancel kills ffmpeg's tree at once; a stream that just ended
         # lets it flush its last segment.
+        if player:
+            player.stop(kill=should_stop())
         if proc is not None and not capture_stopped:
             if should_stop():
                 stop_capture(proc, kill=True)

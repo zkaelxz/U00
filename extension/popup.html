@@ -6,13 +6,16 @@
   <title>Baihe Subtitler</title>
   <link rel="stylesheet" href="ui.css">
   <style>
-    body { width: 340px; padding: 14px; }
-    main { display: flex; flex-direction: column; gap: 14px; }
+    body { width: 340px; padding: 14px;
+           background: radial-gradient(300px 260px at 90% 4%, color-mix(in srgb, var(--wash-2) 60%, transparent), transparent 70%),
+                       radial-gradient(300px 280px at 6% 96%, color-mix(in srgb, var(--wash-1) 60%, transparent), transparent 70%),
+                       var(--bg); }
+    main { display: flex; flex-direction: column; gap: 12px; }
     header { display: flex; align-items: center; justify-content: space-between; }
-    section { display: flex; flex-direction: column; gap: 10px; }
-    .quiet { padding-top: 14px; border-top: 1px solid var(--border); }
+    .pane { display: flex; flex-direction: column; gap: 10px; }
+    .glass { padding: 12px; background: var(--glass); border: 1px solid var(--glass-edge); border-radius: var(--radius-panel); }
     .switches { display: flex; flex-direction: column; gap: 2px; }
-    .switch { display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 0; font-weight: 400; cursor: pointer; }
+    .switch { display: flex; align-items: center; gap: 10px; min-height: 34px; margin: 0; font-weight: 400; cursor: pointer; }
     .switch input { appearance: none; flex: none; width: 36px; height: 20px; margin: 0; cursor: pointer;
                     border-radius: 999px; background: var(--surface-2); border: 1px solid var(--field-edge);
                     position: relative; }
@@ -20,9 +23,14 @@
                            border-radius: 50%; background: var(--muted); }
     .switch input:checked { background: var(--accent); border-color: var(--accent); }
     .switch input:checked::after { left: 18px; background: var(--on-accent); }
+    .tabs { display: flex; gap: 4px; padding: 4px; background: var(--glass); border: 1px solid var(--btn-edge); border-radius: var(--radius-panel); }
+    .tabs button { flex: 1; min-height: 34px; padding: 6px 4px; font-size: 13px; color: var(--muted);
+                   background: transparent; border: 0; box-shadow: none; }
+    .tabs button:hover:not(:disabled) { background: transparent; color: var(--text); }
+    .tabs button[aria-selected="true"] { color: var(--accent); font-weight: 600; background: var(--active); box-shadow: var(--btn-shadow); }
     .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    #translate { width: 100%; min-height: 44px; }
-    #translateText, #saveNovel { width: 100%; overflow-wrap: anywhere; }
+    #translate { width: 100%; min-height: 46px; }
+    #translateText, #saveNovel, #cancelCapture { width: 100%; overflow-wrap: anywhere; }
     #dramaTitle { overflow-wrap: anywhere; }
     [hidden] { display: none !important; }
   </style>
@@ -36,7 +44,7 @@
       <button id="noticeAction" class="primary" type="button"></button>
     </div>
 
-    <section id="pageSection" aria-label="Translate this page">
+    <div class="pane glass" id="targetPane">
       <div>
         <label for="drama">Send pages to</label>
         <select id="drama"><option value="">— pick a drama —</option></select>
@@ -46,26 +54,37 @@
         <label class="switch"><input type="checkbox" role="switch" id="store" checked><span>Also save the page into that drama</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="overlay" checked><span>Draw over page</span></label>
       </div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Actions">
+      <button type="button" role="tab" id="tab-page" aria-controls="panel-page" aria-selected="true">Page</button>
+      <button type="button" role="tab" id="tab-chapter" aria-controls="panel-chapter" aria-selected="false" tabindex="-1">Chapter</button>
+      <button type="button" role="tab" id="tab-text" aria-controls="panel-text" aria-selected="false" tabindex="-1">Text</button>
+      <button type="button" role="tab" id="tab-auto" aria-controls="panel-auto" aria-selected="false" tabindex="-1">Auto</button>
+    </div>
+
+    <section id="panel-page" class="pane" role="tabpanel" aria-labelledby="tab-page">
       <button id="translate" class="primary" type="button">Translate this page</button>
       <div class="segmented">
         <button id="translateAll" type="button">Everything visible</button>
         <button id="toggle" type="button">Show / hide</button>
       </div>
+    </section>
+
+    <section id="panel-chapter" class="pane" role="tabpanel" aria-labelledby="tab-chapter" hidden>
       <div class="segmented">
         <button id="captureChapter" type="button">Capture whole chapter</button>
         <button id="captureFromHere" type="button">Capture from here</button>
       </div>
       <button id="cancelCapture" type="button" hidden>Cancel capture</button>
+      <div id="novelSection" class="pane" aria-label="Save text into a title" hidden>
+        <h2>Save this chapter</h2>
+        <button id="saveNovel" type="button">Save text into a title</button>
+        <p class="hint">Uses your selection, or the page's main text. Added as a new raw chapter to the title picked above, or to an automatic one.</p>
+      </div>
     </section>
 
-    <section id="novelSection" class="quiet" aria-label="Save text into a title" hidden>
-      <h2>Save this chapter</h2>
-      <button id="saveNovel" type="button">Save text into a title</button>
-      <p class="hint">Uses your selection, or the page's main text. Added to the title picked above as a new raw chapter.</p>
-    </section>
-
-    <section id="textSection" class="quiet" aria-label="Translate selected text">
-      <h2>Translate selected text</h2>
+    <section id="panel-text" class="pane" role="tabpanel" aria-labelledby="tab-text" hidden>
       <div>
         <label for="textDirection">Languages</label>
         <select id="textDirection">
@@ -77,8 +96,17 @@
           <option value="en:ko">English → Korean</option>
         </select>
       </div>
-      <button id="translateText" type="button">Translate text</button>
+      <button id="translateText" class="primary" type="button">Translate text</button>
       <p class="hint">Uses your selection, or the page's main text. Saved to Standalone translate history.</p>
+    </section>
+
+    <section id="panel-auto" class="pane" role="tabpanel" aria-labelledby="tab-auto" hidden>
+      <div class="switches">
+        <label class="switch"><input type="checkbox" role="switch" id="autoCreate" checked><span>Create a new title when none matches</span></label>
+        <label class="switch"><input type="checkbox" role="switch" id="autoFill" checked><span>Fill name and source link from the page</span></label>
+        <label class="switch"><input type="checkbox" role="switch" id="autoSeries" checked><span>Put the title in a series</span></label>
+      </div>
+      <p class="hint">Used while “Send pages to” is on Auto. A matching title only gets its blank fields filled. Merge or move titles afterwards in Baihe.</p>
     </section>
 
     <p id="status" class="status" role="status" aria-live="polite">Checking the app…</p>

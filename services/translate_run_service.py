@@ -43,7 +43,7 @@ import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (bulk_job_view, bulk_submit_service, engine_routing_service,
-                      novel_files_service, ownership_service, paid_job_service,
+                      novel_files_service, ownership_service, paid_job_service, profile_service,
                       run_settings_service, settings_service, translate_service,
                       workspace_job_service)
 from services.service_errors import (
@@ -159,7 +159,7 @@ def get_translate_config(drama_id: int) -> dict:
         "default_female_pronouns": _saved_bool(drama.get("default_female_pronouns")),
         "include_genre_notes": _saved_bool(drama.get("include_genre_notes")),
         "translate_by_sentence": _saved_bool(drama.get("translate_by_sentence")),
-        "translate_by_sentence": _saved_bool(drama.get("translate_by_sentence")),
+        "translate_start": profile_service.translate_start(drama),
     }
 
 
@@ -179,8 +179,8 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
                          context_window: int, context_window_ahead: int, batch_size: int,
                          job_cost_cap_usd, gemini_free_tier: bool) -> None:
     """The checks on a translate run's own options, shared by
-    start_translate_run and `cli.py translate` so both refuse the same
-    values. Takes resolved values (defaults already applied). InvalidInputError
+    start_translate_run and the other translate entry points so all refuse
+    the same values. Takes resolved values (defaults already applied). InvalidInputError
     / UnsupportedOperationError."""
     if locale not in settings_service.LOCALE_CHOICES:
         raise InvalidInputError("Unknown English variant.")
@@ -202,9 +202,11 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
 def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool = None,
-                            job_cost_cap_usd: float = None, line_ids=None) -> dict:
+                            job_cost_cap_usd: float = None, line_ids=None,
+                            batch_size: int = None) -> dict:
     """line_ids (optional): estimate only these lines (of those the run
-    would translate)."""
+    would translate). batch_size (optional): the run's own batch size, which
+    sets how many times the instructions are sent; omitted, the engine's default."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = require_drama(drama_id)
     engine_name = (engine_name or drama.get("translation_engine")
@@ -239,8 +241,9 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
         stand_in = SimpleNamespace(name=engine_name, model=resolved_model, free_tier=free_tier)
         fn = (translate_engines.estimate_reflect_mode_cost if reflect
               else translate_engines.estimate_translation_cost)
-        batch_size = get_translate_config_defaults(
-            drama.get("content_mode") == "novel_narration", engine_name, model)["batch_size"]
+        if batch_size is None:
+            batch_size = get_translate_config_defaults(
+                drama.get("content_mode") == "novel_narration", engine_name, model)["batch_size"]
         estimated = float(fn(stand_in, [ln["zh"] for ln in targets], batch_size))
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR
@@ -273,8 +276,7 @@ def load_novel_reference(drama_id: int, drama: dict) -> Optional[str]:
 
 
 def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True):
-    """The episode-summary engine from Settings (default local Ollama, as
-    `cli.py translate`); (None, None), so the summary is skipped, if it
+    """The episode-summary engine from Settings (default local Ollama); (None, None), so the summary is skipped, if it
     can't be built or a cloud pick has no key. Never fails the translation.
     allow_paid=False (an API caller without engines.paid) also skips a pick
     outside translate_engines.FREE_ENGINES: it would spend the owner's key."""
@@ -344,7 +346,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
     finish_translation_run. Builds the same glossary / style guidelines /
-    character names / locale as the Workspace button and `cli.py translate`.
+    character names / locale as the Workspace button.
     line_ids (optional) restricts the run to those lines; the rest are only
     context. Only empty-`en` lines are translated unless force_retranslate,
     so hand-edited translations survive.
@@ -417,7 +419,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     if bulk and reflect and engine_name == "deepseek":
         raise UnsupportedOperationError("Bulk Reflect needs Claude or Gemini's batch API.")
 
-    lines = core.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     if not lines:
         raise UnsupportedOperationError("This title has no lines to translate yet.")
     target_ids = None
@@ -500,7 +502,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, style_preset,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns)
+        default_female_pronouns=default_female_pronouns,
+        principal=ownership_service.acting_principal())
 
     novel_reference = load_novel_reference(drama_id, drama)
     resp = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
@@ -561,7 +564,7 @@ def save_style_toggles(drama_id: int, include_genre_notes=None,
                        translate_by_sentence=None) -> None:
     """Stores the toggles a run was started with as the title's choice, so
     every later run that is not handed them (retry, glossary re-translate,
-    line AI, CLI) and the Translate stage use the same values. None leaves
+    line AI) and the Translate stage use the same values. None leaves
     a stored value as it is."""
     saved = {k: int(bool(v)) for k, v in (
         ("include_genre_notes", include_genre_notes),

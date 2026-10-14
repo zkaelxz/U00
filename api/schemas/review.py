@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from api.schemas.common import ConfirmRequest
+
 __all__ = [
     "ReviewLinesLine",
     "ReviewLinesPage",
@@ -722,10 +724,8 @@ class TranslationVersionDeleteResult(BaseModel):
 # (services/translation_version_service.py) and retry a content-blocked line
 # (services/blocked_retry_service.py)
 # ---------------------------------------------------------------------------
-class TranslationVersionActivateRequest(BaseModel):
+class TranslationVersionActivateRequest(ConfirmRequest):
     """Overwrites the current English, so `confirm: true` (strict) is required."""
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
 
 
 class TranslationVersionActivateResult(BaseModel):
@@ -873,9 +873,8 @@ class StyleApplyRequest(BaseModel):
     apply: StrictBool
 
 
-class StyleResetRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class StyleResetRequest(ConfirmRequest):
+    pass
 
 
 class StyleRestoreRequest(BaseModel):

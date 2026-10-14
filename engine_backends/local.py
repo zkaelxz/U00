@@ -13,6 +13,7 @@ from .shared import (
     PROVIDER_RESPONSE_MAX_BYTES,
     ContentModerationBlocked,
     TranslationCancelled,
+    TruncatedReply,
     _is_rate_limit_error,
     read_json_capped,
     redact_secrets,
@@ -467,7 +468,7 @@ def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None
         model = str(payload.get("model") or "")
         if is_ollama_cloud_model(model) and status in (429, 401, 403):
             # The body of a streamed response is unreadable once it is closed.
-            detail = _error_detail(resp) if status == 429 else ""
+            detail = _error_body_text(resp).strip()[:200] if status == 429 else ""
             resp.close()
             if status == 429:
                 raise OllamaCloudLimitError(detail) from None
@@ -501,10 +502,6 @@ def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int = None
             "Ollama isn't running. Start it, or pick another translator in Settings.") from None
 
 
-_ERROR_BODY_MAX_BYTES = 2048
-_ERROR_BODY_DEADLINE_SECONDS = 5
-
-
 class OllamaCloudLimitError(Exception):
     """Ollama's hosted service answered 429. `status_code` lets
     shared._is_rate_limit_error back off and retry; the message is what
@@ -517,17 +514,6 @@ class OllamaCloudLimitError(Exception):
             "Ollama's cloud models are rate-limited or over the free usage cap right now. "
             "Wait and resume the run later, use a local model, or check your Ollama plan."
             + (f" Ollama said: {detail}" if detail else ""))
-
-
-def _error_detail(resp) -> str:
-    # The body can echo request headers on some proxies, so it is redacted
-    # and cut before it can be shown or stored.
-    try:
-        body = capped_body.read_capped(resp, _ERROR_BODY_MAX_BYTES, _ERROR_BODY_DEADLINE_SECONDS,
-                                       lambda: ValueError("error body too large"))
-        return redact_secrets(body.decode("utf-8", errors="replace").strip())[:200]
-    except Exception:
-        return ""
 
 
 class OllamaEngine:
@@ -640,8 +626,10 @@ class OllamaEngine:
                 self.last_usage[key] += value
             check_ollama_reply(resp, num_ctx, estimated)
             # A reply cut off by num_predict (done_reason "length") is still
-            # returned: its complete pairs are kept and the rest asked again.
-            return strip_ollama_thinking(resp["message"]["content"])
+            # returned: its complete pairs are kept and the rest asked again,
+            # in smaller batches.
+            text = strip_ollama_thinking(resp["message"]["content"])
+            return TruncatedReply(text) if resp.get("done_reason") == "length" else text
 
         def send(payload):
             choice = thinking_choice(context)

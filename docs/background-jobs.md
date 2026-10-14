@@ -149,9 +149,16 @@ same id starts. The protections:
 - While this process has queued/running jobs, the daemon `job-heartbeat` thread
   (`_ensure_heartbeat`, started by the first write) runs `job_store.heartbeat_tick` every
   `HEARTBEAT_INTERVAL` (60 s): `db.touch_job_records`, `reconcile_dead_workers`, and
-  the retry of failed writes.
-- A GPU job also refreshes its `gpu_lock` row on every `update_progress`
-  (`gpu_slots.heartbeat`).
+  the retry of failed writes and of failed GPU slot releases
+  (`gpu_queue.retry_unreleased_gpu_slots`).
+- A GPU job also refreshes its `gpu_lock` row from `update_progress`, at most once
+  per `HEARTBEAT_INTERVAL` (`gpu_slots.heartbeat`).
+- The slot row is taken and freed under `_lock` with a short busy wait
+  (`gpu_queue.GPU_ROW_BUSY_SECONDS`): a job that cannot take it in time queues, and
+  the API's GPU-queue poller retries it.
+- `GET /api/jobs` skips the sweep while its active rows and this process's active
+  jobs are unchanged since a sweep that closed nothing, for up to
+  `jobs_service._SWEEP_REPEAT_SECONDS` (10 s).
 - A `queued`/`running` row is stale when its owner pid is gone (`owner_pid`, via
   `owner_process_alive`), or when `updated_at` is older than `STALE_JOB_SECONDS` (15 min)
   and its owner pid is not another live process (`job_store.owner_alive_elsewhere`): a
@@ -269,7 +276,16 @@ load on the GPU, the job falls back to CPU, finishes `done`, and says so in its 
   `run_cancellable` (ffmpeg and friends, killed as a process tree). Inside `job_workdir(job_id)`
   it notes the command (pid, start time, command digest) in the folder, so if the server dies
   without stopping it the next start stops it, only while it is still that same process, and
-  removes the folder (`storage.stop_orphaned_job_children`).
+  removes the folder (`storage.stop_orphaned_job_children`). A job that starts a process another
+  way (the link download's yt-dlp child) passes `background_jobs.note_child` as its `on_start`;
+  a job whose ffmpeg writes outside a work folder (video upload's audio extraction) still holds
+  one, only to carry the note (and runs without it if the temp folder can't be made). On Windows
+  the server's Job Object (`process_guard.py`) already ends these children with the server;
+  elsewhere this next-start stop is the only cleanup. Only the noted process is identity-checked:
+  on Linux its process group goes with it (yt-dlp's own ffmpeg included) while it is alive, but
+  if yt-dlp has already exited and its ffmpeg still runs, or on Windows when the Job Object was
+  refused, that grandchild is not stopped, and a folder it still has open is left to the
+  age-based sweep.
 - **Running process job:** `_process_watcher` sees the flag, stops the child
   (`_stop_process`: terminate, then kill; or `kill_tree` for `kill_whole_tree=True`),
   and marks the job `cancelled` ("Cancelled."). `on_done` is not called. A cancel that

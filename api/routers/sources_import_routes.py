@@ -43,8 +43,8 @@ HTTP only: no signed-in profile and no browser.
 from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import is_local_request, require_engines_allowed, require_permission
-from api.schemas import (ErrorResponse, SourcesChapterImportRequest, SourcesChapterSaveRequest,
-                         SourcesJobStarted, SourcesUrlPreviewRequest)
+from api.schemas import (SourcesChapterImportRequest, SourcesChapterSaveRequest,
+                         SourcesJobStarted, SourcesUrlPreviewRequest, error_responses)
 from api.sources_extraction_schemas import (SourcesAiRecoverRequest,
                                             SourcesUrlImportFollowRequest)
 from api.sources_import_schemas import SourcesImportState
@@ -55,9 +55,7 @@ from services import sources_url_service as url_svc
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
-_ERRS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+_ERRS = error_responses(400, 404, 409, 422, 503)
 
 
 @router.post("/url/preview", dependencies=[require_permission("sources.import")],

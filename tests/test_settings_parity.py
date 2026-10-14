@@ -535,7 +535,7 @@ def test_url_download_passes_saved_cookies(isolated_db, env_file, monkeypatch, t
     from services import url_media_service, ytdlp_child
     specs = []
 
-    def fake_run_download(tmp_dir, spec, timeout, cancel):
+    def fake_run_download(tmp_dir, spec, timeout, cancel, on_start=None):
         specs.append(spec)
         path = os.path.join(tmp_dir, "x.wav")
         open(path, "wb").close()

@@ -120,11 +120,21 @@
 		# "Fill from link": each read fetches from the internet on the PC's connection.
 		path /api/media-link/probe /api/library/link-scan
 		path /api/dramas/*/link-details/probe /api/dramas/*/link-details/apply
+		# Merging titles and moving chapters rewrite files on the PC.
+		path /api/dramas/*/restructure /api/dramas/*/restructure/preview
 		path /api/docs /api/docs/* /api/openapi.json /docs/*
+		# The delayed player's recording of the stream is served at the PC only.
+		path /api/live/player/*
 		# Household members may send a bug report from their own device.
 		not {
 			method POST
 			path /api/diagnostics/bug-reports
+		}
+		# Members may bulk translate their own titles from their own device;
+		# the rest of /api/library/admin/* stays PC-only.
+		not {
+			method POST
+			path /api/library/admin/bulk/translate
 		}
 		# An admin may view the users and the audit log from away.
 		not {
@@ -134,7 +144,7 @@
 	}
 	@pc_only_post {
 		method POST
-		path /api/dramas/*/cover
+		path /api/dramas/*/cover /api/dramas/*/folder/open
 		path /api/subtitle-import/dramas/*/preview /api/subtitle-import/dramas/*/apply
 		path /api/media/dramas/*/upload /api/media/dramas/*/upload-and-transcribe
 		path /api/media/dramas/*/download-url /api/media/dramas/*/remove

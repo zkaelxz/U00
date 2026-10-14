@@ -13,13 +13,24 @@ services/benchmark_lab_service.py.
   up or the estimate is over what is left of it, and stops at the cap.
 - "Build a set from a reviewed title" reads a title's lines and writes cases, so
   it is PC only too (the title's ownership is still checked).
+- The owner's clip set is uploaded here (`POST /clips/import`, multipart: audio files
+  plus typed rows or a manifest); `POST /clips/check` only reports problems and
+  language warnings and saves nothing. A case can be excluded from scoring, or have its
+  reference edited in place (every change is logged and versions the reference).
+- A run can be deleted (confirm=true) and a run or a comparison exported as CSV or JSON.
+  A comparison scores only the cases every run scored on the same reference version.
 - A translation run may ask for an LLM judge (`judge` on the run request and the
   estimate); the judge's summary and per-case scores ride on the run reads.
 """
 
+import json
+import os
 from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import Response
+from starlette.datastructures import UploadFile
 
 from api.auth import local_only, require_permission
 from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseCreate,
@@ -30,15 +41,21 @@ from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseC
                                    BenchmarkRunList, BenchmarkRunRequest,
                                    BenchmarkRunStarted, BenchmarkSetList)
 from api.routers.settings_routes import require_confirm
-from api.schemas import BenchmarkSetBuildRequest, BenchmarkSetBuildResult, ErrorResponse
+from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCaseReference,
+                         BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
+                         BenchmarkRunDelete, BenchmarkSetBuildRequest, BenchmarkSetBuildResult,
+                         error_responses)
+from lib.capped_request import read_capped_form
+from lib.errors import InvalidInputError
+from services import benchmark_clip_service as clip_svc
+from services import benchmark_export_service as export_svc
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
 from services import benchmark_set_builder_service as builder_svc
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 _READ = [require_permission("admin.diagnostics")]
 
 
@@ -165,3 +182,114 @@ def get_arena(run_ids: List[int] = Query(min_length=2, max_length=4)):
     out = svc.arena(run_ids)
     _with_judge(out["runs"], out["rows"])
     return out
+
+
+# ---- the owner's clip set, case clean-up, run delete and export --------------------------------
+
+# 250 rows of 4000 CJK characters, JSON-escaped (\uXXXX, six bytes each), reach about 12 MB in the
+# one "clips" field; the margin covers the other fields and the multipart framing.
+_CLIP_ROWS_BYTES = 16 * 1024 * 1024
+_CLIP_OVERHEAD = 20 * 1024 * 1024
+_CLIP_FORM_HELP = ("Send multipart/form-data: 'set_name', the audio in 'files', and either 'clips' "
+                   "(a JSON list of rows) or 'manifest' (JSON lines).")
+_CLIP_TOO_LARGE = (f"The clips total more than {clip_svc.MAX_IMPORT_BYTES // (1024 * 1024)} MB; "
+                   "import them in smaller sets.")
+_CLIP_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
+    "type": "object", "required": ["set_name", "files"],
+    "properties": {"set_name": {"type": "string"}, "clips": {"type": "string"},
+                   "manifest": {"type": "string"},
+                   "files": {"type": "array", "items": {"type": "string", "format": "binary"}}}}}}}}
+
+
+@router.post("/clips/check", dependencies=_READ, response_model=BenchmarkClipCheck,
+             responses=_ERRS, summary="Check clip rows: what would refuse the import, and language warnings")
+def post_clips_check(body: BenchmarkClipCheckRequest):
+    return clip_svc.check_clips([c.model_dump() for c in body.clips])
+
+
+def _form_text(form, name: str) -> Optional[str]:
+    value = form.get(name)
+    return value if isinstance(value, str) else None
+
+
+def _clip_rows(form) -> list:
+    clips, manifest = _form_text(form, "clips"), _form_text(form, "manifest")
+    if (clips is None) == (manifest is None):
+        raise InvalidInputError("Send either 'clips' or 'manifest'.")
+    if manifest is not None:
+        return clip_svc.parse_manifest(manifest)
+    try:
+        rows = json.loads(clips)
+    except ValueError:
+        raise InvalidInputError("'clips' isn't valid JSON.") from None
+    if not isinstance(rows, list):
+        raise InvalidInputError("'clips' must be a list.")
+    return rows
+
+
+@router.post("/clips/import", dependencies=[local_only()], response_model=BenchmarkClipImportResult,
+             responses=error_responses(404, 409, 413, 422), openapi_extra=_CLIP_BODY,
+             summary="PC only: upload audio clips with transcripts into a golden set")
+async def post_clips_import(request: Request):
+    form = await read_capped_form(
+        request, clip_svc.MAX_IMPORT_BYTES + _CLIP_OVERHEAD, "the clips", _CLIP_TOO_LARGE,
+        _CLIP_FORM_HELP, max_files=clip_svc.MAX_CLIPS, max_fields=4, max_part_size=_CLIP_ROWS_BYTES)
+    try:
+        files = {}
+        for upload in form.getlist("files"):
+            if not isinstance(upload, UploadFile):
+                raise InvalidInputError(_CLIP_FORM_HELP)
+            name = os.path.basename((upload.filename or "").replace("\\", "/"))
+            if name in files:
+                raise InvalidInputError(f"Two files are named {name}.")
+            files[name] = upload.file
+        rows = _clip_rows(form)
+        return await run_in_threadpool(clip_svc.import_clips, _form_text(form, "set_name") or "", rows, files)
+    finally:
+        await form.close()
+
+
+@router.post("/cases/{case_id}/excluded", dependencies=[local_only()], response_model=BenchmarkCase,
+             responses=_ERRS, summary="PC only: drop a case out of scoring, or bring it back")
+def post_case_excluded(body: BenchmarkCaseExcluded, case_id: int = Path(ge=1)):
+    return clip_svc.set_excluded(case_id, body.excluded)
+
+
+@router.post("/cases/{case_id}/reference", dependencies=[local_only()], response_model=BenchmarkCase,
+             responses=_ERRS, summary="PC only: fix a case's transcript or translation in place (logged)")
+def post_case_reference(body: BenchmarkCaseReference, case_id: int = Path(ge=1)):
+    return clip_svc.edit_reference(case_id, body.reference_text)
+
+
+@router.get("/cases/{case_id}/edits", dependencies=_READ, response_model=BenchmarkCaseEdits,
+            responses=_ERRS, summary="When and what changed in a case's reference")
+def get_case_edits(case_id: int = Path(ge=1)):
+    return clip_svc.list_edits(case_id)
+
+
+@router.post("/runs/{run_id}/delete", dependencies=[local_only()], response_model=BenchmarkDeleted,
+             responses=_ERRS, summary="PC only: delete a run and its results (confirm=true)")
+def delete_run(body: BenchmarkRunDelete, run_id: int = Path(ge=1)):
+    require_confirm(body.confirm)
+    out = svc.delete_run(run_id)
+    judge_svc.forget_run(run_id)
+    return out
+
+
+def _download(data: dict, fmt: str) -> Response:
+    name, media_type, body = export_svc.render(data, fmt)
+    return Response(body, media_type=media_type, headers={
+        "Content-Disposition": f'attachment; filename="{name}"', "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/runs/{run_id}/export", dependencies=_READ, responses=_ERRS,
+            summary="One run's setup, scores and each case's output, as CSV or JSON")
+def get_run_export(run_id: int = Path(ge=1), format: str = Query(default="csv", max_length=8)):
+    return _download(export_svc.run_data(run_id), format)
+
+
+@router.get("/arena/export", dependencies=_READ, responses=_ERRS,
+            summary="A comparison of 2-4 runs on the cases they share, as CSV or JSON")
+def get_arena_export(run_ids: List[int] = Query(min_length=2, max_length=4),
+                     format: str = Query(default="csv", max_length=8)):
+    return _download(export_svc.comparison_data(run_ids), format)

@@ -13,7 +13,7 @@ const PRESET = {
 test('the style guidance follows the chosen style', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   const guidance = page.getByTestId('style-guidance')
-  await page.getByText('What this style asks the translator for').click()
+  await page.getByText('What this style asks for').click()
   const first = await guidance.innerText()
   expect(first.length).toBeGreaterThan(20)
   await page.getByLabel('Style', { exact: true }).selectOption('subtitle')
@@ -35,7 +35,7 @@ test('applying a saved preset fills the form and starts nothing', async ({ page 
   page.on('request', (r) => r.url().includes('/translate-run/dramas/1/run') && runs++)
   await page.goto('/#/drama/1/translate')
   await page.getByLabel('Style', { exact: true }).selectOption('preset:7')
-  await expect(page.getByRole('status').filter({ hasText: 'Applied preset "Wuxia preset"' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Applied profile "Wuxia preset"' })).toBeVisible()
   expect(bodies).toEqual([{ preset_id: 7 }])
   await expect(page.getByLabel('AI engine', { exact: true })).toHaveValue('claude')
   await expect(page.getByLabel('Style', { exact: true })).toHaveValue('subtitle')
@@ -47,7 +47,7 @@ test('no saved presets, no preset group in the Style list', async ({ page }) => 
   await page.route('**/api/library/presets', (r) => r.fulfill({ json: { items: [] } }))
   await page.goto('/#/drama/1/translate')
   await expect(page.getByLabel('Style', { exact: true })).toBeVisible()
-  await expect(page.locator('optgroup[label="Start from my preset"]')).toHaveCount(0)
+  await expect(page.locator('optgroup[label="Start from my profile"]')).toHaveCount(0)
 })
 
 test('a preset and a voice can be renamed in the Library', async ({ page }) => {
@@ -68,7 +68,7 @@ test('a preset and a voice can be renamed in the Library', async ({ page }) => {
   })
   await page.goto('/#/library-tools')
 
-  await openFold(page, 'Presets')
+  await openFold(page, 'Profiles')
   await page.getByRole('button', { name: 'Rename Wuxia preset' }).click()
   const input = page.getByLabel('New name for Wuxia preset')
   await page.getByRole('button', { name: 'Save name' }).click()

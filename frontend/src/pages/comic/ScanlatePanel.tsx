@@ -48,6 +48,10 @@ interface Props {
   dramaId: number
   // The page on screen (for "Redo this page"), or null when there is none.
   pageId: number | null
+  // The reader's Typeset toggle: off exports the original pages.
+  typeset: boolean
+  // Opens a page by its 1-based position, for the list of pages with warnings.
+  onGoToPage?: (ordinal: number) => void
   pageNumber: number | null
   // Page counts for "this chapter" and "all chapters" (hidden pages never count).
   scopes?: ScopeCounts
@@ -65,7 +69,13 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
 // The form is remembered per title, so leaving the page does not reset the engine, detector and scope.
 const SCANLATE_DRAFT = { engine: '', detector: 'auto' as string, slice: true, scope: 'all' as string }
 
-export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, onJob }: Props) {
+// A page's first note line, short enough to scan in a list.
+function firstLine(message: string): string {
+  const line = message.split('\n')[0]
+  return line.length > 140 ? `${line.slice(0, 139)}…` : line
+}
+
+export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, onChanged, onJob, onGoToPage }: Props) {
   const pc = usePcOnly()
   const { readiness } = useReadiness()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
@@ -79,6 +89,8 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
   )
   const [files, setFiles] = useState<File[]>([])
   const [slice, setSlice] = useState(draft.slice ?? true)
+  // Not remembered: it adds seconds per caption, so each visit starts with it off.
+  const [artCaptions, setArtCaptions] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -161,6 +173,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
         confirm: mode === 'all' ? true : undefined,
         engine,
         detect_backend: detector,
+        art_captions: artCaptions || undefined,
       })
       setJobKind('run')
       setJobId(r.job_id)
@@ -177,7 +190,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
     setExported([])
     pendingExport.current = formats
     try {
-      const r = await scanlateApi.export(dramaId, formats)
+      const r = await scanlateApi.export(dramaId, formats, undefined, typeset)
       setJobKind('export')
       setJobId(r.job_id)
     } catch (e) {
@@ -208,7 +221,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
   }
 
   const pageNotes = notes.find((n) => n.page_id === pageId)?.notes ?? []
-  const otherNoteCount = notes.filter((n) => n.page_id !== pageId && n.notes.some((x) => x.level !== 'info')).length
+  const problemPages = notes.filter((n) => n.page_id !== pageId && n.notes.some((x) => x.level !== 'info'))
   const limits = config?.upload_limits
   const accept = limits?.pdf === false
     ? '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'
@@ -295,6 +308,15 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
         </Field>
       )}
 
+      <div className="toggle-list">
+        <Field
+          label="Translate captions on the art"
+          help="Also finds large lettering drawn on the artwork, paints it out and sets the English in the same colour and glow. Needs PaddleOCR and the LaMa-manga model; takes about 5 seconds per caption."
+        >
+          <Toggle checked={artCaptions} onChange={setArtCaptions} />
+        </Field>
+      </div>
+
       <div className="actions">
         <button
           type="button"
@@ -340,10 +362,27 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
           </ul>
         </div>
       )}
-      {otherNoteCount > 0 && (
-        <p className="muted">
-          {otherNoteCount} other page{otherNoteCount === 1 ? ' has' : 's have'} warnings; open that page to see them.
-        </p>
+      {problemPages.length > 0 && (
+        <details className="scanlate-problem-pages">
+          <summary>
+            {problemPages.length} other page{problemPages.length === 1 ? ' has' : 's have'} warnings
+          </summary>
+          <ul>
+            {problemPages.map((p) => {
+              const worst = p.notes.find((x) => x.level === 'error') ?? p.notes.find((x) => x.level !== 'info')
+              return (
+                <li key={p.page_id}>
+                  <button type="button" className={buttonClass('secondary')} onClick={() => onGoToPage?.(p.ordinal)}>
+                    Page {p.ordinal}
+                  </button>{' '}
+                  <span className={worst?.level === 'error' ? 'error' : 'warn'}>
+                    {firstLine(worst?.message ?? '')}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </details>
       )}
 
       <div className="actions scanlate-export">

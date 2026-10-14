@@ -3,6 +3,7 @@ id-keyed request and parsing, content-moderation detection."""
 
 import contextvars
 import json
+import random
 import re
 import time
 from typing import Optional
@@ -129,6 +130,11 @@ def _cancellable_sleep(seconds: float):
         raise TranslationCancelled("cancelled")
 
 
+def _jitter() -> float:
+    """1.0 to 1.25: parallel jobs hit by one rate limit must not retry in step."""
+    return 1.0 + random.random() * 0.25
+
+
 def _retry_after_seconds(e: Exception) -> float:
     """The provider's own Retry-After wait in seconds, 0 when absent or not a number."""
     headers = getattr(getattr(e, "response", None), "headers", None)
@@ -174,7 +180,7 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             if _is_rate_limit_error(e):
                 if attempt == max_retries - 1:
                     raise  # a wait before the final raise only delays the error
-                delay = max(min(base_delay * (2 ** attempt), max_delay),
+                delay = max(min(base_delay * (2 ** attempt) * _jitter(), max_delay),
                             min(_retry_after_seconds(e), max_delay))
                 charge_rate_limit_wait(delay)
                 if on_wait:
@@ -385,6 +391,27 @@ def _segment_holds_secret(segment: str) -> bool:
             or 2 * sum(map(len, random_parts)) >= sum(map(len, parts)))
 
 
+# A credential also shows up as a raw path segment with no `=` at all (a real
+# CDN shape, e.g. https://cdn.example/priv/<signed-token>/page1.jpg). Gated on a
+# marker segment immediately before the token so an ordinary chapter/page slug,
+# which never sits right after a segment literally named "token"/"auth"/"priv",
+# is never touched. Catches tokens _segment_holds_secret cannot tell from a
+# long lowercase run; _marked_secret still keeps a hyphenated slug of plain words.
+SENSITIVE_PATH_SEGMENT = re.compile(
+    r"((?:^|/)(?:token|sign(?:ed)?|auth|session|sess|secret|credential|ticket|jwt|access|"
+    r"policy|hmac|nonce|cookie|passport|key|priv(?:ate)?|secure)/)"
+    r"([\w-]{16,})(?=/|$|[?#])", re.I)
+
+
+def _marked_secret(path: str) -> bool:
+    for m in SENSITIVE_PATH_SEGMENT.finditer(path):
+        token = m.group(2)
+        parts = [p for p in _SEGMENT_PART.split(token) if p]
+        if len(parts) == 1 or any(_random_part(p) for p in parts):
+            return True
+    return False
+
+
 def display_url(url) -> str:
     """A stored link as the API may show it: http(s) only, scheme + host +
     path, no query, fragment, userinfo or ;params. A pasted link can carry
@@ -402,7 +429,8 @@ def display_url(url) -> str:
     if ":" in host:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
-    if any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg))):
+    if (_marked_secret(path)
+            or any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg)))):
         path = "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
 
@@ -537,7 +565,7 @@ def parse_flag_entries(entries):
     return by_id, unreadable
 
 
-from .id_keyed_parse import parse_id_keyed_json  # noqa: E402,F401  (re-exported: engines and tests import it from here)
+from .id_keyed_parse import load_json_reply, parse_id_keyed_json  # noqa: E402,F401  (re-exported: engines and tests import it from here)
 
 
 class TruncatedReply(str):

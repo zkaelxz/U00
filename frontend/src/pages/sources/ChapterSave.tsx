@@ -7,8 +7,9 @@
  * failed / not found) and never returns a path. A finished result is shown
  * only for a run started here: the job id is shared by every series.
  */
+import { openSaveFolder } from '../../api/savedComics'
 import { SAVE_JOB_ID, startChapterSave } from '../../api/sourcesImport'
-import { OpenFolderButton } from '../manga/SaveFolder'
+import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import type { SeriesChapter } from '../../types/sources'
@@ -53,7 +54,7 @@ export function ChapterSave({ source, seriesId, display, chapters, selected, bus
             <span className="muted">
               Saved to the manga folder on the PC. <a href="#/manga">Read saved manga</a>
             </span>
-            <OpenFolderButton size="sm" />
+            <OpenFolderButton open={openSaveFolder} size="sm" />
           </>
         )}
       </div>

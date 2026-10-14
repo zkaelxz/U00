@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 
-import { api, ApiError } from '../api/client'
+import { api, ApiError, keepaliveFetch } from '../api/client'
 import { mediaStreamUrl } from '../api/media'
 import { captionUrl, dubTrackUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
 import { translateApi } from '../api/translate'
@@ -16,7 +16,9 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
+import { buttonClass } from '../components/uiClasses'
 import { SourceLink } from './discover/ExternalLink'
+import { useDelayedSave } from '../hooks/useDelayedSave'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
@@ -324,22 +326,24 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   // Save progress a second after a page shows; it also tells us the page's
   // exact last line for the spoiler boundary.
   const shownPage = data?.page ?? null
-  useEffect(() => {
-    if (shownPage === null) return
-    const size = prefs.chapterSize
-    const t = setTimeout(() => {
-      readerApi.saveProgress(id, shownPage, size).then(
-        (p) => {
-          setLastIdx({ page: shownPage, size, idx: p.last_line_idx })
-          setOverview((o) => (o ? { ...o, percent_complete: p.percent_complete, last_page: p.last_page, last_line_idx: p.last_line_idx } : o))
-        },
-        () => {
-          // No lines.edit permission or a transient error: reading still works.
-        },
-      )
-    }, PROGRESS_DELAY_MS)
-    return () => clearTimeout(t)
-  }, [id, shownPage, prefs.chapterSize])
+  const chapterSize = prefs.chapterSize
+  const progressToSave = useMemo(
+    () => (shownPage === null ? null : { id, page: shownPage, size: chapterSize }),
+    [id, shownPage, chapterSize],
+  )
+  useDelayedSave(progressToSave, PROGRESS_DELAY_MS, (p, leaving) => {
+    // Leaving the page: the reply has nowhere to go, but the save must still reach the server.
+    readerApi.saveProgress(p.id, p.page, p.size, leaving ? keepaliveFetch : undefined).then(
+      (r) => {
+        if (leaving) return
+        setLastIdx({ page: p.page, size: p.size, idx: r.last_line_idx })
+        setOverview((o) => (o ? { ...o, percent_complete: r.percent_complete, last_page: r.last_page, last_line_idx: r.last_line_idx } : o))
+      },
+      () => {
+        // No lines.edit permission or a transient error: reading still works.
+      },
+    )
+  })
 
   const setPrefs = useCallback(
     (next: ReaderPrefs) => {
@@ -406,7 +410,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       ) : (
         <div className="reader-top">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'read', id, page: null }, { title })} />
-          <SourceLink href={sourceUrl} dramaId={id} />
+          <SourceLink href={sourceUrl} dramaId={id} className={buttonClass('secondary', 'sm', 'reader-source')} />
           {aa}
         </div>
       )}
@@ -452,6 +456,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
                 dramaId={id}
                 page={page}
                 chapterSize={prefs.chapterSize}
+                language={sourceLanguage}
                 engines={engines}
                 enginesOff={enginesOff}
                 engine={engine}

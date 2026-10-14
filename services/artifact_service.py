@@ -20,6 +20,7 @@ import tempfile
 from typing import Dict
 
 import db
+from services import ownership_service
 from services.service_errors import InvalidInputError, NotFoundError, ServiceError
 
 ARTIFACT_KINDS = ("subtitle", "epub", "audio", "video", "softsub_video", "dubbed_video",
@@ -32,8 +33,7 @@ _MISSING = "No artifact available."
 def _kind_dir(drama_id: int, kind: str, create: bool) -> str:
     if kind not in ARTIFACT_KINDS:
         raise InvalidInputError("Unknown artifact kind.")
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     root = db.drama_dir(drama_id)
     path = os.path.join(root, "exports", kind)
     if create:

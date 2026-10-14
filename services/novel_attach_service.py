@@ -2,7 +2,7 @@
 services/novel_attach_service.py -- attach novel text to a drama and OCR
 chapter images for a novel-narration drama. Text
 lands in `novel_narration_source.txt` (the
-file `narration_service` and `cli.cmd_dub` read).
+file `narration_service` reads).
 
 Only extracted plain text is ever stored: an uploaded EPUB is opened with
 the stdlib zip/HTML parsers (no ebooklib, no entity or external-resource
@@ -36,7 +36,7 @@ from jobs import job_launch
 import db
 import dub_narration
 import ocr as ocr_module
-from services import drama_service, settings_service
+from services import drama_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_TEXT_CHARS = 2_000_000
@@ -59,9 +59,7 @@ if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not O
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -257,7 +255,7 @@ def _check_range(chapter_from, chapter_to, total: int):
 def attach_epub(drama_id: int, fileobj, mode: str = "replace",
                 chapter_from: Optional[int] = None, chapter_to: Optional[int] = None) -> dict:
     """Attaches the EPUB's text, or only chapters chapter_from..chapter_to
-    (1-based, inclusive; inventory S13). Returns {char_count, epub_chapters,
+    (1-based, inclusive). Returns {char_count, epub_chapters,
     chapter_from, chapter_to}."""
     _require_drama(drama_id)
     _check_mode(mode)
@@ -300,7 +298,7 @@ RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.save_novel_text
 
 def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     """Uses the chapters imported in Sources (or saved as the original novel),
-    `raw_novel_context.txt`, as the narration text (inventory S12). 404
+    `raw_novel_context.txt`, as the narration text. 404
     when there is none."""
     _require_drama(drama_id)
     _check_mode(mode)

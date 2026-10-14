@@ -15,6 +15,8 @@ leftover partial snapshots and restore staging folders
 (`auto_backup_service.cleanup_stale_leftovers`), and lightnovel-crawler work
 folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`), and
 update installers no longer needed (`update_service.cleanup_leftovers`).
+Bulk batches a stopped app left mid-apply are recovered, never applied twice
+(`bulk_poll.reconcile_stranded_applies`; it contacts no provider).
 Also, only when the owner turned "Resume interrupted translation batches"
 on (`translate_run_service.resume_interrupted_at_startup`, off by default),
 pending bulk batches are resumed through the manual resume's code path.
@@ -247,6 +249,12 @@ def start_background_services() -> dict:
         update_service.cleanup_leftovers()
     except Exception as exc:
         log_warning("leftover update installers were not swept: %s", exc)
+    try:
+        import bulk_poll
+        bulk_poll.reconcile_stranded_applies()
+    except Exception as exc:
+        from translate_engines import redact_secrets
+        log_warning("bulk batches left mid-apply were not recovered: %s", redact_secrets(str(exc)))
     try:
         from services import translate_run_service
         translate_run_service.resume_interrupted_at_startup()

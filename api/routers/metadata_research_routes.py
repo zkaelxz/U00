@@ -17,13 +17,12 @@ from api.llm_slots import llm_slot
 from api.metadata_research_schemas import (ProvenanceList, ResearchApplied, ResearchApply,
                                            ResearchBudget, ResearchRequest, ResearchResult)
 from api.routers.library_routes import to_detail
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import metadata_research_service
 
 router = APIRouter(prefix="/api/metadata", tags=["metadata"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422, 503)
 
 
 @router.get("/research/budget", dependencies=[require_permission("library.read")],
@@ -36,7 +35,7 @@ def research_budget():
 @router.post("/dramas/{drama_id}/research", dependencies=[require_permission("media.import_url")],
              response_model=ResearchResult,
              summary="Research the drama's metadata online with cited sources (writes nothing)",
-             responses={**_ERRS, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422, 503, 403, 429))
 def research(payload: ResearchRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, "gemini")
     with llm_slot(request):
@@ -68,6 +67,6 @@ def apply_research(payload: ResearchApply, request: Request, drama_id: int = Pat
 @router.get("/dramas/{drama_id}/provenance", dependencies=[require_permission("library.read")],
             response_model=ProvenanceList,
             summary="Stored per-field sources for the drama's researched metadata",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def provenance(drama_id: int = Path(ge=1)):
     return metadata_research_service.list_provenance(drama_id)

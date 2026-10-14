@@ -14,7 +14,12 @@ import db
 import sensitivity_preset as presets
 import source_change
 import storage
-from services import settings_service, timing_settings_service, transcribe_pipeline
+from services import (
+    ownership_service,
+    settings_service,
+    timing_settings_service,
+    transcribe_pipeline,
+)
 from services.transcribe_options_service import (
     _DEFAULT_TUNING, stored_hallucination_silence_sec, stored_whisper_size)
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt
@@ -24,7 +29,7 @@ from services.retranscribe_worker import (
     retranscribe_worker as _retranscribe_worker)
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
-# --- Re-transcribe one line (parity audit B1, inventory R23) ----------------
+# --- Re-transcribe one line ----------------
 # Review's "Re-transcribe" re-runs Whisper on one line's own timing window,
 # shows what it heard, and only on "Use this" replaces that line's source
 # text: the job cuts the window, transcribes it
@@ -67,9 +72,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     non-text prompt; ConflictError while a re-transcription, a full
     transcription, fix-flagged, a re-segment or a narration run is running
     or queued for this drama."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     line = _find_line(drama_id, line_id)
     if line is None:
         raise NotFoundError(f"No line with id {line_id} in title {drama_id}.")
@@ -129,8 +132,7 @@ def _finished_proposal(drama_id: int, line_id: int) -> dict:
     in this process. NotFoundError for an unknown drama or line, or when there
     is none (not run, still running, failed, another line's, or the API
     restarted since)."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if _find_line(drama_id, line_id) is None:
         raise NotFoundError(f"No line with id {line_id} in title {drama_id}.")
     job = background_jobs.get_status(retranscribe_line_job_id(drama_id)) or {}
@@ -171,8 +173,7 @@ def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh,
     if (not isinstance(job_id, str) or not isinstance(expected_zh, str)
             or not isinstance(expected_proposed, str)):
         raise InvalidInputError("job_id, expected_zh and expected_proposed must be text.")
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if job_id != retranscribe_line_job_id(drama_id):
         raise InvalidInputError("job_id is not this title's re-transcription.")
     result = _finished_proposal(drama_id, line_id)

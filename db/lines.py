@@ -111,7 +111,8 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
 
 
 def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard_fields=(),
-               guard_neighbours=None, expect_unchanged=None, known_note_ids=None):
+               guard_neighbours=None, expect_unchanged=None, known_note_ids=None,
+               known_emotion_ids=None):
     """Saves a drama's lines by their permanent id (Line.id).
 
     Full sync (fields=None) -- the list IS the drama's lines now:
@@ -154,9 +155,10 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     structural writers' drama lock, so only this makes their check and
     save one step.
 
-    known_note_ids (full sync only): translation note ids the caller has
-    seen. A line this sync deletes that carries any other note raises
-    ConflictError, so a note added since the caller looked isn't lost.
+    known_note_ids / known_emotion_ids (full sync only): translation note
+    ids and emotion tag ids the caller has seen. A line this sync deletes that
+    carries any other note or tag raises ConflictError, so one added since the
+    caller looked isn't lost.
 
     Word timings (Line.word_timings) are written only by a full sync, and
     only when the Line carries a value that differs from `orig`; None leaves
@@ -173,8 +175,9 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
         raise ValueError("guard_fields needs only_if_unchanged")
     if guard_neighbours and not guard_fields:
         raise ValueError("guard_neighbours needs guard_fields")
-    if fields is not None and (expect_unchanged is not None or known_note_ids is not None):
-        raise ValueError("expect_unchanged and known_note_ids need a full sync")
+    if fields is not None and (expect_unchanged is not None or known_note_ids is not None
+                               or known_emotion_ids is not None):
+        raise ValueError("expect_unchanged, known_note_ids and known_emotion_ids need a full sync")
     guard_cols = tuple(f for f in _LINE_COLUMNS if f in guard_fields)
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = db.get_conn()
@@ -251,7 +254,9 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                         _repoint_line_refs(conn, drama_id, mid, ln.id)
             removed = existing - kept
             if known_note_ids is not None:
-                _check_no_new_notes(conn, drama_id, removed, known_note_ids)
+                _check_no_new_refs(conn, drama_id, removed, "translation_notes", known_note_ids)
+            if known_emotion_ids is not None:
+                _check_no_new_refs(conn, drama_id, removed, "line_emotions", known_emotion_ids)
             for lid in removed:
                 _delete_line_refs(conn, lid)
             conn.executemany("DELETE FROM lines WHERE id = ?", [(lid,) for lid in removed])
@@ -301,9 +306,9 @@ def _check_unchanged(conn, drama_id, expected):
         raise ConflictError(_CHANGED_WHILE_SAVING)
 
 
-def _check_no_new_notes(conn, drama_id, removed, known_note_ids):
-    if any(r["line_id"] in removed and r["id"] not in known_note_ids for r in conn.execute(
-            "SELECT id, line_id FROM translation_notes WHERE drama_id = ?", (drama_id,))):
+def _check_no_new_refs(conn, drama_id, removed, table, known_ids):
+    if any(r["line_id"] in removed and r["id"] not in known_ids for r in conn.execute(
+            f"SELECT id, line_id FROM {table} WHERE drama_id = ?", (drama_id,))):
         raise ConflictError(_CHANGED_WHILE_SAVING)
 
 

@@ -196,6 +196,25 @@ test('Force stop shows only for a job stuck in Cancelling, and needs two presses
   await expect(rows(page)).toHaveCount(1)
 })
 
+test('a finished row\'s Actions controls share one size and variant', async ({ page }) => {
+  await mockJobsApi(page, pageJobs(), true)
+  await page.goto('/#/jobs')
+  await chip(page, 'All').click()
+  const row = rows(page).filter({ hasText: 'Transcribe Signal' }).first()
+  const controls = [
+    row.getByRole('link', { name: /^Open .* for Transcribe Signal/ }),
+    row.getByRole('button', { name: 'Details for Transcribe Signal' }),
+    row.getByRole('button', { name: 'Delete Transcribe Signal' }),
+  ]
+  const heights: number[] = []
+  for (const c of controls) {
+    await expect(c).toHaveClass(/btn-secondary/)
+    await expect(c).toHaveClass(/btn-sm/)
+    heights.push((await c.boundingBox())!.height)
+  }
+  expect(new Set(heights.map(Math.round)).size).toBe(1)
+})
+
 test('Delete is two-step and permanent; only finished jobs offer it', async ({ page }) => {
   const log = await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/jobs')
@@ -485,7 +504,7 @@ test('"Finished" is said once, titles are named by their name, and a pip instruc
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`${scheme}: Progress and Duration headers stay on one line and nothing scrolls sideways at 1280x800`, async ({ page }) => {
+  test(`${scheme}: Progress and Duration headers and the Job, Stage and time cells stay on one line and nothing scrolls sideways at 1280x800`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.emulateMedia({ colorScheme: scheme })
     await mockJobsApi(page, [...pageJobs(), ...failedTranscription()], true)
@@ -504,6 +523,15 @@ for (const scheme of ['light', 'dark'] as const) {
       })
       expect(lines, `${name} header wraps`).toBe(1)
     }
+    // A cell that wraps is taller than one line: "Translate" used to split as "Translat" / "e".
+    const wrapped = await page.getByTestId('jobs-table').locator('tbody td.jobs-name strong, tbody td.jobs-nowrap').evaluateAll((cells) =>
+      cells.filter((c) => {
+        const r = document.createRange()
+        r.selectNodeContents(c)
+        return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size > 1
+      }).map((c) => c.textContent),
+    )
+    expect(wrapped, 'cells that wrap').toEqual([])
     const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
     expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
     const table = await page.getByTestId('jobs-table').evaluate((t) => ({ right: t.getBoundingClientRect().right, scrolls: t.parentElement!.scrollWidth > t.parentElement!.clientWidth }))

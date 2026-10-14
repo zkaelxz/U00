@@ -21,6 +21,7 @@ import db
 from lib.safe_paths import plain_file_in
 import dub
 import dub_narration
+from services import ownership_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -43,9 +44,7 @@ def _drama_path(drama_id: int) -> str:
 
 
 def _get_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -237,7 +236,7 @@ def config_blocker(characters):
 
 def require_engine_dependency(tts_engine: str) -> None:
     """DependencyUnavailableError when ffmpeg or the engine's package is
-    missing; shared with `cli.py dub` so both fail with the same text."""
+    missing; so every caller fails with the same text."""
     missing = _missing_engine_dependency(tts_engine)
     if missing:
         raise DependencyUnavailableError(missing)
@@ -248,7 +247,7 @@ def require_can_generate(tts_engine: str, characters, narrate_original: bool = F
     """Refuses a run that cannot work, in this order: a removed or unknown
     engine (the run's or a character's) is InvalidInputError; no engine
     installed, or the picked one missing/unable to speak the original
-    language, is DependencyUnavailableError. Shared with `cli.py dub`."""
+    language, is DependencyUnavailableError."""
     blockers = dub.engine_blockers(characters, tts_engine)
     if blockers:
         raise InvalidInputError(" ".join(blockers))
@@ -316,8 +315,8 @@ def start_dub_run(drama_id: int, tts_engine: str = dub.DEFAULT_CLONE_ENGINE, max
                   max_slowdown=None, narration_language=None,
                   keep_background: bool = False) -> dict:
     """Starts "Generate dub/narration track" as a background process job
-    (`dub_<drama_id>`), with the same voice/clone/pacing inputs as
-    `cli dub` (per-speaker voices; drama glossary/locale are not used
+    (`dub_<drama_id>`), with the same voice/clone/pacing inputs
+    as a standalone dub run (per-speaker voices; drama glossary/locale are not used
     by TTS). The result is applied by an
     on_done hook, not by a UI render loop. Raises NotFoundError (unknown drama), InvalidInputError (bad
     engine/pacing/narration language, a removed engine, a speaker the

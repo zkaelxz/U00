@@ -166,6 +166,7 @@ def _adapter_for(url: str, cancel):
 def _source_view(url: str, adapter, series_id) -> dict:
     from services.sources_registry_service import scrub
     from sources.http_transport import Cancelled
+    from sources import detect
     from sources.models import SourceError
     try:
         info = adapter.get_series(series_id)
@@ -176,7 +177,7 @@ def _source_view(url: str, adapter, series_id) -> dict:
         raise DependencyUnavailableError(_FAILED) from None
     view = _empty("source", url)
     authors = [a for a in (info.authors or []) if isinstance(a, str) and a.strip()]
-    title = _tidy(scrub(info.title or ""))
+    title = _tidy(scrub(detect.without_appended_translation(info.title or "")))
     view.update(title=title, channel=_tidy(scrub(authors[0])) if authors else "",
                 summary=_tidy(scrub(info.description or ""), SUMMARY_MAX),
                 platform=_tidy(adapter.display_name), series_suggestion=title,
@@ -280,6 +281,7 @@ def apply(drama_id, values: dict, principal=None) -> dict:
     if clean.get("series") and series_id is not None \
             and db.dramas.assign_series_if_none(int(drama_id), series_id):
         applied.append("series")
+        drama_service.inherit_series_defaults_on_join(int(drama_id), series_id)
     return {"applied": applied, "kept": sorted(set(clean) - set(applied))}
 
 

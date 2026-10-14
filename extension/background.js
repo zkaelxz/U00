@@ -28,10 +28,14 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.remove("port");
 });
 
+// The popup's "Auto" choices for a page sent with no drama picked; all on, so a first send just works.
+const AUTO_TITLE_DEFAULTS = { create: true, fill: true, series: true };
+
 async function settings() {
   const stored = await chrome.storage.local.get(
-    ["token", "dramaBySite", "overlay", "textDirection"]);
+    ["token", "dramaBySite", "overlay", "textDirection", "autoTitle"]);
   return {
+    autoTitle: { ...AUTO_TITLE_DEFAULTS, ...(stored.autoTitle || {}) },
     token: stored.token || "",
     dramaBySite: stored.dramaBySite || {},
     overlay: stored.overlay !== false,
@@ -130,6 +134,27 @@ function publicPageUrl(url) {
   } catch (e) {
     return "";
   }
+}
+
+// Finds or creates the title a page belongs to (the app's extension_title_service); the
+// options decide how much it may do. Only a public page's address is sent, as for novels.
+async function resolveTitle({ url, titles, language, kind, chapterLinks }) {
+  const { autoTitle } = await settings();
+  return call("/title", {
+    method: "POST",
+    body: { url: publicPageUrl(url), titles: titles || [], language: language || "",
+            kind: kind === "novel" ? "novel" : "comic",
+            chapter_links: publicPageUrl(url) ? chapterLinks || [] : [], ...autoTitle },
+  });
+}
+
+async function setAutoTitle({ options }) {
+  const next = { ...(await settings()).autoTitle };
+  for (const key of Object.keys(AUTO_TITLE_DEFAULTS)) {
+    if (options && typeof options[key] === "boolean") next[key] = options[key];
+  }
+  await chrome.storage.local.set({ autoTitle: next });
+  return { ok: true, data: next };
 }
 
 async function saveNovelText({ dramaId, heading, text, source, url }) {
@@ -402,6 +427,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "saveNovelText":
           respond(await saveNovelText(message));
+          break;
+        case "resolveTitle":
+          respond(await resolveTitle(message));
+          break;
+        case "setAutoTitle":
+          respond(await setAutoTitle(message));
           break;
         case "getSettings":
           respond({ ok: true, data: await settings() });

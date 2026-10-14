@@ -14,16 +14,16 @@ from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Path, Query
 from api.auth import require_permission
-from api.schemas import (ErrorResponse, ReviewLinesCoverage, ReviewLinesFindReplaceRequest,
+from api.schemas import (ReviewLinesCoverage, ReviewLinesFindReplaceRequest,
                          ReviewLinesLine, ReviewLinesMatch, ReviewLinesOriginalText,
                          ReviewLinesPacing, ReviewLinesPage, ReviewLinesProvenance,
-                         ReviewLinePosition, ReviewSourceChanged)
+                         ReviewLinePosition, ReviewSourceChanged, error_responses)
 from services import review_lines_service, source_change_service
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
-_404 = {404: {"model": ErrorResponse}}
-_404_422 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_404 = error_responses(404)
+_404_422 = error_responses(404, 422)
 
 
 @router.get("/dramas/{drama_id}/lines", dependencies=[require_permission("lines.read")], response_model=ReviewLinesPage,

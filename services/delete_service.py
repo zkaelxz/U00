@@ -29,9 +29,9 @@ import logging
 import os
 
 import db
-from services import drama_service
+from services import drama_service, ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
-from sources import chapter_manifest
+from sources import chapter_manifest, pipeline
 
 log = logging.getLogger(__name__)
 
@@ -55,9 +55,7 @@ def _require_confirm(confirm, what: str):
 
 def _require_drama(drama_id) -> dict:
     _check_id(drama_id, "drama")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -130,16 +128,19 @@ def remove_raw_novel(drama_id, confirm=False) -> dict:
         raise NotFoundError("This title has no raw novel text saved.")
     _require_confirm(confirm, "the raw novel text")
     _require_idle(drama_id)
-    # Dropped first so a manifest that can't be removed never outlives the file.
-    if not chapter_manifest.drop(drama_id):
-        raise ConflictError("The saved chapter list is in use and could not be removed. "
-                            "Close anything using it and try again.")
-    try:
-        os.remove(path)
-    except OSError as e:
-        log.exception("Could not remove raw novel text for drama %s", drama_id)
-        raise ConflictError("The raw novel text is in use and could not be removed. "
-                            "Close anything using it and try again.") from e
+    # The page lock every raw-novel writer holds (chapter appends, moving
+    # chapters between titles), so the removal never lands mid-move.
+    with pipeline._page_lock(drama_id):
+        # Dropped first so a manifest that can't be removed never outlives the file.
+        if not chapter_manifest.drop(drama_id):
+            raise ConflictError("The saved chapter list is in use and could not be removed. "
+                                "Close anything using it and try again.")
+        try:
+            os.remove(path)
+        except OSError as e:
+            log.exception("Could not remove raw novel text for drama %s", drama_id)
+            raise ConflictError("The raw novel text is in use and could not be removed. "
+                                "Close anything using it and try again.") from e
     return {"drama_id": drama_id, "removed": True, "has_raw_novel_context": False}
 
 

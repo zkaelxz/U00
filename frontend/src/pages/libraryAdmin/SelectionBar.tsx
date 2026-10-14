@@ -46,8 +46,8 @@ const translateError = (e: unknown): string | null => {
   return null
 }
 
-// The household proxy refuses /api/library/admin/* (deploy/caddy), bulk translate included.
-const PC_ONLY_NOTE = 'Bulk translate, delete and export are PC only. To translate from here, use Translate on each title.'
+// The household proxy refuses /api/library/admin/* (deploy/caddy) except bulk translate.
+const PC_ONLY_NOTE = 'Delete and export are PC only.'
 const NO_EDIT_NOTE = 'Changing status and lists is for the library admin.'
 // PC-only calls (delete, export): a 403 means "not at the main PC".
 const PC_ONLY_ERR = { pcOnly: true, serverText: true } as const
@@ -76,6 +76,7 @@ export function SelectionBar({
   const local = pc !== 'remote'
   // The server refuses status and list changes without admin.library.
   const canEdit = useHolds('admin.library')
+  const canTranslate = useHolds('jobs.start')
   const name = (id: number) => {
     const d = items.find((x) => x.id === id)
     return d ? titleOf(d) : `#${id}`
@@ -151,7 +152,7 @@ export function SelectionBar({
   // Reasons sit under their buttons in the phone menu, in the bar's lines on desktop.
   const reason = (show: boolean, id: string, text: string): ReactNode =>
     show ? <p className="muted" id={id}>{text}</p> : null
-  const translateReason = reason(local && !toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
+  const translateReason = reason(canTranslate && !toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
   const exportReason = reason(local && !toExport.length && n > 0, 'export-needs', EXPORT_NEEDS)
   const pcReason = reason(!local, 'pc-only-note', PC_ONLY_NOTE)
   const editReason = reason(!canEdit, 'no-edit-note', NO_EDIT_NOTE)
@@ -181,7 +182,7 @@ export function SelectionBar({
       </>}
       {phone && editReason}
       <div className="bar-group">
-        {local && (
+        {canTranslate && (
           <button
             type="button"
             disabled={!toTranslate.length || translate.active}

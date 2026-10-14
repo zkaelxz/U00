@@ -1,7 +1,7 @@
 """
 services/job_timing_service.py -- per-stage duration and
 estimated spend for every real background job (not just benchmark runs).
-UI-free; rows live in db.py's `job_stage_timings`.
+UI-free; rows live in the db package's `job_stage_timings`.
 
 background_jobs calls `start_run(job_id)` when a job actually starts
 running (after any GPU-queue wait) and `finish_run(job_id)` when it ends,

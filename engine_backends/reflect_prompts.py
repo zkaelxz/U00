@@ -2,11 +2,12 @@
 per-batch text) and a *_prompt builder (instructions + task as one string, for
 bulk submission); the live path sends the instructions as a cached system block."""
 
+from .medium_prompts import reflect_terms
 from .shared import build_numbered_lines
 
 
 def build_reflect_faithful_task(batch_ctx: str, ids: list, zh_by_id: dict,
-                                speaker_by_id: dict = None) -> str:
+                                speaker_by_id: dict = None, kind: str = "subtitle") -> str:
     """Pass 1 (faithfulness) text for one batch: everything in the prompt
     except the stable instructions, which the live path sends as a cached
     system block."""
@@ -16,8 +17,8 @@ def build_reflect_faithful_task(batch_ctx: str, ids: list, zh_by_id: dict,
     return (
         "This is the FAITHFULNESS pass of a multi-stage translation: translate each line "
         "below preserving its exact literal meaning, grammar and information -- word choice "
-        "and register still matter, but don't optimize yet for how naturally it reads as a "
-        "subtitle; a later pass polishes that. Keep names and glossary terms consistent as "
+        "and register still matter, but don't optimize yet for " + reflect_terms(kind)["optimise"]
+        + "; a later pass polishes that. Keep names and glossary terms consistent as "
         "instructed above.\n\n"
         'Return ONLY a JSON object mapping each line number to its translation, e.g. '
         '{"1": "...", "2": "..."}. No preamble, no markdown fences.\n\n'
@@ -27,26 +28,28 @@ def build_reflect_faithful_task(batch_ctx: str, ids: list, zh_by_id: dict,
 
 
 def build_reflect_faithful_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
-                                  speaker_by_id: dict = None) -> str:
+                                  speaker_by_id: dict = None, kind: str = "subtitle") -> str:
     """Reflect mode's pass 1 prompt as one string, for bulk_translate.py's
     Reflect pipeline (Batch APIs take no per-request cache setup here). The
     live path sends the same text split into system + user."""
     return (f"{instructions}\n\n"
-            + build_reflect_faithful_task(batch_ctx, ids, zh_by_id, speaker_by_id))
+            + build_reflect_faithful_task(batch_ctx, ids, zh_by_id, speaker_by_id, kind))
 
 
 def build_reflect_reflection_task(batch_ctx: str, ids: list, zh_by_id: dict,
-                                  draft_by_id: dict) -> str:
+                                  draft_by_id: dict, kind: str = "subtitle") -> str:
     """Pass 2 (reflection/critique) text without the instructions -- see
     build_reflect_faithful_task. draft_by_id: pass 1's own saved output for
     each id (never empty here -- the caller only includes ids that got an
     actual faithfulness draft)."""
     pairs = "\n".join(f"{i}. {zh_by_id[i]} -> {draft_by_id[i]}" for i in ids)
+    terms = reflect_terms(kind)
     return (
         "This is the REFLECTION pass: for each numbered line below (source -> a literal "
         "draft translation), critique that SPECIFIC draft -- where it's technically correct "
-        "but reads unnaturally as a subtitle, plus accuracy, pronoun/gender choices, glossary "
-        "use, tone and register. One or two plain sentences per line. Skip a line's key "
+        "but " + terms["critique"] + ", plus accuracy, pronoun/gender choices, glossary "
+        "use, tone and register." + terms["extra_critique"]
+        + " One or two plain sentences per line. Skip a line's key "
         "entirely if the draft is already good -- don't invent a critique to fill space.\n\n"
         'Return ONLY a JSON object mapping each line number to its critique, e.g. '
         '{"1": "..."}. Omit a key entirely for a line that needs no critique. No preamble, '
@@ -57,14 +60,15 @@ def build_reflect_reflection_task(batch_ctx: str, ids: list, zh_by_id: dict,
 
 
 def build_reflect_reflection_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
-                                    draft_by_id: dict) -> str:
+                                    draft_by_id: dict, kind: str = "subtitle") -> str:
     """Pass 2 prompt as one string -- see build_reflect_faithful_prompt."""
     return (f"{instructions}\n\n"
-            + build_reflect_reflection_task(batch_ctx, ids, zh_by_id, draft_by_id))
+            + build_reflect_reflection_task(batch_ctx, ids, zh_by_id, draft_by_id, kind))
 
 
 def build_reflect_expressive_task(batch_ctx: str, ids: list, zh_by_id: dict,
-                                  draft_by_id: dict, critique_by_id: dict) -> str:
+                                  draft_by_id: dict, critique_by_id: dict,
+                                  kind: str = "subtitle") -> str:
     """Pass 3 (expressiveness/rewrite) text without the instructions -- see
     build_reflect_faithful_task. critique_by_id: pass 2's
     own saved output; an id with none (the draft was already judged
@@ -76,9 +80,10 @@ def build_reflect_expressive_task(batch_ctx: str, ids: list, zh_by_id: dict,
         if critique:
             entry += f"\n   Critique: {critique}"
         parts.append(entry)
+    terms = reflect_terms(kind)
     return (
         "This is the EXPRESSIVENESS pass: rewrite each line's draft translation using its "
-        "critique (where one is given) so it reads naturally as a subtitle -- fluent, "
+        "critique (where one is given) so it " + terms["rewrite"] + " -- fluent, "
         "well-paced, in-register -- while keeping the source's exact meaning. A line with no "
         "critique is probably already close; still return your best final wording for every "
         "line.\n\n"
@@ -90,7 +95,8 @@ def build_reflect_expressive_task(batch_ctx: str, ids: list, zh_by_id: dict,
 
 
 def build_reflect_expressive_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
-                                    draft_by_id: dict, critique_by_id: dict) -> str:
+                                    draft_by_id: dict, critique_by_id: dict,
+                                    kind: str = "subtitle") -> str:
     """Pass 3 prompt as one string -- see build_reflect_faithful_prompt."""
     return (f"{instructions}\n\n"
-            + build_reflect_expressive_task(batch_ctx, ids, zh_by_id, draft_by_id, critique_by_id))
+            + build_reflect_expressive_task(batch_ctx, ids, zh_by_id, draft_by_id, critique_by_id, kind))

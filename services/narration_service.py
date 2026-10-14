@@ -1,6 +1,6 @@
 """
 services/narration_service.py -- the novel-narration "Chunk & tag speakers"
-action for one drama (CLI: `cli.cmd_narrate_prep`).
+action for one drama.
 
 The `chunk_and_tag` path runs as a background job that does the WHOLE
 pipeline (chunk, LLM speaker tagging, history snapshot, DB write, status),
@@ -13,7 +13,7 @@ server-side and never returned (D2). Speakers come from
 `tag_speakers_by_id`, which returns {chunk idx: label}; the job looks each
 chunk's label up by its idx (missing -> "Narrator"), never by list position.
 
-Writes replace the drama's lines wholesale, exactly as the CLI does (the
+Writes replace the drama's lines wholesale, (the
 lines are brand new), but only after a "before chunk & tag
 speakers" history snapshot of whatever lines existed.
 
@@ -28,9 +28,16 @@ import novel_text
 import db
 import dub_narration
 import translate_engines
+from engine_backends import paid_calls
 from core import Line
 from engine_backends.run_limits import TranslateRunStopped
-from services import job_checkpoint_service, job_timing_service, paid_job_service, settings_service
+from services import (
+    job_checkpoint_service,
+    job_timing_service,
+    ownership_service,
+    paid_job_service,
+    settings_service,
+)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -45,9 +52,7 @@ MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -118,8 +123,8 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
 def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
                        max_chunk_chars=MAX_CHUNK_CHARS):
-    """(done {idx: label}, on_batch) for tag_speakers_by_id, shared
-    with `cli.py narrate-prep`. A re-run over the same text, engine, model,
+    """(done {idx: label}, on_batch) for tag_speakers_by_id, used by
+    the narration job. A re-run over the same text, engine, model,
     known characters and prompt version skips the batches an interrupted
     run already tagged (and paid for); fresh=True drops them first.
     Checkpoint failures never fail the run."""
@@ -184,9 +189,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         with paid_job_service.job_calls(job_id, drama_id, engine, engine_name, "tag_speakers"):
             by_idx = translate_engines.tag_speakers_by_id(
                 {ln.idx: ln.zh for ln in lines}, engine, known,
-                usage_cb=lambda inp, out: db.log_usage(
-                    drama_id, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
-                    inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+                usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "tag_speakers"),
                 done=done, on_batch=_checkpoint,
                 cancel_check=lambda: _raise_if_cancelled(job_id))
     except TranslateRunStopped as stop:

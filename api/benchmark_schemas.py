@@ -8,7 +8,7 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.benchmark import BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
+from api.schemas.benchmark import BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
 from core import SOURCE_LANGUAGES
 
 Stage = Literal["translation", "transcription", "ocr"]
@@ -33,6 +33,11 @@ class BenchmarkCase(BaseModel):
     has_input_file: bool
     origin_drama_id: Optional[int] = None
     origin_line_id: Optional[int] = None
+    title: str = ""
+    tags: List[str] = Field(default_factory=list)
+    scene_order: Optional[int] = None
+    excluded: bool = False
+    ref_version: int = 1
     created_at: Optional[str] = None
 
 
@@ -46,6 +51,7 @@ class BenchmarkSet(BaseModel):
     set_name: str
     case_count: int
     with_reference: int
+    excluded: int = 0
 
 
 class BenchmarkSetList(BaseModel):
@@ -171,6 +177,8 @@ class BenchmarkRun(BaseModel):
     context_settings: dict = Field(default_factory=dict)
     case_filter: dict = Field(default_factory=dict)
     delta_vs_first: Optional[float] = None
+    # Arena only: the run's score over the compared cases, and its stored total over all of them.
+    stored_aggregate_score: Optional[float] = None
     judge: Optional[BenchmarkJudgeSummary] = None
     script_counts: Optional[BenchmarkScriptCounts] = None
 
@@ -194,6 +202,7 @@ class BenchmarkResult(BaseModel):
     error: Optional[str] = None
     judge: Optional[BenchmarkJudgeScore] = None
     script_counts: Optional[BenchmarkScriptCounts] = None
+    ref_version: int = 1
 
 
 class BenchmarkRunDetail(BaseModel):
@@ -207,12 +216,14 @@ class BenchmarkArenaRow(BaseModel):
     source_text: Optional[str] = None
     reference_text: Optional[str] = None
     tier: Optional[str] = None
+    ref_version: int = 1
     results: List[Optional[BenchmarkResult]]
 
 
 class BenchmarkArena(BaseModel):
     runs: List[BenchmarkRun]
     rows: List[BenchmarkArenaRow]
+    left_out: BenchmarkLeftOut
 
 
 class BenchmarkEngineOption(BaseModel):

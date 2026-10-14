@@ -195,6 +195,21 @@ def test_emotion_saved_by_line_id(monkeypatch):
     assert list(db.load_emotions(did)) == [1]
 
 
+def test_emotion_usage_is_logged_as_emotion_detect(monkeypatch):
+    did = _seed()
+    logged = []
+    monkeypatch.setattr(db, "log_usage", lambda d, e, m, op, i, o, *a, **k:
+                        logged.append((d, e, op, i, o)))
+
+    def fake_detect(lines, engine, use_audio_cues=False, usage_cb=None, **kw):
+        usage_cb(7, 3)
+        return {}
+    monkeypatch.setattr(emotion, "detect_emotions", fake_detect)
+    out = svc.start_emotion_tagging(did, engine_name="claude")
+    assert _wait(out["job_id"])["status"] == "done"
+    assert logged == [(did, "claude", "emotion_detect", 7, 3)]
+
+
 def test_notes_saved(monkeypatch):
     did = _seed()
     monkeypatch.setattr(translation_guide, "generate_translation_notes_llm",

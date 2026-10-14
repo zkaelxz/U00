@@ -278,6 +278,14 @@ class TestCutOffReply:
         retry = _user_text(fake.bodies[1])
         assert "13." in retry and "11." not in retry and "12." not in retry
 
+    def test_a_cut_off_reply_re_asks_the_missing_lines_in_halves(self, batch_chat):
+        fake = batch_chat(_reply('{"11": "Hello.", "12": "Tha', done_reason="length"),
+                          _reply('{"12": "Thank you."}'), _reply('{"13": "Goodbye."}'))
+        out = _engine().translate_batch(_SOURCES, dict(_IDS))
+        assert out == ["Hello.", "Thank you.", "Goodbye."]
+        assert [("12." in _user_text(b), "13." in _user_text(b)) for b in fake.bodies[1:]] == [
+            (True, False), (False, True)]
+
     def test_other_engines_still_lose_a_cut_off_reply(self):
         from engine_backends.shared import parse_id_keyed_json
         assert parse_id_keyed_json('{"11": "Hello.", "12": "Tha', [11, 12]) == {}

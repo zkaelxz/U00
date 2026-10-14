@@ -1,7 +1,7 @@
 // Hand-written mirrors of api/schemas/translate.py and characters.py (Translate stage:
 // translate-run, glossary and characters models). Booleans and numbers only, never keys.
 
-import type { LibraryPreset } from './library'
+import type { LibraryPreset, ProfileOptions } from './library'
 import type { TranslateEngine } from './translate'
 
 export interface TranslateRunConfig {
@@ -13,6 +13,8 @@ export interface TranslateRunConfig {
   default_female_pronouns?: boolean | null
   include_genre_notes?: boolean | null
   translate_by_sentence?: boolean | null
+  // The form's starting values a profile left on this title ({} if none).
+  translate_start?: ProfileOptions & { style_preset?: string; engine_model?: string }
   // Engines whose request can switch thinking (DeepSeek, Ollama), and the
   // title's remembered "think harder" choice.
   thinking_switch_engines?: string[]
@@ -108,6 +110,8 @@ export interface EstimateParams {
   reflect?: boolean
   bulk?: boolean
   thinking?: boolean
+  /** The run's own batch size; omitted, the engine's default. */
+  batch_size?: number
 }
 
 export interface FallbackEngine {
@@ -361,6 +365,10 @@ export interface TranslatePresetApplied {
   locale: string | null
   default_female_pronouns: boolean
   include_genre_notes: boolean
+  // The profile's Translate run options for the form, and the keys left out
+  // because they don't suit the title's language.
+  options?: ProfileOptions
+  skipped?: string[]
 }
 
 export interface WorkflowTierApplied extends Omit<WorkflowTier, 'key'> {
@@ -378,8 +386,12 @@ export interface TranslatePresetBody {
   locale: string | null
   default_female_pronouns: boolean
   include_genre_notes: boolean
+  options?: ProfileOptions
   overwrite?: boolean
 }
+
+// POST /api/translate-run/presets/{id}/update replaces every field and the name.
+export type TranslatePresetUpdateBody = Omit<TranslatePresetBody, 'overwrite'>
 
 export interface TranslatePresetSaved {
   preset: LibraryPreset

@@ -671,7 +671,7 @@ function ScheduleSection({ overview, options, sets, remote, savedEstimate, onSav
   }
 
   return (
-    <Section title="Schedule and golden set" summary={scheduleSummary(saved, tierName)} storageKey="benchmark.reevalSchedule">
+    <Section title="Schedule and golden set" summary={scheduleSummary(saved, tierName)} storageKey="benchmark.reevalSchedule" defaultOpen>
       <div className="setting-list">
         <Field
           label="Re-evaluate on a schedule"
@@ -762,6 +762,7 @@ function HistorySection({ decisions, candidates }: { decisions: ModelDecision[] 
       count={decisions ? n : undefined}
       summary={decisions === null ? 'Could not load' : n ? 'Newest first' : 'None yet'}
       storageKey="benchmark.reevalHistory"
+      defaultOpen
     >
       {decisions === null ? (
         <p className="muted">The decision history could not be loaded.</p>

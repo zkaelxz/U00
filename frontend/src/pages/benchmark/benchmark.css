@@ -120,7 +120,7 @@
 .bench-prefill p { margin: 0; overflow-wrap: anywhere; }
 .bench-prefill ul { margin: 0; padding-left: 1.2rem; font-size: var(--text-sm); overflow-wrap: anywhere; }
 
-/* Model re-evaluation (ReevalCard, Step 40b). */
+/* Model re-evaluation (ReevalCard). */
 .reeval .card-body { display: grid; gap: var(--space-4); min-width: 0; }
 .reeval p { margin: 0; }
 .reeval-intro { max-width: 72ch; }
@@ -179,3 +179,27 @@
 .bench-judge-warning { display: grid; gap: var(--space-2); }
 .bench-judge-warning p { margin: 0; }
 .bench-check { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* Your own clips: the drop area and one editable row per clip. */
+.bench-drop { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.bench-drop p { margin: 0; }
+.bench-drop-active { border-color: var(--accent); }
+.bench-clip-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.bench-clip-row { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); min-width: 0; }
+.bench-clip-file { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.bench-clip-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: var(--space-2); }
+.bench-clip-row textarea, .bench-clip-meta input, .bench-clip-meta select { width: 100%; min-width: 0; }
+.bench-clip-row p { margin: 0; }
+@media (min-width: 900px) {
+  .bench-clip-row { grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .bench-clip-file, .bench-clip-meta, .bench-clip-row > .warn { grid-column: 1 / -1; }
+}
+
+/* A set's cases: exclude, edit and history. */
+.bench-case-excluded { opacity: 0.75; }
+.bench-case-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1); }
+.bench-case-edit { display: grid; gap: var(--space-1); margin-top: var(--space-1); }
+.bench-case-edit textarea { width: 100%; }
+.bench-case-history { margin: var(--space-1) 0 0; padding-left: var(--space-4); font-size: var(--text-sm); }
+.bench-case-history li { border: 0; padding: 0; display: block; }
+.bench-export { display: inline-flex; gap: var(--space-1); flex-wrap: wrap; }

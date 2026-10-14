@@ -1,7 +1,7 @@
 """
 vocabulary_hint_service.py -- the optional "Vocabulary: a, b, c" hint sent to
 Qwen3-ASR (the processor's `prompt=`), built from a title's character names and
-series glossary. One builder for the app and the CLI (both start runs through
+series glossary. One builder for every run (all start through
 transcribe_service.start_transcribe_run); the per-title switch is the
 `vocabulary_hint` column, NULL or 0 = off.
 

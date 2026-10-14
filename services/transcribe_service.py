@@ -103,12 +103,9 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     with "、" and ended with "。"; then, when the drama has a
     raw_novel_context.txt, a bounded novel excerpt merged in names-first and
     trimmed by core.combine_initial_prompt (its 900-character cap). Shared by
-    cli.cmd_align (no extra names) and the API transcribe/auto-tune paths so
-    they can't drift. Returns "" when there's nothing to prime with. Raises
+    the API transcribe and auto-tune paths so they can't drift. Returns "" when there's nothing to prime with. Raises
     NotFoundError for an unknown drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
     glossary_names = core_module.build_initial_prompt(terms).rstrip("。")
     prompt = "、".join(x for x in (glossary_names, (extra_names or "").strip()) if x)
@@ -138,9 +135,7 @@ def get_transcribe_config(drama_id: int) -> dict:
     whether its Whisper model is already downloaded, and every tuning knob
     with its current per-drama value (falling back to _DEFAULT_TUNING).
     Raises NotFoundError for an unknown drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     source = source_service.get_source_config(drama_id)
     whisper_size = stored_whisper_size(drama)
@@ -200,9 +195,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     None) are validated and written. Raises NotFoundError for an unknown
     drama id, InvalidInputError for an out-of-range/unknown value. Returns
     the updated get_transcribe_config(drama_id)."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     updates = check_transcribe_fields(fields, drama.get("source_language") or "zh")
     if updates:
         db.update_drama(drama_id, **updates)
@@ -228,7 +221,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     values when omitted. initial_prompt is an optional
     full override of Whisper's prompt; when it's empty or omitted the run
     uses build_auto_initial_prompt (series glossary plus extra_names plus
-    raw-novel excerpt), the prompt cli.cmd_align builds without extra names.
+    raw-novel excerpt).
 
     transcript_text is required (and only used) when this drama's
     transcript_mode is "have_transcript" -- it's
@@ -253,9 +246,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     "qwen3_forced_align" while transcript_mode is "whisper" (forced
     alignment needs a known transcript); ConflictError if a transcription is already running for
     this drama."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
         ownership_service.require_acting_lines_edit()
@@ -564,7 +555,8 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                 kill_whole_tree=True, start_method="spawn",
                 on_done=diarization_service.make_apply_on_done(
                     drama_id, expected_speakers, min_speakers=min_speakers,
-                    max_speakers=max_speakers),
+                    max_speakers=max_speakers,
+                    speakers_at_start=diarization_service.speakers_snapshot(drama_id)),
                 run_settings=run_settings_service.for_diarize(
                     expected_speakers, min_speakers, max_speakers,
                     settings_service.get("use_gpu")))

@@ -13,7 +13,6 @@ No FastAPI import.
 """
 
 import os
-import re
 import tempfile
 import time
 import zipfile
@@ -24,7 +23,7 @@ import db
 import storage
 import subtitle_formats
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import keep_original_service, vdb_names_service
+from services import export_service, keep_original_service, vdb_names_service
 from services import library_translated_guard
 from services import library_restore_service as lrs
 from services.library_admin_service import (BACKUP_JOB_ID, DATABASE_BACKUP_JOB_ID, EXPORT_JOB_ID,
@@ -69,6 +68,7 @@ def _write_artifact(kind: str, suffix: str, fail_message: str, write) -> tuple:
 
 def _export_job(job_id, drama_ids):
     exported = 0
+    used_folders = set()
 
     def write(tmp):
         nonlocal exported
@@ -84,11 +84,20 @@ def _export_job(job_id, drama_ids):
                 if not lns:
                     continue
                 lns, _ = subtitle_formats.clamp_overlaps(lns)
-                safe = re.sub(r"[^\w\- ]", "", d["title_en"] or d["title_zh"] or "") or str(did)
-                folder = f"{did} {safe}"
-                zf.writestr(f"{folder}/english.srt", lines_to_srt(lns, "en"))
-                zf.writestr(f"{folder}/chinese.srt", lines_to_srt(lns, "zh"))
-                zf.writestr(f"{folder}/bilingual.srt", lines_to_bilingual_srt(lns))
+                folder = export_service.folder_name(did)
+                # Two titles can share a name; the id keeps their folders apart.
+                # Windows and macOS compare names case-insensitively, and an
+                # id-suffixed name can itself be another title's name.
+                base = folder
+                while folder.casefold() in used_folders:
+                    folder = f"{base} [{did}]" if folder == base else f"{folder} [{did}]"
+                used_folders.add(folder.casefold())
+                for field, text in (("en", lines_to_srt(lns, "en")), ("zh", lines_to_srt(lns, "zh")),
+                                    ("bilingual", lines_to_bilingual_srt(lns))):
+                    noun = "bilingual subtitles" if field == "bilingual" else "subtitles"
+                    entry = export_service.download_filename(
+                        did, noun, export_service.field_language(d, field), "srt")
+                    zf.writestr(f"{folder}/{entry}", text)
                 keep_original_service.export_title_files(
                     zf, did, d, folder,
                     has_room=lambda need: has_disk_room(os.path.dirname(tmp), need),
@@ -190,7 +199,9 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
     `progress(fraction, message)`, if given, is called at most a few times a
     second while files are written. `should_cancel()`, if given, is checked
     between files; when true this raises background_jobs.JobCancelled (the
-    caller removes the partial file)."""
+    caller removes the partial file). Returns the archive names of listed
+    files that were gone by the time they were copied: one deleted mid-backup
+    (a job's temp files, a cleanup) is skipped, never a failed backup."""
     library_dir = db.LIBRARY_DIR
     skip = {p + x for p in (db.DB_PATH, src_store.db_path()) for x in ("", "-wal", "-shm")}
     excluded = _backup_excluded_top_level()
@@ -199,6 +210,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         if should_cancel is not None and should_cancel():
             raise background_jobs.JobCancelled()
 
+    skipped = []
     with storage.job_workdir("snapshot") as snapdir:
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
@@ -214,7 +226,10 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                 last_report = 0.0
                 for n, (full, arcname, size) in enumerate(files, 1):
                     check_cancel()
-                    zf.write(full, arcname)
+                    try:
+                        zf.write(full, arcname)
+                    except FileNotFoundError:
+                        skipped.append(arcname)
                     done_bytes += size
                     now = time.monotonic()
                     if progress is not None and now - last_report >= _BACKUP_PROGRESS_INTERVAL:
@@ -230,18 +245,28 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                 zf.write(src_snap, "sources.db")
             if manifest is not None:
                 zf.writestr("manifest.json", manifest(snap))
+    return skipped
 
 
 def _backup_job(job_id):
     background_jobs.update_progress(job_id, 0.0, "Copying the database...")
+    skipped = []
     name, size = _write_artifact(
         "backup", ".zip", "The backup could not be written.",
-        lambda dest: write_backup_zip(
+        lambda dest: skipped.extend(write_backup_zip(
             dest,
             progress=lambda frac, msg: background_jobs.update_progress(job_id, frac, msg),
-            should_cancel=lambda: background_jobs.is_cancel_requested(job_id)))
-    background_jobs.set_result(job_id, {"name": name, "size": size})
-    background_jobs.update_progress(job_id, 1.0, "Backup ready.")
+            should_cancel=lambda: background_jobs.is_cancel_requested(job_id))))
+    background_jobs.set_result(job_id, {"name": name, "size": size, "skipped_count": len(skipped)})
+    background_jobs.update_progress(job_id, 1.0, skipped_note("Backup ready.", len(skipped)))
+
+
+def skipped_note(message: str, skipped: int) -> str:
+    """`message`, plus how many files write_backup_zip had to skip."""
+    if not skipped:
+        return message
+    files = "1 file was" if skipped == 1 else f"{skipped} files were"
+    return f"{message} {files} removed while it ran and is not in it."
 
 
 def start_backup() -> dict:

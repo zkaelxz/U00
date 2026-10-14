@@ -171,6 +171,38 @@ class TestQwen3ASRBackendTranscription:
                                      whisper_segments=[{"start": 0.0, "end": 1.0, "text": "x"}])
         assert result[0]["text"] == "x"
 
+    def test_empty_model_result_flags_the_line_it_kept_whispers_text_for(self, monkeypatch):
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+
+        class MixedModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("")] if audio.endswith("seg_0.wav") else [FakeResult("qwen")]
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B": MixedModel())
+        result = ab.Qwen3ASRBackend().transcribe(
+            "/fake.wav", "ko", whisper_segments=[{"start": 0.0, "end": 1.0, "text": "x"},
+                                                 {"start": 1.0, "end": 2.0, "text": "y"}])
+        assert (result[0]["text"], result[0]["flag"]) == ("x", "source_suspect")
+        assert result[0]["flag_note"]
+        assert "flag" not in result[1]
+
+
+    def test_a_phrase_qwen_loops_on_is_cut_to_one_copy(self, monkeypatch):
+        """Qwen3-ASR gets stuck on a phrase like Whisper does; its text gets
+        the same in-segment loop collapse Whisper's text already has."""
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+
+        class LoopingModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("好的我知道了" * 6)]
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B": LoopingModel())
+        result = ab.Qwen3ASRBackend().transcribe(
+            "/fake.wav", "zh", whisper_segments=[{"start": 0.0, "end": 5.0, "text": "好的"}])
+        assert result[0]["text"] == "好的我知道了"
+
 
 class TestLoadQwen3Asr:
     def _install_fake_qwen_asr(self, from_pretrained):

@@ -11,7 +11,7 @@ from services.library_admin_service import MAX_BULK_IDS as _MAX_BULK_IDS, STATUS
 import db as _db
 import storage as _storage
 
-from api.schemas.common import LibraryPreset
+from api.schemas.common import ConfirmRequest, LibraryPreset
 
 __all__ = [
     "TempCleanResult",
@@ -103,6 +103,7 @@ __all__ = [
     "RomanizeCreditsResult",
     "CoverArtResult",
     "DramaSourceLink",
+    "DramaFolderOpened",
     "BurnPreviewStart",
     "BurnPreviewStarted",
     "BurnPreviewClip",
@@ -276,7 +277,7 @@ class DramaCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def _needs_a_title(self):
-        # Here, not in drama_service: the CLI and importers create untitled
+        # Here, not in drama_service: importers create untitled
         # rows through the service on purpose.
         if not (self.title_en.strip() or self.title_zh.strip() or self.source_url.strip()):
             raise ValueError("A title or a link is required.")
@@ -328,6 +329,8 @@ class DramaPresetDefaults(BaseModel):
 
 class DramaCreateResult(DramaDetail):
     preset_defaults: Optional[DramaPresetDefaults] = None
+    # Profile settings left out because they don't suit the title's language.
+    profile_skipped: List[str] = Field(default_factory=list)
     # With a link and no name: "link" (the link's own title) or
     # "placeholder" (the link's host, for the owner to rename).
     title_from_link: Optional[Literal["link", "placeholder"]] = None
@@ -595,11 +598,9 @@ class WorkflowProgress(BaseModel):
 # ---------------------------------------------------------------------------
 # PC-only delete routes
 # ---------------------------------------------------------------------------
-class DeleteConfirm(BaseModel):
+class DeleteConfirm(ConfirmRequest):
     """Body of every PC-only delete: `confirm: true` (strict) is the whole
     bar; no typed word."""
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
 
 
 class MediaRemoveResult(BaseModel):
@@ -772,6 +773,10 @@ class LibraryRestoreDone(BaseModel):
     # Titles whose owner became the live account with the same email, or the
     # PC owner (only when the live accounts were kept).
     titles_reassigned: int = 0
+    # False: the backup holds no readable account, so every title became the PC
+    # owner's (the single-title restore's copy_has_accounts notice). Always True
+    # when the backup's accounts were taken. No UI reads it yet.
+    backup_has_accounts: bool = True
     # The previous library's other folders the backup lacks: they stay there.
     folders_left_behind: List[str] = []
 
@@ -874,6 +879,10 @@ class RomanizeCreditsResult(BaseModel):
     drama_id: int
     romanized: Dict[str, str]
     updated: bool
+
+
+class DramaFolderOpened(BaseModel):
+    opened: bool
 
 
 class DramaSourceLink(BaseModel):

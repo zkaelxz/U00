@@ -12,8 +12,10 @@ UI-free (inventory rows R46, R37, R35, R03):
   recorded edit (one synchronous LLM call), saved per
   scope (series, else global). The apply toggle is stored on the profile as
   `"apply": false`, which `adaptive_style.profile_to_prompt_block` honours, so
-  every translate path (API run, CLI, line AI) skips a paused profile the
-  same way. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
+  every translate path (API run, line AI) skips a paused profile the
+  same way. The profile records who learned it, and reaches only that member
+  and those who see every title (ownership_service.sees_learned_style), in
+  this view and in every prompt. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
   meanwhile is kept, and a reset/re-learn made meanwhile makes it a 409.
 - SenseVoice audio tags (R35): `workspace_audio_job_service.run_sensevoice_job` as a
   `sensevoice_<id>` job (funasr optional; 503 when missing), and the
@@ -47,6 +49,7 @@ import en_cleanup
 import sensevoice_tags
 import subtitle_formats
 import translate_engines
+from engine_backends import paid_calls
 from services import (export_service, media_playback_service, ownership_service,
                       restructure_service, settings_service, translate_run_service, translate_service,
                       workspace_audio_job_service)
@@ -66,9 +69,7 @@ from services.service_errors import (
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -170,7 +171,8 @@ CLEANUP_LABEL = "before English cleanup"
 
 def cleanup_plan(drama_id: int, lines) -> list:
     """[(line, new_en, rules)] for the lines the cleanup would change. The
-    CLI uses this too, so the glossary and title style are read one way."""
+    Kept apart from the apply step so the preview and the write read the
+    glossary and title style one way."""
     drama = _require_drama(drama_id)
     terms = [t["term_translation"] for t in db.list_glossary_terms(drama["series_id"])] \
         if drama.get("series_id") else []
@@ -259,11 +261,17 @@ def _visible_edit_samples(principal) -> list:
     return [s for s in samples if s["drama_id"] in visible]
 
 
+def _visible_profile(principal, profile) -> dict:
+    """The stored profile when the principal may see it, else {}."""
+    profile = profile or {}
+    return profile if ownership_service.sees_learned_style(principal, profile) else {}
+
+
 def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                 principal=None) -> dict:
     scope = _scope(drama)
     stored = db.get_style_profile(scope)
-    pr = (stored or {}).get("profile") or {}
+    pr = _visible_profile(principal, (stored or {}).get("profile"))
     profile = None
     if pr.get("preferences"):
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),
@@ -280,7 +288,8 @@ def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                          "preference_count": len((h.get("profile") or {}).get("preferences")
                                                  or []),
                          "updated_at": h.get("updated_at")}
-                        for h in ((stored or {}).get("history") or [])],
+                        for h in ((stored or {}).get("history") or [])
+                        if ownership_service.sees_learned_style(principal, h.get("profile"))],
             "message": message}
 
 
@@ -326,7 +335,8 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
     the learned preferences for this drama's scope. Keeps the profile's
     apply toggle. Nothing is saved when no clear pattern is found. Refused
     before the LLM call when this month's spending cap is used up (capped
-    engines only)."""
+    engines only), and (409) when the stored profile is one the principal
+    may not see (ownership_service.sees_learned_style)."""
     drama = _require_drama(drama_id)
     samples = _visible_edit_samples(principal)
     if len(samples) < adaptive_style.MIN_SAMPLES_TO_LEARN:
@@ -338,10 +348,12 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
         name, settings_service.resolve_gemini_free_tier(gemini_free_tier))
     scope = _scope(drama)
     existing = (db.get_style_profile(scope) or {}).get("profile") or {}
+    if existing.get("preferences") and not _visible_profile(principal, existing):
+        # Replacing it would discard a profile this member can't see or restore.
+        raise ConflictError("Someone else's learned style is in use for this series; "
+                            "an admin can reset it at the PC first.")
 
-    def usage(inp, out):
-        db.log_usage(None, name, getattr(engine, "model", name), "adaptive_style", inp, out,
-                     translate_engines.estimate_cost_for_engine(engine, inp, out))
+    usage = paid_calls.usage_logger(None, name, engine, "adaptive_style")
     try:
         result = adaptive_style.analyze_edit_patterns(samples, engine, existing_profile=existing,
                                                       usage_cb=usage)
@@ -357,6 +369,9 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
                            principal=principal)
     profile = {"preferences": prefs, "summary": str(result.get("summary") or ""),
                "confidence": str(result.get("confidence") or "low")}
+    learner = ownership_service.user_id(principal)
+    if learner is not None:
+        profile["learned_by"] = learner
     with _STYLE_LOCK:
         # Re-read after the (slow) LLM call: a pause/resume made meanwhile
         # wins, and a reset (or another learn) made meanwhile is not undone
@@ -380,7 +395,7 @@ def set_style_applied(drama_id: int, apply: bool, principal=None) -> dict:
     scope = _scope(drama)
     with _STYLE_LOCK:
         stored = db.get_style_profile(scope)
-        profile = dict((stored or {}).get("profile") or {})
+        profile = dict(_visible_profile(principal, (stored or {}).get("profile")))
         if not profile.get("preferences"):
             raise NotFoundError("No learned style to turn on or off yet.")
         if apply:
@@ -436,7 +451,7 @@ def start_sensevoice(drama_id: int) -> dict:
     """Starts the SenseVoice tagging job (writes only audio_tags.json)."""
     _require_drama(drama_id)
     if not _sensevoice_installed():
-        raise DependencyUnavailableError("Audio emotion tags need: pip install funasr")
+        raise DependencyUnavailableError("Audio emotion tags need the funasr package, which isn't installed (see Diagnostics > Packages).")
     audio = _audio_path(drama_id)
     if audio is None:
         raise UnsupportedOperationError("This title has no audio to tag.")

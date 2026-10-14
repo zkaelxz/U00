@@ -108,6 +108,10 @@ button.review-play { min-width: 44px; padding-inline: 10px; }
 /* On/off options inside Review panels: the kit's setting rows, without the page-level margin. */
 .stage-review .setting-list.review-toggles { margin: 0; }
 .stage-review .setting-list.review-toggles > .field-item { padding: var(--space-2) var(--space-3); min-height: 44px; }
+/* In the narrow side panel the control drops below its label instead of squeezing the label to a letter per line. */
+.stage-review .setting-list.review-toggles > .field-item { flex-wrap: wrap; }
+.stage-review .setting-list.review-toggles > .field-item > .field-label-row { flex: 1 1 9rem; min-width: 0; }
+.stage-review .setting-list.review-toggles .field-control select { min-width: 0; }
 /* The stage has the picture's shape and its own fixed size: the video and the
    subtitle overlay are both absolutely placed in it, so a longer subtitle can
    never move or resize the video or push the controls down. */
@@ -151,6 +155,8 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 .review-jump { display: inline-flex; gap: var(--space-1); min-width: 0; }
 .review-jump input { width: 6.5em; }
 .review-subs { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+/* The global select minimum (12rem) overflows these inline labels in a narrow column and collides with the next control. */
+.review-subs select { min-width: 0; }
 /* Audio and the pop-out window: the current subtitle as text (an inline video draws it over the picture). */
 .review-caption { margin: 0; min-height: 1.5em; padding: var(--space-1) var(--space-2); white-space: pre-line; text-align: center; overflow-wrap: anywhere; background: var(--field-bg); border-radius: var(--radius-sm); }
 @media (pointer: coarse), (max-width: 640px) {
@@ -506,3 +512,11 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-suspect ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
 .review-suspect li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-1) var(--space-2); }
 .review-suspect-line { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+
+/* Gaps: step back and forward through the stretches with no line; the label still jumps to the next one. */
+.review-gap-step { display: inline-flex; align-items: center; gap: 2px; }
+.review-gap-arrow { min-width: 32px; min-height: 32px; padding: 0 var(--space-2); font-size: var(--text-lg); line-height: 1; }
+
+/* Accent is for the one primary action and the active state; the many quiet row and toolbar actions read as text and underline on hover. */
+.stage-review .btn.btn-ghost { color: var(--text); }
+.stage-review .btn.btn-ghost:hover:not(:disabled) { background: transparent; text-decoration: underline; }

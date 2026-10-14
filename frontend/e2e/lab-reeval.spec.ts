@@ -39,8 +39,6 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
   await expect(c.getByRole('button', { name: 'Estimate cost' })).toBeDisabled()
   await expect(c.getByRole('button', { name: 'Run now' })).toBeDisabled()
   await expect(c.getByTestId('reeval-run-reason')).toHaveText('Add a candidate model first.')
-  await expect(c.locator('summary', { hasText: 'Schedule and golden set' })).toContainText('Off · any set')
-  await expect(c.locator('summary', { hasText: 'Decision history' })).toContainText('None yet')
   expect(posts).toEqual([])
 
   // Add Fake (free): a new candidate.
@@ -73,7 +71,6 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
   await expect(c.getByTestId('reeval-added')).toHaveCount(0)
 
   // The decision is in the history.
-  await c.locator('summary', { hasText: 'Decision history' }).click()
   await expect(c.getByRole('list', { name: 'Decisions' })).toContainText('too literal')
   // Nothing ran, was promoted or changed the schedule.
   expect(posts.map((p) => p.replace(/\/\d+\//, '/<id>/'))).toEqual([
@@ -147,7 +144,6 @@ test('promote needs the second press, sends the reason, and says what changes', 
   expect(calls.find((x) => x.path.endsWith('/promote'))).toEqual({ method: 'POST', path: '/candidates/1/promote', body: { confirm: true, reason: 'better on names' } })
   await expect(c.getByTestId('reeval-production')).toContainText('Ollama · gemma4:26b')
   await expect(c.getByTestId('reeval-production')).toContainText('Promoted 2026-09-30')
-  await c.locator('summary', { hasText: 'Decision history' }).click()
   await expect(c.getByRole('list', { name: 'Decisions' })).toContainText('better on names')
   await expect(c.getByRole('list', { name: 'Decisions' })).toContainText('Score 84.6% vs production 81.2%')
   expect(unmocked).toEqual([])
@@ -222,7 +218,6 @@ test('schedule: off by default, saves every field with the limit, shows the next
   // The last good report is still shown.
   await expect(c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li')).toHaveCount(2)
 
-  await c.locator('summary', { hasText: 'Schedule and golden set' }).click()
   const toggle = c.getByRole('switch', { name: 'Re-evaluate on a schedule' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
   await expect(c.getByTestId('reeval-next-due')).toHaveText('Schedule off: runs only when you press Run now.')
@@ -239,7 +234,7 @@ test('schedule: off by default, saves every field with the limit, shows the next
   expect(calls.find((x) => x.path === '/settings')?.body).toEqual({
     schedule_enabled: true, interval_days: 14, tier: null, set_name: null, max_cost_usd: 0.5,
   })
-  await expect(c.getByTestId('reeval-next-due')).toHaveText('Next run: 2026-10-14 12:00 (UTC).')
+  await expect(c.getByTestId('reeval-next-due')).toHaveText('Next run: 2099-10-14 12:00 (UTC).')
   await expect(c.locator('.bench-section-meta')).toContainText('schedule on')
   await expect(c.getByRole('switch', { name: 'Re-evaluate on a schedule' })).toHaveAttribute('aria-checked', 'true')
   await expect(save).toBeDisabled()
@@ -269,7 +264,6 @@ test('off the PC: reads only, no add / reject / promote / save, Run now says why
   await expect(c.getByTestId('reeval-run-reason')).toHaveText('Starting a run is PC only.')
   // Open in Arena is a read and stays.
   await expect(c.getByRole('button', { name: /in Arena$/ }).first()).toBeVisible()
-  await c.locator('summary', { hasText: 'Schedule and golden set' }).click()
   await expect(c.getByRole('switch', { name: 'Re-evaluate on a schedule' })).toBeDisabled()
   await expect(c.getByRole('button', { name: 'Save schedule' })).toHaveCount(0)
   await expect(c).toContainText('Run this on the main PC.')

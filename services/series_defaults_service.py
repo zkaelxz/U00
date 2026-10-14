@@ -254,6 +254,14 @@ def _plan_title(drama, defaults, mode, skip=()) -> tuple:
     return new, old, unsuited
 
 
+def plan_for(drama, defaults) -> tuple:
+    """({column: value}, [keys skipped for the title's language]) for a
+    profile applied over whatever the title holds. `defaults` is already
+    validated by the caller."""
+    new, _old, unsuited = _plan_title(drama, defaults, "overwrite")
+    return new, unsuited
+
+
 def _inherit(drama_id, series_id, mode, skip=()) -> None:
     defaults = _stored(_series_row(series_id))
     drama = db.get_drama(drama_id)

@@ -97,6 +97,7 @@ def env(isolated_db, monkeypatch):
                         lambda path: types.SimpleNamespace(total=10**13, used=0, free=10**13))
     # No stagger unless a test asks for one; module state must not leak between tests.
     monkeypatch.setattr(svc, "START_SPACING_SECONDS", 0.0)
+    monkeypatch.setattr(svc, "RETRY_BACKOFF_SECONDS", 0.0)
     monkeypatch.setattr(svc, "_last_start", float("-inf"))
     monkeypatch.setattr(svc, "_waiting", [])
     monkeypatch.setattr(svc, "_running", set())
@@ -108,7 +109,7 @@ def env(isolated_db, monkeypatch):
             f.write(b"RIFFwav")
     monkeypatch.setattr(background_jobs, "run_cancellable", fake_run)
 
-    def fake_child(tmp_dir, spec, timeout, cancel):
+    def fake_child(tmp_dir, spec, timeout, cancel, on_start=None):
         """ytdlp_child.run_download without the process: the real worker runs
         in-process against FakeYDL and its events are replayed. The real
         process is covered by tests/test_ytdlp_child.py."""
@@ -303,6 +304,26 @@ def test_cancel_aborts(client, env):
     st = _run(client, did)
     assert st["status"] == "cancelled"
     assert env.writes == []
+    _no_tmp(did)
+
+
+def test_the_download_child_is_noted_in_a_held_folder_for_the_next_start(client, env, monkeypatch):
+    # A server killed mid-download leaves yt-dlp writing; the next start can
+    # only stop it (storage.stop_orphaned_job_children) through this note.
+    from lib import proc_kill
+    if proc_kill.process_identity(os.getpid()) is None:
+        pytest.skip("this platform can't identify a process")
+    fake = ytdlp_child.run_download
+    seen = []
+
+    def noting(tmp_dir, spec, timeout, cancel, on_start=None):
+        on_start(os.getpid())
+        seen.append({n for n in os.listdir(tmp_dir) if n.startswith(".baihe-")})
+        yield from fake(tmp_dir, spec, timeout, cancel)
+    monkeypatch.setattr(ytdlp_child, "run_download", noting)
+    did = _drama()
+    assert _run(client, did)["status"] == "done"
+    assert seen == [{storage.HOLD_MARKER, f"{storage.CHILD_MARKER_PREFIX}{os.getpid()}"}]
     _no_tmp(did)
 
 
@@ -706,6 +727,70 @@ def test_a_recognised_failure_shows_the_sentence_before_the_generic_text(client,
     _no_tmp(did)
 
 
+def test_a_temporary_refusal_is_retried_once_and_then_succeeds(client, env, monkeypatch):
+    real = FakeYDL.extract_info
+    attempts = []
+
+    def flaky(self, url, download=True):
+        attempts.append(url)
+        if len(attempts) == 1:
+            raise RuntimeError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+        return real(self, url, download)
+    monkeypatch.setattr(FakeYDL, "extract_info", flaky)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] != "error", st
+    assert len(attempts) >= 2
+
+
+def test_a_temporary_refusal_that_keeps_failing_says_to_try_again(client, env, monkeypatch):
+    attempts = []
+
+    def always(self, url, download=True):
+        attempts.append(url)
+        raise RuntimeError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+    monkeypatch.setattr(FakeYDL, "extract_info", always)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and "try again" in st["error"].lower()
+    assert len(attempts) == 2
+    _no_tmp(did)
+
+
+def test_a_permanent_failure_is_not_retried(client, env, monkeypatch):
+    attempts = []
+
+    def private(self, url, download=True):
+        attempts.append(url)
+        raise RuntimeError("ERROR: [youtube] abc: Private video. Sign in if you've been granted access")
+    monkeypatch.setattr(FakeYDL, "extract_info", private)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and len(attempts) == 1
+
+
+def test_error_snippet_scrubs_links_paths_and_tokens_and_is_capped():
+    hostile = ("ERROR: [youtube] abc: unable to open https://rr1.googlevideo.com/v?sig=SECRETSIG&key=xyz "
+               "at C:\\Users\\kae\\AppData\\Local\\Temp\\x.part with sk-ant-api03-" + "a" * 40
+               + " \x1b[31mred\x1b[0m\n" + "long " * 200)
+    snippet = svc._error_snippet(hostile)
+    assert 0 < len(snippet) <= svc.ERROR_SNIPPET_MAX
+    for leaked in ("googlevideo", "SECRETSIG", "kae", "sk-ant", "\x1b", "\n", "ERROR:"):
+        assert leaked not in snippet
+    assert svc._error_snippet(None) == "" and svc._error_snippet("  ") == ""
+
+
+def test_a_failed_download_shows_the_scrubbed_yt_dlp_error_in_details_only(client, env, monkeypatch):
+    def boom(self, url, download=True):
+        raise RuntimeError("ERROR: [youtube] abc: HTTP Error 403: Forbidden for https://x.test/v?sig=SECRETSIG")
+    monkeypatch.setattr(FakeYDL, "extract_info", boom)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and "403" not in st["error"] and "SECRETSIG" not in st["error"]
+    detail = st["result"]["error_detail"]
+    assert "403" in detail and "SECRETSIG" not in detail and "x.test" not in detail
+
+
 def _kept(did):
     kept = os.path.join(db.drama_dir(did), "kept_media")
     out = {}
@@ -860,7 +945,7 @@ def test_a_failed_download_does_not_block_the_line(client, env, monkeypatch):
     def flaky(self, url, download=True):
         seen.append(url)
         if len(seen) == 1:
-            raise RuntimeError("ERROR: HTTP Error 429: Too Many Requests")
+            raise RuntimeError("ERROR: [youtube] abc: Private video. Sign in if you have been granted access")
         return real(self, url, download)
     monkeypatch.setattr(FakeYDL, "extract_info", flaky)
     a, b = _drama(), _drama()
@@ -1009,7 +1094,7 @@ def test_exact_cuts_is_opt_in_and_allows_the_longer_wall_clock(client, env, monk
     seen = []
     real = ytdlp_child.run_download
     monkeypatch.setattr(ytdlp_child, "run_download",
-                        lambda tmp, spec, timeout, cancel: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
+                        lambda tmp, spec, timeout, cancel, on_start=None: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
     did = _drama()
     st = _run(client, did, audio_only=False, part_start="0:10", part_end="0:40", exact_cuts=True)
     assert st["status"] == "done", st
@@ -1159,7 +1244,7 @@ def test_the_long_wall_clock_is_not_given_to_every_request(client, env, monkeypa
     seen = []
     real = ytdlp_child.run_download
     monkeypatch.setattr(ytdlp_child, "run_download",
-                        lambda tmp, spec, timeout, cancel: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
+                        lambda tmp, spec, timeout, cancel, on_start=None: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
     did = _drama()
     FakeYDL.script = {"duration": 3600}
     assert _run(client, did, audio_only=False, **body)["status"] == "done"

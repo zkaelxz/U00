@@ -24,15 +24,14 @@ import emotion
 import adaptive_style
 import translation_guide
 import translation_memory
+from services import ownership_service
 from services.service_errors import NotFoundError
 
 MAX_TM_LINES_SCANNED = 2000  # cap on lines fed to the TM scan (roughly lines x entries)
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -180,9 +179,10 @@ def get_emotion_summary(drama_id: int) -> dict:
             "lines": tags}
 
 
-def get_edit_tendencies(drama_id: int) -> dict:
+def get_edit_tendencies(drama_id: int, principal=None) -> dict:
     """This drama's recorded-edit statistics plus the STORED learned style
-    profile (None when nothing has been learned). Never runs the LLM
+    profile (None when nothing has been learned, or when the principal may
+    not see it: ownership_service.sees_learned_style). Never runs the LLM
     analysis."""
     drama = _require_drama(drama_id)
     tend = adaptive_style.summarize_edit_tendencies(db.list_edit_samples(drama_id))
@@ -190,7 +190,7 @@ def get_edit_tendencies(drama_id: int) -> dict:
     stored = db.get_style_profile(scope)
     profile = None
     prefs = ((stored or {}).get("profile") or {}).get("preferences")
-    if prefs:
+    if prefs and ownership_service.sees_learned_style(principal, stored["profile"]):
         pr = stored["profile"]
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),
                    "preferences": list(prefs), "sample_count": stored.get("sample_count") or 0,
@@ -218,7 +218,7 @@ def list_tm_suggestions(drama_id: int, line_ids: Optional[list] = None) -> list:
     if not series_id:
         return []
     entries = db.list_translation_memory(series_id)
-    lines = core_module.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     if line_ids is not None:
         wanted = set(line_ids)
         lines = [ln for ln in lines if ln.id in wanted]

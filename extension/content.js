@@ -694,6 +694,47 @@
     return capHeading((document.title || "").trim());
   }
 
+  // What the app names an automatic title from. The app decides which candidate is the
+  // original name (CJK script) and which the English one, and strips chapter numbers and
+  // the site's name, so this only collects them, in the order a site is most likely to be right.
+  const MAX_TITLE_CANDIDATE_CHARS = 300;
+
+  function pageFacts() {
+    const shared = document.querySelector('meta[property="og:title"]');
+    const heading = document.querySelector("h1");
+    const titles = [];
+    for (const raw of [shared && shared.content, heading && heading.textContent, document.title]) {
+      const text = Array.from(String(raw || "").replace(/\s+/g, " ").trim())
+        .slice(0, MAX_TITLE_CANDIDATE_CHARS).join("");
+      if (text && !titles.includes(text)) titles.push(text);
+    }
+    return { url: location.href, language: document.documentElement.lang || "", titles,
+             chapterLinks: chapterLinks() };
+  }
+
+  // Chapter links on the page (a series page's list, or a chapter page's previous/next),
+  // for the app's chapter list on sites it has no adapter for. Same site only; the app
+  // keeps just the address without its query.
+  const MAX_CHAPTER_LINKS = 500;
+  const CHAPTER_LINK_TEXT = /第\s*[\d０-９一二三四五六七八九十百零]+\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol)\.?\s*[\d.]+|[\d.]+\s*[화話话章]|^\s*#?\d+\s*$/i;
+  function chapterLinks() {
+    const out = [];
+    const seen = new Set();
+    for (const a of document.querySelectorAll("a[href]")) {
+      if (out.length >= MAX_CHAPTER_LINKS) break;
+      const text = (a.textContent || "").replace(/\s+/g, " ").trim().slice(0, 120);
+      if (!text || !CHAPTER_LINK_TEXT.test(text)) continue;
+      let url;
+      try { url = new URL(a.href); } catch (e) { continue; }
+      if (url.host !== location.host || !/^https?:$/.test(url.protocol)) continue;
+      const key = url.origin + url.pathname;
+      if (seen.has(key) || key === location.origin + location.pathname) continue;
+      seen.add(key);
+      out.push({ title: text, url: key });
+    }
+    return out;
+  }
+
   async function saveNovelText({ dramaId }) {
     const selected = selectedText();
     const text = selected || mainContentBlock();
@@ -1501,6 +1542,9 @@
           case "saveNovelText":
             respond(await saveNovelText(message));
             break;
+          case "pageFacts":
+            respond({ ok: true, data: pageFacts() });
+            break;
           case "cancelCapture":
             respond({ ok: true, data: { cancelled: cancelCapture() } });
             break;
@@ -1539,7 +1583,7 @@
   // Exposed for the popup's injected checks and for tests.
   window.__baihe = { canvasSignature, translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
-                     isTextPage, chapterHeading, saveNovelText,
+                     isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, unreadableLog };
 })();

@@ -221,6 +221,24 @@ def test_h1_titles_stripped_and_blank_titles_allowed(isolated_db):
     assert ds.update_drama_metadata(d["id"], title_en=" B ")["title_en"] == "B"
 
 
+@pytest.mark.parametrize("cleared", [{"title_en": "   "}, {"title_en": "", "title_zh": "\t"}])
+def test_metadata_update_cannot_leave_a_titled_drama_without_a_title(isolated_db, cleared):
+    d = ds.create_drama(source_language="zh", title_en="T")
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(d["id"], **cleared)
+    assert db.get_drama(d["id"])["title_en"] == "T"
+
+
+def test_metadata_update_may_clear_one_title_while_the_other_stays(isolated_db):
+    d = ds.create_drama(source_language="zh", title_en="T", title_zh="\u4f60")
+    assert ds.update_drama_metadata(d["id"], title_en=" ")["title_en"] == ""
+
+
+def test_metadata_update_without_a_title_still_works_on_an_untitled_drama(isolated_db):
+    d = ds.create_drama(source_language="zh")
+    assert ds.update_drama_metadata(d["id"], author="A")["author"] == "A"
+
+
 def test_h1_unknown_field_message_never_echoes_key(isolated_db):
     did = ds.create_drama(source_language="zh")["id"]
     with pytest.raises(InvalidInputError) as e:

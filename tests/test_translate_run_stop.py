@@ -139,4 +139,5 @@ class TestRateLimitBudget:
             assert sh.call_with_backoff(fn) == "ok"
         finally:
             sh._cancellable_sleep = orig
-        assert slept == [2.0, 4.0]
+        # The exponential 2 s, 4 s, each up to a quarter longer (jitter).
+        assert 2.0 <= slept[0] <= 2.5 and 4.0 <= slept[1] <= 5.0 and len(slept) == 2

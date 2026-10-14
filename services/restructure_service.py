@@ -22,11 +22,12 @@ Correctness rules:
 Atomicity: a per-drama lock is held across load -> check -> snapshot -> save
 for every write in this module and in the re-segmentation and re-split
 modules. Line edits (the line PATCH and notes routes) and other processes
-(the CLI) don't take that lock, so the save itself re-checks, inside its
+don't take that lock, so the save itself re-checks, inside its
 transaction, that the drama's lines are still exactly the ones the write
 was computed from (`save_lines(expect_unchanged=...)`) and refuses with
 nothing written if not. A write that removes lines and must not lose a
-note added meanwhile also passes the note ids it saw (`known_note_ids`).
+note or emotion tag added meanwhile also passes the ids it saw
+(`known_note_ids`, `known_emotion_ids`).
 The snapshot is its own transaction, so a refused or failed save leaves
 only an extra snapshot. An undo's emotion-tag check still runs outside the
 save's transaction.
@@ -47,7 +48,7 @@ import line_alignment
 from segment_splitting import encode_line_words, line_word_index, line_words, span_words
 import db
 import resegment
-from services import drama_service, translate_service
+from services import drama_service, ownership_service, translate_service
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -70,9 +71,7 @@ def _drama_lock(drama_id: int) -> threading.Lock:
 # ---------------------------------------------------------------------------
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -122,17 +121,20 @@ def lines_fingerprint(lines) -> str:
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _commit(drama_id: int, current, new, label: str, known_note_ids=None) -> int:
+def _commit(drama_id: int, current, new, label: str, known_note_ids=None,
+            known_emotion_ids=None) -> int:
     """Snapshot `current` (fresh from the DB), then full-sync `new`, refused
     (ConflictError, nothing saved) if the lines no longer match `current`
-    or, with `known_note_ids`, a line being removed gained a note.
+    or, with `known_note_ids` / `known_emotion_ids`, a line being removed gained a
+    note or an emotion tag.
     Caller holds the drama lock and has already checked expected ids.
     Returns the snapshot's `history_id`, so the caller can offer an undo."""
     history_id = db.save_line_history_snapshot(drama_id, current, label)
     for i, ln in enumerate(new):
         ln.idx = i
     translate_service.save_synced(drama_id, new, expect_unchanged=current,
-                                  known_note_ids=known_note_ids)
+                                  known_note_ids=known_note_ids,
+                                  known_emotion_ids=known_emotion_ids)
     return history_id
 
 
@@ -163,20 +165,22 @@ def structural_write(drama_id: int, expected_line_ids, label: str, build,
     """load fresh -> check ids -> build(current) -> snapshot -> save, under
     the drama lock. build returns (new_lines, result_line_objects).
     with_words loads the lines' stored word timings for a build that cuts or joins text.
-    keep_new_notes refuses the save if a line it removes gained a note
-    after the lines were loaded."""
+    keep_new_notes refuses the save if a line it removes gained a note or
+    emotion tag after the lines were loaded."""
     _require_drama(drama_id)
     expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
     _refuse_if_job_running(drama_id)
     with _drama_lock(drama_id):
         # Read before the lines, so a note added after either read is unknown.
         known = note_ids(drama_id) if keep_new_notes else None
+        known_emotions = db.line_emotion_ids(drama_id) if keep_new_notes else None
         current = db.load_line_objects(drama_id, with_words=with_words)
         _check_expected(current, expected_line_ids)
         # build works on copies so the snapshot sees the untouched lines
         work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
         new_lines, touched = build(work)
-        history_id = _commit(drama_id, current, new_lines, label, known_note_ids=known)
+        history_id = _commit(drama_id, current, new_lines, label, known_note_ids=known,
+                             known_emotion_ids=known_emotions)
         handle = undo_handle(drama_id, history_id)
     return {"line_ids": [ln.id for ln in new_lines],
             "lines": [line_dict(ln) for ln in touched], **handle}

@@ -162,12 +162,12 @@ class TestTraversal:
 class TestDisabledOrMissing:
     def test_no_dist_is_api_only(self, tmp_path):
         c = _client(tmp_path / "nope")
-        assert c.get("/").status_code == 404
+        assert "not built" in c.get("/").text
         assert c.get("/api/health").status_code == 200
 
     def test_dist_without_index_is_api_only(self, tmp_path):
         (tmp_path / "assets").mkdir()
-        assert _client(tmp_path).get("/").status_code == 404
+        assert "not built" in _client(tmp_path).get("/").text
 
     def test_switch_off(self, dist):
         c = _client(dist, serve_frontend=False)

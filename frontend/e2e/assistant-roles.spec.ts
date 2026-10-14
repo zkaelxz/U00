@@ -33,7 +33,6 @@ test('turning on the review and picking a different engine saves both', async ({
   await page.goto('/#/assistant')
   await openTab(page, 'GitHub and tools')
   const roles = page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Independent review' }) })
-  await roles.locator('summary').first().click()
   await roles.getByRole('switch', { name: 'Review each proposed fix' }).click()
   await expect(roles.getByText('Pick a review engine.')).toBeVisible()
   await roles.getByLabel('Review engine', { exact: true }).selectOption('claude')

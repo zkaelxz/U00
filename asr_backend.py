@@ -42,7 +42,7 @@ from typing import NamedTuple, Optional
 
 import memory_headroom
 import word_align
-from whisper_hallucination import STOCK_PHRASE_ISOLATION_SEC
+from whisper_hallucination import STOCK_PHRASE_ISOLATION_SEC, collapse_phrase_loop
 from audio_extract import extract_audio_slice
 from whisper_transcribe import transcribe_for_timing
 from whisper_models import ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname
@@ -338,8 +338,13 @@ class Qwen3ASRBackend:
                     seg = whisper_segments[i]
                     # An empty result for a span Whisper did hear would delete the line.
                     if not (text or "").strip() and (seg.get("text") or "").strip():
+                        out[i] = {**seg, "flag": "source_suspect",
+                                  "flag_note": "Qwen3-ASR returned no text here; Whisper's text was kept"}
                         continue
-                    out[i] = {"start": seg["start"], "end": seg["end"], "text": text}
+                    # Qwen loops on a phrase like Whisper does; its text gets
+                    # the same in-segment collapse Whisper's text had.
+                    out[i] = {"start": seg["start"], "end": seg["end"],
+                              "text": collapse_phrase_loop(text)}
                 if progress_cb:
                     progress_cb(min(pos + len(batch), len(todo)) / len(todo))
         return out

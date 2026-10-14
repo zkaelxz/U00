@@ -187,6 +187,13 @@ def test_title_from_url(url, label):
     ("https://cdn.example/v/d41d8cd98f00b204e9800998ecf8427e/ep1.mp4", "https://cdn.example/"),
     ("https://cdn.example/v/" + "7" * 32 + "/ep1.mp4", "https://cdn.example/"),
     ("https://cdn.example/s/abcDEF_ghiJKL-mnoPQR_stuVWX/ep1.mp4", "https://cdn.example/"),
+    # A long run right after a credential-named segment is a token whatever
+    # its letters (a signed CDN path), and the query is dropped.
+    ("https://cdn.example/token/abcdefghijklmnopqrstuv/001.png?sig=1", "https://cdn.example/"),
+    ("https://cdn.example/priv/abcdefghijklmnop/page1.jpg", "https://cdn.example/"),
+    ("https://blog.example/key/key-takeaways-from-volume-one",
+     "https://blog.example/key/key-takeaways-from-volume-one"),
+    ("https://cdn.example/token/short/001.png", "https://cdn.example/token/short/001.png"),
 ])
 def test_display_url_keeps_slugs_and_drops_token_paths(url, shown):
     from translate_engines import display_url

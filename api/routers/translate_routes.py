@@ -13,9 +13,9 @@ requires an explicit confirm=true rather than a bare DELETE).
 from fastapi import APIRouter, Query, Request
 from api.auth import local_only, require_permission
 from api.llm_slots import llm_slot
-from api.schemas import (ClearHistoryResult, ErrorResponse, TranslateEngineListResponse,
+from api.schemas import (ClearHistoryResult, TranslateEngineListResponse,
                          TranslateEstimate, TranslateHistoryResponse, TranslateRequest,
-                         TranslateResponse)
+                         TranslateResponse, error_responses)
 from services import settings_service, translate_service
 
 router = APIRouter(prefix="/api/translate", tags=["translate"])
@@ -38,8 +38,7 @@ def get_history(request: Request, limit: int = Query(50, ge=1, le=200)):
 @router.post("", dependencies=[require_permission("engines.paid")], response_model=TranslateResponse,
              response_model_exclude_none=True,
             summary="Translate text with a chosen engine (server-side key resolution, D2)",
-            responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                      429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+            responses=error_responses(400, 422, 429, 503))
 def post_translate(payload: TranslateRequest, request: Request):
     # Synchronous LLM call: capped by the shared slot pool (api/llm_slots.py).
     with llm_slot(request):
@@ -51,7 +50,7 @@ def post_translate(payload: TranslateRequest, request: Request):
 
 @router.post("/estimate", dependencies=[require_permission("engines.paid")], response_model=TranslateEstimate,
              summary="What translating this text would cost, and what is left of the monthly cap",
-             responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 422))
 def post_translate_estimate(payload: TranslateRequest):
     return translate_service.estimate(
         payload.text, payload.engine, payload.source_language, payload.target_language,
@@ -61,6 +60,6 @@ def post_translate_estimate(payload: TranslateRequest):
 # Deletes are PC-only (docs/remote-access-decision.md).
 @router.delete("/history", dependencies=[local_only()], response_model=ClearHistoryResult,
               summary="Clear standalone-translate history (requires confirm=true)",
-              responses={422: {"model": ErrorResponse}})
+              responses=error_responses(422))
 def delete_history(confirm: bool = Query(False)):
     return translate_service.clear_history(confirm=confirm)

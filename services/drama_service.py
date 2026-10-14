@@ -14,12 +14,14 @@ accepted on update: `status`, `content_mode`, `source_language` (owned by
 source_service), any *_filename, `translation_engine`, and
 `personal_notes` (per-profile; the API has no profile header yet).
 
-Preset handling: only the preset's `translation_engine` has a per-drama
-DB home, so only it is persisted. `style_preset`, `locale`,
-`default_female_pronouns` and `include_genre_notes` are not saved by
-create_drama, so it returns them as `preset_defaults` for the client to
-hold; the owner's later choice is saved on the drama (a run's toggles, or
-update_drama_metadata) and every run reads it from there.
+Preset handling: an older preset (no options_json) persists only its
+`translation_engine`, plus the form's starting style, model and toggles in
+dramas.translate_start_json. A profile (options_json set) also writes the
+prompt toggles, translate-by-sentence and the transcribe options, minus what
+doesn't suit the title's language (services/profile_service.py). Either way
+the same values come back as `preset_defaults` (locale only from a preset that
+stored one), and the owner's later choice is saved on the drama (a run's
+toggles, or update_drama_metadata) and every run reads it from there.
 
 No FastAPI import: plain dicts in, plain dicts out.
 """
@@ -35,12 +37,14 @@ import uuid
 
 import background_jobs
 import db
+import storage
 from jobs import job_store
 from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
                       source_link_service, vdb_names_service)
+from lib import file_manager
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
-                                     ServiceError)
+                                     ServiceError, UnsupportedOperationError)
 
 log = logging.getLogger(__name__)
 
@@ -140,7 +144,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     before anything is written, so a rejected call creates nothing.
     `principal` (None = auth off) goes through ownership_service: a series
     the caller can't see is a 404, as is a name taken by one (409). The
-    new drama is stamped with `new_item_defaults(principal)` (auth B2): its
+    new drama is stamped with `new_item_defaults(principal)`: its
     creator (None = the PC owner) and private unless they share by default."""
     if source_language not in SOURCE_LANGUAGES:
         raise InvalidInputError("source_language is required and must be one of zh, ja, ko.",
@@ -183,12 +187,15 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         # Whisper or Whisper + Qwen title comes back as minute-long lines.
         # Existing titles keep their stored value.
         fields["split_by_sentences"] = 1
-    if preset and preset.get("translation_engine"):
-        fields["translation_engine"] = preset["translation_engine"]
-    else:
-        # Settings > Defaults for new dramas (the column's own default is
-        # claude, so an unstamped drama would never see the setting).
-        fields["translation_engine"] = settings_service.get("default_engine")
+    # Settings > Defaults for new dramas (the column's own default is
+    # claude, so an unstamped drama would never see the setting); a profile's
+    # settings replace it, except what doesn't suit the title's language.
+    fields["translation_engine"] = settings_service.get("default_engine")
+    profile_plan = None
+    if preset:
+        from services import profile_service   # a top-level import would make a cycle (see library_service.list_presets)
+        profile_plan = profile_service.plan(preset, {"source_language": source_language})
+        fields.update(profile_plan["columns"])
     try:
         new_id = db.create_drama(**fields)
     except db.DramaFolderConflict as exc:
@@ -207,8 +214,9 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             db.delete_drama(new_id)
             raise
     if series_id is not None:
-        _inherit_series_defaults("inherit_new", new_id, series_id, skip=(
-            ("translation_engine",) if preset and preset.get("translation_engine") else ()))
+        # What the profile chose wins over the series' defaults.
+        _inherit_series_defaults("inherit_new", new_id, series_id, skip=tuple(
+            k for k in profile_plan["columns"] if k != "translate_start_json") if profile_plan else ())
 
     detail = library_service.get_library_drama(new_id)
     detail["preset_defaults"] = None if preset is None else {
@@ -221,6 +229,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         "engine_model": (preset.get("engine_model") or None)
         if preset.get("translation_engine") else None,
     }
+    detail["profile_skipped"] = profile_plan["skipped"] if profile_plan else []
     return detail
 
 
@@ -290,6 +299,12 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
                                                       drama.get("owner_user_id"))
         fields[key] = value
 
+    if "title_en" in fields or "title_zh" in fields:
+        current = db.get_drama(drama_id)
+        if not (fields.get("title_en", current.get("title_en") or "").strip()
+                or fields.get("title_zh", current.get("title_zh") or "").strip()):
+            raise InvalidInputError("A title needs an English or original name.")
+
     series_id = fields.pop("series_id", None)
     if new_series_name is not None:   # first: a refused move writes nothing
         series_id = ownership_service.get_or_create_series_for(principal, new_series_name)
@@ -320,6 +335,13 @@ def _inherit_series_defaults(how, drama_id, series_id, **kw) -> None:
         getattr(series_defaults_service, how)(drama_id, series_id, **kw)
     except Exception:
         log.warning("Could not apply series defaults to title %s", drama_id, exc_info=True)
+
+
+def inherit_series_defaults_on_join(drama_id, series_id) -> None:
+    """For paths that put a title in a series without update_drama_metadata
+    (a site-named series from link details or the extension): the same
+    fill-only-blanks inheritance a move gets."""
+    _inherit_series_defaults("inherit_moved", drama_id, series_id)
 
 
 def set_source_url_once(drama_id, url) -> bool:
@@ -356,8 +378,7 @@ LEFTOVER_FILES_MESSAGE = ("The title was deleted from the library, but some of i
 
 def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     """In-process jobs, plus fresh running/queued job_records rows written
-    by another process (e.g. the CLI; the in-memory tracker only sees its
-    own). exclude_job_id:
+    by another process (the in-memory tracker only sees its own). exclude_job_id:
     a running job asking whether any other job is on its drama."""
     if (background_jobs.any_job_running_for_drama(drama_id, exclude_job_id=exclude_job_id)
             if exclude_job_id else background_jobs.any_job_running_for_drama(drama_id)):
@@ -365,6 +386,28 @@ def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     return job_store.fresh_active(
         job_ids={f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES},
         exclude=exclude_job_id)
+
+
+def open_drama_folder(drama_id: int, principal) -> dict:
+    """Opens the title's own folder in the PC's file manager, creating it
+    when nothing has been stored yet. The folder comes from the id alone; one
+    whose real path leaves the library's dramas folder (a link someone put
+    there) is refused rather than opened."""
+    ownership_service.require_visible(principal, "drama", drama_id)
+    root = os.path.realpath(db.DRAMAS_DIR)
+    folder = os.path.realpath(os.path.join(root, str(int(drama_id))))
+    if os.path.dirname(folder) != root:
+        raise InvalidInputError("This title's folder is not inside the library.")
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError as e:
+        raise ConflictError("The title's folder could not be made: something else has its name, "
+                            "or the library folder can't be written to.") from e
+    try:
+        file_manager.open_folder(folder)
+    except OSError:
+        raise UnsupportedOperationError("This PC has no file manager the app can open.") from None
+    return {"opened": True}
 
 
 def hard_delete_drama(drama_id) -> bool:
@@ -432,33 +475,26 @@ def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: fl
     delete whose rename-back also failed) are left alone. Returns how many were removed; never
     raises."""
     now = time.time() if now is None else now
-    removed = 0
-    try:
-        names = os.listdir(db.DRAMAS_DIR)
-    except OSError:
-        return 0
-    for name in names:
-        if not _TOMBSTONE_RE.match(name):
-            continue
-        path = os.path.join(db.DRAMAS_DIR, name)
+
+    def stale_tombstone(name, path):
+        if not _TOMBSTONE_RE.match(name) or not os.path.isdir(path):
+            return False
         try:
-            if os.path.islink(path) or not os.path.isdir(path):
-                continue
-            # A delete whose row delete failed AND whose rename-back failed
+            # A delete whose row delete failed AND whose rename-back also failed
             # leaves a live drama's files here: keep them for manual recovery.
             if db.get_drama(int(name.split(".", 1)[0])) is not None:
                 log.warning("A leftover deleted-drama folder belongs to a drama that still "
                             "exists; it was kept")
-                continue
-            if now - os.path.getmtime(path) < max_age:
-                continue
-            shutil.rmtree(path)
-            removed += 1
-        except (OSError, ValueError, OverflowError):
-            # OverflowError: an absurdly long all-digit name can't be looked
-            # up; skip that folder and keep sweeping.
-            log.warning("Could not check or remove a leftover deleted-drama folder")
-    return removed
+                return False
+        except (ValueError, OverflowError):
+            # An absurdly long all-digit name can't be looked up; skip it and keep sweeping.
+            log.warning("Could not check a leftover deleted-drama folder")
+            return False
+        return True
+
+    # realpath: a dramas folder moved to another drive behind a link is still swept.
+    return storage._sweep_folder(os.path.realpath(db.DRAMAS_DIR), stale_tombstone, max_age, now,
+                                 set(), False)["removed"]
 
 
 def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
@@ -473,10 +509,17 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
         raise InvalidInputError("Deleting a title needs confirm=true and confirm_text set to "
                                 "the word DELETE, in capitals.")
-    if job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this title -- wait for it "
-                            "to finish or cancel it before deleting.")
-    leftover = hard_delete_drama(drama_id)
+    from jobs import job_launch
+    from services import library_admin_service
+    busy = ("A background job is still running for this title -- wait for it to finish or "
+            "cancel it before deleting.")
+    with job_launch.hold_title(drama_id, busy):
+        if job_running_for_drama(drama_id):
+            raise ConflictError(busy)
+        # A backup reading the library would list the title's files and then
+        # miss them; the restore and bulk delete are held off the same way.
+        with library_admin_service.maintenance("deleting a title"):
+            leftover = hard_delete_drama(drama_id)
     result = {"deleted": True, "drama_id": drama_id}
     if leftover:
         result["warning"] = LEFTOVER_FILES_MESSAGE

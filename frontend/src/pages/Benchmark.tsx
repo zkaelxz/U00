@@ -7,7 +7,7 @@
  * Model re-evaluation card runs production against candidate
  * models through the same benchmark_lab job.
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   getBenchmarkOptions, getBenchmarkSets, listBenchmarkRuns,
@@ -76,8 +76,18 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
   const loadSets = useCallback(() => {
     getBenchmarkSets().then((r) => setSets(r.sets), setError)
   }, [])
+  // A slow response for an older stage filter or an earlier poll must not replace a newer list.
+  const runsSeq = useRef(0)
   const loadRuns = useCallback(() => {
-    listBenchmarkRuns({ stage: runStage || null, limit: RUNS_LIMIT }).then((r) => setRuns(r.runs), setError)
+    const seq = ++runsSeq.current
+    listBenchmarkRuns({ stage: runStage || null, limit: RUNS_LIMIT }).then(
+      (r) => {
+        if (seq === runsSeq.current) setRuns(r.runs)
+      },
+      (e: unknown) => {
+        if (seq === runsSeq.current) setError(e)
+      },
+    )
   }, [runStage])
 
   useEffect(() => {
@@ -98,6 +108,11 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
   const onStarted = (res: BenchmarkRunStarted) => {
     setStarted(res)
     setJobId(res.job_id)
+    loadRuns()
+  }
+  // Dropping the dead id lets the active-run effect above pick the job up again if it is still going.
+  const reconnect = () => {
+    setJobId(null)
     loadRuns()
   }
   const stop = () => {
@@ -150,6 +165,15 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
         ))}
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+
+      {jobError && jobId && !done && (
+        <p className="status-line" role="alert" data-testid="bench-lost-job">
+          <span>Lost contact with the running benchmark. It may still be going on the PC.</span>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={reconnect}>
+            Reconnect
+          </button>
+        </p>
+      )}
 
       {finishedText && (
         <p className="status-line" role="status" data-testid="bench-finished">
@@ -216,6 +240,12 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           phone={phone}
           onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
           onOpen={(id) => setTarget({ kind: 'run', runId: id })}
+          canDelete={pc !== 'remote'}
+          onDeleted={(id) => {
+            // A results view of a deleted run would only show an error.
+            setTarget((t) => (t && (t.kind === 'run' ? t.runId === id : t.runIds.includes(id)) ? null : t))
+            loadRuns()
+          }}
         />
       )}
 

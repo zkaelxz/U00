@@ -27,21 +27,20 @@ from fastapi import APIRouter, File, Form, Path, UploadFile
 from fastapi.responses import FileResponse
 
 from api.auth import local_only, require_permission
-from api.schemas import (CharactersEntry, CharactersVoiceBankEntry, ErrorResponse,
-                         VoiceCloneBankSaveRequest, VoiceCloneCandidates, VoiceCloneExtractRequest,
-                         VoiceCloneJobStarted, VoiceCloneRemoveRequest, VoiceCloneSeriesLinkRequest)
+from api.schemas import (CharactersEntry, CharactersVoiceBankEntry, VoiceCloneBankSaveRequest, VoiceCloneCandidates, VoiceCloneExtractRequest,
+                         VoiceCloneJobStarted, VoiceCloneRemoveRequest, VoiceCloneSeriesLinkRequest, error_responses)
 from services import voice_clone_service
 
 router = APIRouter(prefix="/api/characters", tags=["voice-clone"])
 
-_ERR = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERR = error_responses(404, 422)
 _CANDIDATE_ID = Path(min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
 
 
 @router.post("/dramas/{drama_id}/reference-clip", dependencies=[local_only()],
              response_model=CharactersEntry,
              summary="Upload (or replace) one speaker's clone reference clip",
-             responses={**_ERR, 409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 422, 409, 503))
 def post_reference_clip(drama_id: int = Path(ge=1), file: UploadFile = File(...),
                         speaker_label: str = Form(..., min_length=1, max_length=200),
                         ref_text: Optional[str] = Form(None, max_length=5000)):
@@ -52,7 +51,7 @@ def post_reference_clip(drama_id: int = Path(ge=1), file: UploadFile = File(...)
 @router.post("/dramas/{drama_id}/reference-clip/remove", dependencies=[local_only()],
              response_model=CharactersEntry,
              summary="Remove one speaker's clone reference clip (confirm=true)",
-             responses={**_ERR, 409: {"model": ErrorResponse}})
+             responses=error_responses(404, 422, 409))
 def post_remove_reference_clip(body: VoiceCloneRemoveRequest, drama_id: int = Path(ge=1)):
     return voice_clone_service.remove_reference_clip(drama_id, body.speaker_label,
                                                      confirm=body.confirm)
@@ -62,7 +61,7 @@ def post_remove_reference_clip(body: VoiceCloneRemoveRequest, drama_id: int = Pa
              dependencies=[require_permission("jobs.start")], response_model=VoiceCloneJobStarted,
              summary="Start extracting candidate reference clips for one speaker "
                      "(poll GET /api/jobs/{job_id})",
-             responses={**_ERR, 409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 422, 409, 503))
 def post_extract_candidates(body: VoiceCloneExtractRequest, drama_id: int = Path(ge=1)):
     return voice_clone_service.start_extract_candidates(
         drama_id, body.speaker_label, max_candidates=body.max_candidates)
@@ -71,7 +70,7 @@ def post_extract_candidates(body: VoiceCloneExtractRequest, drama_id: int = Path
 @router.get("/dramas/{drama_id}/reference-clips/candidates",
             dependencies=[require_permission("lines.read")], response_model=VoiceCloneCandidates,
             summary="Candidate reference clips from each speaker's last extraction",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_candidates(drama_id: int = Path(ge=1)):
     return voice_clone_service.list_candidates(drama_id)
 
@@ -79,7 +78,7 @@ def get_candidates(drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/reference-clips/candidates/{candidate_id}/audio",
             dependencies=[require_permission("media.stream")],
             summary="Play one candidate clip (WAV)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_candidate_audio(drama_id: int = Path(ge=1), candidate_id: str = _CANDIDATE_ID):
     path = voice_clone_service.candidate_audio_path(drama_id, candidate_id)
     return FileResponse(path, media_type="audio/wav", filename=f"candidate_{drama_id}.wav",

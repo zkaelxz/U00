@@ -22,13 +22,12 @@ from api.assistant_schemas import (AssistantConfirm, AssistantGithubConnection,
                                    AssistantGithubTokenResult, AssistantGithubTokenSet)
 from api.auth import local_only
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import assistant_github_service as svc
 
 router = APIRouter(prefix="/api/assistant/github", tags=["assistant"])
 
-_ERRS = {409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+_ERRS = error_responses(409, 422, 503)
 
 
 @router.get("", dependencies=[local_only()], response_model=AssistantGithubStatus,
@@ -46,7 +45,7 @@ def post_settings(body: AssistantGithubSettingsUpdate):
 
 @router.post("/token", dependencies=[local_only()], response_model=AssistantGithubTokenResult,
              summary="PC only: store the GitHub token in .env (write-only; key-write gate)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 async def post_token(request: Request):
     require_local_admin(request)
     body = await read_body(request, AssistantGithubTokenSet)
@@ -57,7 +56,7 @@ async def post_token(request: Request):
 @router.post("/token/clear", dependencies=[local_only()],
              response_model=AssistantGithubTokenResult,
              summary="PC only: remove the GitHub token from .env (key-write gate)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 async def post_token_clear(request: Request):
     require_local_admin(request)
     body = await read_body(request, AssistantConfirm)

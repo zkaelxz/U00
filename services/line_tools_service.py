@@ -19,8 +19,9 @@ grammar) live in services/line_ai_service.py.
 import db
 import review_thresholds
 import translate_engines
+from engine_backends import paid_calls
 from core import Line
-from services import drama_service, line_ai_service, lines_service
+from services import drama_service, line_ai_service, lines_service, ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_SHORTEN_LINES = 60
@@ -91,9 +92,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
         if (not isinstance(line_ids, (list, tuple)) or len(line_ids) > MAX_SHORTEN_IDS
                 or any(not isinstance(i, int) or isinstance(i, bool) for i in line_ids)):
             raise InvalidInputError(f"line_ids must be a list of at most {MAX_SHORTEN_IDS} ids.")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     if confirm is not True:
         raise InvalidInputError("Shortening overwrites the English of the overlong lines; "
                                 "send confirm=true.")
@@ -112,12 +111,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     targets = targets[:MAX_SHORTEN_LINES]
     engine, name = line_ai_service.engine_for(drama, engine_name, model, gemini_free_tier,
                                                check_cap=True)
-    model_name = getattr(engine, "model", model) or name
-
-    def usage(inp, out):
-        db.log_usage(drama_id, name, model_name, "pacing_shorten", inp, out,
-                     translate_engines.estimate_cost_for_engine(engine, inp, out))
-
+    usage = paid_calls.usage_logger(drama_id, name, engine, "pacing_shorten")
     before = {ln.id: ln.en for ln in targets}
     work = [Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, en=ln.en, id=ln.id)
             for ln in targets]

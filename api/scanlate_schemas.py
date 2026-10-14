@@ -108,6 +108,8 @@ class ScanlateRunRequest(BaseModel):
     chapter_id: Optional[str] = Field(None, min_length=1, max_length=200)
     engine: Optional[str] = Field(None, min_length=1, max_length=40)
     detect_backend: Literal["auto", "cv", "ml"] = "auto"
+    # Also translate the large text drawn on the art (paints it out first).
+    art_captions: bool = False
 
 
 class ScanlateRenderRequest(BaseModel):
@@ -119,6 +121,8 @@ class ScanlateExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     formats: List[Literal["zip", "pdf"]] = Field(default_factory=lambda: ["zip", "pdf"],
                                                  min_length=1, max_length=2)
+    # False writes every page as the original image, whatever has been typeset.
+    typeset: bool = True
 
 
 class ScanlateJobStarted(BaseModel):

@@ -20,6 +20,7 @@ interface Props {
   // Stretches with no line (from the waveform's gap check); the chip jumps to the next one.
   gapCount: number
   onNextGap: () => void
+  onPrevGap: () => void
   // Lines flagged "Source text looks off"; the chip opens their list.
   suspectCount: number
   suspectOpen: boolean
@@ -146,8 +147,9 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   const count =
     p.resultCount !== null ? (
       <span className="muted review-count" role="status" data-testid="search-count">
-        {p.resultCount} match{p.resultCount === 1 ? '' : 'es'}
-        {p.resultCount >= 200 ? ' (max 200)' : ''}
+        {p.resultCount >= 200
+          ? 'First 200 matches shown; more may exist. Type more of the line to narrow it.'
+          : `${p.resultCount} match${p.resultCount === 1 ? '' : 'es'}`}
       </span>
     ) : null
 
@@ -158,9 +160,13 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
       <div className="review-toolbar-row">
         {chips}
         {p.gapCount > 0 && (
-          <button type="button" className="review-chip review-gaps-chip" title="Jump to the next stretch with no line" onClick={p.onNextGap}>
-            {gapChipLabel(p.gapCount)}
-          </button>
+          <span className="review-gap-step" role="group" aria-label="Gaps: stretches with no line">
+            <button type="button" className="review-gap-arrow" aria-label="Previous gap" title="Previous stretch with no line" onClick={p.onPrevGap}>‹</button>
+            <button type="button" className="review-chip review-gaps-chip" title="Jump to the next stretch with no line" onClick={p.onNextGap}>
+              {gapChipLabel(p.gapCount)}
+            </button>
+            <button type="button" className="review-gap-arrow" aria-label="Next gap" title="Next stretch with no line" onClick={p.onNextGap}>›</button>
+          </span>
         )}
         {p.suspectCount > 0 && (
           <button type="button" className="review-chip review-suspect-chip" aria-expanded={p.suspectOpen}

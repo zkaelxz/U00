@@ -18,17 +18,16 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from api.auth import local_only, require_permission
-from api.schemas import (DeleteConfirm, ErrorResponse, NovelFileStatus, NovelFileTextRequest,
+from api.schemas import (DeleteConfirm, NovelFileStatus, NovelFileTextRequest,
                          NovelChapterList, NovelChapterText, NovelFileUploadResult,
-                         NovelReferenceRemoveResult)
+                         NovelReferenceRemoveResult, error_responses)
 from services import novel_chapters_service as chapters_svc
 from services import novel_files_service as svc
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/novel", tags=["novel"])
-_ERR = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-        422: {"model": ErrorResponse}}
-_NOT_FOUND = {404: {"model": ErrorResponse}}
+_ERR = error_responses(404, 409, 422)
+_NOT_FOUND = error_responses(404)
 _TOO_LARGE = "The pasted text is too large."
 # The body is read by hand (see the module docstring); this keeps it in the docs.
 _TEXT_BODY = {"requestBody": {"required": True, "content": {"application/json": {

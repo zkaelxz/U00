@@ -159,7 +159,7 @@
   color: var(--accent-text);
 }
 .comic-phone .comic-tools-btn { min-height: 44px; }
-.comic-scanlate { max-width: 48rem; margin: var(--space-3) auto; display: grid; gap: var(--space-3); min-width: 0; }
+.comic-scanlate { scroll-margin-top: 12rem; /* clears the sticky .comic-top bar */ max-width: 48rem; margin: var(--space-3) auto; display: grid; gap: var(--space-3); min-width: 0; }
 .comic-empty > p { margin: 0; }
 .scanlate-panel input[type='file'] { max-width: 100%; min-width: 0; }
 .scanlate-panel select { max-width: 100%; }
@@ -179,6 +179,8 @@
   flex-wrap: wrap;
   min-width: 0;
 }
+/* Phone: full width only when there is a chapter picker; a lone "…" shares the row with Aa instead of costing the sticky bar a third line. Not on desktop, where "…" joining the first row would shift the bar when the pages finish loading. */
+.comic-phone .comic-head > .comic-chapters:not(:has(select)) { flex: 0 1 auto; }
 .comic-chapters button,
 .comic-chapters select { min-height: 44px; min-width: 44px; }
 .comic-chapters select { flex: 1 1 10rem; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
@@ -204,4 +206,11 @@
 @media (max-width: 640px) {
   .comic-chapters { padding-block: var(--space-1); }
   .comic-chapter-pos { flex: 1 1 auto; text-align: center; }
+}
+
+.comic-source-chapters {
+  max-height: 14rem;
+  overflow-y: auto;
+  margin: 0;
+  padding-left: 1.25rem;
 }

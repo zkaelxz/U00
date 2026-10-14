@@ -10,7 +10,7 @@ write. A fresh/paid lookup stays a separate, explicit action, not a side
 effect of viewing a page.
 
 No HTTP types: takes plain values, returns an HTML
-string, so `cli.py` or a script could call it too.
+string, so a script could call it too.
 
 Also here: caption tracks, media availability,
 reading progress, notes, click-to-define lookups
@@ -61,7 +61,7 @@ import translate_engines
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
-from services import drama_service, settings_service, translate_service
+from services import drama_service, ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from services.service_errors import (
     DependencyUnavailableError,
@@ -104,9 +104,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
         raise InvalidInputError("page must be a positive whole number.")
 
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -167,14 +165,12 @@ def _require_drama(drama_id) -> dict:
     InvalidInputError, an unknown drama NotFoundError."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
         raise InvalidInputError("A title id is a positive whole number.")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
 def _lines(drama_id: int) -> list:
-    return core_module.lines_from_rows(db.load_lines(drama_id))
+    return db.load_line_objects(drama_id)
 
 
 def _require_lines(drama_id: int) -> list:
@@ -607,7 +603,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
                 vocab_export.export_vocab_apkg(vocab, deck, out_path)
         except ImportError:
             raise DependencyUnavailableError(
-                "Needs `pip install genanki` for .apkg export -- CSV works without it.") from None
+                "Anki deck export needs the genanki package, which isn't installed (see Diagnostics > Packages). The CSV works without it.") from None
         with open(out_path, "rb") as f:
             content = f.read()
     return {"filename": name, "media_type": "application/octet-stream", "content": content,

@@ -21,10 +21,24 @@ import db
 import sensitivity_preset as presets
 import source_change
 import translate_engines
-from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
-                      retranscribe_worker, settings_service, timing_settings_service, transcribe_pipeline,
-                      transcribe_service, translate_run_service, translate_service, workspace_job_service,
-                      retranscribe_line_service, transcribe_options_service, qwen3_requirements_service)
+from services import (
+    asr_options_service,
+    compare_hear_worker,
+    gpu_process_job,
+    jobs_service,
+    ownership_service,
+    qwen3_requirements_service,
+    retranscribe_line_service,
+    retranscribe_worker,
+    settings_service,
+    timing_settings_service,
+    transcribe_options_service,
+    transcribe_pipeline,
+    transcribe_service,
+    translate_run_service,
+    translate_service,
+    workspace_job_service,
+)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -55,9 +69,7 @@ def compare_job_id(drama_id: int) -> str:
 
 
 def _drama_or_404(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 
@@ -301,7 +313,8 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
         translation = {"engine": engine, "engine_choice": name, "cost_cap_usd": cap,
                        "retranslate_current": bool(retranslate_current),
                        "locale": settings_service.get("default_locale"),
-                       "style_note": settings_service.get("default_style_note") or ""}
+                       "style_note": settings_service.get("default_style_note") or "",
+                       "principal": ownership_service.acting_principal()}
     tuning = transcribe_options_service._DEFAULT_TUNING
     started = job_launch.start_job(
         job_id, run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
@@ -362,7 +375,8 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
         all_lines = db.load_line_objects(drama_id)
         glossary_terms, style_guidelines, character_names = \
             workspace_job_service.build_run_style_context(
-                drama_id, drama, all_lines, style_preset, with_emotions=False)
+                drama_id, drama, all_lines, style_preset, with_emotions=False,
+                principal=translation.get("principal"))
         context = translate_engines.build_translation_context(
             engine, drama, style_note=translation["style_note"], locale=translation["locale"],
             glossary_terms=glossary_terms, style_guidelines=style_guidelines)

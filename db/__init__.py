@@ -1,5 +1,5 @@
 """
-db.py -- local SQLite-backed library for the subtitler app.
+db -- local SQLite-backed library for the subtitler app.
 
 Everything lives in ./library/library.db plus per-drama folders under
 ./library/dramas/<id>/ for audio and novel reference files. This is
@@ -78,7 +78,7 @@ def configure_library_dir(path: str):
 # The sweep in _close_leaked_connections only ever closes connections whose
 # owning thread has died -- a dead thread can never touch them again, so
 # there's no race. background_jobs.py runs real threading.Thread workers
-# that call straight into db.py concurrently with the request threads, and
+# that call straight into db concurrently with the request threads, and
 # a live thread's still-open connection is never closed by anyone else
 # (an earlier version that did reliably broke the other thread's very next
 # statement with "Cannot operate on a closed database").
@@ -438,8 +438,8 @@ from db.library_folder import (  # noqa: E402,F401
 from db.dramas import (  # noqa: E402,F401
     create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, get_drama,
     get_library_stats, list_dramas, list_dramas_by_series, list_dramas_recently_active,
-    search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, has_custom_tag,
-    set_custom_tag)
+    search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
+    has_custom_tag, set_custom_tag)
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +490,7 @@ from db.comic_pages import (  # noqa: F401
     list_pages,
     get_page,
     next_page_idx,
+    move_pages,
     BUBBLE_EDIT_FIELDS,
     update_bubble_fields,
     insert_bubble,
@@ -532,7 +533,8 @@ from db.glossary import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 from db.line_annotations import (  # noqa: E402,F401
-    delete_translation_note, list_translation_notes, load_consistency_issues, load_emotions,
+    delete_translation_note, line_emotion_ids, list_translation_notes, load_consistency_issues,
+    load_emotions,
     save_consistency_issues, save_emotions, save_translation_notes)
 
 
@@ -575,13 +577,13 @@ from db.style import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 # Workspace-configuration presets -- library-level, reusable
 # across unrelated series/projects. See the `presets` table's own comment
-# in init_db for why deleting/renaming one never touches a drama it was
+# in db/schema.py for why deleting/renaming one never touches a drama it was
 # previously applied to: nothing else references presets.id at all.
 # ---------------------------------------------------------------------------
 
 from db.presets import (  # noqa: E402,F401
     delete_preset, insert_preset, list_presets, rename_preset, save_preset,
-    set_preset_engine_model)
+    set_default_preset, set_preset_engine_model, update_preset)
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +622,7 @@ from db.usage import (  # noqa: F401
 from db.app_settings import (  # noqa: F401
     get_app_setting,
     set_app_setting,
+    delete_app_setting,
     get_research_cache,
     put_research_cache,
     RESEARCH_RESULT_TTL_DAYS,
@@ -636,6 +639,7 @@ from db.job_records import (  # noqa: F401
     count_active_job_records,
     get_job_record,
     delete_job_record,
+    delete_finished_job_record,
     clear_all_job_records,
 )
 
@@ -659,6 +663,11 @@ from db.benchmark import (  # noqa: F401
     latest_benchmark_run_per_case,
     create_benchmark_lab_case,
     update_benchmark_case_texts,
+    list_benchmark_case_edits,
+    set_benchmark_case_excluded,
+    create_benchmark_clip_cases,
+    list_benchmark_cases_by_clip,
+    count_benchmark_cases_with_file,
     get_benchmark_case,
     find_benchmark_case,
     create_benchmark_session,

@@ -51,9 +51,15 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/backups/snapshot/dramas` | local_only() |
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
 | `GET /api/benchmark/arena` | admin.diagnostics |
+| `GET /api/benchmark/arena/export` | admin.diagnostics |
 | `GET /api/benchmark/cases` | admin.diagnostics |
 | `POST /api/benchmark/cases` | local_only() |
 | `POST /api/benchmark/cases/{case_id}/delete` | local_only() |
+| `GET /api/benchmark/cases/{case_id}/edits` | admin.diagnostics |
+| `POST /api/benchmark/cases/{case_id}/excluded` | local_only() |
+| `POST /api/benchmark/cases/{case_id}/reference` | local_only() |
+| `POST /api/benchmark/clips/check` | admin.diagnostics |
+| `POST /api/benchmark/clips/import` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/lines/{line_id}/regression` | local_only() |
 | `POST /api/benchmark/estimate` | admin.diagnostics |
 | `POST /api/benchmark/import` | local_only() |
@@ -61,6 +67,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/benchmark/runs` | admin.diagnostics |
 | `POST /api/benchmark/runs` | local_only() |
 | `GET /api/benchmark/runs/{run_id}` | admin.diagnostics |
+| `POST /api/benchmark/runs/{run_id}/delete` | local_only() |
+| `GET /api/benchmark/runs/{run_id}/export` | admin.diagnostics |
 | `GET /api/benchmark/sets` | admin.diagnostics |
 | `POST /api/benchmark/sets/from-title` | local_only() |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |
@@ -116,6 +124,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade/plan` | local_only() |
 | `GET /api/diagnostics/dependency-install` | admin.diagnostics |
+| `GET /api/diagnostics/gpu` | local_only() |
 | `GET /api/diagnostics/gpu-torch` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/check` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/setup` | local_only() |
@@ -166,9 +175,13 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
 | `POST /api/dramas/{drama_id}/cover` | local_only() |
+| `POST /api/dramas/{drama_id}/folder/open` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/probe` | local_only() |
 | `POST /api/dramas/{drama_id}/metadata` | admin.library |
+| `GET /api/dramas/{drama_id}/restructure` | local_only() |
+| `POST /api/dramas/{drama_id}/restructure` | local_only() |
+| `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |
 | `GET /api/dramas/{drama_id}/source-link` | local_only() |
 | `GET /api/dub/dramas/{drama_id}/config` | library.read |
 | `GET /api/dub/dramas/{drama_id}/pacing` | library.read |
@@ -285,9 +298,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/voice-bank/{entry_id}/delete` | local_only() |
 | `POST /api/library/voice-bank/{entry_id}/rename` | admin.library |
 | `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/alternatives` | lines.read |
-| `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/explain` | engines.paid |
+| `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/explain` | lines.read |
 | `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/grammar` | lines.read |
-| `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/improve` | engines.paid |
+| `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/improve` | lines.read |
 | `POST /api/lines/dramas/{drama_id}/find-replace/apply` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/accept-tm` | lines.edit |
@@ -306,6 +319,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/live/follows/{follow_id}/remove` | media.import_url |
 | `POST /api/live/follows/{follow_id}/start` | media.import_url |
 | `GET /api/live/ollama-check` | library.read |
+| `GET /api/live/player/{session_id}/{name}` | local_only() |
 | `GET /api/live/sessions` | library.read |
 | `POST /api/live/sessions` | media.import_url |
 | `GET /api/live/sessions/{session_id}` | library.read |
@@ -468,6 +482,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/scanlate/dramas/{drama_id}/render` | jobs.start |
 | `POST /api/scanlate/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/scanlate/dramas/{drama_id}/run-notes` | library.read |
+| `GET /api/scanlate/dramas/{drama_id}/source-chapters` | library.read |
 | `GET /api/series` | library.read |
 | `GET /api/series/{series_id}` | library.read |
 | `POST /api/series/{series_id}/copy-terms` | lines.edit |
@@ -576,6 +591,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | local_only() |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
+| `POST /api/system/update/app/apply` | local_only() |
+| `POST /api/system/update/app/download` | local_only() |
 | `POST /api/system/update/check` | local_only() |
 | `POST /api/system/update/download` | local_only() |
 | `POST /api/system/update/install` | local_only() |
@@ -626,6 +643,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate-run/dramas/{drama_id}/source-changed/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/workflow-tier` | lines.edit |
 | `POST /api/translate-run/presets` | admin.library |
+| `POST /api/translate-run/presets/{preset_id}/default` | admin.library |
+| `POST /api/translate-run/presets/{preset_id}/update` | admin.library |
+| `GET /api/translate-run/profile-fields` | library.read |
 | `GET /api/translate/engines` | library.read |
 | `POST /api/translate/estimate` | engines.paid |
 | `DELETE /api/translate/history` | local_only() |

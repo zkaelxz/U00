@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { ApiError, withSignal } from '../../api/client'
 import { getSubtitleText, markExported } from '../../api/export'
-import { cancelJob, getJob } from '../../api/jobs'
+import { cancelJob, probeJob } from '../../api/jobs'
 import { createDrama } from '../../api/library'
 import { translateApi } from '../../api/translate'
 import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
@@ -133,8 +133,8 @@ export function MakeSubtitles() {
     adopt(id)
   }, [adopt])
   const lookup = useCallback((id: string) => {
-    const p = getJob(id)
-    void p.then((j) => { if (!['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
+    const p = probeJob(id)
+    void p.then((j) => { if (j && !['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
       .finally(() => {
         seen.current.settled += 1
         if (seen.current.settled === reattachIds(0).length && !seen.current.live) fail(lostRun())
@@ -223,20 +223,22 @@ export function MakeSubtitles() {
             </p>
           )}
           <div className="make-subtitles-fields">
-            <Field label="Audio or video file">
-              <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <Field label="Translator">
+              <select value={engine} onChange={(e) => setPickedEngine(e.target.value)}>
+                {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
+              </select>
             </Field>
             <Field label="Source language">
               <select value={LANGUAGES.includes(language) ? language : 'zh'} onChange={(e) => setLanguage(e.target.value)}>
                 {LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
               </select>
             </Field>
-            <Field label="Translator">
-              <select value={engine} onChange={(e) => setPickedEngine(e.target.value)}>
-                {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
-              </select>
-            </Field>
+            <div className="make-subtitles-file">
+              <Field label="Audio or video file">
+                <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              </Field>
+            </div>
           </div>
           {engine && (
             <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}

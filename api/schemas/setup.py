@@ -38,6 +38,12 @@ class SetupReadiness(BaseModel):
     ffmpeg_libass: bool
     js_runtime: bool
     tesseract_program: bool
+    # Live's Whisper sizes (whisper_models.LIVE_WHISPER_SIZES): the model is already on this PC.
+    whisper_cached_tiny: bool
+    whisper_cached_base: bool
+    whisper_cached_small: bool
+    whisper_cached_medium: bool
+    whisper_cached_large_v3_turbo: bool
     gpu_found: bool
     # The installed torch is a CUDA build (from its metadata; nothing is imported).
     torch_cuda: bool

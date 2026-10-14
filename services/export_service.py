@@ -13,7 +13,7 @@ Audiobook/burned-in-video export (each its own subprocess dependency,
 ffmpeg) live in services/media_export_service.py.
 
 No FastAPI import: plain functions, plain dicts/bytes in and
-out, so a CLI or another service could call them too.
+out, so another service could call them too.
 """
 import os
 import re
@@ -28,8 +28,13 @@ import core as core_module
 import db
 import media_inspect
 import subtitle_formats
-from services import metadata_service, reading_speed_dismissal_service, restructure_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from services import (
+    metadata_service,
+    ownership_service,
+    reading_speed_dismissal_service,
+    restructure_service,
+)
+from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, UnsupportedOperationError)
 
 _EPUB_FIELDS = ("en", "zh")
@@ -82,32 +87,64 @@ def narration_language(drama: dict) -> str:
     return (drama.get("source_language") or "zh") if original else "en"
 
 
-def download_filename(drama_id: int, what: str, language: str, ext: str) -> str:
-    """`<Title> - Ep <n> - <what> (<language>).<ext>` for the Content-Disposition
-    name. Only the name the browser saves: stored artifact names stay ID-only
-    because job ids and lookups depend on them."""
+def _title_and_tail(drama_id: int, what: str, language: str):
     drama = db.get_drama(drama_id) or {}
     title = _name_part(drama.get("title_en")) or _name_part(drama.get("title_zh"))
     episode = drama.get("episode_number")
-    tail = (f" - Ep {episode}" if isinstance(episode, int) else "") + f" - {_name_part(what)}"
+    tail = (f" - Ep {episode}" if isinstance(episode, int) else "")
+    if what:
+        tail += f" - {_name_part(what)}"
     language = _truncate_bytes(_name_part(language)[:_MAX_LANGUAGE_CHARS], _MAX_LANGUAGE_BYTES).strip()
-    if language:
+    if language and what:
         tail += f" ({language})"
+    return title, tail
+
+
+def _join_name(drama_id: int, title: str, tail: str, ext: str) -> str:
     ext = "." + re.sub(r"[^A-Za-z0-9]", "", ext.lstrip("."))[:10] if ext.strip(". ") else ""
-    room = max(_MIN_TITLE_BYTES, _MAX_STEM_BYTES - len(tail.encode("utf-8")))
-    title = _truncate_bytes(title, room).rstrip(". ")
-    # The " - <what>" tail means a plain title is never a bare device name,
-    # but a dot in the title ends the device-name part early.
-    if "." in title and title.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
-        title = "_" + title
-    return (title or f"drama {drama_id}") + tail + ext
+    room = max(_MIN_TITLE_BYTES, _MAX_STEM_BYTES - len(tail.encode("utf-8")) - len(ext))
+    title = _truncate_bytes(title.lstrip(". "), room).rstrip(". ")
+    name = (title or f"drama {drama_id}") + tail + ext
+    # Windows reads the part before the first dot as the device, so "CON",
+    # "nul - Ep 1" with no tail, and "CON.x" all need the guard.
+    if name.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
+        name = "_" + name
+    return name
+
+
+def download_filename(drama_id: int, what: str, language: str, ext: str) -> str:
+    """`<Title> - Ep <n> - <what> (<language>).<ext>` for the Content-Disposition
+    name. Only the name the browser saves: stored artifact names stay ID-only
+    because job ids and lookups depend on them. Always one path segment: no
+    separators, control characters or trailing dots, so it is also safe as a
+    zip entry or folder name."""
+    title, tail = _title_and_tail(drama_id, what, language)
+    return _join_name(drama_id, title, tail, ext)
+
+
+def folder_name(drama_id: int) -> str:
+    """`<Title> - Ep <n>`: the per-title folder in a library export zip,
+    truncated the same way as a download name."""
+    title, tail = _title_and_tail(drama_id, "", "")
+    return _join_name(drama_id, title, tail, "")
 
 
 def content_disposition(filename: str) -> str:
     """Attachment header with an ASCII fallback and the RFC 5987 UTF-8 name.
     Control characters and quotes never reach the header."""
     clean = _NAME_ILLEGAL.sub("_", filename) or "download"
-    fallback = "".join(c if " " <= c <= "~" and c not in '%\\' else "_" for c in clean)
+    # Non-ASCII is dropped, not replaced, so a CJK title leaves the readable
+    # rest of the name instead of a run of underscores; browsers that
+    # understand filename* never show this one.
+    fallback = "".join(c for c in clean if " " <= c <= "~" and c not in '%\\')
+    stem, dot, ext = fallback.rpartition(".")
+    if not dot:
+        stem, ext = fallback, ""
+    # "_" is kept: it is the Windows device-name guard.
+    stem = re.sub(r"\s+", " ", stem).strip(" .-")
+    if not any(c.isalnum() for c in stem):
+        stem = "download"
+    fallback = stem + (dot + ext if dot else "")
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(clean, safe='')}"
 
 
@@ -129,10 +166,8 @@ def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subti
 
 
 def _load_drama_and_lines(drama_id: int):
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
-    lines = core_module.lines_from_rows(db.load_lines(drama_id))
+    drama = ownership_service.require_drama(drama_id)
+    lines = db.load_line_objects(drama_id)
     return drama, lines
 
 
@@ -311,9 +346,7 @@ def get_export_readiness(drama_id: int) -> dict:
     overlaps, Auto QC mismatches, reading-speed-dense
     lines). Raises NotFoundError for an unknown drama id. A drama with no
     lines yet returns all-zero/false counts rather than an error."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -398,6 +431,15 @@ def _probe_title_fps(drama_id: int, drama: dict) -> float:
     return fps
 
 
+def _require_exportable_text(lines, field: str):
+    if not lines:
+        raise ConflictError("This title has no subtitle lines to export.")
+    wanted = "zh" if field == "zh" else "en"
+    if not any((getattr(ln, wanted, "") or "").strip() for ln in lines):
+        raise ConflictError("This title has no translated lines to export yet." if wanted == "en"
+                            else "This title has no original-language text to export.")
+
+
 def generate_subtitle_text(drama_id: int, fmt: str, field: str, **options) -> str:
     """The text of generate_subtitle_export, for callers that don't need
     the adjusted-cue count."""
@@ -445,12 +487,11 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     if field not in _SUBTITLE_FIELDS:
         raise InvalidInputError(f"Unknown subtitle field {field!r}.")
 
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
+    _require_exportable_text(lines, field)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
     wrap_chars = build_wrap_chars(wrap_chars_en, wrap_chars_source)
@@ -524,9 +565,7 @@ def flag_dense_lines(drama_id: int) -> dict:
 
 def get_reading_speed_mode(drama_id: int) -> dict:
     """{"mode": ...} for the title. Raises NotFoundError for an unknown drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return {"mode": subtitle_formats.reading_speed_mode_of(drama)}
 
 
@@ -538,8 +577,7 @@ def set_reading_speed_mode(drama_id: int, mode: str) -> dict:
     if mode not in subtitle_formats.READING_SPEED_MODES:
         raise InvalidInputError(
             "mode must be one of " + ", ".join(subtitle_formats.READING_SPEED_MODES) + ".")
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     db.update_drama(drama_id, reading_speed_mode=mode)
     return {"mode": mode}
 
@@ -671,7 +709,6 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
 def mark_exported(drama_id: int) -> dict:
     """The Export stage's "Mark as exported": sets only the drama's status
     to "exported" (no other field is touched). Raises NotFoundError."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     db.update_drama(drama_id, status="exported")
     return {"drama_id": drama_id, "status": "exported"}

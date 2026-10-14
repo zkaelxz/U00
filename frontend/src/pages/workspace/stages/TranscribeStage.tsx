@@ -273,6 +273,8 @@ export default function TranscribeStage({
     if (p) goTab('tools')
   }
   // A refused run or save: name the option when the server's sentence does, else show the banner.
+  const startingRef = useRef(false)
+  const [starting, setStarting] = useState(false)
   const fail = (e: unknown) => {
     if (needsReplaceConfirm(e)) onReplaceRefused()
     const p = runProblemFromError(e)
@@ -400,6 +402,7 @@ export default function TranscribeStage({
   }
 
   const transcribe = () => {
+    if (startingRef.current) return
     const req = buildRequest()
     if (!req || !config || !cf) return
     const update = checkConfig()
@@ -429,11 +432,17 @@ export default function TranscribeStage({
           setSavedBefore(true)
         })
       : Promise.resolve()
+    // Held until the server answers: `busy` only follows once the job id arrives, so a second click would start a second run.
+    startingRef.current = true
+    setStarting(true)
     saveFirst.then(start).then((r) => {
       setError(null)
       setCheckAfterRun(true)
       onJobStarted(r.job_id, expectedRunSeconds, !!uploadFile)
-    }, fail)
+    }, fail).finally(() => {
+      startingRef.current = false
+      setStarting(false)
+    })
   }
 
   useEffect(() => {
@@ -621,14 +630,14 @@ export default function TranscribeStage({
         )}
         {haveTranscript && !hasMedia && !file && (
           <p className="muted" role="note" data-testid="transcript-no-audio">
-            A transcript is lined up with the audio, and this title has none yet. If this is text to translate, not speech:{' '}
+            The transcript is matched to the audio, and this title has none yet. If it is text to translate, not speech:{' '}
             <button type="button" className={buttonClass('secondary', 'sm')} disabled={adopting || !transcriptText.trim()} onClick={asNovel}>
               Translate this text as a novel
             </button>
           </p>
         )}
         <div className="setting-list">
-          <Field label="Detect speakers after transcribing">
+          <Field label="Detect speakers">
             <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} title={speakersOff?.[0]?.reason} onChange={setRunDiarize} />
           </Field>
         </div>
@@ -656,7 +665,7 @@ export default function TranscribeStage({
           <button
             type="button"
             className="primary"
-            disabled={busy || !cf || !!needed || notInstalled || otherBlockers.length > 0}
+            disabled={busy || starting || !cf || !!needed || notInstalled || otherBlockers.length > 0}
             aria-describedby={[showBeforeYouRun && (notInstalled ? 'transcribe-not-installed' : 'transcribe-before-you-run'), needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
             onClick={transcribe}
           >
@@ -669,8 +678,8 @@ export default function TranscribeStage({
         </div>
         {file && replaceUnconfirmed && !busy && (
           <p className="muted" role="note" data-testid="transcribe-staged-unused">
-            The chosen file is not used for this run. Transcribe uses the current audio/video; tick "Replace the current
-            audio/video" on Add media to use the new file.{' '}
+            This run uses the current audio/video, not the chosen file. To use the new file, tick "Replace the current
+            audio/video" on Add media.{' '}
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={showReplaceBox}>Open Add media</button>
           </p>
         )}
@@ -684,7 +693,7 @@ export default function TranscribeStage({
         )}
         {busy && (
           <p className="muted" role="status">
-            A job for this title is already running. Wait for it to finish or cancel it before starting another.
+            A job for this title is already running. Wait for it or cancel it first.
           </p>
         )}
         {tab === 'transcribe' && feedback}

@@ -21,8 +21,8 @@ source, the reference and every engine's output, and scores each output
   at the cap. Each call's cost is split evenly over the outputs it scored, so a
   run's judge cost adds up to the real total. start_run's estimate includes it.
 - The results live in app_settings under benchmark_judge.<run id> (the
-  benchmark tables can't take new columns without growing db.py past its size
-  limit); a judge failure never fails the run it follows.
+  benchmark tables can't take new columns without growing the db package past
+  its size limit); a judge failure never fails the run it follows.
 """
 import random
 import time
@@ -253,6 +253,11 @@ def _average(rows: list) -> dict:
 
 def _setting_key(session_id: int) -> str:
     return f"{SETTING_PREFIX}{session_id}"
+
+
+def forget_run(session_id: int) -> None:
+    """Drops a deleted run's judge scores (kept apart from its results)."""
+    db.delete_app_setting(_setting_key(session_id))
 
 
 def run_pass(job_id: str, plan: list, judge: dict) -> None:

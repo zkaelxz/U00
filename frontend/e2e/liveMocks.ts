@@ -69,10 +69,12 @@ interface LiveMocks {
     message: string
     cues: ReturnType<typeof cue>[]
     startStatus: number
+    /** GET /api/live/sessions answers a server fault. */
+    sessionsFail: boolean
     model: string | null
     notes: string[]
     /** Lag figures added to the status (lag_seconds, processing_seconds, ...). */
-    figures: Record<string, number>
+    figures: Record<string, number | boolean>
     /** The first Stop is taken as "finish": the session keeps running until a second one. */
     finishOnStop: boolean
   }
@@ -80,11 +82,17 @@ interface LiveMocks {
 
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
 
-export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean } = {}): Promise<LiveMocks> {
+/** Everything Live looks at in GET /api/setup/readiness, present; a spec overrides what it wants missing. */
+export const LIVE_READY: Record<string, boolean> = {
+  faster_whisper: true, ffmpeg: true, yt_dlp: true, js_runtime: true, gpu_found: true,
+  whisper_cached_tiny: true, whisper_cached_base: true, whisper_cached_small: true, whisper_cached_medium: true, whisper_cached_large_v3_turbo: true,
+}
+
+export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean> } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
     follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
-    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null, notes: [], figures: {}, finishOnStop: false },
+    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, sessionsFail: false, model: null, notes: [], figures: {}, finishOnStop: false },
   }
   // Registered first, so it only answers what nothing below handles.
   await page.route('**/api/**', (route) => {
@@ -92,6 +100,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     m.unmocked.push(`${r.method()} ${new URL(r.url()).pathname}`)
     return route.abort()
   })
+  await page.route('**/api/setup/readiness', (route) => json(route, { ...LIVE_READY, ...opts.readiness }))
   await page.route('**/api/meta', (route) =>
     json(route, { app: 'baihe', api_version: '1', environment: 'development', local: !opts.remote }))
   await page.route('**/api/auth/me', (route) => json(route, {
@@ -180,7 +189,11 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   })
   await page.route('**/api/live/sessions', (route) => {
     const r = route.request()
-    if (r.method() === 'GET') return json(route, m.state.sessions)
+    if (r.method() === 'GET') {
+      return m.state.sessionsFail
+        ? json(route, { error: { code: 'internal', message: 'Something went wrong.' } }, 500)
+        : json(route, m.state.sessions)
+    }
     m.posts.push({ url: r.url(), body: r.postDataJSON(), headers: r.headers() })
     if (m.state.startStatus !== 200) {
       return json(route, { error: { code: 'forbidden', message: 'Not allowed.' } }, m.state.startStatus)

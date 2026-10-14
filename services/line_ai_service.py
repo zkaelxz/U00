@@ -26,9 +26,9 @@ import core
 import db
 import line_tools
 import translate_engines
-from engine_backends import paid_calls
-from services import (engine_routing_service, settings_service, translate_run_service,
-                      translate_service, workspace_job_service)
+from engine_backends import medium_prompts, paid_calls
+from services import (engine_routing_service, ownership_service, settings_service,
+                      translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     InvalidInputError,
     MissingKeyError,
@@ -99,7 +99,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
 def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
              need_en: bool = True, check_cap: bool = True):
     drama = translate_run_service.require_drama(drama_id)
-    line = next((ln for ln in core.lines_from_rows(db.load_lines(drama_id))
+    line = next((ln for ln in db.load_line_objects(drama_id)
                  if ln.id == line_id), None)
     if line is None:
         raise NotFoundError(f"No line with id {line_id} in this title.")
@@ -145,11 +145,11 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
     # Same builder as a translate run, so the line's emotion guidance
     # is included too.
     _glossary, guidelines, _names = workspace_job_service.build_run_style_context(
-        drama_id, drama, [line], preset)
+        drama_id, drama, [line], preset, principal=ownership_service.acting_principal())
     suggestion = run(lambda: line_tools.improve_line(
         line.zh, line.en, engine, issue=issue,
         source_language=_line_language(drama, line),
-        style_guidelines=guidelines), (engine, "line_improve", drama_id))
+        style_guidelines=guidelines, kind=medium_prompts.kind_for(drama)), (engine, "line_improve", drama_id))
     return {"line_id": line.id, "current_en": line.en, "suggestion": suggestion,
             "changed": suggestion != line.en, "engine": name,
             "model": getattr(engine, "model", model)}

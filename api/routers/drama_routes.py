@@ -15,7 +15,12 @@ the bug-report upload. The metadata update also takes "+ New series"
 (`new_series_name`) and `series_id: 0` to take a drama out of its series.
 GET /{id}/source-link (local_only) is the one response that may carry the
 link as imported, query included (services/source_link_service.py).
-Series rename and presets CRUD are not in this router.
+POST /{id}/folder/open (local_only) opens the title's folder in the PC's
+file manager; the folder comes from the id, never from the client.
+Merging a title into another and moving chapters between titles are PC-only
+(local_only), like deleting one: they move files on disk
+(services/title_restructure_service.py). Series rename and presets CRUD are
+not in this router.
 """
 
 import os
@@ -24,16 +29,17 @@ from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.formparsers import MultiPartException
 
 from api.auth import is_at_pc, local_only, require_permission
-from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
-                         DramaDeleteResult, DramaDetail, DramaMetadataUpdate, DramaSourceLink,
-                         ErrorResponse)
-from services import cover_art_service, drama_service, link_details_service, source_link_service
+                         DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
+                         DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
+                         TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
+                         error_responses)
+from lib.capped_request import read_capped_form
+from services import (cover_art_service, drama_service, link_details_service, source_link_service,
+                      title_restructure_service)
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
@@ -41,8 +47,7 @@ router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 
 @router.post("", dependencies=[require_permission("admin.library")], response_model=DramaCreateResult, status_code=201,
              summary="Create a drama (optionally with a series and/or preset)",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_drama(payload: DramaCreateRequest, request: Request):
     fields = payload.model_dump()
     url = fields.pop("source_url").strip()
@@ -55,13 +60,13 @@ def post_drama(payload: DramaCreateRequest, request: Request):
         result = drama_service.create_drama(**fields, principal=request.state.principal)
     return DramaCreateResult(**to_detail(result).model_dump(),
                              preset_defaults=result.get("preset_defaults"),
+                             profile_skipped=result.get("profile_skipped", []),
                              title_from_link=result.get("title_from_link"))
 
 
 @router.post("/{drama_id}/metadata", dependencies=[require_permission("admin.library")], response_model=DramaDetail,
              summary="Update a drama's metadata (partial update)",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
                         drama_id: int = Path(ge=1)):
     return to_detail(drama_service.update_drama_metadata(
@@ -74,9 +79,19 @@ def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
 # the drama detail.
 @router.get("/{drama_id}/source-link", dependencies=[local_only()], response_model=DramaSourceLink,
             summary="The title's source link as imported or typed (PC only; may carry a query)",
-            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+            responses=error_responses(404, 422))
 def get_source_link(drama_id: int = Path(ge=1, le=2**31 - 1)):
     return source_link_service.source_link(drama_id)
+
+
+# local_only: the folder opens on the PC's own screen, so a request from
+# anywhere else could do nothing useful with it.
+@router.post("/{drama_id}/folder/open", dependencies=[local_only()],
+             response_model=DramaFolderOpened,
+             summary="PC only: open the title's folder in this PC's file manager",
+             responses=error_responses(400, 404, 409, 422))
+def post_open_folder(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return drama_service.open_drama_folder(drama_id, request.state.principal)
 
 
 _COVER_MULTIPART_OVERHEAD = 64 * 1024
@@ -89,24 +104,12 @@ _COVER_BODY = {"requestBody": {"required": True, "content": {"multipart/form-dat
 @router.post("/{drama_id}/cover", dependencies=[local_only()], response_model=CoverArtResult,
              summary="Set or replace the cover art (PNG/JPEG/WebP, max 10 MB; metadata stripped)",
              openapi_extra=_COVER_BODY,
-             responses={404: {"model": ErrorResponse}, 413: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 413, 422, 503))
 async def post_cover(request: Request, drama_id: int = Path(ge=1)):
-    if "transfer-encoding" in request.headers:
-        raise InvalidInputError("Send the image with a Content-Length, not chunked.")
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        raise InvalidInputError("An upload needs a Content-Length.")
-    cap = cover_art_service.MAX_COVER_BYTES + _COVER_MULTIPART_OVERHEAD
-    if length > cap:
-        raise StarletteHTTPException(413, _COVER_TOO_LARGE)
-    try:
-        form = await capped(request, cap).form(max_files=1, max_fields=0)
-    except BodyTooLarge:
-        raise StarletteHTTPException(413, _COVER_TOO_LARGE)
-    except (MultiPartException, StarletteHTTPException):
-        raise InvalidInputError("Send the image as multipart/form-data in a 'file' field.") from None
+    form = await read_capped_form(
+        request, cover_art_service.MAX_COVER_BYTES + _COVER_MULTIPART_OVERHEAD, "the image",
+        _COVER_TOO_LARGE, "Send the image as multipart/form-data in a 'file' field.",
+        max_files=1, max_fields=0)
     try:
         upload = form.get("file")
         if not isinstance(upload, UploadFile):
@@ -117,7 +120,7 @@ async def post_cover(request: Request, drama_id: int = Path(ge=1)):
 
 
 @router.get("/{drama_id}/cover", dependencies=[require_permission("library.read")],
-            summary="The cover art image", responses={404: {"model": ErrorResponse}})
+            summary="The cover art image", responses=error_responses(404))
 def get_cover(drama_id: int = Path(ge=1)):
     path, media_type = cover_art_service.cover_file(drama_id)
     return FileResponse(path, media_type=media_type, content_disposition_type="inline",
@@ -129,8 +132,37 @@ def get_cover(drama_id: int = Path(ge=1)):
 
 @router.delete("/{drama_id}", dependencies=[local_only()], response_model=DramaDeleteResult, response_model_exclude_none=True,
                summary="Permanently delete a drama (requires confirm=true and confirm_text=DELETE)",
-               responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                          422: {"model": ErrorResponse}})
+               responses=error_responses(404, 409, 422))
 def delete_drama(drama_id: int = Path(ge=1), confirm: bool = Query(False),
                  confirm_text: str = Query("")):
     return drama_service.delete_drama(drama_id, confirm=confirm, confirm_text=confirm_text)
+
+
+@router.get("/{drama_id}/restructure", dependencies=[local_only()], response_model=TitleRestructureInfo,
+            summary="The title's chapters and the titles they could move to (PC only)",
+            responses=error_responses(404, 422))
+def get_restructure(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return title_restructure_service.list_chapters(drama_id, principal=request.state.principal)
+
+
+@router.post("/{drama_id}/restructure/preview", dependencies=[local_only()],
+             response_model=TitleRestructurePreview,
+             summary="Preview merging this title or moving its chapters (writes nothing; PC only)",
+             responses=error_responses(400, 404, 422))
+def post_restructure_preview(payload: TitleRestructureRequest, request: Request,
+                             drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return title_restructure_service.preview(
+        drama_id, payload.target_id, payload.kind, chapter_ids=payload.chapter_ids,
+        move_duplicates=payload.move_duplicates, principal=request.state.principal)
+
+
+@router.post("/{drama_id}/restructure", dependencies=[local_only()],
+             response_model=TitleRestructureResult,
+             summary="Merge this title into another or move its chapters, as previewed (PC only)",
+             responses=error_responses(400, 404, 409, 422))
+def post_restructure(payload: TitleRestructureApplyRequest, request: Request,
+                     drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return title_restructure_service.apply(
+        drama_id, payload.target_id, payload.kind, chapter_ids=payload.chapter_ids,
+        move_duplicates=payload.move_duplicates, fingerprint=payload.fingerprint,
+        confirm=payload.confirm, principal=request.state.principal)

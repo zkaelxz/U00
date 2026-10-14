@@ -31,6 +31,7 @@ from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from diarize import select_device
 from services import difficult_audio_service as difficult, settings_service, timing_settings_service
+from services.qwen3_requirements_service import MISSING_VAD_MESSAGE as _MISSING_VAD_MESSAGE
 from services.qwen3_requirements_service import import_failure_message
 from translate_engines import redact_secrets
 
@@ -39,12 +40,8 @@ VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
 
 def _audio_duration_seconds(path) -> Optional[float]:
     """Best-effort audio length via ffprobe; None when it can't be read."""
-    try:
-        import media_inspect
-        info = media_inspect.run_ffprobe(path, timeout=30)
-        return float((info.get("format") or {}).get("duration") or 0.0) or None
-    except Exception:
-        return None
+    import media_inspect
+    return media_inspect.duration_seconds(path, timeout=30)
 
 
 # A running job never reports 100%: only completion does. When Qwen3-ASR
@@ -64,8 +61,6 @@ MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnos
 # Hard-subtitle reading is OCR, not speech recognition: saying "Transcription isn't installed"
 # would send the user to install Whisper while the missing piece is an OCR package.
 MISSING_OCR_MESSAGE = "Reading on-screen text needs an OCR package that isn't installed yet. Open Diagnostics to install one."
-_MISSING_VAD_MESSAGE = ("Qwen3 speech detection needs transcription, which isn't installed yet. "
-                        "Open Diagnostics to install it.")
 
 
 def missing_package_outcome(message: str = MISSING_TRANSCRIPTION_MESSAGE) -> dict:
@@ -482,7 +477,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             except whisper_models.ModelDownloadError as exc:
                 return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
             except ValueError as exc:
-                return {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))}
+                return {"failed_reason": "anime_whisper" if anime_run else "qwen3_asr",
+                        "detail": redact_secrets(str(exc))}
             except background_jobs.JobCancelled:
                 whisper_models.release_gpu_models()
                 raise

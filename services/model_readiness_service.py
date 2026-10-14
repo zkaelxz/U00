@@ -341,7 +341,7 @@ def for_scanlate_render() -> list:
     return []
 
 
-def for_scanlate(drama_id: int, detect_backend: str = "auto") -> list:
+def for_scanlate(drama_id: int, detect_backend: str = "auto", art_captions: bool = False) -> list:
     import db
     import ocr
     from services import settings_service
@@ -354,4 +354,6 @@ def for_scanlate(drama_id: int, detect_backend: str = "auto") -> list:
     # "auto" uses the ML detector only once it is cached; "ml" downloads it.
     if detect_backend == "ml":
         needs.append(bubble_detector_ready)
+    if art_captions and backend != "paddle":
+        needs.append(_need(ocr_ready, "paddle", ocr._PADDLE_LANG_BY_SOURCE.get(language, "ch")))
     return needs

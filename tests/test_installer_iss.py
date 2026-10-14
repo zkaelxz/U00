@@ -143,6 +143,32 @@ def _func(iss, name):
     return re.search(rf"(?:function|procedure) {name}\b.*?^end;", iss, re.M | re.S).group(0)
 
 
+def _is_app_version_name(name):
+    """IsAppVersionName in baihe.iss, step for step."""
+    s = name
+    if s[:4] != "app-":
+        return False
+    if len(s) > 12 and s[-8:] == ".partial":
+        s = s[:-8]
+    i, dots, digits = 4, 0, 0
+    while i < len(s):
+        c = s[i]
+        if "0" <= c <= "9":
+            digits += 1
+        elif c == "." and digits > 0 and dots < 2:
+            dots, digits = dots + 1, 0
+        else:
+            break
+        i += 1
+    if dots == 0 or digits == 0:
+        return False
+    if i < len(s):
+        if s[i] not in "-+" or i == len(s) - 1:
+            return False
+        return all(c.isascii() and (c.isalnum() or c in ".+-") for c in s[i:])
+    return True
+
+
 class TestUninstall:
     def test_program_folders_only_when_baihe_put_them_there(self, iss):
         # No [UninstallDelete]: the program folders are removed in code, and
@@ -153,6 +179,58 @@ class TestUninstall:
         step = _func(iss, "CurUninstallStepChanged")
         owned = step[step.index("if ProgramOwned then"):step.index("RemoveDir(ExpandConstant('{app}'))")]
         assert "{app}\\python" in owned and "{app}\\app" in owned
+
+    def test_app_update_leftovers_go_by_name_and_only_from_a_baihe_folder(self, iss):
+        # A wildcard would reach any app-* folder of the user's in a chosen
+        # folder; the journal folder goes by its own name, the kept versions
+        # only through the name check and only from a Baihe Studio install.
+        deletes = _entries(iss, "InstallDelete")
+        assert not any("app-*" in e for e in deletes)
+        assert any('"{app}\\app-update"' in e for e in deletes)
+        step = _func(iss, "CurStepChanged")
+        assert re.search(r"if \(CurStep = ssInstall\) and IsBaiheInstallDir\(ExpandConstant\('\{app\}'\)\) then\s+"
+                         r"DeleteAppVersionFolders\(ExpandConstant\('\{app\}'\)\);", step)
+        uninstall = _func(iss, "CurUninstallStepChanged")
+        owned = uninstall[uninstall.index("if ProgramOwned then"):uninstall.index("RemoveDir(ExpandConstant('{app}'))")]
+        assert "DeleteAppVersionFolders(ExpandConstant('{app}'))" in owned
+        assert "{app}\\app-update" in owned
+        assert "'app-*'" not in uninstall
+        folders = _func(iss, "DeleteAppVersionFolders")
+        assert "IsAppVersionName(Rec.Name)" in folders
+        assert "$400" in folders and folders.index("$400") < folders.index("DelTree(")
+        assert "RemoveDir(Path)" in folders
+        # Each delete site is declared before it is used (Pascal Script).
+        assert iss.index("function DeleteAppVersionFolders") < iss.index("procedure CurStepChanged")
+
+    @pytest.mark.parametrize("name, ok", [
+        ("app-0.2.0", True), ("app-0.2", True), ("app-1.2.3-rc.1", True), ("app-1.2.3+b.5", True),
+        ("app-0.2.0.partial", True), ("app-backup", False), ("app-notes", False), ("app-1", False),
+        ("app-1.2.3.4", False), ("app-1.2-", False), ("app-1..2", False), ("app-", False),
+        ("app-update", False), ("App-0.2.0", False), ("app-1.2 copy", False), ("app-.partial", False)])
+    def test_the_version_name_check_matches_the_swap_helper(self, iss, name, ok):
+        # A line-by-line Python reading of IsAppVersionName, kept beside the
+        # Pascal so both answer the same for names app_swap.prune also sees.
+        body = _func(iss, "IsAppVersionName")
+        for line in ("if Copy(S, 1, 4) <> 'app-' then",
+                     "if (Length(S) > 12) and (Copy(S, Length(S) - 7, 8) = '.partial') then",
+                     "else if (C = '.') and (Digits > 0) and (Dots < 2) then",
+                     "if (Dots = 0) or (Digits = 0) then",
+                     "if ((S[I] <> '-') and (S[I] <> '+')) or (I = Length(S)) then"):
+            assert line in body
+        assert _is_app_version_name(name) is ok
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "installer"))
+        import app_swap
+        version = name[4:].removesuffix(".partial")
+        assert (name.startswith("app-") and app_swap.valid_version(version)) is ok
+
+    def test_the_recovery_entry_name_matches_the_swap_helper(self, iss):
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "installer"))
+        import app_swap
+        (entry,) = [e for e in _entries(iss, "Registry") if "RunOnce" in e]
+        assert f'ValueName: "{app_swap.RUNONCE_VALUE}"' in entry
+        assert "uninsdeletevalue" in entry
 
     def test_setup_refuses_a_foreign_python_or_app_folder(self, iss):
         problem = _func(iss, "InstallDirProblem")
@@ -265,7 +343,7 @@ class TestUninstall:
                        "MatchingFoldersBytes(", "SizeText(Total)", "HasRestoreCopies()"):
             assert needle in confirm, needle
         # Named only when the library exists.
-        assert confirm.index("DirExists(UninstDataDir + '\\library') and HasRestoreCopies()") < confirm.index("InputQuery(")
+        assert confirm.index("DirExists(UninstDataDir + '\\library') and HasRestoreCopies()") < confirm.index("AskTypedWord(")
         assert "CompareStr(Typed, 'DELETE') = 0" in confirm
 
     def test_restore_copies_without_a_library_are_kept_and_flagged(self, iss):
@@ -562,13 +640,32 @@ class TestInstallerIdentityDoesNotDrift:
 class TestUninstallLibraryConfirmation:
     def test_interactive_library_delete_needs_the_typed_word(self, iss):
         confirm = _func(iss, "ConfirmLibraryDelete")
-        assert "InputQuery(" in confirm and "CompareStr(Typed, 'DELETE') = 0" in confirm
+        assert "AskTypedWord(" in confirm and "CompareStr(Typed, 'DELETE') = 0" in confirm
+        # Both must hold: the confirming button and the exact word in capitals.
+        assert ", Typed) and\n    (CompareStr(Typed, 'DELETE') = 0);" in confirm
         assert "backups are inside it by default" in confirm and "SizeText(" in confirm
         init = _func(iss, "InitializeUninstall")
         assert "if Result and DeleteLibrary and not ConfirmLibraryDelete() then" in init
         declined = init[init.index("not ConfirmLibraryDelete()"):]
         # Keeping the library also cancels "Remove everything", which would take it too.
         assert "CleanAll := False;" in declined and "DeleteLibrary := False;" in declined
+
+    def test_the_typed_word_form_keeps_the_library_unless_confirmed(self, iss):
+        # Inno Setup's Pascal Script has no InputQuery: ISCC stops on it.
+        assert "InputQuery(" not in iss
+        ask = _func(iss, "AskTypedWord")
+        # Typed starts empty and is only filled from the box after the confirming
+        # button, so Cancel, Esc or closing the window keep the library.
+        assert ask.index("Typed := '';") < ask.index("ShowModal()")
+        assert "Result := Form.ShowModal() = mrOk;" in ask
+        assert "if Result then\n      Typed := Edit.Text;" in ask
+        assert "Edit.Text := '';" in ask
+        assert "CancelButton.ModalResult := mrCancel;" in ask and "CancelButton.Cancel := True;" in ask
+        # What to type has its own line above the box, so a long prompt can't hide it.
+        assert "InstructionText.Caption := Instruction;" in ask
+        assert ask.index("InstructionText.Caption") < ask.index("Edit := TNewEdit.Create(Form);")
+        confirm = _func(iss, "ConfirmLibraryDelete")
+        assert "'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed)" in confirm
 
     def test_silent_uninstall_is_not_prompted(self, iss):
         init = _func(iss, "InitializeUninstall")

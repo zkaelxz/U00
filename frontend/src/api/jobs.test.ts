@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './client'
-import { clearFinishedJobs, deleteJob, getJobStages } from './jobs'
+import { clearFinishedJobs, deleteJob, getJobStages, probeJob } from './jobs'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
 function reply(status: number, body: unknown) {
@@ -27,6 +27,18 @@ describe('jobs api: stage timing', () => {
   })
 })
 
+describe('jobs api: stage timing without a usable body', () => {
+  it.each([['null', null], ['an empty object', {}]])('rejects when the 200 body is %s, so the panel shows its unavailable note', async (_name, body) => {
+    const { f } = reply(200, body)
+    await expect(getJobStages('x', f)).rejects.toThrow()
+  })
+
+  it('rejects when a 200 is not JSON at all (the app page answering an unknown route)', async () => {
+    const f = vi.fn().mockResolvedValue(new Response('<html></html>', { status: 200 })) as unknown as typeof fetch
+    await expect(getJobStages('x', f)).rejects.toThrow()
+  })
+})
+
 describe('jobs api: PC-only erasing', () => {
   afterEach(() => resetPcModeForTests())
 
@@ -49,5 +61,20 @@ describe('jobs api: PC-only erasing', () => {
     const { f } = reply(403, { error: { code: 'local_only', message: 'PC only' } })
     await expect(call(f)).rejects.toBeInstanceOf(ApiError)
     expect(getPcMode()).toBe('remote')
+  })
+})
+
+describe('jobs api: probe', () => {
+  it('asks quietly and reads an empty 204 as no job', async () => {
+    const mock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    const out = await probeJob('translate_1', mock as unknown as typeof fetch)
+    expect(out).toBeNull()
+    expect(mock.mock.calls[0][0]).toBe('/api/jobs/translate_1')
+    expect((mock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'X-Baihe-Probe': '1' })
+  })
+  it('still returns a known job and still throws other errors', async () => {
+    const { f } = reply(200, { job_id: 'j', status: 'running' })
+    expect((await probeJob('j', f))?.job_id).toBe('j')
+    await expect(probeJob('j', reply(500, { detail: 'x' }).f)).rejects.toBeInstanceOf(ApiError)
   })
 })

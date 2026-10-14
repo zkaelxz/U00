@@ -96,6 +96,15 @@ Name: "service"; Description: "Run Baihe Studio in the &background from startup 
 ; but keeps {app}\python, where optional packages added through Diagnostics live.
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\service"
+; The app-only update's journal (installer/app_swap.py): a full install
+; replaces whatever state it describes. The kept app-<version> folders go in
+; CurStepChanged, by name and only from a Baihe Studio install folder.
+Type: filesandordirs; Name: "{app}\app-update"
+
+[Registry]
+; The sign-in recovery an interrupted app-only update registers; a full
+; install or an uninstall leaves nothing for it to recover.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\RunOnce"; ValueName: "!BaiheStudioAppUpdate"; ValueType: none; Flags: deletevalue uninsdeletevalue
 
 [Files]
 Source: "{#PayloadDir}\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -196,6 +205,86 @@ begin
      and not IsBaiheInstallDir(AppDir) then
     Result := 'The folder ' + AppDir + ' already has a "python" or "app" folder that Baihe Studio ' +
       'didn''t install. Choose an empty folder, or a new one.';
+end;
+
+// True for the folder names installer/app_swap.py gives the versions it
+// keeps and its unfinished unpacks: app-<n>.<n>[.<n>], an optional -/+ tail
+// of letters, digits, '.', '+' and '-', and an optional '.partial'. Anything
+// else that starts with "app-" may be the user's and is never deleted.
+function IsAppVersionName(const FolderName: String): Boolean;
+var
+  S: String;
+  I, Dots, Digits: Integer;
+  C: Char;
+begin
+  Result := False;
+  S := FolderName;
+  if Copy(S, 1, 4) <> 'app-' then
+    Exit;
+  if (Length(S) > 12) and (Copy(S, Length(S) - 7, 8) = '.partial') then
+    S := Copy(S, 1, Length(S) - 8);
+  I := 5;
+  Dots := 0;
+  Digits := 0;
+  while I <= Length(S) do
+  begin
+    C := S[I];
+    if (C >= '0') and (C <= '9') then
+      Digits := Digits + 1
+    else if (C = '.') and (Digits > 0) and (Dots < 2) then
+    begin
+      Dots := Dots + 1;
+      Digits := 0;
+    end
+    else
+      Break;
+    I := I + 1;
+  end;
+  if (Dots = 0) or (Digits = 0) then
+    Exit;
+  if I <= Length(S) then
+  begin
+    if ((S[I] <> '-') and (S[I] <> '+')) or (I = Length(S)) then
+      Exit;
+    while I <= Length(S) do
+    begin
+      C := S[I];
+      if not (((C >= '0') and (C <= '9')) or ((C >= 'A') and (C <= 'Z')) or
+              ((C >= 'a') and (C <= 'z')) or (C = '.') or (C = '+') or (C = '-')) then
+        Exit;
+      I := I + 1;
+    end;
+  end;
+  Result := True;
+end;
+
+// Deletes the earlier app versions app-only updates kept directly in AppDir,
+// matched by IsAppVersionName. A junction or symlink is removed as a link
+// only. Returns how many.
+function DeleteAppVersionFolders(const AppDir: String): Integer;
+var
+  Rec: TFindRec;
+  Path: String;
+begin
+  Result := 0;
+  if FindFirst(AddBackslash(AppDir) + 'app-*', Rec) then
+  try
+    repeat
+      Path := AddBackslash(AppDir) + Rec.Name;
+      if ((Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and IsAppVersionName(Rec.Name) then
+      begin
+        if (Rec.Attributes and $400) <> 0 then // FILE_ATTRIBUTE_REPARSE_POINT
+        begin
+          if RemoveDir(Path) then
+            Result := Result + 1;
+        end
+        else if DelTree(Path, True, True, True) then
+          Result := Result + 1;
+      end;
+    until not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
 end;
 
 // The data folder named in an INSTALLED marker (postinstall.py writes it,
@@ -537,6 +626,10 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  // A full install replaces the versions an app-only update kept; checked
+  // here, before the new manifest.json is copied in.
+  if (CurStep = ssInstall) and IsBaiheInstallDir(ExpandConstant('{app}')) then
+    DeleteAppVersionFolders(ExpandConstant('{app}'));
   if CurStep = ssPostInstall then
   begin
     RunPostInstall();
@@ -802,6 +895,80 @@ begin
     FileExists(UninstDataDir + '\library.restore-lock');
 end;
 
+// Inno Setup's Pascal Script has no InputQuery (ISCC rejects it as an unknown
+// identifier), so the typed confirmation is its own form. Returns True only
+// for the button that confirms, with the text as typed; Cancel, Esc or
+// closing the window give False and an empty Typed. Instruction gets its own
+// line right above the box: in the wrapped Prompt it could be clipped by a
+// long path and leave the user not knowing what to type.
+function AskTypedWord(const Title, Prompt, Instruction: String; var Typed: String): Boolean;
+var
+  Form: TSetupForm;
+  PromptText, InstructionText: TNewStaticText;
+  Edit: TNewEdit;
+  OkButton, CancelButton: TNewButton;
+begin
+  Typed := '';
+  Form := CreateCustomForm(ScaleX(460), ScaleY(300), False, False);
+  try
+    Form.Caption := Title;
+
+    PromptText := TNewStaticText.Create(Form);
+    PromptText.Parent := Form;
+    PromptText.Left := ScaleX(16);
+    PromptText.Top := ScaleY(14);
+    PromptText.Width := Form.ClientWidth - ScaleX(32);
+    PromptText.AutoSize := False;
+    PromptText.Height := ScaleY(144);
+    PromptText.WordWrap := True;
+    PromptText.Caption := Prompt;
+
+    InstructionText := TNewStaticText.Create(Form);
+    InstructionText.Parent := Form;
+    InstructionText.Left := ScaleX(16);
+    InstructionText.Top := ScaleY(164);
+    InstructionText.Width := Form.ClientWidth - ScaleX(32);
+    InstructionText.AutoSize := False;
+    InstructionText.Height := ScaleY(32);
+    InstructionText.WordWrap := True;
+    InstructionText.Caption := Instruction;
+
+    Edit := TNewEdit.Create(Form);
+    Edit.Parent := Form;
+    Edit.Left := ScaleX(16);
+    Edit.Top := ScaleY(200);
+    Edit.Width := Form.ClientWidth - ScaleX(32);
+    Edit.Text := '';
+
+    OkButton := TNewButton.Create(Form);
+    OkButton.Parent := Form;
+    OkButton.Caption := 'OK';
+    OkButton.Width := ScaleX(96);
+    OkButton.Height := ScaleY(28);
+    OkButton.Left := Form.ClientWidth - ScaleX(16 + 96 + 8 + 96);
+    OkButton.Top := Form.ClientHeight - ScaleY(16 + 28);
+    OkButton.ModalResult := mrOk;
+    OkButton.Default := True;
+
+    CancelButton := TNewButton.Create(Form);
+    CancelButton.Parent := Form;
+    CancelButton.Caption := 'Cancel';
+    CancelButton.Width := ScaleX(96);
+    CancelButton.Height := ScaleY(28);
+    CancelButton.Left := Form.ClientWidth - ScaleX(16 + 96);
+    CancelButton.Top := Form.ClientHeight - ScaleY(16 + 28);
+    CancelButton.ModalResult := mrCancel;
+    CancelButton.Cancel := True;
+
+    Form.ActiveControl := Edit;
+    Result := Form.ShowModal() = mrOk;
+    if Result then
+      Typed := Edit.Text;
+  finally
+    Form.Free();
+  end;
+end;
+
 // Deleting the library takes its backups with it (they are inside it by
 // default), so a ticked box alone is not enough: the exact word, in capitals,
 // must be typed. Anything else, including Cancel, keeps it.
@@ -822,10 +989,10 @@ begin
     Copies := #13#10#13#10 + 'It also deletes the copies a library restore left beside it ' +
       '(library.pre_restore_*, .restore_staging_*, library.restore-lock). Together: ' + SizeText(Total) + '.';
   end;
-  Result := InputQuery('Delete your library?',
+  Result := AskTypedWord('Delete your library?',
     'Your library (' + UninstDataDir + '\library) is ' + SizeText(FolderBytes(UninstDataDir + '\library')) +
     '. It holds your projects, translations, audio and video, and your backups too - ' +
-    'backups are inside it by default. This can''t be undone.' + Copies + #13#10#13#10 +
+    'backups are inside it by default. This can''t be undone.' + Copies,
     'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed) and
     (CompareStr(Typed, 'DELETE') = 0);
 end;
@@ -1059,6 +1226,9 @@ begin
     DeleteTree(ExpandConstant('{app}\python'), 'the bundled Python and its packages', Removed, Left);
     DeleteTree(ExpandConstant('{app}\app'), 'the program files', Removed, Left);
     DeleteTree(ExpandConstant('{app}\service'), 'the background service''s files', Removed, Left);
+    DeleteTree(ExpandConstant('{app}\app-update'), 'the app update''s work folder', Removed, Left);
+    if DeleteAppVersionFolders(ExpandConstant('{app}')) > 0 then
+      AddLine(Removed, 'earlier app versions kept by app updates');
   end;
   RemoveDir(ExpandConstant('{app}'));
 
