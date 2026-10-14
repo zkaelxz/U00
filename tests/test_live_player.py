@@ -19,12 +19,12 @@ from services import live_service
 from lib.errors import NotFoundError
 
 
-def test_commands_read_only_from_the_pipe_and_keep_source_timestamps():
+def test_commands_read_only_from_the_pipe_and_restart_the_clock():
     for kind, flag in (("video", "-an"), ("audio", "-vn")):
         cmd = live_player.ffmpeg_cmd(kind, "/tmp/p", FFMPEG_FORMAT_WHITELIST)
         assert cmd[cmd.index("-protocol_whitelist") + 1] == "pipe"
         assert cmd[cmd.index("-i") + 1] == "pipe:0"
-        assert "-copyts" in cmd and flag in cmd
+        assert "-copyts" not in cmd and flag in cmd
     assert "copy" in live_player.ffmpeg_cmd("video", "/tmp/p", "mpegts")
     assert "aac" in live_player.ffmpeg_cmd("audio", "/tmp/p", "mpegts")
 
@@ -86,7 +86,7 @@ def test_master_playlist_joins_the_audio_rendition_to_the_video(tmp_path):
             self.pump = None
     started = []
     orig = live_player.start_recorder
-    live_player.start_recorder = lambda kind, url, folder, proxy=None: started.append(kind) or Rec()
+    live_player.start_recorder = lambda kind, url, folder, proxy=None, align=None: started.append(kind) or Rec()
     try:
         live_player.start_player("v", "a", str(tmp_path))
     finally:
@@ -167,3 +167,14 @@ def test_watch_stops_a_failed_player_and_says_so():
     assert live_player.watch(fine, lambda *a: notes.append(a)) is fine and live_player.watch(None, None) is None
     assert live_player.watch(Failed(), lambda *a: notes.append(a)) is None
     assert stopped == [True] and notes == [(live_player.STOPPED_NOTE, "player")]
+
+
+def test_pumps_of_one_broadcast_start_at_the_same_media_sequence():
+    import live_fetch
+    align = live_fetch.SequenceAlign()
+    # Video joins first and picks its newest-minus-three; audio, with its own window, takes it.
+    assert align.agree(870, 860, 873) == 870
+    assert align.agree(877, 862, 880) == 870
+    # A window that no longer holds it, or does not reach it yet, gives the nearest sequence it has.
+    assert align.agree(900, 880, 890) == 880
+    assert align.agree(850, 840, 865) == 865

@@ -11,10 +11,11 @@ capture, which stays exactly as it was, and, like it, ffmpeg opens nothing
 itself (`-protocol_whitelist pipe`): every fetch goes through the pump and the
 guarded proxy.
 
--copyts keeps the stream's own timestamps on both outputs, so the two
-playlists line up on one clock however late each recorder started; without it
-each would restart at zero from its own first packet and picture and sound
-would be offset by whatever the two fetches differed by.
+The two source streams stamp their packets on different clocks (a video
+stream's first packet can read 2527 s where the audio's reads 1.4 s), so their
+own timestamps cannot be used to line them up. Each ffmpeg instead restarts its
+clock at its first packet, and live_fetch.SequenceAlign makes both pumps begin
+at the same media sequence number, which on a broadcast's playlists is the same moment.
 """
 import os
 import re
@@ -67,21 +68,21 @@ def ffmpeg_cmd(kind: str, folder: str, whitelist: str) -> list:
     prefix = "v" if kind == "video" else "a"
     playlist = VIDEO_PLAYLIST if kind == "video" else AUDIO_PLAYLIST
     return ["ffmpeg", "-y", "-loglevel", "error", "-protocol_whitelist", "pipe",
-            "-format_whitelist", whitelist, "-copyts", "-i", "pipe:0", *tracks,
+            "-format_whitelist", whitelist, "-i", "pipe:0", *tracks,
             "-f", "hls", "-hls_time", str(SEGMENT_SECONDS), "-hls_list_size", str(LIST_SIZE),
             "-hls_flags", "delete_segments",
             "-hls_segment_filename", os.path.join(folder, f"{prefix}_%06d.ts"),
             os.path.join(folder, playlist)]
 
 
-def start_recorder(kind: str, source_url: str, folder: str, proxy: str = None) -> Recorder:
+def start_recorder(kind: str, source_url: str, folder: str, proxy: str = None, align=None) -> Recorder:
     from live_translate import FFMPEG_FORMAT_WHITELIST
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
     proc = subprocess.Popen(ffmpeg_cmd(kind, folder, FFMPEG_FORMAT_WHITELIST), stdin=subprocess.PIPE,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **group)
     try:
-        pump = live_fetch.StreamPump(source_url, proc.stdin, proxy=proxy).start()
+        pump = live_fetch.StreamPump(source_url, proc.stdin, proxy=proxy, align=align).start()
     except BaseException:
         proc.kill()
         proc.wait()
@@ -117,9 +118,10 @@ def start_player(video_url: str, audio_url: str, out_dir: str, proxy: str = None
     with open(os.path.join(folder, MASTER), "w", encoding="ascii") as fh:
         fh.write(_MASTER_TEXT)
     started = []
+    align = live_fetch.SequenceAlign()
     try:
-        started.append(start_recorder("video", video_url, folder, proxy))
-        started.append(start_recorder("audio", audio_url, folder, proxy))
+        started.append(start_recorder("video", video_url, folder, proxy, align))
+        started.append(start_recorder("audio", audio_url, folder, proxy, align))
     except BaseException:
         for rec in started:
             background_jobs.kill_tree(rec.proc)
