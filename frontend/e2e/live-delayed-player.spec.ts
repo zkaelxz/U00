@@ -32,13 +32,14 @@ test('the delayed player replaces the embed once the recording is ready', async 
   m.state.status = 'running'
   m.state.message = 'Listening'
   m.state.cues = [cue(0), cue(1)]
+  m.state.figures = { delayed_player: true }
   await expect(live.getByTestId('live-status')).toHaveText('Listening · 2 lines')
   // Not ready yet: a note, no player files requested, and the embed is not used at all.
   await expect(live.getByTestId('live-video-note')).toHaveText('Preparing the delayed player…')
   expect(asked).toEqual([])
   await expect(page.locator('iframe[title="Stream video"]')).toHaveCount(0)
 
-  m.state.figures = { player_ready: true }
+  m.state.figures = { delayed_player: true, player_ready: true }
   await expect.poll(() => asked.includes('master.m3u8'), { timeout: 15_000 }).toBe(true)
   await expect(live.getByTestId('live-delayed-video')).toHaveCount(1)
   // The delay controls are there for a stream the embed could not delay.
@@ -61,4 +62,21 @@ test('without the option the embed is used and the start request does not ask fo
   m.state.cues = [cue(0)]
   await expect(page.locator('iframe[title="Stream video"]')).toHaveCount(1)
   await expect(live.getByTestId('live-delayed-video')).toHaveCount(0)
+})
+
+test('a session that records no copy keeps the embed even when the form has the option on', async ({ page }) => {
+  // Started elsewhere (another tab, a followed channel): the status says so, whatever this form holds.
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill(YT)
+  await live.getByText('Advanced').click()
+  await live.getByLabel('Delayed player', { exact: true }).click()
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.cues = [cue(0), cue(1)]
+  m.state.figures = { delayed_player: false }
+  await expect(page.locator('iframe[title="Stream video"]')).toHaveCount(1)
+  await expect(live.getByTestId('live-delayed-video')).toHaveCount(0)
+  await expect(live.getByText('Preparing the delayed player…')).toHaveCount(0)
 })

@@ -123,9 +123,7 @@ def start_player(video_url: str, audio_url: str, out_dir: str, proxy: str = None
         started.append(start_recorder("video", video_url, folder, proxy, align))
         started.append(start_recorder("audio", audio_url, folder, proxy, align))
     except BaseException:
-        for rec in started:
-            background_jobs.kill_tree(rec.proc)
-            rec.pump.halt()
+        PlayerRecorders(folder, started).stop(kill=True)
         raise
     return PlayerRecorders(folder, started)
 

@@ -64,6 +64,8 @@ export interface LiveSessionStatus {
   translations_skipped?: number
   translate_queue?: number
   chunks_measured?: number
+  /** Whether this session records a delayed copy for the page's own player. */
+  delayed_player?: boolean
   /** True once the delayed player's recording has something to play. */
   player_ready?: boolean
   cues: LiveCue[]

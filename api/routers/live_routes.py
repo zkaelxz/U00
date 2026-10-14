@@ -20,6 +20,7 @@ from api.auth import (is_at_pc, is_local_request, local_only, require_cloud_mode
                       require_engines_allowed, require_permission)
 from api.schemas import (LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary, error_responses)
+from lib.errors import ForbiddenError
 from services import live_service, model_readiness_service
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -35,6 +36,9 @@ _ERRS = error_responses(404, 422, 503)
 def post_session(body: LiveSessionStart, request: Request):
     require_engines_allowed(request, body.engine or live_service.LIVE_DEFAULT_ENGINE)
     require_cloud_model_allowed(request, (body.engine, body.model))
+    # The recorder downloads video for the whole session and its files are served to the PC only.
+    if body.delayed_player and not is_at_pc(request):
+        raise ForbiddenError("The delayed player can only be started at the PC.")
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_whisper_size, body.whisper_size)
     return live_service.start_session(

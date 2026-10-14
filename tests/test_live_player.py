@@ -178,3 +178,20 @@ def test_pumps_of_one_broadcast_start_at_the_same_media_sequence():
     # A window that no longer holds it, or does not reach it yet, gives the nearest sequence it has.
     assert align.agree(900, 880, 890) == 880
     assert align.agree(850, 840, 865) == 865
+
+
+def test_a_failed_start_stops_and_reaps_the_recorder_already_running(tmp_path, monkeypatch):
+    import live_translate
+    stopped = []
+    video = object.__new__(live_player.Recorder)
+
+    def start(kind, url, folder, proxy=None, align=None):
+        if kind == "audio":
+            raise RuntimeError("no ffmpeg")
+        return video
+    monkeypatch.setattr(live_player, "start_recorder", start)
+    monkeypatch.setattr(live_translate, "stop_capture", lambda rec, timeout=5.0, kill=False: stopped.append((rec, kill)))
+    with pytest.raises(RuntimeError):
+        live_player.start_player("v", "a", str(tmp_path))
+    # stop_capture is what halts the pump, kills the process and joins the pump's threads.
+    assert stopped == [(video, True)]

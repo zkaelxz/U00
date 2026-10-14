@@ -283,6 +283,8 @@ export default function LivePage() {
   // pressed: leaving it mounted would keep the stream's audio playing.
   const videoLive = !!session && status === 'running' && !stopping && url.trim() !== ''
   const streamRef = videoLive ? parseStreamUrl(url) : null
+  // What the running session records, not the form: a session started elsewhere (another tab, a followed channel) has no copy.
+  const ownPlayer = session?.status?.delayed_player === true
   const feed = session ? feedCues(session.cues) : []
   const total = session?.next ?? 0
   const lag = session?.status ? lagLine(session.status) : null
@@ -459,17 +461,17 @@ export default function LivePage() {
                   <Toggle checked={showVideo} onChange={setShowVideo} />
                 </Field>
               </div>
-              {!streamRef && !form.delayed_player && <p className="muted">This site can't be shown here; the lines still work.</p>}
-              {(streamRef || form.delayed_player) && showVideo && (
+              {!streamRef && !ownPlayer && <p className="muted">This site can't be shown here; the lines still work.</p>}
+              {(streamRef || ownPlayer) && showVideo && (
                 <>
-                  {form.delayed_player ? (
+                  {ownPlayer ? (
                     <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay}
                       captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
                   ) : streamRef && (
                     <StreamEmbed stream={streamRef} delay={delay}
                       captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
                   )}
-                  {(form.delayed_player || (streamRef && canDelay(streamRef))) && (
+                  {(ownPlayer || (streamRef && canDelay(streamRef))) && (
                     <>
                       <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
                         <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay}
