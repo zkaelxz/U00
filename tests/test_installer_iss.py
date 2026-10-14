@@ -265,7 +265,7 @@ class TestUninstall:
                        "MatchingFoldersBytes(", "SizeText(Total)", "HasRestoreCopies()"):
             assert needle in confirm, needle
         # Named only when the library exists.
-        assert confirm.index("DirExists(UninstDataDir + '\\library') and HasRestoreCopies()") < confirm.index("InputQuery(")
+        assert confirm.index("DirExists(UninstDataDir + '\\library') and HasRestoreCopies()") < confirm.index("AskTypedWord(")
         assert "CompareStr(Typed, 'DELETE') = 0" in confirm
 
     def test_restore_copies_without_a_library_are_kept_and_flagged(self, iss):
@@ -562,13 +562,32 @@ class TestInstallerIdentityDoesNotDrift:
 class TestUninstallLibraryConfirmation:
     def test_interactive_library_delete_needs_the_typed_word(self, iss):
         confirm = _func(iss, "ConfirmLibraryDelete")
-        assert "InputQuery(" in confirm and "CompareStr(Typed, 'DELETE') = 0" in confirm
+        assert "AskTypedWord(" in confirm and "CompareStr(Typed, 'DELETE') = 0" in confirm
+        # Both must hold: the confirming button and the exact word in capitals.
+        assert ", Typed) and\n    (CompareStr(Typed, 'DELETE') = 0);" in confirm
         assert "backups are inside it by default" in confirm and "SizeText(" in confirm
         init = _func(iss, "InitializeUninstall")
         assert "if Result and DeleteLibrary and not ConfirmLibraryDelete() then" in init
         declined = init[init.index("not ConfirmLibraryDelete()"):]
         # Keeping the library also cancels "Remove everything", which would take it too.
         assert "CleanAll := False;" in declined and "DeleteLibrary := False;" in declined
+
+    def test_the_typed_word_form_keeps_the_library_unless_confirmed(self, iss):
+        # Inno Setup's Pascal Script has no InputQuery: ISCC stops on it.
+        assert "InputQuery(" not in iss
+        ask = _func(iss, "AskTypedWord")
+        # Typed starts empty and is only filled from the box after the confirming
+        # button, so Cancel, Esc or closing the window keep the library.
+        assert ask.index("Typed := '';") < ask.index("ShowModal()")
+        assert "Result := Form.ShowModal() = mrOk;" in ask
+        assert "if Result then\n      Typed := Edit.Text;" in ask
+        assert "Edit.Text := '';" in ask
+        assert "CancelButton.ModalResult := mrCancel;" in ask and "CancelButton.Cancel := True;" in ask
+        # What to type has its own line above the box, so a long prompt can't hide it.
+        assert "InstructionText.Caption := Instruction;" in ask
+        assert ask.index("InstructionText.Caption") < ask.index("Edit := TNewEdit.Create(Form);")
+        confirm = _func(iss, "ConfirmLibraryDelete")
+        assert "'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed)" in confirm
 
     def test_silent_uninstall_is_not_prompted(self, iss):
         init = _func(iss, "InitializeUninstall")

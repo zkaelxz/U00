@@ -802,6 +802,80 @@ begin
     FileExists(UninstDataDir + '\library.restore-lock');
 end;
 
+// Inno Setup's Pascal Script has no InputQuery (ISCC rejects it as an unknown
+// identifier), so the typed confirmation is its own form. Returns True only
+// for the button that confirms, with the text as typed; Cancel, Esc or
+// closing the window give False and an empty Typed. Instruction gets its own
+// line right above the box: in the wrapped Prompt it could be clipped by a
+// long path and leave the user not knowing what to type.
+function AskTypedWord(const Title, Prompt, Instruction: String; var Typed: String): Boolean;
+var
+  Form: TSetupForm;
+  PromptText, InstructionText: TNewStaticText;
+  Edit: TNewEdit;
+  OkButton, CancelButton: TNewButton;
+begin
+  Typed := '';
+  Form := CreateCustomForm(ScaleX(460), ScaleY(300), False, False);
+  try
+    Form.Caption := Title;
+
+    PromptText := TNewStaticText.Create(Form);
+    PromptText.Parent := Form;
+    PromptText.Left := ScaleX(16);
+    PromptText.Top := ScaleY(14);
+    PromptText.Width := Form.ClientWidth - ScaleX(32);
+    PromptText.AutoSize := False;
+    PromptText.Height := ScaleY(144);
+    PromptText.WordWrap := True;
+    PromptText.Caption := Prompt;
+
+    InstructionText := TNewStaticText.Create(Form);
+    InstructionText.Parent := Form;
+    InstructionText.Left := ScaleX(16);
+    InstructionText.Top := ScaleY(164);
+    InstructionText.Width := Form.ClientWidth - ScaleX(32);
+    InstructionText.AutoSize := False;
+    InstructionText.Height := ScaleY(32);
+    InstructionText.WordWrap := True;
+    InstructionText.Caption := Instruction;
+
+    Edit := TNewEdit.Create(Form);
+    Edit.Parent := Form;
+    Edit.Left := ScaleX(16);
+    Edit.Top := ScaleY(200);
+    Edit.Width := Form.ClientWidth - ScaleX(32);
+    Edit.Text := '';
+
+    OkButton := TNewButton.Create(Form);
+    OkButton.Parent := Form;
+    OkButton.Caption := 'OK';
+    OkButton.Width := ScaleX(96);
+    OkButton.Height := ScaleY(28);
+    OkButton.Left := Form.ClientWidth - ScaleX(16 + 96 + 8 + 96);
+    OkButton.Top := Form.ClientHeight - ScaleY(16 + 28);
+    OkButton.ModalResult := mrOk;
+    OkButton.Default := True;
+
+    CancelButton := TNewButton.Create(Form);
+    CancelButton.Parent := Form;
+    CancelButton.Caption := 'Cancel';
+    CancelButton.Width := ScaleX(96);
+    CancelButton.Height := ScaleY(28);
+    CancelButton.Left := Form.ClientWidth - ScaleX(16 + 96);
+    CancelButton.Top := Form.ClientHeight - ScaleY(16 + 28);
+    CancelButton.ModalResult := mrCancel;
+    CancelButton.Cancel := True;
+
+    Form.ActiveControl := Edit;
+    Result := Form.ShowModal() = mrOk;
+    if Result then
+      Typed := Edit.Text;
+  finally
+    Form.Free();
+  end;
+end;
+
 // Deleting the library takes its backups with it (they are inside it by
 // default), so a ticked box alone is not enough: the exact word, in capitals,
 // must be typed. Anything else, including Cancel, keeps it.
@@ -822,10 +896,10 @@ begin
     Copies := #13#10#13#10 + 'It also deletes the copies a library restore left beside it ' +
       '(library.pre_restore_*, .restore_staging_*, library.restore-lock). Together: ' + SizeText(Total) + '.';
   end;
-  Result := InputQuery('Delete your library?',
+  Result := AskTypedWord('Delete your library?',
     'Your library (' + UninstDataDir + '\library) is ' + SizeText(FolderBytes(UninstDataDir + '\library')) +
     '. It holds your projects, translations, audio and video, and your backups too - ' +
-    'backups are inside it by default. This can''t be undone.' + Copies + #13#10#13#10 +
+    'backups are inside it by default. This can''t be undone.' + Copies,
     'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed) and
     (CompareStr(Typed, 'DELETE') = 0);
 end;
