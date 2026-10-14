@@ -87,3 +87,11 @@ describe('TabPicker', () => {
     expect(html).toContain('2<span class="visually-hidden"> to look at</span>')
   })
 })
+
+describe('every tab stays enabled', () => {
+  it('has no disabled tab, whatever its count or attention', () => {
+    const html = renderToStaticMarkup(<Tabs label="Demo" idPrefix="demo" tabs={tabs} active="a" onSelect={() => undefined} />)
+    expect(html).not.toContain('disabled')
+    expect(html).not.toContain('aria-disabled')
+  })
+})
