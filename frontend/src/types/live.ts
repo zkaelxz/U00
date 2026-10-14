@@ -15,6 +15,8 @@ export interface LiveSessionStart {
   reply_without_thinking: boolean
   /** Also record a delayed copy of the picture for the page's own player. */
   delayed_player?: boolean
+  /** With the delayed player: the tallest picture to record, in pixels. */
+  player_height?: number
   /** A title whose glossary and language packs the translation may use (read-only). */
   glossary_drama_id?: number
   /** Instead of a title: the series' glossary and the packs of its newest title with a pack choice. */

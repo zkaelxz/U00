@@ -353,7 +353,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   use_saved_cookies: bool = False,
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
                   series_id: Optional[int] = None, delayed_player: bool = False,
-                  principal=None) -> dict:
+                  player_height: int = live_player.DEFAULT_HEIGHT, principal=None) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
     glossary_drama_id: a title whose glossary and language packs the stream's
     translation may use (read-only); NotFoundError when the caller cannot see it.
@@ -365,6 +365,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     InvalidInputError (422) for a bad/private URL or bad option,
     DependencyUnavailableError (503) for an unresolvable host or missing
     engine key."""
+    if player_height not in live_player.HEIGHTS:
+        raise InvalidInputError(f"player_height must be one of {', '.join(map(str, live_player.HEIGHTS))}.")
     if not isinstance(url, str) or not url.strip():
         raise InvalidInputError("url is required.")
     url = url.strip()
@@ -410,13 +412,13 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         return _start_registered(session_id, out_dir, url, source_language, whisper_size,
                                  segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
                                  use_gpu, use_saved_cookies, reply_without_thinking, term_hints,
-                                 delayed_player)
+                                 player_height if delayed_player else 0)
 
 
 def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
                       use_saved_cookies, reply_without_thinking, term_hints=None,
-                      delayed_player=False):
+                      player_height=0):
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
@@ -440,7 +442,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                     break
         _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
                                  "model": getattr(eng, "model", None), "starting": True,
-                                 "segment_seconds": segment_seconds, "delayed_player": bool(delayed_player),
+                                 "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
         started = job_launch.start_job(
@@ -448,7 +450,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             reply_without_thinking=bool(reply_without_thinking), term_hints=term_hints,
-            delayed_player=bool(delayed_player), max_seconds=max_minutes * 60,
+            delayed_player=player_height, max_seconds=max_minutes * 60,
             spend_guard=live_spend_service.LiveSpendGuard(
                 eng, engine_name, functools.partial(_stop_for_spend, session_id)),
             stream_url_check=check_stream_url,
