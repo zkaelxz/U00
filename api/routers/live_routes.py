@@ -17,15 +17,14 @@ from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import (is_at_pc, is_local_request, require_cloud_model_allowed,
                       require_engines_allowed, require_permission)
-from api.schemas import (ErrorResponse, LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
-                         LiveSessionStatus, LiveSessionStopped, LiveSessionSummary)
+from api.schemas import (LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
+                         LiveSessionStatus, LiveSessionStopped, LiveSessionSummary, error_responses)
 from services import live_service, model_readiness_service
 
 router = APIRouter(prefix="/api/live", tags=["live"])
 
 _SID = Path(pattern=r"^live_[0-9a-f]{32}$")
-_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 422, 503)
 
 
 @router.post("/sessions", dependencies=[require_permission("media.import_url")],
