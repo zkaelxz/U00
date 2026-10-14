@@ -339,7 +339,7 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
         {job.finished_at != null && (<><dt>Finished</dt><dd>{fullTime(job.finished_at)}</dd></>)}
         <dt>Duration</dt>
         <dd>{formatDuration(job, now)}</dd>
-        {jobTimeLeftText(job, now) && (<><dt>Time left</dt><dd>{jobTimeLeftText(job, now)}</dd></>)}
+        {jobTimeLeftText(job, now) && (<><dt>Estimate</dt><dd>{jobTimeLeftText(job, now)}</dd></>)}
       </dl>
       {outcome && <p className={shownStatus(job) === 'error' ? 'error' : undefined}>{plainJobText(outcome)}</p>}
       {detail && <p className={job.status === 'error' ? 'error' : 'muted'}>{plainJobText(detail)}</p>}
