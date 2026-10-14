@@ -50,8 +50,6 @@ test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll
   expect(boxes[0].top).toBe(boxes[1].top)
   expect(boxes[2].top).toBeGreaterThan(boxes[1].top)
 
-  await c.locator('summary', { hasText: 'Schedule and golden set' }).click()
-  await c.locator('summary', { hasText: 'Decision history' }).click()
   await c.scrollIntoViewIfNeeded()
   await noSideways(page)
   expect(await smallTargets(page)).toEqual([])

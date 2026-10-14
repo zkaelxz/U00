@@ -10,7 +10,6 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { BacklogItem, BacklogKind } from '../../types/assistant'
-import { cardStartsOpen } from './assistantTabs'
 import { BACKLOG_KINDS, assistantErrorText, kindLabel, plural, shortDate } from './assistantFormat'
 
 type Props = {
@@ -86,7 +85,7 @@ export function BacklogCard({ items, loadError, onItems, onAdd }: Props) {
           {loadError}
         </p>
       )}
-      <Section title="Backlog" summary={items ? plural(count, 'item') : 'Notes for later'} storageKey="assistant.backlog" defaultOpen={cardStartsOpen('backlog', true)}>
+      <Section title="Backlog" summary={items ? plural(count, 'item') : 'Notes for later'} storageKey="assistant.backlog" defaultOpen>
       {count > 0 && (
         <div className="assistant-actions">
           <ConfirmButton label="Clear all…" ariaLabel="Clear all backlog items" name="all backlog items" verb="clear" busy={busyId === 'all'} disabled={busyId !== null && busyId !== 'all'} onConfirm={clearAll} />

@@ -55,7 +55,6 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await expect(row).toContainText('Translation')
 
   // Add one case by hand to the same set, then delete it (two steps).
-  await sets.locator('summary', { hasText: 'Add one case' }).click()
   const add = sets.locator('details', { hasText: 'Add one case' })
   await add.getByLabel('Label', { exact: true }).fill('Morning')
   await add.getByLabel('Set name', { exact: true }).fill(setName)

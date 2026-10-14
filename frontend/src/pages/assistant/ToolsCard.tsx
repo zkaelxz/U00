@@ -4,10 +4,9 @@ import { useEffect, useState } from 'react'
 import { getAssistantTools } from '../../api/assistant'
 import { Section } from '../../components/Section'
 import type { AssistantToolList } from '../../types/assistant'
-import { cardStartsOpen } from './assistantTabs'
 import { READ_ONLY_NOTE, assistantErrorText, plural } from './assistantFormat'
 
-export function ToolsCard({ githubConfigured }: { githubConfigured: boolean }) {
+export function ToolsCard() {
   const [tools, setTools] = useState<AssistantToolList | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -29,7 +28,7 @@ export function ToolsCard({ githubConfigured }: { githubConfigured: boolean }) {
           {error}
         </p>
       )}
-      <Section title="Tools" summary={tools ? plural(tools.tools.length, 'read-only tool') : 'What it can read'} storageKey="assistant.tools" defaultOpen={cardStartsOpen('tools', githubConfigured)}>
+      <Section title="Tools" summary={tools ? plural(tools.tools.length, 'read-only tool') : 'What it can read'} storageKey="assistant.tools" defaultOpen>
       <p className="muted" data-testid="read-only-note">
         {READ_ONLY_NOTE}
       </p>
