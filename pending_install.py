@@ -557,6 +557,61 @@ def without_clashing_cv2(wanted: dict, now: dict, before: dict):
     return wanted, []
 
 
+def kept_wheels_dir() -> str:
+    """{app}\\wheels beside {app}\\python, where Setup keeps the core wheels
+    it installed from (installer/baihe.iss)."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(sys.executable))), "wheels")
+
+
+def kept_wheels(wanted: dict, folder: str = None) -> set:
+    """Names in `wanted` ({name: version}) whose exact version is a kept
+    wheel, every such wheel matching the SHA-256 its lock lists. Empty in a
+    checkout, which has no such folder."""
+    folder = kept_wheels_dir() if folder is None else folder
+    try:
+        from installer import postinstall
+    except ImportError:
+        return set()
+    try:
+        with open(os.path.join(folder, postinstall.LOCK_NAME), encoding="utf-8") as f:
+            lock = postinstall.parse_lock(f.read())
+        files = os.listdir(folder)
+    except (OSError, ValueError, postinstall.LockError):
+        return set()
+    good, bad = set(), set()
+    for fname in files:
+        try:
+            name, version = postinstall.wheel_identity(fname)
+        except postinstall.LockError:
+            continue
+        pin = lock.get(name)
+        if not pin or pin[0] != version or str(wanted.get(name, "")).lower() != version:
+            continue
+        try:
+            ok = postinstall.sha256_file(os.path.join(folder, fname)) in pin[1]
+        except OSError:
+            ok = False
+        (good if ok else bad).add(name)
+    return good - bad
+
+
+def restore_argvs(wanted: dict, folder: str = None) -> list:
+    """The pip commands that put `wanted` back, no dependencies. The kept
+    wheels go first with no index, so those come back with the network down
+    (pip picks them by name==version, so no direct_url.json marks them as
+    local); the rest come from the index."""
+    base = _python() + ["-m", "pip", "install", "--no-deps", "--no-cache-dir",
+                        "--disable-pip-version-check"]
+    folder = kept_wheels_dir() if folder is None else folder
+    kept = kept_wheels(wanted, folder)
+    argvs = []
+    for names, extra in ((sorted(kept), ["--no-index", "--find-links", folder]),
+                         (sorted(set(wanted) - kept), [])):
+        if names:
+            argvs.append(base + extra + [f"{n}=={wanted[n]}" for n in names])
+    return argvs
+
+
 def _restore(before: dict, now_versions: dict, budget: float, echo: bool):
     """Puts back every package whose version changed or that went missing.
     Returns (restored, failed) dist names and pip's output lines."""
@@ -567,10 +622,9 @@ def _restore(before: dict, now_versions: dict, budget: float, echo: bool):
     failed = sorted(set(wanted) - set(safe))
     if not safe:
         return [], failed, []
-    argv = _python() + ["-m", "pip", "install", "--no-deps", "--no-cache-dir",
-                        "--disable-pip-version-check",
-                        *[f"{n}=={v}" for n, v in sorted(safe.items())]]
-    _rc, lines, _timed_out = run_capture(argv, budget, echo)
+    lines, end = [], time.monotonic() + budget
+    for argv in restore_argvs(safe):
+        lines += run_capture(argv, end - time.monotonic(), echo)[1]
     after = snapshot()
     ok = [n for n, v in safe.items() if after.get(n) == v]
     return sorted(ok), sorted(failed + [n for n in safe if n not in ok]), lines

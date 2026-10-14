@@ -100,6 +100,9 @@ Type: filesandordirs; Name: "{app}\service"
 ; replaces whatever state it describes. The kept app-<version> folders go in
 ; CurStepChanged, by name and only from a Baihe Studio install folder.
 Type: filesandordirs; Name: "{app}\app-update"
+; The kept core wheels are this Setup's, never an earlier one's: a restore
+; picks them by the versions this Setup installs.
+Type: filesandordirs; Name: "{app}\wheels"
 
 [Registry]
 ; The sign-in recovery an interrupted app-only update registers; a full
@@ -111,7 +114,9 @@ Source: "{#PayloadDir}\python\*"; DestDir: "{app}\python"; Flags: ignoreversion 
 Source: "{#PayloadDir}\app\*"; DestDir: "{app}\app"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PayloadDir}\service\*"; DestDir: "{app}\service"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PayloadDir}\manifest.json"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PayloadDir}\wheels\*"; DestDir: "{tmp}\wheels"; Flags: ignoreversion deleteafterinstall
+; Kept after the install: a Diagnostics install that fails puts these core
+; packages back from here when the network is down (pending_install.restore_argvs).
+Source: "{#PayloadDir}\wheels\*"; DestDir: "{app}\wheels"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"""; WorkingDir: "{app}\app"; IconFilename: "{app}\app\assets\app_icon.ico"; Comment: "Start Baihe Studio and open it in its own window"
@@ -258,6 +263,52 @@ begin
   Result := True;
 end;
 
+// True when Path is a junction or a symbolic link (FILE_ATTRIBUTE_REPARSE_POINT).
+function IsLink(const Path: String): Boolean;
+var
+  Rec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(RemoveBackslashUnlessRoot(Path), Rec) then
+  try
+    Result := (Rec.Attributes and $400) <> 0;
+  finally
+    FindClose(Rec);
+  end;
+end;
+
+// Deletes Path and everything in it, removing every junction or symbolic
+// link as a link only: following one could delete what it points to, outside
+// the folder being removed. Inno's DelTree doesn't promise that for links
+// nested inside, so it only ever deletes the files of one plain folder here.
+function DelTreeNoLinks(const Path: String): Boolean;
+var
+  Rec: TFindRec;
+  Child: String;
+begin
+  if IsLink(Path) then
+  begin
+    Result := RemoveDir(Path) or DeleteFile(Path);
+    Exit;
+  end;
+  if FindFirst(AddBackslash(Path) + '*', Rec) then
+  try
+    repeat
+      Child := AddBackslash(Path) + Rec.Name;
+      if (Rec.Name <> '.') and (Rec.Name <> '..') and ((Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) then
+      begin
+        if (Rec.Attributes and $400) <> 0 then
+          RemoveDir(Child)
+        else
+          DelTreeNoLinks(Child);
+      end;
+    until not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
+  Result := DelTree(Path, True, True, False);
+end;
+
 // Deletes the earlier app versions app-only updates kept directly in AppDir,
 // matched by IsAppVersionName. A junction or symlink is removed as a link
 // only. Returns how many.
@@ -278,7 +329,7 @@ begin
           if RemoveDir(Path) then
             Result := Result + 1;
         end
-        else if DelTree(Path, True, True, True) then
+        else if DelTreeNoLinks(Path) then
           Result := Result + 1;
       end;
     until not FindNext(Rec);
@@ -555,7 +606,7 @@ begin
   WizardForm.StatusLabel.Caption := 'Installing Baihe Studio''s Python packages (this can take a few minutes)...';
   WizardForm.FilenameLabel.Caption := '';
   Params := '-s "' + ExpandConstant('{app}\app\installer\postinstall.py') + '"' +
-    ' --wheels "' + ExpandConstant('{tmp}\wheels') + '"' +
+    ' --wheels "' + ExpandConstant('{app}\wheels') + '"' +
     ' --data-dir "' + DataDir() + '"';
   if DataDirCreatedBySetup then
     Params := Params + ' --data-dir-created';
@@ -1064,7 +1115,14 @@ procedure DeleteTree(const Path, Name: String; var Removed, Left: String);
 begin
   if DirExists(Path) then
   begin
-    if DelTree(Path, True, True, True) and not DirExists(Path) then
+    if IsLink(Path) then
+    begin
+      if RemoveDir(Path) then
+        AddLine(Removed, Name + ' - only the link at ' + Path + '; the folder it points to was kept')
+      else
+        AddLine(Left, Name + ' - a link at ' + Path + ' that couldn''t be removed; the folder it points to was kept');
+    end
+    else if DelTreeNoLinks(Path) and not DirExists(Path) then
       AddLine(Removed, Name)
     else
       AddLine(Left, Name + ' - couldn''t be removed completely (a file may be in use)');
@@ -1089,7 +1147,7 @@ begin
       IsDir := (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0;
       if IsDir and not Files then
       begin
-        if DelTree(AddBackslash(Temp) + Rec.Name, True, True, True) then
+        if DelTreeNoLinks(AddBackslash(Temp) + Rec.Name) then
           Result := Result + 1;
       end
       else if Files and not IsDir then
@@ -1146,7 +1204,7 @@ begin
           if RemoveDir(Path) then
             Result := Result + 1;
         end
-        else if DelTree(Path, True, True, True) then
+        else if DelTreeNoLinks(Path) then
           Result := Result + 1;
       end;
     until not FindNext(Rec);

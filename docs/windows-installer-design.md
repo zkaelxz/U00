@@ -47,6 +47,7 @@ Per-user install, no admin rights (`PrivilegesRequired=lowest`):
 | `%LOCALAPPDATA%\Programs\Baihe Studio\python\` | Official embeddable Python 3.12.10 x64 (pinned by SHA-256), with `python312._pth` set to: stdlib zip, `.`, `Lib\site-packages`, `..\app`, `import site`. pip and everything pip installs live in its `Lib\site-packages`. | Installer + pip | Interpreter files: yes. Installed packages: kept, and core is upgraded in place by pip. |
 | `...\Baihe Studio\app\` | The app's code (allow-by-default copy minus the exclusions in §3), `frontend\dist`, `installer\launcher.py`, `installer\postinstall.py`, and the `INSTALLED` marker | Installer | Yes, wholesale (`[InstallDelete]`), so a module deleted upstream can't linger |
 | `...\Baihe Studio\manifest.json` | App version, Python version and hash, wheel list with hashes, installed-size estimate | Installer | Yes |
+| `...\Baihe Studio\wheels\` | The bundled core wheels and their `wheels.lock.txt`, kept for an offline restore after a failed Diagnostics install | Installer | Yes, wholesale (`[InstallDelete]`) |
 | `%ProgramFiles%\Baihe Studio Services\` (admin-only; with the service task) | Copies of the service script, interpreter, WinSW and Caddy that run elevated (§11) | `service.py install` | Yes, by the service update |
 | **Data folder**, default `%LOCALAPPDATA%\Baihe Studio\` (chosen on the "Where to keep your library" page, or with `/DATADIR=`) | `library\` (database, dramas, media, backups, logs), `.env` (settings and API keys), `model_cache\` (Hugging Face, torch and audio-separator caches), `launcher\` (server pid, server log, install log) | The app at runtime | **Never** |
 
@@ -183,7 +184,12 @@ of the diff.
    drive stops Setup before anything is replaced), and stop the background service (§11) and
    any server a previous install started (`launcher.py --stop`) so its files
    can be replaced.
-3. Copy files. The wheels go to `{tmp}` and are deleted afterwards.
+3. Copy files. The wheels go to `{app}\wheels` and stay there (an update
+   replaces the folder): when a Diagnostics install fails and its restore
+   must put a core package back, `pending_install.restore_argvs` takes that
+   exact version from here with `--no-index`, after checking its SHA-256
+   against the folder's `wheels.lock.txt`, so it works with the network down.
+   Packages with no kept wheel come from the index as before.
 4. `postinstall.py`, run by the bundled `python.exe -s`:
    1. Writes `app\INSTALLED` with the data folder, then creates the folder.
       The marker comes first, and the launcher refuses to start an install
@@ -487,7 +493,10 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
 3. The program is removed: `{app}\python` (including pip-installed packages),
    `{app}\app` and `{app}\service`, but only when Baihe Studio put them there (the install
    has its `manifest.json`); then the shortcuts and the uninstall entry.
-   `{app}` itself is removed if it is empty.
+   `{app}` itself is removed if it is empty. Every folder the uninstaller deletes
+   (program, data, Trash, temp) goes through `DelTreeNoLinks`: a junction or symbolic
+   link anywhere inside, or the named folder itself being one, is removed as a link and
+   what it points to is never entered. The summary says when a named folder was only a link.
 4. Only the ticked items are deleted, by name (`<data>\library`, `<data>\.env`,
    `<data>\model_cache`, `<data>\baihe_trash`). The data folder's other contents are never touched,
    since it may be a folder the user picked and shares with other files. Two files are removed by
