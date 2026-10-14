@@ -308,6 +308,17 @@ class TestThePopupSaysWherePagesWent:
         assert 'aria-live="polite"' in html
         assert "width: 340px" in html
 
+    def test_every_action_sits_in_a_tab_whose_panel_exists(self):
+        import re
+        html = _read("popup.html")
+        panels = set(re.findall(r'role="tabpanel"[^>]*?id="([^"]+)"|id="([^"]+)"[^>]*?role="tabpanel"', html))
+        panel_ids = {a or b for a, b in panels}
+        controls = re.findall(r'role="tab"[^>]*aria-controls="([^"]+)"', html)
+        assert controls and set(controls) == panel_ids
+        for action in ("translate", "translateAll", "toggle", "captureChapter", "captureFromHere",
+                       "cancelCapture", "saveNovel", "translateText", "autoCreate", "autoFill", "autoSeries"):
+            assert f'id="{action}"' in html
+
 
 def test_bridge_calls_are_cut_off_before_the_service_worker_is_stopped():
     """Chrome may stop a worker whose event runs ~5 minutes; call() must time
