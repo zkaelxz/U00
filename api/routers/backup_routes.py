@@ -31,7 +31,7 @@ from api.backup_schemas import (
     AutoBackupSettings, AutoBackupSettingsUpdate, BackupFileDramaList, BackupJobStarted,
     BackupNowRequest, DeleteSnapshotDone, DeleteSnapshotRequest, ImportDramasDone,
     RestoreDramaDone, RestoreDramaRequest, SnapshotDramaList, SnapshotInfo)
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from lib.capped_request import read_capped_form
 from services import auto_backup_copies as abc_
 from services import auto_backup_service as abs_
@@ -42,10 +42,8 @@ from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
 
-_ERR = {422: {"model": ErrorResponse}}
-_ERR_409 = {409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
-_ERR_404 = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-            422: {"model": ErrorResponse}}
+_ERR = error_responses(422)
+_ERR_404 = error_responses(404, 409, 422)
 
 
 @router.get("/settings", dependencies=[local_only()], response_model=AutoBackupSettings,
@@ -62,7 +60,7 @@ def post_settings(body: AutoBackupSettingsUpdate):
 
 
 @router.post("/now", dependencies=[local_only()], response_model=BackupJobStarted,
-             responses=_ERR_409,
+             responses=error_responses(409, 422),
              summary="Back up now: adds a new copy, then rotates the old ones "
                      "(replace is ignored)")
 def post_now(body: BackupNowRequest = None):
@@ -150,7 +148,7 @@ def _drama_ids(form) -> list:
 
 @router.post("/import/list", dependencies=[local_only()], response_model=BackupFileDramaList,
              openapi_extra=_LIST_BODY,
-             responses={413: {"model": ErrorResponse}, **_ERR},
+             responses=error_responses(413, 422),
              summary="List the dramas inside an uploaded backup file (.zip or library.db); "
                      "changes nothing")
 async def post_import_list(request: Request):
@@ -163,7 +161,7 @@ async def post_import_list(request: Request):
 
 @router.post("/import", dependencies=[local_only()], response_model=ImportDramasDone,
              openapi_extra=_IMPORT_BODY,
-             responses={413: {"model": ErrorResponse}, **_ERR_404},
+             responses=error_responses(413, 404, 409, 422),
              summary="Import chosen dramas from an uploaded backup file as new dramas "
                      "(confirm=true, confirm_text=RESTORE)",
              description="Multipart: file, drama_ids (repeat the field; ids as listed by "
