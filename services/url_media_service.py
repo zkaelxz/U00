@@ -455,7 +455,8 @@ def _run_child(job_id: str, tmp: str, spec: dict, wall, watch) -> tuple:
             return True
         return False
     path_ignored_logged = False
-    events = ytdlp_child.run_download(tmp, spec, wall.ceiling, stop_now)
+    events = ytdlp_child.run_download(tmp, spec, wall.ceiling, stop_now,
+                                      on_start=lambda pid: background_jobs.note_child(job_id, pid))
     try:
         for item in events:
             event = item.get("event")
@@ -656,8 +657,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
 
 
 def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict = None):
-    tmp = storage.new_workdir(job_id)
-    try:
+    with storage.job_workdir(job_id) as tmp:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
         direct_ext = direct_media_ext(url)
         if direct_ext:
@@ -694,8 +694,6 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
                                             "title_filled": "title_zh" in fields,
                                             "details_filled": filled})
         background_jobs.update_progress(job_id, 1.0, "Downloaded.")
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
 
 
 _CLOCK_RE = re.compile(r"^\d{1,3}(:\d{1,2}){0,2}$")

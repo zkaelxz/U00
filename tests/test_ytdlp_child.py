@@ -247,7 +247,7 @@ def test_a_second_path_event_is_ignored_and_logged_once(child_env, monkeypatch):
 def test_nonce_in_other_lines_and_wrong_nonce_events_are_ignored(tmp_path, monkeypatch):
     media = str(tmp_path / "downloaded_a.m4a")
 
-    def fake_stream(cmd, timeout, cwd=None, cancel=None):
+    def fake_stream(cmd, timeout, cwd=None, cancel=None, on_start=None):
         nonce = json.load(open(cmd[-1]))["nonce"]
         good = f"@@ytdlp-{nonce} " + json.dumps({"path": media})
         yield {"line": f"WARNING: reading {cmd[-1]} nonce {nonce}"}  # echoed, not an event

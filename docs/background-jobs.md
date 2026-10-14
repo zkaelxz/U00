@@ -269,7 +269,16 @@ load on the GPU, the job falls back to CPU, finishes `done`, and says so in its 
   `run_cancellable` (ffmpeg and friends, killed as a process tree). Inside `job_workdir(job_id)`
   it notes the command (pid, start time, command digest) in the folder, so if the server dies
   without stopping it the next start stops it, only while it is still that same process, and
-  removes the folder (`storage.stop_orphaned_job_children`).
+  removes the folder (`storage.stop_orphaned_job_children`). A job that starts a process another
+  way (the link download's yt-dlp child) passes `background_jobs.note_child` as its `on_start`;
+  a job whose ffmpeg writes outside a work folder (video upload's audio extraction) still holds
+  one, only to carry the note (and runs without it if the temp folder can't be made). On Windows
+  the server's Job Object (`process_guard.py`) already ends these children with the server;
+  elsewhere this next-start stop is the only cleanup. Only the noted process is identity-checked:
+  on Linux its process group goes with it (yt-dlp's own ffmpeg included) while it is alive, but
+  if yt-dlp has already exited and its ffmpeg still runs, or on Windows when the Job Object was
+  refused, that grandchild is not stopped, and a folder it still has open is left to the
+  age-based sweep.
 - **Running process job:** `_process_watcher` sees the flag, stops the child
   (`_stop_process`: terminate, then kill; or `kill_tree` for `kill_whole_tree=True`),
   and marks the job `cancelled` ("Cancelled."). `on_done` is not called. A cancel that
