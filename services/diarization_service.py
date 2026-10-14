@@ -168,7 +168,8 @@ def apply_diarization_result(drama_id: int, result: dict,
     diarize.merge_speakers(lines, turns, overwrite_manual=overwrite_manual)
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
-    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"))
+    # Detection takes minutes; a speaker edited meanwhile must survive the result.
+    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
 
 
 def reassign_speakers_from_saved_turns(drama_id: int) -> dict:

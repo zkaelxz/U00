@@ -191,13 +191,32 @@ class TestApplyDiarizationResult:
         diarization_service.apply_diarization_result(
             did, {"segments": turns, "model": "m", "embeddings": {}}, expected_speakers=2)
 
-        assert saves == [{"fields": ("speaker", "speaker_manual")}]
+        assert saves == [{"fields": ("speaker", "speaker_manual"), "only_if_unchanged": True}]
         rows = isolated_db.load_line_objects(did)
         assert rows[0].speaker == "SPEAKER_00"
         assert rows[1].speaker == "Manual" and rows[1].speaker_manual
         saved = diarize.load_turns(ddir)
         assert saved is not None
         assert diarize.load_last_speaker_count(ddir) == 2
+
+    def test_a_speaker_edited_while_applying_is_not_overwritten(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        real_merge = diarize.merge_speakers
+
+        def merge_then_user_edits(lines, turns, **kw):
+            real_merge(lines, turns, **kw)
+            edited = isolated_db.load_line_objects(did)
+            edited[0].speaker = "Edited"
+            edited[0].speaker_manual = True
+            isolated_db.save_lines(did, edited, fields=("speaker", "speaker_manual"))
+
+        monkeypatch.setattr(diarize, "merge_speakers", merge_then_user_edits)
+        diarization_service.apply_diarization_result(
+            did, {"segments": [{"start": 0.0, "end": 6.0, "speaker": "S0"}], "model": "m"})
+
+        first = isolated_db.load_line_objects(did)[0]
+        assert (first.speaker, first.speaker_manual) == ("Edited", True)
 
     def test_no_segments_is_a_noop(self, isolated_db):
         did, ddir = _drama_with_audio(isolated_db)
