@@ -336,9 +336,12 @@ def restore(monkeypatch):
     monkeypatch.setattr(svc, "_non_index_dists", lambda: set(state["skip"]))
 
     def fake_restore_pip(argv, timeout, cancel=None, **_kw):
+        if state.get("cancel_again"):
+            background_jobs.request_cancel(JOB)
         state["calls"].append({"specs": [a for a in argv if "==" in a],
-                               "cancel": cancel is not None})
-        if state.get("restore_cancelled"):
+                               "cancel": cancel is not None,
+                               "stopped": cancel is not None and cancel()})
+        if state.get("restore_cancelled") or state["calls"][-1]["stopped"]:
             yield {"returncode": None, "timed_out": False, "cancelled": True}
             return
         for spec in argv:
@@ -380,10 +383,20 @@ def test_cancel_puts_the_earlier_packages_back(env, monkeypatch, restore):
     svc.start_dependency_install("jieba", confirm=True)
     assert _wait(_finished)["status"] == "cancelled"
     # The Cancel that stopped pip must not also stop the restore it asked for.
-    assert restore["calls"] == [{"specs": ["numpy==2.0"], "cancel": False}]
+    assert restore["calls"] == [{"specs": ["numpy==2.0"], "cancel": True, "stopped": False}]
     result = svc.get_dependency_install()["result"]
     assert result["hint"] == "Cancelled. Your earlier packages were put back."
     assert job_launch.exclusive_active() is False
+
+
+def test_a_second_cancel_stops_the_restore_the_first_one_asked_for(env, monkeypatch, restore):
+    restore["cancel_again"] = True
+    _pip_moves(restore, monkeypatch, {"numpy": "2.1"}, cancel=True)
+    svc.start_dependency_install("jieba", confirm=True)
+    assert _wait(_finished)["status"] == "cancelled"
+    assert restore["calls"][0]["stopped"] is True
+    hint = svc.get_dependency_install()["result"]["hint"]
+    assert "Putting your earlier packages back was cancelled." in hint
 
 
 def test_cancel_during_the_restore_is_reported(env, monkeypatch, restore):

@@ -283,6 +283,7 @@ def _note_cancel_locked(job, requested_at=None) -> None:
     if not job.get("cancel_requested") and job_launch.is_stopping():
         job["cancelled_by_stop"] = True
     job["cancel_requested"] = True
+    job["cancel_count"] = job.get("cancel_count", 0) + 1
     job.setdefault("cancel_requested_at", requested_at or time.time())
 
 
@@ -420,6 +421,23 @@ def is_cancel_requested(job_id: str) -> bool:
         if job and job.get("cancel_requested"):
             return True
     return _db_cancel_requested(job_id)
+
+
+def _cancel_count(job_id: str) -> int:
+    with _lock:
+        return (_jobs.get(job_id) or {}).get("cancel_count", 0)
+
+
+def later_cancel_probe(job_id: str):
+    """A callable that is true once the job is asked to cancel after this
+    call. The cancel flag is sticky, so work a Cancel itself started (putting
+    packages back after a cancelled install) would otherwise stop at once and
+    could not hear a second Cancel; before any cancel it is
+    is_cancel_requested (which also hears another process's)."""
+    if not is_cancel_requested(job_id):
+        return lambda: is_cancel_requested(job_id)
+    asked = _cancel_count(job_id)
+    return lambda: _cancel_count(job_id) > asked
 
 
 def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,
