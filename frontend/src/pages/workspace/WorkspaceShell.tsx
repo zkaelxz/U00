@@ -135,12 +135,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
         </div>
         <JobPill dramaId={id} onFinished={refetch} />
         {!phone && actions}
-        {next && nextHref && !phone && (
-          <ButtonLink href={nextHref} variant="primary" size="sm" className="ws-next" data-testid="next-action">
-            Next: {next.label}
-          </ButtonLink>
-        )}
       </header>
+      <div className="stage-row">
       <nav className="stage-tabs" aria-label="Stages">
         {STAGE_IDS.map((s) => {
           const st = states[s]
@@ -177,6 +173,12 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           )
         })}
       </nav>
+      {next && nextHref && !phone && (
+        <a href={nextHref} className="ws-next-link" data-testid="next-action">
+          Next: {next.label}
+        </a>
+      )}
+      </div>
       </div>
       {phone && active !== 'review' && actions}
       <ErrorBanner error={error} />
