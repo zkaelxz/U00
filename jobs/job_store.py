@@ -214,9 +214,11 @@ def _heartbeat_tick():
         running_gpu = [j for j in live if job_table._jobs[j]["status"] == "running"
                        and job_table._jobs[j].get("gpu_touching")]
     # A job that reports no progress (dub) never refreshes its own row.
-    from jobs import gpu_slots
+    from jobs import gpu_queue, gpu_slots
     with contextlib.suppress(Exception):
         gpu_slots.heartbeat(f"ui:{j}" for j in running_gpu)
+    with contextlib.suppress(Exception):
+        gpu_queue.retry_unreleased_gpu_slots()
     if live:
         try:
             db.touch_job_records(live)
