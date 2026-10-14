@@ -105,6 +105,13 @@ def test_start_poll_stop_flow(client, fake_live):
     assert client.post(f"/api/live/sessions/{sid}/stop").status_code == 200  # idempotent
 
 
+def test_every_picker_whisper_size_passes_the_start_schema():
+    import whisper_models
+    from api.schemas import LiveSessionStart
+    for size in whisper_models.LIVE_WHISPER_SIZES:
+        assert LiveSessionStart(url=URL, whisper_size=size).whisper_size == size
+
+
 def test_404_and_422(client):
     unknown = "live_" + "0" * 32
     assert client.get(f"/api/live/sessions/{unknown}").status_code == 404

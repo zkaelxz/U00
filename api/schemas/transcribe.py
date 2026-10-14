@@ -300,7 +300,7 @@ class LiveSessionStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: str = Field(min_length=1, max_length=2000)
     source_language: str = Field("zh", max_length=5)
-    whisper_size: str = Field("small", max_length=10)
+    whisper_size: str = Field("small", max_length=32)
     segment_seconds: float = 20
     overlap_seconds: float = 3
     engine: Optional[str] = Field(None, max_length=40,
