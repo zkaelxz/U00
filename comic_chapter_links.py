@@ -15,13 +15,14 @@ import threading
 
 import core
 import db
-from comic_chapters import _title, _url
+from comic_chapters import MAX_URL, _title, _url
 
 FILE_NAME = "chapter_links.json"
 MAX_LINKS = 500
 MAX_TITLE = 120
 MAX_FILE_BYTES = 512 * 1024
-_lock = threading.Lock()
+# Reentrant: remember() holds it across its own load().
+_lock = threading.RLock()
 
 
 def _path(drama_id: int) -> str:
@@ -37,7 +38,11 @@ def clean(raw, host=None) -> list:
     for item in raw[:4 * MAX_LINKS] if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        url = _url(item.get("url"))
+        link = item.get("url")
+        url = _url(link) if isinstance(link, str) and len(link) <= MAX_URL else ""
+        # display_url cuts a path that looks like a token down to the bare host, which is no chapter.
+        if urlsplit(url).path in ("", "/"):
+            continue
         title = _title(item.get("title"))[:MAX_TITLE]
         if not url or url in seen or not title:
             continue

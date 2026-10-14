@@ -139,3 +139,21 @@ def test_remember_never_writes_more_than_load_will_read(isolated_db, monkeypatch
     comic_chapter_links.remember(d, links)
     kept = comic_chapter_links.load(d)
     assert 0 < len(kept) < 100 and kept == links[:len(kept)]
+
+
+def _finishes(fn, seconds=10):
+    """Runs fn on a thread so a deadlock fails the test instead of hanging the run."""
+    import threading
+    done = threading.Event()
+    threading.Thread(target=lambda: (fn(), done.set()), daemon=True).start()
+    return done.wait(seconds)
+
+
+def test_remember_finishes_on_an_empty_and_a_non_empty_store(isolated_db):
+    d = db.create_drama(title_en="Lock", media_type="manga")
+    one = [{"title": "Chapter 1", "url": "https://reader.example/1"}]
+    assert _finishes(lambda: comic_chapter_links.remember(d, one))
+    assert comic_chapter_links.load(d) == one
+    two = one + [{"title": "Chapter 2", "url": "https://reader.example/2"}]
+    assert _finishes(lambda: comic_chapter_links.remember(d, two))
+    assert comic_chapter_links.load(d) == two
