@@ -12,9 +12,11 @@ import pytest
 import db
 import page_server
 from services import extension_title_service as titles
+from services import ownership_service
 
 from tests.test_page_server import _post
 
+OWNER = {"user_id": None, "is_local_owner": True}
 PAGE = "https://www.twmanga.com/comic/chapter/abc/0_12.html?token=s3cret"
 SERIES_PAGE = "https://www.twmanga.com/comic/abc"
 CANDIDATES = ["一人之下 第12话 - 腾讯漫画", "One Punch Man Chapter 12 | twmanga", "twmanga"]
@@ -142,7 +144,8 @@ def test_a_matched_title_with_no_series_joins_one_when_grouping_is_on(token):
 
 
 def test_an_existing_series_of_that_name_is_joined_not_duplicated(token):
-    existing = db.create_series("一人之下")
+    ownership_service.set_share_by_default(OWNER, True)
+    existing = db.create_series("一人之下", is_private=0)
     h = _resolve(token).payload
     assert h["series_id"] == existing and len(db.list_series()) == 1
 
@@ -153,11 +156,19 @@ def test_with_grouping_off_no_series_is_made(token):
     assert db.get_drama(h["drama_id"])["series_id"] is None
 
 
-def test_with_filling_off_the_title_is_a_placeholder_with_no_names_or_link(token):
+def test_with_filling_off_the_title_is_a_placeholder_with_no_names(token):
     h = _resolve(token, fill=False).payload
     drama = db.get_drama(h["drama_id"])
     assert drama["title_zh"] == "twmanga.com"
-    assert not drama["title_en"] and not drama["source_url"]
+    assert not drama["title_en"]
+    assert drama["source_url"] == "https://www.twmanga.com/comic/chapter/abc/0_12.html"
+
+
+def test_with_filling_off_a_second_chapter_reuses_the_placeholder(token):
+    first = _resolve(token, fill=False).payload
+    again = _resolve(token, fill=False, url="https://www.twmanga.com/comic/chapter/abc/0_13.html").payload
+    assert again["matched"] is True and again["drama_id"] == first["drama_id"]
+    assert len(_all_titles()) == 1
 
 
 def test_a_page_with_no_readable_title_gets_the_site_as_a_placeholder(token):
@@ -221,3 +232,70 @@ def test_two_sends_at_once_make_one_title(token):
         t.join()
     assert len({r["drama_id"] for r in results}) == 1
     assert sum(1 for r in results if r["created"]) == 1 and len(_all_titles()) == 1
+
+
+# -- other people's titles and series, kinds, and invisible characters --
+
+def _someone_elses(**fields):
+    return db.create_drama(title_zh="一人之下", source_language="zh", media_type="manhua",
+                           source_url="https://www.twmanga.com/comic/abc", **fields)
+
+
+def _state(drama_id):
+    d = db.get_drama(drama_id)
+    return (d["title_en"], d["source_url"], d["series_id"], d["is_private"], d["owner_user_id"])
+
+
+def test_another_users_private_title_is_not_matched_filled_or_joined(token):
+    theirs = _someone_elses(owner_user_id=999, is_private=1)
+    before = _state(theirs)
+    h = _resolve(token, url="https://www.twmanga.com/comic/abc").payload
+    assert h["created"] is True and h["drama_id"] != theirs
+    assert _state(theirs) == before
+    assert db.get_series_id_by_name("一人之下") != db.get_drama(theirs)["series_id"]
+
+
+def test_a_title_in_another_users_private_series_is_not_matched(token):
+    series = db.create_series("他的系列", owner_user_id=999, is_private=1)
+    theirs = _someone_elses(owner_user_id=999, series_id=series)
+    before = _state(theirs)
+    h = _resolve(token, url="https://www.twmanga.com/comic/abc").payload
+    assert h["created"] is True
+    assert _state(theirs) == before
+
+
+@pytest.mark.parametrize("share", [True, False])
+def test_a_series_of_that_name_owned_by_someone_else_is_not_joined(token, share):
+    ownership_service.set_share_by_default(OWNER, share)
+    theirs = db.create_series("一人之下", owner_user_id=999, is_private=0)
+    h = _resolve(token).payload
+    assert h["created"] is True and h["series_id"] != theirs
+    assert db.get_drama(h["drama_id"])["series_id"] != theirs
+
+
+@pytest.mark.parametrize("share", [True, False])
+def test_privacy_and_visibility_are_unchanged_after_auto(token, share):
+    ownership_service.set_share_by_default(OWNER, share)
+    mine = db.create_drama(title_zh="一人之下", source_language="zh", media_type="manhua",
+                           source_url="https://www.twmanga.com/comic/abc",
+                           is_private=int(not share))
+    member = {"user_id": 5, "is_admin": False, "is_local_owner": False}
+    seen_before = ownership_service.can_see(member, "drama", mine)
+    h = _resolve(token, url="https://www.twmanga.com/comic/abc").payload
+    assert h["drama_id"] == mine
+    assert ownership_service.can_see(member, "drama", mine) is seen_before
+    new = _resolve(token, url="https://other.example/x", titles=["新作 第1话"]).payload
+    assert ownership_service.can_see(member, "drama", new["drama_id"]) is share
+
+
+def test_a_comic_page_never_matches_an_audio_or_video_title(token):
+    audio = db.create_drama(title_zh="一人之下", source_language="zh", media_type="audio_drama",
+                            source_url="https://www.twmanga.com/comic/abc")
+    h = _resolve(token, url="https://www.twmanga.com/comic/abc").payload
+    assert h["created"] is True and h["drama_id"] != audio
+
+
+def test_bidi_and_zero_width_characters_are_stripped_from_names(token):
+    h = _resolve(token, titles=["一\u202e人\u200f之\u2066下 第3话"]).payload
+    assert db.get_drama(h["drama_id"])["title_zh"] == "一人之下"
+    assert db.get_series_id_by_name("一人之下") == h["series_id"]

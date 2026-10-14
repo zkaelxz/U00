@@ -21,7 +21,8 @@ from urllib.parse import urlsplit
 import db
 import page_server
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, ServiceError
-from services import drama_service, extension_novel_service, ownership_service, source_link_service
+from services import (drama_service, extension_novel_service, link_details_service, ownership_service,
+                      source_link_service)
 from services.series_service import term_key
 from translate_engines import redact_secrets
 
@@ -52,13 +53,15 @@ _CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
 _KANA = re.compile(r"[぀-ヿ]")
 _HANGUL = re.compile(r"[가-힯]")
 _LATIN_PHRASE = re.compile(r"[A-Za-z][A-Za-z0-9'’.,:!?\- ]*[A-Za-z0-9.!?]")
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
+
+# A page only matches titles of its own kind: a comic site's page never lands in an audio or video title.
+_MEDIA_BY_KIND = {"comic": ("manga", "manhwa", "manhua"), "novel": ("novel",)}
 
 _MEDIA_BY_LANGUAGE = {"zh": "manhua", "ja": "manga", "ko": "manhwa"}
 
 
 def _line(value) -> str:
-    return re.sub(r"\s+", " ", _CONTROL.sub(" ", str(value or ""))).strip()
+    return re.sub(r"\s+", " ", extension_novel_service.clean_text(str(value or ""))).strip()
 
 
 def _host(url: str) -> str:
@@ -156,10 +159,13 @@ def _read(payload: dict) -> dict:
             "series": _flag(payload, "series")}
 
 
-def _find_match(clean_url: str, host: str, original: str, english: str, novel: bool):
+def _find_match(clean_url: str, host: str, original: str, english: str, kind: str):
     wanted = {term_key(n) for n in (original, english) if n}
     for drama in db.list_dramas():
-        if (drama.get("media_type") == "novel") != novel:
+        if drama.get("media_type") not in _MEDIA_BY_KIND[kind]:
+            continue
+        # Another user's private title (or one in their private series) is theirs to fill.
+        if link_details_service._others_private(_BRIDGE_PRINCIPAL, drama["id"]):
             continue
         link = (drama.get("source_url") or "").strip()
         if clean_url and link == clean_url:
@@ -170,14 +176,17 @@ def _find_match(clean_url: str, host: str, original: str, english: str, novel: b
     return None
 
 
-def _series_for(drama_id: int, name: str):
-    """The series the title joins, only while it is in none: the one of that name,
-    else a new one. Never replaces a series the person chose."""
-    row = db.get_item_ownership("drama", drama_id) or {}
-    if row.get("series_id") is not None:
-        return row["series_id"]
-    series_id = ownership_service.get_or_create_series_for(_BRIDGE_PRINCIPAL, name)
-    db.dramas.assign_series_if_none(drama_id, series_id)
+def _join_series(drama_id: int, name: str):
+    """The series the title joins, only while it is in none, by the rule the link
+    details use for a name taken from a site: a series with the same owner and
+    privacy as the title, else a new one made with them. Anything else (a series
+    someone else owns, or more or less private) leaves the title out of any series."""
+    try:
+        series_id = link_details_service._series_for(drama_id, name)
+    except ConflictError:
+        series_id = None
+    if series_id is not None:
+        db.dramas.assign_series_if_none(drama_id, series_id)
     return (db.get_item_ownership("drama", drama_id) or {}).get("series_id")
 
 
@@ -192,41 +201,44 @@ def _answer(drama_id: int, created: bool, filled: list) -> dict:
 def resolve_title(payload: dict) -> dict:
     """Finds or creates the title for a page. `create` off only finds (422 when
     nothing matches), `fill` off creates a placeholder named after the site with
-    no names or link, `series` off leaves the title out of any series."""
+    the page link but no names, `series` off leaves the title out of any series."""
     if not isinstance(payload, dict):
         raise InvalidInputError("The request must be a JSON object.")
     page = _read(payload)
-    novel = page["kind"] == "novel"
+    kind = page["kind"]
     clean_url = source_link_service.split_source_url(page["url"])[0] if page["url"] else ""
     host = _host(page["url"])
     original, english = pick_names(page["titles"], host) if page["fill"] else ("", "")
     series_name = original or english
     with _resolve_lock:
-        match = _find_match(clean_url, host, original, english, novel) if (page["fill"] or clean_url) else None
+        # With Fill off the title is named after the site, so that name is what a later chapter matches.
+        match = _find_match(clean_url, host, original or ("" if page["fill"] else host), english, kind)
         if match is not None:
             drama_id = match["id"]
+            ownership_service.require_editable(_BRIDGE_PRINCIPAL, "drama", drama_id)
             filled = []
             if page["fill"]:
                 filled = db.dramas.fill_blank_fields(drama_id, {"title_zh": original, "title_en": english})
                 if clean_url and drama_service.set_source_url_once(drama_id, page["url"]):
                     filled.append("source_url")
             if page["series"] and series_name:
-                _series_for(drama_id, series_name)
+                _join_series(drama_id, series_name)
             return _answer(drama_id, False, filled)
         if not page["create"]:
             raise InvalidInputError(_NO_TITLE)
         language = _language(page["language"], original)
         fields = {"source_language": language, "title_zh": original or ("" if english else host or "Untitled page"),
                   "title_en": english, "principal": _BRIDGE_PRINCIPAL,
-                  "media_type": "novel" if novel else _MEDIA_BY_LANGUAGE[language]}
-        if page["series"] and series_name:
-            fields["new_series_name"] = series_name
+                  "media_type": "novel" if kind == "novel" else _MEDIA_BY_LANGUAGE[language]}
         created = drama_service.create_drama(**fields)
         drama_id = created["id"]
-        if page["fill"] and clean_url:
+        # The link is kept even with Fill off, or the next send could never find this title again.
+        if clean_url:
             drama_service.set_source_url_once(drama_id, page["url"])
+        if page["series"] and series_name:
+            _join_series(drama_id, series_name)
         return _answer(drama_id, True, [f for f in ("title_zh", "title_en") if created.get(f)]
-                       + (["source_url"] if page["fill"] and clean_url else []))
+                       + (["source_url"] if clean_url else []))
 
 
 _STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ForbiddenError, 403), (ConflictError, 409))

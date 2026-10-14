@@ -43,13 +43,13 @@ Click the extension on a page you're reading:
   title is reused when its source link matches, or when it has a link on
   the same site and the same original or English name, so later chapters
   of a series land in the same title. A reused title only has its blank
-  fields filled; nothing you typed is overwritten. A new title also joins a
+  fields filled; nothing you typed is overwritten. Another user's private title, or one in their private series, is never matched, and a series someone else owns or one more or less private than the title is never joined. A new title also joins a
   series of the same name (an existing one is joined, a series you chose is
   never replaced). An automatic title is not remembered for the site.
   **Automatic title options** (under the picker, saved in the extension):
   *Create a new title when none matches* (off: Auto only reuses a match,
   otherwise it says to pick a drama), *Fill name and source link from the
-  page* (off: a placeholder named after the site), *Put the title in a
+  page* (off: a placeholder named after the site, with the page link kept so later chapters reuse it), *Put the title in a
   series*. A drama picked by hand always wins over Auto. Merging two titles
   or moving chapters between titles is not done here: move a title to
   another series in its details in Baihe.
