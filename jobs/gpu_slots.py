@@ -41,12 +41,16 @@ def _owner_alive(pid) -> bool:
     return background_jobs.owner_process_alive(pid)
 
 
-def _alive(row, now, alive_pids=frozenset()) -> bool:
+def _alive(row, now, alive_pids=frozenset(), running_here=frozenset()) -> bool:
     """A row counts while its heartbeat is fresh and its owner still runs. An
     owner is gone when its pid has exited, or the pid is this process's but
     the instance is not (an earlier server had the pid). A row written before
     the owner columns existed has only the heartbeat to go on. `alive_pids`
-    holds pids already found running (see _probe_owners)."""
+    holds pids already found running (see _probe_owners); `running_here` the
+    holders of this instance whose job still runs (see _running_here), which
+    count whatever their heartbeat says."""
+    if row["holder"] in running_here and _this_instance(row):
+        return True
     if now - row["heartbeat_at"] >= GPU_LOCK_STALE_SECONDS:
         return False
     pid = row["owner_pid"]
@@ -65,6 +69,27 @@ def _probe_owners(rows) -> frozenset:
     probed again there, as is any pid first seen inside it."""
     pids = {r["owner_pid"] for r in rows} - {None, os.getpid()}
     return frozenset(pid for pid in pids if _owner_alive(pid))
+
+
+def _this_instance(row) -> bool:
+    return row["owner_pid"] == os.getpid() and row["owner_instance"] == job_store.INSTANCE_ID
+
+
+def _running_here(rows) -> frozenset:
+    """The `ui:` holders among `rows` that this server instance wrote and whose
+    job still runs here (or whose abandoned worker is still alive): a stale
+    heartbeat there means the beats were late (a PC that slept, a locked
+    database), not that the GPU is free. Read from the job table before
+    BEGIN IMMEDIATE: a thread holding job_table._lock may be waiting on that
+    write lock (see reap)."""
+    import job_force_stop
+    from jobs import job_table
+    with job_table._lock:
+        return frozenset(
+            r["holder"] for r in rows
+            if _this_instance(r) and r["holder"].startswith(UI_PREFIX)
+            and ((job_table._jobs.get(r["holder"][len(UI_PREFIX):]) or {}).get("status") == "running"
+                 or job_force_stop.abandoned_alive_locked(r["holder"][len(UI_PREFIX):])))
 
 
 def _mine(row) -> bool:
@@ -97,10 +122,11 @@ def take(holder: str, description: str = None, *, max_holders: int = 1,
     now = time.time()
     max_holders = max(1, min(int(max_holders), GPU_LOCK_MAX_SLOTS))
     with contextlib.closing(db.get_conn()) as conn:
-        alive_pids = _probe_owners(_rows(conn))
+        before = _rows(conn)
+        alive_pids, running_here = _probe_owners(before), _running_here(before)
         conn.execute("BEGIN IMMEDIATE")
         rows = _rows(conn)
-        live = [r for r in rows if _alive(r, now, alive_pids)]
+        live = [r for r in rows if _alive(r, now, alive_pids, running_here)]
         mine = next((r for r in live if r["holder"] == holder and _mine(r)), None)
         if mine is not None:
             slot = mine["id"]
@@ -211,7 +237,7 @@ def _kept_by_this_process(row) -> bool:
     a cleared or abandoned job's worker can still be on the GPU with no one
     heartbeating its row."""
     import background_jobs
-    if row["owner_pid"] == os.getpid() and row["owner_instance"] == job_store.INSTANCE_ID:
+    if _this_instance(row):
         return True
     return (row["holder"].startswith(UI_PREFIX)
             and background_jobs.get_status(row["holder"][len(UI_PREFIX):]) is not None)

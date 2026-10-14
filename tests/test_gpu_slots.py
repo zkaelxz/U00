@@ -282,6 +282,36 @@ class TestTwoProcesses:
         assert _holders() == {f"cli:{DEAD_PID}:new"}
 
 
+class TestThisServersRunningJobKeepsItsSlot:
+    """A row of a job still running here counts even when its heartbeat went
+    stale (a PC that slept, a database locked for a while): taking it over
+    would put a second job on the GPU next to it."""
+
+    def test_a_take_never_claims_the_stale_row_of_a_job_running_here(self, isolated_db):
+        job_settings.set_gpu_limit_enabled(True)
+        started, release = threading.Event(), threading.Event()
+
+        def work():
+            started.set()
+            release.wait(10)
+        assert job_launch.start_job("on_gpu", work, gpu_touching=True)
+        try:
+            assert started.wait(5)
+            with contextlib.closing(db.get_conn()) as conn:
+                conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
+                             (gpu_slots.GPU_LOCK_STALE_SECONDS + 60,))
+                conn.commit()
+            assert gpu_slots.take("live-whisper:1") is False
+            assert gpu_slots.take("live-whisper:1", max_holders=2) is True
+            assert _holders() == {"ui:on_gpu", "live-whisper:1"}
+        finally:
+            release.set()
+        assert job_runner.wait_for_job_threads(5.0)
+        gpu_slots.release("live-whisper:1")
+        # Once the job ends its row is released, as before.
+        assert _holders() == set()
+
+
 class TestReap:
     def test_frees_dead_pid_other_instance_and_stale_rows_only(self, isolated_db):
         _row(1, f"cli:{DEAD_PID}", DEAD_PID, "aaaa")
