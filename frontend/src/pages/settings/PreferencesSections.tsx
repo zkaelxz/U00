@@ -2,7 +2,7 @@
  * Settings > the persisted PC-side preferences. The theme is the header
  * button, not a setting here. They live on the Baihe PC (db app_settings,
  * endpoint URLs in .env) and are used by the server's translate, transcribe,
- * OCR and download jobs and by the CLI, so changing them is PC only; away
+ * OCR and download jobs, so changing them is PC only; away
  * from the PC each block shows "PC only".
  *
  * Defaults and Spending are used on most visits, so they are Cards. OCR,

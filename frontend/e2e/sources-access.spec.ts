@@ -7,6 +7,20 @@ import { mockSources, openManage, posted } from './sourcesMocks'
 // chapters), sign-in and per-tier tests (a source's Details) and the proxy
 // (Manage sources > Network). Every call is mocked (sourcesMocks.ts, sourcesAccessMocks.ts).
 
+test('a failed read of the tracked series says so and retries, not "No tracked series yet"', async ({ page }) => {
+  const s = await mockSources(page, { tracked: TRACKED, trackedFail: true })
+  await mockAccess(page, s)
+  await page.goto('/#/sources?tab=new')
+  const alert = page.getByRole('alert').filter({ hasText: 'Could not load this.' })
+  await expect(alert).toBeVisible()
+  await expect(page.getByText('No tracked series yet.')).toHaveCount(0)
+  s.trackedFail = false
+  await alert.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByRole('region', { name: 'New chapters' })).toBeVisible()
+  await expect(alert).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
 test('check now runs, reports, and reloads the lists; auto-import title is saved', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED })
   await mockAccess(page, s)

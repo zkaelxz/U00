@@ -215,7 +215,7 @@ export interface MediaAnalysis {
   has_audio: boolean
   audio_track_count: number
   sample_rate: number | null
-  // Parity P05 (B1); optional so an older server still type-checks.
+  // Parity P05; optional so an older server still type-checks.
   width?: number | null
   height?: number | null
   fps?: number | null

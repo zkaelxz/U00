@@ -85,8 +85,8 @@ def _suggest(line, covering) -> Optional[tuple]:
             or end - start < MIN_SNAPPED_DURATION_S:
         return None
     # Rounding must not undo the bounds checked above: a rounded edge can land
-    # outside the line or just past the shift cap, and the sidecar reader
-    # drops any suggestion that does.
+    # outside the line or just past the shift cap, and a suggestion
+    # that does is dropped.
     new_start = line.start if start == line.start else round(start, 2)
     if new_start - line.start > SNAP_MAX_SHIFT_S:
         new_start = math.floor(start * 100) / 100

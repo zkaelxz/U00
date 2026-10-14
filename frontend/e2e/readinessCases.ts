@@ -78,7 +78,7 @@ export function registerReadinessCases(prefix: string) {
     await page.goto('/#/drama/1/source?tab=transcribe')
     await expect(page.getByTestId('settings-summary')).toBeVisible()
     // Detect speakers after transcribing sits on the Transcribe tab.
-    await expect(page.getByRole('switch', { name: 'Detect speakers after transcribing' })).toBeDisabled()
+    await expect(page.getByRole('switch', { name: 'Detect speakers', exact: true })).toBeDisabled()
     const tools = await openAdvanced(page)
 
     const vocals = tools.getByRole('switch', { name: 'Separate vocals first' })

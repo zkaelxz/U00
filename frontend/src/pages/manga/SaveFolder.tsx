@@ -10,36 +10,11 @@ import { getSaveFolder, openSaveFolder, setSaveFolder } from '../../api/savedCom
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { SavedComicsFolder } from '../../types/savedComics'
 import './manga.css'
-
-export function OpenFolderButton({ size = 'md' }: { size?: 'md' | 'sm' }) {
-  const pc = usePcOnly()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<unknown>(null)
-  if (pc === 'remote') return null
-  const open = async () => {
-    setError(null)
-    setBusy(true)
-    try {
-      await openSaveFolder()
-    } catch (e) {
-      setError(e)
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <>
-      <button type="button" className={buttonClass('secondary', size)} disabled={busy} onClick={open}>
-        Open folder
-      </button>
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </>
-  )
-}
 
 export function SaveFolderCard() {
   const pc = usePcOnly()
@@ -78,7 +53,7 @@ export function SaveFolderCard() {
       aria-label="Save folder"
       title="Save folder"
       meta={folder ? (folder.custom ? 'Picked on this PC' : 'Default') : 'PC only'}
-      actions={<OpenFolderButton size="sm" />}
+      actions={<OpenFolderButton open={openSaveFolder} size="sm" />}
     >
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
       {folder && (

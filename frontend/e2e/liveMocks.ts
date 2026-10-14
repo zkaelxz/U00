@@ -69,6 +69,8 @@ interface LiveMocks {
     message: string
     cues: ReturnType<typeof cue>[]
     startStatus: number
+    /** GET /api/live/sessions answers a server fault. */
+    sessionsFail: boolean
     model: string | null
     notes: string[]
     /** Lag figures added to the status (lag_seconds, processing_seconds, ...). */
@@ -84,7 +86,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
     follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
-    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null, notes: [], figures: {}, finishOnStop: false },
+    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, sessionsFail: false, model: null, notes: [], figures: {}, finishOnStop: false },
   }
   // Registered first, so it only answers what nothing below handles.
   await page.route('**/api/**', (route) => {
@@ -180,7 +182,11 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   })
   await page.route('**/api/live/sessions', (route) => {
     const r = route.request()
-    if (r.method() === 'GET') return json(route, m.state.sessions)
+    if (r.method() === 'GET') {
+      return m.state.sessionsFail
+        ? json(route, { error: { code: 'internal', message: 'Something went wrong.' } }, 500)
+        : json(route, m.state.sessions)
+    }
     m.posts.push({ url: r.url(), body: r.postDataJSON(), headers: r.headers() })
     if (m.state.startStatus !== 200) {
       return json(route, { error: { code: 'forbidden', message: 'Not allowed.' } }, m.state.startStatus)

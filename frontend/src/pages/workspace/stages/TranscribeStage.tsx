@@ -621,14 +621,14 @@ export default function TranscribeStage({
         )}
         {haveTranscript && !hasMedia && !file && (
           <p className="muted" role="note" data-testid="transcript-no-audio">
-            A transcript is lined up with the audio, and this title has none yet. If this is text to translate, not speech:{' '}
+            The transcript is matched to the audio, and this title has none yet. If it is text to translate, not speech:{' '}
             <button type="button" className={buttonClass('secondary', 'sm')} disabled={adopting || !transcriptText.trim()} onClick={asNovel}>
               Translate this text as a novel
             </button>
           </p>
         )}
         <div className="setting-list">
-          <Field label="Detect speakers after transcribing">
+          <Field label="Detect speakers">
             <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} title={speakersOff?.[0]?.reason} onChange={setRunDiarize} />
           </Field>
         </div>
@@ -669,8 +669,8 @@ export default function TranscribeStage({
         </div>
         {file && replaceUnconfirmed && !busy && (
           <p className="muted" role="note" data-testid="transcribe-staged-unused">
-            The chosen file is not used for this run. Transcribe uses the current audio/video; tick "Replace the current
-            audio/video" on Add media to use the new file.{' '}
+            This run uses the current audio/video, not the chosen file. To use the new file, tick "Replace the current
+            audio/video" on Add media.{' '}
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={showReplaceBox}>Open Add media</button>
           </p>
         )}
@@ -684,7 +684,7 @@ export default function TranscribeStage({
         )}
         {busy && (
           <p className="muted" role="status">
-            A job for this title is already running. Wait for it to finish or cancel it before starting another.
+            A job for this title is already running. Wait for it or cancel it first.
           </p>
         )}
         {tab === 'transcribe' && feedback}

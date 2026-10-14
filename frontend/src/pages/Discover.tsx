@@ -17,6 +17,7 @@ import { useEffect, useState, type KeyboardEvent } from 'react'
 import { translateApi, engineOffReason, engineShortName } from '../api/translate'
 import { PageShell } from '../components/PageShell'
 import { Field } from '../components/Field'
+import { RetryBanner } from '../components/RetryBanner'
 import { Section } from '../components/Section'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
@@ -54,6 +55,8 @@ export default function DiscoverPage() {
   const pc = usePcOnly()
   const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
   const [enginesOff, setEnginesOff] = useState<TranslateEngine[]>([])
+  const [enginesError, setEnginesError] = useState<unknown>(null)
+  const [enginesTick, setEnginesTick] = useState(0)
   const [engine, setEngine] = useState('')
   const [catalogKey, setCatalogKey] = useState(0)
   const [tab, setTab] = useState<TabId>(savedTab)
@@ -84,9 +87,12 @@ export default function DiscoverPage() {
         setEnginesOff(discoverEnginesOff(all))
         setEngine((cur) => cur || (usable.find((e) => e.name === 'claude') ?? usable[0])?.name || '')
       },
-      () => setEngines([]),
+      (e: unknown) => {
+        setEngines([])
+        setEnginesError(e)
+      },
     )
-  }, [])
+  }, [enginesTick])
 
   const aiReady = !!engine
   const reloadCatalog = () => setCatalogKey((k) => k + 1)
@@ -101,6 +107,12 @@ export default function DiscoverPage() {
         <>
         {engines === null ? (
           <p className="muted">Loading engines…</p>
+        ) : enginesError ? (
+          <RetryBanner error={enginesError} what="the AI engines" onRetry={() => {
+            setEnginesError(null)
+            setEngines(null)
+            setEnginesTick((n) => n + 1)
+          }} />
         ) : engines.length === 0 ? (
           <>
             <p className="muted" data-testid="no-engine">
