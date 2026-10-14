@@ -348,6 +348,14 @@ class TestApiShapes:
 
 
 class TestRunSafety:
+    def test_a_module_without_a_spec_does_not_break_the_options_list(self, isolated_db, monkeypatch):
+        import sys
+        import types
+        monkeypatch.setitem(sys.modules, "faster_whisper", types.ModuleType("faster_whisper"))
+        monkeypatch.setattr(model_readiness_service, "qwen_asr_ready", lambda: True)
+        monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a, **k: True)
+        assert len(svc.get_options()["transcription_backends"]) == 2
+
     def test_separation_model_missing_is_refused_before_anything_runs(self, isolated_db, whisper_calls, monkeypatch):
         monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: False)
         _case()

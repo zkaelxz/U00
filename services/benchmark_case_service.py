@@ -86,6 +86,10 @@ def backend_problem(backend: str, language: str = None):
         _require_vad_packages()
     except DependencyUnavailableError as exc:
         return exc.message
+    except ValueError:
+        # find_spec raises for a module already in sys.modules without a __spec__ (a stub): it is
+        # importable, so this is no reason to grey the recogniser out.
+        pass
     refine = asr_options_service.get_vad_refine_timing()
     for need in ready._backend_needs(backend, refine, asr_options_service.get_mixed_languages()):
         if not need():
