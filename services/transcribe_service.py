@@ -103,8 +103,7 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     with "、" and ended with "。"; then, when the drama has a
     raw_novel_context.txt, a bounded novel excerpt merged in names-first and
     trimmed by core.combine_initial_prompt (its 900-character cap). Shared by
-    cli.cmd_align (no extra names) and the API transcribe/auto-tune paths so
-    they can't drift. Returns "" when there's nothing to prime with. Raises
+    the API transcribe and auto-tune paths so they can't drift. Returns "" when there's nothing to prime with. Raises
     NotFoundError for an unknown drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
@@ -228,7 +227,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     values when omitted. initial_prompt is an optional
     full override of Whisper's prompt; when it's empty or omitted the run
     uses build_auto_initial_prompt (series glossary plus extra_names plus
-    raw-novel excerpt), the prompt cli.cmd_align builds without extra names.
+    raw-novel excerpt).
 
     transcript_text is required (and only used) when this drama's
     transcript_mode is "have_transcript" -- it's

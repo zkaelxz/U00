@@ -13,7 +13,7 @@ freshness checks hit PyPI, so they live in diagnostics_packages_service.
 check_package_updates, behind an explicit click.
 
 No HTTP types: takes no arguments, returns a plain
-dict, so `cli.py` or a script could call it too.
+dict, so a script could call it too.
 """
 
 import os

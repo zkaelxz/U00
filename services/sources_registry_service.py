@@ -245,7 +245,7 @@ def list_profiles() -> list:
 def list_tracked(principal=None) -> list:
     """Every tracked series (household-wide by decision). A linked drama
     the principal can't see is reported as `drama_id: None`, so a private
-    drama's id doesn't leak (auth B2)."""
+    drama's id doesn't leak."""
     def linked(drama_id):
         if drama_id is None or ownership_service.can_see_drama(principal, drama_id):
             return drama_id

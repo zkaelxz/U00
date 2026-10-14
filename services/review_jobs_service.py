@@ -250,7 +250,7 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
         audio_path = plain_file_in(db.drama_dir(drama["id"]), audio)
         args = (lines, audio_path, transcribe_options_service.stored_whisper_size(drama),
                 settings_service.get("use_gpu"), drama.get("source_language") or "zh", eng, name)
-        # Settings' defaults, as `cli.py translate` resolves them.
+        # Settings' defaults, as the translate run resolves them.
         return args, {"cost_cap_usd": cap,
                       "locale": settings_service.get("default_locale"),
                       "style_note": settings_service.get("default_style_note") or "",

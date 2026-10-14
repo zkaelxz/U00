@@ -13,7 +13,7 @@ Audiobook/burned-in-video export (each its own subprocess dependency,
 ffmpeg) live in services/media_export_service.py.
 
 No FastAPI import: plain functions, plain dicts/bytes in and
-out, so a CLI or another service could call them too.
+out, so another service could call them too.
 """
 import os
 import re

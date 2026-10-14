@@ -140,7 +140,7 @@ def _already_imported(t: dict):
 
 
 def import_to_library(title_id, principal=None) -> dict:
-    """Creates a drama from a known title, owned by `principal` (auth B2)."""
+    """Creates a drama from a known title, owned by `principal`."""
     t = _find(title_id)
     existing = _already_imported(t)
     if existing is not None:

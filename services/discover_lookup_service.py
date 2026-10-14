@@ -217,7 +217,7 @@ IDLE_JOB = {"job_id": "", "status": "idle", "progress": 0.0, "message": "", "res
 def _job_result(job_id: str, principal=None) -> dict:
     """No run in this process yet is the normal first answer, not an error:
     status "idle". Another user's run of this shared job id looks the same
-    (auth B2), so it never leaks."""
+    so it never leaks."""
     status = background_jobs.get_status(job_id)
     if status is None or not ownership_service.can_see_job(principal, job_id,
                                                            status.get("owner_user_id")):

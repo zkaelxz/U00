@@ -36,8 +36,8 @@ def _busy_under_hold() -> bool:
     """Busy checks that stay valid while this module holds the library: jobs
     in this process, maintenance, fresh running job_records rows written by
     another app process, and a live holder of the cross-process GPU lock. The
-    CLI writes no job_records, so a CLI run is seen only while it holds the
-    GPU lock (its GPU steps); a CLI run of non-GPU steps is not detected.
+    A run in a process that writes no job_records is seen only while it holds
+    the GPU lock (its GPU steps); its non-GPU steps are not detected.
     Fails closed: an unreadable lock table counts as busy."""
     from services import library_admin_service
     if (background_jobs.active_job_ids() or job_launch.maintenance_active()

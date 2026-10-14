@@ -1,7 +1,7 @@
 """
 services/job_checkpoint_service.py -- resume long jobs instead of
 starting over, and an opt-in result cache. UI-free; the tables are
-`job_checkpoints` and `result_cache` in db.py.
+`job_checkpoints` and `result_cache` in the db package.
 
 Checkpoints (item 2's pattern, for any job with countable units):
 

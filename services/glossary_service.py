@@ -370,7 +370,7 @@ def get_catalogues() -> dict:
 
 
 # Extraction jobs live in glossary_extract_service; this front door keeps
-# the names routers, the CLI and tests import from here. It sits at the
+# the names routers and tests import from here. It sits at the
 # bottom because glossary_extract_service and this module share helpers
 # only through glossary_common, so neither import order can hit a half-built
 # module.

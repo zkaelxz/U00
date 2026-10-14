@@ -22,7 +22,7 @@ Correctness rules:
 Atomicity: a per-drama lock is held across load -> check -> snapshot -> save
 for every write in this module and in the re-segmentation and re-split
 modules. Line edits (the line PATCH and notes routes) and other processes
-(the CLI) don't take that lock, so the save itself re-checks, inside its
+don't take that lock, so the save itself re-checks, inside its
 transaction, that the drama's lines are still exactly the ones the write
 was computed from (`save_lines(expect_unchanged=...)`) and refuses with
 nothing written if not. A write that removes lines and must not lose a

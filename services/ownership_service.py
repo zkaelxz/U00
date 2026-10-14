@@ -1,11 +1,11 @@
 """
 services/ownership_service.py -- who can see a drama or series, and who
-may make one private (auth slice B1; plan section B).
+may make one private.
 
 UI-free. A `principal` is the dict `api/auth.py` puts on
 `request.state.principal` (`user_id`, `is_admin`, `is_local_owner`), or
-None, which means auth is off (the CLI, an auth-off API) and
-everything is visible. With auth on, callers (B2 onward) must always pass
+None, which means auth is off (an auth-off API) and
+everything is visible. With auth on, callers must always pass
 the request's principal -- never None for a missing one, which would
 grant full visibility.
 
@@ -387,7 +387,7 @@ def get_or_create_series_for(principal, name: str) -> int:
         raise ConflictError("That series name is taken") from None
 
 
-# --- who is acting, and jobs (auth B2) --------------------------------------
+# --- who is acting, and jobs --------------------------------------
 # A per-request holder set by api.server's ActingPrincipalMiddleware and
 # filled by api.auth's dependencies. The holder is a dict (not the
 # principal itself) because FastAPI runs sync dependencies and handlers in
@@ -414,7 +414,7 @@ def note_acting_principal(principal) -> None:
 
 def acting_user_id():
     """The signed-in user this code runs for, or None (the local owner,
-    auth off, the CLI, a background thread)."""
+    auth off, a background thread)."""
     holder = _ACTING.get()
     return user_id(holder.get("principal")) if holder else None
 
@@ -426,7 +426,7 @@ def require_acting_lines_edit() -> None:
     """For a job whose route needs only `jobs.start` but whose request would
     replace text or speakers already there: that is an edit, so the caller
     must also hold `lines.edit` (owner decision 2026-10-10). No principal
-    noted means the local owner, auth off, the CLI or a job's own thread,
+    noted means the local owner, auth off or a job's own thread,
     which hold every permission."""
     holder = _ACTING.get()
     principal = holder.get("principal") if holder else None
@@ -514,7 +514,7 @@ def owns_job(principal, job_id, owner_user_id, drama_rows=None) -> bool:
     they started, or that runs on a title they own, whoever started it
     (also a job with no recorded starter, such as one a job's own thread
     started: bulk_series_translate's translate_<id>). A job with no title
-    and no starter (started at the PC or by the CLI, or a row from before
+    and no starter (started at the PC, or a row from before
     starters were recorded) is no member's. Auth off and the local owner
     own every job. A member may cancel exactly these (may_cancel_job).
     `drama_rows`: as can_see_job."""

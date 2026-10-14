@@ -14,9 +14,8 @@ missing. The samples ship in assets/smoke/ (the installer includes assets/
 but not tests/), so this works on an installed copy.
 
 The app runs it as one GPU-touching background job behind the same install
-guard as the other Diagnostics actions; the `smoke` CLI command
-(real_model_check_cli.py) calls run_checks directly, so both report the
-same checks. Reasons never carry paths or URLs.
+guard as the other Diagnostics actions. Anything that calls
+run_checks directly reports the same checks. Reasons never carry paths or URLs.
 """
 
 import whisper_models
@@ -360,8 +359,8 @@ def _run_check(check_id: str, label: str, fn, **options) -> dict:
 
 
 def run_checks(speech_clip=None, expected_text=None, before_check=None, on_result=None) -> list:
-    """Runs every check in order and returns their results. The app's job and
-    the CLI both call this, so they cannot report different checks.
+    """Runs every check in order and returns their results. The app's job
+    calls this, so every caller reports the same checks.
     before_check(index, label) may raise to stop the run; on_result gets
     each result as it lands."""
     results = []

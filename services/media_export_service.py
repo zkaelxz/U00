@@ -1,6 +1,6 @@
 """
 services/media_export_service.py -- audiobook and burned-in-video export as
-background jobs (Migration Slices 29 and 30).
+background jobs.
 
 Each start function validates everything up front (fixed-text errors), then
 starts a thread job that does the whole export: ffmpeg runs through

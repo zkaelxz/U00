@@ -141,7 +141,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     before anything is written, so a rejected call creates nothing.
     `principal` (None = auth off) goes through ownership_service: a series
     the caller can't see is a 404, as is a name taken by one (409). The
-    new drama is stamped with `new_item_defaults(principal)` (auth B2): its
+    new drama is stamped with `new_item_defaults(principal)`: its
     creator (None = the PC owner) and private unless they share by default."""
     if source_language not in SOURCE_LANGUAGES:
         raise InvalidInputError("source_language is required and must be one of zh, ja, ko.",
@@ -357,8 +357,7 @@ LEFTOVER_FILES_MESSAGE = ("The title was deleted from the library, but some of i
 
 def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     """In-process jobs, plus fresh running/queued job_records rows written
-    by another process (e.g. the CLI; the in-memory tracker only sees its
-    own). exclude_job_id:
+    by another process (the in-memory tracker only sees its own). exclude_job_id:
     a running job asking whether any other job is on its drama."""
     if (background_jobs.any_job_running_for_drama(drama_id, exclude_job_id=exclude_job_id)
             if exclude_job_id else background_jobs.any_job_running_for_drama(drama_id)):

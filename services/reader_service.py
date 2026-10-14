@@ -10,7 +10,7 @@ write. A fresh/paid lookup stays a separate, explicit action, not a side
 effect of viewing a page.
 
 No HTTP types: takes plain values, returns an HTML
-string, so `cli.py` or a script could call it too.
+string, so a script could call it too.
 
 Also here: caption tracks, media availability,
 reading progress, notes, click-to-define lookups

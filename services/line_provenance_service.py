@@ -2,8 +2,8 @@
 services/line_provenance_service.py -- what produced each
 line's current translation (engine, model, prompt version, glossary
 version, a hash of the run's settings, of the source text and of the
-translation it produced, and the Baihe version). UI-free; rows live in db.py's `line_provenance`, one per
-line (the latest translation wins), keyed by the permanent line id.
+translation it produced, and the Baihe version). UI-free; rows live in the db package's
+`line_provenance`, one per line (the latest translation wins), keyed by the permanent line id.
 
 `tracker(drama_id, lines, ...)` wraps a translate run's save callback: it
 remembers each line's `en` when the run starts and, whenever a batch is
@@ -94,7 +94,7 @@ def record(drama_id, lines_by_id: dict, engine, model, prompt_version, glossary_
 
 def get(drama_id, line_id, current_en=None):
     """The line's record, or None. With `current_en`, a record whose
-    translation has since changed (an edit, an activated version, a CLI or
+    translation has since changed (an edit, an activated version, an
     off-peak run, which don't record one) is treated as no record."""
     with _conn() as conn:
         conn.row_factory = None
@@ -199,7 +199,7 @@ def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settin
 def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms,
                           thinking=None, **options):
     """The tracker for one translate run, shared by the Workspace job and
-    `cli.py translate`. A FallbackEngine's active engine is read at every
+    other translate runs. A FallbackEngine's active engine is read at every
     save; `options` are the run's plain settings (locale, style...). thinking:
     what the run was handed; None = the title's choice, as the run itself reads it.
     The thinking key follows the engine that produced the batch, because a

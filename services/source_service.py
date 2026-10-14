@@ -5,7 +5,7 @@ transcript_mode, and read-only audio/video/transcript-source presence.
 Upload is media_upload_service; transcription transcribe_service.
 
 No FastAPI import: plain functions, plain dicts in, plain
-values out, so a CLI or another service could call them too.
+values out, so another service could call them too.
 """
 import os
 from lib.safe_paths import plain_file_in

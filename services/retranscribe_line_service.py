@@ -24,7 +24,7 @@ from services.retranscribe_worker import (
     retranscribe_worker as _retranscribe_worker)
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
-# --- Re-transcribe one line (parity audit B1, inventory R23) ----------------
+# --- Re-transcribe one line ----------------
 # Review's "Re-transcribe" re-runs Whisper on one line's own timing window,
 # shows what it heard, and only on "Use this" replaces that line's source
 # text: the job cuts the window, transcribes it

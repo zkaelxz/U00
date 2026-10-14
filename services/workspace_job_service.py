@@ -2,7 +2,7 @@
 services/workspace_job_service.py -- the translation job runners behind the
 Workspace and Library actions: one drama's translate run, the bulk
 series translate queue, and the style context both share with the review
-jobs, the CLI and the Live path.
+jobs and the Live path.
 
 They are safe to run in a background thread because they touch only plain
 Python objects, `background_jobs` for progress/result reporting, and the
@@ -46,7 +46,7 @@ def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronou
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
                             include_genre_notes=None, default_female_pronouns=None):
     """(glossary_terms, style_guidelines, character_names) for one drama,
-    shared by the app's runs and `cli.py translate`: series glossary, style
+    shared by the app's runs: series glossary, style
     profile, emotion guidance, gender hints, speaker labels and
     the title's language packs.
     include_genre_notes/default_female_pronouns are the Translate toggles;
@@ -186,7 +186,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
     recheck = set()
     cancelled = background_jobs.is_cancel_requested(job_id)
-    # Shared with `cli.py translate`: glossary enforcement,
+    # Shared with the other translate paths: glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
     if not translation_finish.finish_translation_run(
@@ -245,7 +245,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     rather than parallelizes). Each drama uses its own saved engine
     (`drama.translation_engine`) and, if it belongs to a series, that
     series' own glossary and style hints -- the same settings a single-drama
-    run would use (mirrors cli.cmd_translate). Skips (does not queue) a drama that already has a
+    run would use Skips (does not queue) a drama that already has a
     translate job running elsewhere, rather than racing it.
 
     Deliberately reuses the real per-drama job id ("translate_<id>")
@@ -263,9 +263,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     caller before this starts, rather than falling back to each engine's
     own bare default. monthly_cap: Settings' monthly
     spending cap in USD, or 0/None for no cap -- re-checked against
-    db.get_month_spend() before each drama, same as Workspace's and
-    cli.py translate's own per-run cap resolution, since this was the one
-    translate path in the app that didn't enforce it at all. It is also
+    db.get_month_spend() before each drama, same as Workspace's
+    per-run cap resolution. It is also
     checked before each paid episode-summary call. allow_paid_summary=False
     (a caller without engines.paid) skips a cloud summary engine picked in
     Settings, so only the engines the caller was authorized for run.
@@ -325,8 +324,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         if not api_key:
             api_key = "local"
 
-        # Same cap logic as Workspace's Translate button and `cli.py
-        # translate` -- only the engines that bill per token and report
+        # Same cap logic as Workspace's Translate button -- only the engines that bill per token and report
         # usage are subject to it, and it's re-resolved against the
         # month's spend-so-far right before each drama, not just once for
         # the whole batch, since earlier dramas in this same run add to
@@ -357,7 +355,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         lines = core_module.lines_from_rows(rows)
         # Must not always be "audio_drama" (wrong for a novel-narration
         # drama): same per-content-mode default the shared
-        # translate-finishing helper and `cli.py translate` use.
+        # translate-finishing helper uses.
         is_novel = drama.get("content_mode") == "novel_narration"
         style_preset = "novel" if is_novel else "audio_drama"
         glossary_terms, style_guidelines, _ = build_run_style_context(

@@ -1,12 +1,11 @@
 """
-services/novel_files_service.py -- the two per-drama novel files (parity
-audit B1 #3 and #4):
+services/novel_files_service.py -- the two per-drama novel files:
 
-  - the English novel translation reference (T01): `novel_reference.txt`
+  - the English novel translation reference: `novel_reference.txt`
     in the drama folder, recorded in `dramas.novel_reference_filename`
     (.txt/.md). Read by translate_run_service,
-    workspace_job_service, glossary_service and cli.
-  - the raw original-language novel (S04): `raw_novel_context.txt` (no DB
+    workspace_job_service and glossary_service.
+  - the raw original-language novel: `raw_novel_context.txt` (no DB
     field; its presence is the flag). Primes the automatic Whisper prompt
     (transcribe_service.build_auto_initial_prompt) and pairs with the
     reference for glossary building. Accepts .txt/.md/.epub.
@@ -287,7 +286,7 @@ def remove_reference(drama_id: int, confirm=False) -> dict:
     return {"drama_id": drama_id, "removed": True, "present": False}
 
 
-# --- the raw original-language novel (S04) ----------------------------------
+# --- the raw original-language novel ----------------------------------
 
 def get_raw_novel_status(drama_id: int) -> dict:
     _require_drama(drama_id)

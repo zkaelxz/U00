@@ -24,7 +24,7 @@ Clear and move are server-enforced, not only hidden in the UI:
   saved site sign-ins, installer files, the program folder, the Trash folder,
   and any folder that holds or contains one of those. Both refuse while any
   background job, restore or maintenance run holds the library, or while
-  another process holds the GPU lock (all a CLI run leaves; see
+  another process holds the GPU lock (all a run in another process leaves; see
   _busy_under_hold in services/disk_usage_hold.py).
 - Clear needs confirm=true and the size and file count the user saw (409 when
   the item changed since) and MOVES the item into <data>/baihe_trash/<id>/

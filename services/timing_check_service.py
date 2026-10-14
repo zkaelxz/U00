@@ -139,8 +139,8 @@ def _write_state(drama_id: int, state: dict) -> None:
     path = _state_path(drama_id)
     folder = os.path.dirname(path)
     os.makedirs(folder, exist_ok=True)
-    # A temp name of its own per write: the CLI and the app are separate
-    # processes that can write this sidecar at once, and _state_lock only
+    # A temp name of its own per write: two processes can
+    # write this sidecar at once, and _state_lock only
     # covers one of them.
     atomic_write(path, json.dumps(state), prefix=f"{_STATE_FILE}.")
 

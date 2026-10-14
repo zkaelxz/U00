@@ -3,13 +3,12 @@ services/library_service.py -- read-only Library queries for the
 `/api/library` routes. Every caller of `list_library_dramas` gets the same
 answer for the same filters; no filtering lives in a UI.
 
-Deliberately thin: it composes existing `db.py` functions and keeps
+Deliberately thin: it composes existing `db` functions and keeps
 their semantics exactly -- the Quick filter is case-insensitive (via
 `db.has_custom_tag`, so a hand-typed "favorite" still counts), the
 Custom-tags filter is an exact match on each comma-separated tag, and
 every tag picked must be present. No HTTP types:
-it takes plain values and returns plain dicts, so `cli.py` could call it
-too.
+it takes plain values and returns plain dicts, so any caller can use it.
 """
 
 import os
@@ -44,7 +43,7 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
     anything else raises `InvalidInputError` rather than silently
     matching nothing, since those tags are a fixed set the UI offers.
     `custom_tags` is free-form: a drama must carry every one listed.
-    `principal` (None = auth off): only dramas it may see (auth B2)."""
+    `principal` (None = auth off): only dramas it may see."""
     if quick_filter and quick_filter not in db.ORGANIZATIONAL_TAGS:
         raise InvalidInputError(
             f"Unknown quick filter {quick_filter!r}.",

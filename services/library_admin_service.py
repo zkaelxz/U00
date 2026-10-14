@@ -249,8 +249,7 @@ def _bulk_translate_plan(ids, principal=None):
     """(queued ids, skipped [{drama_id, reason}], {id: engine}) for already
     checked ids. A drama with any running or queued job (e.g. a translate
     waiting for the GPU) is skipped, so the bulk job never adopts or
-    cancels a job the user started. A drama `principal` can't see (auth
-    B2) is reported exactly like a missing one."""
+    cancels a job the user started. A drama `principal` can't see is reported exactly like a missing one."""
     queued, skipped, engines = [], [], {}
     for did in ids:
         drama = db.get_drama(did)
