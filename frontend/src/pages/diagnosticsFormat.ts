@@ -154,9 +154,14 @@ export function jobBaseName(job: Pick<JobRecord, 'description' | 'job_id'>): str
   return name || plainJobText(jobName(job))
 }
 
-/** The base name plus the title's name where there is room for only one label (the header menu). */
+/**
+ * The base name plus the title's name where there is room for only one label (the header menu).
+ * While the title's name is unknown (not loaded yet, or the read failed) the "(title #3)" suffix
+ * stays, so two jobs of one kind never read the same.
+ */
 export function jobTitledName(job: Pick<JobRecord, 'description' | 'job_id' | 'drama_id'>, titles: ReadonlyMap<number, string>): string {
   const base = jobBaseName(job)
   const title = job.drama_id != null ? titles.get(job.drama_id) : undefined
-  return title && !base.includes(title) ? `${base} - ${title}` : base
+  if (!title) return plainJobText(jobName(job))
+  return base.includes(title) ? base : `${base} - ${title}`
 }
