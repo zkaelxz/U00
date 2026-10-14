@@ -198,7 +198,7 @@ def test_export_zip_never_carries_the_link(isolated_db):
     did = _pinned_title()
     db.update_drama(did, keep_original=1)    # originals included, still no link
     with _run_export(did) as zf:
-        assert any(n.endswith("english.srt") for n in zf.namelist())
+        assert any(n.endswith("(en).srt") for n in zf.namelist())
         for name in zf.namelist():
             assert MARKER not in name and MARKER.encode() not in zf.read(name)
 

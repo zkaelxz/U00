@@ -81,7 +81,9 @@ def test_the_chained_diarization_gets_the_range(isolated_db, monkeypatch):
     ((_, _, num, options),) = calls
     assert num is None
     assert (options["min_speakers"], options["max_speakers"]) == (2, 4)
-    assert on_done_args == [(None, {"min_speakers": 2, "max_speakers": 4})]
+    ((expected, kwargs),) = on_done_args
+    assert (expected, kwargs["min_speakers"], kwargs["max_speakers"]) == (None, 2, 4)
+    assert len(kwargs["speakers_at_start"]) == 1       # the line the transcription just saved
     assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
     background_jobs.clear_job(job_id)
 

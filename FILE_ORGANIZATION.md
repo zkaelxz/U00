@@ -135,6 +135,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `live_translate.py`
 - `sentence_groups.py` (translate-by-sentence: grouping timed fragments and splitting the English back)
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
+- `live_player.py` (Live's delayed player: rolling video and audio HLS recorders fed through the guarded pump, and the fixed file names the player route may serve)
 - `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
 - `translation_finish.py` (untranslated count, aligned -> translated, the shared end of a translation run)
@@ -161,6 +162,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 **OCR, scanlation & reading**
 
 - `comic_chapters.py` (chapter labels and hidden pages per comic page, kept in the drama folder's `chapters.json`)
+- `comic_chapter_links.py` (chapter links the extension saw on a series page, kept in the drama folder's `chapter_links.json`)
 - `dictionary.py`
 - `hardsub_ocr.py`
 - `ocr.py`
@@ -257,6 +259,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `bug_report_service.py`
 - `characters_service.py`
 - `comic_chapters_service.py`
+- `comic_source_chapters_service.py`
 - `comic_view_service.py`
 - `compare_transcription_service.py`
 - `cover_art_service.py`

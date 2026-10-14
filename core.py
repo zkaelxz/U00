@@ -1,7 +1,7 @@
 """
 core.py -- shared pipeline logic with NO UI dependency, so it can be
-imported by both the API services and cli.py (headless batch mode)
-without pulling in a UI framework.
+imported by the API services and background jobs without pulling in a
+UI framework.
 """
 
 from dataclasses import dataclass, field, replace

@@ -239,10 +239,11 @@ jobs:
   # The one required check name. It stays `test` so branch protection does not
   # change: it passes when every shard passed or the whole matrix was skipped
   # (a notes-only change), and fails if any shard failed or was cancelled, or
-  # if `changes` itself failed. `windows-scripts` is held to the same rule:
-  # skipped is fine (the change touched no Windows script), failed is not.
+  # if `changes` itself failed. `windows-scripts` and `e2e` are held to the
+  # same rule: skipped is fine (the change touched no Windows script or
+  # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, test-shard, windows-scripts]
+    needs: [changes, test-shard, windows-scripts, e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -252,11 +253,13 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           SHARDS: ${{ needs.test-shard.result }}
           WINDOWS_SCRIPTS: ${{ needs.windows-scripts.result }}
+          E2E: ${{ needs.e2e.result }}
         run: |
-          echo "changes=$CHANGES test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS"
+          echo "changes=$CHANGES test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E"
           [ "$CHANGES" = success ] || exit 1
           [ "$SHARDS" = success ] || [ "$SHARDS" = skipped ] || exit 1
           [ "$WINDOWS_SCRIPTS" = success ] || [ "$WINDOWS_SCRIPTS" = skipped ] || exit 1
+          [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1
 
   # Runs the Windows scripts (setup.bat, start.bat up to the server launch,
   # uninstall.bat) in temp folders with their prompts answered through stdin,

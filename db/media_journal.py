@@ -386,7 +386,7 @@ def _recover_staging(name: str, now: float, max_age: float):
         _release_lock(holder)
 
 
-def recover_media_imports(max_age: float = db.STALE_MEDIA_STAGING_SECONDS, now: float = None) -> dict:
+def recover_media_imports(max_age: float = None, now: float = None) -> dict:
     """Crash recovery for imports that are not running (run at startup and
     before an import or restore; a staging folder whose lock another process
     holds is skipped): a journal whose drama rows exist is deleted; one whose
@@ -395,6 +395,8 @@ def recover_media_imports(max_age: float = db.STALE_MEDIA_STAGING_SECONDS, now: 
     before moving anything) is removed once older than max_age. Nothing a
     journal doesn't list is touched. Returns {"settled": n, "failed_ids":
     [ids left in place]}. Never raises."""
+    # Read at call time so a changed db.STALE_MEDIA_STAGING_SECONDS is honoured.
+    max_age = db.STALE_MEDIA_STAGING_SECONDS if max_age is None else max_age
     now = time.time() if now is None else now
     settled, failed = 0, []
     with db._media_lock:

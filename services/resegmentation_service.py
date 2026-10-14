@@ -101,31 +101,59 @@ def _note_ids_by_line(drama_id: int) -> dict:
 def _apply_guard(drama_id: int, lines) -> tuple:
     """What the job's write is checked against: the lines and their notes as
     the job read them."""
-    return _line_fingerprint(lines), _note_ids_by_line(drama_id)
+    return _line_fingerprint(lines), _note_ids_by_line(drama_id), db.line_emotion_ids(drama_id)
 
 
-def _apply_resegmented(drama_id: int, new_lines, guard: tuple) -> dict:
+def _apply_resegmented(drama_id: int, new_lines, pieces_by_id: dict, guard: tuple) -> dict:
     """The job's write step: same guard as Apply. A kept line only gets the
-    fields the job changed (save_lines diffs against `orig`), but a split
-    line is deleted with its text, translation, flag and notes, so one
-    edited or given a note while the job ran is refused rather than lost
-    (the start's confirm covered only what was there then)."""
-    fingerprint, notes_then = guard
+    fields the job changed (save_lines diffs against `orig`). A split line is
+    deleted with its text, translation, flag and notes, so one edited or
+    given a note while the job ran (the start's confirm covered only what was
+    there then) is left whole as it is now, and the rest of the split is
+    still saved: the run's paid LLM calls aren't thrown away for one edit.
+
+    pieces_by_id: {line_id: number of pieces} for each line the run split,
+    in the order resegment_lines emitted them."""
+    fingerprint, notes_then, emotions_then = guard
     with _drama_lock(drama_id):
         current = db.load_line_objects(drama_id, with_words=True)
         if [ln.id for ln in current] != [lid for lid, _ in fingerprint]:
             raise RuntimeError("This title's lines changed while re-segmenting -- nothing was "
                                "changed; run it again.")
-        kept_ids = {ln.id for ln in new_lines if ln.id is not None}
         now = dict(_line_fingerprint(current))
         notes_now = _note_ids_by_line(drama_id)
-        if any(now[lid] != was or notes_now.get(lid, set()) - notes_then.get(lid, set())
-               for lid, was in fingerprint if lid not in kept_ids):
-            raise RuntimeError("A line being split was edited or given a note while "
-                               "re-segmenting -- nothing was changed; run it again.")
-        _commit(drama_id, current, list(new_lines), "before re-segment",
-                known_note_ids=set().union(*notes_then.values()))
-    return {"line_count": len(new_lines)}
+        edited = {lid for lid, was in fingerprint if lid in pieces_by_id
+                  and (now[lid] != was or notes_now.get(lid, set()) - notes_then.get(lid, set()))}
+        if db.line_emotion_ids(drama_id) - emotions_then:
+            # Refused here, before the history snapshot _commit takes, so no
+            # orphan "before re-segment" entry is left behind.
+            raise RuntimeError("An emotion tag was added while re-segmenting -- nothing was "
+                               "changed; run it again.")
+        if edited:
+            new_lines = _keep_whole(new_lines, [lid for lid, _ in fingerprint], pieces_by_id,
+                                    {ln.id: ln for ln in current}, edited)
+        if len(edited) < len(pieces_by_id):
+            _commit(drama_id, current, list(new_lines), "before re-segment",
+                    known_note_ids=set().union(*notes_then.values()),
+                    known_emotion_ids=emotions_then)
+    return {"line_count": len(new_lines), "kept_your_edit": len(edited)}
+
+
+def _keep_whole(new_lines, source_ids, pieces_by_id, current_by_id, keep) -> list:
+    """new_lines with each line in `keep` back as one line, as it is now."""
+    out, pos = [], 0
+    for lid in source_ids:
+        n = pieces_by_id.get(lid, 1)
+        if lid in keep:
+            ln = current_by_id[lid]
+            out.append(dataclasses.replace(ln, merged_ids=list(ln.merged_ids)))
+        else:
+            out.extend(new_lines[pos:pos + n])
+        pos += n
+    if pos != len(new_lines):
+        raise RuntimeError("The re-segmented lines don't match the lines they came from -- "
+                           "nothing was changed; run it again.")
+    return out
 
 
 def _raise_if_cancelled(job_id):
@@ -142,16 +170,22 @@ def _bounded(job_id, drama_id, engine, engine_name):
 
 
 def _run_resegment_job(job_id, drama_id, lines, guard, language, engine, engine_name,
-                       segments, script, min_pause):
-    usage = paid_calls.usage_logger(drama_id, engine_name, engine, "resegment") if engine is not None else None
-    with _bounded(job_id, drama_id, engine, engine_name):
-        new_lines, changed = resegment.resegment_lines(
-            lines, language, engine=engine, segments=segments, chinese_script=script,
-            usage_cb=usage, min_pause=min_pause,
-            check_cancel=lambda: _raise_if_cancelled(job_id))
+                       segments, script, min_pause, split=None):
+    """split: the rules-only (new_lines, changed) worked out at the start;
+    None runs the LLM pass here."""
+    if split is None:
+        usage = paid_calls.usage_logger(drama_id, engine_name, engine, "resegment")
+        with _bounded(job_id, drama_id, engine, engine_name):
+            split = resegment.resegment_lines(
+                lines, language, engine=engine, segments=segments, chinese_script=script,
+                usage_cb=usage, min_pause=min_pause,
+                check_cancel=lambda: _raise_if_cancelled(job_id))
+    new_lines, changed = split
     result = {"changed": len(changed)}
     if changed:
-        result.update(_apply_resegmented(drama_id, new_lines, guard))
+        result.update(_apply_resegmented(drama_id, new_lines,
+                                         {ln.id: len(p) for ln, p in changed}, guard))
+        result["changed"] -= result["kept_your_edit"]
     background_jobs.set_result(job_id, result)
 
 
@@ -160,7 +194,9 @@ def _make_on_done(drama_id, guard, engine_name, engine):
         for inp, out in (result or {}).get("usage_calls", []):
             paid_calls.usage_logger(drama_id, engine_name, engine, "resegment")(inp, out)
         if (result or {}).get("changed"):
-            _apply_resegmented(drama_id, result["lines"], guard)
+            _apply_resegmented(drama_id, result["lines"],
+                               {lid: len(pieces) for lid, _idx, _zh, pieces in result["changed"]},
+                               guard)
     return on_done
 
 
@@ -210,10 +246,18 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id, with_words=True)
     _check_expected(lines, expected_line_ids)
-    # The LLM's split isn't known until it runs, so every splittable line counts.
-    if confirm is not True and _needs_confirm(drama_id, lines, _candidate_ids(lines, language)):
-        raise InvalidInputError(_CONFIRM_NEEDED)
     guard = _apply_guard(drama_id, lines)
+    if eng is None:
+        # Rules only: the split is known now, so confirm covers exactly the
+        # lines it splits, and the job saves this split.
+        split = resegment.resegment_lines(lines, language, segments=segments,
+                                          chinese_script=script, min_pause=min_pause)
+        at_risk = {ln.id for ln, _ in split[1]}
+    else:
+        # The LLM's split isn't known until it runs, so every splittable line counts.
+        split, at_risk = None, _candidate_ids(lines, language)
+    if confirm is not True and _needs_confirm(drama_id, lines, at_risk):
+        raise InvalidInputError(_CONFIRM_NEEDED)
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
     desc = f"Re-segmenting (title #{drama_id})"
     if engine_name == "ollama":
@@ -224,7 +268,7 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     else:
         started = job_launch.start_job(
             job_id, _run_resegment_job, job_id, drama_id, lines, guard, language,
-            eng, engine_name, segments, script, min_pause, description=desc)
+            eng, engine_name, segments, script, min_pause, split=split, description=desc)
     if not started:
         raise ConflictError("A re-segmentation is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id}
@@ -355,6 +399,7 @@ def _apply_llm_preview_job(job_id, drama_id, preview, confirm: bool = False):
     with _drama_lock(drama_id):
         # Read before the lines, so a note added after either read is unknown.
         known = note_ids(drama_id)
+        known_emotions = db.line_emotion_ids(drama_id)
         current = db.load_line_objects(drama_id)
         if _line_fingerprint(current) != state["fingerprint"]:
             raise RuntimeError("This title's lines changed since the preview -- nothing was "
@@ -365,7 +410,8 @@ def _apply_llm_preview_job(job_id, drama_id, preview, confirm: bool = False):
                                "with confirm=true.")
         new_lines = [dataclasses.replace(ln, merged_ids=list(ln.merged_ids))
                      for ln in state["lines"]]
-        _commit(drama_id, current, new_lines, "before re-segment", known_note_ids=known)
+        _commit(drama_id, current, new_lines, "before re-segment", known_note_ids=known,
+                known_emotion_ids=known_emotions)
     with _llm_previews_lock:
         if _llm_previews.get(drama_id) is preview:
             _llm_previews.pop(drama_id, None)   # applied: it can't be applied twice

@@ -364,9 +364,9 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
       <thead>
         <tr>
           <th>Job</th>
-          <th>Title</th>
-          <th>Stage</th>
-          <th>Status</th>
+          <th className="jobs-nowrap">Title</th>
+          <th className="jobs-nowrap">Stage</th>
+          <th className="jobs-nowrap">Status</th>
           <th className="jobs-nowrap">Progress</th>
           <th className="jobs-nowrap" aria-sort={ariaSort('started')}>
             <button type="button" className="link" onClick={() => onSort('started')}>Started</button>
@@ -391,12 +391,12 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
                   <strong>{jobBaseName(j)}</strong>
                   {note && <div className="muted jobs-note">{plainJobText(note)}</div>}
                 </td>
-                <td>{title && links.title ? <a href={routeHref(links.title)}>{title}</a> : ''}</td>
-                <td>{links.stage ? <a href={routeHref(links.stage.route)}>{links.stage.label}</a> : ''}</td>
+                <td className="jobs-title">{title && links.title ? <a href={routeHref(links.title)}>{title}</a> : ''}</td>
+                <td className="jobs-nowrap">{links.stage ? <a href={routeHref(links.stage.route)}>{links.stage.label}</a> : ''}</td>
                 <td><StatusCell job={j} place={props.places.get(j.job_id)} /></td>
                 <td><ProgressBar job={j} titles={props.titles} now={props.now} /></td>
-                <td>{j.started_at != null && <time dateTime={new Date(j.started_at * 1000).toISOString()}>{relativeTime(j.started_at, props.now)}</time>}</td>
-                <td>{formatDuration(j, props.now)}</td>
+                <td className="jobs-nowrap">{j.started_at != null && <time dateTime={new Date(j.started_at * 1000).toISOString()}>{relativeTime(j.started_at, props.now)}</time>}</td>
+                <td className="jobs-nowrap">{formatDuration(j, props.now)}</td>
                 {props.authOn && <td>{j.owned_by_me ? 'You' : 'Someone else'}</td>}
                 <td><JobActions job={j} props={props} expanded={expanded} /></td>
               </tr>

@@ -8,8 +8,9 @@ may show. Cleaning can break a link that needs its query (a video id in
 `?v=`), so when cleaning changes the link the raw one is also kept in
 `dramas.source_url_full`, empty otherwise. That column can hold a signed
 token, so it is read only by `source_link` for the PC-only route
-GET /api/dramas/{id}/source-link; nothing logs it and no other response
-model, report, page or manifest carries it.
+GET /api/dramas/{id}/source-link and, server side only, by the comic
+chapter list (to find the adapter and series; it is never returned). Nothing
+logs it and no other response model, report, page or manifest carries it.
 """
 
 from urllib.parse import urlsplit

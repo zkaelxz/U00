@@ -235,6 +235,17 @@ class TestSaveLinesExpectUnchanged:
         isolated_db.save_lines(did, read[:1], known_note_ids=known)
         assert len(isolated_db.load_lines(did)) == 1
 
+    def test_a_new_emotion_tag_on_a_removed_line_refuses(self, isolated_db):
+        from lib.errors import ConflictError
+        did, read = self._seed(isolated_db)
+        isolated_db.save_emotions(did, {1: {"emotion": "angry", "intensity": 0.9, "note": ""}})
+        with pytest.raises(ConflictError):
+            isolated_db.save_lines(did, read[:1], known_emotion_ids=set())
+        assert len(isolated_db.load_lines(did)) == 2
+        known = isolated_db.line_emotion_ids(did)
+        isolated_db.save_lines(did, read[:1], known_emotion_ids=known)
+        assert len(isolated_db.load_lines(did)) == 1
+
     def test_field_scoped_saves_refuse_the_checks(self, isolated_db):
         did, read = self._seed(isolated_db)
         with pytest.raises(ValueError):
@@ -2535,6 +2546,15 @@ class TestSearchWildcards:
                                    Line(idx=1, start=1.0, end=2.0, zh="别的", en="x_y")])
         assert [r["idx"] for r in isolated_db.search_lines_globally("%")] == [0]
         assert [r["idx"] for r in isolated_db.search_lines_globally("_")] == [1]
+
+    def test_search_ignores_case_in_accented_letters(self, isolated_db):
+        from core import Line
+        a = isolated_db.create_drama(title_en="CAFÉ Nights")
+        isolated_db.create_drama(title_en="Cafe Plain")
+        assert [d["id"] for d in isolated_db.list_dramas(search="café")] == [a]
+        assert [d["id"] for d in isolated_db.list_dramas(search="Café")] == [a]
+        isolated_db.save_lines(a, [Line(idx=0, start=0.0, end=1.0, zh="", en="ÉCOLE")])
+        assert [r["idx"] for r in isolated_db.search_lines_globally("école")] == [0]
 
 
 def _stored_version():

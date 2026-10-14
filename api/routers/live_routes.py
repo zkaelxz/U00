@@ -14,11 +14,13 @@ also needs `engines.paid`. Reading a session is `library.read`; stopping one is
 from typing import List
 
 from fastapi import APIRouter, Path, Query, Request
+from fastapi.responses import FileResponse
 
-from api.auth import (is_at_pc, is_local_request, require_cloud_model_allowed,
+from api.auth import (is_at_pc, is_local_request, local_only, require_cloud_model_allowed,
                       require_engines_allowed, require_permission)
 from api.schemas import (LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary, error_responses)
+from lib.errors import ForbiddenError
 from services import live_service, model_readiness_service
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -34,6 +36,9 @@ _ERRS = error_responses(404, 422, 503)
 def post_session(body: LiveSessionStart, request: Request):
     require_engines_allowed(request, body.engine or live_service.LIVE_DEFAULT_ENGINE)
     require_cloud_model_allowed(request, (body.engine, body.model))
+    # The recorder downloads video for the whole session and its files are served to the PC only.
+    if body.delayed_player and not is_at_pc(request):
+        raise ForbiddenError("The delayed player can only be started at the PC.")
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_whisper_size, body.whisper_size)
     return live_service.start_session(
@@ -41,7 +46,7 @@ def post_session(body: LiveSessionStart, request: Request):
         segment_seconds=body.segment_seconds, overlap_seconds=body.overlap_seconds,
         engine=body.engine, model=body.model, max_minutes=body.max_minutes,
         use_gpu=body.use_gpu, use_saved_cookies=is_local_request(request),
-        reply_without_thinking=body.reply_without_thinking,
+        reply_without_thinking=body.reply_without_thinking, delayed_player=body.delayed_player, player_height=body.player_height,
         glossary_drama_id=body.glossary_drama_id, series_id=body.series_id,
         principal=request.state.principal)
 
@@ -75,3 +80,16 @@ def get_session(request: Request, session_id: str = _SID,
              summary="Stop a session (idempotent on a finished one)", responses=_ERRS)
 def post_stop(request: Request, session_id: str = _SID):
     return live_service.stop_session(session_id, principal=request.state.principal)
+
+
+_PLAYER_FILE = Path(pattern=r"^(?:(?:master|video|audio)\.m3u8|[va]_\d{6}\.ts)$")
+
+
+@router.get("/player/{session_id}/{name}", dependencies=[local_only()],
+            summary="One file of the session's delayed player (a playlist or a segment)",
+            responses=_ERRS)
+def get_player_file(request: Request, session_id: str = _SID, name: str = _PLAYER_FILE):
+    path = live_service.player_file(session_id, name, principal=request.state.principal)
+    kind = "application/vnd.apple.mpegurl" if name.endswith(".m3u8") else "video/mp2t"
+    # No store: the segments are deleted as the window moves on.
+    return FileResponse(path, media_type=kind, headers={"Cache-Control": "no-store"})

@@ -101,6 +101,16 @@ def _extract_data_blob(html: str) -> dict:
     raise LayoutChanged("the chapters page's embedded data")
 
 
+def _chapter_entries(data: dict) -> list:
+    """The blob's `chapters` list; a changed layout can turn it (or its
+    entries) into another JSON type, which would otherwise surface as an
+    AttributeError instead of a layout-changed error."""
+    chapters = data.get("chapters") or []
+    if not isinstance(chapters, list) or not all(isinstance(c, dict) for c in chapters):
+        raise LayoutChanged("a readable chapters list")
+    return chapters
+
+
 @register
 class RanobesSource(SourceAdapter):
     name = "ranobes"
@@ -184,7 +194,7 @@ class RanobesSource(SourceAdapter):
         book_id = self._series_id_num(series_id)
         first = self._get(f"/chapters/{book_id}/", f"Loading chapter list for {series_id}")
         data = _extract_data_blob(first)
-        chapters = list(data.get("chapters") or [])
+        chapters = list(_chapter_entries(data))
         try:
             pages_count = int(data.get("pages_count") or 1)
         except (ValueError, TypeError, OverflowError):
@@ -197,7 +207,7 @@ class RanobesSource(SourceAdapter):
         for n in range(2, pages_count + 1):
             html = self._get(f"/chapters/{book_id}/page/{n}/",
                              f"Loading chapter list for {series_id} (page {n}/{pages_count})")
-            chapters.extend(_extract_data_blob(html).get("chapters") or [])
+            chapters.extend(_chapter_entries(_extract_data_blob(html)))
         if not chapters:
             raise LayoutChanged("any chapters")
         out = []

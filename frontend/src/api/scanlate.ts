@@ -32,8 +32,9 @@ export const scanlateApi = {
     postJson<ScanlateJobStarted>(`${root(id)}/run`, body, f),
   render: (id: number, pageId: number | null, f?: Fetch) =>
     postJson<ScanlateJobStarted>(`${root(id)}/render`, pageId ? { page_id: pageId } : {}, f),
-  export: (id: number, formats: ScanlateExportFormat[], f?: Fetch) =>
-    postJson<ScanlateJobStarted>(`${root(id)}/export`, { formats }, f),
+  // typeset=false exports the original pages; the server's default is the typeset ones.
+  export: (id: number, formats: ScanlateExportFormat[], f?: Fetch, typeset = true) =>
+    postJson<ScanlateJobStarted>(`${root(id)}/export`, typeset ? { formats } : { formats, typeset }, f),
 }
 
 // Download links for the export job's files (media.stream).

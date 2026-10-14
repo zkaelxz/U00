@@ -16,13 +16,18 @@
 .jobs-table th.jobs-nowrap { white-space: nowrap; min-width: 4.5rem; }
 .jobs-table th button.link { font: inherit; color: inherit; font-weight: inherit; }
 .jobs-table th[aria-sort] button.link { color: var(--text); }
+.jobs-table td.jobs-nowrap { white-space: nowrap; }
+/* Without a floor the long-word wrapping rules let the table squeeze a title to a few letters per line. */
+.jobs-table td.jobs-title { min-width: 8rem; overflow-wrap: break-word; }
 .jobs-name { max-width: 16rem; overflow-wrap: anywhere; }
+/* The kind label is a short fixed phrase; `anywhere` on the cell let a narrow column split it mid-word. The note under it still wraps. */
+.jobs-name strong { white-space: nowrap; }
 .jobs-note { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .jobs-outcome { font-size: var(--text-sm); }
 .jobs-progress { display: inline-flex; align-items: center; gap: var(--space-2); }
 .jobs-bar { display: block; width: 5rem; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
 .jobs-bar > span { display: block; height: 100%; background: var(--accent); }
-.jobs-pct { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
+.jobs-pct { white-space: nowrap; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
 .jobs-eta { font-size: var(--text-sm); white-space: nowrap; }
 .jobs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 .jobs-details { display: grid; gap: var(--space-2); padding: var(--space-2) 0; min-width: 0; overflow-wrap: anywhere; }

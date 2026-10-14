@@ -123,6 +123,8 @@
 		# Merging titles and moving chapters rewrite files on the PC.
 		path /api/dramas/*/restructure /api/dramas/*/restructure/preview
 		path /api/docs /api/docs/* /api/openapi.json /docs/*
+		# The delayed player's recording of the stream is served at the PC only.
+		path /api/live/player/*
 		# Household members may send a bug report from their own device.
 		not {
 			method POST

@@ -276,7 +276,7 @@ class DramaCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def _needs_a_title(self):
-        # Here, not in drama_service: the CLI and importers create untitled
+        # Here, not in drama_service: importers create untitled
         # rows through the service on purpose.
         if not (self.title_en.strip() or self.title_zh.strip() or self.source_url.strip()):
             raise ValueError("A title or a link is required.")
@@ -770,6 +770,10 @@ class LibraryRestoreDone(BaseModel):
     # Titles whose owner became the live account with the same email, or the
     # PC owner (only when the live accounts were kept).
     titles_reassigned: int = 0
+    # False: the backup holds no readable account, so every title became the PC
+    # owner's (the single-title restore's copy_has_accounts notice). Always True
+    # when the backup's accounts were taken. No UI reads it yet.
+    backup_has_accounts: bool = True
     # The previous library's other folders the backup lacks: they stay there.
     folders_left_behind: List[str] = []
 

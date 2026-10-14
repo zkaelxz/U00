@@ -399,17 +399,19 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                 # would be refused, so the run ends with this error.
                 if isinstance(exc, LLMTaskTimeout):
                     raise
-    parts = [f"{counts['translated']} translated"]
-    if counts["done"]:
-        parts.append(f"{counts['done']} without translation")
-    if counts["skipped"]:
-        parts.append(f"{counts['skipped']} skipped (already done)")
-    if counts["stale"]:
-        parts.append(f"{counts['stale']} edited meanwhile")
-    if counts["kept"]:
-        parts.append(f"{counts['kept']} kept unchanged (redo failed)")
+    # Problems lead so a long "6 translated" tail cannot hide them.
+    parts = []
     if counts["failed"]:
         parts.append(f"{counts['failed']} failed")
+    if counts["kept"]:
+        parts.append(f"{counts['kept']} kept unchanged (redo failed)")
+    if counts["stale"]:
+        parts.append(f"{counts['stale']} edited meanwhile")
+    if counts["done"]:
+        parts.append(f"{counts['done']} with no translation (no text found or translation failed)")
+    parts.append(f"{counts['translated']} translated")
+    if counts["skipped"]:
+        parts.append(f"{counts['skipped']} skipped (already done)")
     background_jobs.update_progress(jid, 1.0, "Pages: " + ", ".join(parts) + "."
                                     + (f" {limits.stop_reason}." if limits.stop_reason else ""))
     if limits.stop_reason:

@@ -218,6 +218,21 @@ def test_a_live_playlist_starts_at_the_edge_and_tracks_new_segments_once(serve):
     assert pump.error is None
 
 
+def test_pumps_sharing_an_align_start_on_the_same_media_sequence(serve):
+    """Video and audio playlists of one broadcast: whichever pump joins first
+    picks the start (its newest three), the other follows it, not its own edge."""
+    video = [f"v{i}.ts" for i in range(10, 15)]
+    audio = [f"a{i}.ts" for i in range(8, 17)]
+    s = serve({"/video.m3u8": (200, _M3U8, _segments(video, seq=10, end=False)),
+               "/audio.m3u8": (200, _M3U8, _segments(audio, seq=8, end=False)),
+               **_seg_routes(video + audio)})
+    align = live_fetch.SequenceAlign()
+    _, video_sink = _run(f"{s.base}/video.m3u8", stall_timeout=1, align=align)
+    _, audio_sink = _run(f"{s.base}/audio.m3u8", stall_timeout=1, align=align)
+    assert bytes(video_sink.data) == b"v12.ts;v13.ts;v14.ts;"
+    assert bytes(audio_sink.data) == b"a12.ts;a13.ts;a14.ts;a15.ts;a16.ts;"
+
+
 def test_a_restarted_media_sequence_is_rejoined_at_the_edge(serve):
     state = {"n": 0}
 

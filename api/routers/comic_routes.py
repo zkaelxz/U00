@@ -9,6 +9,7 @@ services/comic_view_service.py:
 - GET  /dramas/{id}/progress                     library.read
 - POST /dramas/{id}/progress                     lines.edit
 - POST /dramas/{id}/pages/visibility             lines.edit
+- GET  /dramas/{id}/source-chapters              library.read
 
 Images go through Starlette's FileResponse (Range, HEAD, ETag,
 Last-Modified); this module adds the If-None-Match 304 that FileResponse
@@ -22,10 +23,10 @@ from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse, Response
 
 from api.auth import require_permission
-from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest,
+from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
                               ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import error_responses
-from services import comic_chapters_service, comic_view_service
+from services import comic_chapters_service, comic_source_chapters_service, comic_view_service
 
 router = APIRouter(prefix="/api/scanlate", tags=["comic"])
 
@@ -103,3 +104,11 @@ def post_visibility(body: ComicVisibilityRequest, drama_id: int = Path(ge=1)):
     return comic_chapters_service.set_visibility(
         drama_id, body.hidden, page_ids=body.page_ids, chapter_id=body.chapter_id,
         edge=body.edge, count=body.count)
+
+
+@router.get("/dramas/{drama_id}/source-chapters", dependencies=[require_permission("library.read")],
+            response_model=ComicSourceChapters,
+            summary="The chapters a comic's source has (from the site, or the extension's saved links)",
+            responses=error_responses(404, 422, 503))
+def get_source_chapters(request: Request, drama_id: int = Path(ge=1)):
+    return comic_source_chapters_service.list_source_chapters(drama_id, principal=request.state.principal)

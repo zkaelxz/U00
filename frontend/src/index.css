@@ -213,6 +213,12 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 *, *::before, *::after { box-sizing: border-box; }
 
 html { scrollbar-gutter: stable; font-size: 93.75%; }
+/* Display preferences (src/display.ts). Overriding the tokens on html reaches PageShell's --page-* aliases and the dock's cap. */
+html[data-width='wide'] { --content-max: 1800px; }
+html[data-width='full'] { --content-max: none; --content-max-wide: none; }
+html[data-text='small'] { font-size: 87.5%; }
+html[data-text='large'] { font-size: 106.25%; }
+html[data-text='larger'] { font-size: 118.75%; }
 /* CJK text uses each language's system fonts, then the Latin face for any Latin in it. */
 :lang(zh) { font-family: var(--font-zh), var(--font-sans); line-height: var(--leading-cjk); }
 :lang(ja) { font-family: var(--font-ja), var(--font-sans); line-height: var(--leading-cjk); }
@@ -257,6 +263,9 @@ h1 { margin: 0; font-size: var(--text-xl); }
 h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
 h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
 
+.app-back { gap: var(--space-1); }
+/* Wide headers only: a phone's own back gesture does the same, and its six header controls leave no room. The header-end cluster must stay at the right edge. */
+.app-header > .app-back + .header-end { margin-left: auto; }
 .app-brand { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold); }
 .app-brand a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; min-width: 44px; color: inherit; text-decoration: none; }
 /* The circle mark stands in for the word where the six header controls leave no room for it (login.css). */

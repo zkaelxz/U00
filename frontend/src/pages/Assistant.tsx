@@ -149,8 +149,8 @@ export default function AssistantPage() {
         {panel('tools', githubKnown && (
           <>
             {github && <GithubCard status={github} onStatus={setGithub} />}
-            <ToolsCard githubConfigured={!!github} />
-            <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={(s) => setLoad({ state: 'ready', settings: s })} githubConfigured={!!github} />
+            <ToolsCard />
+            <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={(s) => setLoad({ state: 'ready', settings: s })} />
           </>
         ))}
       </>
