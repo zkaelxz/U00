@@ -95,20 +95,11 @@ def _parse_fps(rate: str):
         return None
 
 
-def probe_media(path: str, filename: str | None = None, timeout: int = 30) -> MediaAnalysis:
-    """Analyze a dropped media file: real duration/resolution/fps/track data
-    via ffprobe, plus an advisory content-type guess and suggested pipeline.
-
-    `filename` is the original name the user gave the file -- pass it
-    whenever `path` is a temp file, since the filename-keyword part of the
-    content-type guess needs the real name, not a generated temp one.
-    """
-    probe = run_ffprobe(path, timeout=timeout)
-    return analysis_from_probe(probe, filename or os.path.basename(path))
-
-
 def analysis_from_probe(probe: dict, filename: str) -> MediaAnalysis:
-    """probe_media's parsing half, for a caller that already ran ffprobe."""
+    """Analyze `probe` (run_ffprobe output) for the file called `filename`: duration,
+    resolution, fps and tracks, plus an advisory content-type guess and
+    suggested pipeline. `filename` must be the user's original name, not a temp
+    path, since the content-type guess reads keywords from it."""
     fmt = probe.get("format", {}) or {}
     duration = float(fmt.get("duration", 0.0) or 0.0)
 

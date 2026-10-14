@@ -1,12 +1,11 @@
 // Import a timed subtitle or lyric file into a title (api/routers/subtitle_import_routes.py).
 // Preview and apply are PC-only uploads, so they go through pcOnlyFetch.
 import type {
-  SidecarMatchResult,
   SubtitleImportOptions,
   SubtitleImportPreview,
   SubtitleImportResult,
 } from '../types/subtitleImport'
-import { postJson, postMultipart } from './client'
+import { postMultipart } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
@@ -37,7 +36,3 @@ export const applySubtitle = (
   confirm: { replaceLines: boolean; overwrite: boolean },
   f?: Fetch,
 ) => postMultipart<SubtitleImportResult>(`${base(id)}/apply`, form(file, o, confirm), pcOnlyFetch(f))
-
-/** Ranks the picked file names against a media file name (names only). */
-export const rankSidecars = (id: number, mediaName: string, names: string[], f?: Fetch) =>
-  postJson<SidecarMatchResult>(`${base(id)}/sidecars`, { media_name: mediaName, names }, f)

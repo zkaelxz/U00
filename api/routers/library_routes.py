@@ -14,6 +14,8 @@ instead of on the event loop.
 from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
+
+import translate_engines
 from api.auth import require_permission
 from api.schemas import (
     DramaDetail, DramaListResponse, DramaSummary, ErrorResponse, LibraryCostResponse,
@@ -42,7 +44,7 @@ def to_detail(drama: dict) -> DramaDetail:
     return DramaDetail(**{f: drama.get(f) for f in _DETAIL_FIELDS},
                        custom_tags=library_service.split_custom_tags(drama),
                        # Never the query: a pasted download link can carry a token.
-                       source_url=library_service.display_source_url(drama.get("source_url")) or None,
+                       source_url=translate_engines.display_url(drama.get("source_url")) or None,
                        has_audio=bool(drama.get("audio_filename")),
                        has_novel_reference=novel_files_service.has_reference(drama["id"], drama),
                        has_cover_art=bool(drama.get("cover_art_filename")),
