@@ -108,6 +108,8 @@ class ScanlateRunRequest(BaseModel):
     chapter_id: Optional[str] = Field(None, min_length=1, max_length=200)
     engine: Optional[str] = Field(None, min_length=1, max_length=40)
     detect_backend: Literal["auto", "cv", "ml"] = "auto"
+    # Also translate the large text drawn on the art (paints it out first).
+    art_captions: bool = False
 
 
 class ScanlateRenderRequest(BaseModel):

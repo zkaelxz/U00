@@ -104,6 +104,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "review_thresholds.py",
     "run_tests.py",
     "scanlate.py",
+    "scanlate_art_text.py",
     "scanlate_detect.py",
     "scanlate_inpaint.py",
     "scanlate_regions.py",

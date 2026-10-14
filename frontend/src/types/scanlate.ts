@@ -74,6 +74,8 @@ export interface ScanlateRunRequest {
   confirm?: boolean
   engine?: string
   detect_backend?: ScanlateDetectBackend
+  // Also translate large lettering drawn on the artwork (off unless set).
+  art_captions?: boolean
 }
 
 export type ScanlateExportFormat = 'zip' | 'pdf'

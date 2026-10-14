@@ -89,6 +89,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
   )
   const [files, setFiles] = useState<File[]>([])
   const [slice, setSlice] = useState(draft.slice ?? true)
+  // Not remembered: it adds seconds per caption, so each visit starts with it off.
+  const [artCaptions, setArtCaptions] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -171,6 +173,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
         confirm: mode === 'all' ? true : undefined,
         engine,
         detect_backend: detector,
+        art_captions: artCaptions || undefined,
       })
       setJobKind('run')
       setJobId(r.job_id)
@@ -304,6 +307,15 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
           </select>
         </Field>
       )}
+
+      <div className="toggle-list">
+        <Field
+          label="Translate captions on the art"
+          help="Also finds large lettering drawn on the artwork, paints it out and sets the English in the same colour and glow. Needs PaddleOCR and the LaMa-manga model; takes about 5 seconds per caption."
+        >
+          <Toggle checked={artCaptions} onChange={setArtCaptions} />
+        </Field>
+      </div>
 
       <div className="actions">
         <button
