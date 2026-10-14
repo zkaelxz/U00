@@ -76,6 +76,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "live_tokens.py",
     "live_translate.py",
     "live_whisper.py",
+    "live_player.py",
     "long_line_split.py",
     "loudness.py",
     "media_inspect.py",
