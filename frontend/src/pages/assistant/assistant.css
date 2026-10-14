@@ -1,4 +1,4 @@
-/* Maintenance assistant (Step 42): a stack of Cards like Settings. Tokens only. */
+/* Maintenance assistant: a stack of Cards like Settings. Tokens only. */
 .assistant-page .setting-list { margin: 0; }
 .assistant-page code { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 
@@ -81,7 +81,7 @@
   .assistant-backlog > li { padding-inline: var(--space-3); }
 }
 
-/* Step 60: the independent review next to a proposed fix. */
+/* The independent review next to a proposed fix. */
 .assistant-review {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

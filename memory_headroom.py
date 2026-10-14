@@ -8,7 +8,7 @@ reserve and refuses the load, in plain words, when it would eat into it.
 A refusal is early and clean: nothing has been allocated yet, so there is
 no out-of-memory crash halfway through a job.
 
-Both the app and the CLI load models through the same loaders, which call
+Every model load goes through the shared loaders, which call
 `before_load` / `check`, so they behave alike. Everything is off at 0 (the
 default) and reads nothing then. When memory can't be read (no GPU, no
 nvidia-smi, an unsupported OS) the check is skipped rather than blocking:

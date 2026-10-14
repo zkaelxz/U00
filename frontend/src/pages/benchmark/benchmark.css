@@ -120,7 +120,7 @@
 .bench-prefill p { margin: 0; overflow-wrap: anywhere; }
 .bench-prefill ul { margin: 0; padding-left: 1.2rem; font-size: var(--text-sm); overflow-wrap: anywhere; }
 
-/* Model re-evaluation (ReevalCard, Step 40b). */
+/* Model re-evaluation (ReevalCard). */
 .reeval .card-body { display: grid; gap: var(--space-4); min-width: 0; }
 .reeval p { margin: 0; }
 .reeval-intro { max-width: 72ch; }
