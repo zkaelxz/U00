@@ -154,9 +154,11 @@ reach the extension.
 - **Two-page spreads and right-to-left order** affect which box belongs
   to which page; the app derives reading order per page, but a spread
   sent as one image is treated as one page.
-- **Webtoon strips** are long single images. The app slices them
-  server-side, so a very tall strip is best sent with the reader scrolled
-  to the part you care about.
+- **Webtoon strips** are long single images. The extension's path does
+  not slice them (Scanlate's upload does): a very tall strip goes to the
+  bubble detector whole, so it is best sent with the reader scrolled to
+  the part you care about. A JPEG's EXIF rotation is applied first, so
+  boxes match the page as the browser shows it.
 - **Firefox is not supported yet.** MV3 covers Chrome and Edge; Firefox
   differs enough to be its own work.
 - **The free bubble detector is not usable on colour artwork.** On a real colour 4-koma page it found no bubbles where the ML backend found 63 regions. If pages come back with nothing overlaid, that's usually this. The extension uses Auto, which picks the ML model once its weights are downloaded: on a comic, open **Translate pages → Advanced → Text detector → ML model** and run one page to fetch them.
