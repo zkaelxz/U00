@@ -30,6 +30,8 @@ export interface AutotuneStatus {
   best_candidate_ms: number | null
   scored_by: 'cer' | 'long_lines'
   reference_lines: number
+  /** Corrected lines a title needs before CER ranks the candidates. */
+  reference_minimum: number
 }
 
 export interface NovelGlossaryRunResult {

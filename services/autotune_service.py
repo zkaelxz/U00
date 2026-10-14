@@ -39,6 +39,10 @@ from services.transcribe_options_service import _DEFAULT_TUNING, stored_whisper_
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt, get_transcribe_config
 from translate_engines import redact_secrets
 
+# Fewer corrected lines than this is too small a sample to rank candidates by:
+# one odd line could pick the winner, so the long-line count is used instead.
+MIN_REFERENCE_LINES = 5
+
 # Auto-tune functions that may spend on a paid engine: none (local ASR only).
 PAID_ENGINE_FUNCTIONS = ()
 
@@ -74,7 +78,7 @@ def best_candidate(results: list):
 
 def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, initial_prompt,
                          beam_size, candidates, vad_threshold, fast_mode, preset, repeat_guard, result_queue,
-                         references=None):
+                         references=None, corrected_lines=0):
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
@@ -94,7 +98,8 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
             results.append(score_autotune_segments(candidate_ms, segments, references))
         result_queue.put(("ok", {"results": results, "best_candidate_ms": best_candidate(results),
                                  "scored_by": "cer" if references else "long_lines",
-                                 "reference_lines": len(references or [])}))
+                                 "reference_lines": corrected_lines,
+                                 "reference_minimum": MIN_REFERENCE_LINES}))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
 
@@ -136,11 +141,13 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
             "Auto-tune is unavailable while 'Split lines by sentences' is on: that mode "
             "ignores the minimum silence setting.")
     initial_prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
-    references = benchmark_reference_service.reference_lines(drama_id, drama)["lines"]
+    corrected = benchmark_reference_service.reference_lines(drama_id, drama)["lines"]
+    references = corrected if len(corrected) >= MIN_REFERENCE_LINES else []
     job_id = autotune_job_id(drama_id)
     started = job_launch.start_process_job(
         # A keyword, because the launcher appends the result queue as the last positional argument.
-        job_id, functools.partial(_autotune_all_worker, references=references),
+        job_id, functools.partial(_autotune_all_worker, references=references,
+                                          corrected_lines=len(corrected)),
         args=(audio_path, stored_whisper_size(drama),
               drama.get("source_language") or "zh", settings_service.get("use_gpu"),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
@@ -179,6 +186,7 @@ def get_autotune_status(drama_id: int) -> dict:
             "best_candidate_ms": raw.get("best_candidate_ms"),
             "scored_by": raw.get("scored_by") or "long_lines",
             "reference_lines": raw.get("reference_lines") or 0,
+            "reference_minimum": raw.get("reference_minimum") or MIN_REFERENCE_LINES,
         }
     message = job.get("error") if status == "error" else job.get("message")
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),

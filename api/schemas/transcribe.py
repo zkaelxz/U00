@@ -497,7 +497,9 @@ class AutotuneStatus(BaseModel):
     results: Optional[List[AutotuneCandidateScore]] = None
     best_candidate_ms: Optional[int] = None
     scored_by: Literal["cer", "long_lines"] = "long_lines"
+    # Corrected lines on the title, and how many it takes before CER is used.
     reference_lines: int = 0
+    reference_minimum: int = 0
 
 
 class AutotuneApplyRequest(BaseModel):

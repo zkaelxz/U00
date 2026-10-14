@@ -171,6 +171,11 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
             Best is the fewest wrong characters against the {status?.reference_lines} {status?.reference_lines === 1 ? 'line' : 'lines'} you corrected.
           </p>
         )}
+        {results.length > 0 && !byCer && !!status?.reference_lines && (
+          <p className="muted" data-testid="autotune-too-few">
+            {status.reference_lines} corrected {status.reference_lines === 1 ? 'line' : 'lines'}, need {status.reference_minimum}.
+          </p>
+        )}
         {results.length > 0 &&
           (isPhone ? (
             <ul className="autotune-cards" data-testid="autotune-results">

@@ -209,15 +209,25 @@ class TestAutotuneScoredByCer:
         assert all("cer" not in r for r in results)
         assert at.best_candidate(results) == 800
 
-    def test_start_hands_the_worker_the_titles_references(self, isolated_db, monkeypatch):
+    @staticmethod
+    def _started(isolated_db, monkeypatch, corrected):
         from jobs import job_launch
-        did = _title(isolated_db)
+        lines = [(f"原文{i}字", f"改文{i}字") for i in range(corrected)] + [("没改", "没改")]
+        did = _title(isolated_db, lines=lines)
         captured = {}
         monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **kw: captured.update(target=target) or True)
         at.start_autotune_run(did, candidates=[300])
-        assert [r["edited"] for r in captured["target"].keywords["references"]] == [
-            "今天天气很好", "他到底说了什么"]
+        return captured["target"].keywords
+
+    def test_four_corrected_lines_are_too_few_to_score_by(self, isolated_db, monkeypatch):
+        kw = self._started(isolated_db, monkeypatch, at.MIN_REFERENCE_LINES - 1)
+        assert kw["references"] == [] and kw["corrected_lines"] == 4
+
+    def test_five_corrected_lines_are_scored_by_cer(self, isolated_db, monkeypatch):
+        kw = self._started(isolated_db, monkeypatch, at.MIN_REFERENCE_LINES)
+        assert [r["edited"] for r in kw["references"]][0] == "改文0字"
+        assert len(kw["references"]) == 5 and kw["corrected_lines"] == 5
 
     def test_status_reports_how_it_was_scored(self, isolated_db, monkeypatch):
         import background_jobs
