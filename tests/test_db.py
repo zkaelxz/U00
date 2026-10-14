@@ -2577,6 +2577,45 @@ def test_a_second_thread_waits_for_the_first_use_to_finish_migrating(isolated_db
     assert calls == ["first"]
 
 
+def test_switching_the_library_mid_migration_still_migrates_the_new_one(
+        isolated_db, monkeypatch, tmp_path):
+    # Without the lock, the old path's migration finishing after the switch
+    # would mark the new, unmigrated library ready.
+    real_init_db = db.init_db
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def slow_init_db():
+        calls.append(db.DB_PATH)
+        if len(calls) == 1:
+            started.set()
+            assert release.wait(5)
+        real_init_db()
+
+    monkeypatch.setattr(db, "init_db", slow_init_db)
+    old = db.LIBRARY_DIR
+    db.configure_library_dir(old)
+    first = threading.Thread(target=lambda: db.get_conn().close())
+    first.start()
+    assert started.wait(5)
+    new = str(tmp_path / "other_library")
+    switched = threading.Event()
+    switch = threading.Thread(target=lambda: (db.configure_library_dir(new), switched.set()))
+    switch.start()
+    try:
+        assert not switched.wait(0.3)
+    finally:
+        release.set()
+        first.join(5)
+        switch.join(5)
+    assert switched.is_set()
+    try:
+        db.get_conn().close()
+        assert calls == [os.path.join(old, "library.db"), os.path.join(new, "library.db")]
+    finally:
+        db.configure_library_dir(old)
+
+
 def test_a_failed_first_use_lets_the_next_one_retry(isolated_db, monkeypatch):
     real_init_db = db.init_db
     attempts = []

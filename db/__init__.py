@@ -33,6 +33,12 @@ VOICE_BANK_DIR = os.path.join(LIBRARY_DIR, "voice_bank")
 # had a chance to redirect the path via configure_library_dir().
 _db_ready = False
 
+# Held while the first use migrates the schema, so another thread waits for
+# it instead of getting a connection to a half-migrated database. Re-entrant:
+# init_db() calls get_conn() on the same thread.
+_init_lock = threading.RLock()
+_db_initializing = False
+
 
 def configure_library_dir(path: str):
     """Redirects the library to a different directory -- used by the
@@ -40,18 +46,21 @@ def configure_library_dir(path: str):
     library, so tests never touch your actual data. Not something
     you'd normally call yourself."""
     global LIBRARY_DIR, DRAMAS_DIR, DB_PATH, BENCHMARK_DIR, VOICE_BANK_DIR, _db_ready
-    LIBRARY_DIR = path
-    DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
-    DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
-    # Every library path is redirected, BENCHMARK_DIR included, or a test
-    # of the benchmark case upload path would write into the real library.
-    BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
-    VOICE_BANK_DIR = os.path.join(LIBRARY_DIR, "voice_bank")
-    os.makedirs(DRAMAS_DIR, exist_ok=True)
-    # The new path hasn't been initialized yet -- clear readiness so the
-    # next get_conn() (or an explicit init_db() call) sets it up there
-    # rather than assuming the old path's readiness still applies.
-    _db_ready = False
+    # Under the init lock: a first use still migrating the old path would
+    # otherwise mark the new, unmigrated path ready when it finishes.
+    with _init_lock:
+        LIBRARY_DIR = path
+        DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
+        DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
+        # Every library path is redirected, BENCHMARK_DIR included, or a test
+        # of the benchmark case upload path would write into the real library.
+        BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
+        VOICE_BANK_DIR = os.path.join(LIBRARY_DIR, "voice_bank")
+        os.makedirs(DRAMAS_DIR, exist_ok=True)
+        # The new path hasn't been initialized yet -- clear readiness so the
+        # next get_conn() (or an explicit init_db() call) sets it up there
+        # rather than assuming the old path's readiness still applies.
+        _db_ready = False
 
 
 # Connections opened but not yet closed: thread ident -> list of weak
@@ -122,13 +131,6 @@ def _close_leaked_connections():
                 applog.get_logger().warning(
                     "Failed to close a leaked db connection; it may stay open "
                     "for the rest of this process's life.", exc_info=True)
-
-
-# Held while the first use migrates the schema, so another thread waits for
-# it instead of getting a connection to a half-migrated database. Re-entrant:
-# init_db() calls get_conn() on the same thread.
-_init_lock = threading.RLock()
-_db_initializing = False
 
 
 def _ensure_ready():
