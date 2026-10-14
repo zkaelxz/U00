@@ -234,7 +234,7 @@ test('schedule: off by default, saves every field with the limit, shows the next
   expect(calls.find((x) => x.path === '/settings')?.body).toEqual({
     schedule_enabled: true, interval_days: 14, tier: null, set_name: null, max_cost_usd: 0.5,
   })
-  await expect(c.getByTestId('reeval-next-due')).toHaveText('Next run: 2026-10-14 12:00 (UTC).')
+  await expect(c.getByTestId('reeval-next-due')).toHaveText('Next run: 2099-10-14 12:00 (UTC).')
   await expect(c.locator('.bench-section-meta')).toContainText('schedule on')
   await expect(c.getByRole('switch', { name: 'Re-evaluate on a schedule' })).toHaveAttribute('aria-checked', 'true')
   await expect(save).toBeDisabled()
