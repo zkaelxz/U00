@@ -10,17 +10,18 @@ export function DisplayCard() {
   return (
     <Card title="Display" meta="This browser only" aria-label="Display">
       <div className="setting-list">
-        <Field label="Page width" help="How wide pages may grow on a large screen. Standard keeps lines short; Full window uses the whole width.">
+        <Field label="Page width">
           <select value={display.width} onChange={(e) => setDisplay({ width: parseWidth(e.target.value) })}>
             {WIDTH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </Field>
-        <Field label="Text size" help="Scales all text and controls. Browser zoom still works on top of it.">
+        <Field label="Text size">
           <select value={display.text} onChange={(e) => setDisplay({ text: parseTextSize(e.target.value) })}>
             {TEXT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </Field>
       </div>
+      <p className="muted">Standard keeps lines short; Full window uses the whole width. Text size scales all text and controls, and browser zoom still works on top.</p>
     </Card>
   )
 }
