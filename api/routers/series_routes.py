@@ -23,18 +23,17 @@ body. Delete is PC only, like every other delete.
 from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import local_only, require_permission
-from api.schemas import (ErrorResponse, SeriesCopyTermsPreview, SeriesCopyTermsRequest,
+from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
                          SeriesCopyTermsResult, SeriesDefaults, SeriesDefaultsApplyRequest,
                          SeriesDefaultsApplyResult, SeriesDefaultsPreview, SeriesDefaultsUpdate,
                          SeriesDeletePreview, SeriesDeleteRequest, SeriesDeleteResult,
-                         SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult)
+                         SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult, error_responses)
 from services import series_defaults_service as defaults_svc
 from services import series_service as svc
 
 router = APIRouter(prefix="/api/series", tags=["series"])
 
-_ERRS = {403: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERRS = error_responses(403, 404, 409, 422)
 _MAX_ID = 2**31 - 1
 
 

@@ -18,15 +18,15 @@ from typing import List
 from fastapi import APIRouter, Path
 
 from api.auth import local_only
-from api.schemas import (ErrorResponse, SourceDomainList, SourceDomainProposal,
+from api.schemas import (SourceDomainList, SourceDomainProposal,
                          SourceDomainProposalAction, SourceDomainProposalDismissed,
-                         SourceDomainsUpdate)
+                         SourceDomainsUpdate, error_responses)
 from services import source_domains_service as svc
 
 router = APIRouter(prefix="/api/source-domains", tags=["sources"])
 
 _NAME = Path(min_length=1, max_length=60)
-_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 422)
 
 
 @router.get("", dependencies=[local_only()], response_model=List[SourceDomainList],

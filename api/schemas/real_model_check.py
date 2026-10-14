@@ -2,7 +2,9 @@
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, StrictBool
+from pydantic import BaseModel
+
+from api.schemas.common import ConfirmRequest, JobStarted, JobState
 
 __all__ = [
     "RealModelCheckJob",
@@ -13,16 +15,12 @@ __all__ = [
 ]
 
 
-class RealModelCheckJob(BaseModel):
-    status: Optional[str] = None
-    progress: float = 0.0
-    message: str = ""
-    error: Optional[str] = None
+class RealModelCheckJob(JobState):
+    pass
 
 
-class RealModelCheckStart(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class RealModelCheckStart(ConfirmRequest):
+    pass
 
 
 class RealModelCheckResult(BaseModel):
@@ -39,6 +37,5 @@ class RealModelCheckState(BaseModel):
     finished: bool
 
 
-class RealModelCheckStarted(BaseModel):
-    job_id: str
-    started: bool
+class RealModelCheckStarted(JobStarted):
+    pass

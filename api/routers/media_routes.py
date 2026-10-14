@@ -19,7 +19,7 @@ from api.llm_slots import caller_key
 from pydantic import ValidationError
 
 from api.schemas import (ErrorResponse, MediaPeaks, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
-                         MediaUrlDownloadStarted, TranscribeRunRequest, UploadAndTranscribeResult)
+                         MediaUrlDownloadStarted, TranscribeRunRequest, UploadAndTranscribeResult, error_responses)
 from services import (media_peaks_service, media_playback_service, media_upload_service, url_media_service,
                       transcribe_options_service)
 from services.service_errors import InvalidInputError
@@ -32,8 +32,7 @@ router = APIRouter(prefix="/api/media", tags=["media"])
              description="Replacing existing audio/video needs confirm_replace_audio=true (422 "
                          "with details.reason \"confirm_replace_audio\" otherwise); the old file "
                          "is kept in the drama folder, never overwritten.",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_upload_media(drama_id: int = Path(ge=1), file: UploadFile = File(...),
                       confirm_replace_audio: bool = Form(False)):
     return media_upload_service.upload_media(drama_id, file.filename, file.file,
@@ -42,7 +41,7 @@ def post_upload_media(drama_id: int = Path(ge=1), file: UploadFile = File(...),
 
 @router.get("/dramas/{drama_id}/status", dependencies=[require_permission("library.read")], response_model=MediaStatus,
             summary="Whether a drama has audio / a source video, and the upload size cap",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_media_status(drama_id: int = Path(ge=1)):
     return media_upload_service.get_media_status(drama_id)
 
@@ -57,9 +56,7 @@ def get_media_status(drama_id: int = Path(ge=1)):
                          "starts and follows the run, so a later failure shows as a job error. "
                          "Replacing existing audio/video needs confirm_replace_audio=true, as on "
                          "the plain upload.",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503))
 def post_upload_and_transcribe(
         drama_id: int = Path(ge=1), file: UploadFile = File(...),
         source_language: Optional[str] = Form(None), chinese_script: Optional[str] = Form(None),
@@ -99,8 +96,7 @@ def post_upload_and_transcribe(
                          "(the job message says \"Queued: 2nd in line\"). allow_long raises the 6 h "
                          "cap to 12 h for this download; part_start/part_end (h:mm:ss) download "
                          "only that section, exact_cuts re-encodes it for precise cuts.",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422, 503))
 def post_download_url(body: MediaUrlDownloadRequest, drama_id: int = Path(ge=1)):
     return url_media_service.start_url_download(
         drama_id, body.url, body.audio_only, body.confirm_replace_audio, body.allow_long,
@@ -186,8 +182,7 @@ def get_audio(request: Request, drama_id: int = Path(ge=1)):
             summary="Downsampled loudness peaks of a time window of the audio (waveform timeline)",
             description="Window of 0.5 to 120 seconds, 16 to 2000 buckets. A window past the "
                         "end of the audio reads as silence.",
-            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                       429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+            responses=error_responses(404, 422, 429, 503))
 def get_peaks(request: Request, drama_id: int = Path(ge=1), start: float = Query(ge=0),
               end: float = Query(gt=0), buckets: int = Query(500)):
     return media_peaks_service.get_peaks(drama_id, start, end, buckets, caller_key(request))

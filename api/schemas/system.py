@@ -7,7 +7,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 from pydantic import (BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr,
                       StringConstraints)
 
-from api.schemas.common import TimingPreferences, TimingPreferencesUpdate, TranslateEngine
+from api.schemas.common import ConfirmRequest, TimingPreferences, TimingPreferencesUpdate, TranslateEngine, UpgradeRequest
 
 __all__ = [
     "UsageRecostModelRow",
@@ -238,9 +238,8 @@ class RemoteIpCheckSetRequest(BaseModel):
     confirm: StrictBool = False
 
 
-class RemoteIpCheckClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class RemoteIpCheckClearRequest(ConfirmRequest):
+    pass
 
 
 class RemoteIpCheckTestResult(BaseModel):
@@ -478,9 +477,8 @@ class EngineKeySetRequest(BaseModel):
     confirm: StrictBool = False
 
 
-class EngineKeyClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class EngineKeyClearRequest(ConfirmRequest):
+    pass
 
 
 class EngineKeyResult(BaseModel):
@@ -592,17 +590,13 @@ class DiagnosticsSupportReport(BaseModel):
     report: str
 
 
-class DiagnosticsAdminConfirm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class DiagnosticsAdminConfirm(ConfirmRequest):
+    pass
 
 
-class DiagnosticsUpgradePlanRequest(BaseModel):
+class DiagnosticsUpgradePlanRequest(UpgradeRequest):
     """The version the user is about to confirm (the last update check's
     target); 409 when that check no longer says so."""
-    model_config = ConfigDict(extra="forbid")
-    target: Optional[StrictStr] = Field(None, max_length=64,
-                                        pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
 
 
 class DiagnosticsUpgradeRequest(DiagnosticsUpgradePlanRequest):
@@ -787,9 +781,8 @@ class ExtensionEnabledResult(BaseModel):
     restart_needed: bool
 
 
-class ExtensionTokenRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class ExtensionTokenRequest(ConfirmRequest):
+    pass
 
 
 class ExtensionToken(BaseModel):
@@ -880,9 +873,8 @@ class NotificationChannelSetRequest(BaseModel):
     confirm: StrictBool = False
 
 
-class NotificationChannelClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class NotificationChannelClearRequest(ConfirmRequest):
+    pass
 
 
 class NotificationChannelResult(BaseModel):

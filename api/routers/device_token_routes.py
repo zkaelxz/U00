@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from api.auth import (authenticated, client_ip, is_auth_enabled, is_local_request, local_only,
                       require_permission)
 from api.schemas import (AdminDeviceTokenList, DeviceTokenCreated, DeviceTokenCreateRequest,
-                         DeviceTokenList, DeviceTokenRevoked, ErrorResponse)
+                         DeviceTokenList, DeviceTokenRevoked, error_responses)
 from services import device_token_service as svc
 from services.service_errors import NotFoundError
 
@@ -61,8 +61,7 @@ def list_own(request: Request):
 @router.post("/api/auth/device-tokens", dependencies=[require_permission("extension.send")],
              response_model=DeviceTokenCreated,
              summary="Add a browser-extension device (the token is shown once)",
-             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                        429: {"model": ErrorResponse}})
+             responses=error_responses(409, 422, 429))
 def create(body: DeviceTokenCreateRequest, request: Request):
     principal = _own(request)
     return _no_store(DeviceTokenCreated(**svc.create_token(

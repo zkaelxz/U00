@@ -24,7 +24,7 @@ from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
 from api.schemas import (EpisodeSummaryGenerate, EpisodeSummaryGenerated, EpisodeSummaryOptions,
-                         ErrorResponse, GlossaryFlaggedRedoStart, GlossaryFlaggedRedoStarted,
+                         GlossaryFlaggedRedoStart, GlossaryFlaggedRedoStarted,
                          RetryFailedLinesStart, RetryFailedLinesStarted, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, SourceChangedRetranslateStart,
                          SourceChangedRetranslateStarted, TranslateBulkCancelResult, TranslateBulkList,
@@ -32,7 +32,7 @@ from api.schemas import (EpisodeSummaryGenerate, EpisodeSummaryGenerated, Episod
                          TranslatePresetApplied, TranslatePresetApply,
                          TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
-                         WorkflowTierApplied, WorkflowTierApply)
+                         WorkflowTierApplied, WorkflowTierApply, error_responses)
 from api.llm_slots import llm_slot
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
                       glossary_retranslate_service, ownership_service, source_change_service,
@@ -45,7 +45,7 @@ router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
 
 @router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")], response_model=TranslateRunConfig,
             summary="Read-only Translate-stage summary for one drama",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_translate_run_config(drama_id: int = Path(ge=1)):
     return {**translate_run_service.get_translate_config(drama_id),
             **translate_thinking_service.config_fields(drama_id),
@@ -55,8 +55,7 @@ def get_translate_run_config(drama_id: int = Path(ge=1)):
 
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,
             summary="Advisory pre-run cost estimate for one drama",
-            responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                       422: {"model": ErrorResponse}})
+            responses=error_responses(400, 404, 422))
 def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                engine: Optional[str] = None,
                                model: Optional[str] = None,
@@ -82,9 +81,7 @@ def _may_remember(request: Request, body) -> bool:
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranslateRunStarted,
              summary="Start a translation (normal, Reflect and/or bulk) as a background job",
-             responses={400: {"model": ErrorResponse},
-                        404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503))
 def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
@@ -113,8 +110,7 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
 @router.get("/dramas/{drama_id}/glossary-affected", dependencies=[require_permission("lines.read")],
             response_model=GlossaryAffectedPreview,
             summary="Preview the translated lines the glossary affects, with a cost estimate",
-            responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                       422: {"model": ErrorResponse}})
+            responses=error_responses(400, 404, 422))
 def get_glossary_affected(drama_id: int = Path(ge=1),
                           term_ids: Optional[List[int]] = Query(None, max_length=10000),
                           engine: Optional[str] = Query(None, max_length=40),
@@ -130,9 +126,7 @@ def get_glossary_affected(drama_id: int = Path(ge=1),
 @router.post("/dramas/{drama_id}/glossary-affected/run", dependencies=[require_permission("jobs.start")],
              response_model=GlossaryAffectedRunStarted,
              summary="Re-translate only the chosen lines the glossary affects",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503))
 def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request,
                                 drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
@@ -157,9 +151,7 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
 @router.post("/dramas/{drama_id}/source-changed/run", dependencies=[require_permission("jobs.start")],
              response_model=SourceChangedRetranslateStarted,
              summary="Re-translate the lines whose source changed after they were translated",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503))
 def start_source_changed_run(body: SourceChangedRetranslateStart, request: Request,
                              drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
@@ -183,9 +175,7 @@ def start_source_changed_run(body: SourceChangedRetranslateStart, request: Reque
 @router.post("/dramas/{drama_id}/retry-failed/run", dependencies=[require_permission("jobs.start")],
              response_model=RetryFailedLinesStarted,
              summary="Translate again exactly the lines the last run failed on",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503))
 def start_retry_failed(body: RetryFailedLinesStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
@@ -207,9 +197,7 @@ def start_retry_failed(body: RetryFailedLinesStart, request: Request, drama_id: 
 @router.post("/dramas/{drama_id}/glossary-flagged/run", dependencies=[require_permission("jobs.start")],
              response_model=GlossaryFlaggedRedoStarted,
              summary="Redo the lines flagged for a missing glossary name with the stronger engine",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503))
 def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart = None,
                                 drama_id: int = Path(ge=1)):
     engine = glossary_flagged_service.engine_name(drama_id)
@@ -224,7 +212,7 @@ def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart
 @router.get("/dramas/{drama_id}/episode-summary", dependencies=[require_permission("library.read")],
             response_model=EpisodeSummaryOptions,
             summary="Engines that can write this title's running episode summary",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_episode_summary_options(drama_id: int = Path(ge=1)):
     return episode_summary_service.options(drama_id)
 
@@ -233,9 +221,7 @@ def get_episode_summary_options(drama_id: int = Path(ge=1)):
              dependencies=[require_permission("lines.edit", "lines.read")],
              response_model=EpisodeSummaryGenerated,
              summary="Write the running episode summary from the current lines (saves nothing)",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422, 429, 503))
 def generate_episode_summary(body: EpisodeSummaryGenerate, request: Request,
                              drama_id: int = Path(ge=1, le=2**31 - 1)):
     ownership_service.require_visible(request.state.principal, "drama", drama_id)
@@ -247,7 +233,7 @@ def generate_episode_summary(body: EpisodeSummaryGenerate, request: Request,
 
 @router.post("/dramas/{drama_id}/bulk/resume", dependencies=[require_permission("jobs.start")], response_model=TranslateBulkResumeResult,
              summary="Resume polling this drama's pending bulk jobs after a restart",
-             responses={404: {"model": ErrorResponse}})
+             responses=error_responses(404))
 def resume_bulk_translations(drama_id: int = Path(ge=1)):
     return translate_run_service.resume_bulk_translations(drama_id)
 
@@ -255,7 +241,7 @@ def resume_bulk_translations(drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/bulk", dependencies=[require_permission("library.read")],
             response_model=TranslateBulkList,
             summary="List this drama's bulk batches with their last recorded state",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def list_bulk_translations(drama_id: int = Path(ge=1)):
     return translate_run_service.list_bulk_translations(drama_id)
 
@@ -264,8 +250,7 @@ def list_bulk_translations(drama_id: int = Path(ge=1)):
              dependencies=[require_permission("jobs.cancel")],
              response_model=TranslateBulkCancelResult,
              summary="Cancel one pending bulk batch (at the provider when possible)",
-             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}})
+             responses=error_responses(403, 404, 409))
 def cancel_bulk_translation(request: Request, drama_id: int = Path(ge=1), bulk_job_id: int = Path(ge=1)):
     return translate_run_service.cancel_bulk_translation(drama_id, bulk_job_id,
                                                          request.state.principal)
@@ -274,7 +259,7 @@ def cancel_bulk_translation(request: Request, drama_id: int = Path(ge=1), bulk_j
 @router.post("/dramas/{drama_id}/errors/dismiss", dependencies=[require_permission("lines.edit")],
              response_model=TranslateErrorsDismissed,
              summary="Dismiss the last run's failed-batch notice (clears only that record)",
-             responses={404: {"model": ErrorResponse}})
+             responses=error_responses(404))
 def dismiss_translate_errors(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
     # A drama the caller can't see is a 404, the same as a missing one.
     ownership_service.require_visible(request.state.principal, "drama", drama_id)
@@ -284,7 +269,7 @@ def dismiss_translate_errors(request: Request, drama_id: int = Path(ge=1, le=2**
 @router.post("/dramas/{drama_id}/workflow-tier", dependencies=[require_permission("lines.edit")],
              response_model=WorkflowTierApplied,
              summary="Apply a workflow tier: saves its engine on the drama, returns the form values",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def apply_workflow_tier(body: WorkflowTierApply, drama_id: int = Path(ge=1, le=2**31 - 1)):
     return translate_preset_service.apply_workflow_tier(drama_id, body.tier)
 
@@ -292,7 +277,7 @@ def apply_workflow_tier(body: WorkflowTierApply, drama_id: int = Path(ge=1, le=2
 @router.post("/dramas/{drama_id}/apply-preset", dependencies=[require_permission("lines.edit")],
              response_model=TranslatePresetApplied,
              summary="Apply a saved preset: saves its engine on the drama, returns the form values",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1, le=2**31 - 1)):
     return translate_preset_service.apply_translate_preset(drama_id, body.preset_id)
 
@@ -300,8 +285,7 @@ def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1
 @router.post("/presets", dependencies=[require_permission("admin.library")],
              response_model=TranslatePresetSaved,
              summary="Save the Translate form's settings as a named preset",
-             responses={403: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(403, 409, 422))
 def save_translate_preset(body: TranslatePresetSave, request: Request):
     if body.overwrite and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing a preset is only allowed at the PC.")

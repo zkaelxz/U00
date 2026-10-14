@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
+from api.schemas.common import ConfirmRequest, JobStarted
+
 __all__ = [
     "KnownTitle",
     "KnownTitleList",
@@ -336,9 +338,8 @@ class SourcesSettingsUpdate(BaseModel):
     extraction_diagnostics: Optional[StrictBool] = None
 
 
-class SourceCacheClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class SourceCacheClearRequest(ConfirmRequest):
+    pass
 
 
 class SourceProfileRollbackRequest(BaseModel):
@@ -418,9 +419,8 @@ class DiscoverNavigationHelpRequest(BaseModel):
     engine: Optional[str] = Field(None, max_length=40)
 
 
-class DiscoverJobStarted(BaseModel):
-    job_id: str
-    started: bool
+class DiscoverJobStarted(JobStarted):
+    pass
 
 
 class DiscoverJobResult(BaseModel):
@@ -545,9 +545,8 @@ class SourceSigninOpenRequest(BaseModel):
     url: StrictStr = Field("", max_length=2000)
 
 
-class SourceSigninForgetRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class SourceSigninForgetRequest(ConfirmRequest):
+    pass
 
 
 class SourceSigninForgetResult(BaseModel):

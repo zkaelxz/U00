@@ -24,12 +24,12 @@ from fastapi.responses import FileResponse, Response
 from api.auth import require_permission
 from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest,
                               ComicVisibilityRequest, ComicVisibilityResult)
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import comic_chapters_service, comic_view_service
 
 router = APIRouter(prefix="/api/scanlate", tags=["comic"])
 
-_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 422)
 _CACHE = "private, no-cache"
 _EXT = {"image/png": "png", "image/jpeg": "jpg"}
 

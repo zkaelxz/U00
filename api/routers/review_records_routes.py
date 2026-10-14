@@ -15,16 +15,16 @@ from fastapi import APIRouter, Path, Query, Response
 from api.auth import require_permission
 from pydantic import Field
 
-from api.schemas import (ErrorResponse, ReviewRecordsCompare, ReviewRecordsConsistencyIssue,
+from api.schemas import (ReviewRecordsCompare, ReviewRecordsConsistencyIssue,
                          ReviewRecordsEmotionSummary, ReviewRecordsHistoryItem,
                          ReviewRecordsNote, ReviewRecordsSnapshot, ReviewRecordsTendencies,
-                         ReviewRecordsTmSuggestion, ReviewRecordsVersionItem)
+                         ReviewRecordsTmSuggestion, ReviewRecordsVersionItem, error_responses)
 from services import review_records_service
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
-_NF = {404: {"model": ErrorResponse}}
-_NF_422 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_NF = error_responses(404)
+_NF_422 = error_responses(404, 422)
 
 
 @router.get("/dramas/{drama_id}/history", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsHistoryItem],

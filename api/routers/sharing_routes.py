@@ -17,19 +17,18 @@ series holding someone else's drama. Owners are shown by display name only.
 from fastapi import APIRouter, Query, Request
 
 from api.auth import require_permission
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from api.sharing_schemas import (SetPrivateRequest, SetPrivateResult, SharingList,
                                  ShareByDefault)
 from services import ownership_service
 
 router = APIRouter(prefix="/api/sharing", tags=["sharing"])
 
-_FLIP_ERRS = {403: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-              409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_FLIP_ERRS = error_responses(403, 404, 409, 422)
 
 
 @router.get("/items", dependencies=[require_permission("admin.library")],
-            response_model=SharingList, responses={422: {"model": ErrorResponse}},
+            response_model=SharingList, responses=error_responses(422),
             summary="Every series and drama with its owner and Shared/Private flag (admins)")
 def get_items(request: Request, offset: int = Query(0, ge=0, lt=2**31),
               limit: int = Query(100, ge=1, le=ownership_service.SHARING_PAGE_MAX)):
@@ -59,7 +58,7 @@ def get_share_by_default(request: Request):
 
 
 @router.post("/share-by-default", dependencies=[require_permission("lines.edit")],
-             response_model=ShareByDefault, responses={422: {"model": ErrorResponse}},
+             response_model=ShareByDefault, responses=error_responses(422),
              summary="Share new items the caller creates with the household, or keep them private")
 def set_share_by_default(body: ShareByDefault, request: Request):
     share = ownership_service.set_share_by_default(request.state.principal, body.share_by_default)

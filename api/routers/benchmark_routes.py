@@ -30,15 +30,14 @@ from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseC
                                    BenchmarkRunList, BenchmarkRunRequest,
                                    BenchmarkRunStarted, BenchmarkSetList)
 from api.routers.settings_routes import require_confirm
-from api.schemas import BenchmarkSetBuildRequest, BenchmarkSetBuildResult, ErrorResponse
+from api.schemas import BenchmarkSetBuildRequest, BenchmarkSetBuildResult, error_responses
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
 from services import benchmark_set_builder_service as builder_svc
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 _READ = [require_permission("admin.diagnostics")]
 
 

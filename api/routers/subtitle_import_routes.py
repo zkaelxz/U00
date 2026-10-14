@@ -16,7 +16,7 @@ from starlette.datastructures import UploadFile
 
 import subtitle_parse
 from api.auth import local_only, require_permission
-from api.schemas import ErrorResponse, SubtitleImportPreview, SubtitleImportResult
+from api.schemas import SubtitleImportPreview, SubtitleImportResult, error_responses
 from lib.capped_request import read_capped_form
 from services import subtitle_import_service as svc
 from services.service_errors import InvalidInputError
@@ -35,8 +35,7 @@ _FORM_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data
                    "translation_first": {"type": "string"},
                    "confirm_replace_lines": {"type": "string"},
                    "confirm_overwrite": {"type": "string"}}}}}}}
-_ERRORS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-           413: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERRORS = error_responses(404, 409, 413, 422)
 
 
 async def _read_form(request: Request):

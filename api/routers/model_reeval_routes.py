@@ -21,13 +21,12 @@ from api.model_reeval_schemas import (CandidateAddRequest, CandidateAddResult, C
                                       ReevalRunRequest, ReevalRunStarted, ReevalSettingsRequest,
                                       ReevalSettingsSaved)
 from api.routers.settings_routes import require_confirm
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import model_reeval_service as svc
 
 router = APIRouter(prefix="/api/models/reeval", tags=["models"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 _READ = [require_permission("admin.diagnostics")]
 
 

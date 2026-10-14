@@ -8,7 +8,7 @@ from fastapi import APIRouter, Path, Request
 from api.auth import is_at_pc, require_permission
 from fastapi.responses import FileResponse
 
-from api.schemas import DubConfig, DubPacing, DubRunRequest, DubRunStarted, ErrorResponse
+from api.schemas import DubConfig, DubPacing, DubRunRequest, DubRunStarted, error_responses
 from services import dub_service, export_service, model_readiness_service
 
 router = APIRouter(prefix="/api/dub", tags=["dub"])
@@ -16,22 +16,21 @@ router = APIRouter(prefix="/api/dub", tags=["dub"])
 
 @router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")], response_model=DubConfig,
             summary="Read-only Dub-stage summary for one drama",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_dub_config(drama_id: int = Path(ge=1)):
     return dub_service.get_dub_config(drama_id)
 
 
 @router.get("/dramas/{drama_id}/pacing", dependencies=[require_permission("library.read")], response_model=DubPacing,
             summary="Per-line pacing from the last dub run",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_dub_pacing(drama_id: int = Path(ge=1)):
     return dub_service.get_dub_pacing(drama_id)
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=DubRunStarted,
              summary="Start the dub/narration track job (poll GET /api/jobs/{job_id})",
-             responses={404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 503))
 def start_dub_run(body: DubRunRequest, request: Request, drama_id: int = Path(ge=1)):
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_dub, drama_id,
@@ -44,7 +43,7 @@ def start_dub_run(body: DubRunRequest, request: Request, drama_id: int = Path(ge
 
 @router.get("/dramas/{drama_id}/track", dependencies=[require_permission("media.stream")],
             summary="Download the finished dub/narration track (WAV)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def download_dub_track(drama_id: int = Path(ge=1)):
     track = dub_service.get_dub_track(drama_id)
     return FileResponse(
