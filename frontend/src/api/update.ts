@@ -1,6 +1,6 @@
 // App updates (api/routers/update_routes.py). Every route is PC only, so all
 // go through pcOnlyFetch (a 403 marks the tab as away from the PC).
-import type { UpdateInstallResponse, UpdateStatus } from '../types/update'
+import type { AppUpdateApplyResponse, UpdateInstallResponse, UpdateStatus } from '../types/update'
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -19,3 +19,8 @@ export const downloadUpdate = (f?: Fetch) => postJson<UpdateStatus>(`${BASE}/dow
 
 export const installUpdate = (f?: Fetch) =>
   postJson<UpdateInstallResponse>(`${BASE}/install`, { confirm: true }, pcOnlyFetch(f))
+
+export const downloadAppUpdate = (f?: Fetch) => postJson<UpdateStatus>(`${BASE}/app/download`, {}, pcOnlyFetch(f))
+
+export const applyAppUpdate = (f?: Fetch) =>
+  postJson<AppUpdateApplyResponse>(`${BASE}/app/apply`, { confirm: true }, pcOnlyFetch(f))

@@ -33,6 +33,26 @@ export interface UpdateStatus {
   auto_check: boolean
   // BAIHE_UPDATE_REPO names another repository than the default.
   custom_source: boolean
+  // available: the newer release was built against this install's Python,
+  // wheels and Caddy, so its app folder can be swapped in on its own.
+  app_update: 'none' | 'available' | 'needs_full_installer'
+  // Windows, started from the Start menu (not the boot service).
+  app_update_here: boolean
+  app_size: number | null
+  app_download: UpdateDownloadState
+  app_downloaded_bytes: number
+  app_download_error: string | null
+  app_verified: boolean
+  app_verified_version: string | null
+  can_apply_app: boolean
+  // The last app-only update's outcome, in plain words.
+  app_last_result: string | null
+  app_last_result_at: number | null
+}
+
+export interface AppUpdateApplyResponse {
+  started: boolean
+  version: string
 }
 
 export interface UpdateInstallResponse {

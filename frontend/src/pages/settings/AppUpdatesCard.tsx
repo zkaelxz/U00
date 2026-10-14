@@ -2,14 +2,18 @@
  * Settings > App updates: the installed version, "Check for updates",
  * "Download" (checked against the release's SHA-256 and, when this copy has
  * a release key, its signature) and "Install and
- * restart…" behind a confirm, which opens the installer's own Setup. Nothing
+ * restart…" behind a confirm, which opens the installer's own Setup. When the
+ * release only changes the app folder, "Update app only" downloads the signed
+ * app zip and swaps it in (installer/app_swap.py), going back on failure. Nothing
  * downloads or installs without a click; the once-a-day check is off by
  * default. PC only: away from the PC the Card shows the "Run this on the
  * main PC." note, and nothing is fetched until /api/meta has said "local".
  */
 import { useCallback, useEffect, useState } from 'react'
 
-import { checkForUpdates, downloadUpdate, getUpdateStatus, installUpdate, setUpdateAutoCheck } from '../../api/update'
+import {
+  applyAppUpdate, checkForUpdates, downloadAppUpdate, downloadUpdate, getUpdateStatus, installUpdate, setUpdateAutoCheck,
+} from '../../api/update'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -19,8 +23,9 @@ import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
-  AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE, SOURCE_CHECKOUT_NOTE, canDownload,
-  checkLine, downloadLine, installTarget, isDownloading, signatureLine, versionLine,
+  APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
+  SOURCE_CHECKOUT_NOTE, appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
+  downloadLine, installTarget, isDownloading, signatureLine, versionLine,
 } from './updateModel'
 
 const TITLE = 'App updates'
@@ -52,6 +57,7 @@ function AppUpdatesControls() {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [launched, setLaunched] = useState<string | null>(null)
+  const [restarting, setRestarting] = useState(false)
 
   const run = useCallback(async (action: () => Promise<UpdateStatus>) => {
     setBusy(true)
@@ -93,7 +99,23 @@ function AppUpdatesControls() {
     }
   }
 
+  async function applyApp() {
+    setBusy(true)
+    setError(null)
+    try {
+      await applyAppUpdate()
+      setRestarting(true)
+    } catch (e) {
+      setError(e)
+      getUpdateStatus().then(setStatus, () => undefined)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const progress = status ? downloadLine(status) : null
+  const appLine = status ? appUpdateLine(status) : null
+  const appProgress = status ? appDownloadLine(status) : null
   return (
     <Card title={TITLE} meta={status ? versionLine(status) : undefined} aria-label={TITLE}>
       <ErrorBanner error={error} describe={SERVER} onDismiss={() => setError(null)} />
@@ -122,6 +144,28 @@ function AppUpdatesControls() {
             )}
           </div>
           {progress && <p role="status" data-testid="update-download-line">{progress}</p>}
+          {status.app_last_result && (
+            <p role="status" data-testid="update-app-result">{status.app_last_result}</p>
+          )}
+          {appLine && <p data-testid="update-app-line">{appLine}</p>}
+          {(canDownloadApp(status) || status.can_apply_app) && !restarting && (
+            <div className="settings-actions">
+              {canDownloadApp(status) && (
+                <button type="button" className={buttonClass('primary')} disabled={busy}
+                  onClick={() => run(downloadAppUpdate)}>
+                  Download app update
+                </button>
+              )}
+              {status.can_apply_app && (
+                <ConfirmButton name={appApplyTarget(status)} label="Update app only…"
+                  confirmLabel={`Update the app to ${appApplyTarget(status)} and restart`} verb="update to"
+                  tone="primary" busy={busy} onConfirm={() => void applyApp()} />
+              )}
+            </div>
+          )}
+          {appProgress && <p role="status" data-testid="update-app-download-line">{appProgress}</p>}
+          {restarting && <p role="status" data-testid="update-app-restarting">{APP_RESTARTING_LINE}</p>}
+          {status.can_apply_app && !restarting && <p className="muted">{APP_APPLY_NOTE}</p>}
           {status.installed && <p className="muted" data-testid="update-signature-line">{signatureLine(status)}</p>}
           {launched && (
             <p role="status">Setup is open ({launched}). {INSTALL_NOTE}</p>

@@ -56,4 +56,46 @@ export const installTarget = (s: UpdateStatus): string => `version ${s.verified_
 export const canDownload = (s: UpdateStatus): boolean =>
   s.installed && s.update_available && s.download !== 'downloading' && !s.verified
 
-export const isDownloading = (s: UpdateStatus): boolean => s.download === 'downloading'
+export const isDownloading = (s: UpdateStatus): boolean =>
+  s.download === 'downloading' || s.app_download === 'downloading'
+
+export const APP_APPLY_NOTE =
+  'Stops Baihe (running jobs must finish first), swaps in the new app folder and starts it again. ' +
+  'If the new version doesn’t start, Baihe goes back to this one by itself. Your library and settings are not touched.'
+export const APP_FULL_INSTALLER_LINE =
+  'This update changes the bundled Python or its packages, so it needs the full installer.'
+export const APP_BOOT_SERVICE_LINE =
+  'Baihe runs as the background service here, so this update needs the full installer.'
+export const APP_RESTARTING_LINE =
+  'Updating the app: Baihe stops and starts again. Reload this page in a minute.'
+
+/** What the app-only path offers for the newer release, or null when it has nothing to say. */
+export function appUpdateLine(s: UpdateStatus): string | null {
+  if (!s.installed) return null
+  if (s.app_update === 'needs_full_installer') return APP_FULL_INSTALLER_LINE
+  if (s.app_update !== 'available') return null
+  if (!s.app_update_here) return APP_BOOT_SERVICE_LINE
+  return `The app can be updated on its own${s.app_size ? ` (${formatBytes(s.app_size)})` : ''}, without the full installer.`
+}
+
+export const canDownloadApp = (s: UpdateStatus): boolean =>
+  s.installed && s.app_update === 'available' && s.app_update_here && s.app_download !== 'downloading' &&
+  !s.app_verified
+
+export function appDownloadLine(s: UpdateStatus): string | null {
+  if (s.app_download === 'downloading') {
+    const of = s.app_size ? ` of ${formatBytes(s.app_size)}` : ''
+    return `Downloading the app update… ${formatBytes(s.app_downloaded_bytes)}${of}`
+  }
+  if (s.app_verified) {
+    return s.app_verified_version
+      ? `App update ${s.app_verified_version} downloaded and verified.`
+      : 'App update downloaded and verified.'
+  }
+  if (s.app_download === 'failed') {
+    return `${s.app_download_error ?? 'The app update download failed.'} You can download it again.`
+  }
+  return null
+}
+
+export const appApplyTarget = (s: UpdateStatus): string => `version ${s.app_verified_version ?? ''}`.trim()
