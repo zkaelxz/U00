@@ -493,7 +493,8 @@ def _require(session_id, principal=None) -> dict:
 
 def player_file(session_id, name, principal=None) -> str:
     """The path of one file of the session's delayed player (a playlist or a
-    segment); a 404 for another user's session, a finished one or any other name."""
+    segment); a 404 for a finished session or any other name. The route is
+    local_only(), so the caller is the local owner, who sees every session."""
     _require(session_id, principal)
     with _lock:
         folder = (_sessions.get(session_id) or {}).get("dir")

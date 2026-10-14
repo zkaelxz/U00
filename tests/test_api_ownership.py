@@ -1216,7 +1216,7 @@ class TestJobs:
                 assert client.get(url, headers=world["a"]).json()["status"] == "done"
                 continue
             assert r.status_code == expected, (method, url, r.status_code)
-            # The player's owner-visible path needs a real recording; tests/test_api_live.py covers it.
+            # local_only() makes the caller the local owner, who sees every session; the served files are covered in tests/test_api_live.py.
             if method == "GET" and not path.startswith("/api/live/player/"):
                 assert client.get(url, headers=world["a"]).status_code == 200, url
 
