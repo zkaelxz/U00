@@ -7,7 +7,7 @@
  * `label` names the button ("Help: <label>"); `id` is the tooltip's id, for an owner that wants to
  * reference it from aria-describedby.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { helpOpenAfterClick } from './fieldIds'
 
 type HelpTipProps = {
@@ -21,7 +21,6 @@ export function HelpTip({ label, id, children, className }: HelpTipProps) {
   const [open, setOpenState] = useState(false)
   const wrapRef = useRef<HTMLSpanElement>(null)
   const tipRef = useRef<HTMLSpanElement>(null)
-  const [place, setPlace] = useState<CSSProperties>()
   const openAtPress = useRef<boolean | null>(null)
   // Hover events render at a lower priority than clicks, so the state captured
   // by a handler can lag the DOM; the ref is always current.
@@ -43,24 +42,31 @@ export function HelpTip({ label, id, children, className }: HelpTipProps) {
   }, [open])
 
   // Fixed to the viewport so a tip is never clipped or scrolled by a narrow panel, and clamped to stay on screen.
+  // Written straight to the element: it is re-measured on every scroll, which React would not re-apply for an unchanged style.
   useLayoutEffect(() => {
     if (!open) return
-    const place = () => {
+    const reposition = () => {
+      const el = tipRef.current
       const wrap = wrapRef.current?.getBoundingClientRect()
-      const tip = tipRef.current?.getBoundingClientRect()
-      if (!wrap || !tip) return
+      if (!el || !wrap) return
+      // Measure as it will be shown: absolute inside a narrow label it wraps narrower than it does fixed to the viewport.
+      // A backdrop-filter panel (frost) makes `fixed` relative to itself, so the offset is taken from where left/top 0 lands.
+      Object.assign(el.style, { position: 'fixed', left: '0px', top: '0px', right: 'auto' })
+      const origin = el.getBoundingClientRect()
       const margin = 8
-      const left = Math.min(Math.max(margin, wrap.left), Math.max(margin, window.innerWidth - tip.width - margin))
+      const viewW = document.documentElement.clientWidth
+      const viewH = document.documentElement.clientHeight
+      const left = Math.min(Math.max(margin, wrap.left), Math.max(margin, viewW - origin.width - margin))
       const below = wrap.bottom + 4
-      const top = below + tip.height > window.innerHeight - margin && wrap.top - 4 - tip.height > margin ? wrap.top - 4 - tip.height : below
-      setPlace({ position: 'fixed', left, top, right: 'auto' })
+      const top = below + origin.height > viewH - margin && wrap.top - 4 - origin.height > margin ? wrap.top - 4 - origin.height : below
+      Object.assign(el.style, { left: `${left - origin.left}px`, top: `${top - origin.top}px` })
     }
-    place()
-    window.addEventListener('resize', place)
-    window.addEventListener('scroll', place, true)
+    reposition()
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
     return () => {
-      window.removeEventListener('resize', place)
-      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
     }
   }, [open])
 
@@ -101,7 +107,7 @@ export function HelpTip({ label, id, children, className }: HelpTipProps) {
       >
         i
       </button>
-      <span id={id} ref={tipRef} role="tooltip" className="field-help-text" style={open ? place : undefined} hidden={!open} onMouseDown={(e) => e.preventDefault()}>
+      <span id={id} ref={tipRef} role="tooltip" className="field-help-text" hidden={!open} onMouseDown={(e) => e.preventDefault()}>
         {children}
       </span>
     </span>
