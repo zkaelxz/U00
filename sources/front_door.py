@@ -91,7 +91,7 @@ def is_video_url(url: str) -> bool:
 def classify_html(url: str, html: str) -> Preview:
     """Content type from a fetched page, with no per-site knowledge."""
     p = Preview(url=url, html=html, platform=urlsplit(url).netloc)
-    p.title = _og(html, "title") or detect.page_title(html)
+    p.title = detect.without_appended_translation(_og(html, "title") or detect.page_title(html))
     m = _CHAPTER_IN_TITLE.search(p.title)
     p.chapter = m.group(1) if m else ""
     og_type = _og(html, "type").lower()
@@ -138,7 +138,7 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
             p.series_id = parsed[1]
             try:
                 info = adapter.get_series(p.series_id)
-                p.title = info.title
+                p.title = detect.without_appended_translation(info.title)
                 p.chapter_count = len(adapter.get_chapters(p.series_id))
             except SourceError as e:
                 p.notes.append(f"Couldn't load the series yet: {e.reason.value}")
