@@ -415,6 +415,8 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
     thinking: f.thinking,
+    // Only a valid size: a half-typed one must not turn the estimate into a 422.
+    ...(intIn(f.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX) !== null ? { batch_size: Number(f.batch_size) } : {}),
   }
 }
 

@@ -54,6 +54,7 @@ export function buildEstimateQuery(p: EstimateParams): string {
   if (p.bulk) q.set('bulk', 'true')
   if (p.thinking !== undefined) q.set('thinking', String(p.thinking))
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
+  if (p.batch_size !== undefined) q.set('batch_size', String(p.batch_size))
   const s = q.toString()
   return s ? `?${s}` : ''
 }
