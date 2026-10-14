@@ -38,6 +38,7 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { LIVE_STARTED_EVENT, followOptions } from '../api/liveFollows'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
+import { DelayedPlayer } from './live/DelayedPlayer'
 import { StreamEmbed } from './live/StreamEmbed'
 import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay } from './live/embedLogic'
 import type { LiveCue, LiveSessionStatus } from '../types/live'
@@ -401,6 +402,10 @@ export default function LivePage() {
               <input type="checkbox" checked={form.use_gpu} disabled={active} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
               Use GPU for Whisper
             </label>
+            <Field label="Delayed player"
+              help="Records a delayed copy of the picture and sound on this PC and plays that instead of the stream's own player, so the picture can be held back to match the lines even where the stream can't be rewound. Downloads the video as well as the audio. Takes effect when you press Start.">
+              <Toggle checked={form.delayed_player} disabled={active} onChange={(v) => setOpt('delayed_player', v)} />
+            </Field>
             <Field label="Reply without thinking"
               help="Faster lines: the translator answers straight away instead of reasoning first. Works with Ollama and DeepSeek.">
               <Toggle checked={form.reply_without_thinking && canSwitchThinking}
@@ -454,12 +459,17 @@ export default function LivePage() {
                   <Toggle checked={showVideo} onChange={setShowVideo} />
                 </Field>
               </div>
-              {!streamRef && <p className="muted">This site can't be shown here; the lines still work.</p>}
-              {streamRef && showVideo && (
+              {!streamRef && !form.delayed_player && <p className="muted">This site can't be shown here; the lines still work.</p>}
+              {(streamRef || form.delayed_player) && showVideo && (
                 <>
-                  <StreamEmbed stream={streamRef} delay={delay}
-                    captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
-                  {canDelay(streamRef) && (
+                  {form.delayed_player ? (
+                    <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay}
+                      captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
+                  ) : streamRef && (
+                    <StreamEmbed stream={streamRef} delay={delay}
+                      captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
+                  )}
+                  {(form.delayed_player || (streamRef && canDelay(streamRef))) && (
                     <>
                       <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
                         <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay}
