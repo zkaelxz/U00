@@ -195,10 +195,13 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
         try:
             import qwen3_native
             offline = qwen3_native._offline_kwargs()
-            globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
-                _BUBBLE_ML_REPO, token=_tok, **offline)
-            model = AutoModelForObjectDetection.from_pretrained(
-                _BUBBLE_ML_REPO, token=_tok, **offline)
+            import model_pins
+            revision = model_pins.revision(_BUBBLE_ML_REPO)
+            with model_pins.fetching(_BUBBLE_ML_REPO):
+                globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
+                    _BUBBLE_ML_REPO, revision=revision, token=_tok, **offline)
+                model = AutoModelForObjectDetection.from_pretrained(
+                    _BUBBLE_ML_REPO, revision=revision, token=_tok, **offline)
             model.eval()
             globals()["_bubble_ml_model"] = model
         except Exception as exc:
@@ -244,8 +247,10 @@ def bubble_ml_weights_cached() -> bool:
         from huggingface_hub import try_to_load_from_cache
     except ImportError:
         return False
+    import model_pins
     for filename in ("model.safetensors", "pytorch_model.bin"):
-        hit = try_to_load_from_cache(repo_id=_BUBBLE_ML_REPO, filename=filename)
+        hit = try_to_load_from_cache(repo_id=_BUBBLE_ML_REPO, filename=filename,
+                                     revision=model_pins.revision(_BUBBLE_ML_REPO))
         if isinstance(hit, str) and os.path.exists(hit):
             return True
     return False

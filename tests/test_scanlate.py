@@ -14,6 +14,7 @@ import pytest
 import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 
+import model_pins
 import scanlate
 import scanlate_render
 import scanlate_detect
@@ -998,7 +999,7 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
                 return None
 
         def loader(result):
-            def from_pretrained(repo_id, token=None):
+            def from_pretrained(repo_id, revision=None, token=None):
                 seen.setdefault("tokens", []).append(token)
                 return result
             return types.SimpleNamespace(from_pretrained=from_pretrained)
@@ -1025,7 +1026,7 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
         import types
         seen = {}
 
-        def hf_hub_download(repo_id, filename, token=None):
+        def hf_hub_download(repo_id, filename, revision=None, token=None, etag_timeout=None):
             seen["token"] = token
             return "/fake/model.safetensors"
 
@@ -1124,7 +1125,8 @@ class TestLamaGeneratorLayout:
         monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
         with pytest.raises(OSError):
             scanlate_inpaint._load_lama_generator(allow_download=False)
-        assert seen == {"local_files_only": True}
+        assert seen == {"local_files_only": True, "etag_timeout": 30,
+                        "revision": model_pins.REVISIONS[scanlate_inpaint._LAMA_ML_REPO]}
 
     def test_an_unusable_checkpoint_is_read_once_per_process(self, monkeypatch):
         import types

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
+import model_pins
 import ocr
 
 
@@ -323,7 +324,8 @@ class TestPaddleVlMangaNative:
     def test_loads_native_classes_without_remote_code(self, monkeypatch, page):
         calls = _install_fake_transformers(monkeypatch)
         ocr.extract_text_paddle_vl_manga(page)
-        assert calls["processor"] == ("PaddlePaddle/PaddleOCR-VL", {"trust_remote_code": False})
+        assert calls["processor"] == ("PaddlePaddle/PaddleOCR-VL", {
+            "trust_remote_code": False, "revision": model_pins.REVISIONS["PaddlePaddle/PaddleOCR-VL"]})
         repo, kwargs = calls["model"]
         assert repo == "jzhang533/PaddleOCR-VL-For-Manga"
         assert kwargs["trust_remote_code"] is False
@@ -407,6 +409,7 @@ class TestModelLock:
                 return f"text of {path}"
 
         monkeypatch.setitem(sys.modules, "manga_ocr", types.SimpleNamespace(MangaOcr=FakeMangaOcr))
+        monkeypatch.setattr(ocr, "_manga_ocr_source", lambda: ())
         monkeypatch.delitem(ocr.__dict__, "_manga_ocr_instance", raising=False)
         yield stats
         ocr.__dict__.pop("_manga_ocr_instance", None)

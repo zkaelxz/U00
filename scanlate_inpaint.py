@@ -7,6 +7,8 @@ import os
 
 import numpy as np
 
+import model_pins
+
 
 _LAMA_ML_REPO = "mayocream/lama-manga"
 _LAMA_ML_FILE = "lama-manga.safetensors"
@@ -29,7 +31,8 @@ def lama_ml_weights_cached() -> bool:
         from huggingface_hub import try_to_load_from_cache
     except ImportError:
         return False
-    hit = try_to_load_from_cache(repo_id=_LAMA_ML_REPO, filename=_LAMA_ML_FILE)
+    hit = try_to_load_from_cache(repo_id=_LAMA_ML_REPO, filename=_LAMA_ML_FILE,
+                                 revision=model_pins.revision(_LAMA_ML_REPO))
     return isinstance(hit, str) and os.path.exists(hit)
 
 
@@ -179,8 +182,10 @@ def _load_lama_generator(hf_token: str = None, allow_download: bool = True):
     local_only = model_offline.active()
     offline = {"local_files_only": True} if (local_only or not allow_download) else {}
     try:
-        ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename=_LAMA_ML_FILE,
-                                    token=_tok, **offline)
+        with model_pins.fetching(_LAMA_ML_REPO):
+            ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename=_LAMA_ML_FILE,
+                                        revision=model_pins.revision(_LAMA_ML_REPO),
+                                        token=_tok, etag_timeout=30, **offline)
     except Exception as exc:
         if local_only:
             raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE) from exc

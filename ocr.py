@@ -18,6 +18,7 @@ import shutil
 import threading
 from typing import NamedTuple, Optional
 
+import model_pins
 from lib import proc
 
 # Tesseract language codes per source language. "zh" defaults to
@@ -338,12 +339,17 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
             if cuda:
                 from services import vram_service
                 vram_service.check_fits("PaddleOCR-VL-For-Manga")
-            globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
-                _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False, **qwen3_native._offline_kwargs())
-            model = AutoModelForImageTextToText.from_pretrained(
-                _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
-                dtype=qwen3_native.pick_dtype(torch, True) if cuda else torch.float32,
-                **qwen3_native._offline_kwargs())
+            with model_pins.fetching(_PADDLE_VL_PROCESSOR_REPO):
+                globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
+                    _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False,
+                    revision=model_pins.revision(_PADDLE_VL_PROCESSOR_REPO),
+                    **qwen3_native._offline_kwargs())
+            with model_pins.fetching(_PADDLE_VL_MANGA_REPO):
+                model = AutoModelForImageTextToText.from_pretrained(
+                    _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
+                    revision=model_pins.revision(_PADDLE_VL_MANGA_REPO),
+                    dtype=qwen3_native.pick_dtype(torch, True) if cuda else torch.float32,
+                    **qwen3_native._offline_kwargs())
             if cuda:
                 model = model.to("cuda")
             model.eval()
@@ -384,13 +390,18 @@ MANGA_OCR_REPO = "kha-white/manga-ocr-base"
 
 
 def _manga_ocr_source() -> tuple:
-    """MangaOcr's model argument: its default repo id, or offline (a run
-    started away from the PC) the cached folder, since MangaOcr has no
-    offline switch and would check the repo online."""
+    """MangaOcr's model argument: the folder of its repo at the pinned revision.
+    MangaOcr takes no revision and has no offline switch, so it is handed a
+    folder: downloaded here at the pin, or offline (a run started away from
+    the PC) only the one already on disk."""
     from lib import model_offline
+    revision = model_pins.revision(MANGA_OCR_REPO)
     if not model_offline.active():
-        return ()
-    folder = model_offline.hf_snapshot(MANGA_OCR_REPO)
+        import huggingface_hub
+        with model_pins.fetching(MANGA_OCR_REPO):
+            return (huggingface_hub.snapshot_download(
+                MANGA_OCR_REPO, revision=revision, etag_timeout=30),)
+    folder = model_offline.hf_snapshot(MANGA_OCR_REPO, revision)
     if folder is None:
         raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE)
     return (folder,)

@@ -61,16 +61,10 @@ def _write_silence_wav(path: str, seconds: float = 1.0, rate: int = 16000) -> No
 
 
 def _local_model_folder(model: str):
-    """The model's folder if it is fully downloaded, else None. Resolved offline
-    and exactly: is_whisper_model_cached matches on folder names and would let
-    'large-v3' pass on a 'large-v3-turbo' download, after which loading by name
-    would fetch the real one."""
-    from faster_whisper.utils import download_model
-    try:
-        return download_model(model, local_files_only=True)
-    except (ValueError, OSError):
-        # huggingface_hub's LocalEntryNotFoundError is both; an unknown size is a ValueError.
-        return None
+    """The model's folder if it is fully downloaded at its pinned revision, else
+    None. Looked up on disk only, so the check never downloads."""
+    import whisper_models
+    return whisper_models._generic_snapshot(model)
 
 
 def check_gpu_whisper(model: str = DEFAULT_MODEL):

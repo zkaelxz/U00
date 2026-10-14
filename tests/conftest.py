@@ -224,6 +224,25 @@ def _live_whisper_not_loaded():
 
 
 @pytest.fixture(autouse=True)
+def _whisper_sizes_not_downloaded():
+    """Loading a Whisper size downloads its pinned revision first; the tests that
+    stand in a fake faster_whisper expect the size name to reach WhisperModel, and
+    no test may reach the Hub. The real function stays on `_download_model.real`
+    for tests/test_model_pins.py."""
+    import whisper_models
+    saved = whisper_models._download_model
+
+    def stub(model_size, token):
+        return model_size
+    stub.real = saved
+    whisper_models._download_model = stub
+    try:
+        yield
+    finally:
+        whisper_models._download_model = saved
+
+
+@pytest.fixture(autouse=True)
 def _private_separator_model_dir(tmp_path_factory):
     """The vocal-separator model folder defaults to ~/.cache; the startup
     sweep and the download guard list and delete files there, so no test
