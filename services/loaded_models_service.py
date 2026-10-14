@@ -119,8 +119,11 @@ def _gpu_from_torch():
     torch = sys.modules.get("torch")
     if torch is None or not torch.cuda.is_available():
         return None
-    free, total = torch.cuda.mem_get_info()
-    return {"state": "ok", "name": torch.cuda.get_device_name(0),
+    # One index for both reads: mem_get_info() defaults to the current device,
+    # so a hard-coded 0 for the name would label another card's memory.
+    device = torch.cuda.current_device()
+    free, total = torch.cuda.mem_get_info(device)
+    return {"state": "ok", "name": torch.cuda.get_device_name(device),
             "total_bytes": int(total), "free_bytes": int(free),
             "used_bytes": int(total - free)}
 
