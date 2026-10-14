@@ -129,7 +129,7 @@ def _pinned(monkeypatch, responses, calls=None):
     from services import metadata_service
     it = iter(responses)
 
-    def fake(url, ip, headers, timeout=None):
+    def fake(url, ip, headers, timeout=None, method="GET", **kw):
         assert timeout is not None
         if calls is not None:
             calls.append((url, ip))
@@ -147,7 +147,9 @@ class _Page:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
+            err = RuntimeError(f"HTTP {self.status_code}")
+            err.response = self
+            raise err
 
     def iter_content(self, size):
         yield self.body
@@ -252,6 +254,70 @@ class TestFetchStaticRedirectGuard:
             pf.fetch_static("https://public.example/start")
         assert len(calls) == pf.STATIC_FETCH_MAX_REDIRECTS + 1
         assert all(h.closed for h in hops)
+
+
+class TestSmartFetchErrorWording:
+    """What the person reads when the static fetch fails: fixed text only,
+    never the URL, the pinned address or the exception's own words."""
+
+    @staticmethod
+    def _message(monkeypatch, pages, url="https://public.example/start", mapping=None):
+        _dns(monkeypatch, mapping)
+        _pinned(monkeypatch, pages)
+        r = pf.smart_fetch(url, allow_render=False)
+        assert r["method"] == "failed" or r["message"] == "Fetched successfully."
+        return r["message"]
+
+    @pytest.mark.parametrize("status", [404, 500])
+    def test_an_http_error_status_is_named(self, monkeypatch, status):
+        msg = self._message(monkeypatch, [_Page(b"nope", status=status)])
+        assert msg == f"Couldn't reach that page: the site answered HTTP {status}"
+
+    def test_a_redirect_to_a_private_address_is_refused_with_the_guards_words(self, monkeypatch):
+        msg = self._message(monkeypatch, [_redirect("http://127.0.0.1/admin")],
+                            mapping={"127.0.0.1": "127.0.0.1"})
+        assert msg == "Couldn't reach that page: The address is not a public web address."
+
+    @pytest.mark.parametrize("url", ["http://127.0.0.1:8600/", "ftp://x.example/a",
+                                     "http://user:pass@public.example/"])
+    def test_an_unsafe_first_url_is_refused_without_connecting(self, monkeypatch, url):
+        msg = self._message(monkeypatch, [], url=url, mapping={"127.0.0.1": "127.0.0.1"})
+        assert msg in ("Couldn't reach that page: The address is not a public web address.",
+                       "Couldn't reach that page: The address must be a valid http:// or "
+                       "https:// URL.")
+
+    def test_a_name_that_does_not_resolve_says_so(self, monkeypatch):
+        import socket
+
+        def fail(host, port, **kw):
+            raise socket.gaierror("no such host")
+        monkeypatch.setattr(socket, "getaddrinfo", fail)
+        _pinned(monkeypatch, [])
+        msg = pf.smart_fetch("https://public.example/", allow_render=False)["message"]
+        assert msg == "Couldn't reach that page: The address could not be resolved."
+
+    def test_an_oversized_page_gives_the_generic_reason(self, monkeypatch):
+        monkeypatch.setattr(pf, "STATIC_FETCH_MAX_BYTES", 1000)
+        msg = self._message(monkeypatch, [_Page(b"<p>x</p>" * 400)])
+        assert msg == "Couldn't reach that page: the connection failed"
+
+    def test_a_good_page_is_fetched(self, monkeypatch):
+        _dns(monkeypatch)
+        _pinned(monkeypatch, [_Page(("<p>hello there</p>" * 200).encode())])
+        r = pf.smart_fetch("https://public.example/start", allow_render=False)
+        assert r["method"] == "static" and r["message"] == "Fetched successfully."
+
+    def test_too_many_redirects_is_named(self, monkeypatch):
+        hops = [_redirect(f"https://public.example/{i}")
+                for i in range(pf.STATIC_FETCH_MAX_REDIRECTS + 1)]
+        msg = self._message(monkeypatch, hops)
+        assert msg == "Couldn't reach that page: Too many redirects."
+
+    def test_a_redirect_status_without_a_location_is_taken_as_the_page(self, monkeypatch):
+        _dns(monkeypatch)
+        _pinned(monkeypatch, [_Page(("<p>moved page text</p>" * 200).encode(), status=301)])
+        r = pf.smart_fetch("https://public.example/start", allow_render=False)
+        assert r["message"] == "Fetched successfully."
 
 
 class TestSmartFetchRedaction:
