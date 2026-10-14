@@ -121,7 +121,7 @@ export default function LivePage() {
         const id = pickSession(list)
         if (id && !sessionRef.current) setSession({ id, status: null, cues: [], next: 0 })
       },
-      () => {},
+      (err: unknown) => setError(`Could not check for a running live session. ${describeLiveError(err)}`),
     )
   }, [])
 

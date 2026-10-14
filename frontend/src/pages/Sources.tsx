@@ -29,6 +29,7 @@ import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId
 import { PageShell } from '../components/PageShell'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { RetryBanner } from '../components/RetryBanner'
 import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -75,6 +76,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: Sour
   const [tracked, setTracked] = useState<TrackedSeries[]>([])
   const [notifications, setNotifications] = useState<SourceNotification[]>([])
   const [loadError, setLoadError] = useState<unknown>(null)
+  const [trackingError, setTrackingError] = useState<unknown>(null)
   const [untrackBusy, setUntrackBusy] = useState<string | null>(null)
   const [untrackError, setUntrackError] = useState<unknown>(null)
 
@@ -117,9 +119,15 @@ export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: Sour
 
   // Together, so New chapters mounts once with both (it opens when there is news).
   const loadTracking = useCallback(() => {
-    Promise.all([listTracked().catch(() => null), listNotifications().catch(() => null)]).then(([t, n]) => {
+    let failure: unknown = null
+    const keep = (e: unknown) => {
+      failure ??= e
+      return null
+    }
+    Promise.all([listTracked().catch(keep), listNotifications().catch(keep)]).then(([t, n]) => {
       if (t) setTracked(t)
       if (n) setNotifications(n)
+      setTrackingError(failure)
     })
   }, [])
 
@@ -298,24 +306,29 @@ export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: Sour
         </>
       ), 'sources-find-panel')}
 
-      {panel('new', notifications.length > 0 || tracked.length > 0 ? (
-        <NewChapters
-          notifications={notifications}
-          tracked={tracked}
-          sources={sources}
-          display={display}
-          canAct={!remote || IMPORT_REMOTE_ALLOWED}
-          onOpen={openSeries}
-          onDismissed={(id) => setNotifications((ns) => ns.filter((n) => n.id !== id))}
-          onUntrack={untrack}
-          onTracked={setTracked}
-          onChecked={loadTracking}
-          untrackBusy={untrackBusy}
-          untrackError={untrackError}
-          clearUntrackError={() => setUntrackError(null)}
-        />
-      ) : (
-        <p className="muted">No tracked series yet. Open a series on the Find tab and track it to hear about new chapters here.</p>
+      {panel('new', (
+        <>
+          <RetryBanner error={trackingError} what="your tracked series" onRetry={loadTracking} />
+          {notifications.length > 0 || tracked.length > 0 ? (
+            <NewChapters
+              notifications={notifications}
+              tracked={tracked}
+              sources={sources}
+              display={display}
+              canAct={!remote || IMPORT_REMOTE_ALLOWED}
+              onOpen={openSeries}
+              onDismissed={(id) => setNotifications((ns) => ns.filter((n) => n.id !== id))}
+              onUntrack={untrack}
+              onTracked={setTracked}
+              onChecked={loadTracking}
+              untrackBusy={untrackBusy}
+              untrackError={untrackError}
+              clearUntrackError={() => setUntrackError(null)}
+            />
+          ) : !trackingError && (
+            <p className="muted">No tracked series yet. Open a series on the Find tab and track it to hear about new chapters here.</p>
+          )}
+        </>
       ))}
 
       {manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}

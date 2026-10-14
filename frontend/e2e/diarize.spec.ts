@@ -71,7 +71,7 @@ test('transcribe with speaker detection sends the speaker range', async ({ page 
   await page.goto('/#/drama/1/source?tab=transcribe')
   await expect(transcribeCard(page)).toBeVisible()
   await openTranscribeOptions(page)
-  const detectAfter = page.getByRole('switch', { name: 'Detect speakers after transcribing' })
+  const detectAfter = page.getByRole('switch', { name: 'Detect speakers', exact: true })
   if (!(await detectAfter.isChecked())) await detectAfter.click()
   await openAdvanced(page)
   await page.getByLabel('Expected speakers', { exact: true }).fill('')
