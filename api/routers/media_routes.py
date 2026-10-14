@@ -108,7 +108,7 @@ def post_download_url(body: MediaUrlDownloadRequest, drama_id: int = Path(ge=1))
 # owner and auth off (no user id) aren't capped.
 MAX_STREAMS_PER_USER = 3
 _streams_lock = threading.Lock()
-_open_streams = error_responses()   # user id -> responses being sent
+_open_streams = {}   # user id -> responses being sent
 
 
 class _CappedFileResponse(FileResponse):

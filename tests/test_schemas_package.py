@@ -76,3 +76,28 @@ def test_shared_request_bases_keep_each_models_name_and_strictness():
     assert list(DiagnosticsUpgradeCheckRequest.model_fields) == ["confirm", "target"]
     with pytest.raises(ValidationError):
         schemas.DiagnosticsUpgradePlanRequest(target="not a version")
+
+
+def test_error_responses_only_feeds_openapi_responses_in_routers():
+    # A rewrite once turned runtime state (`_open_streams = {}`) into error_responses().
+    routers = os.path.join(os.path.dirname(PKG_DIR), "routers")
+    for name in sorted(os.listdir(routers)):
+        if not name.endswith(".py"):
+            continue
+        with open(os.path.join(routers, name), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        consts = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "error_responses":
+                assert node.args, f"{name}:{node.lineno} error_responses() with no codes"
+                parent = parents[node]
+                if isinstance(parent, ast.Assign):
+                    consts.update(t.id for t in parent.targets)
+                else:
+                    assert isinstance(parent, (ast.keyword, ast.Dict)), f"{name}:{node.lineno}"
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in consts and isinstance(node.ctx, ast.Load):
+                parent = parents[node]
+                assert (isinstance(parent, ast.keyword) and parent.arg == "responses") or isinstance(
+                    parent, ast.Dict), f"{name}:{node.lineno} {node.id} is not used as responses="
