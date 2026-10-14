@@ -130,6 +130,12 @@
 			method POST
 			path /api/diagnostics/bug-reports
 		}
+		# Members may bulk translate their own titles from their own device;
+		# the rest of /api/library/admin/* stays PC-only.
+		not {
+			method POST
+			path /api/library/admin/bulk/translate
+		}
 		# An admin may view the users and the audit log from away.
 		not {
 			method GET HEAD
