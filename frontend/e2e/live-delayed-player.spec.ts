@@ -17,7 +17,7 @@ test('the delayed player replaces the embed once the recording is ready', async 
   const m = await mockLive(page)
   await mockEmbedHosts(page)
   const asked: string[] = []
-  await page.route(`**/api/live/sessions/${SID}/player/*`, (route) => {
+  await page.route(`**/api/live/player/${SID}/*`, (route) => {
     const name = new URL(route.request().url()).pathname.split('/').pop() ?? ''
     asked.push(name)
     return route.fulfill({ status: 200, contentType: 'application/vnd.apple.mpegurl', body: name === 'master.m3u8' ? MASTER : PLAYLIST })

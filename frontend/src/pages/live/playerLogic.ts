@@ -29,7 +29,7 @@ export const PREPARING_NOTE = 'Preparing the delayed player…'
 export const UNSUPPORTED_NOTE = "This browser can't play the delayed copy; use the stream's own player instead."
 export const RECOVERING_NOTE = 'The picture stalled; recovering…'
 
-export const playerSrc = (sessionId: string) => apiUrl(`/api/live/sessions/${sessionId}/player/master.m3u8`)
+export const playerSrc = (sessionId: string) => apiUrl(`/api/live/player/${sessionId}/master.m3u8`)
 
 export interface Placement {
   /** Seconds behind the newest recorded second the picture is meant to stay. */

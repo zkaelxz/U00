@@ -55,6 +55,6 @@ describe('stallAction', () => {
 
 describe('playerSrc', () => {
   it('points at the session\'s master playlist', () => {
-    expect(playerSrc('live_abc')).toMatch(/\/api\/live\/sessions\/live_abc\/player\/master\.m3u8$/)
+    expect(playerSrc('live_abc')).toMatch(/\/api\/live\/player\/live_abc\/master\.m3u8$/)
   })
 })

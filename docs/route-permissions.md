@@ -309,10 +309,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/live/follows/{follow_id}/remove` | media.import_url |
 | `POST /api/live/follows/{follow_id}/start` | media.import_url |
 | `GET /api/live/ollama-check` | library.read |
+| `GET /api/live/player/{session_id}/{name}` | local_only() |
 | `GET /api/live/sessions` | library.read |
 | `POST /api/live/sessions` | media.import_url |
 | `GET /api/live/sessions/{session_id}` | library.read |
-| `GET /api/live/sessions/{session_id}/player/{name}` | local_only() |
 | `POST /api/live/sessions/{session_id}/stop` | jobs.cancel |
 | `POST /api/media-link/probe` | local_only() |
 | `GET /api/media/dramas/{drama_id}/audio` | media.stream |

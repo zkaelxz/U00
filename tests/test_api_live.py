@@ -143,12 +143,12 @@ def test_player_files_are_served_by_name_only(client, fake_live):
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "video.m3u8"), "w") as fh:
         fh.write("#EXTM3U\n")
-    ok = client.get(f"/api/live/sessions/{sid}/player/video.m3u8")
+    ok = client.get(f"/api/live/player/{sid}/video.m3u8")
     assert ok.status_code == 200 and ok.headers["content-type"].startswith("application/vnd.apple.mpegurl")
     assert ok.headers["cache-control"] == "no-store"
-    assert client.get(f"/api/live/sessions/{sid}/player/audio.m3u8").status_code == 404
-    assert client.get(f"/api/live/sessions/{sid}/player/chunk_00000.wav").status_code == 422
-    assert client.get(f"/api/live/sessions/live_{'0' * 32}/player/video.m3u8").status_code == 404
+    assert client.get(f"/api/live/player/{sid}/audio.m3u8").status_code == 404
+    assert client.get(f"/api/live/player/{sid}/chunk_00000.wav").status_code == 422
+    assert client.get(f"/api/live/player/live_{'0' * 32}/video.m3u8").status_code == 404
     client.post(f"/api/live/sessions/{sid}/stop")
 
 

@@ -85,7 +85,7 @@ def post_stop(request: Request, session_id: str = _SID):
 _PLAYER_FILE = Path(pattern=r"^(?:(?:master|video|audio)\.m3u8|[va]_\d{6}\.ts)$")
 
 
-@router.get("/sessions/{session_id}/player/{name}", dependencies=[local_only()],
+@router.get("/player/{session_id}/{name}", dependencies=[local_only()],
             summary="One file of the session's delayed player (a playlist or a segment)",
             responses=_ERRS)
 def get_player_file(request: Request, session_id: str = _SID, name: str = _PLAYER_FILE):

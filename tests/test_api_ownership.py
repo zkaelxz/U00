@@ -88,7 +88,7 @@ JOB_ROUTES = {
     ("GET", "/api/live/sessions/{session_id}"): "live_service.get_session -> can_see_job",
     ("POST", "/api/live/sessions/{session_id}/stop"):
         "live_service.stop_session -> can_see_job",
-    ("GET", "/api/live/sessions/{session_id}/player/{name}"):
+    ("GET", "/api/live/player/{session_id}/{name}"):
         "local_only(), then live_service.player_file -> can_see_job",
 }
 JOB_PARAMS = {"job_id", "session_id"}
@@ -1208,7 +1208,7 @@ class TestJobs:
                    .replace("{name}", "master.m3u8"))
             r = client.request(method, url, headers=world["b"])
             # PC-only: refused for any remote caller before the owner check.
-            expected = 403 if path.endswith("/delete") or path.endswith("/player/{name}") else 404
+            expected = 403 if path.endswith("/delete") or path.startswith("/api/live/player/") else 404
             if path == "/api/sources/jobs/{job_id}/result":
                 # Another user's run of a shared id reads as "nothing ran".
                 assert r.status_code == 200, (method, url, r.status_code)
@@ -1217,7 +1217,7 @@ class TestJobs:
                 continue
             assert r.status_code == expected, (method, url, r.status_code)
             # The player's owner-visible path needs a real recording; tests/test_api_live.py covers it.
-            if method == "GET" and not path.endswith("/player/{name}"):
+            if method == "GET" and not path.startswith("/api/live/player/"):
                 assert client.get(url, headers=world["a"]).status_code == 200, url
 
     def test_import_job_result_follows_drama_visibility(self, world, monkeypatch):
