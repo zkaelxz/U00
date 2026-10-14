@@ -119,6 +119,27 @@ def _refuse_if_stopping_locked(job_id):
         raise ConflictError(STOPPING_MESSAGE)
 
 
+# Held on both titles while chapters move between them
+# (services/title_restructure_service.py).
+RESTRUCTURE_JOB_PREFIX = "restructure_"
+_RESTRUCTURING_MESSAGE = ("Chapters are being moved to or from this title. Start this again "
+                          "once that has finished.")
+
+
+def _refuse_if_restructuring_locked(job_id):
+    """Caller holds _lock. A job on a title whose pages or chapter text are
+    moving could write onto rows or files that now belong to another title."""
+    import background_jobs   # it imports this module
+    job_id = str(job_id)
+    for prefix in background_jobs.DRAMA_JOB_PREFIXES:
+        rest = job_id[len(prefix):]
+        if prefix != RESTRUCTURE_JOB_PREFIX and job_id.startswith(prefix) and rest.isdigit():
+            hold = _jobs.get(f"{RESTRUCTURE_JOB_PREFIX}{rest}")
+            if hold and hold["status"] in ("running", "queued"):
+                from lib.errors import ConflictError
+                raise ConflictError(_RESTRUCTURING_MESSAGE)
+
+
 def _admit_locked(job_id, gpu_touching, description, owner_user_id):
     """Caller holds _lock. The admission start_job and start_process_job
     share: None when the start is refused (a restore holds the exclusive
@@ -127,6 +148,7 @@ def _admit_locked(job_id, gpu_touching, description, owner_user_id):
     (_gpu_slot_available_locked), so the caller must start it. Raises like
     the start functions (clean stop, per-user caps)."""
     _refuse_if_stopping_locked(job_id)
+    _refuse_if_restructuring_locked(job_id)
     if _exclusive_label is not None:
         return None
     existing = _jobs.get(job_id)

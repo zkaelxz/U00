@@ -89,6 +89,15 @@ def test_a_title_with_the_same_source_link_is_reused_whatever_the_name(token):
     assert len(_all_titles()) == 1
 
 
+def test_a_title_merged_into_another_is_never_picked_again(token):
+    kept = db.create_drama(title_zh="一人之下", source_language="zh", media_type="manhua",
+                           source_url=SERIES_PAGE)
+    db.create_drama(title_zh="一人之下", source_language="zh", media_type="manhua",
+                    source_url=SERIES_PAGE, custom_tags=db.MERGED_TAG)
+    h = _resolve(token, url=SERIES_PAGE).payload
+    assert h["matched"] is True and h["drama_id"] == kept
+
+
 def test_the_same_name_on_another_site_is_a_new_title(token):
     _resolve(token)
     other = _resolve(token, url="https://other.example/read/9").payload

@@ -15,7 +15,10 @@ the bug-report upload. The metadata update also takes "+ New series"
 (`new_series_name`) and `series_id: 0` to take a drama out of its series.
 GET /{id}/source-link (local_only) is the one response that may carry the
 link as imported, query included (services/source_link_service.py).
-Series rename and presets CRUD are not in this router.
+Merging a title into another and moving chapters between titles are PC-only
+(local_only), like deleting one: they move files on disk
+(services/title_restructure_service.py). Series rename and presets CRUD are
+not in this router.
 """
 
 import os
@@ -29,9 +32,12 @@ from api.auth import is_at_pc, local_only, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaMetadataUpdate, DramaSourceLink,
+                         TitleRestructureApplyRequest, TitleRestructureInfo,
+                         TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
 from lib.capped_request import read_capped_form
-from services import cover_art_service, drama_service, link_details_service, source_link_service
+from services import (cover_art_service, drama_service, link_details_service, source_link_service,
+                      title_restructure_service)
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
@@ -117,3 +123,33 @@ def get_cover(drama_id: int = Path(ge=1)):
 def delete_drama(drama_id: int = Path(ge=1), confirm: bool = Query(False),
                  confirm_text: str = Query("")):
     return drama_service.delete_drama(drama_id, confirm=confirm, confirm_text=confirm_text)
+
+
+@router.get("/{drama_id}/restructure", dependencies=[local_only()], response_model=TitleRestructureInfo,
+            summary="The title's chapters and the titles they could move to (PC only)",
+            responses=error_responses(404, 422))
+def get_restructure(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return title_restructure_service.list_chapters(drama_id, principal=request.state.principal)
+
+
+@router.post("/{drama_id}/restructure/preview", dependencies=[local_only()],
+             response_model=TitleRestructurePreview,
+             summary="Preview merging this title or moving its chapters (writes nothing; PC only)",
+             responses=error_responses(400, 404, 422))
+def post_restructure_preview(payload: TitleRestructureRequest, request: Request,
+                             drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return title_restructure_service.preview(
+        drama_id, payload.target_id, payload.kind, chapter_ids=payload.chapter_ids,
+        move_duplicates=payload.move_duplicates, principal=request.state.principal)
+
+
+@router.post("/{drama_id}/restructure", dependencies=[local_only()],
+             response_model=TitleRestructureResult,
+             summary="Merge this title into another or move its chapters, as previewed (PC only)",
+             responses=error_responses(400, 404, 409, 422))
+def post_restructure(payload: TitleRestructureApplyRequest, request: Request,
+                     drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return title_restructure_service.apply(
+        drama_id, payload.target_id, payload.kind, chapter_ids=payload.chapter_ids,
+        move_duplicates=payload.move_duplicates, fingerprint=payload.fingerprint,
+        confirm=payload.confirm, principal=request.state.principal)

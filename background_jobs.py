@@ -214,7 +214,7 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "sourceimport_", "urlmedia_", "voiceref_", "lines_glossary_", "spelling_suggest_", "burnpreview_",
     "bulk_consistency_", "bulk_emotion_", "bulk_notes_", "bulk_flag_", "resegpreview_", "scanlate_",
     "lncrawl_",
-    "comparetx_", "retime_", "speechcov_",
+    "comparetx_", "retime_", "speechcov_", "restructure_",
 )
 
 

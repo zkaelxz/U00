@@ -71,7 +71,7 @@ def _require_drama(drama_id: int) -> dict:
     return drama
 
 
-def _blocks(drama_id: int, size: int) -> tuple:
+def file_blocks(drama_id: int, size: int) -> tuple:
     """(blocks, split): the file's pieces in order, each with its byte
     range, as the manifest gives them while it matches the file, else one
     whole-file block."""
@@ -166,7 +166,7 @@ def list_chapters(drama_id: int, offset: int = 0, limit: int = DEFAULT_PAGE) -> 
     if raw is None:
         return out
     path, raw_key, size = raw
-    blocks, out["split"] = _blocks(drama_id, size)
+    blocks, out["split"] = file_blocks(drama_id, size)
     out["total"] = len(blocks)
     page = blocks[offset:offset + limit]
     with open(path, "rb") as f:
@@ -193,7 +193,7 @@ def read_chapter(drama_id: int, number: int, offset: int = 0,
     if offset < 0 or not 1 <= limit <= MAX_SLICE_CHARS:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {MAX_SLICE_CHARS}.")
     raw = _raw_file(drama_id)
-    blocks, _split = _blocks(drama_id, raw[2]) if raw else ([], False)
+    blocks, _split = file_blocks(drama_id, raw[2]) if raw else ([], False)
     if not 1 <= number <= len(blocks):
         raise NotFoundError("No such saved chapter.")
     path, raw_key, _size = raw

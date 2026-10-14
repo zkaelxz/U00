@@ -326,3 +326,31 @@ def update_bubble_text(bubble_id: int, translated_text: str):
         conn.execute("UPDATE bubbles SET translated_text = ? WHERE id = ?",
                      (translated_text, bubble_id))
         conn.commit()
+
+
+def move_pages(source_id: int, target_id: int, moves) -> bool:
+    """Re-points pages from one drama to another in ONE transaction: each of
+    `moves` is {page_id, filename (as the caller saw it), idx, new_filename,
+    rendered_filename}. Bubbles follow on their own (they hang off the page
+    id). False, and nothing written, if any page is no longer on the source
+    drama under the filename the caller copied."""
+    conn = db.get_conn()
+    try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
+        conn.execute("BEGIN IMMEDIATE")
+        for m in moves:
+            cur = conn.execute(
+                "UPDATE pages SET drama_id = ?, idx = ?, filename = ?, rendered_filename = ? "
+                "WHERE id = ? AND drama_id = ? AND filename IS ?",
+                (target_id, m["idx"], m["new_filename"], m["rendered_filename"],
+                 m["page_id"], source_id, m["filename"]))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return False
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

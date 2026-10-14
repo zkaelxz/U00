@@ -120,6 +120,8 @@
 		# "Fill from link": each read fetches from the internet on the PC's connection.
 		path /api/media-link/probe /api/library/link-scan
 		path /api/dramas/*/link-details/probe /api/dramas/*/link-details/apply
+		# Merging titles and moving chapters rewrite files on the PC.
+		path /api/dramas/*/restructure /api/dramas/*/restructure/preview
 		path /api/docs /api/docs/* /api/openapi.json /docs/*
 		# Household members may send a bug report from their own device.
 		not {
