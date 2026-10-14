@@ -36,6 +36,7 @@ from starlette.formparsers import MultiPartException
 from api.auth import is_auth_enabled, holds, is_local_request, local_only, require_permission
 from api.schemas import (BugReportClient, BugReportDeleteConfirm, BugReportDeleted,
                          BugReportListItem, BugReportSaved, BugReportText, ErrorResponse)
+from lib.capped_request import BodyTooLarge, capped, check_content_length
 from services import bug_report_service as svc
 from services.auth_service import SlidingWindowRateLimiter
 from services.service_errors import ForbiddenError, InvalidInputError
@@ -57,27 +58,6 @@ _OPENAPI_BODY = {"requestBody": {"required": True, "content": {"multipart/form-d
     "type": "object", "required": ["report"],
     "properties": {"report": {"type": "string", "description": "BugReportClient as JSON"},
                    "screenshot": {"type": "string", "format": "binary"}}}}}}}
-
-
-class BodyTooLarge(Exception):
-    pass
-
-
-def capped(request: Request, limit: int) -> Request:
-    """The same request with a receive channel that counts body bytes and
-    stops once more than `limit` arrive, independent of any header."""
-    receive, seen = request.receive, 0
-
-    async def counting():
-        nonlocal seen
-        message = await receive()
-        if message.get("type") == "http.request":
-            seen += len(message.get("body", b""))
-            if seen > limit:
-                raise BodyTooLarge()
-        return message
-
-    return Request(request.scope, counting)
 
 
 def _principal_key(request: Request) -> str:
@@ -105,14 +85,8 @@ async def _read_upload(upload, limit: int) -> bytes:
              response_model=BugReportSaved, responses=_ERRS, openapi_extra=_OPENAPI_BODY,
              summary="Save a problem report from the app; returns its id and markdown")
 async def post_bug_report(request: Request):
-    if "transfer-encoding" in request.headers:
-        raise InvalidInputError("Send the report with a Content-Length, not chunked.")
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        raise InvalidInputError("A report needs a Content-Length.")
-    if length > _MAX_BODY:
-        raise StarletteHTTPException(413, _TOO_LARGE)
+    check_content_length(request, _MAX_BODY, "the report", _TOO_LARGE,
+                         missing="A report needs a Content-Length.")
     if not request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
         raise InvalidInputError("Send the report as multipart/form-data.")
     _limiter.hit(_principal_key(request))

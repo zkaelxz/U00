@@ -25,16 +25,14 @@ from typing import Optional
 from fastapi import APIRouter, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.formparsers import MultiPartException
 
 from api.auth import local_only
 from api.backup_schemas import (
     AutoBackupSettings, AutoBackupSettingsUpdate, BackupFileDramaList, BackupJobStarted,
     BackupNowRequest, DeleteSnapshotDone, DeleteSnapshotRequest, ImportDramasDone,
     RestoreDramaDone, RestoreDramaRequest, SnapshotDramaList, SnapshotInfo)
-from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.schemas import ErrorResponse
+from lib.capped_request import read_capped_form
 from services import auto_backup_copies as abc_
 from services import auto_backup_service as abs_
 from services import backup_import_service as bis
@@ -127,22 +125,11 @@ async def _read_form(request: Request, max_fields: int):
     """The multipart form, refused (413) past the upload limit: the
     Content-Length is checked before any of the body is read (chunked
     bodies are refused) and the body stream itself is counted."""
-    if "transfer-encoding" in request.headers:
-        raise InvalidInputError("Send the backup file with a Content-Length, not chunked.")
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        raise InvalidInputError("An upload needs a Content-Length.")
-    cap = media_upload_service.max_upload_bytes() + _MULTIPART_OVERHEAD
-    if length > cap:
-        raise StarletteHTTPException(413, media_upload_service.too_large_message(cap - _MULTIPART_OVERHEAD))
-    try:
-        return await capped(request, cap).form(max_files=1, max_fields=max_fields,
-                                                max_part_size=1024)
-    except BodyTooLarge:
-        raise StarletteHTTPException(413, media_upload_service.too_large_message(cap - _MULTIPART_OVERHEAD))
-    except (MultiPartException, StarletteHTTPException):
-        raise InvalidInputError(_FORM_HELP) from None
+    limit = media_upload_service.max_upload_bytes()
+    return await read_capped_form(
+        request, limit + _MULTIPART_OVERHEAD, "the backup file",
+        media_upload_service.too_large_message(limit), _FORM_HELP,
+        max_files=1, max_fields=max_fields, max_part_size=1024)
 
 
 def _upload(form) -> UploadFile:
