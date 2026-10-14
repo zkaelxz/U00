@@ -1,5 +1,7 @@
 /* Jobs page (pages/Jobs.tsx). Width comes from PageShell. */
 .jobs-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.jobs-status-lines { display: grid; gap: var(--space-1); }
+.jobs-status-lines p { margin: 0; }
 .jobs-chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 /* Five chips wrap on a phone: a dense button's hit area reaches 6px past its box, so rows need 12px between them. */
 @media (pointer: coarse), (max-width: 640px) { .jobs-chips { row-gap: var(--space-3); } }
