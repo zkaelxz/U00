@@ -127,6 +127,13 @@ def test_run_captured_keeps_stdout_and_stderr_apart():
     assert out.timed_out is False and out.cancelled is False
 
 
+def test_run_captured_reports_the_child_pid_once_it_has_started():
+    pids = []
+    out = proc_run.run_captured([sys.executable, "-c", "import os; print(os.getpid())"], 30.0,
+                                on_start=pids.append)
+    assert pids == [int(out.stdout.strip())]
+
+
 def test_run_captured_gives_the_child_no_stdin():
     out = proc_run.run_captured(
         [sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], 30.0)

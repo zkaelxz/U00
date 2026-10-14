@@ -52,7 +52,7 @@ import background_jobs
 from jobs import job_launch
 import db
 from services import drama_service, novel_attach_service, settings_service
-from lib import url_guard
+from lib import proc as proc_run, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -443,11 +443,9 @@ def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float = 
 def _run_process(job_id: str, argv: list, work: str) -> str:
     """Runs lncrawl; returns its (redacted) output. Raises JobCancelled on
     cancel and RuntimeError on a timeout, a cap, or a non-zero exit."""
-    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
-             else {"start_new_session": True})
     proc = subprocess.Popen(argv, cwd=work, env=child_env(work), shell=False,
                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, **group)
+                            stderr=subprocess.STDOUT, **proc_run.group_kwargs())
     job = _windows_job(proc)
     _register(job_id, proc, job)
     reader = _OutputReader(proc.stdout)
