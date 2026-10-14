@@ -255,6 +255,11 @@ def _setting_key(session_id: int) -> str:
     return f"{SETTING_PREFIX}{session_id}"
 
 
+def forget_run(session_id: int) -> None:
+    """Drops a deleted run's judge scores (kept apart from its results)."""
+    db.delete_app_setting(_setting_key(session_id))
+
+
 def run_pass(job_id: str, plan: list, judge: dict) -> None:
     """Called by the benchmark job after every engine has finished. Never
     raises: a failed pass is recorded on the runs it covers."""

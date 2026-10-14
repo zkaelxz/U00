@@ -1,0 +1,112 @@
+/* Nav placement other than the left default (nav/navDock.ts). The base rail rules live in sideNav.css and assume the left edge;
+   everything here is scoped by .nav-right / .nav-top / .nav-bottom on the app shell, so the default layout is untouched.
+   --nav-bar-h is the room a horizontal bar takes at its edge: the resting pill with its margin, or the docked bar. */
+.app-shell.nav-top, .app-shell.nav-bottom { --nav-bar-h: 4.5rem; }
+.app-shell.nav-top.is-minimized, .app-shell.nav-bottom.is-minimized { --nav-bar-h: 3.5rem; }
+
+/* ---- right: the pill and rail mirror to the right edge and open leftward over the page ---- */
+.nav-right > .app-rail { left: auto; right: 18px; }
+.nav-right > .app-rail.is-docked { left: auto; right: 0; border-width: 0 0 0 1px; }
+.nav-right.has-rail > .app-main { padding-left: var(--space-4); padding-right: 5.75rem; }
+.nav-right.has-rail.is-docked > .app-main { padding-left: var(--space-4); padding-right: calc(15rem + var(--space-4)); }
+.nav-right.has-rail.is-minimized > .app-main { padding-left: var(--space-4); padding-right: calc(4rem + var(--space-4)); }
+.nav-right .rail-collapse svg { transform: rotate(180deg); }
+.nav-right .rail-dock svg { transform: scaleX(-1); }
+
+/* ---- top and bottom: a horizontal bar, centred as a pill or edge to edge when docked ---- */
+.nav-top > .app-rail, .nav-bottom > .app-rail {
+  left: 50%;
+  right: auto;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  width: auto;
+  max-width: calc(100vw - 24px);
+  max-height: none;
+  padding: var(--space-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  transition: none;
+}
+.nav-top > .app-rail { top: 10px; bottom: auto; }
+.nav-bottom > .app-rail { top: auto; bottom: 10px; }
+.nav-top > .app-rail:not(.is-docked), .nav-bottom > .app-rail:not(.is-docked) { z-index: 7; }
+/* Opened it keeps the pill shape; sideNav.css widens it to 15rem and rounds it for the vertical dock. */
+.nav-top > .app-rail:not(.is-docked).is-open,
+.nav-bottom > .app-rail:not(.is-docked).is-open { width: auto; border-radius: 999px; }
+.nav-top > .app-rail.is-docked, .nav-bottom > .app-rail.is-docked,
+.nav-top > .app-rail.is-minimized, .nav-bottom > .app-rail.is-minimized {
+  left: 0;
+  right: 0;
+  width: auto;
+  max-width: none;
+  transform: none;
+  border-radius: 0;
+  justify-content: center;
+  padding: var(--space-2) var(--space-4);
+  overflow: visible;
+}
+.nav-top > .app-rail.is-docked { top: 0; bottom: auto; border-width: 0 0 1px; }
+.nav-bottom > .app-rail.is-docked { top: auto; bottom: 0; border-width: 1px 0 0; }
+
+.nav-top .app-rail nav, .nav-bottom .app-rail nav { display: flex; flex: 0 1 auto; align-items: center; gap: var(--space-2); }
+.nav-top .app-rail .rail-group, .nav-bottom .app-rail .rail-group { display: flex; align-items: center; gap: 2px; }
+.nav-top .app-rail .rail-group + .rail-group, .nav-bottom .app-rail .rail-group + .rail-group { padding-left: var(--space-2); border-left: 1px solid var(--border); }
+.nav-top .app-rail .rail-entry, .nav-bottom .app-rail .rail-entry { display: flex; align-items: center; gap: 2px; }
+/* The section headings name a column of rows; a row of icons has no use for them. */
+.nav-top .app-rail .rail-heading, .nav-bottom .app-rail .rail-heading { display: none; }
+.nav-top .app-rail nav + .rail-toggle, .nav-bottom .app-rail nav + .rail-toggle { margin-top: 0; }
+.nav-top .app-rail .rail-toggle, .nav-bottom .app-rail .rail-toggle { width: auto; flex: none; }
+.nav-top .rail-collapse svg { transform: rotate(90deg); }
+.nav-bottom .rail-collapse svg { transform: rotate(-90deg); }
+
+/* When labelled (pointed at, focused or docked) each item stacks its label under the icon, so the bar grows away from its edge. */
+:is(.nav-top, .nav-bottom) .app-rail:is(.is-open, .is-docked):not(.is-minimized) :is(nav a, .rail-toggle, .rail-brand a) {
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 3.5rem;
+  min-height: 3rem;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+}
+:is(.nav-top, .nav-bottom) .app-rail :is(nav a, .rail-toggle, .rail-brand a) .rail-label { max-width: 8rem; }
+:is(.nav-top, .nav-bottom) .app-rail nav a.rail-title { margin-left: 0; }
+:is(.nav-top, .nav-bottom) .app-rail .rail-badge { margin-left: 0; }
+@media (max-width: 899px) {
+  /* A floating bar this narrow stays icons only, as the vertical dock does. */
+  :is(.nav-top, .nav-bottom) .app-rail:not(.is-docked).is-open { width: auto; }
+}
+
+/* The page gives up the strip the bar takes; the sticky header and everything offset from --bar-h move below a top bar. */
+.nav-top.has-rail, .nav-top.has-phone-bar { --bar-h: calc(env(safe-area-inset-top, 0px) + var(--nav-bar-h) + var(--app-header-h, 0px)); }
+.nav-top.has-rail .app-header { top: calc(env(safe-area-inset-top, 0px) + var(--nav-bar-h)); }
+.nav-top.has-rail > .app-main { padding-left: var(--space-4); padding-top: calc(var(--nav-bar-h) + var(--space-2)); }
+.nav-bottom.has-rail > .app-main { padding-left: var(--space-4); padding-bottom: calc(var(--nav-bar-h) + var(--space-4)); }
+
+/* ---- phone: the quick bar at the top instead of the bottom ---- */
+.app-shell.nav-top.has-phone-bar { --nav-bar-h: 4.5rem; padding-top: var(--nav-bar-h); padding-bottom: 0; }
+.nav-top .phone-bar {
+  top: 0;
+  bottom: auto;
+  height: var(--nav-bar-h);
+  padding-block: var(--space-2);
+  border-top: 0;
+  border-bottom: 1px solid var(--glass-edge, var(--border));
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--text) 8%, transparent);
+  /* Above the header (6), which now sits below the bar. */
+  z-index: 7;
+}
+.nav-top.has-phone-bar .app-header { top: var(--nav-bar-h); }
+
+/* Resting icons (no labels to space them) need more air than the 2px between stacked rows of the vertical dock. */
+:is(.nav-top, .nav-bottom) .app-rail:not(.is-open, .is-docked) { gap: var(--space-4); padding-inline: var(--space-4); }
+:is(.nav-top, .nav-bottom) .app-rail:not(.is-open, .is-docked) nav { gap: var(--space-3); }
+:is(.nav-top, .nav-bottom) .app-rail:not(.is-open, .is-docked) .rail-group { gap: var(--space-2); }
+:is(.nav-top, .nav-bottom) .app-rail:not(.is-open, .is-docked) .rail-group + .rail-group { padding-left: var(--space-3); }
+:is(.nav-top, .nav-bottom) .app-rail:not(.is-open, .is-docked) :is(nav a, .rail-toggle) { min-width: 2.5rem; }
+
+/* A resting vertical pill left-aligns its icons with a fixed inset so they do not move while it widens; a bar's items sit centred in their own boxes. */
+:is(.nav-top, .nav-bottom) :is(.app-rail:not(.is-docked, .is-open), .app-rail.is-minimized) :is(nav a, .rail-toggle, .rail-brand a) { justify-content: center; padding: 0; }
