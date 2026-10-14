@@ -2,18 +2,43 @@
  * Floating dock (or, when docked, a full-height rail) for screens 600px and wider: the shared nav groups as icons that
  * open into labelled rows when pointed at or focused (nav/sideNav.css).
  */
+import { useEffect, useRef, useState } from 'react'
 import { routeHref, type Route } from '../router'
 import type { NavContext } from './navItems'
 import { NavGroups } from './navLinks'
 import { setNavDock, useNavDock } from './navDock'
+import { createRailOpen } from './railOpen'
 import './sideNav.css'
 
 export function SideNav({ route, context }: { route: Route; context: NavContext }) {
   const mode = useNavDock()
   const docked = mode !== 'float'
   const minimized = mode === 'minimized'
+  const [open, setOpen] = useState(false)
+  const asideRef = useRef<HTMLElement>(null)
+  const [rail] = useState(() => createRailOpen(setOpen))
+  useEffect(() => {
+    const onPress = (e: PointerEvent) => {
+      if (!asideRef.current?.contains(e.target as Node)) rail.pressOutside()
+    }
+    document.addEventListener('pointerdown', onPress)
+    return () => {
+      document.removeEventListener('pointerdown', onPress)
+      rail.dispose()
+    }
+  }, [rail])
+  const classes = ['app-rail', docked && 'is-docked', minimized && 'is-minimized', open && 'is-open'].filter(Boolean).join(' ')
   return (
-    <aside className={minimized ? 'app-rail is-docked is-minimized' : docked ? 'app-rail is-docked' : 'app-rail'}>
+    <aside
+      ref={asideRef}
+      className={classes}
+      onPointerEnter={rail.pointerEnter}
+      onPointerLeave={rail.pointerLeave}
+      onFocus={(e) => rail.focusIn(e.target.matches(':focus-visible'))}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) rail.focusOut()
+      }}
+    >
       <p className="rail-brand">
         <a href={routeHref({ name: 'library' })} title="Baihe Studio: Library">
           <span aria-hidden="true" className="rail-brand-mark">B</span>

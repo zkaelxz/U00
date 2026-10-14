@@ -21,3 +21,27 @@ test('the nav switches between a floating pill, a docked rail and a minimized ra
   await page.getByRole('button', { name: 'Float navigation' }).click()
   await expect(page.locator('.app-rail')).not.toHaveClass(/is-docked/)
 })
+
+test('a floating pill that was clicked collapses shortly after the pointer leaves, without a click on the page', async ({ page }) => {
+  await page.goto('/#/jobs')
+  const rail = page.locator('.app-rail')
+  const rest = (await rail.boundingBox())!.width
+  await rail.hover()
+  await rail.getByRole('link').nth(1).click()
+  await expect(rail).toHaveClass(/is-open/)
+  await page.mouse.move(700, 400)
+  await expect(rail).not.toHaveClass(/is-open/)
+  await expect.poll(async () => (await rail.boundingBox())!.width).toBeLessThanOrEqual(rest + 1)
+})
+
+test('keyboard focus keeps the floating pill open and tapping outside closes it', async ({ page }) => {
+  await page.goto('/#/jobs')
+  const rail = page.locator('.app-rail')
+  await rail.getByRole('link').first().focus()
+  await page.keyboard.press('Tab')
+  await expect(rail).toHaveClass(/is-open/)
+  await page.waitForTimeout(500)
+  await expect(rail).toHaveClass(/is-open/)
+  await page.mouse.click(700, 400)
+  await expect(rail).not.toHaveClass(/is-open/)
+})
