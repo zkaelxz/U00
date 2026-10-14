@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '../../../../api/client'
-import { cancelJob, getJob } from '../../../../api/jobs'
+import { cancelJob, probeJob } from '../../../../api/jobs'
 import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import {
   applyCompare,
@@ -154,12 +154,12 @@ export function CompareTranscription({
   // the viewer left the page without applying is still there. "none" is a 404, not an error.
   useEffect(() => {
     let cancelled = false
-    void Promise.allSettled([getCompareResult(dramaId), getJob(compareJobId(dramaId))]).then(([res, job]) => {
+    void Promise.allSettled([getCompareResult(dramaId), probeJob(compareJobId(dramaId))]).then(([res, job]) => {
       if (cancelled || res.status !== 'fulfilled') {
         if (!cancelled && res.status === 'rejected' && !(res.reason instanceof ApiError && res.reason.status === 404)) setError(res.reason)
         return
       }
-      const at = job.status === 'fulfilled' ? job.value.finished_at : null
+      const at = job.status === 'fulfilled' ? job.value?.finished_at ?? null : null
       if (at !== null && readPref(browserStorage(), clearedKey(dramaId), 0) === at) return
       // A run started here meanwhile owns the panel.
       setResult((cur) => cur ?? res.value)

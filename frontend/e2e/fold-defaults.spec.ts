@@ -74,7 +74,7 @@ test.describe('Library tools', () => {
   test('Organize and Activity say so when every section is empty, instead of showing nothing', async ({ page }) => {
     await mockEmptyLibrary(page)
     await page.goto('/#/library-tools?tab=organize')
-    await expect(page.locator('.tools-panel:not([hidden]) [data-testid=tools-empty]')).toContainText('No shared series, presets, voice-bank entries or saved manga yet')
+    await expect(page.locator('.tools-panel:not([hidden]) [data-testid=tools-empty]')).toContainText('No shared series, profiles, voice-bank entries or saved manga yet')
     await expect(page.getByRole('heading', { name: 'Export' })).toBeVisible()
     await page.getByRole('tab', { name: 'Activity', exact: true }).click()
     await expect(page.locator('.tools-panel:not([hidden]) [data-testid=tools-empty]')).toContainText('No translation costs or reading history yet')
@@ -86,7 +86,7 @@ test.describe('Library tools', () => {
     await page.goto('/#/library-tools?tab=organize')
     // Loaded first, so the empty notice can't pass by not having rendered yet; then only the
     // open tab: the hidden Activity tab rightly says it is empty once its own lists load.
-    await expect.poll(() => openTitles(page, '.tools-panel')).toEqual(['Presets'])
+    await expect.poll(() => openTitles(page, '.tools-panel')).toEqual(['Profiles'])
     await expect(page.locator('.tools-panel:not([hidden]) [data-testid=tools-empty]')).toHaveCount(0)
   })
 

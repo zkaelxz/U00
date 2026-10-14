@@ -583,6 +583,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | local_only() |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
+| `POST /api/system/update/app/apply` | local_only() |
+| `POST /api/system/update/app/download` | local_only() |
 | `POST /api/system/update/check` | local_only() |
 | `POST /api/system/update/download` | local_only() |
 | `POST /api/system/update/install` | local_only() |
@@ -633,6 +635,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate-run/dramas/{drama_id}/source-changed/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/workflow-tier` | lines.edit |
 | `POST /api/translate-run/presets` | admin.library |
+| `POST /api/translate-run/presets/{preset_id}/default` | admin.library |
+| `POST /api/translate-run/presets/{preset_id}/update` | admin.library |
+| `GET /api/translate-run/profile-fields` | library.read |
 | `GET /api/translate/engines` | library.read |
 | `POST /api/translate/estimate` | engines.paid |
 | `DELETE /api/translate/history` | local_only() |

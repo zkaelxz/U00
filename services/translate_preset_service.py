@@ -11,7 +11,7 @@ from typing import Optional
 import db
 import translate_engines
 import translation_guide
-from services import library_service, settings_service, translate_service
+from services import library_service, profile_service, settings_service, translate_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 from services.translate_run_service import _is_safe_ollama_model, require_drama
 
@@ -32,47 +32,44 @@ def apply_workflow_tier(drama_id: int, tier: str) -> dict:
 
 
 def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
-    """Applies a preset to an existing drama (parity X03): the preset's
-    engine (if it saved one) goes onto the drama row, the one field with a
-    per-drama DB home; style, locale, the two toggles and the model are
-    returned for the client's form. Starts nothing.
+    """Applies a profile to an existing drama: its engine, prompt toggles and
+    transcribe options go onto the drama's columns and the Translate form's
+    starting values onto the drama (services/profile_service.py), skipping
+    anything that doesn't suit the title's language. Style, model and the run
+    options are also returned for the client's form. The language is never
+    touched. Starts nothing.
     Raises NotFoundError (unknown drama or preset)."""
     require_drama(drama_id)
     preset = next((p for p in db.list_presets() if p["id"] == preset_id), None)
     if preset is None:
         raise NotFoundError(f"No preset with id {preset_id}.")
+    applied = profile_service.apply_to_title(drama_id, preset)
+    start = applied["start"]
     engine = preset.get("translation_engine")
     if engine not in translate_engines.ENGINES:
         engine = None   # an engine this build no longer has: leave the drama's own
-    if engine:
-        db.update_drama(drama_id, translation_engine=engine)
-    style = preset.get("style_preset")
     locale = preset.get("locale")
-    pronouns = preset.get("default_female_pronouns")
-    genre = preset.get("include_genre_notes")
+    columns = applied["columns"]
     return {
         "drama_id": drama_id, "preset_id": preset["id"], "name": preset["name"],
         "translation_engine": engine,
-        "engine_model": (preset.get("engine_model") or None) if engine else None,
-        "style_preset": style if style in translation_guide.STYLE_PRESETS else None,
+        "engine_model": start.get("engine_model"),
+        "style_preset": start.get("style_preset"),
         "locale": locale if locale in settings_service.LOCALE_CHOICES else None,
-        "default_female_pronouns": bool(pronouns),
-        "include_genre_notes": True if genre is None else bool(genre),
+        "default_female_pronouns": bool(preset.get("default_female_pronouns")),
+        "include_genre_notes": True if preset.get("include_genre_notes") is None
+        else bool(preset.get("include_genre_notes")),
+        "options": {k: v for k, v in start.items() if k in profile_service.RUN_OPTIONS},
+        "skipped": applied["skipped"],
     }
 
 
 _PRESET_NAME_MAX = 100   # services/library_service._clean_name's limit
 
 
-def save_translate_preset(name: str, translation_engine: str, engine_model: Optional[str] = None,
-                          style_preset: Optional[str] = None, locale: Optional[str] = None,
-                          default_female_pronouns: bool = False,
-                          include_genre_notes: bool = True, overwrite: bool = False) -> dict:
-    """Saves the Translate form as a preset: db.save_preset with the Translate form's engine,
-    model, style, locale and the two toggles. Replacing a preset of the
-    same name needs overwrite=True (otherwise ConflictError). Replacing is effectively a
-    delete, so the route only allows overwrite from the PC. engine_model is None for engines without a
-    model picker, and None (engine default) is allowed for the others."""
+def _clean_profile(name, translation_engine, engine_model, style_preset, locale,
+                   default_female_pronouns, include_genre_notes, options) -> dict:
+    """The validated fields db.insert_preset / save_preset / update_preset take."""
     name = name.strip() if isinstance(name, str) else ""
     if not name or len(name) > _PRESET_NAME_MAX:
         raise InvalidInputError(f"A preset name is 1-{_PRESET_NAME_MAX} characters.")
@@ -88,10 +85,26 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
         raise InvalidInputError("Unknown style preset.")
     if locale is not None and locale not in settings_service.LOCALE_CHOICES:
         raise InvalidInputError("Unknown English variant.")
-    fields = dict(translation_engine=translation_engine, engine_model=engine_model,
-                  style_preset=style_preset, locale=locale,
-                  default_female_pronouns=bool(default_female_pronouns),
-                  include_genre_notes=bool(include_genre_notes))
+    return dict(name=name, translation_engine=translation_engine, engine_model=engine_model,
+                style_preset=style_preset, locale=locale,
+                default_female_pronouns=bool(default_female_pronouns),
+                include_genre_notes=bool(include_genre_notes),
+                options_json=profile_service.dump_options(profile_service.validate_options(options)))
+
+
+def save_translate_preset(name: str, translation_engine: str, engine_model: Optional[str] = None,
+                          style_preset: Optional[str] = None, locale: Optional[str] = None,
+                          default_female_pronouns: bool = False,
+                          include_genre_notes: bool = True, overwrite: bool = False,
+                          options: Optional[dict] = None) -> dict:
+    """Saves the Translate form as a profile: db.save_preset with the Translate form's engine,
+    model, style, locale, the two toggles and the other options (profile_service). Replacing a preset of the
+    same name needs overwrite=True (otherwise ConflictError). Replacing is effectively a
+    delete, so the route only allows overwrite from the PC. engine_model is None for engines without a
+    model picker, and None (engine default) is allowed for the others."""
+    fields = _clean_profile(name, translation_engine, engine_model, style_preset, locale,
+                            default_female_pronouns, include_genre_notes, options)
+    name = fields.pop("name")
     # Insert-only first: the UNIQUE(name) constraint decides, not a prior
     # lookup, so two concurrent saves can't both think the name is free.
     try:
@@ -103,3 +116,45 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
         preset_id, replaced = db.save_preset(name, **fields), True
     preset = next(p for p in library_service.list_presets() if p["id"] == preset_id)
     return {"preset": preset, "replaced": replaced}
+
+
+def _listed(preset_id: int) -> dict:
+    """The profile as listed; NotFoundError if it was deleted since the write."""
+    found = next((p for p in library_service.list_presets() if p["id"] == preset_id), None)
+    if found is None:
+        raise NotFoundError(f"No preset with id {preset_id}.")
+    return found
+
+
+def update_translate_preset(preset_id: int, name: str, translation_engine: str,
+                            engine_model: Optional[str] = None, style_preset: Optional[str] = None,
+                            locale: Optional[str] = None, default_female_pronouns: bool = False,
+                            include_genre_notes: bool = True,
+                            options: Optional[dict] = None) -> dict:
+    """Edit: replaces every field and the name of one profile (its id and
+    default flag stay). The route only allows this from the PC, like overwrite.
+    Raises NotFoundError (unknown id), ConflictError (name taken)."""
+    fields = _clean_profile(name, translation_engine, engine_model, style_preset, locale,
+                            default_female_pronouns, include_genre_notes, options)
+    try:
+        found = db.update_preset(preset_id, **fields)
+    except sqlite3.IntegrityError:
+        raise ConflictError(f"A preset named {fields['name']!r} already exists.") from None
+    if not found:
+        raise NotFoundError(f"No preset with id {preset_id}.")
+    return {"preset": _listed(preset_id)}
+
+
+def profile_editor_fields() -> dict:
+    """What the profile editor offers; nothing here is a secret."""
+    return {"engines": translate_service.list_engines(),
+            "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
+                              for k, v in translation_guide.STYLE_PRESETS.items()],
+            "fields": profile_service.editor_fields()}
+
+
+def set_default_preset(preset_id: int, is_default: bool) -> dict:
+    """Marks this profile as the one New title preselects (or clears it)."""
+    if not db.set_default_preset(preset_id, is_default):
+        raise NotFoundError(f"No preset with id {preset_id}.")
+    return _listed(preset_id)
