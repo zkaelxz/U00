@@ -13,8 +13,7 @@ Entries accumulate: re-running extraction after reading further updates
 existing entries with new information rather than starting over.
 """
 
-import re
-import json
+from engine_backends.shared import load_json_reply
 from translate_engines import call_llm_json
 
 ENTRY_TYPES = {
@@ -80,11 +79,7 @@ def extract_wiki_entries(lines, engine, up_to_line_idx: int, drama_meta: dict = 
         )
 
         text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", expect="json_array")
-        text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-        try:
-            entries = json.loads(text)
-        except json.JSONDecodeError:
-            continue
+        entries = load_json_reply(text, None)
         if not isinstance(entries, list):
             continue
 

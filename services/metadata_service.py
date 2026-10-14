@@ -267,10 +267,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
 
-        def log(inp, out, *_):
-            db.log_usage(drama_id, engine_name, getattr(engine, "model", engine_name),
-                         "romanize_credits", inp, out,
-                         translate_engines.estimate_cost_for_engine(engine, inp, out))
+        log = paid_calls.usage_logger(drama_id, engine_name, engine, "romanize_credits")
         found = translation_guide.romanize_metadata(
             credits, engine, source_language=drama.get("source_language") or "zh",
             usage_cb=log)

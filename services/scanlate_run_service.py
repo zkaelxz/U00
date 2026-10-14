@@ -39,7 +39,7 @@ import importlib.util
 import background_jobs
 import db
 import translate_engines
-from engine_backends import llm_tasks
+from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
 from lib import cancellable_lock
@@ -193,10 +193,7 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
         return True, None
     keyed = {key: b["source_text"] for key, b in by_key.items()}
 
-    def usage_cb(inp, out):
-        db.log_usage(drama_id, engine_name, getattr(engine, "model", engine_name),
-                     "scanlate_translate", inp, out,
-                     translate_engines.estimate_cost_for_engine(engine, inp, out))
+    usage_cb = paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate")
 
     try:
         result, new_context = scanlate_translate.translate_regions_by_id(

@@ -391,6 +391,27 @@ def _segment_holds_secret(segment: str) -> bool:
             or 2 * sum(map(len, random_parts)) >= sum(map(len, parts)))
 
 
+# A credential also shows up as a raw path segment with no `=` at all (a real
+# CDN shape, e.g. https://cdn.example/priv/<signed-token>/page1.jpg). Gated on a
+# marker segment immediately before the token so an ordinary chapter/page slug,
+# which never sits right after a segment literally named "token"/"auth"/"priv",
+# is never touched. Catches tokens _segment_holds_secret cannot tell from a
+# long lowercase run; _marked_secret still keeps a hyphenated slug of plain words.
+SENSITIVE_PATH_SEGMENT = re.compile(
+    r"((?:^|/)(?:token|sign(?:ed)?|auth|session|sess|secret|credential|ticket|jwt|access|"
+    r"policy|hmac|nonce|cookie|passport|key|priv(?:ate)?|secure)/)"
+    r"([\w-]{16,})(?=/|$|[?#])", re.I)
+
+
+def _marked_secret(path: str) -> bool:
+    for m in SENSITIVE_PATH_SEGMENT.finditer(path):
+        token = m.group(2)
+        parts = [p for p in _SEGMENT_PART.split(token) if p]
+        if len(parts) == 1 or any(_random_part(p) for p in parts):
+            return True
+    return False
+
+
 def display_url(url) -> str:
     """A stored link as the API may show it: http(s) only, scheme + host +
     path, no query, fragment, userinfo or ;params. A pasted link can carry
@@ -408,7 +429,8 @@ def display_url(url) -> str:
     if ":" in host:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
-    if any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg))):
+    if (_marked_secret(path)
+            or any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg)))):
         path = "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
 
@@ -543,7 +565,7 @@ def parse_flag_entries(entries):
     return by_id, unreadable
 
 
-from .id_keyed_parse import parse_id_keyed_json  # noqa: E402,F401  (re-exported: engines and tests import it from here)
+from .id_keyed_parse import load_json_reply, parse_id_keyed_json  # noqa: E402,F401  (re-exported: engines and tests import it from here)
 
 
 class TruncatedReply(str):

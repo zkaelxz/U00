@@ -17,8 +17,7 @@ pass each page's URL separately (see paginate_urls() below for
 building a URL sequence from a pattern).
 """
 
-import re
-import json
+from engine_backends.shared import load_json_reply
 from translate_engines import call_llm_json
 
 MAX_PAGINATE_PAGES = 50
@@ -67,11 +66,7 @@ def extract_listing_entries_llm(page_text: str, engine, source_name: str = "",
     if text is None:
         return []
 
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        entries = json.loads(text)
-    except json.JSONDecodeError:
-        return []
+    entries = load_json_reply(text, [])
     return entries if isinstance(entries, list) else []
 
 

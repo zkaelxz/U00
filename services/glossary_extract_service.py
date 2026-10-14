@@ -14,6 +14,7 @@ import background_jobs
 from jobs import job_launch
 import db
 import translate_engines
+from engine_backends import paid_calls
 import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
@@ -150,10 +151,7 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
                 response_cache=_novel_glossary_cache(engine, engine_name, fresh),
                 progress_cb=lambda f: background_jobs.update_progress(
                     job_id, f, f"Reading... {f * 100:.0f}%"),
-                usage_cb=lambda inp, out: db.log_usage(
-                    drama_id, engine_name, getattr(engine, "model", engine_name),
-                    "glossary_from_novel", inp, out,
-                    translate_engines.estimate_cost_for_engine(engine, inp, out)))
+                usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "glossary_from_novel"))
     except (TranslationCancelled, background_jobs.JobCancelled):
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
@@ -507,10 +505,7 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
         with _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
             proposals = tguide.extract_terms_llm(
                 source_lines, engine, source_language=source_language, known_terms=known_terms,
-                usage_cb=lambda inp, out: db.log_usage(
-                    drama_id, engine_name, getattr(engine, "model", engine_name),
-                    "extract_terms", inp, out,
-                    translate_engines.estimate_cost_for_engine(engine, inp, out)))
+                usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extract_terms"))
     except (TranslationCancelled, background_jobs.JobCancelled):
         raise background_jobs.JobCancelled() from None
     except Exception as exc:

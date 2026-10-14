@@ -540,15 +540,9 @@ def _usage_cb(drama, config, engine):
     no drama to attribute it to, rather than inventing a row."""
     if not drama:
         return None
-    import db
-    import translate_engines
+    from engine_backends import paid_calls
     name = config.get("engine") or "unknown"
-
-    def log(inp, out):
-        db.log_usage(drama["id"], name, getattr(engine, "model", name),
-                     "extension_translate", inp, out,
-                     translate_engines.estimate_cost_for_engine(engine, inp, out))
-    return log
+    return paid_calls.usage_logger(drama["id"], name, engine, "extension_translate")
 
 
 # -- HTTP --------------------------------------------------------------

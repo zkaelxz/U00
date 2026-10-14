@@ -19,7 +19,7 @@ import long_line_split
 import raw_transcript
 import resegment
 import translate_engines
-from engine_backends import llm_tasks
+from engine_backends import llm_tasks, paid_calls
 from services import paid_job_service, settings_service, transcribe_options_service, translate_service
 from services.restructure_service import (_check_expected, _commit, _drama_lock, _id_list,
                                           _refuse_if_job_running, _require_drama, note_ids)
@@ -128,13 +128,6 @@ def _apply_resegmented(drama_id: int, new_lines, guard: tuple) -> dict:
     return {"line_count": len(new_lines)}
 
 
-def _usage_logger(drama_id, engine_name, engine):
-    def log(inp, out):
-        db.log_usage(drama_id, engine_name, getattr(engine, "model", engine_name), "resegment",
-                     inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out))
-    return log
-
-
 def _raise_if_cancelled(job_id):
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
@@ -150,7 +143,7 @@ def _bounded(job_id, drama_id, engine, engine_name):
 
 def _run_resegment_job(job_id, drama_id, lines, guard, language, engine, engine_name,
                        segments, script, min_pause):
-    usage = _usage_logger(drama_id, engine_name, engine) if engine is not None else None
+    usage = paid_calls.usage_logger(drama_id, engine_name, engine, "resegment") if engine is not None else None
     with _bounded(job_id, drama_id, engine, engine_name):
         new_lines, changed = resegment.resegment_lines(
             lines, language, engine=engine, segments=segments, chinese_script=script,
@@ -165,7 +158,7 @@ def _run_resegment_job(job_id, drama_id, lines, guard, language, engine, engine_
 def _make_on_done(drama_id, guard, engine_name, engine):
     def on_done(job_id, result):
         for inp, out in (result or {}).get("usage_calls", []):
-            _usage_logger(drama_id, engine_name, engine)(inp, out)
+            paid_calls.usage_logger(drama_id, engine_name, engine, "resegment")(inp, out)
         if (result or {}).get("changed"):
             _apply_resegmented(drama_id, result["lines"], guard)
     return on_done
@@ -283,7 +276,7 @@ def _run_llm_preview_job(job_id, drama_id, lines, language, engine, engine_name,
     with _bounded(job_id, drama_id, engine, engine_name):
         new_lines, changed = resegment.resegment_lines(
             [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
-            chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),
+            chinese_script=script, usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "resegment"),
             min_pause=min_pause, check_cancel=lambda: _raise_if_cancelled(job_id))
     _store_llm_preview(drama_id, lines, new_lines,
                        [(ln.id, ln.idx, ln.zh, p) for ln, p in changed], engine_name)
@@ -293,7 +286,7 @@ def _run_llm_preview_job(job_id, drama_id, lines, language, engine, engine_name,
 def _make_preview_on_done(drama_id, lines, engine_name, engine):
     def on_done(job_id, result):
         for inp, out in (result or {}).get("usage_calls", []):
-            _usage_logger(drama_id, engine_name, engine)(inp, out)
+            paid_calls.usage_logger(drama_id, engine_name, engine, "resegment")(inp, out)
         _store_llm_preview(drama_id, lines, (result or {}).get("lines") or [],
                            (result or {}).get("changed") or [], engine_name)
     return on_done

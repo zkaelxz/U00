@@ -8,9 +8,8 @@ single line, rather than whole-drama batch operations.
   - grammar_breakdown():     word-by-word structure of the source
 """
 
-import re
-import json
 from core import LANGUAGE_NAMES  # noqa: F401  (tests/test_shared_constants.py pins this to core's)
+from engine_backends.shared import load_json_reply
 from translate_engines import call_llm_json, language_name, matching_glossary_terms
 
 
@@ -59,12 +58,8 @@ def alternative_translations(zh: str, en: str, engine, count: int = 3,
         '"tradeoff": "..."}]. No preamble, no markdown fences.'
     )
     text = call_llm_json(engine, prompt, max_tokens=1200, fallback="[]", expect="json_array")
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        alts = json.loads(text)
-        return alts if isinstance(alts, list) else []
-    except json.JSONDecodeError:
-        return []
+    alts = load_json_reply(text, [])
+    return alts if isinstance(alts, list) else []
 
 
 def improve_line(zh: str, en: str, engine, issue: str = "", source_language: str = "zh",
@@ -107,9 +102,5 @@ def grammar_breakdown(zh: str, engine, source_language: str = "zh"):
         '"function": "..."}]. No preamble, no markdown fences.'
     )
     text = call_llm_json(engine, prompt, max_tokens=1500, fallback="[]", expect="json_array")
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        parts = json.loads(text)
-        return parts if isinstance(parts, list) else []
-    except json.JSONDecodeError:
-        return []
+    parts = load_json_reply(text, [])
+    return parts if isinstance(parts, list) else []
