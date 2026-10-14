@@ -114,3 +114,16 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 /* Minimized: icons only, and it stays that width when pointed at, since a docked rail has no page behind it to open over. */
 .app-rail.is-minimized, .app-rail.is-minimized:hover, .app-rail.is-minimized:focus-within { width: 4rem; }
 .has-rail.is-minimized > .app-main { padding-left: calc(4rem + var(--space-4)); }
+
+/* Below 900px a floating dock stays icons only, pointed at or not: opened it is 15rem wide and covered the page's toolbar and top rows.
+   The resting width is already reserved by the page's left padding; labels remain as titles and accessible names. */
+@media (max-width: 899px) {
+  .app-rail:not(.is-docked):hover, .app-rail:not(.is-docked):focus-within { width: 64px; border-radius: 32px; background: var(--glass, var(--surface)); }
+  .app-rail:not(.is-docked) .rail-brand a { justify-content: center; padding: 0; }
+  .app-rail:not(.is-docked) .rail-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .app-rail:not(.is-docked) .rail-heading { overflow: hidden; white-space: nowrap; color: transparent; background: linear-gradient(var(--border), var(--border)) center / 100% 1px no-repeat; }
+  .app-rail:not(.is-docked) nav a.rail-title { margin-left: 0; }
+  .app-rail:not(.is-docked) nav a { justify-content: center; padding: 0; }
+  .app-rail:not(.is-docked) .rail-badge { display: none; }
+  .app-rail:not(.is-docked) .rail-toggle { justify-content: center; padding: 0; }
+}
