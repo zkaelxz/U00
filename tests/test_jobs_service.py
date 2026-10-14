@@ -56,6 +56,15 @@ def _run_job_with_result(job_id, result):
         time.sleep(0.01)
 
 
+def _wait_until_finished(job_id):
+    import time
+    import background_jobs
+    deadline = time.time() + 3
+    while (background_jobs.get_status(job_id) or {}).get("status") in ("queued", "running"):
+        assert time.time() < deadline
+        time.sleep(0.01)
+
+
 def test_a_job_cancelled_while_queued_still_lists_as_cancelled(isolated_db):
     """A bulk run, a URL download and a Live session stop a child still
     waiting for the GPU with cancel_queued; the cancelled run must stay
@@ -296,6 +305,76 @@ class TestDeleteJobs:
         with pytest.raises(InvalidInputError):
             jobs_service.delete_job("f")
         assert db.get_job_record("f") is not None
+
+    def test_a_run_started_after_the_check_is_not_deleted(self, isolated_db, monkeypatch):
+        """Between delete_job's "is it finished?" check and the delete, a new
+        run of the same id starts: it must stay listed, running and
+        cancellable."""
+        import threading
+        import background_jobs
+        from jobs import job_launch
+        from services.service_errors import ConflictError
+        _run_job_with_result("race", {})
+        go = threading.Event()
+        real = jobs_service._is_finished
+
+        def finished_then_restarted(record):
+            seen = real(record)
+            job_launch.start_job("race", lambda: go.wait(5))
+            return seen
+
+        monkeypatch.setattr(jobs_service, "_is_finished", finished_then_restarted)
+        try:
+            with pytest.raises(ConflictError):
+                jobs_service.delete_job("race", confirm=True)
+            assert background_jobs.get_status("race")["status"] == "running"
+            assert db.get_job_record("race")["status"] == "running"
+        finally:
+            go.set()
+            _wait_until_finished("race")
+
+    def test_a_run_that_also_finished_after_the_check_keeps_its_result(self, isolated_db,
+                                                                        monkeypatch):
+        import time
+        import background_jobs
+        from jobs import job_launch
+        from services.service_errors import ConflictError
+        _run_job_with_result("race3", {"run": 1})
+        real = jobs_service._is_finished
+
+        def finished_then_rerun(record):
+            seen = real(record)
+            time.sleep(0.01)
+            _run_job_with_result("race3", {"run": 2})
+            return seen
+
+        monkeypatch.setattr(jobs_service, "_is_finished", finished_then_rerun)
+        with pytest.raises(ConflictError):
+            jobs_service.delete_job("race3", confirm=True)
+        assert background_jobs.get_status("race3")["result"] == {"run": 2}
+        assert db.get_job_record("race3") is not None
+
+    def test_clear_finished_skips_a_run_restarted_after_the_check(self, isolated_db, monkeypatch):
+        import threading
+        import background_jobs
+        from jobs import job_launch
+        _run_job_with_result("race2", {})
+        go = threading.Event()
+        real = jobs_service._is_finished
+
+        def finished_then_restarted(record):
+            seen = real(record)
+            job_launch.start_job("race2", lambda: go.wait(5))
+            return seen
+
+        monkeypatch.setattr(jobs_service, "_is_finished", finished_then_restarted)
+        try:
+            assert jobs_service.clear_finished_jobs(confirm=True) == {"deleted_count": 0}
+            assert background_jobs.get_status("race2")["status"] == "running"
+            assert db.get_job_record("race2")["status"] == "running"
+        finally:
+            go.set()
+            _wait_until_finished("race2")
 
     def test_clear_finished_leaves_active(self, isolated_db):
         for jid, st in (("a", "done"), ("b", "error"), ("c", "cancelled"),
