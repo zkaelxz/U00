@@ -533,3 +533,15 @@ class TestHardsubBackendRouting:
         finally:
             ocr_module.__dict__.pop("_paddle_instances", None)
         assert made == ["korean", "japan", "ch"]
+
+
+def test_sampled_frames_are_scaled_down_before_they_are_written(monkeypatch, tmp_path):
+    """A multi-hour video's frames are all written before OCR runs: they are
+    capped at FRAME_MAX_WIDTH (never upscaled), at the same JPEG quality."""
+    import hardsub_ocr
+    ran = []
+    monkeypatch.setattr(hardsub_ocr.subprocess, "run", lambda cmd, **k: ran.append(cmd))
+    hardsub_ocr.extract_frames("/v.mp4", str(tmp_path), interval_sec=0.5)
+    vf = ran[0][ran[0].index("-vf") + 1]
+    assert vf == f"fps=1/0.5,scale='min({hardsub_ocr.FRAME_MAX_WIDTH},iw)':-2"
+    assert ran[0][ran[0].index("-q:v") + 1] == "2"

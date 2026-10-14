@@ -47,6 +47,11 @@ import video_export
 
 # Frame sampling decodes the whole video once; generous for a multi-hour file.
 EXTRACT_FRAMES_TIMEOUT_SECONDS = 4 * 3600
+# Every sampled frame is written before OCR starts, so a multi-hour 1080p or
+# 4K video at full size can fill the disk. Captions stay readable at this
+# width, and the caption band is found in fractions of the height, so a
+# smaller frame changes nothing else. A narrower video is never upscaled.
+FRAME_MAX_WIDTH = 1280
 
 
 def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
@@ -56,14 +61,15 @@ def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
     filter (which decodes once, straight through -- far faster than
     seeking frame-by-frame from Python for a multi-hour file), saved as
     numbered JPEGs in out_dir (near-lossless; a PNG per second of a long 1080p
-    video would take tens of GB). Returns [(timestamp_seconds, path), ...] in
+    video would take tens of GB), no wider than FRAME_MAX_WIDTH. Returns [(timestamp_seconds, path), ...] in
     order. With job_id, the ffmpeg run is killed when that job's cancel is
     requested (JobCancelled); either way it is killed after
     EXTRACT_FRAMES_TIMEOUT_SECONDS.
     """
     os.makedirs(out_dir, exist_ok=True)
     pattern = os.path.join(out_dir, "frame_%06d.jpg")
-    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path, "-vf", f"fps=1/{interval_sec}",
+    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path,
+           "-vf", f"fps=1/{interval_sec},scale='min({FRAME_MAX_WIDTH},iw)':-2",
            "-q:v", "2", pattern]
     if job_id:
         import background_jobs

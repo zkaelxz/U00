@@ -2249,3 +2249,56 @@ def test_disk_full_check_works_without_sqlite_full_constants(monkeypatch):
     wrapped = ValueError(lrs.BAD_LIBRARY_DB)
     wrapped.__context__ = full
     assert lrs._ran_out_of_disk(wrapped) is True
+
+
+def test_a_file_removed_mid_backup_is_skipped_and_reported(isolated_db, tmp_path, monkeypatch):
+    """A file listed for the backup can vanish before it is copied (a cleanup,
+    a job tidying its temp files): the backup skips it and says so."""
+    _media(3)
+    real = lbs._backup_files
+
+    def listed_then_removed(*a):
+        files = real(*a)
+        os.remove(files[0][0])
+        return files
+
+    monkeypatch.setattr(lbs, "_backup_files", listed_then_removed)
+    dest = str(tmp_path / "b.zip")
+    skipped = lbs.write_backup_zip(dest)
+    assert len(skipped) == 1
+    with zipfile.ZipFile(dest) as zf:
+        assert len([n for n in zf.namelist() if n.endswith("audio.bin")]) == 2
+        assert "library.db" in zf.namelist()
+
+
+def test_backup_job_reports_skipped_files(isolated_db, monkeypatch):
+    _media(2)
+    real = lbs._backup_files
+
+    def listed_then_removed(*a):
+        files = real(*a)
+        os.remove(files[0][0])
+        return files
+
+    monkeypatch.setattr(lbs, "_backup_files", listed_then_removed)
+    st = _wait(lbs.start_backup()["job_id"])
+    assert st["status"] == "done", st.get("error")
+    assert st["result"]["skipped_count"] == 1
+    assert "1 file" in st["message"]
+
+
+@pytest.mark.parametrize("job_id", [las.BACKUP_JOB_ID, las.AUTO_BACKUP_JOB_ID])
+def test_single_delete_refused_while_backing_up(isolated_db, job_id):
+    from services import drama_service
+    a = _new("A")
+    gate = threading.Event()
+    assert job_launch.start_job(job_id, gate.wait, 5)
+    try:
+        with pytest.raises(ConflictError, match="Try again when the backup finishes"):
+            drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
+    finally:
+        gate.set()
+        _wait(job_id)
+    assert db.get_drama(a)
+    drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
+    assert db.get_drama(a) is None
