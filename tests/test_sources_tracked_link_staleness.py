@@ -405,3 +405,30 @@ def test_run_import_job_refuses_missing_drama(env):
     with pytest.raises(SourceError):
         pipeline.run_import_job(pipeline.import_job_id(did), name, _chapters(name), did)
     assert not os.path.exists(_drama_folder(did))
+
+
+# ---------------------------------------------------------------------------
+# A linked drama that is being deleted or cleaned up while the cycle runs
+# ---------------------------------------------------------------------------
+
+def test_a_held_drama_keeps_its_new_chapters_for_retry_and_the_cycle_goes_on(env):
+    from jobs import job_launch
+    env["alpha"] = _make("alpha")
+    env["beta"] = _make("beta")
+    held = db.create_drama(title_en="Held", media_type="novel", content_mode="novel_narration")
+    free = db.create_drama(title_en="Free", media_type="novel", content_mode="novel_narration")
+    for name, did, title in (("alpha", held, "Held series"), ("beta", free, "Free series")):
+        store.track_series(name, SERIES, title, "", did,
+                           known_chapters=[c for c in _chapters(name) if c.chapter_id == "c1"])
+    with job_launch.hold_title(held, "busy"):
+        summary = chapter_check.run_check_cycle()
+    _wait(pipeline.import_job_id(free))
+    assert summary["queued"] == ["Free series"]
+    assert "being deleted" in summary["errors"]["Held series"]
+    assert env["beta"].calls == ["c2", "c3"] and env["alpha"].calls == []
+    # Already announced, so a later check will not find them new: they wait
+    # in the retry list instead of being lost.
+    waiting = store.import_retry_rows("alpha", SERIES, held)
+    assert [(r["chapter_id"], r["status"]) for r in waiting] == [("c2", "not_attempted"),
+                                                                  ("c3", "not_attempted")]
+    assert "being deleted" in _row("alpha")["last_check_error"]

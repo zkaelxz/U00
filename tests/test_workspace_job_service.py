@@ -246,3 +246,40 @@ def test_bulk_passes_the_settings_default_style_note(isolated_db, monkeypatch):
     patch_setting(monkeypatch, "default_style_note", "Keep honorifics.")
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "claude", "audio_drama")
     assert seen["args"][5] == "Keep honorifics."
+
+
+def test_bulk_skips_a_title_that_is_being_deleted_and_goes_on(isolated_db, monkeypatch):
+    """A start refused because the title is held (deleted or cleaned up right
+    now) is that title's skip, not the end of the whole bulk run."""
+    from jobs import job_launch
+    held = isolated_db.create_drama(title_en="Held", media_type="audio_drama",
+                                    content_mode="audio_drama", status="aligned",
+                                    translation_engine="claude")
+    free = isolated_db.create_drama(title_en="Free", media_type="audio_drama",
+                                    content_mode="audio_drama", status="aligned",
+                                    translation_engine="claude")
+    for did in (held, free):
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
+    _stub_style_sources(monkeypatch)
+    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda name, *a, **k:
+                        wjs.translate_engines.ENGINES[name].__new__(wjs.translate_engines.ENGINES[name]))
+    monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
+    real_start = job_launch.start_job
+    started = []
+
+    def start(job_id, fn, *args, **kwargs):
+        if job_id == f"translate_{held}":
+            return real_start(job_id, lambda: None)   # refused by the hold below
+        started.append(job_id)
+        return False
+    monkeypatch.setattr(wjs.job_launch, "start_job", start)
+    captured = {}
+    real_set = background_jobs.set_result
+    monkeypatch.setattr(background_jobs, "set_result", lambda jid, res: (
+        captured.__setitem__("result", res) if jid == "bulk_held" else None, real_set(jid, res)))
+    with job_launch.hold_title(held, "busy"):
+        wjs.run_bulk_series_translate_job("bulk_held", [held, free], {"claude": "k"},
+                                          monthly_cap=5.0)
+    background_jobs.clear_job("bulk_held")
+    assert started == [f"translate_{free}"]
+    assert held in captured["result"]["skipped_running"]
