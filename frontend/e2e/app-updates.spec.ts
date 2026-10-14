@@ -9,6 +9,9 @@ const BASE = {
   size: null, checked_at: null, check_error: null, release_lookup: 'unchecked', download: 'idle', downloaded_bytes: 0, download_error: null,
   verified: false, verified_version: null, verified_name: null, can_install: false, signature_check: false, signature_verified: false, auto_check: false,
   custom_source: false,
+  app_update: 'none', app_update_here: true, app_size: null, app_download: 'idle', app_downloaded_bytes: 0,
+  app_download_error: null, app_verified: false, app_verified_version: null, can_apply_app: false,
+  app_last_result: null, app_last_result_at: null,
 }
 const AVAILABLE = {
   ...BASE, latest: '0.2.0', update_available: true, installer_name: 'BaiheStudio-Setup-0.2.0.exe',
@@ -20,7 +23,7 @@ const card = (page: Page) => page.getByRole('region', { name: 'App updates', exa
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
-async function mockUpdates(page: Page, initial: Record<string, unknown> = {}) {
+async function mockUpdates(page: Page, initial: Record<string, unknown> = {}, appOffer: Record<string, unknown> = {}) {
   const calls: { method: string; path: string; body: unknown }[] = []
   let status: Record<string, unknown> = { ...BASE, ...initial }
   let polls = 0
@@ -37,7 +40,16 @@ async function mockUpdates(page: Page, initial: Record<string, unknown> = {}) {
       }
       return json(route, status)
     }
-    if (path.endsWith('/check')) return json(route, (status = { ...AVAILABLE, signature_check: status.signature_check }))
+    if (path.endsWith('/app/download')) {
+      return json(route, (status = {
+        ...status, app_download: 'verified', app_downloaded_bytes: 41_000_000, app_verified: true,
+        app_verified_version: '0.2.0', can_apply_app: true,
+      }), 202)
+    }
+    if (path.endsWith('/app/apply')) return json(route, { started: true, version: '0.2.0' }, 202)
+    if (path.endsWith('/check')) {
+      return json(route, (status = { ...AVAILABLE, signature_check: status.signature_check, ...appOffer }))
+    }
     if (path.endsWith('/download')) {
       return json(route, (status = { ...status, download: 'downloading', downloaded_bytes: 52_000_000 }), 202)
     }
@@ -79,6 +91,52 @@ test('check, download and verify, then open Setup behind a confirm', async ({ pa
   await expect(c).toContainText('Setup is open (BaiheStudio-Setup-0.2.0.exe, version 0.2.0).')
   const install = calls.filter((x) => x.path.endsWith('/install'))
   expect(install).toEqual([{ method: 'POST', path: '/api/system/update/install', body: { confirm: true } }])
+})
+
+test('a release that only changes the app updates it on its own, behind a confirm', async ({ page }) => {
+  const calls = await mockUpdates(page, {}, { app_update: 'available', app_size: 41_000_000 })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Notifications and backups')
+  const c = card(page)
+  await c.getByRole('button', { name: 'Check for updates' }).click()
+  await expect(c.getByTestId('update-app-line')).toHaveText(
+    'The app can be updated on its own (41.0 MB), without the full installer.',
+  )
+  await c.getByRole('button', { name: 'Download app update', exact: true }).click()
+  await expect(c.getByTestId('update-app-download-line')).toHaveText('App update 0.2.0 downloaded and verified.')
+  await expect(c).toContainText('goes back to this one by itself')
+
+  await c.getByRole('button', { name: /Update app only/ }).click()
+  expect(calls.filter((x) => x.path.endsWith('/app/apply'))).toHaveLength(0)
+  await c.getByRole('button', { name: 'Update the app to version 0.2.0 and restart' }).click()
+  await expect(c.getByTestId('update-app-restarting')).toContainText('Baihe stops and starts again')
+  expect(calls.filter((x) => x.path.endsWith('/app/apply'))).toEqual([
+    { method: 'POST', path: '/api/system/update/app/apply', body: { confirm: true } },
+  ])
+  // The full installer isn't downloaded along the way.
+  expect(calls.some((x) => x.path === '/api/system/update/download')).toBe(false)
+})
+
+test('under the background service the app-only path says to use the full installer', async ({ page }) => {
+  await mockUpdates(page, {}, { app_update: 'available', app_update_here: false })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Notifications and backups')
+  const c = card(page)
+  await c.getByRole('button', { name: 'Check for updates' }).click()
+  await expect(c.getByTestId('update-app-line')).toHaveText(
+    'Baihe runs as the background service here, so this update needs the full installer.',
+  )
+  await expect(c.getByRole('button', { name: 'Download app update', exact: true })).toHaveCount(0)
+  await expect(c.getByRole('button', { name: /Update app only/ })).toHaveCount(0)
+})
+
+test('the last app-only update says how it went', async ({ page }) => {
+  await mockUpdates(page, { app_last_result: 'Version 0.2.0 didn’t start, so Baihe Studio went back to 0.1.0.' })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Notifications and backups')
+  await expect(card(page).getByTestId('update-app-result')).toHaveText(
+    'Version 0.2.0 didn’t start, so Baihe Studio went back to 0.1.0.',
+  )
 })
 
 test('a copy with a release key says when the signature was verified', async ({ page }) => {
