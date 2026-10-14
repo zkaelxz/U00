@@ -17,7 +17,7 @@ import {
   type AsrOptions,
   type VoiceDetector,
 } from '../../../api/asrOptions'
-import { getJob } from '../../../api/jobs'
+import { probeJob } from '../../../api/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
@@ -47,12 +47,12 @@ export function VoiceDetectorField() {
             return
           }
           // A failed or cancelled download never turns the model flag on, so the job decides.
-          return getJob(o.asmr_vad_download_job_id).then((job) => {
-            const problem = downloadProblem(job)
+          return probeJob(o.asmr_vad_download_job_id).then((job) => {
+            const problem = job && downloadProblem(job)
             if (!live || !problem) return
             setFailure(problem)
             setDownloading(false)
-            // 404 means no download was ever started: nothing to report, and an unhandled rejection is a console error.
+            // null means no download was ever started: nothing to report, and an unhandled rejection is a console error.
           }, () => undefined)
         },
         () => undefined,

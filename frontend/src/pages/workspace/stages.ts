@@ -64,7 +64,8 @@ export function stageCount(
 }
 
 // The one "Next" step offered once the open stage is done: the following stage
-// that isn't blocked, worded from the progress counts only ("Translate 32 lines",
+// that is neither blocked nor already done (the stepper marks it done, so a
+// "Next" pointing there would contradict it), worded from the progress counts only ("Translate 32 lines",
 // "Review 12 flagged"). null when the open stage isn't done or nothing follows.
 export interface NextAction {
   stage: StageId
@@ -78,7 +79,7 @@ export function nextAction(
   if (!active || !progress) return null
   const states = stageStates(progress.stages)
   if (states[active] !== 'done') return null
-  const next = STAGE_IDS.slice(STAGE_IDS.indexOf(active) + 1).find((s) => states[s] !== 'blocked')
+  const next = STAGE_IDS.slice(STAGE_IDS.indexOf(active) + 1).find((s) => states[s] !== 'blocked' && states[s] !== 'done')
   if (!next) return null
   const n = progress.untranslated_count
   const f = progress.flagged_count

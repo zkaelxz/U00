@@ -11,10 +11,11 @@ jobs' history: `local_only()` plus `confirm=true`, so a remote or household
 user can never erase it.
 """
 
-from fastapi import APIRouter, Path, Request
+from fastapi import APIRouter, Header, Path, Request, Response
 from api.auth import local_only, require_permission
 from api.schemas import (DeleteConfirm, JobCancelResult, JobDeleteResult, JobForceStopResult,
                          JobListResponse, JobQueueSummary, JobRecord, JobsClearFinishedResult, error_responses)
+from lib.errors import NotFoundError
 from services import jobs_service
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -36,9 +37,17 @@ def queue_summary(request: Request):
 
 
 @router.get("/{job_id}", dependencies=[require_permission("library.read")], response_model=JobRecord, summary="One job's cross-process record",
-            responses=error_responses(404))
-def get_job(request: Request, job_id: str = Path(min_length=1)):
-    return JobRecord(**jobs_service.get_job(job_id, principal=request.state.principal))
+            responses={**error_responses(404), 204: {"description": "X-Baihe-Probe sent and no such job"}})
+def get_job(request: Request, job_id: str = Path(min_length=1), x_baihe_probe: str = Header(None)):
+    # The page asks after jobs that usually don't exist yet (a stage's fixed per-title id);
+    # a 404 there is logged as a red console error, so a probe gets an empty 204 instead.
+    # The header, not a query string, keeps the URL the same as a plain read. A job the caller may not see answers the same way, so a probe tells nothing more than a 404 did.
+    try:
+        return JobRecord(**jobs_service.get_job(job_id, principal=request.state.principal))
+    except NotFoundError:
+        if not x_baihe_probe:
+            raise
+        return Response(status_code=204)
 
 
 @router.post("/{job_id}/cancel", dependencies=[require_permission("jobs.cancel")], response_model=JobCancelResult,

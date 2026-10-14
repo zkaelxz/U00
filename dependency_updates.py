@@ -437,4 +437,10 @@ def required_min_versions(project_root: str = None) -> dict:
             for s in req.specifier:
                 if s.operator == ">=":
                     out[diagnostics.canonical_dist(req.name)] = s.version
+    # Every OpenCV flavour provides the same cv2, so the floor asked of the
+    # contrib build also holds for a plain or headless one already installed.
+    floor = out.get("opencv-contrib-python")
+    if floor:
+        for alt in PIP_DIST_ALTERNATES["cv2"] + ("opencv-python",):
+            out.setdefault(diagnostics.canonical_dist(alt), floor)
     return out

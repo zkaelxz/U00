@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { getJob } from '../../../api/jobs'
+import { probeJob } from '../../../api/jobs'
 import { getLncrawlStatus, lncrawlJobId, startLncrawlImport } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
@@ -52,9 +52,9 @@ export function LncrawlPanel({ mode, onImported }: Props) {
   useEffect(() => {
     if (!installed) return
     let cancelled = false
-    getJob(lncrawlJobId(dramaId)).then(
+    probeJob(lncrawlJobId(dramaId)).then(
       (j) => {
-        if (!cancelled && !startedRef.current && !TERMINAL_STATUSES.includes(j.status)) setJobId(j.job_id)
+        if (j && !cancelled && !startedRef.current && !TERMINAL_STATUSES.includes(j.status)) setJobId(j.job_id)
       },
       () => undefined,
     )

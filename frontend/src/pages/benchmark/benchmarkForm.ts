@@ -81,6 +81,10 @@ export function configLabel(stage: string | null | undefined, engine: string | n
 
 export const runConfigLabel = (r: Pick<BenchmarkRun, 'stage' | 'engine' | 'model'>) => configLabel(r.stage, r.engine, r.model)
 
+/** The run's own label, or null when it only repeats the engine and model shown beside it. */
+export const runExtraLabel = (r: Pick<BenchmarkRun, 'label' | 'stage' | 'engine' | 'model'>) =>
+  r.label && r.label.trim() !== runConfigLabel(r) ? r.label : null
+
 /** 0.8234 -> "82.3%"; null -> "—". */
 export function formatScore(score: number | null | undefined): string {
   if (score == null || !Number.isFinite(score)) return '—'

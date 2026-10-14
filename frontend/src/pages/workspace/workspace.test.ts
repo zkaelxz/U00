@@ -204,6 +204,10 @@ describe('next action', () => {
     expect(nextAction('review', prog({ review: 'done', dub: 'blocked', export: 'pending' }))).toEqual({ stage: 'export', label: 'Export' })
     expect(nextAction('export', prog({ export: 'done' }))).toBeNull()
   })
+  it('skips a stage the stepper already shows as done', () => {
+    expect(nextAction('source', prog({ source: 'done', translate: 'done', review: 'current' }))).toEqual({ stage: 'review', label: 'Review' })
+    expect(nextAction('source', prog({ source: 'done', translate: 'done', review: 'done', dub: 'blocked', export: 'done' }))).toBeNull()
+  })
   it('shows nothing until the open stage is done or progress is known', () => {
     expect(nextAction('source', prog({ source: 'current', translate: 'pending' }, 5))).toBeNull()
     expect(nextAction('source', null)).toBeNull()

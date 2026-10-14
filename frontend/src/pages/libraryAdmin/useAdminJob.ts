@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { ApiError } from '../../api/client'
-import { cancelJob, getJob } from '../../api/jobs'
+import { cancelJob, probeJob } from '../../api/jobs'
 import { getArtifactInfo } from '../../api/libraryAdmin'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { TERMINAL_STATUSES, jobSucceeded } from '../../types/jobs'
@@ -27,9 +27,9 @@ export function useAdminJob(jobId: string, artifact?: ArtifactKind) {
 
   useEffect(() => {
     let cancelled = false
-    getJob(jobId).then(
-      (j) => !cancelled && !TERMINAL_STATUSES.includes(j.status) && setRun(jobId),
-      () => undefined, // 404: nothing running.
+    probeJob(jobId).then(
+      (j) => j && !cancelled && !TERMINAL_STATUSES.includes(j.status) && setRun(jobId),
+      () => undefined, // nothing running.
     )
     loadInfo()
     return () => {

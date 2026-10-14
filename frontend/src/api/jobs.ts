@@ -6,6 +6,11 @@ type Fetch = typeof fetch
 
 export const getJob = (id: string, f?: Fetch) =>
   getJson<JobRecord>(`/api/jobs/${encodeURIComponent(id)}`, f)
+const probing = (f: Fetch = fetch): Fetch => (input, init) =>
+  f(input, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), 'X-Baihe-Probe': '1' } })
+// For a job that usually doesn't exist yet (a stage's fixed per-title id): null, not a 404 in the console.
+export const probeJob = (id: string, f?: Fetch) =>
+  getJson<JobRecord | null>(`/api/jobs/${encodeURIComponent(id)}`, probing(f))
 export const listJobs = (f?: Fetch) => getJson<JobListResponse>('/api/jobs', f)
 // Running/waiting counts for everyone, and the caller's own places in the GPU queue.
 export const getQueueSummary = (f?: Fetch) => getJson<JobQueueSummary>('/api/jobs/queue-summary', f)

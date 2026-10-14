@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { ApiError, withSignal } from '../../api/client'
 import { getSubtitleText, markExported } from '../../api/export'
-import { cancelJob, getJob } from '../../api/jobs'
+import { cancelJob, probeJob } from '../../api/jobs'
 import { createDrama } from '../../api/library'
 import { translateApi } from '../../api/translate'
 import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
@@ -133,8 +133,8 @@ export function MakeSubtitles() {
     adopt(id)
   }, [adopt])
   const lookup = useCallback((id: string) => {
-    const p = getJob(id)
-    void p.then((j) => { if (!['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
+    const p = probeJob(id)
+    void p.then((j) => { if (j && !['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
       .finally(() => {
         seen.current.settled += 1
         if (seen.current.settled === reattachIds(0).length && !seen.current.live) fail(lostRun())

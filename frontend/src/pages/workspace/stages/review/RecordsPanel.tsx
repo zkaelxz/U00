@@ -18,7 +18,7 @@ import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
 import { afterLinesWrite, beforeLinesWrite } from './linesController'
-import { keptNote, restoreLossText, structureErrorText } from './reviewLogic'
+import { formatStamp, keptNote, restoreLossText, structureErrorText } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { retireUndoOffer } from './undoOffer'
 import type { GoToLine } from './reviewResults'
@@ -291,7 +291,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
             {versions.map((v) => (
               <li key={v.id} data-version-id={v.id}>
                 {v.label ?? `Version ${v.id}`} · {v.engine} {v.model}
-                {v.is_active ? ' · active' : ''} <span className="muted">{v.created_at}</span>{' '}
+                {v.is_active ? ' · active' : ''} <span className="muted">{formatStamp(v.created_at)}</span>{' '}
                 {pc === 'local' && (
                   <ConfirmButton
                     name={v.label ?? `Version ${v.id}`}
@@ -327,10 +327,10 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
           <ul className="records-list" data-testid="history-list">
             {history.map((h) => {
               // Every row has the same visible words, so the name says which version it acts on.
-              const versionName = `${h.label ?? `Snapshot ${h.id}`} (${h.created_at})`
+              const versionName = `${h.label ?? `Snapshot ${h.id}`} (${formatStamp(h.created_at)})`
               return (
               <li key={h.id}>
-                {capFirst(h.label ?? `Snapshot ${h.id}`)} <span className="muted">{h.created_at}</span>{' '}
+                {capFirst(h.label ?? `Snapshot ${h.id}`)} <span className="muted">{formatStamp(h.created_at)}</span>{' '}
                 <button
                   type="button"
                   className={buttonClass('ghost', 'sm')}
@@ -356,7 +356,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                     onCancel={() => setRestoring(null)}
                   >
                     <p className="muted">
-                      Replaces every line with “{h.label ?? `Snapshot ${h.id}`}” ({h.created_at}). Your current lines
+                      Replaces every line with “{h.label ?? `Snapshot ${h.id}`}” ({formatStamp(h.created_at)}). Your current lines
                       are saved as a snapshot first.
                     </p>
                     {loss?.id === h.id && loss.lines > 0 && (
