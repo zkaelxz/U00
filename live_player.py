@@ -27,9 +27,16 @@ import live_fetch
 SEGMENT_SECONDS = 4
 # The page can delay up to 90 s; the rest is slack for the player to start behind.
 LIST_SIZE = 40
-VIDEO_HEIGHT_CAP = 480
-# MPEG-TS holds H.264 but not VP9 or AV1, which a plain "best video" may pick.
-VIDEO_LADDER = [(f"bestvideo[height<={VIDEO_HEIGHT_CAP}][vcodec^=avc1]/bestvideo[vcodec^=avc1]", None)]
+DEFAULT_HEIGHT = 480
+HEIGHTS = (360, 480, 720, 1080)
+
+
+def video_ladder(height: int) -> list:
+    """yt-dlp's format ladder for the picture: the best H.264 up to `height` (MPEG-TS holds
+    H.264 but not the VP9 or AV1 a plain "best video" may pick), else the smallest, never the largest."""
+    return [(f"bestvideo[height<={int(height)}][vcodec^=avc1]/worstvideo[vcodec^=avc1]", None)]
+
+
 PLAYER_DIR = "player"
 
 MASTER = "master.m3u8"
@@ -144,18 +151,19 @@ UNAVAILABLE_NOTE = "Delayed player unavailable: no separate video stream could b
 STOPPED_NOTE = "The delayed player stopped; captions continue."
 
 
-def start_if_possible(enabled, url, audio_url, out_dir, note, should_stop, stream_url_check=None, proxy=None,
+def start_if_possible(height, url, audio_url, out_dir, note, should_stop, stream_url_check=None, proxy=None,
                       cookies_browser=None, cookies_file=None):
-    """The recorders for this session. None when `enabled` is off, or, with a fixed note, when the
+    """The recorders for this session, with a picture of at most `height` pixels. None when `height`
+    is 0 or False (the option is off), or, with a fixed note, when the
     video stream can't be resolved or started. Never raises: the captions do not depend on it.
     A Stop interrupts the lookup (`should_stop`)."""
-    if not enabled:
+    if not height:
         return None
     from live_translate import _run_abortable, resolve_stream_url
     try:
         video_url = _run_abortable(lambda: resolve_stream_url(
             url, cookies_browser=cookies_browser, cookies_file=cookies_file, proxy=proxy,
-            ladder=VIDEO_LADDER), should_stop)
+            ladder=video_ladder(height)), should_stop)
         if stream_url_check is not None:
             stream_url_check(video_url)
         return start_player(video_url, audio_url, out_dir, proxy=proxy)

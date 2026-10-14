@@ -103,7 +103,7 @@ def test_start_if_possible_reports_a_fixed_note_and_returns_none(tmp_path, monke
     def boom(*a, **k):
         raise RuntimeError("https://secret.example/stream?token=abc")
     monkeypatch.setattr(live_translate, "resolve_stream_url", boom)
-    got = live_player.start_if_possible(True, "https://x.test", "a", str(tmp_path),
+    got = live_player.start_if_possible(480, "https://x.test", "a", str(tmp_path),
                                         lambda text, key=None: notes.append((text, key)),
                                         lambda: False)
     assert got is None
@@ -118,7 +118,7 @@ def test_a_cancel_while_resolving_is_not_swallowed(tmp_path, monkeypatch):
         raise background_jobs.JobCancelled("x")
     monkeypatch.setattr(live_translate, "resolve_stream_url", cancelled)
     with pytest.raises(background_jobs.JobCancelled):
-        live_player.start_if_possible(True, "https://x.test", "a", str(tmp_path), lambda *a: None, lambda: False)
+        live_player.start_if_possible(480, "https://x.test", "a", str(tmp_path), lambda *a: None, lambda: False)
 
 
 def test_player_file_is_a_404_for_an_unknown_session_and_other_names(folder, monkeypatch):

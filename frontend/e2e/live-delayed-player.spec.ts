@@ -80,3 +80,21 @@ test('a session that records no copy keeps the embed even when the form has the 
   await expect(live.getByTestId('live-delayed-video')).toHaveCount(0)
   await expect(live.getByText('Preparing the delayed player…')).toHaveCount(0)
 })
+
+test('the picture size shows with the delayed player and is sent at Start', async ({ page }) => {
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill(YT)
+  await live.getByText('Advanced').click()
+  await expect(live.getByLabel('Delayed player quality', { exact: true })).toHaveCount(0)
+  await page.screenshot({ path: `${SCREENS}/desktop-quality-before.png`, fullPage: true })
+
+  await live.getByLabel('Delayed player', { exact: true }).click()
+  const size = live.getByLabel('Delayed player quality', { exact: true })
+  await expect(size).toHaveValue('480')
+  await size.selectOption('720')
+  await page.screenshot({ path: `${SCREENS}/desktop-quality-after.png`, fullPage: true })
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  expect(m.posts[0].body).toMatchObject({ delayed_player: true, player_height: 720 })
+})

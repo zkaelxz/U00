@@ -32,8 +32,14 @@ describe('buildStartBody', () => {
   })
 
   it('asks for the delayed player only when it is on', () => {
-    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', delayed_player: true }).delayed_player).toBe(true)
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', delayed_player: true })).toMatchObject({ delayed_player: true, player_height: 480 })
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('delayed_player')
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('player_height')
+  })
+
+  it('sends the chosen picture size and falls back to 480 for one that is not offered', () => {
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', delayed_player: true, player_height: 1080 }).player_height).toBe(1080)
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', delayed_player: true, player_height: 999 }).player_height).toBe(480)
   })
 
   it('sends a chosen title and leaves the key out when none is chosen', () => {
