@@ -466,7 +466,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 @media (max-width: 640px) {
   .field-label-row { position: relative; }
   .field-help { position: static; }
-  .field-help-text { left: 0; right: 0; width: auto; max-width: none; }
+  .field-help-text { max-width: calc(100vw - 16px); }
 }
 .field-error { margin: 0; font-size: var(--text-sm); }
 
