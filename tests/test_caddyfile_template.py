@@ -31,10 +31,13 @@ DECISION_DOC = ROOT / "docs" / "route-permissions.md"
 
 UPSTREAM = "127.0.0.1:{$BAIHE_API_HOUSEHOLD_PORT}"
 SITE = "{$BAIHE_DOMAIN}"
-# Household-permission routes the proxy refuses on purpose: bulk translate is
-# under /api/library/admin/*, which the proxy blocks as a whole, and the Library
-# selection bar offers it only at the PC (members translate title by title).
-BLOCKED_ON_PURPOSE = {("POST", "/api/library/admin/bulk/translate")}
+# Household-permission routes the proxy refuses on purpose. None today: bulk
+# translate, the last one, passes since members may bulk translate from their
+# own device (owner decision 2026-10-14).
+BLOCKED_ON_PURPOSE = set()
+# The one /api/library/admin/* route that passes; every other route there stays
+# PC-only or admin-only.
+LIBRARY_ADMIN_HOUSEHOLD = ("POST", "/api/library/admin/bulk/translate")
 
 
 # --- a minimal Caddyfile reader -------------------------------------------
@@ -309,6 +312,27 @@ def test_blocked_on_purpose_routes_still_exist_with_a_household_permission(route
     for key in BLOCKED_ON_PURPOSE:
         assert key in table, key
         assert table[key][0][0] == "permission" and not table[key][0][1].startswith("admin.")
+
+
+def test_only_bulk_translate_passes_under_library_admin(routes):
+    """Bulk translate passes, and only as a POST; every other route under
+    /api/library/admin/ (backup, restore, export, bulk delete, status, lists,
+    storage) is refused at the proxy, whatever its permission."""
+    matchers = _blocking_matchers()
+    table = {(m, p): decls for p, methods, decls in routes for m in methods}
+    assert table[LIBRARY_ADMIN_HOUSEHOLD] == [("permission", "jobs.start")]
+    method, path = LIBRARY_ADMIN_HOUSEHOLD
+    assert not _blocked(method, path, matchers)
+    for other in ("GET", "HEAD", "PUT", "PATCH", "DELETE"):
+        assert _blocked(other, path, matchers), other
+    for near in ("/api/library/admin/bulk/translate/x", "/api/library/admin/bulk/translates",
+                 "/api/library/admin/bulk", "/api/library/admin/bulk/delete"):
+        assert _blocked("POST", near, matchers), near
+    reachable = sorted(f"{m} {p}" for p, methods, _d in routes for m in methods
+                       if p.startswith("/api/library/admin/")
+                       and (m, p) != LIBRARY_ADMIN_HOUSEHOLD
+                       and not _blocked(m, _sample(p), matchers))
+    assert not reachable, reachable
 
 
 def test_path_matcher_model_follows_caddy():

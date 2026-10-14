@@ -165,7 +165,7 @@ test.describe('Backup and Storage tabs (mocked)', () => {
     expect(cleanBody).toEqual({ preset: 'balanced', confirm: true, confirm_text: 'CLEAN' })
   })
 
-  test('remote meta: the backup tab says main PC with no buttons; bar has no Delete or Export', async ({ page }) => {
+  test('remote meta: the backup tab says main PC with no buttons; bar has Translate but no Delete or Export', async ({ page }) => {
     await page.route('**/api/meta', (r) => r.fulfill({ json: {
       app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
     await openSection(page)
@@ -179,8 +179,10 @@ test.describe('Backup and Storage tabs (mocked)', () => {
     await expect(bar.getByTestId('selected-count')).toHaveText('1 selected')
     await expect(bar.getByRole('button', { name: 'Delete…' })).toHaveCount(0)
     await expect(bar.getByRole('button', { name: /Export \.zip/ })).toHaveCount(0)
-    await expect(bar.getByRole('button', { name: /^Translate \d/ })).toHaveCount(0)
-    await expect(bar).toContainText('Bulk translate, delete and export are PC only. To translate from here, use Translate on each title.')
+    // Members may bulk translate from their own device; Signal is not aligned yet.
+    await expect(bar.getByRole('button', { name: 'Translate 0' })).toBeDisabled()
+    await expect(bar).toContainText("Still needed: a selected title with status 'aligned'.")
+    await expect(bar).toContainText('Delete and export are PC only.')
     // The details sheet shows the note where its delete button would be.
     await page.getByRole('button', { name: 'Done selecting' }).click()
     await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)
