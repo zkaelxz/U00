@@ -74,8 +74,8 @@ def _connect(timeout=None):
 
 
 def _retrying(fn, deadline=None):
-    """Never called under job_table._lock: another process (cli.py, a
-    second server) can hold the write lock past sqlite's busy timeout, and a
+    """Never called under job_table._lock: another process (a second
+    server, say) can hold the write lock past sqlite's busy timeout, and a
     short backoff saves the write instead of leaving the row behind the job.
     `fn` gets the seconds left before `deadline` (time.monotonic(); None for
     no limit) and no try or wait runs past it."""
@@ -457,7 +457,7 @@ _POINT_READ_IDS = 8
 
 def fresh_active(job_ids=None, prefix=None, exclude=None) -> bool:
     """True while a matching job is queued or running: live in this process,
-    or a job_records row another process (the CLI, say) wrote within
+    or a job_records row another process (a second server, say) wrote within
     STALE_JOB_SECONDS. An older row was left by a process that died, and
     must not refuse the caller forever. Matches every job unless narrowed
     to `job_ids` and/or an id `prefix`; `exclude` is one id never counted
@@ -574,7 +574,7 @@ def _flush_unless_flushed() -> None:
 def register_exit_flush() -> None:
     """Only the server that runs jobs closes their rows at interpreter exit;
     registering at import would hand the hook to every importer (tests,
-    cli.py, spawned GPU workers). Safe to call more than once."""
+    spawned GPU workers). Safe to call more than once."""
     global _exit_hook_registered
     if not _exit_hook_registered:
         _exit_hook_registered = True
