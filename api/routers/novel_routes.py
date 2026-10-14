@@ -15,14 +15,13 @@ from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, Path, UploadFile
 from api.auth import local_only, require_permission
-from api.schemas import (ErrorResponse, LncrawlImportRequest, LncrawlStatus,
+from api.schemas import (LncrawlImportRequest, LncrawlStatus,
                          NovelAttachFromSourcesRequest, NovelAttachResult,
-                         NovelAttachTextRequest, NovelOcrResult, NovelStatus)
+                         NovelAttachTextRequest, NovelOcrResult, NovelStatus, error_responses)
 from services import lncrawl_service, novel_attach_service
 
 router = APIRouter(prefix="/api/novel", tags=["novel"])
-_ERR = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-        422: {"model": ErrorResponse}}
+_ERR = error_responses(404, 409, 422)
 
 
 @router.post("/dramas/{drama_id}/attach-text", dependencies=[local_only()], response_model=NovelAttachResult,
@@ -52,7 +51,7 @@ def post_attach_from_sources(payload: NovelAttachFromSourcesRequest, drama_id: i
 
 @router.post("/dramas/{drama_id}/ocr-chapter", dependencies=[local_only()], response_model=NovelOcrResult,
              summary="Start a background OCR job over uploaded chapter images",
-             responses={**_ERR, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422, 503))
 def post_ocr_chapter(drama_id: int = Path(ge=1), files: List[UploadFile] = File(...),
                      backend: str = Form("tesseract"), mode: str = Form("append"),
                      tesseract_cmd: Optional[str] = Form(None)):
@@ -62,7 +61,7 @@ def post_ocr_chapter(drama_id: int = Path(ge=1), files: List[UploadFile] = File(
 
 @router.get("/dramas/{drama_id}/status", dependencies=[require_permission("library.read")], response_model=NovelStatus,
             summary="Whether novel text is attached (booleans and counts only)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_novel_status(drama_id: int = Path(ge=1)):
     return novel_attach_service.get_status(drama_id)
 
@@ -75,7 +74,7 @@ def get_lncrawl_status():
 
 @router.post("/dramas/{drama_id}/lncrawl", dependencies=[local_only()], response_model=NovelOcrResult,
              summary="Start a background import of a web novel with lightnovel-crawler",
-             responses={**_ERR, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422, 503))
 def post_lncrawl_import(payload: LncrawlImportRequest, drama_id: int = Path(ge=1)):
     return lncrawl_service.start_import(drama_id, payload.url, payload.chapters,
                                         payload.count, payload.mode)
