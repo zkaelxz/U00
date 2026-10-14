@@ -515,7 +515,8 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 th.check-col, td.check-col { width: 2.5rem; padding: 0; cursor: default; }
 .check-hit { display: flex; justify-content: center; align-items: flex-start; padding: 10px 10px 8px; cursor: pointer; }
 .preset-row { max-width: 28rem; }
-input[type='file']::file-selector-button { font: inherit; padding: 6px 12px; margin-right: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; }
+input[type='file']::file-selector-button { font: inherit; padding: 6px 14px; margin-right: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; transition: border-color var(--dur-2) var(--ease); }
+input[type='file']::file-selector-button:hover { border-color: var(--accent); }
 input[type='file'] { color: var(--muted); max-width: 100%; }
 .check-col input { width: 1.1rem; height: 1.1rem; margin: 0; }
 .selection-bar { position: sticky; z-index: 4; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
@@ -603,7 +604,26 @@ button.toggle {
 button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); }
 button.toggle[aria-checked='true'] { background: var(--toggle-on); border-color: var(--toggle-on); }
 button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-on) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-on) 85%, var(--text)); }
-input[type='checkbox'], input[type='radio'] { accent-color: var(--toggle-on); }
+input[type='radio'] { accent-color: var(--toggle-on); }
+/* Native checkboxes ignore the theme, so draw one; :checked and :indeterminate keep the state readable without colour alone. */
+input[type='checkbox'] {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  vertical-align: middle;
+  border: 1.5px solid var(--toggle-off);
+  border-radius: 5px;
+  background: var(--field-bg);
+  cursor: pointer;
+  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+input[type='checkbox']:hover:not(:disabled) { border-color: var(--toggle-on); }
+input[type='checkbox']:checked, input[type='checkbox']:indeterminate { background-color: var(--toggle-on); border-color: var(--toggle-on); }
+input[type='checkbox']:checked { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-size: 100% 100%; }
+input[type='checkbox']:indeterminate { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8h8' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); background-size: 100% 100%; }
+input[type='checkbox']:disabled { opacity: 0.5; cursor: not-allowed; }
 /* The check shows the state without relying on colour alone. */
 button.toggle[aria-checked='true']::before {
   content: '';
