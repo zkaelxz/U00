@@ -16,17 +16,15 @@ from fastapi import APIRouter, Path, Request
 
 from api.auth import (is_at_pc, is_local_request, require_cloud_model_allowed, require_engines_allowed,
                       require_permission)
-from api.schemas import (ErrorResponse, LiveFollow, LiveFollowAdd, LiveFollowCheckAll,
+from api.schemas import (LiveFollow, LiveFollowAdd, LiveFollowCheckAll,
                          LiveFollowCheckQueued, LiveFollowList, LiveFollowRemoved,
-                         LiveFollowUpdate, LiveSessionStarted)
+                         LiveFollowUpdate, LiveSessionStarted, error_responses)
 from services import live_follow_service, live_service, model_readiness_service
 
 router = APIRouter(prefix="/api/live/follows", tags=["live"])
 
 _ID = Path(ge=1, le=2**62)
-_ERRS = {403: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
+_ERRS = error_responses(403, 404, 409, 422, 429, 503)
 
 
 def _check_engine(request: Request, options) -> None:
