@@ -181,10 +181,10 @@ def test_export_carries_a_pinned_titles_originals_only(isolated_db):
     loose, _ = _title(False, "Loose")
     names = _export(pinned, loose)
     kept = {n.split("/originals/", 1)[1] for n in names
-            if n.startswith(f"{pinned} ") and "/originals/" in n}
+            if n.startswith("Pinned/") and "/originals/" in n}
     assert kept == set(ORIGINALS)
-    assert not any(n.startswith(f"{loose} ") and "/originals/" in n for n in names)
-    assert any(n.startswith(f"{loose} ") and n.endswith("english.srt") for n in names)
+    assert not any(n.startswith("Loose/") and "/originals/" in n for n in names)
+    assert any(n.startswith("Loose/") and n.endswith("(en).srt") for n in names)
 
 
 def _run_export(*ids):
