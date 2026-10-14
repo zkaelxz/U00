@@ -1331,6 +1331,38 @@ class TestTranscribeWithGroq:
         assert result == [{"start": 0.0, "end": 1.0, "text": "Thank you."},
                           {"start": 10.0, "end": 12.0, "text": "See you tomorrow."}]
 
+    def test_non_finite_segment_times_are_dropped(self, monkeypatch, tmp_path):
+        """json.loads accepts NaN and Infinity; a segment timed with them
+        would crash every subtitle export later."""
+        import whisper_transcribe
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
+            segments=[{"start": float("nan"), "end": 1.0, "text": "Lost."},
+                      {"start": 1.0, "end": float("inf"), "text": "Also lost."},
+                      {"start": 2.0, "end": 3.0, "text": "Kept."}]))
+
+        result = whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key")
+
+        assert result == [{"start": 2.0, "end": 3.0, "text": "Kept."}]
+
+    @pytest.mark.parametrize("segments", [
+        None, "x", [{"end": 1.0, "text": "no start"}], [{"start": "0", "end": 1.0, "text": "a"}],
+        [{"start": 0.0, "end": 1.0, "text": None}], ["not a segment"]])
+    def test_an_unexpected_reply_shape_is_a_groq_error(self, monkeypatch, tmp_path, segments):
+        import whisper_transcribe
+
+        class Reply(self._FakeResponse):
+            def json(self):
+                return {"segments": segments}
+
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: Reply())
+
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError):
+            whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key")
+
     def test_blank_segments_are_dropped(self, monkeypatch, tmp_path):
         import whisper_transcribe
         audio = tmp_path / "audio.wav"

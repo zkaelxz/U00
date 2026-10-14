@@ -4,6 +4,7 @@ path, the opt-in Groq cloud path and the Whisper prompt/sensitivity settings.
 """
 
 import json
+import math
 import re
 
 import whisper_models
@@ -268,6 +269,27 @@ class GroqTranscriptionError(RuntimeError):
     raw requests/HTTP exception."""
 
 
+def _groq_segments(segments) -> list:
+    """Groq's segments as [{"start", "end", "text"}], blank ones left out. A
+    reply of another shape is a GroqTranscriptionError, not a KeyError deep in
+    the job. A segment timed NaN or Infinity (json.loads accepts both) is
+    dropped: those times would crash every subtitle export later."""
+    shape = "Groq's reply didn't have the expected segments."
+    if not isinstance(segments, list):
+        raise GroqTranscriptionError(shape)
+    result = []
+    for seg in segments:
+        if not isinstance(seg, dict) or not isinstance(seg.get("text"), str):
+            raise GroqTranscriptionError(shape)
+        times = (seg.get("start"), seg.get("end"))
+        if not all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in times):
+            raise GroqTranscriptionError(shape)
+        text = seg["text"].strip()
+        if text and all(math.isfinite(t) for t in times):
+            result.append({"start": times[0], "end": times[1], "text": text})
+    return result
+
+
 def transcribe_with_groq(audio_path: str, language: str, api_key: str,
                          model: str = GROQ_DEFAULT_MODEL, progress_cb=None):
     """
@@ -315,8 +337,7 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
         raise GroqTranscriptionError(not_json) from None
     if not isinstance(data, dict):
         raise GroqTranscriptionError(not_json)
-    result = [{"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
-              for seg in data.get("segments", []) if seg.get("text", "").strip()]
+    result = _groq_segments(data.get("segments", []))
     if progress_cb:
         progress_cb(1.0)
     # The local path filters its output the same way (transcribe_for_timing).
