@@ -120,3 +120,24 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
   await panel.getByRole('button', { name: 'Apply selected (1)' }).click()
   expect(seen.applies).toEqual([{ job_id: 'retranscribe_3', items: [{ line_id: 901, expected_zh: '', expected_proposed: '缺失的话' }] }])
 })
+
+test('the proposals are still there after leaving Review and coming back', async ({ page }) => {
+  const ids = seedLines(6)
+  const seen = await mockRetranscribeLines(page, [
+    { line_id: ids[1], number: 2, base_zh: '第1句', proposed_zh: '第一句话', had_english: true },
+    { line_id: ids[2], number: 3, base_zh: '第2句', proposed_zh: '第二句话', had_english: true },
+  ])
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(6)
+  for (const n of [2, 3]) await tickBox(page, n).check()
+  await action(page).click()
+  const panel = page.getByTestId('retranscribe-lines')
+  await expect(panel.getByTestId('retranscribe-lines-row')).toHaveCount(2)
+
+  await page.goto('/#/library')
+  await expect(page.getByRole('heading', { name: 'Library' }).first()).toBeVisible()
+  await page.goto('/#/drama/3/review')
+
+  await expect(page.getByTestId('retranscribe-lines').getByTestId('retranscribe-lines-row')).toHaveCount(2)
+  expect(seen.starts).toHaveLength(1)
+})

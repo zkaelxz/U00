@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { ApiError } from '../../../api/client'
 import { applyResearch, getCachedResearch, getResearchBudget, researchMetadata } from '../../../api/research'
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -64,15 +65,24 @@ export function ResearchPanel() {
   const [choices, setChoices] = useState<Record<string, ResearchChoice>>({})
   // The lookup is not a job: the server keeps its result by title, mode and model, so the form is
   // remembered here and the same lookup is read back from that cache (no search is spent).
+  const showCached = (r: ResearchResult) => {
+    setResult((cur) => cur ?? r)
+    setChoices((cur) => (Object.keys(cur).length ? cur : defaultChoices(r.fields)))
+  }
   const { draft, save: saveDraft } = useStoredRun({
     dramaId,
     kind: RESEARCH_DRAFT_STAGE,
     jobIds: [],
     adopt: () => undefined,
     fetchResult: (id, d) => getCachedResearch(id, d.mode ?? DEFAULT_FORM.mode, d.model ?? DEFAULT_FORM.model),
-    onResult: (r) => {
-      setResult((cur) => cur ?? r)
-      setChoices((cur) => (Object.keys(cur).length ? cur : defaultChoices(r.fields)))
+    onResult: showCached,
+    // 422: the remembered model is one the server no longer knows. That is "no cached result" for it,
+    // so the form goes back to the default model, says so, and looks for that model's result instead.
+    onError: (e) => {
+      if (!(e instanceof ApiError && e.status === 422)) return
+      setModel(DEFAULT_FORM.model)
+      setNotice('The model saved with this form is no longer available, so the default model is selected.')
+      getCachedResearch(dramaId, mode, DEFAULT_FORM.model).then(showCached, () => undefined)
     },
     draftShape: DEFAULT_FORM,
   })
@@ -111,7 +121,7 @@ export function ResearchPanel() {
   const apply = () => {
     if (!result) return
     setBusy(true)
-    applyResearch(dramaId, result.research_id, toApply, seenValues(result.fields, choices)).then(
+    applyResearch(dramaId, result, toApply, seenValues(result.fields, choices)).then(
       (r) => {
         setError(null)
         setResult(null)

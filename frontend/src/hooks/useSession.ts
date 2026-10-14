@@ -12,7 +12,8 @@
  * Any 401 from any call (api/client.ts onUnauthorized) marks the session
  * signed out. App shows the Login page, or, if the app was already on screen,
  * a sign-in overlay above it so unsaved drafts stay mounted. Sign out always
- * shows the Login page, so nothing stays behind on a shared device.
+ * shows the Login page, so nothing stays behind on a shared device. A 401 also
+ * forgets the stored answers (clearStoredRuns), as Sign out does.
  */
 import { useEffect, useSyncExternalStore } from 'react'
 
@@ -105,7 +106,11 @@ export function markSignedOut(expired = false): void {
   })
 }
 
-onUnauthorized(() => markSignedOut(true))
+// The one place the app learns the session is gone: the answers kept in the browser go with it.
+onUnauthorized(() => {
+  clearStoredRuns()
+  markSignedOut(true)
+})
 
 let load: Promise<void> | null = null
 let retryTimer: ReturnType<typeof setTimeout> | undefined

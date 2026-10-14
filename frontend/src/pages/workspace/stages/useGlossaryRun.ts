@@ -3,7 +3,7 @@
 // terms bar and the review before translating), and each polls on its own. After any panel starts, cancels
 // or applies, bumpGlossaryRun(source) makes every mounted panel for that
 // source re-read at once and resume polling, so none shows a stale run.
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
 import {
   applyLinesGlossary,
@@ -22,7 +22,9 @@ import { getGlossaryCatalogues } from '../../../api/translateStage'
 import { getNovelStatus } from '../../../api/workspace'
 import type { GlossaryCatalogues } from '../../../types/translateStage'
 import { ENGINE_CHANGED_TEXT, isActiveStatus, novelGlossaryStartErrorText } from './autotuneGlossary'
-import { scopedValue, type GlossarySource, type RunScoped } from './glossaryExtract'
+import { draftStorage, isRecord } from '../../../hooks/useStageDraft'
+import { readStored, writeStored } from '../../../hooks/useStoredRun'
+import { scopedValue, type Edits, type GlossarySource, type RunScoped } from './glossaryExtract'
 import type { ScanStatus, Scans } from './glossaryScan'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
@@ -166,15 +168,57 @@ export function useGlossaryScans(dramaId: number): { loaded: boolean; scans: Sca
 // State that belongs to one run's proposals (selection, edits, a pending
 // confirm): when a different run is shown -- started here, by another
 // panel or in another tab -- it reads as `initial` again.
-export function useRunScoped<T>(run: string | null, initial: T): [T, (next: T | ((cur: T) => T)) => void] {
-  const [state, setState] = useState<RunScoped<T>>({ run, value: initial })
-  const value = scopedValue(state, run, initial)
-  const set = (next: T | ((cur: T) => T)) =>
-    setState((s) => {
-      const cur = scopedValue(s, run, initial)
-      return { run, value: typeof next === 'function' ? (next as (c: T) => T)(cur) : next }
-    })
+// With `keep`, the value is also remembered in the browser together with its
+// run_id, so leaving the page and coming back to the same run restores it; a
+// copy that names another run is ignored.
+export interface KeepRunScoped<T> {
+  key: string
+  encode: (v: T) => unknown
+  decode: (v: unknown) => T | null
+}
+
+const isStoredScope = (v: unknown): v is { run: string; value: unknown } =>
+  typeof v === 'object' && v !== null && typeof (v as { run?: unknown }).run === 'string'
+
+export function useRunScoped<T>(run: string | null, initial: T, keep?: KeepRunScoped<T>): [T, (next: T | ((cur: T) => T)) => void] {
+  // Nothing set yet: the value is the remembered copy of this run, if any, else `initial`.
+  const [state, setState] = useState<RunScoped<T> | null>(null)
+  const remembered = useMemo(() => {
+    if (!keep || run === null) return null
+    const stored = readStored(draftStorage(), keep.key, isStoredScope)
+    return stored && stored.run === run ? keep.decode(stored.value) : null
+    // `keep` is a fresh literal each render; its key names the slot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run, keep?.key])
+  const fallback = remembered ?? initial
+  const value = state ? scopedValue(state, run, fallback) : fallback
+  const set = (next: T | ((cur: T) => T)) => {
+    const cur = value
+    const v = typeof next === 'function' ? (next as (c: T) => T)(cur) : next
+    if (keep && run !== null) writeStored(draftStorage(), keep.key, { run, value: keep.encode(v) })
+    setState({ run, value: v })
+  }
   return [value, set]
+}
+
+const pickedKeep = (key: string): KeepRunScoped<Set<string> | null> => ({
+  key,
+  encode: (v) => (v === null ? null : [...v]),
+  decode: (v) => (Array.isArray(v) && v.every((t) => typeof t === 'string') ? new Set<string>(v) : null),
+})
+
+const editsKeep = (key: string): KeepRunScoped<Edits> => ({
+  key,
+  encode: (v) => v,
+  decode: (v) => (isRecord(v) ? (v as Edits) : null),
+})
+
+/** The proposal ticks and edits of the run shown, remembered per title and source. */
+export function useRunSelection(dramaId: number, source: GlossarySource, run: string | null) {
+  const slot = `glossary.${dramaId}.${source}`
+  const [picked, setPicked] = useRunScoped<Set<string> | null>(run, null, pickedKeep(`${slot}.picked`))
+  const [edits, setEdits] = useRunScoped<Edits>(run, {}, editsKeep(`${slot}.edits`))
+  return { picked, setPicked, edits, setEdits }
 }
 
 // Categories and policies for the proposal edit selects; null until read
