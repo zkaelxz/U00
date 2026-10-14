@@ -172,8 +172,7 @@ export default function ExportStage() {
         <MarkExported />
       </section>
       {exportBlockOrder(kind).map((id) => blocks[id])}
-      {/* keyed by the text choice, so a video list found for one language is not reused for another */}
-      <ExportJellyfin key={form.field} field={form.field} />
+      <ExportJellyfin field={form.field} />
     </div>
   )
 }

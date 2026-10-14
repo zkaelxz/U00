@@ -273,6 +273,8 @@ export default function TranscribeStage({
     if (p) goTab('tools')
   }
   // A refused run or save: name the option when the server's sentence does, else show the banner.
+  const startingRef = useRef(false)
+  const [starting, setStarting] = useState(false)
   const fail = (e: unknown) => {
     if (needsReplaceConfirm(e)) onReplaceRefused()
     const p = runProblemFromError(e)
@@ -400,6 +402,7 @@ export default function TranscribeStage({
   }
 
   const transcribe = () => {
+    if (startingRef.current) return
     const req = buildRequest()
     if (!req || !config || !cf) return
     const update = checkConfig()
@@ -429,11 +432,17 @@ export default function TranscribeStage({
           setSavedBefore(true)
         })
       : Promise.resolve()
+    // Held until the server answers: `busy` only follows once the job id arrives, so a second click would start a second run.
+    startingRef.current = true
+    setStarting(true)
     saveFirst.then(start).then((r) => {
       setError(null)
       setCheckAfterRun(true)
       onJobStarted(r.job_id, expectedRunSeconds, !!uploadFile)
-    }, fail)
+    }, fail).finally(() => {
+      startingRef.current = false
+      setStarting(false)
+    })
   }
 
   useEffect(() => {
@@ -656,7 +665,7 @@ export default function TranscribeStage({
           <button
             type="button"
             className="primary"
-            disabled={busy || !cf || !!needed || notInstalled || otherBlockers.length > 0}
+            disabled={busy || starting || !cf || !!needed || notInstalled || otherBlockers.length > 0}
             aria-describedby={[showBeforeYouRun && (notInstalled ? 'transcribe-not-installed' : 'transcribe-before-you-run'), needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
             onClick={transcribe}
           >
