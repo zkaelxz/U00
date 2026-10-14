@@ -69,7 +69,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class
 from ..models import (AccessTier, AutomationPermission, CapabilityStatus, ChapterInfo,
                       ContentAccess, ContentHidden, ContentType, FailureReason, Requirement,
                       SeriesInfo, SourceError, TechnicalProtection, TechnicalStatus,
@@ -85,13 +85,7 @@ _ALBUM_ID = re.compile(r"^[0-9]{1,12}$")
 PAID_GROUP = "付费 / paid (app only)"
 
 
-class LayoutChanged(SourceError):
-    """The rendered share page didn't have the shape this adapter
-    expects -- reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"Fanjiao's share page has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+LayoutChanged = layout_changed_class("Fanjiao", "share page")
 
 
 def _endpoint(url: str) -> str:

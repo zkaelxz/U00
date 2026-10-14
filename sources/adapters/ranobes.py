@@ -60,7 +60,7 @@ import json
 import re
 from urllib.parse import urljoin
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class, soup as _soup
 from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
 from ..registry import register
 
@@ -73,18 +73,7 @@ _COVER_URL = re.compile(r"background-image:\s*url\(([^)]+)\)")
 MAX_LIST_PAGES = 200
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"ranobes' page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("ranobes'")
 
 
 def _extract_data_blob(html: str) -> dict:

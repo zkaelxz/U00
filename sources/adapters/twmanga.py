@@ -52,7 +52,7 @@ site rate-limits faster than the pacing below.
 import re
 from urllib.parse import parse_qs, quote, urlsplit
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class, soup as _soup
 from ..models import (ChapterInfo, ContentAccess, ContentType, FailureReason, PageRef,
                       SearchResult, SeriesInfo, SourceError)
 from ..registry import register
@@ -81,24 +81,13 @@ _STATUS = {"連載中": "ongoing", "连载中": "ongoing", "已完結": "complet
            "完結": "completed", "完结": "completed"}
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"twmanga's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+LayoutChanged = layout_changed_class("twmanga")
 
 
 class WrongHost(SourceError):
     def __init__(self, what: str):
         super().__init__(f"twmanga was asked for {what} outside its own sites, so it was "
                          "refused.", FailureReason.ACCESS_DENIED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
 
 
 def is_page_host(url: str) -> bool:

@@ -87,44 +87,33 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
 
 STATIC_FETCH_MAX_BYTES = 5_000_000
 STATIC_FETCH_MAX_REDIRECTS = 5
-_REDIRECT_CODES = (301, 302, 303, 307, 308)
+STATIC_FETCH_MAX_ERROR_BYTES = 4096   # an error page's body is never needed, only its status
+
+
+class HTTPStatusError(Exception):
+    """The site answered with an error status."""
+
+    def __init__(self, status: int):
+        super().__init__(f"HTTP {status}")
+        self.status = status
 
 
 def fetch_static(url: str, timeout: int = 20):
     """Plain fetch. Returns (html, text). Raises on network failure, and
     `url_guard.UnsafeURLError` when the URL or any redirect hop is not a
     public http(s) address."""
-    from urllib.parse import urljoin
     from bs4 import BeautifulSoup
     from lib import http, url_guard
 
-    headers = {"User-Agent": _UA}
-    current = url
-    # Redirects are followed by hand so every hop is validated and the
-    # connection pinned to the validated IP (no DNS-rebinding window).
-    for _ in range(STATIC_FETCH_MAX_REDIRECTS + 1):
-        ip = url_guard.resolve_public(current)
-        resp = http.pinned_get(current, ip, headers, timeout=timeout)
-        location = resp.headers.get("Location")
-        if resp.status_code in _REDIRECT_CODES and location:
-            resp.close()
-            current = urljoin(current, location)
-            continue
-        break
-    else:
-        raise url_guard.UnsafeURLError("Too many redirects.")
-    try:
-        resp.raise_for_status()
-        encoding = resp.encoding or "utf-8"
-    except Exception:
-        resp.close()
-        raise
-    from lib import capped_body
-
-    def too_big():
-        return ValueError("The page is too large to fetch.")
-    html = capped_body.read_capped(resp, STATIC_FETCH_MAX_BYTES, max(timeout, 1) * 3,
-                                   too_big).decode(encoding, errors="replace")
+    # The raw guard, not `http.check_public`, so the caller still sees the
+    # guard's own exceptions and fixed messages (see `_redact`).
+    resp = http.get(url, timeout=timeout, max_bytes=STATIC_FETCH_MAX_BYTES,
+                    deadline=max(timeout, 1) * 3, max_redirects=STATIC_FETCH_MAX_REDIRECTS,
+                    max_error_bytes=STATIC_FETCH_MAX_ERROR_BYTES,
+                    guard=url_guard.resolve_public, headers={"User-Agent": _UA})
+    if resp.status >= 400:
+        raise HTTPStatusError(resp.status)
+    html = resp.text()
 
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
@@ -203,25 +192,6 @@ def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: s
     return html, _visible_lines(html), blob_bytes
 
 
-@contextmanager
-def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500):
-    """An open, loaded page the caller drives itself, instead of the
-    one-shot fetch_rendered() shape.
-
-    For a site whose content only appears as its own viewer is navigated:
-    the caller steps through using that site's own public viewer API and
-    reads what it produces, rather than this project reproducing the
-    site's rendering itself.
-    """
-    sync_playwright = _require_playwright()
-    with storage.playwright_session(sync_playwright) as p:
-        with _guarded_chromium(p) as (browser, proxy):
-            page = _guarded_page(browser)
-            _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
-            page.wait_for_timeout(wait_ms)
-            yield page
-
-
 def _url_matches(url: str, pattern) -> bool:
     """`pattern` is a plain substring or a compiled regex; either way,
     answers "does this response belong to the endpoint a caller is
@@ -249,8 +219,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     """Opens `url` in a real browser and records every network response
     whose URL matches `url_pattern`, as the page's own JavaScript makes
     them -- yielding `(page, captured)` so the caller can also drive the
-    page further (click, scroll, call a viewer's own API) the same way
-    `rendered_session()` lets a caller step through a reader.
+    page further (click, scroll, call a viewer's own API).
 
     For a site that protects its own content API with something computed
     client-side -- a request signature built from a nonce, a timestamp,
@@ -356,6 +325,8 @@ def _redact(exc) -> str:
     from lib import url_guard
     if isinstance(exc, (url_guard.UnsafeURLError, url_guard.URLResolveError, ImportError)):
         return redact_secrets(str(exc))
+    if isinstance(exc, HTTPStatusError):
+        return f"the site answered HTTP {exc.status}"
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int):
         return f"the site answered HTTP {status}"

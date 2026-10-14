@@ -62,23 +62,16 @@ rather than inventing a URL pattern that doesn't exist.
 import re
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter
-from ..models import (AccessTier, ChapterInfo, ContentAccess, ContentType, FailureReason,
-                      SearchResult, SeriesInfo, SourceError)
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class
+from ..models import (AccessTier, ChapterInfo, ContentAccess, ContentType,
+                      SearchResult, SeriesInfo)
 from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 
 BASE_URL = "https://zerosumonline.com"
 
 
-class LayoutChanged(SourceError):
-    """The API response didn't have what this adapter expects -- most
-    likely the site changed its schema. Reported plainly, never guessed
-    around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"zerosumonline's API response has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+LayoutChanged = layout_changed_class("zerosumonline", "API response")
 
 
 def _read_varint(data: bytes, pos: int):
@@ -143,7 +136,7 @@ def _text(fields: dict, num: int) -> str:
 
 
 @register
-class ZerosumOnlineSource(SourceAdapter):
+class ZerosumOnlineSource(PlainImageDownload, SourceAdapter):
     name = "zerosumonline"
     display_name = "ゼロサムオンライン Zero-Sum Online"
     content_types = [ContentType.MANGA.value]
@@ -244,13 +237,6 @@ class ZerosumOnlineSource(SourceAdapter):
         if not urls:
             raise LayoutChanged("any page images in the viewer response")
         return [PageRef(self.name, chapter.chapter_id, i, u) for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        name = page.url.split("?", 1)[0]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         m = re.search(r"zerosumonline\.com/detail/([^/?#]+)/?$", url or "")

@@ -62,8 +62,8 @@ import json
 import re
 from urllib.parse import urljoin
 
-from ..base import SourceAdapter
-from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SeriesInfo, SourceError
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, soup as _soup
+from ..models import ChapterInfo, ContentAccess, ContentType, SeriesInfo
 from ..registry import register
 
 BASE_URL = "https://www.miaoqumh.org"
@@ -78,18 +78,7 @@ _XOR_KEYS = ["8-bXd9iN", "8-RXyjry", "8-oYvwVy", "8-4ZY57U", "8-mbJpU7",
 _DATA_VAR = re.compile(r"var\s+DATA\s*=\s*'([^']*)'")
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"miaoqumh's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("miaoqumh")
 
 
 def decode_page_data(html: str, cid: int) -> list:
@@ -118,7 +107,7 @@ def decode_page_data(html: str, cid: int) -> list:
 
 
 @register
-class MiaoqumhSource(SourceAdapter):
+class MiaoqumhSource(PlainImageDownload, SourceAdapter):
     name = "miaoqumh"
     display_name = "妙趣漫画 Miaoqumh"
     content_types = [ContentType.MANHUA.value]
@@ -204,13 +193,6 @@ class MiaoqumhSource(SourceAdapter):
             cid = int(m.group(1))
         urls = decode_page_data(html, cid)
         return [PageRef(self.name, chapter.chapter_id, i, u) for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        name = page.url.split("?", 1)[0]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         m = re.search(r"miaoqumh\.org/(\d+)/(\d+)\.html", url or "")

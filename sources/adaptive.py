@@ -498,18 +498,6 @@ def _classify_comic(page, candidates, engine, report, use_cache, download=None):
     return data
 
 
-def classify_comic_page(html: str, url: str, engine=None, use_cache: bool = True):
-    """Classifies a comic page's candidate images (content pages, order,
-    covers, ads, thumbnails, duplicates) from the HTML alone -- the AI
-    tier on its own, with nothing downloaded. Returns (data or None, report)."""
-    report = ExtractionReport(url, "comic")
-    page = ax.PageModel(html, url)
-    data = _classify_comic(page, axc.comic_candidates(html, url), engine, report, use_cache)
-    if data is not None:
-        _done(report, data, "llm", "AI-assisted classification of the page's images.")
-    return data, report
-
-
 def extract_comic(page, candidates, engine=None, download=None, remember: bool = True,
                   learn: bool = True,
                   use_cache: bool = True, report: ExtractionReport = None):

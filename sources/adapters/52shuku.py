@@ -33,27 +33,16 @@ because one test fetch succeeded.
 import re
 from urllib.parse import urljoin
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class, soup as _soup
 from .. import pacing
 from ..http import PacingPolicy
-from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SeriesInfo, SourceError
+from ..models import ChapterInfo, ContentAccess, ContentType, SeriesInfo
 from ..registry import register
 
 BASE_URL = "https://www.52shuku.net"
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"52shuku's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("52shuku")
 
 
 @register

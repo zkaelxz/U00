@@ -25,7 +25,7 @@ from sources.base import SourceAdapter
 from sources.models import (AccessTier, AiMlUse, AutomationPermission, CapabilityStatus,
                             FailureReason, NotSupportedError, Requirement, SourceCapabilities,
                             TechnicalProtection, TermsProhibited)
-from tests.sources_helpers import ScriptedTransport, make_client
+from tests.sources_helpers import ScriptedTransport, classify_comic_html, make_client
 
 SESSION_SECRET = "SESSDATA-9f8e7d6c5b4a-SECRET"
 TOKEN_SECRET = "tok-3c2b1a0f-SECRET"
@@ -572,7 +572,7 @@ class TestPromptNeverCarriesSession:
         ai_extract.ask_json, ai_extract.prompt_safe, ai_extract.blocks_payload,
         axc.comic_payload, axc._desc, axm.media_payload,
         adaptive._llm_picks, adaptive.extract_novel, adaptive._classify_comic,
-        adaptive.classify_comic_page, adaptive.identify_media])
+        adaptive.identify_media])
     def test_prompt_building_code_never_touches_session_state(self, fn):
         found = _identifiers(_tree(fn)) & SESSION_IDENTIFIERS
         assert not found, f"{fn.__qualname__} references {found}"
@@ -632,7 +632,7 @@ class TestPromptNeverCarriesSession:
         assert auth_browser.manual_login(url).ok
         lr = generic_import.fetch_page(url, client=make_client("generic", ScriptedTransport({})))
         assert TOKEN_SECRET in lr.html                  # the page really carries them
-        data, report = adaptive.classify_comic_page(lr.html, url, Engine(), use_cache=False)
+        data, report = classify_comic_html(lr.html, url, Engine(), use_cache=False)
         assert report.llm_calls == 1 and prompts
         content = [p["resource_url"] for p in data["pages"] if p["role"] == "content"]
         assert len(content) == 4 and all(TOKEN_SECRET in u for u in content)  # app keeps real URLs

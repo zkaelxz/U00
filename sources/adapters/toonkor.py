@@ -59,9 +59,9 @@ of this adapter's requests.
 import re
 from urllib.parse import quote, urljoin
 
-from ..base import SourceAdapter
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, soup as _soup
 from ..domains import SiteDomains
-from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
+from ..models import ChapterInfo, ContentAccess, ContentType, SearchResult, SeriesInfo
 from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 
@@ -71,18 +71,7 @@ _TOON_IMG_SCRIPT = re.compile(r"var\s+toon_img\s*=\s*'([^']*)'")
 _IMG_SRC = re.compile(r'src="([^"]*)"')
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"ToonKor's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("ToonKor")
 
 
 def decode_toon_img(html: str) -> list:
@@ -121,7 +110,7 @@ def _parse_listing(soup) -> list:
 
 
 @register
-class ToonkorSource(SourceAdapter):
+class ToonkorSource(PlainImageDownload, SourceAdapter):
     name = "toonkor"
     display_name = "툰코 ToonKor"
     content_types = [ContentType.MANHWA.value]
@@ -227,13 +216,6 @@ class ToonkorSource(SourceAdapter):
         urls = self.get_chapter_pages_html(chapter)
         return [PageRef(self.name, chapter.chapter_id, i, urljoin(self.base_url, u))
                 for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        name = page.url.split("?", 1)[0]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         m = re.search(r"toonkor\d*\.(?:org|com|net)/([^/?#]+\.html)", url or "")

@@ -34,6 +34,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+from lib import cancellable_lock
 from translate_engines import safe_url
 
 from . import detect, health, pacing, store
@@ -339,31 +340,20 @@ class SourceClient:
             self.sleep(min(left, 0.5))
 
     # -- pacing ------------------------------------------------------------
-    def _acquire_cancellable(self, lock):
-        # Real-time polling (not self.sleep) so a cancel still interrupts a
-        # thread queued behind another one's wait on the same lock.
-        while not lock.acquire(timeout=0.2):
-            self._check_cancel()
-        try:
-            self._check_cancel()
-        except Cancelled:
-            lock.release()
-            raise
-
     def _wait_turn(self, host: str, st: dict):
         """Takes the source's session break, then waits for the host's
         turn. The two locks are never held together, and the host lock
         only blocks other requests to that host."""
-        self._acquire_cancellable(st["break_lock"])
-        try:
+        # Real-time polling (not self.sleep) so a cancel still interrupts a
+        # thread queued behind another one's wait on the same lock.
+        with cancellable_lock.hold(st["break_lock"], self._check_cancel):
+            self._check_cancel()
             self._maybe_take_a_break(st, pacing.slow_key(self.source, host))
-        finally:
-            st["break_lock"].release()
         declared = {str(k).lower(): v for k, v in self.policy.host_min_interval.items()}
         hs = _host(host, float(declared.get(host, 0.0)))
         key = pacing.slow_key(self.source, host)
-        self._acquire_cancellable(hs["lock"])
-        try:
+        with cancellable_lock.hold(hs["lock"], self._check_cancel):
+            self._check_cancel()
             gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
             gap = max(gap, hs["min_interval"]) * pacing.multiplier(key)
             wait = pacing.wait_seconds(key, hs["last"], gap, self.clock())
@@ -371,8 +361,6 @@ class SourceClient:
                 self._status(f"Waiting {wait:.1f}s before next request...", wait)
                 self._sleep_cancellable(wait)
             hs["last"] = self.clock()
-        finally:
-            hs["lock"].release()
 
     def _pick_break_at(self) -> int:
         lo = self.policy.session_break_min_requests

@@ -63,8 +63,8 @@ transient. This is recorded as "crawl guidance is inaccessible," never as
 import re
 from urllib.parse import urljoin
 
-from ..base import SourceAdapter
-from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo, SourceError
+from ..base import SourceAdapter, layout_changed_class, soup as _soup
+from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo
 from ..registry import register
 
 BASE_URL = "https://www.manhuaku.net"
@@ -73,18 +73,7 @@ _STATUS_MAP = {"连载中": "ongoing", "連載中": "ongoing", "已完结": "com
               "已完成": "completed"}
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"manhuaku's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("manhuaku")
 
 
 

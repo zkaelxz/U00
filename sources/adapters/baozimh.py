@@ -77,8 +77,8 @@ import base64
 import re
 from urllib.parse import quote, urljoin
 
-from ..base import SourceAdapter
-from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, soup as _soup
+from ..models import ChapterInfo, ContentAccess, ContentType, SearchResult, SeriesInfo
 from ..registry import register
 
 MIRRORS = ["https://baozimh.org", "https://godamh.com", "https://m.baozimh.one",
@@ -91,18 +91,7 @@ _STATUS_MAP = {"連載中": "ongoing", "連载中": "ongoing", "Ongoing": "ongoi
               "停止更新": "cancelled", "休刊": "on_hiatus"}
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"baozimh's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("baozimh")
 
 
 class ChapterImageDecoder:
@@ -173,7 +162,7 @@ def _container_children(soup):
 
 
 @register
-class BaozimhSource(SourceAdapter):
+class BaozimhSource(PlainImageDownload, SourceAdapter):
     name = "baozimh"
     display_name = "包子漫画 Baozimh/GoDaManhua"
     content_types = [ContentType.MANHUA.value]
@@ -291,13 +280,6 @@ class BaozimhSource(SourceAdapter):
         items.sort(key=lambda it: it.get("order", 0))
         return [PageRef(self.name, chapter.chapter_id, i, IMAGE_HOST + it["url"])
                for i, it in enumerate(items)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        name = page.url.split("?", 1)[0]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         m = re.search(r"(?:baozimh\.org|godamh\.com|baozimh\.one|bzmh\.org|g-mh\.org)/"

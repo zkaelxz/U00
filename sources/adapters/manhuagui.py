@@ -38,7 +38,7 @@ import json
 import re
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class, soup as _soup
 from ..lzstring import LZStringTooLarge, decompress_from_base64
 from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
@@ -60,13 +60,7 @@ _PACKED_CONTENT = re.compile(
 _WORD = re.compile(r"\w+", re.ASCII)
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"manhuagui's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+LayoutChanged = layout_changed_class("manhuagui")
 
 
 def _radix62(word: str) -> int:
@@ -191,11 +185,6 @@ def decode_image_data(html: str) -> dict:
         raise LayoutChanged("valid image data") from None
     except ValueError:
         raise LayoutChanged("valid image data") from None
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
 
 
 def _series_id_from_href(href: str) -> str:
