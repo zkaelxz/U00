@@ -30,6 +30,8 @@ import { JOB_RUNNING_MESSAGE, RESEGMENT_PREVIEW_AGAIN, canResegmentWith, llmAppl
 import { lineNumber } from '../../../../lineNumber'
 import './resegment.css'
 import { NO_KEY_ENGINES_HELP } from '../../../../helpText'
+import { EngineGateNote } from '../EngineGateNote'
+import { useEngineGate } from '../useEngineGate'
 
 interface Props {
   dramaId: number
@@ -194,6 +196,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
   const defaultEngine = config?.translation_engine ?? ''
   const engine = pick.engine || defaultEngine
   const engineOk = canResegmentWith(engine)
+  const gate = useEngineGate(config?.engines, engine, undefined)
   const engineSummary = `${pick.engine ? humanize('engine', pick.engine) : `Default${defaultEngine ? ` (${humanize('engine', defaultEngine)})` : ''}`} · ${pick.model || 'engine default model'}`
 
   return (
@@ -229,8 +232,9 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
             <p className="muted" data-testid="resegment-ai-cost">
               {resegmentCostNote(config, engine)}
             </p>
+            <EngineGateNote gate={gate} />
             <div className="actions">
-              <button type="button" disabled={running || jobRunning || !engineOk} onClick={startAiPreview}>
+              <button type="button" disabled={running || jobRunning || !engineOk || gate !== null} onClick={startAiPreview}>
                 {running && phase === 'ai-preview' ? 'Previewing…' : aiPreview ? 'Preview again with AI' : 'Preview with AI'}
               </button>
             </div>

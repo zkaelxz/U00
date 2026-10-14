@@ -24,6 +24,8 @@ import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
 import { routeHref } from '../../../../router'
 import { TIMING_UNCERTAIN_FLAG } from './useTimingSnap'
+import { EngineGateNote } from '../EngineGateNote'
+import { useEngineGate } from '../useEngineGate'
 
 export interface NoteDraft {
   term: string
@@ -620,6 +622,7 @@ function BlockedRetry({ dramaId, lineId, dirty, jobRunning, onApplied }: {
       .finally(() => setBusy(false))
   }
 
+  const gate = useEngineGate(engines, engine, undefined)
   const reason = dirty ? 'Save or discard your edit first.' : jobRunning ? JOB_RUNNING_MESSAGE : null
   const options = engines && engines.length > 0 ? engines : [{ name: RETRY_DEFAULT_ENGINE, label: RETRY_DEFAULT_ENGINE, free: true }]
   return (
@@ -634,11 +637,12 @@ function BlockedRetry({ dramaId, lineId, dirty, jobRunning, onApplied }: {
             </option>
           ))}
         </select>
-        <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || reason !== null} aria-busy={busy || undefined} onClick={retry}>
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || reason !== null || gate !== null} aria-busy={busy || undefined} onClick={retry}>
           {busy ? 'Retrying…' : 'Retry line'}
         </button>
         {reason && <span className="muted review-reason" data-testid="retry-reason">{reason}</span>}
       </div>
+      <EngineGateNote gate={gate} />
       {blockedAgain && (
         <p className="error" role="status" data-testid="blocked-again">
           {blockedAgain}
