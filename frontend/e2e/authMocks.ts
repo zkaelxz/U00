@@ -89,7 +89,9 @@ const GET_FIXTURES: Record<string, unknown> = {
     current: null, installed: false, latest: null, update_available: false, notes: '', installer_name: null,
     size: null, checked_at: null, check_error: null, release_lookup: 'unchecked', download: 'idle', downloaded_bytes: 0, download_error: null,
     verified: false, verified_version: null, verified_name: null, can_install: false, signature_check: false, signature_verified: false, auto_check: false,
-    custom_source: false,
+    custom_source: false, app_update: 'none', app_update_here: false, app_size: null, app_download: 'idle',
+    app_downloaded_bytes: 0, app_download_error: null, app_verified: false, app_verified_version: null,
+    can_apply_app: false, app_last_result: null, app_last_result_at: null,
   },
   // Settings > Signed-in devices, for a signed-in person: just this device.
   '/api/auth/sessions': {
