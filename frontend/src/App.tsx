@@ -253,7 +253,7 @@ export default function App() {
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
       <a className="skip-link" href="#main-content" onClick={skipToContent}>Skip to content</a>
-      <div className={wide ? (navDock === 'docked' ? 'app-shell has-rail is-docked' : 'app-shell has-rail') : phoneBar ? 'app-shell has-phone-bar' : 'app-shell'}>
+      <div className={wide ? (navDock === 'float' ? 'app-shell has-rail' : navDock === 'minimized' ? 'app-shell has-rail is-docked is-minimized' : 'app-shell has-rail is-docked') : phoneBar ? 'app-shell has-phone-bar' : 'app-shell'}>
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
           {wide ? (

@@ -1,16 +1,18 @@
 /*
- * Whether the side nav floats over the page as a pill or is docked as a full-height rail.
+ * Whether the side nav floats over the page as a pill, is docked as a full-height rail, or is that rail minimized to icons.
  * Per browser, in localStorage; storage may throw (private window), then it stays floating.
  */
 import { useSyncExternalStore } from 'react'
 
-export type NavDock = 'float' | 'docked'
+/** `minimized` is the docked rail shrunk to its icons. */
+export type NavDock = 'float' | 'docked' | 'minimized'
 
 export const NAV_DOCK_KEY = 'baihe.navDock'
 
 function load(): NavDock {
   try {
-    return window.localStorage.getItem(NAV_DOCK_KEY) === 'docked' ? 'docked' : 'float'
+    const saved = window.localStorage.getItem(NAV_DOCK_KEY)
+    return saved === 'docked' || saved === 'minimized' ? saved : 'float'
   } catch {
     return 'float'
   }

@@ -9,9 +9,11 @@ import { setNavDock, useNavDock } from './navDock'
 import './sideNav.css'
 
 export function SideNav({ route, context }: { route: Route; context: NavContext }) {
-  const docked = useNavDock() === 'docked'
+  const mode = useNavDock()
+  const docked = mode !== 'float'
+  const minimized = mode === 'minimized'
   return (
-    <aside className={docked ? 'app-rail is-docked' : 'app-rail'}>
+    <aside className={minimized ? 'app-rail is-docked is-minimized' : docked ? 'app-rail is-docked' : 'app-rail'}>
       <p className="rail-brand">
         <a href={routeHref({ name: 'library' })} title="Baihe Studio: Library">
           <span aria-hidden="true" className="rail-brand-mark">B</span>
@@ -19,6 +21,20 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
         </a>
       </p>
       <NavGroups route={route} context={context} collapsed />
+      {docked && (
+        <button
+          type="button"
+          className="rail-toggle"
+          aria-pressed={minimized}
+          title={minimized ? 'Expand the navigation' : 'Minimize the navigation'}
+          onClick={() => setNavDock(minimized ? 'docked' : 'minimized')}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {minimized ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
+          </svg>
+          <span className="rail-label">{minimized ? 'Expand navigation' : 'Minimize navigation'}</span>
+        </button>
+      )}
       <button
         type="button"
         className="rail-toggle"
