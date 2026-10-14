@@ -235,6 +235,17 @@ class TestSaveLinesExpectUnchanged:
         isolated_db.save_lines(did, read[:1], known_note_ids=known)
         assert len(isolated_db.load_lines(did)) == 1
 
+    def test_a_new_emotion_tag_on_a_removed_line_refuses(self, isolated_db):
+        from lib.errors import ConflictError
+        did, read = self._seed(isolated_db)
+        isolated_db.save_emotions(did, {1: {"emotion": "angry", "intensity": 0.9, "note": ""}})
+        with pytest.raises(ConflictError):
+            isolated_db.save_lines(did, read[:1], known_emotion_ids=set())
+        assert len(isolated_db.load_lines(did)) == 2
+        known = isolated_db.line_emotion_ids(did)
+        isolated_db.save_lines(did, read[:1], known_emotion_ids=known)
+        assert len(isolated_db.load_lines(did)) == 1
+
     def test_field_scoped_saves_refuse_the_checks(self, isolated_db):
         did, read = self._seed(isolated_db)
         with pytest.raises(ValueError):

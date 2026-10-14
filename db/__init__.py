@@ -533,7 +533,8 @@ from db.glossary import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 from db.line_annotations import (  # noqa: E402,F401
-    delete_translation_note, list_translation_notes, load_consistency_issues, load_emotions,
+    delete_translation_note, line_emotion_ids, list_translation_notes, load_consistency_issues,
+    load_emotions,
     save_consistency_issues, save_emotions, save_translation_notes)
 
 

@@ -269,6 +269,16 @@ def owner_map(conn, backup_path: str) -> dict:
     return _match_accounts(_accounts(conn, "main"), backup)
 
 
+def backup_has_usable_accounts(backup_path: str) -> bool:
+    """has_usable_accounts for a backup file; False for a users table too old
+    to carry google_sub."""
+    conn = sqlite3.connect(_ro_uri(backup_path), uri=True)
+    try:
+        return has_usable_accounts(conn)
+    finally:
+        conn.close()
+
+
 def owner_map_between(live_conn, backup_conn) -> dict:
     """owner_map for two open connections (each one's main database): the
     single-title restore reads the copy on its own connection, inside the

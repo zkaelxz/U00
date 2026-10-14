@@ -231,7 +231,8 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
     and extension-only marks included, are matched to them by email
     (library_restore_sql.owner_map) and the upload's followed channels
     pass to the PC owner with automatic checks off. Returns (accounts
-    taken from the upload, titles that changed owner). An upload
+    taken from the upload, titles that changed owner, whether the upload
+    held a readable account). An upload
     without sources.db gets a snapshot of the live one instead, migrated
     the same way; either sources.db must pass quick_check. Running and
     queued job_records rows are marked cancelled and gpu_lock is cleared
@@ -265,6 +266,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
         from_upload = not library_restore_sql.has_accounts(live_lib)
         taken = auth_service.RESTORE_ACCOUNT_TABLES if from_upload else ()
         accounts_restored = titles_reassigned = 0
+        backup_has_accounts = True
         owners = {}
         _rebuild_from_upload(staged, scratch,
                              skip_tables=[t for t in _RESTORE_KEPT_AUTH_TABLES if t not in taken],
@@ -285,6 +287,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
                     accounts_restored = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
                 else:
                     owners = library_restore_sql.owner_map(conn, scratch)
+                    backup_has_accounts = library_restore_sql.backup_has_usable_accounts(scratch)
                     titles_reassigned = library_restore_sql.match_owners(conn, owners)
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
@@ -324,12 +327,12 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
         message = SOURCES_DB_NOT_CARRIED
         try:
             if not src_store.snapshot_to(staged_src, source=live_src):
-                return accounts_restored, titles_reassigned
+                return accounts_restored, titles_reassigned, backup_has_accounts
             src_store.migrate_file(staged_src)
         except sqlite3.Error:
             raise ValueError(message) from None
     _require_quick_check(staged_src, message)
-    return accounts_restored, titles_reassigned
+    return accounts_restored, titles_reassigned, backup_has_accounts
 
 
 def account_counts(outcome) -> str:
@@ -337,7 +340,8 @@ def account_counts(outcome) -> str:
     outcome = outcome or {}
     return (f"accounts restored from the backup: {outcome.get('accounts_restored', 0)}; "
             f"titles reassigned to a live account or the PC owner: "
-            f"{outcome.get('titles_reassigned', 0)}")
+            f"{outcome.get('titles_reassigned', 0)}"
+            f"{'' if outcome.get('backup_has_accounts', True) else ' (the backup holds no readable account)'}")
 
 
 def _require_quick_check(path: str, message: str) -> None:
@@ -406,7 +410,9 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     accounts_restored: how many accounts came from the backup (only into a
     library that had none), titles_reassigned: how many titles' owners
     became a live account of the same email or the PC owner (only when the
-    live accounts were kept), folders_left_behind: names of the previous library's other
+    live accounts were kept), backup_has_accounts: False when the backup
+    holds no readable account (always True when its accounts were taken),
+    folders_left_behind: names of the previous library's other
     folders the zip lacks, which stay in the previous library}.
     """
     import io
@@ -471,8 +477,8 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             _check_uploaded_db(staged_src, BAD_SOURCES_DB)
         marker = _current_state_marker(library_dir)
         try:
-            accounts_restored, titles_reassigned = _build_staged_databases(staging_dir,
-                                                                           library_dir)
+            accounts_restored, titles_reassigned, backup_has_accounts = \
+                _build_staged_databases(staging_dir, library_dir)
         except (ValueError, OSError) as exc:
             if _ran_out_of_disk(exc):
                 raise ValueError(RESTORE_DISK_FULL) from None
@@ -530,6 +536,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
                     "previous_library_kept": old_dir is not None and not carried,
                     "accounts_restored": accounts_restored,
                     "titles_reassigned": titles_reassigned,
+                    "backup_has_accounts": backup_has_accounts,
                     "folders_left_behind": left}
         finally:
             db.release_restore_lock(holder)

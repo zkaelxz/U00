@@ -171,6 +171,22 @@ class TestQwen3ASRBackendTranscription:
                                      whisper_segments=[{"start": 0.0, "end": 1.0, "text": "x"}])
         assert result[0]["text"] == "x"
 
+    def test_empty_model_result_flags_the_line_it_kept_whispers_text_for(self, monkeypatch):
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+
+        class MixedModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("")] if audio.endswith("seg_0.wav") else [FakeResult("qwen")]
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B": MixedModel())
+        result = ab.Qwen3ASRBackend().transcribe(
+            "/fake.wav", "ko", whisper_segments=[{"start": 0.0, "end": 1.0, "text": "x"},
+                                                 {"start": 1.0, "end": 2.0, "text": "y"}])
+        assert (result[0]["text"], result[0]["flag"]) == ("x", "source_suspect")
+        assert result[0]["flag_note"]
+        assert "flag" not in result[1]
+
 
 class TestLoadQwen3Asr:
     def _install_fake_qwen_asr(self, from_pretrained):

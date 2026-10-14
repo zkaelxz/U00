@@ -563,7 +563,8 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                 kill_whole_tree=True, start_method="spawn",
                 on_done=diarization_service.make_apply_on_done(
                     drama_id, expected_speakers, min_speakers=min_speakers,
-                    max_speakers=max_speakers),
+                    max_speakers=max_speakers,
+                    speakers_at_start=diarization_service.speakers_snapshot(drama_id)),
                 run_settings=run_settings_service.for_diarize(
                     expected_speakers, min_speakers, max_speakers,
                     settings_service.get("use_gpu")))

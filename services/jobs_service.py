@@ -308,6 +308,7 @@ FAILED_REASON_MESSAGES = {
     "empty": "Nothing was produced: no speech or text was found.",
     "dependency_missing": "A required component is not installed.",
     "qwen3_asr": "Qwen3-ASR failed on this audio.",
+    "anime_whisper": "Anime-whisper failed on this audio.",
     "groq": "The Groq transcription request failed.",
     "vocal_separation": "Separating the vocals failed.",
 }

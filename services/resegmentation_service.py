@@ -101,7 +101,7 @@ def _note_ids_by_line(drama_id: int) -> dict:
 def _apply_guard(drama_id: int, lines) -> tuple:
     """What the job's write is checked against: the lines and their notes as
     the job read them."""
-    return _line_fingerprint(lines), _note_ids_by_line(drama_id)
+    return _line_fingerprint(lines), _note_ids_by_line(drama_id), db.line_emotion_ids(drama_id)
 
 
 def _apply_resegmented(drama_id: int, new_lines, guard: tuple) -> dict:
@@ -110,7 +110,7 @@ def _apply_resegmented(drama_id: int, new_lines, guard: tuple) -> dict:
     line is deleted with its text, translation, flag and notes, so one
     edited or given a note while the job ran is refused rather than lost
     (the start's confirm covered only what was there then)."""
-    fingerprint, notes_then = guard
+    fingerprint, notes_then, emotions_then = guard
     with _drama_lock(drama_id):
         current = db.load_line_objects(drama_id, with_words=True)
         if [ln.id for ln in current] != [lid for lid, _ in fingerprint]:
@@ -123,8 +123,14 @@ def _apply_resegmented(drama_id: int, new_lines, guard: tuple) -> dict:
                for lid, was in fingerprint if lid not in kept_ids):
             raise RuntimeError("A line being split was edited or given a note while "
                                "re-segmenting -- nothing was changed; run it again.")
+        if db.line_emotion_ids(drama_id) - emotions_then:
+            # Refused here, before the history snapshot _commit takes, so no
+            # orphan "before re-segment" entry is left behind.
+            raise RuntimeError("An emotion tag was added while re-segmenting -- nothing was "
+                               "changed; run it again.")
         _commit(drama_id, current, list(new_lines), "before re-segment",
-                known_note_ids=set().union(*notes_then.values()))
+                known_note_ids=set().union(*notes_then.values()),
+                known_emotion_ids=emotions_then)
     return {"line_count": len(new_lines)}
 
 
@@ -355,6 +361,7 @@ def _apply_llm_preview_job(job_id, drama_id, preview, confirm: bool = False):
     with _drama_lock(drama_id):
         # Read before the lines, so a note added after either read is unknown.
         known = note_ids(drama_id)
+        known_emotions = db.line_emotion_ids(drama_id)
         current = db.load_line_objects(drama_id)
         if _line_fingerprint(current) != state["fingerprint"]:
             raise RuntimeError("This title's lines changed since the preview -- nothing was "
@@ -365,7 +372,8 @@ def _apply_llm_preview_job(job_id, drama_id, preview, confirm: bool = False):
                                "with confirm=true.")
         new_lines = [dataclasses.replace(ln, merged_ids=list(ln.merged_ids))
                      for ln in state["lines"]]
-        _commit(drama_id, current, new_lines, "before re-segment", known_note_ids=known)
+        _commit(drama_id, current, new_lines, "before re-segment", known_note_ids=known,
+                known_emotion_ids=known_emotions)
     with _llm_previews_lock:
         if _llm_previews.get(drama_id) is preview:
             _llm_previews.pop(drama_id, None)   # applied: it can't be applied twice
