@@ -146,8 +146,12 @@ export default function JobsPage() {
         <>
           {error != null && <ErrorBanner error={error} />}
           <ErrorBanner error={actionError} onDismiss={() => setActionError(null)} />
-          {polling && <p className="muted" data-testid="jobs-polling">Updating every 10 seconds.</p>}
-          {queue && queue.running + queue.waiting > 0 && <p className="muted" data-testid="jobs-queue-line">{queueLine(queue)}</p>}
+          {(polling || (queue && queue.running + queue.waiting > 0)) && (
+            <div className="jobs-status-lines">
+              {polling && <p className="muted" data-testid="jobs-polling">Updating every 10 seconds.</p>}
+              {queue && queue.running + queue.waiting > 0 && <p className="muted" data-testid="jobs-queue-line">{queueLine(queue)}</p>}
+            </div>
+          )}
 
           {jobs === null ? (
             <ul className="jobs-skeleton" aria-label="Loading jobs">

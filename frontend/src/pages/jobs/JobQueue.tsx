@@ -140,7 +140,7 @@ export function JobQueue({ titles }: Props) {
       ) : sched && <p className="muted" data-testid="queue-schedule">{sched}</p>}
 
       {items.length === 0 ? (
-        <p className="muted" data-testid="queue-empty">The queue is empty.</p>
+        <p className="muted" data-testid="queue-empty">No steps yet. Add one below.</p>
       ) : (
         <ol className="queue-items" aria-label="Queue items" data-testid="queue-items">
           {items.map((item, n) => (
