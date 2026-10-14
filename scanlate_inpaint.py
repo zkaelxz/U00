@@ -9,6 +9,8 @@ import numpy as np
 
 
 _LAMA_ML_REPO = "mayocream/lama-manga"
+_LAMA_ML_FILE = "lama-manga.safetensors"
+_LAMA_BLOCKS = 18
 
 
 def lama_ml_weights_cached() -> bool:
@@ -18,7 +20,7 @@ def lama_ml_weights_cached() -> bool:
         from huggingface_hub import try_to_load_from_cache
     except ImportError:
         return False
-    hit = try_to_load_from_cache(repo_id=_LAMA_ML_REPO, filename="model.safetensors")
+    hit = try_to_load_from_cache(repo_id=_LAMA_ML_REPO, filename=_LAMA_ML_FILE)
     return isinstance(hit, str) and os.path.exists(hit)
 
 
@@ -34,28 +36,13 @@ class InpaintModelUnavailable(RuntimeError):
 
 
 def _build_lama_generator():
-    """
-    Constructs the FFC-ResNet generator architecture LaMa's published
-    checkpoints use -- unchanged from the original saic-mdal/lama
-    paper's default config (ngf=64, 3 downsampling stages, 9 FFC
-    residual blocks, global-feature ratio 0.75), which is what every
-    public LaMa fine-tune this project found (including manga/anime
-    ones) keeps unchanged, only retraining weights.
+    """The FFC-ResNet generator of big-lama-manga (18 residual blocks, 512
+    features, 4 input channels: masked RGB plus the mask), with module names
+    that match the checkpoint's `model.<n>...` keys so its weights load
+    unchanged. The earlier hand-written layout (9 blocks, other key names)
+    matched almost none of them, so the ML path could never run.
 
-    NOTE, same honesty as detect_bubbles_ml()'s own docstring: written
-    against the published architecture, not verified against
-    mayocream/lama-manga's actual state_dict key names.
-    _load_lama_generator() loads with strict=False and refuses to use
-    the result if most of the checkpoint's weights don't match this
-    shape, so a naming mismatch fails loudly and falls back to plain
-    OpenCV inpainting rather than silently running with near-random
-    weights. If that happens, inspect the real checkpoint's state_dict
-    keys (`safetensors.torch.load_file(path).keys()`) and adjust the
-    module names below to match.
-
-    Lazily imports torch so nothing else in this file -- including
-    detect_bubbles_cv()/inpaint_region()'s OpenCV-only default path --
-    ever needs it installed at all.
+    Imports torch lazily so the OpenCV path never needs it installed.
     """
     import torch
     import torch.nn as nn
@@ -63,106 +50,96 @@ def _build_lama_generator():
     class FourierUnit(nn.Module):
         def __init__(self, channels):
             super().__init__()
-            self.conv = nn.Conv2d(channels * 2, channels * 2, kernel_size=1, bias=False)
+            self.conv_layer = nn.Conv2d(channels * 2, channels * 2, 1, bias=False)
             self.bn = nn.BatchNorm2d(channels * 2)
-            self.relu = nn.ReLU(inplace=True)
 
         def forward(self, x):
-            b, c, h, w = x.shape
-            ffted = torch.fft.rfft2(x, norm="ortho")
-            ffted = torch.stack([ffted.real, ffted.imag], dim=-1)
-            ffted = ffted.permute(0, 1, 4, 2, 3).reshape(b, c * 2, *ffted.shape[2:4])
-            ffted = self.relu(self.bn(self.conv(ffted)))
-            ffted = ffted.reshape(b, c, 2, *ffted.shape[2:]).permute(0, 1, 3, 4, 2)
-            ffted = torch.complex(ffted[..., 0].contiguous(), ffted[..., 1].contiguous())
-            return torch.fft.irfft2(ffted, s=(h, w), norm="ortho")
+            b, _, h, w = x.shape
+            f = torch.fft.rfftn(x, dim=(-2, -1), norm="ortho")
+            f = torch.stack((f.real, f.imag), dim=-1).permute(0, 1, 4, 2, 3)
+            f = f.contiguous().view(b, -1, h, w // 2 + 1)
+            f = torch.relu(self.bn(self.conv_layer(f)))
+            f = f.view(b, -1, 2, h, w // 2 + 1).permute(0, 1, 3, 4, 2).contiguous()
+            f = torch.complex(f[..., 0], f[..., 1])
+            return torch.fft.irfftn(f, s=(h, w), dim=(-2, -1), norm="ortho")
 
     class SpectralTransform(nn.Module):
         def __init__(self, in_ch, out_ch):
             super().__init__()
             self.conv1 = nn.Sequential(
-                nn.Conv2d(in_ch, out_ch // 2, kernel_size=1, bias=False),
+                nn.Conv2d(in_ch, out_ch // 2, 1, bias=False),
                 nn.BatchNorm2d(out_ch // 2), nn.ReLU(inplace=True))
             self.fu = FourierUnit(out_ch // 2)
-            self.conv2 = nn.Conv2d(out_ch // 2, out_ch, kernel_size=1, bias=False)
+            self.conv2 = nn.Conv2d(out_ch // 2, out_ch, 1, bias=False)
 
         def forward(self, x):
             x = self.conv1(x)
             return self.conv2(x + self.fu(x))
 
     class FFC(nn.Module):
-        def __init__(self, in_ch, out_ch, ratio_gin, ratio_gout, kernel_size=3, padding=1):
+        def __init__(self, in_ch, out_ch, kernel, ratio_in, ratio_out, stride=1, padding=1):
             super().__init__()
-            in_cg, in_cl = int(in_ch * ratio_gin), in_ch - int(in_ch * ratio_gin)
-            out_cg, out_cl = int(out_ch * ratio_gout), out_ch - int(out_ch * ratio_gout)
-            self.out_cl, self.out_cg = out_cl, out_cg
-            conv = (lambda ci, co: nn.Conv2d(ci, co, kernel_size, padding=padding, bias=False)
-                    if ci and co else None)
-            self.convl2l = conv(in_cl, out_cl)
-            self.convl2g = conv(in_cl, out_cg)
-            self.convg2l = conv(in_cg, out_cl)
-            self.convg2g = SpectralTransform(in_cg, out_cg) if in_cg and out_cg else None
+            in_g = int(in_ch * ratio_in)
+            in_l = in_ch - in_g
+            out_g = int(out_ch * ratio_out)
+            out_l = out_ch - out_g
 
-        def forward(self, x_l, x_g):
-            out_l = 0
-            if self.out_cl:
-                out_l = (self.convl2l(x_l) if self.convl2l else 0) + \
-                        (self.convg2l(x_g) if self.convg2l else 0)
-            out_g = 0
-            if self.out_cg:
-                out_g = (self.convl2g(x_l) if self.convl2g else 0) + \
-                        (self.convg2g(x_g) if self.convg2g else 0)
-            return out_l, out_g
+            def conv(a, b):
+                return (nn.Conv2d(a, b, kernel, stride, padding, bias=False,
+                                  padding_mode="reflect") if a and b else None)
 
-    class FFCBlock(nn.Module):
-        def __init__(self, channels, ratio=0.75):
-            super().__init__()
-            local_ch, global_ch = channels - int(channels * ratio), int(channels * ratio)
-            self.ffc1 = FFC(channels, channels, ratio, ratio)
-            self.bn_l1, self.bn_g1 = nn.BatchNorm2d(local_ch), nn.BatchNorm2d(global_ch)
-            self.ffc2 = FFC(channels, channels, ratio, ratio)
-            self.bn_l2, self.bn_g2 = nn.BatchNorm2d(local_ch), nn.BatchNorm2d(global_ch)
-            self.act = nn.ReLU(inplace=True)
-
-        def forward(self, x_l, x_g):
-            id_l, id_g = x_l, x_g
-            l, g = self.ffc1(x_l, x_g)
-            l, g = self.act(self.bn_l1(l)), self.act(self.bn_g1(g))
-            l, g = self.ffc2(l, g)
-            l, g = self.act(self.bn_l2(l)), self.act(self.bn_g2(g))
-            return id_l + l, id_g + g
-
-    class Generator(nn.Module):
-        def __init__(self, ngf=64, n_down=3, n_blocks=9, ratio=0.75):
-            super().__init__()
-            self.stem = nn.Sequential(
-                nn.ReflectionPad2d(3), nn.Conv2d(4, ngf, 7, bias=False),
-                nn.BatchNorm2d(ngf), nn.ReLU(inplace=True))
-            down, ch = [], ngf
-            for _ in range(n_down):
-                down += [nn.Conv2d(ch, ch * 2, 3, stride=2, padding=1, bias=False),
-                          nn.BatchNorm2d(ch * 2), nn.ReLU(inplace=True)]
-                ch *= 2
-            self.down = nn.Sequential(*down)
-            self.blocks = nn.ModuleList([FFCBlock(ch, ratio) for _ in range(n_blocks)])
-            up = []
-            for _ in range(n_down):
-                up += [nn.ConvTranspose2d(ch, ch // 2, 3, stride=2, padding=1, output_padding=1),
-                       nn.BatchNorm2d(ch // 2), nn.ReLU(inplace=True)]
-                ch //= 2
-            self.up = nn.Sequential(*up)
-            self.head = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(ch, 3, 7), nn.Sigmoid())
-            self._ratio = ratio
+            self.convl2l = conv(in_l, out_l)
+            self.convl2g = conv(in_l, out_g)
+            self.convg2l = conv(in_g, out_l)
+            self.convg2g = SpectralTransform(in_g, out_g) if in_g and out_g else None
+            self.out_l, self.out_g = out_l, out_g
 
         def forward(self, x):
-            x = self.down(self.stem(x))
-            split = x.shape[1] - int(x.shape[1] * self._ratio)
-            x_l, x_g = x[:, :split], x[:, split:]
-            for block in self.blocks:
-                x_l, x_g = block(x_l, x_g)
-            return self.head(self.up(torch.cat([x_l, x_g], dim=1)))
+            x_l, x_g = x if isinstance(x, tuple) else (x, 0)
+            out_l = out_g = 0
+            if self.out_l:
+                out_l = self.convl2l(x_l) + (self.convg2l(x_g) if self.convg2l is not None else 0)
+            if self.out_g:
+                out_g = self.convl2g(x_l) + (self.convg2g(x_g) if self.convg2g is not None else 0)
+            return out_l, out_g
 
-    return Generator()
+    class FFCBNAct(nn.Module):
+        def __init__(self, in_ch, out_ch, kernel, ratio_in, ratio_out, stride=1, padding=1):
+            super().__init__()
+            self.ffc = FFC(in_ch, out_ch, kernel, ratio_in, ratio_out, stride, padding)
+            self.bn_l = nn.BatchNorm2d(self.ffc.out_l) if self.ffc.out_l else nn.Identity()
+            self.bn_g = nn.BatchNorm2d(self.ffc.out_g) if self.ffc.out_g else nn.Identity()
+
+        def forward(self, x):
+            out_l, out_g = self.ffc(x)
+            return (torch.relu(self.bn_l(out_l)) if self.ffc.out_l else 0,
+                    torch.relu(self.bn_g(out_g)) if self.ffc.out_g else 0)
+
+    class ResBlock(nn.Module):
+        def __init__(self, channels, ratio=0.75):
+            super().__init__()
+            self.conv1 = FFCBNAct(channels, channels, 3, ratio, ratio)
+            self.conv2 = FFCBNAct(channels, channels, 3, ratio, ratio)
+
+        def forward(self, x):
+            out_l, out_g = self.conv2(self.conv1(x))
+            return x[0] + out_l, x[1] + out_g
+
+    class JoinLocalGlobal(nn.Module):
+        def forward(self, x):
+            return torch.cat(x, dim=1) if isinstance(x, tuple) else x
+
+    layers = [nn.ReflectionPad2d(3), FFCBNAct(4, 64, 7, 0, 0, padding=0),
+              FFCBNAct(64, 128, 3, 0, 0, stride=2), FFCBNAct(128, 256, 3, 0, 0, stride=2),
+              FFCBNAct(256, 512, 3, 0, 0.75, stride=2)]
+    layers += [ResBlock(512) for _ in range(_LAMA_BLOCKS)] + [JoinLocalGlobal()]
+    ch = 512
+    for _ in range(3):
+        layers += [nn.ConvTranspose2d(ch, ch // 2, 3, 2, 1, output_padding=1),
+                   nn.BatchNorm2d(ch // 2), nn.ReLU(True)]
+        ch //= 2
+    layers += [nn.ReflectionPad2d(3), nn.Conv2d(64, 3, 7), nn.Sigmoid()]
+    return nn.Sequential(*layers)
 
 
 def _load_lama_generator(hf_token: str = None):
@@ -187,13 +164,14 @@ def _load_lama_generator(hf_token: str = None):
     # thread cannot use the process-wide offline switch (lib/model_offline.py).
     offline = {"local_files_only": True} if model_offline.active() else {}
     try:
-        ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename="model.safetensors",
+        ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename=_LAMA_ML_FILE,
                                     token=_tok, **offline)
     except Exception as exc:
         if offline:
             raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE) from exc
         raise
-    state_dict = _load_safetensors(ckpt_path)
+    # The checkpoint was saved from an nn.Sequential held as `model`.
+    state_dict = {k.removeprefix("model."): v for k, v in _load_safetensors(ckpt_path).items()}
 
     generator = _build_lama_generator()
     own_keys = list(generator.state_dict().keys())

@@ -1056,6 +1056,43 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
         assert "HF_TOKEN" not in os.environ
 
 
+class TestLamaGeneratorLayout:
+    def test_generator_uses_the_checkpoint_key_names(self):
+        pytest.importorskip("torch")
+        keys = set(scanlate_inpaint._build_lama_generator().state_dict())
+        # Names and shapes the big-lama-manga checkpoint stores (minus its "model." prefix).
+        assert "1.ffc.convl2l.weight" in keys
+        assert "4.ffc.convl2g.weight" in keys
+        assert "22.conv2.ffc.convg2g.fu.conv_layer.weight" in keys
+        assert "23.conv1.bn_l.weight" not in keys
+        assert "34.weight" in keys
+
+    def test_checkpoint_with_the_published_key_names_loads_and_runs(self, monkeypatch):
+        import types
+        torch = pytest.importorskip("torch")
+        # One residual block keeps the in-memory "checkpoint" small; the layer
+        # names and shapes are the real ones.
+        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
+        source = scanlate_inpaint._build_lama_generator()
+        published = {f"model.{k}": v for k, v in source.state_dict().items()}
+        monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
+            hf_hub_download=lambda repo_id, filename, token=None, **kw: "/fake/" + filename))
+        monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+        monkeypatch.setitem(sys.modules, "safetensors.torch",
+                            types.SimpleNamespace(load_file=lambda path: published))
+        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        try:
+            generator = scanlate_inpaint._load_lama_generator()
+            with torch.no_grad():
+                out = generator(torch.zeros(1, 4, 64, 64))
+        finally:
+            scanlate_inpaint.__dict__.pop("_lama_model", None)
+        assert out.shape == (1, 3, 64, 64)
+
+    def test_the_weights_file_is_the_one_the_repo_publishes(self):
+        assert scanlate_inpaint._LAMA_ML_FILE == "lama-manga.safetensors"
+
+
 class TestWebtoonSliceCap:
     def _strip(self, temp_dir, height):
         path = os.path.join(temp_dir, f"strip_{height}.png")
