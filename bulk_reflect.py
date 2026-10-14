@@ -74,11 +74,6 @@ def _reflect_kind(drama_id: int, translate_args: dict) -> str:
     return kind_for((translate_args or {}).get("drama_meta") or db.get_drama(drama_id) or {})
 
 
-def _reflect_kind(drama_id: int, translate_args: dict) -> str:
-    """The prompt kind (subtitle, novel, stream) the stage prompts are worded for."""
-    return kind_for((translate_args or {}).get("drama_meta") or db.get_drama(drama_id) or {})
-
-
 def sibling_stage_job(pipeline_id: str, stage: str, skip_failed: bool = False):
     """The newest bulk_jobs row from the same Reflect pipeline for a given
     stage, or None if it doesn't exist (yet, or ever -- e.g. every line
