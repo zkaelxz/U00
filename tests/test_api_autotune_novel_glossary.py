@@ -186,7 +186,7 @@ class TestAutotuneStatus:
         _put_job(f"autotune_{did}", result=SCORES)
         body = client.get(_at(did)).json()
         assert body["status"] == "done"
-        assert body["results"] == SCORES["results"]
+        assert body["results"] == [{**r, "cer": None} for r in SCORES["results"]]
         assert body["best_candidate_ms"] == 800
 
     def test_error_message_redacted(self, client, isolated_db):
