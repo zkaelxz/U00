@@ -63,6 +63,7 @@ def test_error_responses_documents_each_code_with_the_error_envelope():
 def test_shared_request_bases_keep_each_models_name_and_strictness():
     import pytest
     from pydantic import ValidationError
+    from api.diagnostics_install_schemas import DiagnosticsUpgradeCheckRequest
 
     for model in (schemas.BrowserInstallRequest, schemas.DeleteConfirm, schemas.EngineKeyClearRequest):
         assert issubclass(model, schemas.ConfirmRequest)
@@ -72,6 +73,6 @@ def test_shared_request_bases_keep_each_models_name_and_strictness():
             model(confirm="yes")
         with pytest.raises(ValidationError):
             model(confirm=True, extra=1)
-    assert list(schemas.DiagnosticsUpgradeCheckRequest.model_fields) == ["confirm", "target"]
+    assert list(DiagnosticsUpgradeCheckRequest.model_fields) == ["confirm", "target"]
     with pytest.raises(ValidationError):
         schemas.DiagnosticsUpgradePlanRequest(target="not a version")
