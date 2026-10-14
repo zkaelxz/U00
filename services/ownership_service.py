@@ -154,8 +154,12 @@ def require_visible(principal, kind: str, item_id: int) -> None:
 def require_editable(principal, kind: str, item_id: int) -> None:
     """require_visible, then ForbiddenError (403) for an item the principal
     sees but may not change (an admin away from the PC)."""
-    require_visible(principal, kind, item_id)
-    if not can_edit(principal, kind, item_id):
+    if kind not in _KINDS:
+        raise InvalidInputError("Unknown item kind.")
+    row = db.get_item_ownership(kind, _item_id(item_id))
+    if not row or not _visible(principal, kind, row):
+        raise _not_found(kind)
+    if not _visible(principal, kind, row, writing=True):
         raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
 
 

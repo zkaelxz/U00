@@ -3,6 +3,8 @@ diagnostics_report.py -- which model engines are installed or reachable, and
 the plain-text "copy diagnostics for support" report with its redaction.
 """
 
+import contextlib
+import contextvars
 import getpass
 import importlib.metadata
 import os
@@ -235,9 +237,29 @@ _SEGMENT_AFTER = r"(?![^\W_])"
 _URL_SLOT = "\x00URL{}\x00"
 
 
+# Set inside reusing_account_names(): the names read once for a whole list.
+_reused_names = contextvars.ContextVar("reused_account_names", default=None)
+
+
+@contextlib.contextmanager
+def reusing_account_names():
+    """Every redact_for_support inside the block uses one reading of the
+    account names, for a caller redacting many rows at once (the job list).
+    Scoped, not cached for the process: the names come from the environment
+    and getpass, which may change between calls."""
+    token = _reused_names.set(_account_names())
+    try:
+        yield
+    finally:
+        _reused_names.reset(token)
+
+
 def _account_names() -> set:
     """The OS login name plus the profile folder names, which can differ
     from it (a renamed account keeps its old C:\\Users\\<name> folder)."""
+    reused = _reused_names.get()
+    if reused is not None:
+        return reused
     names = set()
     try:
         names.add(getpass.getuser())
