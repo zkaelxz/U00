@@ -290,9 +290,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/voice-bank/{entry_id}/delete` | local_only() |
 | `POST /api/library/voice-bank/{entry_id}/rename` | admin.library |
 | `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/alternatives` | lines.read |
-| `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/explain` | engines.paid |
+| `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/explain` | lines.read |
 | `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/grammar` | lines.read |
-| `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/improve` | engines.paid |
+| `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/improve` | lines.read |
 | `POST /api/lines/dramas/{drama_id}/find-replace/apply` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/accept-tm` | lines.edit |

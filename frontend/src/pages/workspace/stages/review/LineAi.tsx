@@ -30,7 +30,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
   const [explanation, setExplanation] = useState<LineExplanation | null>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const picker = useLineAiPick(dramaId, true)
+  const picker = useLineAiPick(dramaId)
   const busyRef = useRef(false)
   // Aborts the in-flight request when the panel closes; a late result or
   // error is then ignored rather than set on an unmounted panel.
@@ -97,7 +97,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
     <div className="review-ai-panel" data-testid="line-ai-panel">
       {mode === 'improve' && (
         <>
-          <LineAiPicker picker={picker} allPaid disabled={busy} />
+          <LineAiPicker picker={picker} disabled={busy} />
           <div className="review-ai-ask">
             <label>
               What to fix (optional)
@@ -147,7 +147,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
       )}
       {mode === 'explain' && (
         <>
-          <LineAiPicker picker={picker} allPaid disabled={busy} />
+          <LineAiPicker picker={picker} disabled={busy} />
           {busy && <p className="muted">Working…</p>}
           {explanation && (
             <p className="review-ai-text" data-testid="line-ai-explanation">{explanation.explanation}</p>
