@@ -131,4 +131,4 @@ def post_export(body: ScanlateExportRequest, request: Request,
                 drama_id: int = Path(ge=1, le=2**31 - 1)):
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_scanlate_render)
-    return scanlate_render_service.start_export(drama_id, formats=body.formats)
+    return scanlate_render_service.start_export(drama_id, formats=body.formats, typeset=body.typeset)

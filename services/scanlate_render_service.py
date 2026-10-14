@@ -202,7 +202,7 @@ def _write_pdf(dest: str, files: list):
             os.remove(tmp)
 
 
-def _export_job(jid: str, drama_id: int, formats: list):
+def _export_job(jid: str, drama_id: int, formats: list, typeset: bool = True):
     pages = db.list_pages(drama_id)
     with_regions = {b["page_id"] for b in db.list_bubbles_for_drama(drama_id)}
     files, originals, failed = [], 0, 0
@@ -212,8 +212,8 @@ def _export_job(jid: str, drama_id: int, formats: list):
         background_jobs.update_progress(jid, 0.8 * (n - 1) / total,
                                         f"Preparing page {n} of {total}")
         try:
-            path = _rendered_path(drama_id, page)
-            if path is None and page["id"] in with_regions:
+            path = _rendered_path(drama_id, page) if typeset else None
+            if typeset and path is None and page["id"] in with_regions:
                 notes = []
                 if render_page(drama_id, page["id"], notes, lambda: check_cancel(jid))["rendered"]:
                     path = _rendered_path(drama_id, db.get_page(page["id"]))
@@ -235,17 +235,21 @@ def _export_job(jid: str, drama_id: int, formats: list):
         background_jobs.update_progress(jid, 0.9, f"Writing the {fmt.upper()}")
         dest = artifact_service.output_path(drama_id, _KIND[fmt], _FILENAME[fmt])
         (_write_zip if fmt == "zip" else _write_pdf)(dest, files)
-        artifact_service.set_download_language(drama_id, _KIND[fmt], _FILENAME[fmt], "translated en")
+        artifact_service.set_download_language(drama_id, _KIND[fmt], _FILENAME[fmt],
+                                              "translated en" if typeset else "original")
     msg = f"Exported {len(files)} page(s)"
-    if originals:
-        msg += f" ({originals} without typeset text, as the original)"
+    if not typeset:
+        msg += " as the original images"
+    elif originals:
+        msg += f" ({originals} page(s) have no translated text and are the original)"
     if failed:
         msg += f"; {failed} failed (see page notes)"
     background_jobs.update_progress(jid, 1.0, msg + ".")
 
 
-def start_export(drama_id: int, formats=EXPORT_FORMATS) -> dict:
-    """Bulk export job. formats: any of "zip", "pdf" (both by default)."""
+def start_export(drama_id: int, formats=EXPORT_FORMATS, typeset: bool = True) -> dict:
+    """Bulk export job. formats: any of "zip", "pdf" (both by default). typeset=False
+    exports the original page images instead of the translated ones."""
     pages_svc.require_drama(drama_id)
     formats = list(dict.fromkeys(formats or ()))
     if not formats or any(f not in EXPORT_FORMATS for f in formats):
@@ -256,5 +260,5 @@ def start_export(drama_id: int, formats=EXPORT_FORMATS) -> dict:
     if "pdf" in formats and page_count > MAX_PDF_EXPORT_PAGES:
         raise InvalidInputError(_PDF_TOO_MANY)
     return pages_svc.start_drama_job(drama_id, _export_job, pages_svc.job_id(drama_id),
-                                     drama_id, formats,
+                                     drama_id, formats, typeset,
                                      description=f"Scanlate export (title {drama_id})")
