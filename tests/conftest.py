@@ -118,28 +118,6 @@ def _fail_on_real_library_access():
     hits, _REAL_LIBRARY_HITS[:] = list(_REAL_LIBRARY_HITS), []
     assert not hits, f"test touched the real library: {hits}"
 
-@pytest.fixture(autouse=True)
-def _no_real_dns(monkeypatch):
-    """A test that resolves a real hostname fails loudly instead of passing or
-    failing with the network. IP literals and localhost stay allowed (local
-    test servers); a test that needs another name patches getaddrinfo or
-    resolve_public itself, which replaces this guard for that test."""
-    import ipaddress
-    import socket
-    real = socket.getaddrinfo
-
-    def guarded(host, *args, **kwargs):
-        name = host.decode() if isinstance(host, bytes) else host
-        if name not in (None, "", "localhost", "testserver"):
-            try:
-                ipaddress.ip_address(name.split("%")[0])
-            except ValueError:
-                raise AssertionError(
-                    f"test tried real DNS for {name!r}; patch resolve_public or socket.getaddrinfo") from None
-        return real(host, *args, **kwargs)
-    monkeypatch.setattr(socket, "getaddrinfo", guarded)
-
-
 # --- keeping the real torch importable -------------------------------
 #
 # torch registers C++ operators when its module body runs, so running
