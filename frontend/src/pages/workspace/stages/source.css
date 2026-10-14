@@ -35,6 +35,8 @@
 .source-needed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--warn); border-radius: var(--radius-md); background: var(--warn-soft); color: var(--text); overflow-wrap: anywhere; }
 .source-needed span { flex: 1 1 12rem; min-width: 0; }
 .source-panel .setting-list { margin: 0; }
+/* The run line says what the button will do, so it sits 4px above it instead of a full step away. */
+.source-panel > [data-testid='run-line'] { margin-bottom: calc(-1 * var(--space-2)); }
 
 /* D06: keep or replace hand-corrected speakers (TranscribeStage Speakers section). */
 .source-manual { display: grid; gap: var(--space-2); margin: var(--space-2) 0; }

@@ -116,7 +116,7 @@ test('Transcribe uses the stored media when a staged file is not set to replace 
   await page.goto('/#/drama/1/source')
   await page.locator('#source-media-file-1').setInputFiles({ name: 'other.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('x') })
   await selectMediaTab(page, 'transcribe')
-  await expect(page.getByTestId('transcribe-staged-unused')).toContainText('not used for this run')
+  await expect(page.getByTestId('transcribe-staged-unused')).toContainText('not the chosen file')
   const transcribe = page.getByRole('button', { name: 'Transcribe', exact: true })
   await expect(transcribe).toBeEnabled()
   await transcribe.click()
