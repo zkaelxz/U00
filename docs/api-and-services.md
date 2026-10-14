@@ -261,9 +261,11 @@ An over-cap body is refused with 413 `too_large` before it is spooled to
 disk. The pattern, where a route takes a raw body or multipart:
 
 - Cap by Content-Length first, then count the stream, so a chunked body is
-  cut off too: `api/routers/bug_report_routes.py` (`capped`, `BodyTooLarge`)
-  is the helper; `backup_routes.py`, `drama_routes.py` (cover upload),
-  `scanlate_routes.py` and `sources_tools_routes.py` use it.
+  cut off too: `lib/capped_request.py` holds the helpers. Multipart upload
+  routes call `read_capped_form` (`backup_routes.py`, `drama_routes.py` cover
+  upload, `scanlate_routes.py`, `subtitle_import_routes.py`);
+  `bug_report_routes.py` calls `check_content_length` and `capped` around its
+  own checks, and `sources_tools_routes.py` caps a JSON body with `capped`.
 - Media upload size: `media_upload_service.max_upload_bytes`. The env var
   `BAIHE_MAX_UPLOAD_MB` (a positive number; zero, negative or garbage is
   ignored) wins, else the saved setting `max_upload_mb` (Settings > System > Offline, paths and limits >

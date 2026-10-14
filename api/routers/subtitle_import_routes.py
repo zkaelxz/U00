@@ -13,13 +13,11 @@ records a decision otherwise (docs/remote-access-decision.md).
 from fastapi import APIRouter, Path, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.formparsers import MultiPartException
 
 import subtitle_parse
 from api.auth import local_only, require_permission
-from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.schemas import ErrorResponse, SubtitleImportPreview, SubtitleImportResult
+from lib.capped_request import read_capped_form
 from services import subtitle_import_service as svc
 from services.service_errors import InvalidInputError
 
@@ -42,22 +40,10 @@ _ERRORS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
 
 
 async def _read_form(request: Request):
-    if "transfer-encoding" in request.headers:
-        raise InvalidInputError("Send the file with a Content-Length, not chunked.")
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        raise InvalidInputError("An upload needs a Content-Length.") from None
-    cap = subtitle_parse.MAX_FILE_BYTES + _MULTIPART_OVERHEAD
     too_large = f"That file is too large (at most {subtitle_parse.MAX_FILE_BYTES // (1024 * 1024)} MB)."
-    if length > cap:
-        raise StarletteHTTPException(413, too_large)
-    try:
-        return await capped(request, cap).form(max_files=1, max_fields=8, max_part_size=1024)
-    except BodyTooLarge:
-        raise StarletteHTTPException(413, too_large) from None
-    except (MultiPartException, StarletteHTTPException):
-        raise InvalidInputError(_FORM_HELP) from None
+    return await read_capped_form(
+        request, subtitle_parse.MAX_FILE_BYTES + _MULTIPART_OVERHEAD, "the file", too_large,
+        _FORM_HELP, max_files=1, max_fields=8, max_part_size=1024)
 
 
 def _flag(form, name: str) -> bool:

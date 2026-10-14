@@ -22,15 +22,13 @@ are refused) and the body stream itself is counted, like the cover upload.
 from fastapi import APIRouter, Path, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.formparsers import MultiPartException
 
 from api.auth import is_at_pc, local_only, require_engines_allowed, require_permission
-from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
 from api.schemas import ErrorResponse
+from lib.capped_request import read_capped_form
 from services import (model_readiness_service, page_import_limits, scanlate_pages_service,
                       scanlate_render_service, scanlate_run_service, settings_service)
 from services.service_errors import InvalidInputError
@@ -79,25 +77,11 @@ _UPLOAD_BODY = {"requestBody": {"required": True, "content": {"multipart/form-da
                         **_ERRS, 503: {"model": ErrorResponse}},
              summary="Add page images or PDFs (PNG/JPEG/WebP/PDF; see config upload_limits)")
 async def post_pages(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
-    if "transfer-encoding" in request.headers:
-        raise InvalidInputError("Send the pages with a Content-Length, not chunked.")
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        raise InvalidInputError("An upload needs a Content-Length.")
-    cap = page_import_limits.MAX_IMPORT_BYTES + _MULTIPART_OVERHEAD
-    if length > cap:
-        raise StarletteHTTPException(413, _TOO_LARGE)
-    try:
-        form = await capped(request, cap).form(
-            max_files=page_import_limits.MAX_FILES_PER_IMPORT, max_fields=1,
-            max_part_size=1024)
-    except BodyTooLarge:
-        raise StarletteHTTPException(413, _TOO_LARGE)
-    except (MultiPartException, StarletteHTTPException):
-        raise InvalidInputError(
-            "Send the pages as multipart/form-data 'files' parts (at most "
-            f"{page_import_limits.MAX_FILES_PER_IMPORT}).") from None
+    form = await read_capped_form(
+        request, page_import_limits.MAX_IMPORT_BYTES + _MULTIPART_OVERHEAD, "the pages",
+        _TOO_LARGE, "Send the pages as multipart/form-data 'files' parts (at most "
+        f"{page_import_limits.MAX_FILES_PER_IMPORT}).",
+        max_files=page_import_limits.MAX_FILES_PER_IMPORT, max_fields=1, max_part_size=1024)
     try:
         uploads = [u for u in form.getlist("files") if isinstance(u, UploadFile)]
         if len(uploads) != len(form.getlist("files")) or not uploads:
