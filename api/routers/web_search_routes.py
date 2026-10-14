@@ -14,15 +14,14 @@ from fastapi import APIRouter, Request
 
 from api.auth import client_ip, local_only, require_permission
 from api.routers.settings_routes import require_confirm, require_local_admin
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from api.web_search_schemas import (WebSearchConfig, WebSearchConfigUpdate, WebSearchRequest,
                                     WebSearchResults, WebSearchStatus, WebSearchTestResult)
 from services import web_search_service
 
 router = APIRouter(prefix="/api/web-search", tags=["web-search"])
 
-_ERRS = {409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
+_ERRS = error_responses(409, 422, 429, 503)
 
 
 @router.get("/status", dependencies=[require_permission("library.read")],
@@ -56,7 +55,7 @@ def get_config():
 @router.post("/config", dependencies=[local_only()], response_model=WebSearchConfig,
              summary="PC only: turn the fallback on or off; the address also needs the "
                      "key-write gate and confirm",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 def set_config(payload: WebSearchConfigUpdate, request: Request):
     if payload.base_url is not None:  # where requests go: same gate as endpoint URLs
         require_local_admin(request)
