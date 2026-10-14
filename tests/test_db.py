@@ -2568,6 +2568,95 @@ def test_a_refused_library_stays_refused_on_the_next_use(isolated_db, monkeypatc
         db.get_conn()
 
 
+def test_a_second_thread_waits_for_the_first_use_to_finish_migrating(isolated_db, monkeypatch):
+    # Without the wait, the second thread gets a connection while the first is
+    # still migrating, and can read a table or column that isn't there yet.
+    real_init_db = db.init_db
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def slow_init_db():
+        calls.append(threading.current_thread().name)
+        started.set()
+        assert release.wait(5)
+        real_init_db()
+
+    monkeypatch.setattr(db, "init_db", slow_init_db)
+    db.configure_library_dir(db.LIBRARY_DIR)   # forget readiness, as a fresh start
+    first = threading.Thread(target=lambda: db.get_conn().close(), name="first")
+    first.start()
+    assert started.wait(5)
+    second_done = threading.Event()
+    second = threading.Thread(target=lambda: (db.get_conn().close(), second_done.set()),
+                              name="second")
+    second.start()
+    try:
+        assert not second_done.wait(0.3)
+    finally:
+        release.set()
+        first.join(5)
+        second.join(5)
+    assert second_done.is_set()
+    assert calls == ["first"]
+
+
+def test_switching_the_library_mid_migration_still_migrates_the_new_one(
+        isolated_db, monkeypatch, tmp_path):
+    # Without the lock, the old path's migration finishing after the switch
+    # would mark the new, unmigrated library ready.
+    real_init_db = db.init_db
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def slow_init_db():
+        calls.append(db.DB_PATH)
+        if len(calls) == 1:
+            started.set()
+            assert release.wait(5)
+        real_init_db()
+
+    monkeypatch.setattr(db, "init_db", slow_init_db)
+    old = db.LIBRARY_DIR
+    db.configure_library_dir(old)
+    first = threading.Thread(target=lambda: db.get_conn().close())
+    first.start()
+    assert started.wait(5)
+    new = str(tmp_path / "other_library")
+    switched = threading.Event()
+    switch = threading.Thread(target=lambda: (db.configure_library_dir(new), switched.set()))
+    switch.start()
+    try:
+        assert not switched.wait(0.3)
+    finally:
+        release.set()
+        first.join(5)
+        switch.join(5)
+    assert switched.is_set()
+    try:
+        db.get_conn().close()
+        assert calls == [os.path.join(old, "library.db"), os.path.join(new, "library.db")]
+    finally:
+        db.configure_library_dir(old)
+
+
+def test_a_failed_first_use_lets_the_next_one_retry(isolated_db, monkeypatch):
+    real_init_db = db.init_db
+    attempts = []
+
+    def failing_once():
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise sqlite3.OperationalError("disk I/O error")
+        real_init_db()
+
+    monkeypatch.setattr(db, "init_db", failing_once)
+    db.configure_library_dir(db.LIBRARY_DIR)
+    with pytest.raises(sqlite3.OperationalError):
+        db.get_conn()
+    db.get_conn().close()
+    assert len(attempts) == 2
+
+
 @pytest.mark.parametrize("stored", ["1.9.0", "2.0.5"])
 def test_init_db_opens_an_older_or_equal_version_and_records_the_running_one(
         isolated_db, monkeypatch, stored):
