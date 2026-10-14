@@ -14,7 +14,7 @@ from fastapi import APIRouter
 
 from api.asr_options_schemas import AsrOptions, AsrOptionsUpdate, AsrVadDownloadStarted
 from api.auth import local_only, require_permission
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import asr_options_service
 
 router = APIRouter(prefix="/api/settings/asr-options", tags=["settings"])
@@ -28,7 +28,7 @@ def get_asr_options():
 
 @router.post("", dependencies=[local_only()], response_model=AsrOptions,
              summary="PC only: save the experimental transcription settings",
-             responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 422))
 def update_asr_options(body: AsrOptionsUpdate):
     return asr_options_service.set_asr_options(**body.model_dump(exclude_unset=True))
 
@@ -36,6 +36,6 @@ def update_asr_options(body: AsrOptionsUpdate):
 @router.post("/voice-detector/download", dependencies=[local_only()],
              response_model=AsrVadDownloadStarted,
              summary="PC only: download the ASMR voice detector model (about 119 MB)",
-             responses={409: {"model": ErrorResponse}})
+             responses=error_responses(409))
 def download_voice_detector():
     return asr_options_service.start_asmr_vad_download()
