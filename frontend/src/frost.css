@@ -90,20 +90,10 @@ body {
   box-shadow: none;
 }
 .drama-card { background: none; border-color: var(--border); box-shadow: none; }
-.review-toolbar,
+/* Review sits on hairlines, not glass: the toolbar keeps its border width (only the bottom edge is drawn) and the toolbox and list draw theirs as outer shadows, so no height moves (the phone toolbar's scroll thresholds depend on page heights). */
 .review-toolbox,
-.review-lines {
-  background: var(--glass);
-  border: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
-  border-radius: var(--radius-panel);
-}
-/* These two had no border: the edge is a ring that takes no space, so the page keeps its height (the phone Review toolbar's scroll thresholds depend on it). */
-.review-toolbox,
-.review-lines { border: 0; box-shadow: var(--glass-shadow), 0 0 0 1px var(--glass-edge); }
-@supports (backdrop-filter: blur(1px)) {
-  .review-toolbar, .review-toolbox, .review-lines { backdrop-filter: blur(22px) saturate(1.4); }
-}
+.review-lines { background: none; border: 0; border-radius: 0; box-shadow: 0 -1px 0 var(--border); }
+.review-lines { box-shadow: 0 -1px 0 var(--border), 0 1px 0 var(--border); }
 
 /* A fold that sits on the page is a top hairline like a panel; one inside a card, sheet or list is only a row of it. */
 details.section { background: none; border-color: transparent; border-top-color: var(--border); border-radius: 0; padding-inline: var(--space-4); }
@@ -224,9 +214,8 @@ textarea {
   .app-header::before, .ws-strip::before { opacity: 0; animation: bar-backing linear both; animation-timeline: scroll(root block); animation-range: 0 40px; }
   @keyframes bar-backing { to { opacity: 1; } }
 }
-.review-toolbar { background: var(--surface); backdrop-filter: none; border-radius: var(--radius-panel); }
-/* backdrop-filter on a rounded, clipped, scrolling panel leaves square corners in Chromium, so these stay un-blurred. */
-.review-toolbox, .review-lines { backdrop-filter: none; }
+/* Sticky, so it keeps an opaque fill to hide the lines scrolling under it; only the bottom edge is drawn. */
+.review-toolbar { background: var(--surface); border: 1px solid transparent; border-bottom-color: var(--border); border-radius: 0; box-shadow: none; }
 .review-line.is-active { border-radius: 14px; }
 
 /* The button rules above set box-shadow with the same specificity as the global focus ring and load after it, so the ring is asserted again here. */
