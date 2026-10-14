@@ -413,17 +413,25 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   manifest must name the same base. It is unpacked through
   `app-<v>.partial` into a new `<install>\app-<v>`, never into `app\`, and
   the current `INSTALLED` marker is copied in. The server then writes the
-  journal (`<install>\app-update\swap.json`), copies its own
-  `app_swap.py` there and starts it outside its Job Object.
-- **Switch.** The helper stops the app (`launcher.py --stop`), renames
+  journal (`<install>\app-update\swap.json`, with the server's port),
+  copies its own `app_swap.py` there and starts it outside its Job Object.
+  One apply runs at a time; a second click is refused until the first has
+  handed over or failed. The helper keeps the server's environment except
+  its one-time shutdown token, so keys set as `*_KEY` variables reach the
+  restarted server.
+- **Switch.** The helper stops the app (`launcher.py --stop`) and waits
+  until nothing answers on the journal's port, so the server that answers
+  next is the new one; an app that won't stop is left running and nothing
+  is switched. It then renames
   `app` to `app-<old>` and `app-<new>` to `app`, and runs `launcher.py
   --no-browser` (up to 90 s for `/api/health`, after any queued package
   install). `app\` keeps its name for whatever version is current because
   `python312._pth`, the shortcuts, the boot service and Setup all name it.
   Healthy: `manifest.json` gets the new `app_version` (keeping
   `base_version`), the app's window opens, and every older `app-<v>` copy is
-  deleted except the one just replaced. Not healthy, or a rename that fails:
-  the new version is stopped, the folders are renamed back, the old version
+  deleted except the one just replaced (only folders named `app-` plus a
+  version number; any other `app-` folder is left alone). Not healthy, or
+  a rename that fails: the new version is stopped, the folders are renamed back, the old version
   is started and its window opened, and the next status says what happened
   in plain words (`app-update\result.json`; details in `swap.log`). Until
   the new version has answered, `manifest.json` still names the old one, so
@@ -431,15 +439,21 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
 - **Locked files and crashes.** A rename Windows refuses for 30 s (a file
   in use) is undone and queued: the old version starts again, and the next
   start from the Start menu runs the switch before anything loads from
-  `app\` (the pending-install pattern). Each step is written to the journal
-  first, and `launcher.py` settles an unfinished one before it starts
-  anything: done is finished, anything earlier is rolled back (stopping a
+  `app\` (the pending-install pattern; if the copied helper is gone, the
+  launcher copies `app\installer\app_swap.py` again). Each state and each
+  of the two renames is written to the journal, and a rollback works from
+  the recorded rename plus what the folders show; it refuses, and deletes
+  nothing, when they don't agree. `launcher.py` settles an unfinished
+  update before it starts anything: done is finished, anything earlier is rolled back (stopping a
   server the helper left running). For the moment `app\` doesn't exist, the
-  helper registers itself under HKCU `RunOnce`, so the next sign-in finishes
-  the rollback. An OS file lock keeps the launcher from acting while the
-  helper is still at work. A full install deletes `app-*` (the kept
-  versions and the journal) and the `RunOnce` value; uninstall removes them
-  with the program folders.
+  helper registers itself under HKCU `RunOnce` (as `!BaiheStudioAppUpdate`:
+  the `!` keeps the entry until the command has run, and runs it in Safe
+  Mode too), so the next sign-in finishes the rollback. An OS file lock
+  keeps the launcher from acting while the helper is still at work. A full
+  install deletes `app-update` (the journal), the `RunOnce` value and, only
+  in a folder that is a Baihe Studio install, the kept `app-<version>`
+  folders, checked by name; uninstall removes the same with the program
+  folders.
 - **Database.** `db.init_db` only ever adds tables and columns, and the old
   version can't be trusted with a database the new one changed. When the
   manifest's database fingerprint differs from this library's, apply is

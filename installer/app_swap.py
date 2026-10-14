@@ -27,6 +27,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -71,11 +72,17 @@ REQUIRED_ENTRIES = (APP_MANIFEST_NAME, "api/__main__.py", "portable.py", "proces
 # Never part of the app layer (installer/build_installer.check_payload's
 # rules): data, keys and per-copy markers. INSTALLED is copied from the
 # current app, since it names this PC's data folder.
+# Lower case: Windows matches names without regard to case.
 FORBIDDEN_DIR_NAMES = frozenset({"library", "model_cache", "venv", ".venv"})
-FORBIDDEN_FILE_NAMES = frozenset({"INSTALLED", "PORTABLE"})
-_WINDOWS_DEVICE_NAMES = frozenset({"con", "prn", "aux", "nul",
-                                   *(f"com{i}" for i in range(10)),
-                                   *(f"lpt{i}" for i in range(10))})
+FORBIDDEN_FILE_NAMES = frozenset({"installed", "portable"})
+_WINDOWS_DEVICE_NAMES = frozenset({"con", "prn", "aux", "nul", "conin$", "conout$",
+                                   *(f"{p}{d}" for p in ("com", "lpt")
+                                     for d in ("0123456789" + "\u00b9\u00b2\u00b3"))})
+# A version as services/update_service.parse_version and lib/release_signature
+# read it. Folder names built from it are what prune() and Setup may delete,
+# so nothing else (app-backup, app-notes) ever matches.
+_VERSION_RE = re.compile(r"\d{1,6}\.\d{1,6}(?:\.\d{1,6})?(?:-[0-9A-Za-z.-]{1,40})?"
+                         r"(?:\+[0-9A-Za-z.-]{1,40})?")
 
 # journal states, in order
 STAGED, STOPPING, SWITCHING, CHECKING, DONE, QUEUED = (
@@ -89,7 +96,9 @@ RESULT_CODES = ("updated", "queued", "not_started", "rolled_back_health", "rolle
 DEFER_ENV = "BAIHE_APP_UPDATE_DEFER"
 
 RUNONCE_KEY = r"Software\Microsoft\Windows\CurrentVersion\RunOnce"
-RUNONCE_VALUE = "BaiheStudioAppUpdate"
+# "!": Windows deletes a RunOnce value only after its command has finished,
+# so a sign-in that ends before recovery does runs it again at the next one.
+RUNONCE_VALUE = "!BaiheStudioAppUpdate"
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 
 
@@ -104,9 +113,7 @@ class Locked(Exception):
 # --- names and folders ------------------------------------------------------------
 
 def valid_version(version) -> bool:
-    # A folder name as well as a version: no separators, never "." or "..".
-    return (isinstance(version, str) and 1 <= len(version) <= 40 and version[0].isalnum()
-            and all(c.isalnum() or c in ".+-" for c in version) and version.isascii())
+    return isinstance(version, str) and bool(_VERSION_RE.fullmatch(version))
 
 
 def app_dir(root) -> Path:
@@ -254,10 +261,11 @@ def _entry_problem(name: str):
             return "a name Windows can't hold"
         if part.lower() == ".env" or part.lower().startswith(".env."):
             return "a settings file"
-    if any(p in FORBIDDEN_DIR_NAMES for p in parts[:-1]) or (
-            name.endswith("/") and parts[-1] in FORBIDDEN_DIR_NAMES):
+    lower = [p.lower() for p in parts]
+    if any(p in FORBIDDEN_DIR_NAMES for p in lower[:-1]) or (
+            name.endswith("/") and lower[-1] in FORBIDDEN_DIR_NAMES):
         return "a data folder"
-    if not name.endswith("/") and parts[-1] in FORBIDDEN_FILE_NAMES:
+    if not name.endswith("/") and lower[-1] in FORBIDDEN_FILE_NAMES:
         return "a per-copy marker"
     return None
 
@@ -361,16 +369,30 @@ def read_journal(root):
     if not path.exists():
         return None
     doc = _read_json(path)
+    port = doc.get("port") if doc else None
+    step = doc.get("step", 0) if doc else None
     if (doc is None or doc.get("state") not in STATES or not valid_version(doc.get("old"))
             or not valid_version(doc.get("new")) or doc["old"] == doc["new"]
-            or not valid_version(doc.get("base_version"))):
+            or not valid_version(doc.get("base_version"))
+            or not (type(step) is int and 0 <= step <= 2)
+            or not (port is None or (type(port) is int and 1 <= port <= 65535))):
         return {"state": None}
-    return doc
+    return {"state": doc["state"], "old": doc["old"], "new": doc["new"],
+            "base_version": doc["base_version"], "port": port, "step": step}
 
 
-def write_journal(root, state, old, new, base) -> None:
+def write_journal(root, state, old, new, base, port=None, step=0) -> None:
+    """`port`: the running server's, so the helper can tell it has really
+    stopped. `step`: how many of the switch's two renames were done."""
     _atomic_write(work_dir(root) / JOURNAL_NAME,
-                  {"state": state, "old": old, "new": new, "base_version": base})
+                  {"state": state, "old": old, "new": new, "base_version": base,
+                   "port": port, "step": step})
+
+
+def _record(root, journal, state, step=None) -> None:
+    journal.update(state=state, step=journal.get("step", 0) if step is None else step)
+    write_journal(root, state, journal["old"], journal["new"], journal["base_version"],
+                  journal.get("port"), journal["step"])
 
 
 def clear_journal(root) -> None:
@@ -460,35 +482,48 @@ def _rename(src: Path, dst: Path, sleep, tries=RENAME_TRIES) -> None:
             sleep(RENAME_WAIT_SECONDS)
 
 
-def switch_in(root, old, new, sleep=time.sleep) -> None:
-    """app -> app-<old>, then app-<new> -> app. When the second rename fails
-    the first is undone, so a failure leaves the old version in place."""
+def switch_in(root, old, new, sleep=time.sleep, on_step=lambda step: None) -> None:
+    """app -> app-<old>, then app-<new> -> app, calling on_step(1) and
+    on_step(2) after each. When the second rename fails the first is undone,
+    so a failure leaves the old version in place. app-<old> must not exist
+    yet (apply removes a stale one before the journal says "switching")."""
     root = Path(root)
     current, previous, incoming = app_dir(root), app_folder(root, old), app_folder(root, new)
     if not incoming.is_dir() or is_link(incoming):
         raise SwapError("The new version's folder is missing.")
-    if previous.exists():
-        remove_folder(previous, root)
+    if previous.exists() or is_link(previous):
+        raise SwapError("The previous version's folder name is taken.")
     _rename(current, previous, sleep)
+    on_step(1)
     try:
         _rename(incoming, current, sleep)
     except BaseException:
         _rename(previous, current, sleep)
+        on_step(0)
         raise
+    on_step(2)
 
 
-def switch_back(root, old, new, sleep=time.sleep) -> None:
-    """Puts app-<old> back as app, whichever step the switch reached: the
-    version that was in app\\ goes back to app-<new>."""
+def switch_back(root, journal, sleep=time.sleep) -> None:
+    """Puts app-<old> back as app from the step the journal recorded. A
+    crash can land between a rename and its journal entry, so the recorded
+    step may be one behind; the folders tell which, and anything else (all
+    three folders present) is refused rather than guessed at. Nothing is
+    deleted here."""
     root = Path(root)
+    old, new = journal["old"], journal["new"]
     current, previous, incoming = app_dir(root), app_folder(root, old), app_folder(root, new)
-    if not previous.is_dir():
+    step = journal.get("step", 0)
+    if step == 0 and not previous.exists():
         return      # the first rename never happened: app\ is still the old version
-    if current.exists():
-        if incoming.exists():
-            remove_folder(incoming, root)
+    if step <= 1 and previous.is_dir() and not current.exists():
+        _rename(previous, current, sleep)
+        return
+    if previous.is_dir() and current.is_dir() and not incoming.exists():
         _rename(current, incoming, sleep)
-    _rename(previous, current, sleep)
+        _rename(previous, current, sleep)
+        return
+    raise SwapError("The app folders don't match any step of the update.")
 
 
 def prune(root, keep) -> list:
@@ -511,7 +546,7 @@ def prune(root, keep) -> list:
 def finish(root, journal) -> None:
     """After the new version answered: record it, forget the journal, and
     delete the copies older than the one just replaced."""
-    write_journal(root, DONE, journal["old"], journal["new"], journal["base_version"])
+    _record(root, journal, DONE)
     set_installed_version(root, journal["new"], journal["base_version"])
     clear_journal(root)
     unregister_recovery()
@@ -520,7 +555,7 @@ def finish(root, journal) -> None:
 
 
 def roll_back(root, journal, sleep=time.sleep) -> None:
-    switch_back(root, journal["old"], journal["new"], sleep)
+    switch_back(root, journal, sleep)
     set_installed_version(root, journal["old"], journal["base_version"])
     clear_journal(root)
     unregister_recovery()
@@ -532,8 +567,9 @@ class Launcher:
     """Runs app\\installer\\launcher.py with the bundled Python, so stopping
     and starting work exactly as from the Start menu."""
 
-    def __init__(self, root):
+    def __init__(self, root, port=None):
         self.root = Path(root)
+        self.port = port
 
     def _script(self) -> str:
         return str(app_dir(self.root) / "installer" / "launcher.py")
@@ -550,7 +586,17 @@ class Launcher:
             return False
 
     def stop(self) -> bool:
-        return self._run("--stop", STOP_SECONDS)
+        """Stops the app, and with a known port waits until nothing answers
+        there: then the server answering after the switch is the new one."""
+        self._run("--stop", STOP_SECONDS)
+        if self.port is None:
+            return True
+        deadline = time.monotonic() + STOP_SECONDS
+        while _health_answers(self.port):
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(1)
+        return True
 
     def start_and_check(self) -> bool:
         """Starts the server and waits for /api/health (launcher.py
@@ -570,6 +616,17 @@ class Launcher:
                              cwd=str(work_dir(self.root)), env=env, close_fds=True)
 
 
+def _health_answers(port) -> bool:
+    import urllib.request
+    # Loopback never goes through a proxy (launcher.py does the same).
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(f"http://127.0.0.1:{int(port)}/api/health", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
 def _message(text: str) -> None:
     if os.name == "nt":
         with contextlib.suppress(Exception):
@@ -586,19 +643,34 @@ def apply(root, launcher=None, sleep=time.sleep) -> str:
     only if it answers; otherwise puts the previous version back and starts
     it. Returns the result code it recorded."""
     root = Path(root)
-    launcher = launcher or Launcher(root)
     journal = read_journal(root)
     if journal is None or journal["state"] not in (STAGED, QUEUED):
         return "not_started"
-    old, new, base = journal["old"], journal["new"], journal["base_version"]
+    launcher = launcher or Launcher(root, journal["port"])
+    old, new = journal["old"], journal["new"]
     with swap_lock(root):
         log(root, f"apply {old} -> {new}")
-        write_journal(root, STOPPING, old, new, base)
-        launcher.stop()
-        write_journal(root, SWITCHING, old, new, base)
+        _record(root, journal, STOPPING, 0)
+        if not launcher.stop():
+            log(root, "the running app didn't stop")
+            clear_journal(root)
+            write_result(root, "not_started", old, new)
+            launcher.open_window()
+            return "not_started"
+        try:
+            previous = app_folder(root, old)
+            if previous.exists() or is_link(previous):
+                remove_folder(previous, root)      # a stale copy of this same version
+        except (OSError, SwapError):
+            clear_journal(root)
+            write_result(root, "rolled_back_switch", old, new)
+            launcher.open_window()
+            return "rolled_back_switch"
+        _record(root, journal, SWITCHING, 0)
         register_recovery(root)
         try:
-            switch_in(root, old, new, sleep)
+            switch_in(root, old, new, sleep, on_step=lambda step: _record(root, journal,
+                                                                          SWITCHING, step))
         except Locked:
             if not app_dir(root).is_dir():
                 # Not even the undo could rename: sign-in's recovery tries again.
@@ -606,18 +678,23 @@ def apply(root, launcher=None, sleep=time.sleep) -> str:
                 _message(BROKEN_MESSAGE)
                 return "broken"
             # Something still holds a file in app\: the next start finishes it.
-            write_journal(root, QUEUED, old, new, base)
+            _record(root, journal, QUEUED, 0)
             unregister_recovery()
             write_result(root, "queued", old, new)
             launcher.open_window(defer=True)
             return "queued"
         except (OSError, SwapError) as exc:
             log(root, f"switch failed: {type(exc).__name__}")
-            roll_back(root, journal, sleep)
+            try:
+                roll_back(root, journal, sleep)
+            except (OSError, Locked, SwapError):
+                write_result(root, "broken", old, new)
+                _message(BROKEN_MESSAGE)
+                return "broken"
             write_result(root, "rolled_back_switch", old, new)
             launcher.open_window()
             return "rolled_back_switch"
-        write_journal(root, CHECKING, old, new, base)
+        _record(root, journal, CHECKING, 2)
         if launcher.start_and_check():
             finish(root, journal)
             launcher.open_window()

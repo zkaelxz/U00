@@ -566,7 +566,14 @@ def _port_busy_message(port: int, url: str, stored) -> str:
 def spawn_app_update(root) -> None:
     """Starts the copied swap helper detached; it stops nothing (no server is
     up yet), switches, starts the new version and opens its window."""
+    import shutil
     from installer import app_swap
+    helper = app_swap.work_dir(root) / app_swap.HELPER_NAME
+    if not helper.is_file():
+        # Its copy was lost (cleaned up, or never finished copying); app\
+        # is still the version that shipped one, and the copy runs from
+        # outside the folder it renames.
+        shutil.copyfile(APP_DIR / "installer" / app_swap.HELPER_NAME, helper)
     kwargs = {"cwd": str(app_swap.work_dir(root)), "close_fds": True}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP

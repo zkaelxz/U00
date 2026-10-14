@@ -933,6 +933,21 @@ class TestFinishAppUpdate:
         assert launcher.finish_app_update(headless=False) is True
         assert spawned == [root]
 
+    def test_a_lost_helper_copy_is_replaced_from_the_app(self, tmp_path, monkeypatch):
+        from installer import app_swap as sw
+        root = tmp_path / "Baihe Studio"
+        (root / "app" / "installer").mkdir(parents=True)
+        monkeypatch.setattr(launcher, "APP_DIR", root / "app")
+        (root / "app" / "installer" / sw.HELPER_NAME).write_text("# helper\n")
+        sw.write_journal(root, sw.QUEUED, "0.1.0", "0.2.0", "0.1.0")
+        assert not (sw.work_dir(root) / sw.HELPER_NAME).exists()
+        started = []
+        monkeypatch.setattr(launcher.subprocess, "Popen", lambda cmd, **kw: started.append((cmd, kw)))
+        launcher.spawn_app_update(root)
+        assert (sw.work_dir(root) / sw.HELPER_NAME).read_text() == "# helper\n"
+        ((cmd, kw),) = started
+        assert str(sw.work_dir(root) / sw.HELPER_NAME) in cmd and "apply" in cmd
+
     def test_the_start_right_after_queueing_leaves_it_for_the_next(self, root, monkeypatch):
         root, sw, spawned = root
         sw.write_journal(root, sw.QUEUED, "0.1.0", "0.2.0", "0.1.0")

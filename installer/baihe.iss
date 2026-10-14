@@ -96,14 +96,15 @@ Name: "service"; Description: "Run Baihe Studio in the &background from startup 
 ; but keeps {app}\python, where optional packages added through Diagnostics live.
 Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\service"
-; App-only updates (installer/app_swap.py): the kept previous versions and the
-; swap's journal. A full install replaces whatever state they describe.
-Type: filesandordirs; Name: "{app}\app-*"
+; The app-only update's journal (installer/app_swap.py): a full install
+; replaces whatever state it describes. The kept app-<version> folders go in
+; CurStepChanged, by name and only from a Baihe Studio install folder.
+Type: filesandordirs; Name: "{app}\app-update"
 
 [Registry]
 ; The sign-in recovery an interrupted app-only update registers; a full
 ; install or an uninstall leaves nothing for it to recover.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\RunOnce"; ValueName: "BaiheStudioAppUpdate"; ValueType: none; Flags: deletevalue uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\RunOnce"; ValueName: "!BaiheStudioAppUpdate"; ValueType: none; Flags: deletevalue uninsdeletevalue
 
 [Files]
 Source: "{#PayloadDir}\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -204,6 +205,86 @@ begin
      and not IsBaiheInstallDir(AppDir) then
     Result := 'The folder ' + AppDir + ' already has a "python" or "app" folder that Baihe Studio ' +
       'didn''t install. Choose an empty folder, or a new one.';
+end;
+
+// True for the folder names installer/app_swap.py gives the versions it
+// keeps and its unfinished unpacks: app-<n>.<n>[.<n>], an optional -/+ tail
+// of letters, digits, '.', '+' and '-', and an optional '.partial'. Anything
+// else that starts with "app-" may be the user's and is never deleted.
+function IsAppVersionName(const FolderName: String): Boolean;
+var
+  S: String;
+  I, Dots, Digits: Integer;
+  C: Char;
+begin
+  Result := False;
+  S := FolderName;
+  if Copy(S, 1, 4) <> 'app-' then
+    Exit;
+  if (Length(S) > 12) and (Copy(S, Length(S) - 7, 8) = '.partial') then
+    S := Copy(S, 1, Length(S) - 8);
+  I := 5;
+  Dots := 0;
+  Digits := 0;
+  while I <= Length(S) do
+  begin
+    C := S[I];
+    if (C >= '0') and (C <= '9') then
+      Digits := Digits + 1
+    else if (C = '.') and (Digits > 0) and (Dots < 2) then
+    begin
+      Dots := Dots + 1;
+      Digits := 0;
+    end
+    else
+      Break;
+    I := I + 1;
+  end;
+  if (Dots = 0) or (Digits = 0) then
+    Exit;
+  if I <= Length(S) then
+  begin
+    if ((S[I] <> '-') and (S[I] <> '+')) or (I = Length(S)) then
+      Exit;
+    while I <= Length(S) do
+    begin
+      C := S[I];
+      if not (((C >= '0') and (C <= '9')) or ((C >= 'A') and (C <= 'Z')) or
+              ((C >= 'a') and (C <= 'z')) or (C = '.') or (C = '+') or (C = '-')) then
+        Exit;
+      I := I + 1;
+    end;
+  end;
+  Result := True;
+end;
+
+// Deletes the earlier app versions app-only updates kept directly in AppDir,
+// matched by IsAppVersionName. A junction or symlink is removed as a link
+// only. Returns how many.
+function DeleteAppVersionFolders(const AppDir: String): Integer;
+var
+  Rec: TFindRec;
+  Path: String;
+begin
+  Result := 0;
+  if FindFirst(AddBackslash(AppDir) + 'app-*', Rec) then
+  try
+    repeat
+      Path := AddBackslash(AppDir) + Rec.Name;
+      if ((Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and IsAppVersionName(Rec.Name) then
+      begin
+        if (Rec.Attributes and $400) <> 0 then // FILE_ATTRIBUTE_REPARSE_POINT
+        begin
+          if RemoveDir(Path) then
+            Result := Result + 1;
+        end
+        else if DelTree(Path, True, True, True) then
+          Result := Result + 1;
+      end;
+    until not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
 end;
 
 // The data folder named in an INSTALLED marker (postinstall.py writes it,
@@ -545,6 +626,10 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  // A full install replaces the versions an app-only update kept; checked
+  // here, before the new manifest.json is copied in.
+  if (CurStep = ssInstall) and IsBaiheInstallDir(ExpandConstant('{app}')) then
+    DeleteAppVersionFolders(ExpandConstant('{app}'));
   if CurStep = ssPostInstall then
   begin
     RunPostInstall();
@@ -1141,8 +1226,8 @@ begin
     DeleteTree(ExpandConstant('{app}\python'), 'the bundled Python and its packages', Removed, Left);
     DeleteTree(ExpandConstant('{app}\app'), 'the program files', Removed, Left);
     DeleteTree(ExpandConstant('{app}\service'), 'the background service''s files', Removed, Left);
-    // Earlier versions kept by app-only updates, and the swap's journal.
-    if DeleteMatchingFolders(ExpandConstant('{app}'), 'app-*') > 0 then
+    DeleteTree(ExpandConstant('{app}\app-update'), 'the app update''s work folder', Removed, Left);
+    if DeleteAppVersionFolders(ExpandConstant('{app}')) > 0 then
       AddLine(Removed, 'earlier app versions kept by app updates');
   end;
   RemoveDir(ExpandConstant('{app}'));

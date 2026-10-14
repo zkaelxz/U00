@@ -80,6 +80,7 @@ _state = {"offer": "none", "offer_version": None, "size": None, "download": "idl
 _release = None     # internal: the release's "app" record plus "version"
 _verified = None    # internal: {"version", "name", "path", "sha256", "signature"}
 _download_thread = None
+_applying = False   # one apply at a time: a second would delete the first's staged folder
 
 
 def install_root() -> str:
@@ -310,16 +311,43 @@ def _start_helper(root) -> None:
                     work / app_swap.HELPER_NAME)
     command = app_swap.helper_command(root, "apply")
     command[0] = _helper_python()
+    # Unlike Setup's, the helper's environment keeps the user's *_KEY and
+    # *_TOKEN variables: the server it restarts would otherwise lose them.
+    # Only this server's one-time shutdown token and job name are dropped.
+    env = {k: v for k, v in os.environ.items() if k.upper() not in us._SETUP_ENV_DROP}
     # Outside the server's Job Object: the helper stops this server.
     with process_guard.breakaway_allowed():
-        subprocess.Popen(command, cwd=str(work), env=us._setup_env(),
+        subprocess.Popen(command, cwd=str(work), env=env,
                          creationflags=us._CREATE_BREAKAWAY_FROM_JOB | us._CREATE_NEW_PROCESS_GROUP,
                          close_fds=True)
 
 
+def _server_port():
+    try:
+        port = int(os.environ.get("BAIHE_API_PORT", ""))
+    except ValueError:
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
 def apply() -> dict:
     """Checks and unpacks the verified app zip beside the running app, then
-    hands over to the swap helper, which restarts Baihe Studio."""
+    hands over to the swap helper, which restarts Baihe Studio. One at a
+    time: a second click or tab is refused until the first has handed over
+    or failed."""
+    global _applying
+    with _lock:
+        if _applying:
+            raise ConflictError("An app update is already starting.")
+        _applying = True
+    try:
+        return _apply()
+    finally:
+        with _lock:
+            _applying = False
+
+
+def _apply() -> dict:
     global _verified
     if not us._is_windows():
         raise UnsupportedOperationError("Updating the app is only possible on Windows.")
@@ -373,7 +401,8 @@ def apply() -> dict:
     try:
         # INSTALLED names this PC's data folder; it never ships in the zip.
         shutil.copyfile(os.path.join(us._APP_DIR, "INSTALLED"), dest / "INSTALLED")
-        app_swap.write_journal(root, app_swap.STAGED, old, verified["version"], base)
+        app_swap.write_journal(root, app_swap.STAGED, old, verified["version"], base,
+                               port=_server_port())
         _start_helper(root)
     except (OSError, ValueError, app_swap.SwapError):
         app_swap.clear_journal(root)

@@ -230,7 +230,9 @@ def test_an_oversize_zip_is_refused(env, monkeypatch):
 
 # --- apply ----------------------------------------------------------------------
 
-def test_apply_unpacks_beside_the_app_and_hands_over(env):
+def test_apply_unpacks_beside_the_app_and_hands_over(env, monkeypatch):
+    monkeypatch.setenv("BAIHE_API_PORT", "8611")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "user-key")
     _serve(env)
     us.check()
     _download(env)
@@ -241,12 +243,16 @@ def test_apply_unpacks_beside_the_app_and_hands_over(env):
     assert (staged / "INSTALLED").read_text() == "D:\\Baihe\n"
     assert (root / "app" / "INSTALLED").is_file()       # the running app is untouched
     assert app_swap.read_journal(root) == {"state": "staged", "old": "0.1.0", "new": "0.2.0",
-                                           "base_version": "0.1.0"}
+                                           "base_version": "0.1.0", "port": 8611, "step": 0}
     assert (root / "app-update" / "app_swap.py").read_text() == "# helper\n"
     ((cmd, kw),) = env["started"]
     assert cmd[1:] == ["-I", str(root / "app-update" / "app_swap.py"), "apply", "--root", str(root)]
     assert kw["cwd"] == str(root / "app-update")
-    assert not any(k.upper().endswith("_TOKEN") for k in kw["env"])
+    # The restarted server needs the user's keys; only this server's own
+    # shutdown token and job name stay behind.
+    assert aus.LAUNCHER_TOKEN_ENV not in kw["env"]
+    assert "BAIHE_PROCESS_GROUP_NAME" not in kw["env"]
+    assert kw["env"]["DEEPSEEK_API_KEY"] == "user-key"
     assert not list(Path(us.tempfile.gettempdir()).iterdir())   # the private copy is gone
 
 
@@ -302,6 +308,42 @@ def test_an_unchanged_database_needs_no_backup(env, monkeypatch):
     _download(env)
     from services import auto_backup_service
     monkeypatch.setattr(auto_backup_service, "settings_overview", lambda: {"last_run_at": None})
+    assert aus.apply()["started"] is True
+
+
+def test_a_second_apply_is_refused_while_the_first_is_starting(env, monkeypatch):
+    import threading
+    _serve(env)
+    us.check()
+    _download(env)
+    inside, release = threading.Event(), threading.Event()
+    start_helper = aus._start_helper
+
+    def slow_start(root):
+        inside.set()
+        assert release.wait(10)
+        start_helper(root)
+    monkeypatch.setattr(aus, "_start_helper", slow_start)
+    results = []
+    first = threading.Thread(target=lambda: results.append(aus.apply()))
+    first.start()
+    assert inside.wait(10)
+    with pytest.raises(ConflictError, match="already starting"):
+        aus.apply()
+    release.set()
+    first.join(10)
+    assert results == [{"started": True, "version": "0.2.0"}]
+    assert len(env["started"]) == 1
+
+
+def test_a_failed_apply_lets_the_next_one_start(env, monkeypatch):
+    _serve(env)
+    us.check()
+    _download(env)
+    monkeypatch.setattr(aus.background_jobs, "active_job_ids", lambda: ["j1"])
+    with pytest.raises(ConflictError, match="running jobs"):
+        aus.apply()
+    monkeypatch.setattr(aus.background_jobs, "active_job_ids", lambda: [])
     assert aus.apply()["started"] is True
 
 
