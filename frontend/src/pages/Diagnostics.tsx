@@ -265,7 +265,7 @@ function DiagnosticsContent() {
             <ModelsList engines={overview?.model_engine_versions ?? []} cache={cache} pc={pc}
               onChanged={refreshCache} onGoTo={goTo} openSignal={signal('models')} />
           ))}
-          {card('loaded-models', <LoadedModelsCard />)}
+          {card('loaded-models', <LoadedModelsCard openSignal={signal('loaded-models')} />)}
           {card('test-models', <RealModelCheck pc={pc} jobsActive={active} openSignal={signal('test-models')} />)}
           <p className="muted diag-lab-link">
             Compare engines and prompts on your own test sets.{' '}

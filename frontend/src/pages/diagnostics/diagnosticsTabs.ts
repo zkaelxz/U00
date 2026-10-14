@@ -36,7 +36,7 @@ export const isDiagnosticsCard = (v: unknown): v is DiagnosticsCard => typeof v 
 export const TAB_FOLD_KEYS: Record<DiagnosticsTab, string[]> = {
   setup: ['diagnostics.recommended', 'diagnostics.setup'],
   packages: ['diagnostics.browser', 'diagnostics.cuda-runtime', 'diagnostics.deno', 'diagnostics.packages', 'diagnostics.speaker'],
-  models: ['diagnostics.modelHealth', 'diagnostics.models', 'diagnostics.realModel'],
+  models: ['diagnostics.modelHealth', 'diagnostics.models', 'diagnostics.loadedModels', 'diagnostics.realModel'],
   system: ['diagnostics.ports', 'diagnostics.log'],
 }
 

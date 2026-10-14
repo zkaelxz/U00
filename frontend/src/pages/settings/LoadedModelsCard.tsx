@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { freeAppModels, getLoadedModels, type LoadedModels } from '../../api/loadedModels'
 import { Card } from '../../components/Card'
+import { CardFoldContext } from '../../components/cardFold'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
@@ -16,7 +17,7 @@ import { FREE_BUSY_NOTE, OLLAMA_EMPTY, gpuLine, llamaLine, loadedRows, memoryLin
 
 const TITLE = 'Models in memory'
 
-export function LoadedModelsCard() {
+export function LoadedModelsCard({ openSignal = 0 }: { openSignal?: number }) {
   const pc = usePcOnly()
   const [data, setData] = useState<LoadedModels | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -39,7 +40,9 @@ export function LoadedModelsCard() {
   }, [run])
 
   const rows = data ? loadedRows(data) : []
+  const summary = data ? (rows.length === 0 ? 'Nothing loaded' : `${rows.length} loaded`) : undefined
   return (
+    <CardFoldContext.Provider value={{ storageKey: 'diagnostics.loadedModels', defaultOpen: false, summary, openSignal }}>
     <Card
       title={TITLE}
       aria-label={TITLE}
@@ -101,5 +104,6 @@ export function LoadedModelsCard() {
         </div>
       )}
     </Card>
+    </CardFoldContext.Provider>
   )
 }
