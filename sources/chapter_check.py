@@ -17,6 +17,7 @@ import time
 import background_jobs
 from jobs import job_launch
 import db
+from lib.errors import ConflictError
 from translate_engines import redact_for_storage
 
 from . import extension_marker, http, ladder, registry, store
@@ -174,8 +175,22 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
                 summary["errors"][row["title"]] = LINK_UNAVAILABLE
                 store.mark_checked(row["source"], row["series_id"], error=LINK_UNAVAILABLE)
                 continue
-            if start_import(row["source"], row["series_id"], new, row["drama_id"],
-                            series_url=row.get("url") or ""):
+            try:
+                queued = start_import(row["source"], row["series_id"], new, row["drama_id"],
+                                      series_url=row.get("url") or "")
+            except ConflictError as e:
+                # The drama is being deleted or cleaned up right now. The new
+                # chapters are already known, so a later check won't offer
+                # them again: they wait in the retry list instead.
+                error = redact_for_storage(str(e))[:300]
+                summary["errors"][row["title"]] = error
+                store.record_import_retry(
+                    row["source"], row["series_id"], row["drama_id"],
+                    [(c.chapter_id, redact_for_storage(c.title or ""), "not_attempted", error)
+                     for c in new])
+                store.mark_checked(row["source"], row["series_id"], error=error)
+                continue
+            if queued:
                 summary["queued"].append(row["title"])
     store.set_setting("last_check_cycle", time.time())
     if job_id:

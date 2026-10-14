@@ -138,9 +138,6 @@ export function videoDramas(dramas: DramaSummary[]): DramaSummary[] {
   return dramas.filter((d) => canTakeMedia(d.content_mode))
 }
 
-/** Audio only is on by default, except for a streamer VOD (the video is the point). */
-export const defaultAudioOnly = (contentMode: string | null | undefined) => contentMode !== 'streamer_vod'
-
 const COMIC_BY_LANGUAGE: Record<string, string> = { zh: 'manhua', ja: 'manga', ko: 'manhwa' }
 const LANGUAGES = ['zh', 'ja', 'ko']
 

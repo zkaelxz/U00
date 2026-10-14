@@ -10,11 +10,15 @@
 .diag-page .diag-folds > * { margin: 0; }
 .diag-panel[hidden], .diag-card:empty { display: none; }
 .diag-card { min-width: 0; scroll-margin-top: var(--space-4); }
-.diag-card > details.section { margin: 0; background: var(--surface); }
+.diag-card > details.section, .diag-card > .card-fold > details.section { margin: 0; background: var(--surface); }
+/* Models in memory is a titled Card that folds: undo the Card's own box and title size so it matches the plain Sections beside it. */
+.diag-card > .card-fold { display: block; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
+.diag-card > .card-fold > details.section { border: 1px solid var(--glass-edge); border-radius: var(--radius-panel); padding: var(--space-2) var(--space-4); }
+.diag-card > .card-fold > details.section > summary .section-title { font-size: inherit; font-weight: 600; }
 /* A fold inside a fold (Missing / Installed packages) is a divided row, not a box in a box. */
 .diag-card details.section details.section { margin: 0; padding-inline: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
 @media (pointer: coarse), (max-width: 640px) {
-  .diag-card > details.section > summary, .danger-zone details.section > summary { min-height: 44px; align-items: center; }
+  .diag-card > details.section > summary, .diag-card > .card-fold > details.section > summary, .danger-zone details.section > summary { min-height: 44px; align-items: center; }
 }
 .diag-lab-link { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 
@@ -190,3 +194,11 @@
 @media (max-width: 640px) {
   .diag-stack { gap: var(--space-3); }
 }
+
+/* "Ready" and "Optional" wrap onto two lines when the long reason takes the space; a fixed state column keeps every row's reason starting at the same left edge. */
+@media (min-width: 641px) {
+  .diag-card .preflight-row { grid-template-columns: minmax(8rem, 12rem) 10rem minmax(0, 1fr); }
+  .diag-card .preflight-state { white-space: nowrap; }
+}
+/* A small button in a field would otherwise stretch to the whole card width. */
+.diag-card .field-control > .btn-sm:first-child { flex: 0 0 auto; }

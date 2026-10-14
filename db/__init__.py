@@ -583,7 +583,7 @@ from db.style import (  # noqa: E402,F401
 
 from db.presets import (  # noqa: E402,F401
     delete_preset, insert_preset, list_presets, rename_preset, save_preset,
-    set_preset_engine_model)
+    set_default_preset, set_preset_engine_model, update_preset)
 
 
 # ---------------------------------------------------------------------------
@@ -622,6 +622,7 @@ from db.usage import (  # noqa: F401
 from db.app_settings import (  # noqa: F401
     get_app_setting,
     set_app_setting,
+    delete_app_setting,
     get_research_cache,
     put_research_cache,
     RESEARCH_RESULT_TTL_DAYS,
@@ -662,6 +663,11 @@ from db.benchmark import (  # noqa: F401
     latest_benchmark_run_per_case,
     create_benchmark_lab_case,
     update_benchmark_case_texts,
+    list_benchmark_case_edits,
+    set_benchmark_case_excluded,
+    create_benchmark_clip_cases,
+    list_benchmark_cases_by_clip,
+    count_benchmark_cases_with_file,
     get_benchmark_case,
     find_benchmark_case,
     create_benchmark_session,
