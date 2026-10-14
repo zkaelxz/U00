@@ -412,12 +412,15 @@ class Qwen3ASRBackend:
 
 def load_audio_16k(audio_path):
     """The file as a 16 kHz mono float32 waveform (what the Silero VAD takes).
-    Raises VadNotInstalledError when faster-whisper (which decodes it) is missing."""
+    Raises VadNotInstalledError when faster-whisper (which decodes it) is missing,
+    and HeadroomError when the file is too long for the RAM free now."""
     from vad_segments import VadNotInstalledError
+    import media_inspect
     try:
         from faster_whisper.audio import decode_audio
     except ImportError as exc:
         raise VadNotInstalledError(str(exc)) from exc
+    memory_headroom.check_whole_audio(media_inspect.duration_seconds(audio_path))
     return decode_audio(audio_path, sampling_rate=16000)
 
 

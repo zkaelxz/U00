@@ -185,6 +185,31 @@ def check_need(label: str, need_mb, memory: str, free_mb=None) -> None:
         "once no job is running), use a smaller model or int8 where offered, or lower the setting.")
 
 
+# The speech detectors take the whole file as a 16 kHz mono float32 array;
+# the decoder briefly holds about a second copy while it builds it.
+_WHOLE_AUDIO_BYTES_PER_SECOND = 16000 * 4 * 2
+# Most of the free RAM still has to hold the model and the rest of the job.
+_WHOLE_AUDIO_RAM_SHARE = 0.5
+
+
+def check_whole_audio(seconds) -> None:
+    """Raises HeadroomError, before anything is decoded, when a file this
+    long would not fit in half of the RAM free now. Unknown length or RAM:
+    no check (a guess must never stop a job that would have worked)."""
+    if not seconds:
+        return
+    reading = read_memory_mb("ram")
+    if reading is None:
+        return
+    need_mb = seconds * _WHOLE_AUDIO_BYTES_PER_SECOND / MB
+    if need_mb <= reading[1] * _WHOLE_AUDIO_RAM_SHARE:
+        return
+    raise HeadroomError(
+        f"This file is about {seconds / 3600:.1f} hours long. Reading it for speech detection "
+        f"needs about {_gb(need_mb)} of RAM, and {_gb(reading[1])} is free. Split it into "
+        "shorter files, or transcribe it with Whisper in Fast mode.")
+
+
 def whisper_key(name: str):
     """The known model size for a Whisper size name or an offline model
     folder (by its last path part, e.g. faster-whisper-large-v3), else None.

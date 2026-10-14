@@ -371,3 +371,38 @@ class TestLoadQwen3Asr:
         from whisper_models import ModelDownloadError
         with pytest.raises(ModelDownloadError):
             asr_backend.load_qwen3_asr(use_gpu=False)
+
+
+class TestWholeFileAudioGuard:
+    """The speech detectors read the whole file as 16 kHz float32 (about
+    230 MB an hour). A file too long for the free RAM is refused up front in
+    plain words instead of running out of memory mid-job."""
+
+    def _setup(self, monkeypatch, seconds, ram):
+        import asr_backend as ab
+        import media_inspect
+        import memory_headroom
+        decoded = []
+        monkeypatch.setattr(media_inspect, "duration_seconds", lambda path, **k: seconds)
+        monkeypatch.setattr(memory_headroom, "_read_ram_mb", lambda: ram)
+        fake = types.ModuleType("faster_whisper.audio")
+        fake.decode_audio = lambda path, sampling_rate: decoded.append(path) or "audio"
+        monkeypatch.setitem(sys.modules, "faster_whisper", types.ModuleType("faster_whisper"))
+        monkeypatch.setitem(sys.modules, "faster_whisper.audio", fake)
+        return ab, decoded
+
+    def test_a_file_too_long_for_free_ram_is_refused_before_decoding(self, monkeypatch):
+        import memory_headroom
+        ab, decoded = self._setup(monkeypatch, 10 * 3600, (16000.0, 2000.0))
+        with pytest.raises(memory_headroom.HeadroomError, match="about 10.0 hours"):
+            ab.load_audio_16k("/long.wav")
+        assert decoded == []
+
+    def test_a_file_that_fits_is_decoded(self, monkeypatch):
+        ab, decoded = self._setup(monkeypatch, 3600, (16000.0, 8000.0))
+        assert ab.load_audio_16k("/hour.wav") == "audio" and decoded == ["/hour.wav"]
+
+    @pytest.mark.parametrize("seconds,ram", [(None, (16000.0, 100.0)), (36000, None)])
+    def test_an_unknown_length_or_ram_reading_never_blocks(self, monkeypatch, seconds, ram):
+        ab, decoded = self._setup(monkeypatch, seconds, ram)
+        assert ab.load_audio_16k("/x.wav") == "audio"
