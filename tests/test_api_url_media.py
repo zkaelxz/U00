@@ -749,6 +749,28 @@ def test_a_permanent_failure_is_not_retried(client, env, monkeypatch):
     assert st["status"] == "error" and len(attempts) == 1
 
 
+def test_error_snippet_scrubs_links_paths_and_tokens_and_is_capped():
+    hostile = ("ERROR: [youtube] abc: unable to open https://rr1.googlevideo.com/v?sig=SECRETSIG&key=xyz "
+               "at C:\\Users\\kae\\AppData\\Local\\Temp\\x.part with sk-ant-api03-" + "a" * 40
+               + " \x1b[31mred\x1b[0m\n" + "long " * 200)
+    snippet = svc._error_snippet(hostile)
+    assert 0 < len(snippet) <= svc.ERROR_SNIPPET_MAX
+    for leaked in ("googlevideo", "SECRETSIG", "kae", "sk-ant", "\x1b", "\n", "ERROR:"):
+        assert leaked not in snippet
+    assert svc._error_snippet(None) == "" and svc._error_snippet("  ") == ""
+
+
+def test_a_failed_download_shows_the_scrubbed_yt_dlp_error_in_details_only(client, env, monkeypatch):
+    def boom(self, url, download=True):
+        raise RuntimeError("ERROR: [youtube] abc: HTTP Error 403: Forbidden for https://x.test/v?sig=SECRETSIG")
+    monkeypatch.setattr(FakeYDL, "extract_info", boom)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and "403" not in st["error"] and "SECRETSIG" not in st["error"]
+    detail = st["result"]["error_detail"]
+    assert "403" in detail and "SECRETSIG" not in detail and "x.test" not in detail
+
+
 def _kept(did):
     kept = os.path.join(db.drama_dir(did), "kept_media")
     out = {}

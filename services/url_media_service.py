@@ -279,8 +279,9 @@ def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
         raise RuntimeError(_EXTRACT_FAILED) from None
 
 
-# yt-dlp's message pattern -> a fixed sentence. Only these sentences are ever
-# shown, so no yt-dlp text, link, id or local path can reach the screen.
+# yt-dlp's message pattern -> a fixed sentence. Only these sentences make up the
+# error line; the raw text appears only as a scrubbed, capped Details snippet
+# (_error_snippet), so no link, token or local path can reach the screen.
 _DNS_RE = re.compile(r"failed to resolve|getaddrinfo|name or service not known|"
                      r"temporary failure in name resolution|nodename nor servname|"
                      r"no address associated with hostname", re.I)
@@ -318,6 +319,22 @@ def _failure_reason(exc: BaseException) -> str:
         if rx.search(haystack):
             return text
     return ""
+
+
+ERROR_SNIPPET_MAX = 200
+_CONTROL_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|[\x00-\x1f\x7f]+")
+
+
+def _error_snippet(raw) -> str:
+    """yt-dlp's own error text for the Details panel: the child's text can hold
+    the link, a local path or a token, so it goes through the support-report
+    scrubber (URLs, secrets, paths, user name) and is capped to one short line."""
+    if not isinstance(raw, str) or not raw.strip():
+        return ""
+    from services import jobs_service
+    text = _CONTROL_RE.sub(" ", jobs_service.scrub_text(translate_engines.redact_secrets(raw)))
+    text = re.sub(r"^\s*ERROR:\s*", "", " ".join(text.split()))
+    return text[:ERROR_SNIPPET_MAX]
 
 
 def _hm(seconds) -> str:
@@ -519,6 +536,10 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
             str(result.get("error") or ""))))
         if reason in (_DNS_BLOCKED, _DNS_BLOCKED_OTHER):
             raise RuntimeError(reason)
+        snippet = _error_snippet(result.get("error"))
+        if snippet:
+            # Shown only in the Jobs page's Details panel, never in the error line.
+            background_jobs.set_result(job_id, {"kind": "url_media", "error_detail": snippet})
         raise RuntimeError(f"{reason} {_FAILED}" if reason else _FAILED)
     real = os.path.realpath(path)
     if not real.startswith(os.path.realpath(tmp) + os.sep) or not os.path.isfile(real):
