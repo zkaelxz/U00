@@ -225,7 +225,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `file_lock.py` (`hold`: an exclusive cross-process lock on a file, for a model download two processes must not run at once)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
-- `release_signature.py` (the Ed25519 release signature format: the signed message, key and `.sig` texts, sign and verify; used by `services/update_service.py` and `tools/release_signing.py`)
+- `release_signature.py` (the Ed25519 release signature format: the signed message, key and `.sig` texts, sign and verify; used by `services/update_service.py`, `services/app_update_service.py` and `tools/release_signing.py`)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
 - `model_offline.py` (offline model loads for a run started away from the PC: the per-run mark jobs carry into their thread or child process, and the Hugging Face / ModelScope cache folders)
 - `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
@@ -251,8 +251,11 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `backup_import_service.py`
 - `backup_space_check.py` (the automatic backup's free-space check before it writes a copy)
 - `benchmark_case_service.py`
+- `benchmark_clip_service.py` (the Benchmark Lab's clip set: uploaded audio with transcripts, exclude and edit a reference)
+- `benchmark_export_service.py` (a Lab run or comparison as CSV or JSON)
 - `benchmark_judge_service.py`
 - `benchmark_lab_service.py`
+- `benchmark_runs_service.py` (reading Lab runs back: results, the Arena on shared cases, deleting a run)
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
 - `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
 - `benchmark_set_builder_service.py`
@@ -421,12 +424,14 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `transcribe_options_service.py` (what a transcribe run may be asked to do: tuning defaults, the Whisper sizes a title may store, and validation of saved config fields and run choices)
 - `transcribe_service.py`
 - `transcribe_speed_service.py` (remembered speed of finished transcription and speaker-detection runs per model and device, behind the time estimate)
-- `translate_preset_service.py` (apply a workflow tier or preset to a title; save the Translate form as a preset)
+- `translate_preset_service.py` (apply a workflow tier or profile to a title; save, edit and default the saved profiles)
+- `profile_service.py` (translation setting profiles: the options a profile may hold, checked with the series-defaults rules, and what applying one writes to a title)
 - `translate_run_service.py`
 - `translate_service.py`
 - `translate_thinking_service.py`
 - `translation_version_service.py`
 - `update_service.py`
+- `app_update_service.py` (the app-only update: offer when the release's app layer fits this install's base, verified zip download, unpack beside the app and hand-off to installer/app_swap.py)
 - `url_media_service.py`
 - `usage_recost_service.py`
 - `vocabulary_hint_service.py`
@@ -747,6 +752,8 @@ Developer tools, not shipped.
 
 Windows installer and boot service, not imported by the app.
 
+- `app_swap.py` (switches the installed app folder to a staged app-only update, checks it starts, rolls back, and settles a swap a crash interrupted; ships in the payload)
+- `build_app_zip.py` (builds BaiheStudio-App-<version>.zip, the app layer of a release, from the installer's staged payload)
 - `build_installer.py` (assembles the Windows installer's payload and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe)
 - `launcher.py` (what the installed app's Start-menu shortcut runs)
 - `postinstall.py` (the installer's one post-install step)

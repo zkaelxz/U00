@@ -187,7 +187,10 @@ def _migrate_drama_columns(conn):
                           # NULL = off: translate whole sentences, then split the English
                           # across the short timed lines (sentence_groups.py).
                           ("translate_by_sentence", "INTEGER"),
-                          ("release_date", "TEXT"), ("difficult_audio", "INTEGER DEFAULT 0")]:
+                          ("release_date", "TEXT"), ("difficult_audio", "INTEGER DEFAULT 0"),
+                          # JSON: the Translate form's starting options for this title
+                          # (what a profile applied; services/profile_service.py).
+                          ("translate_start_json", "TEXT")]:
         if col not in drama_cols:
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off
@@ -199,6 +202,10 @@ def _migrate_series_and_character_columns(conn):
     for col in ("instructions", "default_settings"):   # the latter: series_defaults_service
         if col not in series_cols:
             db._safe_alter(conn, f"ALTER TABLE series ADD COLUMN {col} TEXT")
+    preset_cols = {r[1] for r in conn.execute("PRAGMA table_info(presets)").fetchall()}
+    for col, coltype in (("options_json", "TEXT"), ("is_default", "INTEGER DEFAULT 0")):
+        if col not in preset_cols:
+            db._safe_alter(conn, f"ALTER TABLE presets ADD COLUMN {col} {coltype}")
     char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
     if "ref_audio_filename" not in char_cols:
         db._safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")

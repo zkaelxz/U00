@@ -46,6 +46,7 @@ the auto-derived Translation Profile and a COMET scorer.
 import whisper_models
 import json
 import os
+import re
 import uuid
 
 import background_jobs
@@ -59,7 +60,8 @@ from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate
 from services import settings_service, translate_service
 from services.benchmark_case_service import (redact, require_whisper_fits_cases, whisper_options, run_file_case as _run_case_file,
                                                    run_translation as _run_translation)
-from services.benchmark_script_service import add_counts, count_scripts, empty_counts
+from services import benchmark_runs_service
+from services.benchmark_runs_service import MAX_CONFIGS, arena, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  score_output, script_normaliser)
 from services.service_errors import (
@@ -74,7 +76,6 @@ JOB_ID = "benchmark_lab"
 TIERS = ("public", "application", "regression")
 STAGES = ("translation", "transcription", "ocr")
 REGRESSION_SET = "regressions"
-MAX_CONFIGS = 4
 MAX_IMPORT_CASES = 500
 MAX_IMPORT_BYTES = 2_000_000
 MAX_LABEL_CHARS = 120
@@ -123,12 +124,28 @@ def _case_out(c: dict) -> dict:
         "has_reference": bool(c.get("reference_text")),
         "has_input_file": bool(c.get("input_filename")),
         "origin_drama_id": c.get("origin_drama_id"), "origin_line_id": c.get("origin_line_id"),
+        "title": c.get("title") or "", "tags": _tags(c.get("tags")),
+        "scene_order": c.get("scene_order"), "excluded": bool(c.get("excluded")),
+        "ref_version": c.get("ref_version") or 1,
         "created_at": c.get("created_at"),
     }
 
 
-def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=None) -> list:
+def _tags(raw) -> list:
+    try:
+        tags = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    return [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else []
+
+
+def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=None,
+                  scorable_only: bool = False) -> list:
+    """The cases matching a filter. A run passes scorable_only: an excluded
+    case drops out of scoring but is still listed, so it can be brought back."""
     cases = db.list_benchmark_cases(stage)
+    if scorable_only:
+        cases = [c for c in cases if not c.get("excluded")]
     if tier:
         cases = [c for c in cases if (c.get("tier") or "application") == tier]
     if set_name:
@@ -155,8 +172,9 @@ def list_sets() -> dict:
     for c in db.list_benchmark_cases():
         key = (c.get("stage"), c.get("tier") or "application", c.get("set_name") or "")
         g = groups.setdefault(key, {"stage": key[0], "tier": key[1], "set_name": key[2],
-                                    "case_count": 0, "with_reference": 0})
+                                    "case_count": 0, "with_reference": 0, "excluded": 0})
         g["case_count"] += 1
+        g["excluded"] += 1 if c.get("excluded") else 0
         g["with_reference"] += 1 if c.get("reference_text") else 0
     return {"sets": sorted(groups.values(), key=lambda g: (g["stage"] or "", g["tier"], g["set_name"]))}
 
@@ -191,10 +209,30 @@ def _refuse_while_running():
 
 def delete_case(case_id: int) -> dict:
     _refuse_while_running()
-    if not db.get_benchmark_case(case_id):
+    case = db.get_benchmark_case(case_id)
+    if not case:
         raise NotFoundError("Benchmark case not found.")
     db.delete_benchmark_case(case_id)
+    _remove_orphaned_clip(case)
     return {"deleted": True, "id": case_id}
+
+
+_GENERATED_CLIP = re.compile(r"^clip_[0-9a-f]{16}\.(mp3|wav|m4a|flac|ogg)$")
+
+
+def _remove_orphaned_clip(case: dict):
+    """An uploaded clip's audio goes with its last case. Older cases may point
+    at files this app didn't generate (an OCR image, a hand-placed file), so
+    only a clip-imported case or a generated clip name is ever removed."""
+    name = case.get("input_filename")
+    if not name or name != os.path.basename(name) or db.count_benchmark_cases_with_file(name):
+        return
+    if not (case.get("clip_key") or _GENERATED_CLIP.match(name)):
+        return
+    try:
+        os.remove(os.path.join(db.BENCHMARK_DIR, name))
+    except OSError:
+        pass
 
 
 def _parse_import(fmt: str, text: str) -> list:
@@ -383,7 +421,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
     keys = [(c["engine"], c["model"]) for c in checked]
     if len(set(keys)) != len(keys):
         raise InvalidInputError("The same engine and model is picked twice.")
-    cases = _select_cases(stage, tier, set_name, case_ids)
+    cases = _select_cases(stage, tier, set_name, case_ids, scorable_only=True)
     if not cases:
         raise UnsupportedOperationError("No benchmark cases match that selection.")
     require_whisper_fits_cases(stage, checked, cases)
@@ -465,6 +503,9 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     case_filter = json.dumps({"tier": tier, "set_name": set_name,
                               "case_ids": sorted(case_ids) if case_ids else None})
     context = {"use_gpu": use_gpu} if stage != "translation" else {}
+    if stage == "transcription":
+        # Runs without this key were scored on punctuation and width.
+        context["text_normaliser"] = 2
     if stage != "translation" and any(c.get("source_language") == "zh" for c in cases):
         # Runs without this key were scored script-sensitively.
         context["script_normaliser"] = script_normaliser(stage)
@@ -649,25 +690,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
 
 
 # ---------------------------------------------------------------------------
-# Reading runs back
+# Reading runs back (the shaping lives in benchmark_runs_service)
 # ---------------------------------------------------------------------------
-
-_SESSION_FIELDS = ("id", "label", "stage", "engine", "model", "prompt_version", "arena_group",
-                   "status", "case_count", "scored_count", "passed_count", "error_count",
-                   "aggregate_score", "avg_latency_seconds", "total_cost_usd", "peak_vram_mb",
-                   "note", "created_at", "finished_at")
-
-
-def _session_out(s: dict) -> dict:
-    out = {k: s.get(k) for k in _SESSION_FIELDS}
-    for k in ("context_settings", "case_filter"):
-        try:
-            out[k] = json.loads(s.get(k) or "{}")
-        except ValueError:
-            out[k] = {}
-    out["note"] = redact(out["note"])
-    return out
-
 
 def close_stale_runs():
     """A run left queued/running with no live job (the app was closed
@@ -688,86 +712,9 @@ def list_runs(stage: str = None, limit: int = 50) -> dict:
     return {"runs": [_session_out(s) for s in db.list_benchmark_sessions(limit, stage)]}
 
 
-def _script_counts(stage, language, text):
-    """Script counts for a Chinese transcript, else None. Display only: CER
-    converts both sides to Simplified, so it does not see script."""
-    if stage != "transcription" or language != "zh":
-        return None
-    return count_scripts(text)
-
-
-def _result_out(r: dict, stage=None, language=None) -> dict:
-    return {"script_counts": _script_counts(stage, language, r.get("output_text") or ""),
-            "case_id": r.get("case_id"), "case_label": r.get("case_label") or "",
-            "output_text": r.get("output_text") or "", "score": r.get("score"),
-            "metric": r.get("metric"), "scorer": r.get("scorer"), "passed": None if r.get("passed") is None else bool(r["passed"]),
-            "duration_seconds": r.get("duration_seconds"), "cost_usd": r.get("cost_usd") or 0.0,
-            "error": redact(r.get("error"))}
-
-
-def _results_with_scripts(session: dict, rows: list) -> list:
-    languages = {c["id"]: c.get("source_language")
-                 for c in db.list_benchmark_cases(session["stage"])}
-    return [_result_out(r, session["stage"], languages.get(r.get("case_id"))) for r in rows]
-
-
-def _run_with_scripts(run: dict, results: list) -> dict:
-    """The arm's total, present only when some result is a Chinese transcript."""
-    total, any_counts = empty_counts(), False
-    for r in results:
-        if r and r["script_counts"]:
-            total, any_counts = add_counts(total, r["script_counts"]), True
-    return dict(run, script_counts=total if any_counts else None)
-
-
-def get_run(run_id: int) -> dict:
-    s = db.get_benchmark_session(run_id)
-    if not s:
-        raise NotFoundError("Benchmark run not found.")
-    results = _results_with_scripts(s, db.list_benchmark_results(run_id))
-    return {"run": _run_with_scripts(_session_out(s), results), "results": results}
-
-
-def arena(run_ids: list) -> dict:
-    """Model Arena: two or more runs side by side, one row per case with
-    each run's output and score, plus each run's aggregate and the score
-    delta of every run against the first."""
-    if not isinstance(run_ids, list) or not 2 <= len(run_ids) <= MAX_CONFIGS:
-        raise InvalidInputError(f"Pick 2 to {MAX_CONFIGS} runs to compare.")
-    if len(set(run_ids)) != len(run_ids):
-        raise InvalidInputError("The same run is picked twice.")
-    runs = []
-    for rid in run_ids:
-        s = db.get_benchmark_session(rid)
-        if not s:
-            raise NotFoundError("Benchmark run not found.")
-        # A result whose case was deleted keeps its own row (keyed by result
-        # id), never merged with another orphan under one None key.
-        runs.append((s, {(r["case_id"] if r["case_id"] is not None else f"r{r['id']}"): r
-                         for r in db.list_benchmark_results(rid)}))
-    if len({s["stage"] for s, _ in runs}) > 1:
-        raise InvalidInputError("Only runs of the same stage can be compared.")
-    case_order = []
-    for _s, results in runs:
-        for cid in results:
-            if cid not in case_order:
-                case_order.append(cid)
-    cases = {c["id"]: c for c in db.list_benchmark_cases(runs[0][0]["stage"])}
-    rows = []
-    for cid in case_order:
-        c = cases.get(cid) or {}
-        language = c.get("source_language")
-        cells = [(_result_out(res[cid], runs[i][0]["stage"], language) if cid in res else None)
-                 for i, (_s, res) in enumerate(runs)]
-        label = c.get("label") or next((x["case_label"] for x in cells if x), "")
-        rows.append({"case_id": cid if isinstance(cid, int) else None, "label": label, "source_text": c.get("source_text"),
-                     "reference_text": c.get("reference_text"), "tier": c.get("tier"),
-                     "results": cells})
-    base = runs[0][0].get("aggregate_score")
-    summary = []
-    for i, (s, _res) in enumerate(runs):
-        out = _run_with_scripts(_session_out(s), [row["results"][i] for row in rows])
-        agg = s.get("aggregate_score")
-        out["delta_vs_first"] = (agg - base) if agg is not None and base is not None else None
-        summary.append(out)
-    return {"runs": summary, "rows": rows}
+def delete_run(run_id: int) -> dict:
+    """Removes a run and its results. Refused while a benchmark job is going
+    (its judge pass writes beside the run's own rows)."""
+    close_stale_runs()
+    _refuse_while_running()
+    return benchmark_runs_service.delete_run(run_id)

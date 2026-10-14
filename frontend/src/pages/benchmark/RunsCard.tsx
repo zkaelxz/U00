@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
-import type { BenchmarkRun } from '../../api/benchmark'
+import { deleteBenchmarkRun, type BenchmarkRun } from '../../api/benchmark'
 import { Badge } from '../../components/Badge'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { buttonClass } from '../../components/uiClasses'
 import { BenchSection } from './BenchSection'
 import {
   STAGE_LABELS, arenaGroups, compareProblem, formatCost, formatLatency, formatScore, formatWhen, judgeRunLine, runConfigLabel,
-  runStatusLabel, runStatusTone, stageLabel, toggleCompare,
+  plainError, runExtraLabel, runStatusLabel, runStatusTone, stageLabel, toggleCompare,
 } from './benchmarkForm'
 
 type Props = {
@@ -17,16 +18,40 @@ type Props = {
   phone: boolean
   onCompare: (runIds: number[]) => void
   onOpen: (runId: number) => void
+  /** False on a remote viewer: deleting a run is PC only. */
+  canDelete: boolean
+  /** A run was deleted: reload the list. */
+  onDeleted: (runId: number) => void
 }
 
 /** Recent runs: tick 2-4 to compare in the Arena; runs started together compare in one click. */
-export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, onCompare, onOpen }: Props) {
+export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, onCompare, onOpen, canDelete, onDeleted }: Props) {
   const [picked, setPicked] = useState<number[]>([])
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   // Only runs still listed stay picked (a stage filter change hides some).
   const selected = picked.filter((id) => runs.some((r) => r.id === id))
   const problem = compareProblem(selected, runs, maxCompare)
   const groups = arenaGroups(runs, maxCompare).slice(0, 5)
   const toggle = (id: number) => setPicked(toggleCompare(selected, id, maxCompare))
+  const remove = (id: number) => {
+    setDeletingId(id)
+    setDeleteError(null)
+    deleteBenchmarkRun(id).then(
+      () => {
+        setDeletingId(null)
+        setPicked((cur) => cur.filter((x) => x !== id))
+        onDeleted(id)
+      },
+      (e: unknown) => {
+        setDeletingId(null)
+        setDeleteError(plainError(e, { pcOnly: true }))
+      },
+    )
+  }
+  const del = (r: BenchmarkRun) => canDelete && (
+    <ConfirmButton size="sm" name={`run ${r.id}`} busy={deletingId === r.id} disabled={deletingId !== null && deletingId !== r.id} onConfirm={() => remove(r.id)} />
+  )
 
   const filter = (
     <label className="bench-inline-field">
@@ -62,9 +87,9 @@ export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, 
             </ul>
           )}
           {phone ? (
-            <RunCards runs={runs} selected={selected} onToggle={toggle} onOpen={onOpen} />
+            <RunCards runs={runs} selected={selected} onToggle={toggle} onOpen={onOpen} del={del} />
           ) : (
-            <RunTable runs={runs} selected={selected} onToggle={toggle} onOpen={onOpen} />
+            <RunTable runs={runs} selected={selected} onToggle={toggle} onOpen={onOpen} del={del} />
           )}
           <div className="actions">
             <button type="button" className={buttonClass('secondary')} disabled={!!problem} onClick={() => onCompare(selected)}>
@@ -72,13 +97,24 @@ export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, 
             </button>
             {problem && <span className="muted" data-testid="compare-reason">{problem}</span>}
           </div>
+          {deleteError && (
+            <p className="error" role="alert">
+              {deleteError}
+            </p>
+          )}
         </>
       )}
     </BenchSection>
   )
 }
 
-type ListProps = { runs: BenchmarkRun[]; selected: number[]; onToggle: (id: number) => void; onOpen: (id: number) => void }
+type ListProps = {
+  runs: BenchmarkRun[]
+  selected: number[]
+  onToggle: (id: number) => void
+  onOpen: (id: number) => void
+  del: (r: BenchmarkRun) => ReactNode
+}
 
 const runName = (r: BenchmarkRun) => r.label || runConfigLabel(r)
 
@@ -97,7 +133,7 @@ function ScoreCell({ r }: { r: BenchmarkRun }) {
   )
 }
 
-function RunTable({ runs, selected, onToggle, onOpen }: ListProps) {
+function RunTable({ runs, selected, onToggle, onOpen, del }: ListProps) {
   return (
     <div className="table-scroll">
       <table className="bench-table bench-run-table" aria-label="Runs">
@@ -123,7 +159,7 @@ function RunTable({ runs, selected, onToggle, onOpen }: ListProps) {
                 <input type="checkbox" aria-label={`Compare run ${r.id} ${runName(r)}`} checked={selected.includes(r.id)} onChange={() => onToggle(r.id)} />
               </td>
               <td>
-                {r.label || <span className="muted">Run {r.id}</span>}
+                {runExtraLabel(r) || <span className="muted">Run {r.id}</span>}
                 <div className="muted">{stageLabel(r.stage)}{r.arena_group ? ' · arena' : ''}</div>
               </td>
               <td>{runConfigLabel(r)}</td>
@@ -133,7 +169,10 @@ function RunTable({ runs, selected, onToggle, onOpen }: ListProps) {
                 {r.note && <div className="muted bench-note-text">{r.note}</div>}
               </td>
               <td className="num"><ScoreCell r={r} /></td>
-              <td className="num">{r.passed_count}/{r.scored_count}</td>
+              <td className="num">
+                {r.passed_count}/{r.scored_count}
+                {r.error_count ? <div className="muted">{r.error_count} errors</div> : null}
+              </td>
               <td className="num">{formatLatency(r.avg_latency_seconds)}</td>
               <td className="num">
                 {formatCost(r.total_cost_usd)}
@@ -144,6 +183,7 @@ function RunTable({ runs, selected, onToggle, onOpen }: ListProps) {
                 <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Results of run ${r.id}`} onClick={() => onOpen(r.id)}>
                   Results
                 </button>
+                {del(r)}
               </td>
             </tr>
           ))}
@@ -153,7 +193,7 @@ function RunTable({ runs, selected, onToggle, onOpen }: ListProps) {
   )
 }
 
-function RunCards({ runs, selected, onToggle, onOpen }: ListProps) {
+function RunCards({ runs, selected, onToggle, onOpen, del }: ListProps) {
   return (
     <ul className="bench-run-cards" aria-label="Runs">
       {runs.map((r) => (
@@ -162,7 +202,7 @@ function RunCards({ runs, selected, onToggle, onOpen }: ListProps) {
             <input type="checkbox" checked={selected.includes(r.id)} onChange={() => onToggle(r.id)} aria-label={`Compare run ${r.id} ${runName(r)}`} />
             <span>
               <strong>{runName(r)}</strong>
-              <span className="muted"> · {runConfigLabel(r)}</span>
+              {runExtraLabel(r) && <span className="muted"> · {runConfigLabel(r)}</span>}
             </span>
           </label>
           <p className="pill-row">
@@ -171,7 +211,7 @@ function RunCards({ runs, selected, onToggle, onOpen }: ListProps) {
             {r.prompt_version && <Badge tone="neutral">{r.prompt_version}</Badge>}
           </p>
           <p className="num">
-            Score <strong><ScoreCell r={r} /></strong> · {r.passed_count}/{r.scored_count} passed · {formatLatency(r.avg_latency_seconds)} ·{' '}
+            Score <strong><ScoreCell r={r} /></strong> · {r.passed_count}/{r.scored_count} passed{r.error_count ? ` · ${r.error_count} errors` : ''} · {formatLatency(r.avg_latency_seconds)} ·{' '}
             {formatCost(r.total_cost_usd)}
             {r.judge ? ` (+ ${formatCost(r.judge.cost_usd)} judge)` : ''}
           </p>
@@ -181,6 +221,7 @@ function RunCards({ runs, selected, onToggle, onOpen }: ListProps) {
             <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Results of run ${r.id}`} onClick={() => onOpen(r.id)}>
               Results
             </button>
+            {del(r)}
           </div>
         </li>
       ))}

@@ -51,9 +51,15 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/backups/snapshot/dramas` | local_only() |
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
 | `GET /api/benchmark/arena` | admin.diagnostics |
+| `GET /api/benchmark/arena/export` | admin.diagnostics |
 | `GET /api/benchmark/cases` | admin.diagnostics |
 | `POST /api/benchmark/cases` | local_only() |
 | `POST /api/benchmark/cases/{case_id}/delete` | local_only() |
+| `GET /api/benchmark/cases/{case_id}/edits` | admin.diagnostics |
+| `POST /api/benchmark/cases/{case_id}/excluded` | local_only() |
+| `POST /api/benchmark/cases/{case_id}/reference` | local_only() |
+| `POST /api/benchmark/clips/check` | admin.diagnostics |
+| `POST /api/benchmark/clips/import` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/lines/{line_id}/regression` | local_only() |
 | `POST /api/benchmark/estimate` | admin.diagnostics |
 | `POST /api/benchmark/import` | local_only() |
@@ -61,6 +67,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/benchmark/runs` | admin.diagnostics |
 | `POST /api/benchmark/runs` | local_only() |
 | `GET /api/benchmark/runs/{run_id}` | admin.diagnostics |
+| `POST /api/benchmark/runs/{run_id}/delete` | local_only() |
+| `GET /api/benchmark/runs/{run_id}/export` | admin.diagnostics |
 | `GET /api/benchmark/sets` | admin.diagnostics |
 | `POST /api/benchmark/sets/from-title` | local_only() |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |
@@ -583,6 +591,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | local_only() |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
+| `POST /api/system/update/app/apply` | local_only() |
+| `POST /api/system/update/app/download` | local_only() |
 | `POST /api/system/update/check` | local_only() |
 | `POST /api/system/update/download` | local_only() |
 | `POST /api/system/update/install` | local_only() |
@@ -633,6 +643,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate-run/dramas/{drama_id}/source-changed/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/workflow-tier` | lines.edit |
 | `POST /api/translate-run/presets` | admin.library |
+| `POST /api/translate-run/presets/{preset_id}/default` | admin.library |
+| `POST /api/translate-run/presets/{preset_id}/update` | admin.library |
+| `GET /api/translate-run/profile-fields` | library.read |
 | `GET /api/translate/engines` | library.read |
 | `POST /api/translate/estimate` | engines.paid |
 | `DELETE /api/translate/history` | local_only() |

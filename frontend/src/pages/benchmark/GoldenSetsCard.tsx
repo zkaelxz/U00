@@ -15,6 +15,8 @@ import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, type PcMode } from 
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { BenchSection } from './BenchSection'
 import { BuildSetSection } from './BuildSetSection'
+import { CaseRow } from './CaseRow'
+import { ClipImportSection } from './ClipImportSection'
 import { TIER_HELP, TIER_LABELS, plainError, setDisplayName, stageLabel, tierLabel, tierTone } from './benchmarkForm'
 
 type Props = {
@@ -53,7 +55,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
                 <Badge tone={tierTone(s.tier)}>{tierLabel(s.tier)}</Badge>
               </div>
               <p className="muted num">
-                {stageLabel(s.stage)} · {s.case_count} cases · {s.with_reference} with reference
+                {stageLabel(s.stage)} · {s.case_count} cases{s.excluded ? ` (${s.excluded} excluded)` : ''} · {s.with_reference} with reference
               </p>
               <ShowCasesButton set={s} open={!!shown && setKey(shown) === setKey(s)} onToggle={setOpenSet} />
             </li>
@@ -78,7 +80,10 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
                   <td>{setDisplayName(s.set_name)}</td>
                   <td><Badge tone={tierTone(s.tier)}>{tierLabel(s.tier)}</Badge></td>
                   <td>{stageLabel(s.stage)}</td>
-                  <td className="num">{s.case_count}</td>
+                  <td className="num">
+                    {s.case_count}
+                    {!!s.excluded && <span className="muted"> ({s.excluded} excluded)</span>}
+                  </td>
                   <td className="num">{s.with_reference}</td>
                   <td className="bench-cell-action">
                     <ShowCasesButton set={s} open={!!shown && setKey(shown) === setKey(s)} onToggle={setOpenSet} />
@@ -92,6 +97,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
 
       {shown && <CasesPanel key={setKey(shown)} set={shown} pc={pc} onChanged={onChanged} onClose={() => setOpenSet(null)} />}
 
+      <ClipImportSection options={options} pc={pc} onDone={onChanged} />
       <BuildSetSection pc={pc} onDone={onChanged} />
       <ImportSection options={options} pc={pc} onDone={onChanged} />
       <AddCaseSection options={options} pc={pc} onDone={onChanged} />
@@ -158,21 +164,12 @@ function CasesPanel({ set, pc, onChanged, onClose }: { set: BenchmarkSet; pc: Pc
       {cases && cases.length > 0 && (
         <ul className="bench-case-list">
           {cases.map((c) => (
-            <li key={c.id}>
-              <div className="bench-case-text">
-                <strong>{c.label || `Case ${c.id}`}</strong>
-                <span className="muted"> · {humanize('language', c.source_language)}</span>
-                {c.source_text ? (
-                  <p lang={c.source_language}>{c.source_text}</p>
-                ) : (
-                  <p className="muted">{c.has_input_file ? 'An audio or image file on the PC.' : 'No source text.'}</p>
-                )}
-                <p className={c.reference_text ? undefined : 'muted'}>
-                  <span className="muted">Reference: </span>
-                  {c.reference_text || 'None (this case is run but not scored)'}
-                </p>
-              </div>
-              {pc !== 'remote' && (
+            <CaseRow
+              key={c.id}
+              c={c}
+              canEdit={pc !== 'remote'}
+              onChanged={load}
+              remove={pc !== 'remote' && (
                 <ConfirmButton
                   name={c.label || `case ${c.id}`}
                   busy={busyId === c.id}
@@ -180,7 +177,7 @@ function CasesPanel({ set, pc, onChanged, onClose }: { set: BenchmarkSet; pc: Pc
                   onConfirm={() => remove(c)}
                 />
               )}
-            </li>
+            />
           ))}
         </ul>
       )}

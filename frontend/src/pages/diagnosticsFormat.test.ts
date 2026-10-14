@@ -138,7 +138,7 @@ describe('job wording', () => {
   it('adds the title name where the menu has room for one label', () => {
     const titles = new Map([[1, 'Signal']])
     expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #1)', drama_id: 1 }, titles)).toBe('Transcription - Signal')
-    expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #9)', drama_id: 9 }, titles)).toBe('Transcription')
+    expect(jobTitledName({ job_id: 'j', description: 'Transcription (title #9)', drama_id: 9 }, titles)).toBe('Transcription (title #9)')
     expect(jobTitledName({ job_id: 'j', description: 'URL download', drama_id: null }, titles)).toBe('URL download')
     expect(jobTitledName({ job_id: 'j', description: 'Translate Signal', drama_id: 1 }, titles)).toBe('Translate Signal')
   })

@@ -3,7 +3,7 @@
  * POST /api/media/dramas/{id}/download-url, PC only). Used by the Workspace
  * Source stage ("From a URL") and by the Sources page's video preview card.
  *
- *   <UrlDownload dramaId={3} contentMode={drama.content_mode} hasAudio hasSourceVideo busy={busy} onStarted={setJobId} />
+ *   <UrlDownload dramaId={3} hasAudio hasSourceVideo busy={busy} onStarted={setJobId} />
  *   <UrlDownload ... url={pastedUrl} />   // fixed link: no link field
  *
  * Remote viewers get one muted line instead ("PC only for now").
@@ -20,7 +20,7 @@ import { useJob } from '../../../hooks/useJob'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
-  EXACT_CUTS_HELP, MAX_URL_LEN, PART_CLIP_NOTE, QUEUE_NOTE, defaultAudioOnly, downloadReason, partProblem,
+  EXACT_CUTS_HELP, MAX_URL_LEN, PART_CLIP_NOTE, QUEUE_NOTE, downloadReason, partProblem,
 } from '../../sources/urlImportFormat'
 import { SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl } from '../sourceForm'
 import './urlDownload.css'
@@ -29,7 +29,6 @@ export const URL_PC_ONLY = 'Downloading from a link is PC only for now.'
 
 type Props = {
   dramaId: number
-  contentMode: string | null | undefined
   hasAudio: boolean
   hasSourceVideo?: boolean
   readsBurnedInSubtitles?: boolean
@@ -42,12 +41,12 @@ type Props = {
 const needsConfirm = (e: unknown) =>
   e instanceof ApiError && e.status === 422 && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'
 
-export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, readsBurnedInSubtitles, url: fixedUrl, busy, onStarted }: Props) {
+export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSubtitles, url: fixedUrl, busy, onStarted }: Props) {
   const pc = usePcOnly()
   // The link and Audio only as last left for this title; Replace is never kept.
   const { draft, save: saveDraft } = useStageDraft(dramaId, URL_DRAFT_STAGE, URL_DRAFT_SHAPE)
   const [typed, setTyped] = useState(draft.url ?? '')
-  const [audioOnly, setAudioOnly] = useState(() => draft.audioOnly ?? defaultAudioOnly(contentMode))
+  const [audioOnly, setAudioOnly] = useState(() => draft.audioOnly ?? isDirectAudioUrl(fixedUrl ?? draft.url ?? ''))
   useEffect(() => {
     saveDraft({ url: typed, audioOnly })
   }, [saveDraft, typed, audioOnly])
