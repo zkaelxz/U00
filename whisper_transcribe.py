@@ -7,7 +7,7 @@ import json
 import re
 
 import whisper_models
-from segment_splitting import _word_dicts, tighten_to_words
+from segment_splitting import _word_dicts, settle_overlaps, tighten_to_words
 from whisper_hallucination import STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments
 
 
@@ -220,6 +220,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                 result.append(seg)
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
+        settle_overlaps(result)
         if filter_hallucination_repeats:
             # A default run calls the filter exactly as it always has.
             extra = ({} if stock_isolation_sec == STOCK_PHRASE_ISOLATION_SEC
