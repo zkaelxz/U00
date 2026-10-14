@@ -191,7 +191,6 @@ export default function App() {
 
   const headerEnd = (
     <div className="header-end">
-      {!wide && <BackButton />}
       <CommandPalette route={route} context={navContext} />
       <JobsMenu />
       <NotificationBell />
