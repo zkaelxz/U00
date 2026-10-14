@@ -265,7 +265,9 @@ h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
 .skip-link:focus { top: var(--space-2); }
 #main-content:focus { outline: none; }
 
-a { color: var(--accent-text); }
+a { color: var(--accent-text); text-decoration-line: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); transition: text-decoration-color var(--dur-2) var(--ease); }
+/* A faint underline keeps inline links findable without the heavy default; hover and focus restore it. */
+a:hover { text-decoration-color: currentColor; }
 :focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 4px var(--focus); }
 /* A transparent outline is drawn in a system colour under forced colours, so focus never disappears. */
 @media (forced-colors: active) {
