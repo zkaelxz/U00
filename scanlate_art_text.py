@@ -54,8 +54,15 @@ def group_lines(lines: list) -> list:
         else:
             groups.append({"x": line["x"], "y": line["y"], "w": line["w"], "h": line["h"],
                            "lines": [line]})
-    return [{"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"],
-             "source_text": "".join(l["text"] for l in g["lines"])} for g in groups]
+    out = []
+    for g in groups:
+        line_h = int(np.median([l["h"] if l["w"] >= l["h"] else l["w"] for l in g["lines"]]))
+        left_aligned = len(g["lines"]) > 1 and all(
+            abs(l["x"] - g["x"]) < 0.05 * g["w"] for l in g["lines"])
+        out.append({"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"],
+                    "source_text": "".join(l["text"] for l in g["lines"]),
+                    "line_h": line_h, "align": "left" if left_aligned else "center"})
+    return out
 
 
 def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None) -> list:
@@ -128,33 +135,86 @@ def paint_out_captions(page, boxes: list, backend: str = "auto"):
     return ran_model
 
 
-def draw_caption(pil_img, box: dict, text: str, font_path: str = None):
-    """Sets `text` over a painted-out caption: white with a dark outline so it
-    reads on whatever the art is, wrapped to the box and as large as fits."""
-    from PIL import ImageDraw, ImageFont
+def caption_style(page, box: dict) -> dict:
+    """The original lettering's colour and glow, sampled from the page before
+    it is painted out: the fill is the typical bright (or dark) ink pixel, the
+    glow the colour of the halo just outside the strokes."""
+    import cv2
+    mask = caption_mask(page, box)
+    gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
+    ys, xs = np.nonzero(mask)
+    if not len(xs):
+        return {"fill": (255, 255, 255), "glow": None}
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    region = page[y0:y1, x0:x1]
+    reg_gray, reg_mask = gray[y0:y1, x0:x1], mask[y0:y1, x0:x1] > 0
+    dark_bg = background_is_dark(reg_gray)
+    ink = reg_mask & ((reg_gray > 180) if dark_bg else (reg_gray < 110))
+    if not ink.any():
+        return {"fill": (255, 255, 255) if dark_bg else (0, 0, 0), "glow": None}
+    fill = tuple(int(v) for v in np.median(region[ink][:, ::-1], axis=0))
+    ring = cv2.dilate(ink.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    ring &= ~cv2.erode(ink.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+    ring &= ~ink
+    glow = None
+    if ring.any():
+        pix = region[ring][:, ::-1].astype(float)
+        brightest = pix[np.argsort(pix.sum(axis=1))[-max(1, len(pix) // 5):]]
+        glow = tuple(int(v) for v in brightest.mean(axis=0)) if dark_bg else None
+    return {"fill": fill, "glow": glow}
+
+
+def draw_caption(pil_img, box: dict, text: str, style: dict = None, font_path: str = None):
+    """Sets `text` over a painted-out caption the way the original was lettered:
+    same colour and glow, a size matched to the original glyphs (shrunk only to
+    fit the box), centred or left-aligned like the original lines. Without a
+    glow (lettering on a light background) a dark outline keeps it readable."""
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
     from scanlate_render import _find_font
-    draw = ImageDraw.Draw(pil_img)
+    style = style or {"fill": (255, 255, 255), "glow": None}
     path = _find_font(font_path, category="bold")
+    draw = ImageDraw.Draw(pil_img)
     words = text.split()
-    for size in range(max(12, int(min(box["h"] * 0.9, box["w"] * 0.5))), 11, -2):
+    line_h0 = box.get("line_h") or box["h"]
+    if box["h"] > 2 * box["w"]:
+        # Vertical CJK column: English can't stack, so it reads across the column's centre.
+        max_w = max(box["w"] * 3, 1)
+    else:
+        max_w = box["w"]
+    start = max(12, int(min(line_h0 * 0.85, box["h"])))
+    for size in range(start, 11, -2):
         font = ImageFont.truetype(path, size) if path else ImageFont.load_default()
-        stroke = max(2, size // 10)
         lines, cur = [], ""
         for word in words:
             trial = f"{cur} {word}".strip()
-            if cur and draw.textlength(trial, font=font) > box["w"]:
+            if cur and draw.textlength(trial, font=font) > max_w:
                 lines.append(cur)
                 cur = word
             else:
                 cur = trial
         lines.append(cur)
         line_h = int(size * 1.2)
-        fits_width = all(draw.textlength(l, font=font) <= box["w"] for l in lines)
-        if fits_width and line_h * len(lines) <= box["h"] * 1.5:
+        if (all(draw.textlength(l, font=font) <= max_w for l in lines)
+                and line_h * len(lines) <= max(box["h"], line_h)):
             break
+    cx = box["x"] + box["w"] / 2
     top = box["y"] + (box["h"] - line_h * len(lines)) // 2
+    layer = Image.new("L", pil_img.size, 0)
+    layer_draw = ImageDraw.Draw(layer)
+    placed = []
     for i, line in enumerate(lines):
         width = draw.textlength(line, font=font)
-        draw.text((box["x"] + (box["w"] - width) / 2, top + i * line_h), line, font=font,
-                  fill=(255, 255, 255), stroke_width=stroke, stroke_fill=(20, 20, 30))
+        x = box["x"] if box.get("align") == "left" and box["h"] <= 2 * box["w"] else cx - width / 2
+        placed.append((x, top + i * line_h, line))
+        layer_draw.text((x, top + i * line_h), line, font=font, fill=255)
+    if style.get("glow"):
+        halo = layer.filter(ImageFilter.GaussianBlur(max(2, size // 8)))
+        halo = ImageChops.add(halo, halo)
+        pil_img.paste(Image.new("RGB", pil_img.size, tuple(style["glow"])), (0, 0), halo)
+        stroke, stroke_fill = 0, None
+    else:
+        stroke, stroke_fill = max(2, size // 10), (20, 20, 30)
+    for x, y, line in placed:
+        draw.text((x, y), line, font=font, fill=tuple(style["fill"]),
+                  stroke_width=stroke, stroke_fill=stroke_fill)
     return pil_img
