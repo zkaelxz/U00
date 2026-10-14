@@ -229,15 +229,16 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
             if db.get_drama(did) is None:
                 results.append({"drama_id": did, "ok": False, "error": "not_found"})
                 continue
-            if drama_service.job_running_for_drama(did):
-                results.append({"drama_id": did, "ok": False, "error": "job_running"})
-                continue
-            try:
-                leftover = drama_service.hard_delete_drama(did)
-            except ServiceError as e:
-                results.append({"drama_id": did, "ok": False, "error": "delete_failed",
-                                "message": str(e)})
-                continue
+            with job_launch.hold_title(did):
+                if drama_service.job_running_for_drama(did):
+                    results.append({"drama_id": did, "ok": False, "error": "job_running"})
+                    continue
+                try:
+                    leftover = drama_service.hard_delete_drama(did)
+                except ServiceError as e:
+                    results.append({"drama_id": did, "ok": False, "error": "delete_failed",
+                                    "message": str(e)})
+                    continue
             entry = {"drama_id": did, "ok": True}
             if leftover:
                 entry["warning"] = drama_service.LEFTOVER_FILES_MESSAGE
@@ -404,10 +405,11 @@ def storage_cleanup(preset: str, confirm=False, confirm_text="") -> dict:
         results, freed = [], 0
         for d in db.list_dramas():
             did = d["id"]
-            if drama_service.job_running_for_drama(did):
-                results.append({"drama_id": did, "ok": False, "error": "job_running"})
-                continue
-            r = keep_original_service.clean_title_storage(did, cats)
+            with job_launch.hold_title(did):
+                if drama_service.job_running_for_drama(did):
+                    results.append({"drama_id": did, "ok": False, "error": "job_running"})
+                    continue
+                r = keep_original_service.clean_title_storage(did, cats)
             freed += r["freed_bytes"]
             results.append({"drama_id": did, "ok": True, "freed_bytes": r["freed_bytes"]})
         return {"preset": preset, "freed_bytes": freed, "results": results}

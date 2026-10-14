@@ -2302,3 +2302,56 @@ def test_single_delete_refused_while_backing_up(isolated_db, job_id):
     assert db.get_drama(a)
     drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
     assert db.get_drama(a) is None
+
+
+def _start_during(monkeypatch, module, name, job_id):
+    """Replaces module.name with a wrapper that tries to start job_id while
+    the real call runs, and records whether the start was refused."""
+    seen = []
+    real = getattr(module, name)
+
+    def wrapper(*a, **k):
+        try:
+            seen.append(job_launch.start_job(job_id, lambda: None))
+        except ConflictError as e:
+            seen.append(str(e))
+        return real(*a, **k)
+
+    monkeypatch.setattr(module, name, wrapper)
+    return seen
+
+
+def test_no_job_starts_on_a_title_while_it_is_deleted(isolated_db, monkeypatch):
+    from services import drama_service
+    a, b = _new("A"), _new("B")
+    seen = _start_during(monkeypatch, drama_service, "hard_delete_drama", f"transcribe_{a}")
+    other = _start_during(monkeypatch, drama_service, "hard_delete_drama", f"transcribe_{b}")
+    drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
+    assert db.get_drama(a) is None
+    assert other == [True]   # another title's job still starts
+    assert len(seen) == 1 and "being deleted" in seen[0]
+    _wait(f"transcribe_{b}")
+    background_jobs.clear_job(f"transcribe_{b}")
+    assert background_jobs.get_status(f"transcribe_{a}") is None
+
+
+def test_no_job_starts_on_a_title_while_bulk_delete_removes_it(isolated_db, monkeypatch):
+    from services import drama_service
+    a = _new("A")
+    seen = _start_during(monkeypatch, drama_service, "hard_delete_drama", f"transcribe_{a}")
+    assert las.bulk_delete([a], confirm=True, confirm_text="DELETE")["deleted"] == 1
+    assert len(seen) == 1 and "being deleted" in seen[0]
+    assert background_jobs.get_status(f"transcribe_{a}") is None
+
+
+def test_no_job_starts_on_a_title_while_its_storage_is_cleaned(isolated_db, monkeypatch):
+    from services import keep_original_service
+    a = _new("A")
+    seen = _start_during(monkeypatch, keep_original_service, "clean_title_storage",
+                         f"transcribe_{a}")
+    las.storage_cleanup("balanced", confirm=True, confirm_text="CLEAN")
+    assert len(seen) == 1 and "being deleted" in seen[0]
+    # The hold ends with the cleanup: the title's jobs start again.
+    assert job_launch.start_job(f"transcribe_{a}", lambda: None)
+    _wait(f"transcribe_{a}")
+    background_jobs.clear_job(f"transcribe_{a}")
