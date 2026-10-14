@@ -59,7 +59,8 @@ def _superseded_locked(job_id: str) -> bool:
     longer job_id's current one (it was cleared, and maybe a new run of the
     same id started): its progress and result must not land on that run."""
     me = threading.current_thread()
-    if getattr(me, "baihe_job_id", None) != job_id:
+    tag = getattr(me, "baihe_job_id", None)
+    if tag is None or tag != job_id:
         return False
     worker = _workers.get(job_id)
     return worker is None or worker[1] is not me or worker[0] is not _jobs.get(job_id)

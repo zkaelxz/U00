@@ -182,6 +182,7 @@ def _gpu_slot_available_locked(job_id, description):
         from jobs import gpu_slots
         if gpu_slots.acquire(f"ui:{job_id}", description, job_id=job_id, check_external_load=True,
                              busy_timeout=GPU_ROW_BUSY_SECONDS):
+            _unreleased.discard(job_id)   # the row is this new run's now
             return True
         _note_gpu_wait_reason_locked(job_id)
         return False
@@ -230,10 +231,14 @@ def _release_gpu_slot(job_id, gpu_touching, run=None):
 
 def retry_unreleased_gpu_slots():
     """Frees the slots whose release failed (heartbeat thread). A run of the
-    same id that is running again owns its row now: it is left alone."""
+    same id that is running again owns its row now: it is left alone. An
+    abandoned worker that is still alive may still be on the GPU, so its row
+    waits until that worker is gone."""
     from jobs import gpu_slots
     with _lock:
         for job_id in list(_unreleased):
+            if job_force_stop.abandoned_alive_locked(job_id):
+                continue
             current = _jobs.get(job_id)
             if current is not None and current.get("status") == "running" \
                     and current.get("gpu_touching"):
