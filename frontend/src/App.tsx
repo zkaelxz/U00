@@ -40,7 +40,7 @@ import { BackButton } from './nav/BackButton'
 import { MenuButton, NavDrawer } from './nav/NavDrawer'
 import { PhoneBar } from './nav/PhoneBar'
 import { DOCK_MIN_WIDTH } from './nav/navItems'
-import { useNavDock } from './nav/navDock'
+import { useNavDock, useNavPosition } from './nav/navDock'
 import { SideNav } from './nav/SideNav'
 import { useHeaderHeight } from './nav/useHeaderHeight'
 import { ReportProblemButton } from './report/ReportProblem'
@@ -168,6 +168,7 @@ export default function App() {
   const [hidden] = useHiddenNav(session)
   const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`)
   const navDock = useNavDock()
+  const navPosition = useNavPosition()
   const headerRef = useHeaderHeight()
   const mainRef = useRef<HTMLElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -188,6 +189,15 @@ export default function App() {
   const navContext = { session, pcMode, developerMode, hidden }
   // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
   const phoneBar = !wide && !BOUNDED_ROUTES.has(route.name)
+  // Left is the original layout and adds nothing; on a phone only the bar can move, and only to the top.
+  const shellClass = [
+    'app-shell',
+    wide && 'has-rail',
+    wide && navDock !== 'float' && 'is-docked',
+    wide && navDock === 'minimized' && 'is-minimized',
+    phoneBar && 'has-phone-bar',
+    (wide ? navPosition !== 'left' : phoneBar && navPosition === 'top') && `nav-${navPosition}`,
+  ].filter(Boolean).join(' ')
 
   const headerEnd = (
     <div className="header-end">
@@ -253,7 +263,7 @@ export default function App() {
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
       <a className="skip-link" href="#main-content" onClick={skipToContent}>Skip to content</a>
-      <div className={wide ? (navDock === 'float' ? 'app-shell has-rail' : navDock === 'minimized' ? 'app-shell has-rail is-docked is-minimized' : 'app-shell has-rail is-docked') : phoneBar ? 'app-shell has-phone-bar' : 'app-shell'}>
+      <div className={shellClass}>
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
           {wide ? (
