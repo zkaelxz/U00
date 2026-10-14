@@ -198,8 +198,8 @@ def list_users() -> list:
 
 def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False) -> dict:
     """`keep_an_admin` refuses (409) to deactivate the last active admin.
-    The CLI leaves it off: it is the local recovery path, and
-    `grant-admin` brings an admin back."""
+    `python -m api deactivate` leaves it off: it is the local recovery path,
+    and `grant-admin` brings an admin back."""
     _require_user(user_id)
     if keep_an_admin:
         if not db.auth_deactivate_user_keeping_an_admin(user_id):
@@ -294,7 +294,7 @@ def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
     next request (and any open event stream) re-checks as a member.
     Checks: 404, own account (409), away from the PC (403: admin accounts
     are PC-only), not an admin (409), last active admin (409, one guarded
-    UPDATE, as for deactivate). The CLI passes at_pc=True."""
+    UPDATE, as for deactivate). `python -m api revoke-admin` passes at_pc=True."""
     row = _require_user(user_id)
     if actor_id is not None and user_id == actor_id:
         raise ConflictError("You can't remove your own admin rights.")
@@ -343,7 +343,7 @@ def find_user_by_google_sub(google_sub: str):
 
 
 def find_user_by_email(email: str):
-    """Allowlist lookup by email, for local administration (the CLI) and
+    """Allowlist lookup by email, for local administration (`python -m api`) and
     the first-login binding in `oidc_service` (a verified email may bind
     an allowlisted user that has no Google binding yet). Never the way a
     returning user is identified: that is `find_user_by_google_sub`.
