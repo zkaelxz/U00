@@ -1,6 +1,7 @@
 """Usage rows and run limits for AI calls that are not a translation batch.
 
-record_call is the one writer of a usage row for a single paid call. CallLimits
+record_call writes a usage row from a call's reported usage dict; usage_logger
+writes one from the (tokens in, tokens out) callbacks of the LLM helpers. CallLimits
 is opened around a job's call_llm_json calls: it re-checks the monthly cap
 before each one, ends the job after a run of failed requests, shares one
 rate-limit wait budget, and can write each call's usage row itself."""

@@ -191,6 +191,8 @@ def test_title_from_url(url, label):
     # its letters (a signed CDN path), and the query is dropped.
     ("https://cdn.example/token/abcdefghijklmnopqrstuv/001.png?sig=1", "https://cdn.example/"),
     ("https://cdn.example/priv/abcdefghijklmnop/page1.jpg", "https://cdn.example/"),
+    ("https://blog.example/key/key-takeaways-from-volume-one",
+     "https://blog.example/key/key-takeaways-from-volume-one"),
     ("https://cdn.example/token/short/001.png", "https://cdn.example/token/short/001.png"),
 ])
 def test_display_url_keeps_slugs_and_drops_token_paths(url, shown):

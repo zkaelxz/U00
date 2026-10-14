@@ -396,11 +396,20 @@ def _segment_holds_secret(segment: str) -> bool:
 # marker segment immediately before the token so an ordinary chapter/page slug,
 # which never sits right after a segment literally named "token"/"auth"/"priv",
 # is never touched. Catches tokens _segment_holds_secret cannot tell from a
-# long lowercase slug word.
+# long lowercase run; _marked_secret still keeps a hyphenated slug of plain words.
 SENSITIVE_PATH_SEGMENT = re.compile(
     r"((?:^|/)(?:token|sign(?:ed)?|auth|session|sess|secret|credential|ticket|jwt|access|"
     r"policy|hmac|nonce|cookie|passport|key|priv(?:ate)?|secure)/)"
-    r"[\w-]{16,}(?=/|$|[?#])", re.I)
+    r"([\w-]{16,})(?=/|$|[?#])", re.I)
+
+
+def _marked_secret(path: str) -> bool:
+    for m in SENSITIVE_PATH_SEGMENT.finditer(path):
+        token = m.group(2)
+        parts = [p for p in _SEGMENT_PART.split(token) if p]
+        if len(parts) == 1 or any(_random_part(p) for p in parts):
+            return True
+    return False
 
 
 def display_url(url) -> str:
@@ -420,7 +429,7 @@ def display_url(url) -> str:
     if ":" in host:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
-    if (SENSITIVE_PATH_SEGMENT.search(path)
+    if (_marked_secret(path)
             or any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg)))):
         path = "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
