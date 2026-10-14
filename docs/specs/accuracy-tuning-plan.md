@@ -44,11 +44,18 @@ The owner wants better transcription and translation accuracy, and evidence for 
 ## Method
 
 1. **Reference sets.**
-   - **Main source: the owner's clip set.** A folder of clips plus a manifest, one line per clip: `{"audio": "clip01.wav", "language": "zh", "transcript": "…", "translation": "…", "title": "…", "tags": ["music", "whisper"]}`. Each line becomes a transcription case and a translation case. Clips from one scene keep their order so translation can be tested with context.
+   - **Main source: the owner's clip set.** A folder of clips plus a manifest, one line per clip: `{"audio": "clip01.wav", "language": "zh", "transcript": "…", "translation": "…", "title": "…", "tags": ["music", "whisper"]}`. Clips from one scene keep their order so translation can be tested with context. `start`/`end` per line (or an SRT beside the clip) are optional and enable timing scores. What a line can test depends on what it has:
+
+     | Clip has | Tests |
+     |---|---|
+     | transcript and translation (best) | transcription, translation, and the whole chain |
+     | transcript only | transcription |
+     | translation only | the whole chain only (translation alone needs a source text) |
+
    - **Top-up:** lines corrected in Review (source text against `raw_transcript`, and `edit_samples` for English).
    - Size before a result counts: 50–100 clips of 5–30 s (about 20–30 minutes), and 100 or more translation lines, from at least 3 titles. Mix what is actually worked on: quiet dialogue, music, whispering or ASMR, crosstalk.
    - References are written exactly as spoken; a wrong reference counts against every setup.
-   - Clips used as worked examples in the translation prompt (step T3) are never also test cases.
+   - Clips used as worked examples in the translation prompt (step T4) are never also test cases.
 2. **Split by title**, 70% for tuning and 30% for hold-out, so no title is in both halves. The hold-out is only used to confirm a winner, never to pick one.
 3. **Measure the noise.** Run the default setup twice; the gap is the noise floor.
 4. **Sweep one setting at a time** (coordinate descent) from the current default, keeping each winner before moving on.
@@ -56,7 +63,7 @@ The owner wants better transcription and translation accuracy, and evidence for 
    - Transcription: at least 2 CER points and at least twice the measured noise.
    - Translation: at least 1.5 chrF points, with the judge score no lower.
    - **Results are kept separate per language** and never averaged across Chinese, Japanese and Korean. Each language gets its own scores and its own recommendation, because the best setting can differ: the earlier tests found beam 1 cost large-v3 1.5 CER on Japanese but not on Chinese.
-   - Results are also shown per tag (music, whisper, crosstalk…), so a setting that helps one kind of audio and hurts another is promoted only for that kind.
+   - Results are also shown per tag (music, whisper, crosstalk…), so a setting that helps one kind of audio and hurts another is promoted only for that kind. A tag group with fewer than about 15 clips is shown as too small to decide on.
    - Otherwise the default stays.
 6. **Compare like with like.** Two runs are compared only on the clips both scored; excluding or deleting a clip never skews a comparison.
 7. **Promote only on the owner's approval**, per content type and language, as `model_reeval_service` promotes a model. The approval is recorded.
@@ -92,6 +99,7 @@ One PR each, in this order.
 
 - Import a clip folder plus manifest (format in Method). Clips are copied into `db.BENCHMARK_DIR`; each line makes a transcription case and a translation case, with title, tags and scene order kept. Size and count caps like `MAX_IMPORT_CASES`; paths are never returned in API responses.
 - **Language per clip, not per import.** `language` (`zh`, `ja` or `ko`) is required on every manifest line, so one clip set can mix all three. Today's text import takes one `source_language` for the whole import; the clip import does not.
+- **One text normalisation for both scorers**, so results from the first import are comparable across PCs: drop punctuation, fold full-width to half-width, ignore spacing; keep Traditional→Simplified for Chinese. Today the built-in CER counts punctuation while the jiwer path strips it. (OCR keeps punctuation, per the 2026-09-30 decision.)
 - **Mismatch check on import.** Kana in a transcript points to Japanese and Hangul to Korean. When the text doesn't match the label, the import warns and names the clip rather than silently relabelling it.
 - **Exclude or include per case.** Safer than deleting: a suspect clip drops out of scoring and can be brought back later.
 - **Edit a reference in place.** Fix a case's transcript or translation without deleting it, so its past results stay tied to it. The edit is recorded (when and what changed), so a score from before the fix can be told apart from one after it.
@@ -107,10 +115,13 @@ One PR each, in this order.
 - Offer Qwen3-ASR and anime-whisper as Lab models.
 - Record the options in `benchmark_sessions.context_settings`, plus the app version and the model's identity (Whisper size or folder, Ollama digest, API model name), so a result can be traced and re-run.
 
-### A3. Fairer transcription scoring
+### A3. Line timing scores and timing settings
 
-- One normalisation for both scorers: drop punctuation, fold full-width to half-width, ignore spacing; keep Traditional→Simplified for Chinese. The built-in and jiwer paths then agree.
-- When the manifest gives line timings (or an SRT), also score timing error and merged/missed lines, reusing the measures in `tools/asr_bench.py`.
+- **Scored only for clips with reference timings.** The easiest source is a title whose timing was already fixed by hand in Review; its lines carry start and end times. Timings must be accurate, or the app is tuned toward the mistakes.
+- **Measures:** median start and end error (ms); share of lines whose start and end are within 0.3 s; lines wrongly merged or split; missed lines; lines placed in silence. Reuse what `tools/asr_bench.py` already measures (`count_in_silence` and the merged/missed counts).
+- **Settings the sweep can tune for timing:** min silence and VAD threshold (where lines break); Whisper's speech pad (not passed today, so the library default of about 0.4 s applies); "Refine line timing" with the forced aligner, on or off; the split limits of 8 s and 40 characters (`segment_splitting.py`).
+- **Check the timing-flag thresholds** in `timing_drift.py` (`EARLY_START_S` and `LATE_END_S`, both 0.7 s) against the reference timings, instead of leaving them as guesses.
+- A timing win is judged on its own margin (to be set from the measured noise) and never traded silently for a worse CER.
 
 ### A4. Sweep job
 
@@ -133,11 +144,11 @@ One PR each, in this order.
 - The sweep covers model, batch size, context window, reflect and style preset.
 - `workspace_job_service` and `bulk_translate` take the registry defaults instead of their own 6/3/20, unless the sweep says otherwise.
 
-### T2. Judge scores, your own picks, more than one reference
+### T2. Judge scores and your own picks
 
 - Store judge scores in `benchmark_results` (ADD COLUMN, listed in `_INIT_DB_MIGRATED_COLUMNS`).
 - **Blind A/B:** the owner picks the better of two outputs without seeing which setup made them; the picks are stored and shown beside chrF and the judge. They also check whether the judge agrees with the owner.
-- A case may hold more than one reference translation; chrF takes the best match.
+- Not now: more than one reference translation per case. Writing a second translation for every clip costs the owner more than it gains, and the blind A/B picks cover most of what it would fix.
 
 ### T3. End-to-end score
 
