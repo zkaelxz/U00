@@ -2257,6 +2257,29 @@ class TestInitDbSchema:
         isolated_db.init_db()
         assert _exact_snapshot(isolated_db.DB_PATH) == upgraded_exact
 
+    def test_an_upgrade_interrupted_inside_a_column_group_finishes_on_the_next_start(
+            self, isolated_db):
+        # A crash between two ALTERs of one migration leaves the first column
+        # added and the rest missing; the next init_db must add the rest.
+        fresh = _schema_shape(isolated_db.DB_PATH)
+        added_later = {"series_characters": ["voice_fingerprint_samples"],
+                       "bubbles": ["kind_confidence", "confidence", "language", "orientation",
+                                   "panel_id", "include_sfx"],
+                       "bulk_jobs": ["stage", "pipeline_id"],
+                       "bulk_job_lines": ["state_at_submit"]}
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            for table, cols in added_later.items():
+                for col in cols:
+                    conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+            conn.commit()
+        finally:
+            conn.close()
+
+        isolated_db.init_db()
+
+        assert _schema_shape(isolated_db.DB_PATH) == fresh
+
     def test_a_title_from_an_old_database_gets_the_default_split_pause(self, isolated_db):
         _make_old_shape(isolated_db.DB_PATH)
         isolated_db.init_db()

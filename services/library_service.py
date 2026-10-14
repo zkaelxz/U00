@@ -26,13 +26,6 @@ def cache_hit_share(usage: dict) -> float:
     return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
 
 
-def display_source_url(url) -> str:
-    """A drama's stored source_url as the API may return it (see
-    translate_engines.display_url)."""
-    from translate_engines import display_url   # lazy: a heavy module
-    return display_url(url)
-
-
 def split_custom_tags(drama: dict) -> list:
     """A drama's `custom_tags` column (comma-separated text) as a list of
     trimmed, non-empty tags, in stored order."""
