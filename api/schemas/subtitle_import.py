@@ -5,7 +5,7 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = ["SubtitleProblem", "SubtitleSampleCue", "SubtitleImportPreview", "SubtitleUndoHandle",
-           "SubtitleImportResult", "SidecarMatchRequest", "SidecarCandidateOut", "SidecarMatchResult"]
+           "SubtitleImportResult"]
 
 
 class SubtitleProblem(BaseModel):
@@ -57,22 +57,3 @@ class SubtitleImportResult(BaseModel):
     matched_lines: int
     unmatched_cues: int
     undo: Optional[SubtitleUndoHandle] = None
-
-
-class SidecarMatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    media_name: str = Field(min_length=1, max_length=255)
-    names: List[str] = Field(max_length=500)
-
-
-class SidecarCandidateOut(BaseModel):
-    name: str
-    format: str
-    language_token: Optional[str] = None
-    language: Optional[str] = None
-    exact: bool
-
-
-class SidecarMatchResult(BaseModel):
-    candidates: List[SidecarCandidateOut]
-    ambiguous: bool

@@ -127,6 +127,11 @@ def local_owner_principal() -> dict:
             "permissions": list(auth_service.PERMISSIONS)}
 
 
+def principal_user_id(request: Request):
+    """The caller's user id; None for the local owner (auth off)."""
+    return (getattr(request.state, "principal", None) or {}).get("user_id")
+
+
 def _marked(fn, kind, permission=None):
     setattr(fn, MARKER_ATTR, (kind, permission))
     return Depends(fn)

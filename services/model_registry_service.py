@@ -100,10 +100,6 @@ def load_registry(path: str = None) -> dict:
     return out
 
 
-def _default_model(engine: str):
-    return translate_engines.effective_default_model(engine)
-
-
 def configured_models() -> list:
     """Every place a model string is set: [{engine, model, where, kind,
     preset_id?}] (kind: "default", "tier" or "preset")."""
@@ -111,7 +107,7 @@ def configured_models() -> list:
     for e in translate_service.list_engines():
         if e["name"] not in _PROVIDER_LISTS and e["models"] is None:
             continue
-        model = _default_model(e["name"])
+        model = translate_engines.effective_default_model(e["name"])
         if model:
             builtin = translate_engines.builtin_default_model(e["name"])
             out.append({"engine": e["name"], "model": model, "kind": "default",
@@ -208,7 +204,7 @@ def _offered(engine: str) -> list:
         return []
     if entry["models"] is not None:
         return list(entry["models"])
-    default = _default_model(engine)
+    default = translate_engines.effective_default_model(engine)
     return [default] if default else []
 
 
@@ -279,7 +275,7 @@ def _assess(engine: str, model: str, registry: dict, check: dict) -> dict:
         status = "not_offered"
         msg = (f"{model} ({engine}) isn't a model this app offers any more, so a run with it "
                "is refused.")
-        replacement = replacement or (_default_model(engine) if engine in translate_engines.ENGINES
+        replacement = replacement or (translate_engines.effective_default_model(engine) if engine in translate_engines.ENGINES
                                       else None)
     elif entry and entry["status"] == "legacy":
         status = "legacy"

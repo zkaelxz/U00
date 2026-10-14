@@ -15,7 +15,7 @@ dub_routes.py.
 from typing import List
 
 from fastapi import APIRouter, Path, Request
-from api.auth import require_permission
+from api.auth import principal_user_id, require_permission
 from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersRememberRequest,
                          CharactersRememberResult, CharactersRenameRequest,
                          CharactersMergeRequest, CharactersMergeResult, CharactersMergeUndoRequest,
@@ -125,10 +125,6 @@ def post_undo_rename_speaker(payload: CharactersRenameUndoRequest, drama_id: int
     return characters_service.undo_rename_speaker(drama_id, payload.undo.model_dump())
 
 
-def _user_id(request: Request):
-    return (getattr(request.state, "principal", None) or {}).get("user_id")
-
-
 @router.post("/dramas/{drama_id}/merge-speakers", dependencies=[require_permission("lines.edit")],
              response_model=CharactersMergeResult,
              summary="Merge one speaker into another: its lines and its Characters row",
@@ -137,7 +133,7 @@ def _user_id(request: Request):
 def post_merge_speakers(payload: CharactersMergeRequest, request: Request,
                         drama_id: int = Path(ge=1)):
     return characters_service.merge_speakers(drama_id, payload.source_label, payload.target_label,
-                                             user_id=_user_id(request))
+                                             user_id=principal_user_id(request))
 
 
 @router.post("/dramas/{drama_id}/merge-speakers/undo", dependencies=[require_permission("lines.edit")],
@@ -148,4 +144,4 @@ def post_merge_speakers(payload: CharactersMergeRequest, request: Request,
 def post_undo_merge_speakers(payload: CharactersMergeUndoRequest, request: Request,
                              drama_id: int = Path(ge=1)):
     return characters_service.undo_merge_speakers(drama_id, payload.undo_id,
-                                                  user_id=_user_id(request))
+                                                  user_id=principal_user_id(request))

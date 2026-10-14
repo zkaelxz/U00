@@ -615,11 +615,6 @@ def sweep_stale_sessions(now: float = None) -> int:
     return n
 
 
-def list_sessions(user_id: int) -> list:
-    """No raw tokens and no hashes."""
-    return db.auth_list_sessions(user_id)
-
-
 # --- the signed-in user's own devices ------------------------------------------
 # The user id always comes from the caller's session, never from the
 # request, so nobody can list or end another user's sessions here; a session
