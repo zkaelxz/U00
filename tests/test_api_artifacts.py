@@ -182,7 +182,7 @@ def test_source_title_is_the_fallback_and_cjk_survives(client, isolated_db):
     did = isolated_db.create_drama(title_en="", title_zh="治愈魔法什么都能复制", episode_number=1)
     _write(did, "dubbed_video", f"dubbed_video_{did}.mp4")
     cd = _disposition(client.get(f"/api/artifacts/dramas/{did}/dubbed_video"))
-    assert 'filename="__________ - Ep 1 - dubbed.mp4"' in cd
+    assert 'filename="Ep 1 - dubbed.mp4"' in cd
     assert "filename*=UTF-8''%E6%B2%BB%E6%84%88" in cd
     cd.encode("ascii")
 
@@ -245,7 +245,7 @@ def test_content_disposition_cannot_be_injected():
 
 def test_content_disposition_has_ascii_fallback_and_utf8_name():
     cd = export_service.content_disposition("治愈 - Ep 1.srt")
-    assert 'filename="__ - Ep 1.srt"' in cd
+    assert 'filename="Ep 1.srt"' in cd
     assert "filename*=UTF-8''%E6%B2%BB%E6%84%88%20-%20Ep%201.srt" in cd
 
 

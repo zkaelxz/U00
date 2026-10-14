@@ -181,7 +181,7 @@ def test_export_zip_job_and_artifact(isolated_db):
     assert set(art) == {"kind", "name", "size"} and art["size"] > 0
     _no_path(art, db.LIBRARY_DIR)
     with zipfile.ZipFile(las.admin_artifact_path("export")["path"]) as zf:
-        assert any(n.endswith("english.srt") for n in zf.namelist())
+        assert any(n.endswith("(en).srt") for n in zf.namelist())
 
 
 def test_backup_job_then_valid_for_restore(isolated_db):

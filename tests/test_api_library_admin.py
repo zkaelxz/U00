@@ -281,7 +281,7 @@ class TestExportBackupArtifacts:
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "export", "application/zip")
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            assert any(n.endswith("english.srt") for n in zf.namelist())
+            assert any(n.endswith("(en).srt") for n in zf.namelist())
 
     def test_export_explicit_ids_and_duplicate(self, client):
         a = _new("A", "translated", translated=True)

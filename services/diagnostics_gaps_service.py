@@ -80,6 +80,10 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     cuda = gpu_torch.check_cuda_isolated()
     browser = diagnostics.check_browser()
     files = diagnostics.check_file_completeness(project_root)
+    writable = bool(diagnostics.check_library_writable(library_dir))
+    warnings = diagnostics.startup_warnings()
+    if not writable:
+        warnings.append("The library folder is read-only, so nothing can be saved.")
     return {
         "python": {"version": py.get("version"), "ok": bool(py.get("ok"))},
         "ffmpeg": {"found": bool(ff.get("found")),
@@ -92,8 +96,8 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
                  "cuda_available": cuda.get("cuda_available")},
         "files": {"all_present": bool(files["all_present"]),
                   "missing_top_level": list(files["missing_top_level"])},
-        "library_writable": bool(diagnostics.check_library_writable(library_dir)),
-        "warnings": diagnostics.startup_warnings(),
+        "library_writable": writable,
+        "warnings": warnings,
     }
 
 

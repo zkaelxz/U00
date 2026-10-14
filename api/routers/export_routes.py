@@ -40,7 +40,7 @@ def get_export_readiness(drama_id: int = Path(ge=1)):
 
 @router.get("/dramas/{drama_id}/subtitle", dependencies=[require_permission("lines.read")],
             summary="Generate SRT/VTT/LRC subtitle text for one drama (plain-text download)",
-            responses=error_responses(404, 422))
+            responses=error_responses(404, 409, 422))
 def get_subtitle_text(
         drama_id: int = Path(ge=1),
         fmt: str = Query("srt", pattern="^(srt|vtt|lrc)$"),
