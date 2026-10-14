@@ -141,7 +141,8 @@ def apply_diarization_result(drama_id: int, result: dict,
                              expected_speakers: Optional[int] = None,
                              overwrite_manual: bool = False,
                              min_speakers: Optional[int] = None,
-                             max_speakers: Optional[int] = None) -> None:
+                             max_speakers: Optional[int] = None,
+                             speakers_at_start: Optional[dict] = None) -> None:
     """The process job's on_done hook, so a diarization run persists its
     own result: saves the turns (+model,
     embeddings, the count the job was started with), re-merges speakers
@@ -165,10 +166,15 @@ def apply_diarization_result(drama_id: int, result: dict,
                        min_speakers=min_speakers or None, max_speakers=max_speakers or None,
                        device=result.get("device"))
     lines = db.load_line_objects(drama_id)
+    for ln in lines:
+        # Detection takes minutes: the compare-and-set must run against what the
+        # user saw when it started, or an edit made meanwhile reads as unchanged.
+        then = (speakers_at_start or {}).get(ln.id)
+        if then is not None:
+            ln.orig = {**(ln.orig or {}), **then}
     diarize.merge_speakers(lines, turns, overwrite_manual=overwrite_manual)
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
-    # Detection takes minutes; a speaker edited meanwhile must survive the result.
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
 
 
@@ -224,9 +230,16 @@ def _record_run_speed(drama_id: int, result) -> None:
         pass
 
 
+def speakers_snapshot(drama_id: int) -> dict:
+    """{line id: speaker fields} as they are now, for apply_diarization_result."""
+    return {ln.id: {f: db.line_value(ln, f) for f in ("speaker", "speaker_manual")}
+            for ln in db.load_line_objects(drama_id)}
+
+
 def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        overwrite_manual: bool = False, min_speakers: Optional[int] = None,
-                       max_speakers: Optional[int] = None):
+                       max_speakers: Optional[int] = None,
+                       speakers_at_start: Optional[dict] = None):
     """The on_done hook for a diarize_<drama_id> process job."""
     def _on_done(job_id, result):
         fell_back = bool((result or {}).get("fell_back_to_cpu"))
@@ -234,7 +247,8 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
         background_jobs.update_progress(
             job_id, 0.97, (notice + " " if fell_back else "") + "Matching speakers to lines...")
         apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
-                                 min_speakers=min_speakers, max_speakers=max_speakers)
+                                 min_speakers=min_speakers, max_speakers=max_speakers,
+                                 speakers_at_start=speakers_at_start)
         _record_run_speed(drama_id, result)
         if fell_back:
             # Replaces the stored result so the finished job still says it.
@@ -318,7 +332,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         gpu_touching=True, description=f"Diarization (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
-                                   min_speakers, max_speakers),
+                                   min_speakers, max_speakers,
+                                   speakers_at_start=speakers_snapshot(drama_id)),
         run_settings=run_settings_service.for_diarize(
             expected_speakers, min_speakers, max_speakers, settings_service.get("use_gpu"),
             overwrite_manual=overwrite_manual))

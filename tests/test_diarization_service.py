@@ -244,7 +244,29 @@ class TestApplyDiarizationResult:
         diarization_service.start_diarization_run(did, expected_speakers=4)
         captured["on_done"]("j", {"segments": []})
         assert applied == [((did, {"segments": []}, 4, False),
-                            {"min_speakers": None, "max_speakers": None})]
+                            {"min_speakers": None, "max_speakers": None,
+                             "speakers_at_start": {}})]
+
+    def test_a_speaker_edited_during_detection_survives_the_result(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        captured = {}
+        monkeypatch.setattr(job_launch, "start_process_job",
+                            lambda *a, **k: captured.update(k) or True)
+        diarization_service.start_diarization_run(did, overwrite_manual=True, confirm=True)
+        # The user corrects line 0 while pyannote runs.
+        edited = isolated_db.load_line_objects(did)
+        edited[0].speaker = "Alice"
+        edited[0].speaker_manual = True
+        isolated_db.save_lines(did, edited, fields=("speaker", "speaker_manual"))
+
+        captured["on_done"]("j", {"segments": [{"start": 0.0, "end": 6.0, "speaker": "S0"}],
+                                  "model": "m"})
+
+        rows = isolated_db.load_line_objects(did)
+        assert (rows[0].speaker, rows[0].speaker_manual) == ("Alice", True)
+        assert rows[1].speaker == "S0"      # the line nobody touched is still relabelled
 
     def test_start_run_passes_range_to_worker_and_on_done(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
@@ -259,7 +281,7 @@ class TestApplyDiarizationResult:
         options = captured["args"][3]
         assert (options["min_speakers"], options["max_speakers"]) == (2, 4)
         captured["on_done"]("j", {"segments": []})
-        assert applied[0][1] == {"min_speakers": 2, "max_speakers": 4}
+        assert applied[0][1] == {"min_speakers": 2, "max_speakers": 4, "speakers_at_start": {}}
 
 
 class TestOverwriteManual:
