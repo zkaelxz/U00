@@ -123,6 +123,11 @@ def _apply_resegmented(drama_id: int, new_lines, guard: tuple) -> dict:
                for lid, was in fingerprint if lid not in kept_ids):
             raise RuntimeError("A line being split was edited or given a note while "
                                "re-segmenting -- nothing was changed; run it again.")
+        if db.line_emotion_ids(drama_id) - emotions_then:
+            # Refused here, before the history snapshot _commit takes, so no
+            # orphan "before re-segment" entry is left behind.
+            raise RuntimeError("An emotion tag was added while re-segmenting -- nothing was "
+                               "changed; run it again.")
         _commit(drama_id, current, list(new_lines), "before re-segment",
                 known_note_ids=set().union(*notes_then.values()),
                 known_emotion_ids=emotions_then)

@@ -269,15 +269,14 @@ def owner_map(conn, backup_path: str) -> dict:
     return _match_accounts(_accounts(conn, "main"), backup)
 
 
-def backup_has_usable_accounts(conn, backup_path: str) -> bool:
-    """Whether the backup holds an account owner_map can match, read with the
-    staged library.db (main) open. False for a users table too old to carry
-    google_sub: no title can then be matched to an account."""
-    conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(backup_path),))
+def backup_has_usable_accounts(backup_path: str) -> bool:
+    """has_usable_accounts for a backup file; False for a users table too old
+    to carry google_sub."""
+    conn = sqlite3.connect(_ro_uri(backup_path), uri=True)
     try:
-        return bool(_accounts(conn, "up"))
+        return has_usable_accounts(conn)
     finally:
-        conn.execute("DETACH DATABASE up")
+        conn.close()
 
 
 def owner_map_between(live_conn, backup_conn) -> dict:

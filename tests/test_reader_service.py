@@ -429,6 +429,16 @@ class TestReaderHtmlLongLine:
         assert page.count('class="word"') == 1  # only the short line is annotated
         assert len(page) < 1_000_000
 
+    def test_lines_past_the_page_total_are_plain_so_a_page_stays_bounded(self, monkeypatch):
+        import reader
+        import segment
+        monkeypatch.setattr(segment, "segment_and_annotate", lambda t, lang, *a, **k: [("词", "ci")])
+        size = reader.MAX_ANNOTATED_LINE_CHARS
+        count = reader.MAX_ANNOTATED_PAGE_CHARS // size + 3
+        lines = [Line(idx=i, start=0.0, end=1.0, zh="词" * size, en="") for i in range(count)]
+        page = reader.build_reader_html(lines, "zh", {})
+        assert page.count('class="word"') == reader.MAX_ANNOTATED_PAGE_CHARS // size
+
     def test_a_line_just_under_the_cap_is_still_annotated(self, monkeypatch):
         import reader
         import segment

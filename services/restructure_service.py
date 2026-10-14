@@ -26,7 +26,8 @@ don't take that lock, so the save itself re-checks, inside its
 transaction, that the drama's lines are still exactly the ones the write
 was computed from (`save_lines(expect_unchanged=...)`) and refuses with
 nothing written if not. A write that removes lines and must not lose a
-note added meanwhile also passes the note ids it saw (`known_note_ids`).
+note or emotion tag added meanwhile also passes the ids it saw
+(`known_note_ids`, `known_emotion_ids`).
 The snapshot is its own transaction, so a refused or failed save leaves
 only an extra snapshot. An undo's emotion-tag check still runs outside the
 save's transaction.

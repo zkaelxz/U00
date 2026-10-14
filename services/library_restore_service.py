@@ -232,7 +232,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
     (library_restore_sql.owner_map) and the upload's followed channels
     pass to the PC owner with automatic checks off. Returns (accounts
     taken from the upload, titles that changed owner, whether the upload
-    held an account that could be matched). An upload
+    held a readable account). An upload
     without sources.db gets a snapshot of the live one instead, migrated
     the same way; either sources.db must pass quick_check. Running and
     queued job_records rows are marked cancelled and gpu_lock is cleared
@@ -287,8 +287,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
                     accounts_restored = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
                 else:
                     owners = library_restore_sql.owner_map(conn, scratch)
-                    backup_has_accounts = library_restore_sql.backup_has_usable_accounts(
-                        conn, scratch)
+                    backup_has_accounts = library_restore_sql.backup_has_usable_accounts(scratch)
                     titles_reassigned = library_restore_sql.match_owners(conn, owners)
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
@@ -342,7 +341,7 @@ def account_counts(outcome) -> str:
     return (f"accounts restored from the backup: {outcome.get('accounts_restored', 0)}; "
             f"titles reassigned to a live account or the PC owner: "
             f"{outcome.get('titles_reassigned', 0)}"
-            f"{'' if outcome.get('backup_has_accounts', True) else ' (the backup has no accounts)'}")
+            f"{'' if outcome.get('backup_has_accounts', True) else ' (the backup holds no readable account)'}")
 
 
 def _require_quick_check(path: str, message: str) -> None:
@@ -411,8 +410,8 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     accounts_restored: how many accounts came from the backup (only into a
     library that had none), titles_reassigned: how many titles' owners
     became a live account of the same email or the PC owner (only when the
-    live accounts were kept), backup_has_accounts: False when no account
-    in the backup could be matched, so every title went to the PC owner,
+    live accounts were kept), backup_has_accounts: False when the backup
+    holds no readable account (always True when its accounts were taken),
     folders_left_behind: names of the previous library's other
     folders the zip lacks, which stay in the previous library}.
     """
