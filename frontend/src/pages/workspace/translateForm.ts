@@ -3,6 +3,7 @@
 
 import { THINKING_SWITCH_ENGINES } from '../../api/live'
 import { formatRange } from '../../formatRange'
+import type { ProfileOptions } from '../../types/library'
 import type {
   EstimateParams,
   FallbackEngine,
@@ -134,34 +135,12 @@ interface PresetStart {
   engine_model?: string
 }
 
-interface PresetDefaultsIn {
-  style_preset?: string | null
-  locale?: string | null
-  default_female_pronouns?: boolean | null
-  include_genre_notes?: boolean | null
-  engine_model?: string | null
-}
-
 const presetKey = (dramaId: number) => `baihe.translatePreset.${dramaId}`
 
-// Kept per drama in localStorage (the API only saves the preset's engine on
-// the drama), so the Translate stage starts from them in any later visit.
-export function savePresetStart(dramaId: number, d: PresetDefaultsIn | null | undefined): void {
-  const out: PresetStart = {}
-  if (d?.style_preset) out.style_preset = d.style_preset
-  if (d?.locale) out.locale = d.locale
-  if (typeof d?.default_female_pronouns === 'boolean') out.default_female_pronouns = d.default_female_pronouns
-  if (typeof d?.include_genre_notes === 'boolean') out.include_genre_notes = d.include_genre_notes
-  if (d?.engine_model) out.engine_model = d.engine_model
-  try {
-    // No preset values: clear any stale entry (a reused drama id).
-    if (Object.keys(out).length) localStorage.setItem(presetKey(dramaId), JSON.stringify(out))
-    else localStorage.removeItem(presetKey(dramaId))
-  } catch {
-    // storage unavailable: the form just starts from the global defaults
-  }
-}
-
+// Titles created before profiles were saved on the title kept the preset's
+// style, locale and toggles here, in this browser only. Nothing writes it any
+// more (a profile's values now live on the title); the Translate stage still
+// reads it for those older titles.
 export function loadPresetStart(dramaId: number): PresetStart {
   try {
     const raw = localStorage.getItem(presetKey(dramaId))
@@ -461,6 +440,54 @@ export function withSavedEngine(c: TranslateRunConfig, t: WorkflowTierApplied): 
   return c.translation_engine === t.translation_engine ? c : { ...c, translation_engine: t.translation_engine }
 }
 
+// " Left out for this title's language: beam size, ..." (empty when nothing was skipped).
+export function skippedNote(keys: string[] | undefined): string {
+  return keys?.length ? ` Left out because they don't suit this title's language: ${keys.map((k) => k.replace(/_/g, ' ')).join(', ')}.` : ''
+}
+
+// Overlay the Translate form values a profile left on the title (the server's
+// translate_start, or an applied profile's options) on `f`. Each value applies only
+// when this server still offers it and the engine can run it, as for a remembered
+// form (restoreRunOptions); nothing here starts a run.
+export function applyStartToForm(
+  f: RunForm,
+  start: (ProfileOptions & { style_preset?: string; engine_model?: string }) | null | undefined,
+  c: TranslateRunConfig,
+): RunForm {
+  if (!start) return f
+  const out: RunForm = { ...f }
+  const eff = out.engine || c.translation_engine
+  const engines = c.engines ?? []
+  const supported = c.bulk_supported_engines ?? []
+  if (start.style_preset && c.style_presets.some((p) => p.key === start.style_preset)) out.style_preset = start.style_preset
+  if (start.engine_model && !f.model && (engines.find((e) => e.name === eff)?.models ?? []).includes(start.engine_model)) {
+    out.model = start.engine_model
+  }
+  if (typeof start.style_note === 'string' && start.style_note.length <= 4000) out.style_note = start.style_note
+  if (typeof start.batch_size === 'number') out.batch_size = clampInt(start.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX, out.batch_size)
+  if (typeof start.context_window === 'number') out.context_window = clampInt(start.context_window, CONTEXT_MIN, CONTEXT_MAX, out.context_window)
+  if (typeof start.context_window_ahead === 'number') {
+    out.context_window_ahead = clampInt(start.context_window_ahead, CONTEXT_MIN, CONTEXT_MAX, out.context_window_ahead)
+  }
+  if (typeof start.cost_cap === 'number') out.cost_cap = String(start.cost_cap)
+  const reflect = start.reflect === true && reflectAvailable(eff)
+  const bulk = !reflect && start.bulk === true && bulkAvailable(eff, supported)
+  if (start.reflect !== undefined) out.reflect = reflect
+  if (start.bulk !== undefined) out.bulk = bulk
+  if (!out.reflect && !out.bulk && Array.isArray(start.fallback_engines)) {
+    const fb: string[] = []
+    for (const e of start.fallback_engines) {
+      if (engines.some((x) => x.name === e) && e !== eff && !fb.includes(e) && sameEngineKind(e, eff)) fb.push(e)
+    }
+    out.fallbacks = fb.slice(0, MAX_FALLBACKS)
+  }
+  if (typeof start.thinking === 'boolean') out.thinking = start.thinking
+  // An older preset's toggles: the title's own saved choice still wins.
+  if (typeof start.default_female_pronouns === 'boolean' && c.default_female_pronouns == null) out.female_pronouns = start.default_female_pronouns
+  if (typeof start.include_genre_notes === 'boolean' && c.include_genre_notes == null) out.genre_notes = start.include_genre_notes
+  return out
+}
+
 // Fill the form from an applied preset (style, locale and toggles). With an engine
 // the preset's engine is set explicitly (the drama's saved engine changed on
 // the server) and its model is kept only if that engine lists it; without
@@ -479,7 +506,7 @@ export function applyPresetToForm(f: RunForm, p: TranslatePresetApplied, c: Tran
   const supported = c.bulk_supported_engines ?? []
   const reflect = f.reflect && reflectAvailable(eff)
   const bulk = f.bulk && (reflect ? bulkReflectAvailable(eff, supported) : bulkAvailable(eff, supported))
-  return {
+  return applyStartToForm({
     ...f,
     engine,
     model,
@@ -489,7 +516,7 @@ export function applyPresetToForm(f: RunForm, p: TranslatePresetApplied, c: Tran
     bulk,
     female_pronouns: p.default_female_pronouns,
     genre_notes: p.include_genre_notes,
-  }
+  }, p.options, c)
 }
 
 // After a preset with an engine is applied, the drama's saved engine is the preset's.
@@ -532,23 +559,41 @@ export function validatePresetName(name: string): string | null {
   return null
 }
 
-// The fields "Save as preset" captures (engine,
-// model, style, locale, the she/her and genre toggles). A blank model means
-// the engine default and is saved as null.
+// Everything "Save as profile" captures from the Translate form: engine, model, style, the
+// two prompt toggles and the run options (style note, batch size, context window, cost cap,
+// fallbacks, Reflect, bulk, thinking). A blank model means the engine default and is saved
+// as null. The English variant is not saved: a profile never carries it. Transcribe options
+// are not on this form; they are added when the profile is edited in Library Tools.
 export function buildPresetBody(
   f: RunForm,
   defaultEngine: string,
   name: string,
   overwrite = false,
 ): TranslatePresetBody {
+  const options: ProfileOptions = {
+    reflect: f.reflect,
+    bulk: f.bulk,
+    thinking: f.thinking,
+  }
+  if (f.style_note.trim()) options.style_note = f.style_note.trim()
+  const batch = intIn(f.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX)
+  if (batch !== null) options.batch_size = batch
+  const before = intIn(f.context_window, CONTEXT_MIN, CONTEXT_MAX)
+  if (before !== null) options.context_window = before
+  const ahead = intIn(f.context_window_ahead, CONTEXT_MIN, CONTEXT_MAX)
+  if (ahead !== null) options.context_window_ahead = ahead
+  const cap = parseCap(f.cost_cap)
+  if (typeof cap === 'number') options.cost_cap = cap
+  if (f.fallbacks.length) options.fallback_engines = f.fallbacks
   return {
     name: name.trim(),
     translation_engine: f.engine || defaultEngine,
     engine_model: f.model || null,
     style_preset: f.style_preset || null,
-    locale: f.locale || null,
+    locale: null,
     default_female_pronouns: f.female_pronouns,
     include_genre_notes: f.genre_notes,
+    options,
     ...(overwrite ? { overwrite: true } : {}),
   }
 }

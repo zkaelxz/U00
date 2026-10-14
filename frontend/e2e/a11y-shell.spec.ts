@@ -58,7 +58,7 @@ test.describe('Line history', () => {
   test('Preview and Restore say which version they act on', async ({ page }) => {
     await mockSnapshot(page)
     const list = page.getByTestId('history-list')
-    await expect(list.getByRole('button', { name: /^Preview version: before merge \(2026-09-29T10:00:00\)$/ })).toBeVisible()
-    await expect(list.getByRole('button', { name: /^Restore version: before merge \(2026-09-29T10:00:00\)$/ })).toBeVisible()
+    await expect(list.getByRole('button', { name: /^Preview version: before merge \(\w{3} \d{1,2}, 2026, [^)]+\)$/ })).toBeVisible()
+    await expect(list.getByRole('button', { name: /^Restore version: before merge \(\w{3} \d{1,2}, 2026, [^)]+\)$/ })).toBeVisible()
   })
 })

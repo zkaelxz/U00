@@ -37,10 +37,10 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
     title: 'Golden sets',
     purpose: 'The reference translations that runs are scored against.',
     steps: [
-      'Import a set (JSONL or TSV), or add one case by hand.',
-      'A case is a source line plus its reference translation.',
+      'Import a set, upload your own clips, or add one case.',
+      'A case is a source line, or an audio clip, plus its reference.',
       'A case without a reference is run but not scored.',
-      'Show cases to read a set or delete a case.',
+      'Show cases to read, exclude, fix the reference of, or delete one.',
       'Or build a set from a title you have reviewed.',
       'Importing, adding, building and deleting happen on the main PC only.',
     ],

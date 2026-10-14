@@ -53,9 +53,14 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
         <h3>Find and replace</h3>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>Close</button>
       </div>
+      <p className="muted">Searches the translation only, not the original-language text.</p>
       <div className="filters">
-        <input aria-label="Find" value={find} onChange={(e) => { setFind(e.target.value); setMatches(null) }} />
-        <input aria-label="Replace with" value={replace} onChange={(e) => { setReplace(e.target.value); setMatches(null) }} />
+        <Field label="Find">
+          <input autoFocus value={find} onChange={(e) => { setFind(e.target.value); setMatches(null) }} />
+        </Field>
+        <Field label="Replace with">
+          <input value={replace} onChange={(e) => { setReplace(e.target.value); setMatches(null) }} />
+        </Field>
       </div>
       <div className="setting-list review-toggles">
         <Field label="Match case">
@@ -74,7 +79,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {matches && (
         <ul className="review-matches" data-testid="fr-matches">
-          {matches.length === 0 && <li className="muted">No matches.</li>}
+          {matches.length === 0 && <li className="muted">No matches in the translation.</li>}
           {matches.map((m) => (
             <li key={m.id}>
               <span className="muted">#{lineNumber(m.idx)}</span> <del>{m.old_text}</del> <ins>{m.new_text}</ins>

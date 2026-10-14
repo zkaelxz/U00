@@ -2091,7 +2091,9 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
-        "keep_original", "translate_by_sentence", "release_date", "difficult_audio"),
+        "keep_original", "translate_by_sentence", "release_date", "difficult_audio",
+        "translate_start_json"),
+    "presets": ("options_json", "is_default"),
     "series": ("instructions", "owner_user_id", "is_private", "default_settings"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
@@ -2108,8 +2110,9 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "users": ("share_by_default",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label",),
-    "benchmark_results": ("scorer",),
-    "benchmark_cases": ("tier", "set_name", "origin_drama_id", "origin_line_id"),
+    "benchmark_results": ("scorer", "ref_version"),
+    "benchmark_cases": ("tier", "set_name", "origin_drama_id", "origin_line_id", "title", "tags",
+                        "scene_order", "clip_key", "excluded", "ref_version"),
 }
 
 

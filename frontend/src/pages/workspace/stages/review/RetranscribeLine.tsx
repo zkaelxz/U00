@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { cancelJob, getJob } from '../../../../api/jobs'
+import { cancelJob, probeJob } from '../../../../api/jobs'
 import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import {
   applyRetranscribeLine,
@@ -60,7 +60,7 @@ export function RetranscribeLine({
     kind: `retranscribe-line-${lineId}`,
     jobIds: [retranscribeJobId(dramaId)],
     // The id is shared with the many-line run; only a record that names this line is ours.
-    adopt: (id) => void getJob(id).then((j) => j.result?.line_id === lineId && adoptJob(id), () => undefined),
+    adopt: (id) => void probeJob(id).then((j) => j?.result?.line_id === lineId && adoptJob(id), () => undefined),
     fetchResult: (id) => getRetranscribeResult(id, lineId),
     onResult: (r) => {
       if (r.line_id === lineId) setProposal((cur) => cur ?? r)
