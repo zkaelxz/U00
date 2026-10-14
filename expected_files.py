@@ -83,6 +83,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "memory_headroom.py",
     "metadata_lookup.py",
     "mixed_language.py",
+    "model_pins.py",
     "navigator.py",
     "ocr.py",
     "ollama_unload.py",

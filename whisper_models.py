@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass
 
 import cuda_runtime_path
+import model_pins
 
 
 _whisper_model_cache = {}
@@ -39,8 +40,9 @@ HIDDEN_WHISPER_SIZES = ("tiny", "base", "small", "medium")
 # repo and its full commit sha live only here: a client sends the key, never a repo
 # id or revision, and a branch name could be moved after the files were reviewed.
 PINNED_CT2_REPOS = {
-    "ja-1.5b": ("TransWithAI/whisper-ja-1.5B-ct2", "1527314b14da5bdf0d14e7328649d4fa26840188"),
-    "kotoba-v2": ("kotoba-tech/kotoba-whisper-v2.0-faster", "f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc"),
+    key: (repo, model_pins.revision(repo)) for key, repo in (
+        ("ja-1.5b", "TransWithAI/whisper-ja-1.5B-ct2"),
+        ("kotoba-v2", "kotoba-tech/kotoba-whisper-v2.0-faster"))
 }
 
 # anime-whisper (litagin/anime-whisper) is NOT a key of WHISPER_MODELS or PINNED_CT2_REPOS:
@@ -52,7 +54,7 @@ PINNED_CT2_REPOS = {
 ANIME_WHISPER_KEY = "anime-whisper"
 ANIME_WHISPER_PIN = {
     "repo": "quantumcookie/anime-whisper-ct2-fp16",
-    "revision": "8ad0b0053dd0af6e108eea290e6f50a3aea49008",
+    "revision": model_pins.revision("quantumcookie/anime-whisper-ct2-fp16"),
     "model_bin_sha256": "3a20db4ea35c80e0e4302565560de93af7191b24c9e4dcfa67411ce33bc67d7e",
     # Calibrated on this 2-layer decoder. The stock config carries large-v3's heads, which
     # do not exist here; layer-0 heads align badly.
@@ -286,18 +288,24 @@ def is_whisper_model_cached(model_size: str) -> bool:
         return _anime_whisper_ready(anime_whisper_folder())
     if model_size in PINNED_CT2_REPOS:
         return _pinned_snapshot(model_size) is not None
-    repo_id = faster_whisper_repo(model_size)
-    if repo_id is None:
-        return False
-    # The exact repo faster-whisper loads: another org's copy of the same size
-    # would read as cached while the loader fetched its own.
-    snapshots = os.path.join(_hub_dir(), "models--" + repo_id.replace("/", "--"), "snapshots")
-    try:
-        # An interrupted download leaves the folder without the weights.
-        return any(os.path.isfile(os.path.join(snapshots, rev, "model.bin"))
-                   for rev in os.listdir(snapshots))
-    except OSError:
-        return False
+    return _generic_snapshot(model_size) is not None
+
+
+def _generic_repo(model_size: str):
+    return model_size if "/" in model_size else faster_whisper_repo(model_size)
+
+
+def _generic_snapshot(model_size: str):
+    """Folder of a faster-whisper size's download at exactly its pinned revision, or None.
+    The exact repo faster-whisper names: another org's copy of the same size, or another
+    revision of this one, is not the tested model."""
+    repo_id = _generic_repo(model_size)
+    revision = model_pins.REVISIONS.get(repo_id)
+    if revision is None:
+        return None
+    folder = os.path.join(_hub_dir(), "models--" + repo_id.replace("/", "--"), "snapshots", revision)
+    # An interrupted download leaves the folder without the weights.
+    return folder if os.path.isfile(os.path.join(folder, "model.bin")) else None
 
 
 # faster-whisper's own size -> repo table (faster_whisper.utils._MODELS), for
@@ -382,19 +390,22 @@ def gpu_status() -> dict:
     return status
 
 
-def _download_model(model_size: str, token: str) -> str:
-    """Local folder of a faster-whisper model, downloaded with `token`."""
-    import inspect
-    from faster_whisper import utils
-    if "use_auth_token" in inspect.signature(utils.download_model).parameters:
-        return utils.download_model(model_size, use_auth_token=token)
-    # faster-whisper before 1.2 can't take a token, so fetch the same files
-    # as its download_model would.
+def _download_model(model_size: str, token) -> str:
+    """Local folder of a faster-whisper model at its pinned revision, downloaded with `token`.
+    faster-whisper's own download_model fetches whatever the branch holds now, so the
+    same files it would fetch are requested here at the pinned commit instead."""
     import huggingface_hub
-    repo_id = model_size if "/" in model_size else utils._MODELS[model_size]
-    return huggingface_hub.snapshot_download(
-        repo_id, token=token, allow_patterns=["config.json", "preprocessor_config.json",
-                                              "model.bin", "tokenizer.json", "vocabulary.*"])
+    repo_id = _generic_repo(model_size)
+    revision = model_pins.revision(repo_id)
+    try:
+        return huggingface_hub.snapshot_download(
+            repo_id, revision=revision, token=token, etag_timeout=30,
+            allow_patterns=["config.json", "preprocessor_config.json", "model.bin",
+                            "tokenizer.json", "vocabulary.*"])
+    except Exception as exc:
+        if model_pins.is_revision_gone(exc):
+            raise ModelDownloadError(model_pins.revision_gone_message(repo_id)) from exc
+        raise
 
 
 def _refuse_without_room(folder: str, model_key: str) -> None:
@@ -665,8 +676,9 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
             model_path = _fetch_anime_whisper(_tok)
         elif model_size in PINNED_CT2_REPOS and not local_model_path:
             model_path = _fetch_pinned_model(model_size, _tok)
-        elif _tok and not local_model_path and not offline:
-            model_path = _download_model(model_size, _tok)
+        elif not local_model_path and _generic_repo(model_size):
+            # Offline, the check above already found the pinned folder on disk.
+            model_path = _generic_snapshot(model_size) if offline else _download_model(model_size, _tok)
         if use_gpu:
             try:
                 model = _build("cuda", "float16")

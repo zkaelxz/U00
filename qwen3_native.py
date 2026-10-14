@@ -22,6 +22,7 @@ import importlib.util
 from dataclasses import dataclass
 from typing import Optional
 
+import model_pins
 from lib import model_offline
 
 MIN_TRANSFORMERS = (5, 15, 0)
@@ -147,6 +148,10 @@ def _offline_kwargs() -> dict:
     return {"local_files_only": True} if model_offline.active() else {}
 
 
+def _hub_kwargs(model_id: str) -> dict:
+    return {"revision": model_pins.revision(model_id), **_offline_kwargs()}
+
+
 def asr_repo_id(model_size: str) -> str:
     return ASR_REPO_TEMPLATE.format(size=model_size)
 
@@ -210,11 +215,13 @@ class NativeQwen3ASR:
     def from_pretrained(cls, model_id: str, device: str, dtype, max_new_tokens=MIN_NEW_TOKENS):
         require_transformers("Qwen3-ASR")
         from transformers import AutoModelForMultimodalLM, AutoProcessor
-        processor = AutoProcessor.from_pretrained(model_id, **_offline_kwargs())
-        # No device_map: it needs accelerate, which is optional here, and a
-        # failed move to the GPU surfaces from .to() inside the caller's
-        # fallback handling just the same.
-        model = AutoModelForMultimodalLM.from_pretrained(model_id, dtype=dtype, **_offline_kwargs())
+        with model_pins.fetching(model_id):
+            processor = AutoProcessor.from_pretrained(model_id, **_hub_kwargs(model_id))
+            # No device_map: it needs accelerate, which is optional here, and a
+            # failed move to the GPU surfaces from .to() inside the caller's
+            # fallback handling just the same.
+            model = AutoModelForMultimodalLM.from_pretrained(
+                model_id, dtype=dtype, **_hub_kwargs(model_id))
         model = model.to(device).eval()
         return cls(model, processor, max_new_tokens)
 
@@ -252,9 +259,10 @@ class NativeQwen3Aligner:
     def from_pretrained(cls, model_id: str, device: str, dtype):
         require_transformers("Qwen3 forced alignment")
         from transformers import AutoModelForTokenClassification, AutoProcessor
-        processor = AutoProcessor.from_pretrained(model_id, **_offline_kwargs())
-        model = AutoModelForTokenClassification.from_pretrained(
-            model_id, dtype=dtype, **_offline_kwargs())
+        with model_pins.fetching(model_id):
+            processor = AutoProcessor.from_pretrained(model_id, **_hub_kwargs(model_id))
+            model = AutoModelForTokenClassification.from_pretrained(
+                model_id, dtype=dtype, **_hub_kwargs(model_id))
         model = model.to(device).eval()
         return cls(model, processor)
 

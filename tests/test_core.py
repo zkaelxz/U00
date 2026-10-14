@@ -1538,7 +1538,9 @@ class TestWhisperModelCache:
 
     @staticmethod
     def _repo(hub, name, weights=True):
-        snap = hub / name / "snapshots" / "abc123"
+        import model_pins
+        repo = name.removeprefix("models--").replace("--", "/")
+        snap = hub / name / "snapshots" / model_pins.REVISIONS.get(repo, "abc123")
         snap.mkdir(parents=True)
         (snap / "config.json").write_text("{}")
         if weights:
@@ -1566,16 +1568,15 @@ class TestWhisperModelCache:
 
 
 class TestWhisperDownloadToken:
-    def _stub(self, monkeypatch, download_model):
+    def _stub(self, monkeypatch, snapshot_download):
         import types
         built = []
         fw = types.ModuleType("faster_whisper")
         fw.WhisperModel = lambda target, device, compute_type: built.append(target) or object()
-        utils = types.ModuleType("faster_whisper.utils")
-        utils.download_model = download_model
-        fw.utils = utils
         monkeypatch.setitem(sys.modules, "faster_whisper", fw)
-        monkeypatch.setitem(sys.modules, "faster_whisper.utils", utils)
+        monkeypatch.setitem(sys.modules, "huggingface_hub",
+                            types.SimpleNamespace(snapshot_download=snapshot_download))
+        monkeypatch.setattr(whisper_models, "_download_model", whisper_models._download_model.real)
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
         monkeypatch.setattr(whisper_models, "_whisper_device_info", {})
         monkeypatch.delenv("HF_TOKEN", raising=False)
@@ -1585,28 +1586,32 @@ class TestWhisperDownloadToken:
     def test_token_goes_to_the_download_not_the_environment(self, monkeypatch):
         calls = []
 
-        def download_model(size, use_auth_token=None):
-            calls.append((size, use_auth_token))
-            return "/cache/" + size
-        built = self._stub(monkeypatch, download_model)
+        def snapshot_download(repo, token=None, **kw):
+            calls.append((repo, token))
+            return "/cache/" + repo
+        built = self._stub(monkeypatch, snapshot_download)
         whisper_models.load_whisper_model("small", hf_token="hf_first")
-        assert calls == [("small", "hf_first")]
-        assert built == ["/cache/small"]
+        assert calls == [("Systran/faster-whisper-small", "hf_first")]
+        assert built == ["/cache/Systran/faster-whisper-small"]
         assert "HF_TOKEN" not in os.environ
 
     def test_a_changed_token_is_used_without_a_restart(self, monkeypatch):
         tokens = []
-        self._stub(monkeypatch, lambda size, use_auth_token=None: tokens.append(use_auth_token) or "/m")
+        self._stub(monkeypatch, lambda repo, token=None, **kw: tokens.append(token) or "/m")
         whisper_models.load_whisper_model("small", hf_token="hf_first")
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
         whisper_models.load_whisper_model("small", hf_token="hf_second")
         assert tokens == ["hf_first", "hf_second"]
 
-    def test_no_token_leaves_the_download_to_faster_whisper(self, monkeypatch):
+    def test_no_token_still_downloads_the_pinned_revision(self, monkeypatch):
+        # faster-whisper's own download would fetch the branch head.
+        import model_pins
         calls = []
-        built = self._stub(monkeypatch, lambda *a, **k: calls.append(a) or "/m")
+        built = self._stub(monkeypatch, lambda repo, **kw: calls.append(kw) or "/m")
         whisper_models.load_whisper_model("small")
-        assert calls == [] and built == ["small"]
+        assert [(c["token"], c["revision"]) for c in calls] == [
+            (None, model_pins.REVISIONS["Systran/faster-whisper-small"])]
+        assert built == ["/m"]
 
 
 class TestWhisperGpuRuntime:

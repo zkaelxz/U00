@@ -15,6 +15,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 import db
+import model_pins
 from lib import model_offline
 from services import auth_service
 from services import model_readiness_service as mrs
@@ -40,10 +41,12 @@ def caches(tmp_path, monkeypatch):
 
 
 def _hf_repo(caches, repo_id, files):
+    # A pinned repo is downloaded at its commit, which writes no ref.
+    revision = model_pins.REVISIONS.get(repo_id, "abc123")
     base = caches["hf"] / ("models--" + repo_id.replace("/", "--"))
     (base / "refs").mkdir(parents=True)
-    (base / "refs" / "main").write_text("abc123")
-    snap = base / "snapshots" / "abc123"
+    (base / "refs" / "main").write_text(revision)
+    snap = base / "snapshots" / revision
     for name, content in files.items():
         (snap / name).parent.mkdir(parents=True, exist_ok=True)
         (snap / name).write_text(content)
@@ -53,8 +56,8 @@ def _hf_repo(caches, repo_id, files):
 def _whisper(caches, size=None):
     import whisper_models
     size = size or whisper_models.DEFAULT_WHISPER_SIZE
-    repo = whisper_models.faster_whisper_repo(size).replace("/", "--")
-    snap = caches["hf"] / f"models--{repo}" / "snapshots" / "r1"
+    repo = whisper_models.faster_whisper_repo(size)
+    snap = caches["hf"] / f"models--{repo.replace('/', '--')}" / "snapshots" / model_pins.REVISIONS[repo]
     snap.mkdir(parents=True)
     (snap / "model.bin").write_bytes(b"x")
 
@@ -476,7 +479,8 @@ def test_whisper_loads_offline_only_when_marked(caches, monkeypatch):
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
         whisper_models.load_whisper_model("small", hf_token="hf_x")
     _in_own_context(member)
-    assert built[-1] == ("small", {"local_files_only": True})
+    # Offline loads the folder at the pin, never a name faster-whisper would look up.
+    assert built[-1] == (whisper_models._generic_snapshot("small"), {"local_files_only": True})
 
 
 def test_offline_whisper_refuses_a_model_not_on_disk(caches, monkeypatch):
@@ -552,9 +556,16 @@ def test_sensevoice_loads_the_cached_folder_offline(caches, monkeypatch):
     assert models[-1] == sensevoice_tags.MODEL_ID
 
 
-def test_manga_ocr_loads_the_cached_folder_offline(caches):
+def test_manga_ocr_loads_the_cached_folder_offline(caches, monkeypatch):
+    import sys
+    import types
     import ocr
-    assert ocr._manga_ocr_source() == ()
+    fetched = []
+    monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
+        snapshot_download=lambda repo, **kw: fetched.append((repo, kw)) or "/hub/manga"))
+    assert ocr._manga_ocr_source() == ("/hub/manga",)
+    assert fetched == [(ocr.MANGA_OCR_REPO, {"revision": model_pins.REVISIONS[ocr.MANGA_OCR_REPO],
+                                              "etag_timeout": 30})]
 
     def member():
         model_offline.set_offline(True)
@@ -641,7 +652,8 @@ def test_lama_loads_the_cached_file_only_when_marked(monkeypatch):
         scanlate_inpaint._load_lama_generator()
     with pytest.raises(RuntimeError, match="not downloaded yet"):
         _in_own_context(member)
-    assert calls == [{}, {"local_files_only": True}]
+    pinned = {"revision": model_pins.REVISIONS[scanlate_inpaint._LAMA_ML_REPO], "etag_timeout": 30}
+    assert calls == [pinned, {**pinned, "local_files_only": True}]
 
 
 def test_offline_auto_separation_does_not_fall_back_to_an_undownloaded_demucs(caches, monkeypatch):
