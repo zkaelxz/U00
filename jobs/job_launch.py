@@ -19,6 +19,7 @@ from jobs.job_runner import (_fail_start, _new_entry, _process_watcher, _registe
 from jobs.job_settings import get_gpu_limit_enabled
 from jobs.job_table import _jobs, _lock, _mirror_locked
 from lib import model_offline
+from lib.errors import ConflictError
 
 
 def _acting_user_id():
@@ -133,12 +134,22 @@ _HELD_MESSAGE = ("This title is being deleted or its files cleaned up. Start thi
 _held_titles = {}   # drama id -> how many holds (hold_title)
 
 
+class TitleBusy(ConflictError):
+    """hold_title found a job of this process running or queued on the title."""
+
+
 @contextlib.contextmanager
-def hold_title(drama_id: int):
-    """Refuses every job start on drama_id while held. Take it before
-    checking that no job runs on the title: a start admitted before the hold
-    is then seen by that check, and none is admitted after it."""
+def hold_title(drama_id: int, busy_message: str):
+    """Refuses every job start on drama_id while held. Raises TitleBusy
+    (busy_message), taking no hold, when a job here already runs on the
+    title: a hold then would refuse that job's own follow-up starts
+    (transcribe starts diarize). Checked and taken under _lock, so no start
+    slips in between; a job in another process is still the caller's check."""
+    import background_jobs   # it imports this module
+    drama_id = int(drama_id)
     with _lock:
+        if background_jobs.any_job_running_for_drama(drama_id):
+            raise TitleBusy(busy_message)
         _held_titles[drama_id] = _held_titles.get(drama_id, 0) + 1
     try:
         yield
@@ -159,7 +170,6 @@ def _refuse_if_restructuring_locked(job_id):
     for prefix in background_jobs.DRAMA_JOB_PREFIXES:
         rest = job_id[len(prefix):]
         if job_id.startswith(prefix) and rest.isdigit():
-            from lib.errors import ConflictError
             if int(rest) in _held_titles:
                 raise ConflictError(_HELD_MESSAGE)
             hold = _jobs.get(f"{RESTRUCTURE_JOB_PREFIX}{rest}")

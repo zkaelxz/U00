@@ -2355,3 +2355,38 @@ def test_no_job_starts_on_a_title_while_its_storage_is_cleaned(isolated_db, monk
     assert job_launch.start_job(f"transcribe_{a}", lambda: None)
     _wait(f"transcribe_{a}")
     background_jobs.clear_job(f"transcribe_{a}")
+
+
+def test_a_busy_title_is_never_held_so_its_chained_jobs_still_start(isolated_db, monkeypatch):
+    """A running job's own follow-up start (transcribe chains diarize) must not
+    meet a hold that a refused delete or a skipped cleanup took on its title."""
+    from services import drama_service
+    a, b = _new("A"), _new("B")
+    gate = threading.Event()
+    assert job_launch.start_job(f"transcribe_{a}", gate.wait, 5)
+    chained = []
+    real_check = drama_service.job_running_for_drama
+
+    def check(did, *args, **kwargs):
+        if did == a:   # the chained start lands while the title is checked
+            try:
+                chained.append(job_launch.start_job(f"diarize_{a}", lambda: None))
+            except ConflictError as e:
+                chained.append(str(e))
+        return real_check(did, *args, **kwargs)
+
+    monkeypatch.setattr(drama_service, "job_running_for_drama", check)
+    try:
+        with pytest.raises(ConflictError, match="still running"):
+            drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
+        result = las.storage_cleanup("balanced", confirm=True, confirm_text="CLEAN")
+        assert {r["drama_id"]: r["ok"] for r in result["results"]} == {a: False, b: True}
+        assert all(c is True for c in chained)
+        assert job_launch._held_titles == {}
+    finally:
+        gate.set()
+        for job_id in (f"transcribe_{a}", f"diarize_{a}"):
+            if background_jobs.get_status(job_id):
+                _wait(job_id)
+                background_jobs.clear_job(job_id)
+    assert db.get_drama(a) and db.get_drama(b)
