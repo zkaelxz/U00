@@ -18,7 +18,7 @@ from source_suspect import SUSPECT_FLAG, find_suspects
 
 def _load(drama_id: int):
     drama = ownership_service.require_drama(drama_id)
-    return drama, core_module.lines_from_rows(db.load_lines(drama_id))
+    return drama, db.load_line_objects(drama_id)
 
 
 def check_source_text(drama_id: int) -> dict:

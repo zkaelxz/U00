@@ -25,6 +25,12 @@ import tempfile
 LOCAL_MEDIA_FORMATS = "mov,matroska,mp3,wav,flac,ogg,aac,mpegts,flv,avi,asf,mpeg,aiff,w64,caf"
 
 
+def extract_audio_cmd(video_path: str, out_path: str) -> list:
+    """ffmpeg command for the 16 kHz mono PCM wav the transcribers read."""
+    return ["ffmpeg", "-y", *local_input(), "-i", video_path, "-vn",
+            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_path]
+
+
 def local_input(formats: str = LOCAL_MEDIA_FORMATS) -> list:
     """Input options for the -i after them. A file named .mp4 could
     really be a playlist or manifest naming network URLs, so ffmpeg may

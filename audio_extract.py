@@ -39,9 +39,7 @@ def _run_ffmpeg(cmd, timeout):
 def extract_audio_from_video(video_path: str, out_path: str):
     """Pulls the audio track out of a video file via ffmpeg, so the
     same timing/alignment pipeline can run on it as on audio-only files."""
-    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path, "-vn", "-acodec", "pcm_s16le",
-           "-ar", "16000", "-ac", "1", out_path]
-    _run_ffmpeg(cmd, EXTRACT_AUDIO_TIMEOUT_SECONDS)
+    _run_ffmpeg(video_export.extract_audio_cmd(video_path, out_path), EXTRACT_AUDIO_TIMEOUT_SECONDS)
     return out_path
 
 
