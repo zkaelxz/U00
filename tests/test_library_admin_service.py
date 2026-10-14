@@ -945,6 +945,42 @@ def test_an_account_on_both_with_the_same_id_keeps_its_titles(isolated_db):
     assert _owner_and_private("drama", did) == (uid, 1)
 
 
+def _without_google_sub(data):
+    """The backup's users table as an older app wrote it, before google_sub."""
+    path = _zip_db(data)
+    try:
+        conn = sqlite3.connect(path)
+        conn.executescript(
+            "PRAGMA foreign_keys = OFF;"
+            "CREATE TABLE users_old (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, "
+            "display_name TEXT DEFAULT '', is_admin INTEGER DEFAULT 0, "
+            "is_active INTEGER DEFAULT 1, created_at TEXT);"
+            "INSERT INTO users_old SELECT id, email, display_name, is_admin, is_active, "
+            "created_at FROM users;"
+            "DROP TABLE users; ALTER TABLE users_old RENAME TO users;")
+        conn.commit()
+        conn.close()
+        with open(path, "rb") as f:
+            return _rewrite(data, replace={"library.db": f.read()})
+    finally:
+        os.remove(path)
+
+
+def test_a_backup_whose_accounts_cannot_be_read_says_it_has_none(isolated_db):
+    uid = auth_service.add_user("mei@example.com")["id"]
+    db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)
+    data = _without_google_sub(_backup_bytes())
+    result = _restore(data)
+    assert result["backup_has_accounts"] is False
+    assert result["titles_reassigned"] == 1
+
+
+def test_a_backup_with_readable_accounts_says_it_has_them(isolated_db):
+    uid = auth_service.add_user("mei@example.com")["id"]
+    db.create_drama(title_zh="t", owner_user_id=uid)
+    assert _restore(_backup_bytes())["backup_has_accounts"] is True
+
+
 def test_a_restore_into_a_library_without_accounts_reassigns_nothing(isolated_db):
     uid = auth_service.add_user("mei@example.com")["id"]
     did = db.create_drama(title_zh="t", owner_user_id=uid, is_private=1)

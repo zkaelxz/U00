@@ -269,6 +269,17 @@ def owner_map(conn, backup_path: str) -> dict:
     return _match_accounts(_accounts(conn, "main"), backup)
 
 
+def backup_has_usable_accounts(conn, backup_path: str) -> bool:
+    """Whether the backup holds an account owner_map can match, read with the
+    staged library.db (main) open. False for a users table too old to carry
+    google_sub: no title can then be matched to an account."""
+    conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(backup_path),))
+    try:
+        return bool(_accounts(conn, "up"))
+    finally:
+        conn.execute("DETACH DATABASE up")
+
+
 def owner_map_between(live_conn, backup_conn) -> dict:
     """owner_map for two open connections (each one's main database): the
     single-title restore reads the copy on its own connection, inside the

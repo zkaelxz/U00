@@ -770,6 +770,9 @@ class LibraryRestoreDone(BaseModel):
     # Titles whose owner became the live account with the same email, or the
     # PC owner (only when the live accounts were kept).
     titles_reassigned: int = 0
+    # False: no account in the backup could be matched, so every title became
+    # the PC owner's (the same notice as a single-title restore's copy).
+    backup_has_accounts: bool = True
     # The previous library's other folders the backup lacks: they stay there.
     folders_left_behind: List[str] = []
 
