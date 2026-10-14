@@ -1167,3 +1167,28 @@ class TestWebtoonSliceCap:
                                                      overlap=0)
         assert len(slices) == 200
         assert slices[-1]["y_end"] == 2000
+
+
+class TestArtCaptionsAlone:
+    def test_a_page_of_only_lettering_on_the_art_is_not_reported_as_having_no_bubbles(
+            self, tmp_path, monkeypatch):
+        import scanlate_art_text
+        from PIL import Image
+        path = tmp_path / "p.png"
+        Image.new("RGB", (200, 200), (20, 20, 20)).save(path)
+        monkeypatch.setattr(scanlate, "detect_bubbles", lambda *a, **k: [])
+        monkeypatch.setattr(scanlate_art_text, "find_art_captions", lambda *a, **k: [
+            {"x": 5, "y": 5, "w": 100, "h": 40, "source_text": "砰"}])
+        bubbles, notes = scanlate.detect_and_ocr_page(str(path), "zh", art_captions=True)
+        assert [b["kind"] for b in bubbles] == ["caption"]
+        assert not any("No bubbles found" in m for _, m in notes)
+
+    def test_no_bubbles_and_no_captions_still_says_so(self, tmp_path, monkeypatch):
+        import scanlate_art_text
+        from PIL import Image
+        path = tmp_path / "p.png"
+        Image.new("RGB", (200, 200), (20, 20, 20)).save(path)
+        monkeypatch.setattr(scanlate, "detect_bubbles", lambda *a, **k: [])
+        monkeypatch.setattr(scanlate_art_text, "find_art_captions", lambda *a, **k: [])
+        bubbles, notes = scanlate.detect_and_ocr_page(str(path), "zh", art_captions=True)
+        assert bubbles == [] and any("No bubbles found" in m for _, m in notes)

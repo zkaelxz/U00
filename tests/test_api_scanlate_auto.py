@@ -464,6 +464,21 @@ def test_art_captions_run_is_refused_without_paddle(client, fake_detect, monkeyp
     assert r.status_code == 503 and "PaddleOCR" in r.text
 
 
+def test_a_redo_that_loses_the_captions_keeps_the_translated_page(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(5, "你好", translated_text="Hello"),
+                          _region(50, "砰", kind="caption", translated_text="Bang")])
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page",
+                        lambda *a, **k: ([_region(5, "你好")], []))   # the caption detector failed
+    r = _run(client, did, engine="fake", mode="page", page_id=pid, art_captions=True)
+    assert r.status_code == 200, r.text
+    assert _wait(f"scanlate_{did}")["status"] == "done"
+    kept = db.load_bubbles(pid)
+    assert [(b["kind"], b["translated_text"]) for b in kept] == [("bubble", "Hello"),
+                                                                 ("caption", "Bang")]
+
+
 def test_translate_all_skips_pages_with_regions(client, fake_detect):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)

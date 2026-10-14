@@ -263,18 +263,14 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
 
-    if not boxes and not art_captions:
-        _, rejected = detect_bubbles_cv(image_path, debug=True, image=page)
-        reasons = {}
-        for r in rejected:
-            reasons[r[4]] = reasons.get(r[4], 0) + 1
-        top = sorted(reasons.items(), key=lambda x: -x[1])[:3]
-        detail = (" Skipped: " + ", ".join(f"{n} {why}" for why, n in top) + ".") if top else ""
-        # A warning, not an error: covers and splash art legitimately have no bubbles.
-        notes.append(("warning",
-            "No bubbles found on this page. That is normal for covers and splash art; "
-            "otherwise try the ML detector (Advanced) or add boxes by hand." + detail))
-        return [], notes
+    captions = None
+    if not boxes:
+        # A page of lettering on the art alone is not "no bubbles found".
+        if art_captions:
+            captions = _art_caption_regions(image_path, source_language, [], page, notes)
+        if not captions:
+            _note_no_bubbles(image_path, page, notes)
+            return [], notes
 
     bubbles = []
     ocr_failed = 0
@@ -302,13 +298,27 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b.update(translated_text="", font_size=18, skip=False, include_sfx=False)
         bubbles.append(b)
     if art_captions:
-        bubbles += _art_caption_regions(image_path, source_language, bubbles, page, notes)
+        bubbles += (captions if captions is not None
+                    else _art_caption_regions(image_path, source_language, bubbles, page, notes))
     if ocr_failed:
         # Fixed text: the exception may carry a model path, and the caller
         # needs "OCR broke" kept apart from "the bubble holds no text".
         notes.append(("error", f"OCR failed on {ocr_failed} of {len(bubbles)} regions. Check "
                                "that the OCR backend is installed (Diagnostics)."))
     return bubbles, notes
+
+
+def _note_no_bubbles(image_path: str, page, notes: list) -> None:
+    _, rejected = detect_bubbles_cv(image_path, debug=True, image=page)
+    reasons = {}
+    for r in rejected:
+        reasons[r[4]] = reasons.get(r[4], 0) + 1
+    top = sorted(reasons.items(), key=lambda x: -x[1])[:3]
+    detail = (" Skipped: " + ", ".join(f"{n} {why}" for why, n in top) + ".") if top else ""
+    # A warning, not an error: covers and splash art legitimately have no bubbles.
+    notes.append(("warning",
+        "No bubbles found on this page. That is normal for covers and splash art; "
+        "otherwise try the ML detector (Advanced) or add boxes by hand." + detail))
 
 
 def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,

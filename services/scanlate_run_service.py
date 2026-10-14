@@ -241,6 +241,11 @@ def _ocr_lost_text(existing: list, notes) -> bool:
             and any(_has_text(b) for b in existing))
 
 
+def _is_translated_caption(region: dict) -> bool:
+    return (region.get("kind") == "caption" and _has_text(region)
+            and bool((region.get("translated_text") or "").strip()))
+
+
 def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool,
                           notes: list = ()) -> bool:
     """A redo replaces the page's regions. It must not swap translated
@@ -249,6 +254,11 @@ def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool,
     regions, or for one where no region ended up translated; the page then
     keeps what it has."""
     if not bubbles or _ocr_lost_text(existing, notes):
+        return True
+    # Captions on the art come from a separate detector: when it fails, or the
+    # run has the option off, their earlier translations are not replaced by nothing.
+    if (any(_is_translated_caption(b) for b in existing)
+            and not any(b.get("kind") == "caption" and _has_text(b) for b in bubbles)):
         return True
     if not any((b.get("translated_text") or "").strip() for b in existing):
         return False

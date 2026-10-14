@@ -171,10 +171,12 @@ def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
     return "\n".join(lines)
 
 
-def paddle_lines(image_path: str, lang: str = "zh", scale: float = 1.0) -> list:
-    """Every text line paddle finds on the page as (text, confidence, (x, y, w, h))
-    in full-page pixels. `scale` shrinks the page for detection only: paddle runs out
-    of memory on a full-height webtoon page."""
+def paddle_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
+    """Every text line paddle finds on the page (a BGR array, decoded by the
+    caller with Pillow so a non-ASCII Windows path and the stored pixel grid
+    both hold) as (text, confidence, (x, y, w, h)) in full-page pixels. `scale`
+    shrinks the page for detection only: paddle runs out of memory on a
+    full-height webtoon page."""
     import cv2
     from paddleocr import PaddleOCR
     paddle_lang = _PADDLE_LANG_BY_SOURCE.get(lang, "ch")
@@ -186,16 +188,19 @@ def paddle_lines(image_path: str, lang: str = "zh", scale: float = 1.0) -> list:
                 use_textline_orientation=True, lang=paddle_lang, enable_mkldnn=False,
                 text_det_limit_side_len=1280, text_det_limit_type="max",
                 **(_PADDLE_CH_MODELS if paddle_lang == "ch" else {}))
-        source = image_path
+        source = image
         if scale < 1.0:
-            img = cv2.imread(image_path)
-            source = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            source = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         result = instances[paddle_lang].predict(source)
     lines = []
     for page in result:
+        texts, scores = page.get("rec_texts", []), page.get("rec_scores", [])
         polys = page.get("rec_polys")
-        polys = page.get("dt_polys") if polys is None else polys
-        for text, conf, poly in zip(page.get("rec_texts", []), page.get("rec_scores", []), polys):
+        # dt_polys also lists the boxes whose text was dropped, so pairing it
+        # with the texts by position would put a line's text on another box.
+        if polys is None or len(polys) != len(texts) or len(scores) != len(texts):
+            continue
+        for text, conf, poly in zip(texts, scores, polys):
             xs, ys = [p[0] / scale for p in poly], [p[1] / scale for p in poly]
             lines.append((text, float(conf),
                           (int(min(xs)), int(min(ys)), int(max(xs) - min(xs)), int(max(ys) - min(ys)))))

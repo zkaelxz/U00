@@ -67,7 +67,7 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
     h, w = page.shape[:2]
     scale = min(1.0, _DETECT_LIMIT_SIDE / float(max(h, w)))
     lines = []
-    for text, conf, (x, y, bw, bh) in ocr.paddle_lines(image_path, lang, scale):
+    for text, conf, (x, y, bw, bh) in ocr.paddle_lines(page, lang, scale):
         if conf < _MIN_CONFIDENCE or not text.strip() or bh < _MIN_LINE_HEIGHT:
             continue
         box = {"x": x, "y": y, "w": bw, "h": bh}

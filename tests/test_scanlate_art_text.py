@@ -75,6 +75,58 @@ class TestFindArtCaptions:
         assert seen["scale"] == pytest.approx(0.5)
 
 
+    def test_a_non_ascii_page_path_is_decoded_once_and_the_array_is_what_paddle_reads(
+            self, tmp_path, monkeypatch):
+        path = tmp_path / "页面_0001.png"
+        Image.new("RGB", (200, 100), (10, 10, 10)).save(path)
+        got = {}
+
+        def paddle_lines(image, lang, scale):
+            got["shape"] = image.shape
+            return []
+        monkeypatch.setattr(ocr, "paddle_lines", paddle_lines)
+        art.find_art_captions(str(path), "zh", [])
+        assert got["shape"] == (100, 200, 3)
+
+
+class TestPaddleLines:
+    @pytest.fixture
+    def fake_paddle(self, monkeypatch):
+        import sys
+        import types
+        seen = {}
+
+        class FakePaddle:
+            result = []
+
+            def __init__(self, **kw):
+                pass
+
+            def predict(self, source):
+                seen["source"] = source
+                return self.result
+        mod = types.ModuleType("paddleocr")
+        mod.PaddleOCR = FakePaddle
+        monkeypatch.setitem(sys.modules, "paddleocr", mod)
+        monkeypatch.setattr(ocr, "_paddle_line_instances", {}, raising=False)
+        return FakePaddle, seen
+
+    def test_reads_the_array_it_is_given_scaled_and_maps_boxes_back(self, fake_paddle):
+        paddle, seen = fake_paddle
+        paddle.result = [{"rec_texts": ["hi"], "rec_scores": [0.9],
+                          "rec_polys": [[[10, 20], [60, 20], [60, 40], [10, 40]]]}]
+        out = ocr.paddle_lines(np.zeros((200, 100, 3), np.uint8), "zh", 0.5)
+        assert seen["source"].shape == (100, 50, 3)
+        assert out == [("hi", 0.9, (20, 40, 100, 40))]
+
+    def test_texts_are_not_paired_with_boxes_when_the_counts_differ(self, fake_paddle):
+        paddle, _ = fake_paddle
+        paddle.result = [{"rec_texts": ["a", "b"], "rec_scores": [0.9, 0.9],
+                          "rec_polys": [[[0, 0], [5, 0], [5, 5], [0, 5]]],
+                          "dt_polys": [[[0, 0], [5, 0], [5, 5], [0, 5]]] * 3}]
+        assert ocr.paddle_lines(np.zeros((50, 50, 3), np.uint8)) == []
+
+
 class TestMaskAndStyle:
     def test_mask_covers_the_lettering_and_a_margin_only(self):
         page = _dark_page_with_white_text()
