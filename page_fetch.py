@@ -87,6 +87,7 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
 
 STATIC_FETCH_MAX_BYTES = 5_000_000
 STATIC_FETCH_MAX_REDIRECTS = 5
+STATIC_FETCH_MAX_ERROR_BYTES = 4096   # an error page's body is never needed, only its status
 
 
 class HTTPStatusError(Exception):
@@ -108,6 +109,7 @@ def fetch_static(url: str, timeout: int = 20):
     # guard's own exceptions and fixed messages (see `_redact`).
     resp = http.get(url, timeout=timeout, max_bytes=STATIC_FETCH_MAX_BYTES,
                     deadline=max(timeout, 1) * 3, max_redirects=STATIC_FETCH_MAX_REDIRECTS,
+                    max_error_bytes=STATIC_FETCH_MAX_ERROR_BYTES,
                     guard=url_guard.resolve_public, headers={"User-Agent": _UA})
     if resp.status >= 400:
         raise HTTPStatusError(resp.status)

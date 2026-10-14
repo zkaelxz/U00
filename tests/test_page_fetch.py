@@ -300,6 +300,18 @@ class TestSmartFetchErrorWording:
         msg = self._message(monkeypatch, [_Page(b"<p>x</p>" * 400)])
         assert msg == "Couldn't reach that page: the connection failed"
 
+    def test_an_error_response_body_is_not_read_in_full(self, monkeypatch):
+        read = []
+
+        class Endless(_Page):
+            def iter_content(self, size):
+                while True:
+                    read.append(size)
+                    yield b"<p>x</p>" * 100
+        msg = self._message(monkeypatch, [Endless(status=503)])
+        assert msg == "Couldn't reach that page: the site answered HTTP 503"
+        assert len(read) < 50
+
     def test_a_good_page_is_fetched(self, monkeypatch):
         _dns(monkeypatch)
         _pinned(monkeypatch, [_Page(("<p>hello there</p>" * 200).encode())])
