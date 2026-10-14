@@ -477,3 +477,17 @@ class TestUntranslatedAfterStructuralWrite:
         assert db.get_drama(did)["status"] == "translated"
         lines_service.patch_line(did, blank, zh="later")
         assert db.get_drama(did)["status"] == "aligned"
+
+
+def test_an_emotion_tag_added_mid_write_to_a_removed_line_refuses_the_write():
+    did, ids = _seed()
+
+    def build(work):
+        # The tag lands after the lines were read, before the write.
+        db.save_emotions(did, {3: {"emotion": "angry", "intensity": 0.9, "note": ""}})
+        return work[:3], work[:3]
+
+    with pytest.raises(ConflictError):
+        svc.structural_write(did, ids, "drop d", build, keep_new_notes=True)
+    assert len(_rows(did)) == 4
+    assert 3 in db.load_emotions(did)
