@@ -263,6 +263,9 @@ def _migrate_series_and_character_columns(conn):
         # suggest "this speaker sounds like <name>". NULL until at least
         # one confirmed sample exists.
         db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint TEXT")
+    # Each column of a group is checked on its own: an upgrade interrupted
+    # after the group's first ALTER must still add the rest on the next start.
+    if "voice_fingerprint_samples" not in sc_cols:
         db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
 
 
@@ -284,11 +287,17 @@ def _migrate_scanlate_columns(conn):
         # include_sfx is the per-region override that puts an SFX region
         # back into the automated inpaint-and-replace pass.
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
+    if "kind_confidence" not in bubble_cols:
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
+    if "confidence" not in bubble_cols:
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN confidence REAL")
+    if "language" not in bubble_cols:
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN language TEXT")
+    if "orientation" not in bubble_cols:
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN orientation TEXT")
+    if "panel_id" not in bubble_cols:
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
+    if "include_sfx" not in bubble_cols:
         db._safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
     page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
     if "rev" not in page_cols:
@@ -310,11 +319,14 @@ def _migrate_bulk_job_columns(conn):
         # See the `bulk_jobs` table's own comment above -- every
         # bulk job predating this column was a translation job.
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
+    if "stage" not in bulk_job_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
+    if "pipeline_id" not in bulk_job_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
     bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
     if "result_text" not in bulk_job_line_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
+    if "state_at_submit" not in bulk_job_line_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
 
 
