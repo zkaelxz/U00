@@ -10,6 +10,7 @@ import types
 import numpy as np
 import vad_segments
 import pytest
+from segment_splitting import WORD_EDGE_PAD_END, WORD_EDGE_PAD_START
 
 import asr_backend as ab
 import whisper_models as wm
@@ -110,8 +111,9 @@ class TestPlacement:
         backend(["おはようねうん。"], [words])
         out = run([(1.0, 2.5), (4.0, 5.5)])
         assert [l["text"] for l in out] == ["おはようね", "うん。"]
-        assert out[0]["start"] == pytest.approx(1.2) and out[0]["end"] == pytest.approx(2.3)
-        assert out[1]["start"] == pytest.approx(4.5)
+        assert out[0]["start"] == pytest.approx(1.2 - WORD_EDGE_PAD_START)
+        assert out[0]["end"] == pytest.approx(2.3 + WORD_EDGE_PAD_END)
+        assert out[1]["start"] == pytest.approx(4.5 - WORD_EDGE_PAD_START)
         for line in out:
             assert "".join(w["word"] for w in line["words"]) == line["text"]
 
