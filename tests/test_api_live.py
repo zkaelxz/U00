@@ -132,7 +132,7 @@ def test_the_delayed_player_option_reaches_the_job_and_the_status_at_the_pc(clie
     assert started.status_code == 200, started.text
     sid = started.json()["session_id"]
     assert _wait(lambda: "kw" in fake_live)
-    assert fake_live["kw"]["delayed_player"] is True
+    assert fake_live["kw"]["delayed_player"] == 480  # the picture height; 0 when the option is off
     assert client.get(f"/api/live/sessions/{sid}").json()["delayed_player"] is True
     client.post(f"/api/live/sessions/{sid}/stop")
 

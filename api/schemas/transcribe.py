@@ -313,6 +313,8 @@ class LiveSessionStart(BaseModel):
     delayed_player: StrictBool = Field(
         False, description="Also record a rolling copy of the picture and sound for the page's "
                            "own player, so the picture can be held back on a stream the embed cannot rewind.")
+    player_height: Literal[360, 480, 720, 1080] = Field(
+        480, description="With delayed_player: the tallest picture to record, in pixels.")
     glossary_drama_id: Optional[StrictInt] = Field(
         None, ge=1, le=2**62,
         description="A title whose glossary and language packs the translation may use (read-only).")

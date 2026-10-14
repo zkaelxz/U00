@@ -20,7 +20,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError, api } from '../api/client'
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, PLAYER_HEIGHTS, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_HELP, WHISPER_SIZES,
   advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, glossaryChoices, glossaryIds, glossaryValue, hasPending, isActive, lagLine,
   listLive, mergeCues, readFrom, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
@@ -408,6 +408,13 @@ export default function LivePage() {
               help="Records a delayed copy of the picture and sound on this PC and plays that instead of the stream's own player, so the picture can be held back to match the lines even where the stream can't be rewound. Downloads the video as well as the audio. Takes effect when you press Start.">
               <Toggle checked={form.delayed_player} disabled={active} onChange={(v) => setOpt('delayed_player', v)} />
             </Field>
+            {form.delayed_player && (
+              <Field label="Delayed player quality" help="The tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is roughly 5 Mbit/s); streams that don't offer it use the nearest smaller size. Takes effect when you press Start.">
+                <select value={form.player_height} disabled={active} onChange={(e) => setOpt('player_height', Number(e.target.value))}>
+                  {PLAYER_HEIGHTS.map((h) => <option key={h} value={h}>{h}p</option>)}
+                </select>
+              </Field>
+            )}
             <Field label="Reply without thinking"
               help="Faster lines: the translator answers straight away instead of reasoning first. Works with Ollama and DeepSeek.">
               <Toggle checked={form.reply_without_thinking && canSwitchThinking}
