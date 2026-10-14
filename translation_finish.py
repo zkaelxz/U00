@@ -1,8 +1,7 @@
 """
 translation_finish.py -- what happens after a translation run writes its lines:
 the untranslated count, the "aligned" -> "translated" status, and the shared
-finish step of Workspace's translate job, `cli.py translate` and the DeepSeek
-off-peak run.
+finish step shared by the translate jobs.
 """
 import json
 import logging
@@ -83,16 +82,14 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            summary_monthly_cap_usd: float = None,
                            flags_needing_recheck: set = None, *, enforce_ids) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
-    returns, shared by Workspace's run_translate_job and `cli.py translate`
-    so the two can't drift: applies
+    returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
     the run as the active translation version, and persists its batch
     failures (dramas.last_translate_errors).
 
     The drama is marked "translated" only once no line is left
     untranslated. A run stopped short -- batch failures, the cost cap, a
-    cancel -- leaves the status as it was, so the drama stays in `cli.py
-    translate`'s default `--status aligned` retry and in Library's
+    cancel -- leaves the status as it was, so the drama stays in Library's
     untranslated selection. A cancelled run saves no version: it isn't a
     finished translation to compare against.
 

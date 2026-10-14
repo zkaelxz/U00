@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-# Must run before the app imports below (as cli.py does).
+# Must run before the app imports below (see portable.py's docstring).
 import portable
 portable.activate_portable_mode()
 
@@ -170,7 +170,7 @@ def build_plan(args) -> Plan:
 
 @contextlib.contextmanager
 def gpu_guard(use_gpu: bool, description: str):
-    """The cross-process GPU slot the app's jobs and the CLI take (jobs/gpu_slots), so a bench
+    """The cross-process GPU slot the app's jobs take (jobs/gpu_slots), so a bench
     waits for a running job instead of loading a model next to it. A CPU run needs none."""
     if not use_gpu:
         yield None

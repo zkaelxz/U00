@@ -185,7 +185,7 @@ def download_model(progress_cb: Optional[Callable[[float], None]] = None,
     import requests
     path = model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    # Unique per call so the CLI and an app job downloading at once don't
+    # Unique per call so two downloads at once don't
     # write into one file.
     fd, part = tempfile.mkstemp(dir=os.path.dirname(path), prefix="model.", suffix=".part")
     os.close(fd)

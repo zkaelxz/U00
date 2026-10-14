@@ -30,7 +30,7 @@ WHISPER_MODELS = {
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
 
-# Sizes the Workspace pickers no longer offer (Live keeps them). The API, the CLI and
+# Sizes the Workspace pickers no longer offer (Live keeps them). The API and
 # titles that saved one still accept them. tiny and base exist only here and in Live's
 # list, not in WHISPER_MODELS.
 HIDDEN_WHISPER_SIZES = ("tiny", "base", "small", "medium")
@@ -44,7 +44,7 @@ PINNED_CT2_REPOS = {
 }
 
 # anime-whisper (litagin/anime-whisper) is NOT a key of WHISPER_MODELS or PINNED_CT2_REPOS:
-# it must not reach the size picker, Live, mixed-language, Benchmark Lab or the CLI, and
+# it must not reach the size picker, Live, mixed-language or Benchmark Lab, and
 # only asr_backend.AnimeWhisperBackend loads it, by this name. The CTranslate2 build is
 # byte-identical to `tools/ja_whisper_models.py convert-anime-whisper` (same model.bin
 # sha256). Personal, non-commercial use only: the training data forbids commercial use of

@@ -3,7 +3,7 @@ api/api_config.py -- where the FastAPI server's own settings come from.
 
 Deliberately *not* a second configuration system. Everything the app
 already configures stays where it is: the library/database location is
-`db.LIBRARY_DIR` (the same folder `cli.py` uses), portable
+`db.LIBRARY_DIR` (the same folder the `python -m api` admin commands use), portable
 mode is `portable.py`, API keys stay in the environment / `.env`. This
 module only adds the handful of settings a network server needs,
 read from `BAIHE_API_*` environment variables in

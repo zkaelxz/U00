@@ -74,8 +74,7 @@ class StageResult:
 
 
 def _run_stage(name, fn):
-    """Times one stage and isolates its failure -- mirrors cli.py's
-    per-drama isolation (_run_batch): one backend crashing shouldn't stop
+    """Times one stage and isolates its failure -- one backend crashing shouldn't stop
     the rest of the comparison from reporting whatever it did get."""
     reset_vram_counter()
     start = time.perf_counter()
