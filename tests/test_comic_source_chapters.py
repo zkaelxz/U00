@@ -85,9 +85,6 @@ def test_an_unknown_title_is_404(client):
 class _Adapter:
     name = "fake"
 
-    def __init__(self, fail=False):
-        self.fail = fail
-
     def supports(self, method):
         return True
 
@@ -95,9 +92,7 @@ class _Adapter:
         return ("series", "s1")
 
     def get_chapters(self, series_id):
-        if self.fail:
-            raise SourceError("boom https://secret.example/?k=1")
-        return [ChapterInfo(source="fake", series_id=series_id, chapter_id=str(i), title=f"Ch {i}") for i in (1, 2)]
+        raise AssertionError("listing a series is a paced job, never part of this GET")
 
 
 def _use_adapter(monkeypatch, adapter):
@@ -108,20 +103,39 @@ def _use_adapter(monkeypatch, adapter):
     monkeypatch.setattr(svc.registry, "is_enabled", lambda name: True)
     monkeypatch.setattr(svc.extension_marker, "is_marked", lambda name: False)
     monkeypatch.setattr(svc.registry, "find_for_url", lambda url, **kw: adapter)
-    monkeypatch.setattr(svc.chapter_order, "reading_order", lambda a, chapters: list(chapters))
 
 
-def test_an_adapter_site_lists_its_chapters_with_imported_marks(client, monkeypatch):
+def test_an_adapter_site_names_source_series_and_imported_ids_without_fetching(client, monkeypatch):
     d = db.create_drama(title_en="Site", media_type="manga", source_url="https://site.example/s/1")
     _use_adapter(monkeypatch, _Adapter())
     monkeypatch.setattr(svc.store, "imported_chapter_ids", lambda *a: {"1"})
     body = client.get(f"/api/scanlate/dramas/{d}/source-chapters").json()
     assert (body["mode"], body["source"], body["series_id"]) == ("adapter", "fake", "s1")
-    assert [(c["chapter_id"], c["imported"]) for c in body["chapters"]] == [("1", True), ("2", False)]
+    assert body["imported_ids"] == ["1"] and body["chapters"] == []
 
 
-def test_a_failed_listing_is_503_without_the_error_text(client, monkeypatch):
-    d = db.create_drama(title_en="Site", media_type="manga", source_url="https://site.example/s/1")
-    _use_adapter(monkeypatch, _Adapter(fail=True))
-    r = client.get(f"/api/scanlate/dramas/{d}/source-chapters")
-    assert r.status_code == 503 and "secret.example" not in r.text
+def test_stored_links_are_cleaned_again_when_read(isolated_db):
+    d = db.create_drama(title_en="Plain", media_type="manga")
+    import json, os
+    path = os.path.join(db.drama_dir(d), comic_chapter_links.FILE_NAME)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    long_url = "https://reader.example/" + "a" * 2100
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"version": 1, "links": [
+            {"title": "Ch 1", "url": "https://reader.example/1?token=s3cret"},
+            {"title": "Too long", "url": long_url}, {"title": "No url"}, "junk"]}, f)
+    assert comic_chapter_links.load(d) == [{"title": "Ch 1", "url": "https://reader.example/1"}]
+
+
+def test_clean_titles_are_redacted_like_other_fetched_text():
+    out = comic_chapter_links.clean([{"title": "Ch C:\\Users\\kae\\x", "url": "https://reader.example/1"}], "reader.example")
+    assert "Users" not in out[0]["title"]
+
+
+def test_remember_never_writes_more_than_load_will_read(isolated_db, monkeypatch):
+    d = db.create_drama(title_en="Big", media_type="manga")
+    monkeypatch.setattr(comic_chapter_links, "MAX_FILE_BYTES", 2000)
+    links = [{"title": f"Chapter {i}", "url": f"https://reader.example/series/{i}"} for i in range(100)]
+    comic_chapter_links.remember(d, links)
+    kept = comic_chapter_links.load(d)
+    assert 0 < len(kept) < 100 and kept == links[:len(kept)]

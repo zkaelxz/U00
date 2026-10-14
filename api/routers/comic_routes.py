@@ -111,4 +111,4 @@ def post_visibility(body: ComicVisibilityRequest, drama_id: int = Path(ge=1)):
             summary="The chapters a comic's source has (from the site, or the extension's saved links)",
             responses=error_responses(404, 422, 503))
 def get_source_chapters(request: Request, drama_id: int = Path(ge=1)):
-    return comic_source_chapters_service.list_source_chapters(drama_id, request.state.principal)
+    return comic_source_chapters_service.list_source_chapters(drama_id, principal=request.state.principal)

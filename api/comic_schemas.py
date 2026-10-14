@@ -99,4 +99,6 @@ class ComicSourceChapters(BaseModel):
     mode: Literal["adapter", "links", "none"]
     source: str = ""
     series_id: str = ""
+    # Adapter sites: the chapter ids already imported (the list itself comes from the series job).
+    imported_ids: List[str] = Field(default_factory=list)
     chapters: List[ComicSourceChapter] = Field(default_factory=list)
