@@ -17,7 +17,7 @@ export function BackButton() {
   }, [])
   if (!canGoBack) return null
   return (
-    <button type="button" className={buttonClass('ghost', 'sm', 'app-back')} aria-label="Go back to the previous page" onClick={() => window.history.back()}>
+    <button type="button" className={buttonClass('ghost', 'sm', 'app-back')} aria-label="Return to the last page" onClick={() => window.history.back()}>
       <span aria-hidden="true">‹</span>
       <span className="app-back-text" aria-hidden="true">Back</span>
     </button>

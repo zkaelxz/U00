@@ -4,7 +4,7 @@ test('Back appears after an in-app navigation and returns to the previous page',
   await page.goto('/#/jobs')
   // The first page is numbered when the app mounts, so let it mount before navigating on.
   await expect(page.locator('#main-content')).toBeVisible()
-  const back = page.getByRole('button', { name: 'Go back to the previous page' })
+  const back = page.getByRole('button', { name: 'Return to the last page' })
   await expect(back).toHaveCount(0)
   await page.goto('/#/settings')
   await expect(back).toBeVisible()
