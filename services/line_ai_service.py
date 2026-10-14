@@ -26,7 +26,7 @@ import core
 import db
 import line_tools
 import translate_engines
-from engine_backends import paid_calls
+from engine_backends import medium_prompts, paid_calls
 from services import (engine_routing_service, settings_service, translate_run_service,
                       translate_service, workspace_job_service)
 from services.service_errors import (
@@ -149,7 +149,7 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
     suggestion = run(lambda: line_tools.improve_line(
         line.zh, line.en, engine, issue=issue,
         source_language=_line_language(drama, line),
-        style_guidelines=guidelines), (engine, "line_improve", drama_id))
+        style_guidelines=guidelines, kind=medium_prompts.kind_for(drama)), (engine, "line_improve", drama_id))
     return {"line_id": line.id, "current_en": line.en, "suggestion": suggestion,
             "changed": suggestion != line.en, "engine": name,
             "model": getattr(engine, "model", model)}

@@ -8,6 +8,7 @@ from bulk_apply import (_log_generic_usage, _parse_strict, _save_applied_english
                         _stale_line)
 from bulk_providers import make_provider
 from bulk_translate import _character_names, _copy_english_lines, _target_lines, request_key, zh_hash
+from engine_backends.medium_prompts import kind_for
 import db
 import source_change
 import translate_engines
@@ -66,6 +67,16 @@ def _reflect_prompt_parts(drama_id: int, translate_args: dict, engine, batch: li
         ctx, translate_engines.tagged_source_texts(batch, lang))
     return (instructions, translate_engines.pronoun_batch_note(ctx.get("style_guidelines"), lang),
             dict(zip(ids, sources)), dict(zip(ids, ctx["speaker_labels"])))
+
+
+def _reflect_kind(drama_id: int, translate_args: dict) -> str:
+    """The prompt kind (subtitle, novel, stream) the stage prompts are worded for."""
+    return kind_for((translate_args or {}).get("drama_meta") or db.get_drama(drama_id) or {})
+
+
+def _reflect_kind(drama_id: int, translate_args: dict) -> str:
+    """The prompt kind (subtitle, novel, stream) the stage prompts are worded for."""
+    return kind_for((translate_args or {}).get("drama_meta") or db.get_drama(drama_id) or {})
 
 
 def sibling_stage_job(pipeline_id: str, stage: str, skip_failed: bool = False):
@@ -136,7 +147,8 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
         instructions, batch_ctx, source_by_id, speaker_by_id = _reflect_prompt_parts(
             drama_id, translate_args, engine, batch, names)
         prompt = translate_engines.build_reflect_faithful_prompt(
-            instructions, batch_ctx, ids, source_by_id, speaker_by_id)
+            instructions, batch_ctx, ids, source_by_id, speaker_by_id,
+            _reflect_kind(drama_id, translate_args))
         batches.append(([(ln.id, ln.zh) for ln in batch], prompt))
     en_at_submit_by_id = {ln.id: ln.en or "" for ln in targets}
     return submit_reflect_stage(drama_id, "faithful", provider, batches, engine_choice,
@@ -263,9 +275,11 @@ def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_
                                  engine):
     provider = make_provider(job["engine"], engine)
 
+    kind = _reflect_kind(job["drama_id"], job.get("translate_args"))
+
     def batches():
         return [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_reflection_prompt(
-                    instructions, batch_ctx, chunk, source_by_id, {lid: draft_by_id[lid] for lid in chunk}))
+                    instructions, batch_ctx, chunk, source_by_id, {lid: draft_by_id[lid] for lid in chunk}, kind))
                 for chunk, zh_by_id, instructions, batch_ctx, source_by_id in _stage_chunks(job, ids, engine)]
     return _submit_next_stage(job, "reflect", batches, ids, en_at_submit_by_id, provider, 2000)
 
@@ -317,11 +331,13 @@ def _advance_to_expressive_stage(job: dict, ids: list, draft_by_id: dict, critiq
                                  en_at_submit_by_id: dict, engine):
     provider = make_provider(job["engine"], engine)
 
+    kind = _reflect_kind(job["drama_id"], job.get("translate_args"))
+
     def batches():
         return [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_expressive_prompt(
                     instructions, batch_ctx, chunk, source_by_id,
                     {lid: draft_by_id.get(lid, "") for lid in chunk},
-                    {lid: critique_by_id.get(lid) for lid in chunk}))
+                    {lid: critique_by_id.get(lid) for lid in chunk}, kind))
                 for chunk, zh_by_id, instructions, batch_ctx, source_by_id in _stage_chunks(job, ids, engine)]
     return _submit_next_stage(job, "expressive", batches, ids, en_at_submit_by_id, provider, 4000)
 
