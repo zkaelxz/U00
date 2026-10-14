@@ -179,9 +179,10 @@ def get_emotion_summary(drama_id: int) -> dict:
             "lines": tags}
 
 
-def get_edit_tendencies(drama_id: int) -> dict:
+def get_edit_tendencies(drama_id: int, principal=None) -> dict:
     """This drama's recorded-edit statistics plus the STORED learned style
-    profile (None when nothing has been learned). Never runs the LLM
+    profile (None when nothing has been learned, or when the principal may
+    not see it: ownership_service.sees_learned_style). Never runs the LLM
     analysis."""
     drama = _require_drama(drama_id)
     tend = adaptive_style.summarize_edit_tendencies(db.list_edit_samples(drama_id))
@@ -189,7 +190,7 @@ def get_edit_tendencies(drama_id: int) -> dict:
     stored = db.get_style_profile(scope)
     profile = None
     prefs = ((stored or {}).get("profile") or {}).get("preferences")
-    if prefs:
+    if prefs and ownership_service.sees_learned_style(principal, stored["profile"]):
         pr = stored["profile"]
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),
                    "preferences": list(prefs), "sample_count": stored.get("sample_count") or 0,

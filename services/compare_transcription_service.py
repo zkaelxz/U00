@@ -313,7 +313,8 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
         translation = {"engine": engine, "engine_choice": name, "cost_cap_usd": cap,
                        "retranslate_current": bool(retranslate_current),
                        "locale": settings_service.get("default_locale"),
-                       "style_note": settings_service.get("default_style_note") or ""}
+                       "style_note": settings_service.get("default_style_note") or "",
+                       "principal": ownership_service.acting_principal()}
     tuning = transcribe_options_service._DEFAULT_TUNING
     started = job_launch.start_job(
         job_id, run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
@@ -374,7 +375,8 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
         all_lines = db.load_line_objects(drama_id)
         glossary_terms, style_guidelines, character_names = \
             workspace_job_service.build_run_style_context(
-                drama_id, drama, all_lines, style_preset, with_emotions=False)
+                drama_id, drama, all_lines, style_preset, with_emotions=False,
+                principal=translation.get("principal"))
         context = translate_engines.build_translation_context(
             engine, drama, style_note=translation["style_note"], locale=translation["locale"],
             glossary_terms=glossary_terms, style_guidelines=style_guidelines)

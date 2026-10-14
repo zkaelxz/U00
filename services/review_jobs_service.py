@@ -256,6 +256,7 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
                       "style_note": settings_service.get("default_style_note") or "",
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
+                      "principal": ownership_service.acting_principal(),
                       "gpu_touching": bool(audio_path) or translate_engines.ollama_touches_local_gpu(name, model)}
     started = _start("fix-flagged", drama_id, engine_name, model, gemini_free_tier,
                      workspace_review_job_service.run_fix_flagged_lines_job, make_args,

@@ -13,7 +13,9 @@ UI-free (inventory rows R46, R37, R35, R03):
   scope (series, else global). The apply toggle is stored on the profile as
   `"apply": false`, which `adaptive_style.profile_to_prompt_block` honours, so
   every translate path (API run, line AI) skips a paused profile the
-  same way. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
+  same way. The profile records who learned it, and reaches only that member
+  and those who see every title (ownership_service.sees_learned_style), in
+  this view and in every prompt. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
   meanwhile is kept, and a reset/re-learn made meanwhile makes it a 409.
 - SenseVoice audio tags (R35): `workspace_audio_job_service.run_sensevoice_job` as a
   `sensevoice_<id>` job (funasr optional; 503 when missing), and the
@@ -259,11 +261,17 @@ def _visible_edit_samples(principal) -> list:
     return [s for s in samples if s["drama_id"] in visible]
 
 
+def _visible_profile(principal, profile) -> dict:
+    """The stored profile when the principal may see it, else {}."""
+    profile = profile or {}
+    return profile if ownership_service.sees_learned_style(principal, profile) else {}
+
+
 def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                 principal=None) -> dict:
     scope = _scope(drama)
     stored = db.get_style_profile(scope)
-    pr = (stored or {}).get("profile") or {}
+    pr = _visible_profile(principal, (stored or {}).get("profile"))
     profile = None
     if pr.get("preferences"):
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),
@@ -280,7 +288,8 @@ def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                          "preference_count": len((h.get("profile") or {}).get("preferences")
                                                  or []),
                          "updated_at": h.get("updated_at")}
-                        for h in ((stored or {}).get("history") or [])],
+                        for h in ((stored or {}).get("history") or [])
+                        if ownership_service.sees_learned_style(principal, h.get("profile"))],
             "message": message}
 
 
@@ -341,8 +350,9 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
 
     usage = paid_calls.usage_logger(None, name, engine, "adaptive_style")
     try:
-        result = adaptive_style.analyze_edit_patterns(samples, engine, existing_profile=existing,
-                                                      usage_cb=usage)
+        result = adaptive_style.analyze_edit_patterns(
+            samples, engine, existing_profile=_visible_profile(principal, existing),
+            usage_cb=usage)
     except ServiceError:
         raise
     except Exception as e:  # engine/network failure: never leak a key
@@ -355,6 +365,9 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
                            principal=principal)
     profile = {"preferences": prefs, "summary": str(result.get("summary") or ""),
                "confidence": str(result.get("confidence") or "low")}
+    learner = ownership_service.user_id(principal)
+    if learner is not None:
+        profile["learned_by"] = learner
     with _STYLE_LOCK:
         # Re-read after the (slow) LLM call: a pause/resume made meanwhile
         # wins, and a reset (or another learn) made meanwhile is not undone
@@ -363,7 +376,7 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
         if (current.get("preferences") or []) != (existing.get("preferences") or []):
             raise ConflictError("The learned style was reset or changed while learning; "
                                 "nothing was saved. Learn again if you still want to.")
-        if current.get("apply") is False:
+        if _visible_profile(principal, current).get("apply") is False:
             profile["apply"] = False
         db.replace_style_profile(scope, profile, sample_count=len(samples))
     return _style_view(drama_id, drama, message=f"Learned {len(prefs)} preference(s).",
@@ -378,7 +391,7 @@ def set_style_applied(drama_id: int, apply: bool, principal=None) -> dict:
     scope = _scope(drama)
     with _STYLE_LOCK:
         stored = db.get_style_profile(scope)
-        profile = dict((stored or {}).get("profile") or {})
+        profile = dict(_visible_profile(principal, (stored or {}).get("profile")))
         if not profile.get("preferences"):
             raise NotFoundError("No learned style to turn on or off yet.")
         if apply:

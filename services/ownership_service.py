@@ -427,6 +427,26 @@ def acting_user_id():
     return user_id(holder.get("principal")) if holder else None
 
 
+def acting_principal():
+    """The principal of the API request (or queue start) this code runs
+    for, or None: the local owner, auth off, or a background thread. A job
+    that needs its starter's principal captures it here before it starts."""
+    holder = _ACTING.get()
+    return holder.get("principal") if holder else None
+
+
+def sees_learned_style(principal, profile) -> bool:
+    """A learned style profile is distilled from every edit its learner
+    could see, which for an admin or the PC owner includes other members'
+    private edits. So it reaches only those who see everything, and the
+    member who learned it (owner decision 2026-10-14). A profile with
+    no `learned_by` was learned at the PC or before this rule."""
+    if _sees_everything(principal):
+        return True
+    uid = user_id(principal)
+    return uid is not None and (profile or {}).get("learned_by") == uid
+
+
 _REPLACE_NEEDS_EDIT = "Replacing existing lines or speakers needs permission to edit lines."
 
 
