@@ -1,13 +1,13 @@
 """jobs/gpu_slots.py -- the one way any process takes, keeps and frees a GPU slot.
 
-background_jobs' in-process queue is invisible to a cli.py run or a second
+background_jobs' in-process queue is invisible to another process or a second
 server, so the gpu_lock table in the shared library.db is where they meet: one
 row per holder, `id` is the slot and the table's CHECK is the hard cap. This
 module is the only code that reads or writes that table (db.init_db creates it).
 
-A holder is "<scope>:<name>": `ui:<job id>` for a server job, `cli:<pid>`,
-`live-whisper:<pid>` and `check:<pid>` otherwise. Whether a row still counts is
-decided from its owner columns, never from the holder string; see `_alive`.
+A holder is "<scope>:<name>": `ui:<job id>` for a server job, `live-whisper:<pid>` for live
+transcription. Whether a row still counts is decided from its owner
+columns, never from the holder string; see `_alive`.
 See docs/background-jobs.md ("The GPU guard").
 """
 
@@ -147,7 +147,7 @@ def _vram_room_for_another_gpu_job() -> bool:
 def acquire(holder: str, description: str = None, *, job_id: str = None,
             check_external_load: bool = False) -> bool:
     """Claims a cross-process GPU slot for `holder`; True if taken. Shared by
-    UI jobs and every CLI so all follow the same cap.
+    UI jobs and every other process so all follow the same cap.
 
     The first holder needs only a free slot (and, with check_external_load,
     no other application loading the GPU). Joining running holders needs

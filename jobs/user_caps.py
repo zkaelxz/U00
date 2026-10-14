@@ -5,7 +5,7 @@ with runs on every title they can see while the PC owner's runs wait.
 background_jobs calls these under its own lock and adds the job before
 releasing it, so two starts at once can't both pass the count. Jobs are
 counted by who started them, never by job id, so no job-id prefix escapes
-the caps. Starter None is never capped: the PC owner, auth off, the CLI,
+the caps. Starter None is never capped: the PC owner, auth off,
 jobs started by jobs, and records from before owners were kept. Finished
 and cancelled jobs don't count.
 """

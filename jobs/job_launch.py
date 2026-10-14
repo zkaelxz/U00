@@ -159,9 +159,9 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     run_settings: this run's settings, kept on the job's own entry so no
     other run under the same id can lend its own. Not passed to target.
 
-    The job records who started it (auth B2): the user id of the API
+    The job records who started it (for per-user caps and ownership): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
-    the PC owner, auth off, the CLI and jobs started by jobs.
+    the PC owner, auth off, and jobs started by jobs.
 
     Raises ConflictError once the server's clean stop has begun
     (refuse_new_jobs), and RateLimitedError when the starter is over a

@@ -298,8 +298,8 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
     is_cancel_requested() between units of work, since a thread can't be
-    forcibly killed. For a process-based job (start_process_job()), Step
-    4d's own _process_watcher notices this flag and actually calls
+    forcibly killed. For a process-based job (start_process_job()), the
+    _process_watcher notices this flag and actually calls
     proc.terminate() -- a real, non-cooperative stop, since that's the
     whole reason those jobs run in their own OS process instead of a
     thread in the first place (no cooperative checkpoint to hook into).
