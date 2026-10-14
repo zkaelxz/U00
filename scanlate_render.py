@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from scanlate_detect import bubble_shape_mask, decode_page, page_gray
-from scanlate_inpaint import InpaintModelUnavailable, inpaint_region
+from scanlate_inpaint import InpaintModelUnavailable, background_is_dark, inpaint_region
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 
 
@@ -218,6 +218,15 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     return image
 
 
+def _text_fill(pil_img, box: dict):
+    """White lettering on a dark balloon, black otherwise."""
+    x, y = max(0, box["x"]), max(0, box["y"])
+    roi = np.asarray(pil_img.crop((x, y, x + box["w"], y + box["h"])).convert("L"))
+    if roi.size and background_is_dark(roi):
+        return (255, 255, 255)
+    return (0, 0, 0)
+
+
 def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = None,
                        custom_fonts: dict = None):
     """
@@ -326,7 +335,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
             render_text_in_box(pil_img, b, b["translated_text"],
                                 font_size=b.get("font_size", 18), font_path=font_path,
                                 font_category=b.get("font_category") or "regular",
-                                custom_fonts=custom_fonts, mask=shape_mask)
+                                custom_fonts=custom_fonts, mask=shape_mask,
+                                fill=_text_fill(pil_img, b))
         pil_img.save(result_path, "PNG")
         os.replace(result_path, out_path)
     finally:
