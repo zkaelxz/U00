@@ -12,6 +12,15 @@ _LAMA_ML_REPO = "mayocream/lama-manga"
 _LAMA_ML_FILE = "lama-manga.safetensors"
 _LAMA_BLOCKS = 18
 
+# The generator keeps 64-channel float32 activations at full resolution, so a
+# region of a few megapixels (a user-drawn box, a tall webtoon strip) needs
+# gigabytes. Past this size the OpenCV fallback is used instead.
+_ML_MAX_PIXELS = 3_000_000
+
+# Set when the checkpoint is present but unusable (corrupt, wrong shape), so one
+# bad ~200 MB file is not re-read for every region of every page.
+_lama_load_error = None
+
 
 def lama_ml_weights_cached() -> bool:
     """Same idea as bubble_ml_weights_cached(), for the LaMa-manga
@@ -142,16 +151,21 @@ def _build_lama_generator():
     return nn.Sequential(*layers)
 
 
-def _load_lama_generator(hf_token: str = None):
-    """Downloads (or reuses the already-cached) LaMa-manga checkpoint and
-    loads it into _build_lama_generator()'s architecture. Raises
-    RuntimeError -- caught by inpaint_region()/inpaint_mask_region() and
-    turned into InpaintModelUnavailable -- if most of the checkpoint's
-    weights don't match, rather than silently returning a near-random
-    model."""
-    global _lama_model
+def _load_lama_generator(hf_token: str = None, allow_download: bool = True):
+    """Loads the LaMa-manga checkpoint into _build_lama_generator()'s
+    architecture, downloading it first when `allow_download` and it isn't
+    cached. "auto" passes allow_download=False: it only picks the ML backend
+    when the weights are already cached, so it must not make a network request
+    (or fetch a newer revision) in the middle of a render. Raises RuntimeError
+    -- caught by inpaint_region()/inpaint_mask_region() and turned into
+    InpaintModelUnavailable -- if most of the checkpoint's weights don't match,
+    rather than silently returning a near-random model; an unusable checkpoint
+    is remembered for the rest of the process."""
+    global _lama_model, _lama_load_error
     if "_lama_model" in globals():
         return globals()["_lama_model"]
+    if _lama_load_error is not None:
+        raise RuntimeError(_lama_load_error)
 
     import os as _os
     from huggingface_hub import hf_hub_download
@@ -162,45 +176,54 @@ def _load_lama_generator(hf_token: str = None):
     from lib import model_offline
     # A run started away from the PC loads the cached file only; a server
     # thread cannot use the process-wide offline switch (lib/model_offline.py).
-    offline = {"local_files_only": True} if model_offline.active() else {}
+    local_only = model_offline.active()
+    offline = {"local_files_only": True} if (local_only or not allow_download) else {}
     try:
         ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename=_LAMA_ML_FILE,
                                     token=_tok, **offline)
     except Exception as exc:
-        if offline:
+        if local_only:
             raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE) from exc
         raise
-    # The checkpoint was saved from an nn.Sequential held as `model`.
-    state_dict = {k.removeprefix("model."): v for k, v in _load_safetensors(ckpt_path).items()}
+    try:
+        # The checkpoint was saved from an nn.Sequential held as `model`.
+        state_dict = {k.removeprefix("model."): v
+                      for k, v in _load_safetensors(ckpt_path).items()}
 
-    generator = _build_lama_generator()
-    own_keys = list(generator.state_dict().keys())
-    missing, unexpected = generator.load_state_dict(state_dict, strict=False)
-    if len(missing) > len(own_keys) * 0.1:
-        raise RuntimeError(
-            f"LaMa-manga checkpoint doesn't match the expected generator shape "
-            f"({len(missing)}/{len(own_keys)} weights unmatched, "
-            f"{len(unexpected)} unexpected keys in the checkpoint) -- "
-            f"_build_lama_generator() likely needs updating against this "
-            f"checkpoint's real state_dict key names."
-        )
+        generator = _build_lama_generator()
+        own_keys = list(generator.state_dict().keys())
+        missing, unexpected = generator.load_state_dict(state_dict, strict=False)
+        if len(missing) > len(own_keys) * 0.1:
+            raise RuntimeError(
+                f"LaMa-manga checkpoint doesn't match the expected generator shape "
+                f"({len(missing)}/{len(own_keys)} weights unmatched, "
+                f"{len(unexpected)} unexpected keys in the checkpoint) -- "
+                f"_build_lama_generator() likely needs updating against this "
+                f"checkpoint's real state_dict key names."
+            )
+    except Exception as exc:
+        _lama_load_error = f"{type(exc).__name__}: {exc}"
+        raise
     generator.eval()
     globals()["_lama_model"] = generator
     return generator
 
 
-def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str = None):
+def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str = None, allow_download: bool = True):
     """Runs LaMa-manga inpainting on one region-of-interest. roi_bgr: an
     OpenCV BGR array. mask_u8: a same-size uint8 array, nonzero = erase
     this pixel. Returns a BGR array the same size as roi_bgr, with only
     the masked pixels replaced -- everywhere else stays byte-identical
     to the input, same "only touch what was actually erased" discipline
     as the OpenCV path below."""
+    if roi_bgr.shape[0] * roi_bgr.shape[1] > _ML_MAX_PIXELS:
+        raise ValueError(f"the region is over {_ML_MAX_PIXELS // 1_000_000} megapixels, "
+                         f"too large for the model")
     import numpy as np
     import torch
     import cv2
 
-    generator = _load_lama_generator(hf_token=hf_token)
+    generator = _load_lama_generator(hf_token=hf_token, allow_download=allow_download)
     rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB).astype("float32") / 255.0
     mask = (mask_u8 > 0).astype("float32")
     # Zero out the masked area in the image channel first -- otherwise the
@@ -277,7 +300,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     fallback_error = None
     if resolved == "ml":
         try:
-            inpainted_roi = _run_ml_inpaint(roi, mask, hf_token=hf_token)
+            inpainted_roi = _run_ml_inpaint(roi, mask, hf_token=hf_token,
+                                            allow_download=backend == "ml")
         except ImportError as exc:
             fallback_error = InpaintModelUnavailable(
                 "ML inpainting needs extra packages:\n"
@@ -355,7 +379,8 @@ def inpaint_mask_region(image_path: str, mask, out_path: str = None, padding: in
     fallback_error = None
     if resolved == "ml":
         try:
-            inpainted_roi = _run_ml_inpaint(roi, roi_mask, hf_token=hf_token)
+            inpainted_roi = _run_ml_inpaint(roi, roi_mask, hf_token=hf_token,
+                                            allow_download=backend == "ml")
         except ImportError as exc:
             fallback_error = InpaintModelUnavailable(
                 "ML inpainting needs extra packages:\n"

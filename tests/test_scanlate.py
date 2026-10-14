@@ -568,7 +568,7 @@ class TestAutoBackendSelection:
         monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
         called = {}
 
-        def fake_ml_inpaint(roi, mask, hf_token=None):
+        def fake_ml_inpaint(roi, mask, hf_token=None, **kwargs):
             called["used"] = True
             return roi  # identity -- still a valid image array
 
@@ -718,7 +718,7 @@ class TestInpaintMaskRegion:
         monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
         called = {}
 
-        def fake_ml_inpaint(roi, mask, hf_token=None):
+        def fake_ml_inpaint(roi, mask, hf_token=None, **kwargs):
             called["used"] = True
             return roi
 
@@ -1088,6 +1088,64 @@ class TestLamaGeneratorLayout:
         finally:
             scanlate_inpaint.__dict__.pop("_lama_model", None)
         assert out.shape == (1, 3, 64, 64)
+
+    def test_a_region_over_the_size_cap_is_refused_before_the_model_loads(self, monkeypatch):
+        def must_not_load(*a, **k):
+            raise AssertionError("the model must not load for an oversized region")
+        monkeypatch.setattr(scanlate_inpaint, "_load_lama_generator", must_not_load)
+        roi = np.zeros((2000, 2000, 3), np.uint8)
+        with pytest.raises(ValueError, match="megapixels"):
+            scanlate_inpaint._run_ml_inpaint(roi, np.ones((2000, 2000), np.uint8))
+
+    def test_an_oversized_box_falls_back_to_opencv(self, monkeypatch, temp_dir):
+        monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
+        path = os.path.join(temp_dir, "big.png")
+        page = np.full((1800, 1800, 3), 255, np.uint8)
+        cv2.putText(page, "A", (800, 900), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 6)
+        cv2.imwrite(path, page)
+        with pytest.raises(scanlate_inpaint.InpaintModelUnavailable) as exc_info:
+            scanlate_inpaint.inpaint_region(path, {"x": 0, "y": 0, "w": 1800, "h": 1800},
+                                            backend="auto")
+        assert exc_info.value.fell_back_to_cv is True
+        assert exc_info.value.result.shape == (1800, 1800, 3)
+
+    def test_auto_never_asks_the_hub_for_anything_but_the_cached_file(self, monkeypatch):
+        import types
+        seen = {}
+
+        def hf_hub_download(repo_id, filename, token=None, **kwargs):
+            seen.update(kwargs)
+            raise OSError("not cached")
+        monkeypatch.setitem(sys.modules, "huggingface_hub",
+                            types.SimpleNamespace(hf_hub_download=hf_hub_download))
+        monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+        monkeypatch.setitem(sys.modules, "safetensors.torch",
+                            types.SimpleNamespace(load_file=lambda path: {}))
+        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        with pytest.raises(OSError):
+            scanlate_inpaint._load_lama_generator(allow_download=False)
+        assert seen == {"local_files_only": True}
+
+    def test_an_unusable_checkpoint_is_read_once_per_process(self, monkeypatch):
+        import types
+        reads = []
+
+        def load_file(path):
+            reads.append(path)
+            return {"unrelated.weight": 0}
+        monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
+            hf_hub_download=lambda repo_id, filename, token=None, **kw: "/fake/ckpt"))
+        monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
+        monkeypatch.setitem(sys.modules, "safetensors.torch",
+                            types.SimpleNamespace(load_file=load_file))
+        pytest.importorskip("torch")
+        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
+        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.setattr(scanlate_inpaint, "_lama_load_error", None)
+        for _ in range(3):
+            with pytest.raises(RuntimeError):
+                scanlate_inpaint._load_lama_generator()
+        assert len(reads) == 1
 
     def test_the_weights_file_is_the_one_the_repo_publishes(self):
         assert scanlate_inpaint._LAMA_ML_FILE == "lama-manga.safetensors"
