@@ -111,6 +111,7 @@ from engine_backends.local import (  # noqa: F401
     OllamaUnavailableError,
     _ollama_chat,
     _ollama_reachability_cache,
+    chat_target,
     check_ollama_model_installed,
     check_ollama_reachable,
     estimate_ollama_num_ctx,

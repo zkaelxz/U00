@@ -53,15 +53,16 @@ ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
 ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics", "admin.users")
 PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
 
-# library.db tables that hold who may sign in and what they may do. A
-# library restore never takes them from the upload: it keeps the live
+# library.db tables that hold who may sign in, what they may do and members'
+# own API keys. A library restore never takes them from the upload: it keeps the live
 # library's rows of RESTORE_LIVE_TABLES and leaves the rest empty (every
 # session is revoked), so an old or crafted backup can't bring back a
 # revoked extension device token or plant one. A user backup leaves them all out.
 # The one exception is RESTORE_ACCOUNT_TABLES (no secrets in them): a library
 # with no accounts yet (a rebuilt PC) takes them from the backup, so its
 # titles' owners resolve again (owner decision, 2026-10).
-RESTORE_LIVE_TABLES = ("users", "user_permissions", "audit_log", "extension_device_tokens")
+RESTORE_LIVE_TABLES = ("users", "user_permissions", "audit_log", "extension_device_tokens",
+                       "member_api_keys")
 RESTORE_KEPT_TABLES = RESTORE_LIVE_TABLES + ("auth_sessions",)
 RESTORE_ACCOUNT_TABLES = ("users", "user_permissions")
 
@@ -208,6 +209,8 @@ def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False) ->
         db.auth_update_user(user_id, is_active=0)
     db.auth_delete_user_sessions(user_id)
     _revoke_device_tokens(user_id, actor_id)
+    from services import member_key_service   # it imports this module
+    member_key_service.remove(user_id, actor_id=actor_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.deactivate", f"user {user_id}")
     return get_user(user_id)
@@ -233,12 +236,21 @@ def admin_list_users(actor_id=None, now: float = None) -> list:
     and whether the row is the caller. No session details (no IP prefix or
     user agent)."""
     now = time.time() if now is None else now
-    return [_admin_view(u, actor_id, now) for u in list_users()]
+    with_key = _users_with_own_key()
+    return [_admin_view(u, actor_id, now, with_key) for u in list_users()]
 
 
-def _admin_view(user: dict, actor_id, now: float) -> dict:
+def _users_with_own_key() -> set:
+    from services import member_key_service   # it imports this module
+    return member_key_service.user_ids_with_key()
+
+
+def _admin_view(user: dict, actor_id, now: float, with_key: set = None) -> dict:
+    if with_key is None:
+        with_key = _users_with_own_key()
     return dict(user, active_sessions=_live_session_count(user["id"], now),
-                is_self=actor_id is not None and user["id"] == actor_id)
+                is_self=actor_id is not None and user["id"] == actor_id,
+                has_own_ollama_key=user["id"] in with_key)
 
 
 # No "a/b/c" in the text: the API error handler's path redaction would

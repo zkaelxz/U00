@@ -131,8 +131,8 @@ def start_export_zip(drama_ids=None) -> dict:
 
 
 def _sanitized_snapshot(dest: str):
-    """A consistent database snapshot with every session and device token
-    and the personal VTuber name list's prompt text removed (secure_delete, so
+    """A consistent database snapshot with every session, device token and
+    member's own API key and the personal VTuber name list's prompt text removed (secure_delete, so
     neither is left in free pages) and
     folded out of WAL mode, so dest is one self-contained file."""
     import sqlite3
@@ -142,7 +142,7 @@ def _sanitized_snapshot(dest: str):
         try:
             conn.execute("PRAGMA secure_delete = ON")
             have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
-            for table in ("auth_sessions", "extension_device_tokens"):
+            for table in ("auth_sessions", "extension_device_tokens", "member_api_keys"):
                 if table in have:
                     conn.execute(f"DELETE FROM {table}")
             vdb_names_service.strip_from_snapshot(conn)

@@ -22,6 +22,8 @@ export interface AuthMe {
   zone: string | null
   user: AuthUser | null
   permissions: string[]
+  // A usable Ollama key of the signed-in person's own (Settings > Your Ollama key).
+  own_ollama_key?: boolean
 }
 
 export const me = (f?: Fetch) => getJson<AuthMe>('/api/auth/me', f)

@@ -27,6 +27,11 @@ def _acting_user_id():
     return ownership_service.acting_user_id()
 
 
+def _with_member_key(target):
+    from services import member_key_service
+    return member_key_service.for_job(target)
+
+
 # Set while a library restore swaps the library folder: no job may start
 # then (start_job/start_process_job return False, the same "not started"
 # answer as a duplicate). See services/library_admin_service.restore_backup.
@@ -229,6 +234,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     running cap queues instead, and starts once one of their jobs ends.
     """
     owner_user_id = _acting_user_id()
+    target = _with_member_key(target)
     if model_offline.active():
         target = model_offline.for_thread(target)
     if gpu_touching and get_gpu_limit_enabled():
@@ -333,6 +339,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     refuses during a clean stop like start_job().
     """
     owner_user_id = _acting_user_id()
+    target = _with_member_key(target)
+    on_done = on_done and _with_member_key(on_done)
     if model_offline.active():
         target = model_offline.for_process(target)
         # on_done may start the next stage's job (transcription -> speakers).

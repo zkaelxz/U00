@@ -7,6 +7,7 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
     POST /api/admin/users/{user_id}/activate         unblock
     POST /api/admin/users/{user_id}/revoke-sessions  sign them out everywhere
     POST /api/admin/users/{user_id}/revoke-admin     make an admin a normal member
+    DELETE /api/admin/users/{user_id}/ollama-key     remove their own Ollama key (never read it)
     GET  /api/admin/audit                            newest first, paged
 
 The two reads are `admin.users.read`, the writes `admin.users` (both held
@@ -29,8 +30,9 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 
 from api.admin_users_schemas import AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage
+from api.schemas import MemberKeyRemoved
 from api.auth import is_local_request, principal_user_id, require_permission
-from services import auth_service
+from services import auth_service, member_key_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -81,6 +83,13 @@ def revoke_admin(request: Request, response: Response, user_id: int = _UserId):
     _no_store(response)
     return auth_service.revoke_admin(user_id, actor_id=principal_user_id(request),
                                      at_pc=is_local_request(request))
+
+
+@router.delete("/users/{user_id}/ollama-key", dependencies=_ADMIN, response_model=MemberKeyRemoved,
+               summary="Remove a user's own Ollama key")
+def remove_ollama_key(request: Request, response: Response, user_id: int = _UserId):
+    _no_store(response)
+    return member_key_service.admin_remove(user_id, actor_id=principal_user_id(request))
 
 
 @router.get("/audit", dependencies=_READ, response_model=AuditPage,

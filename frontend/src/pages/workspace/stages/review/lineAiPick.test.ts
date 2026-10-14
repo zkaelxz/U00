@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TranslateEngine } from '../../../../types/translate'
 import {
-  engineBlockReason, loadPick, modelBlockReason, NEEDS_PAID_REASON, NO_KEY_REASON, NO_PICK, savePick, usablePick,
+  CLOUD_NEEDS_REASON, engineBlockReason, loadPick, modelBlockReason, NEEDS_PAID_REASON, NO_KEY_REASON, NO_PICK, savePick, usablePick,
 } from './lineAiPick'
 
 const eng = (over: Partial<TranslateEngine> = {}): TranslateEngine => ({
@@ -35,7 +35,7 @@ describe('engineBlockReason', () => {
 
 describe('modelBlockReason', () => {
   it('holds an Ollama cloud tag to the paid permission', () => {
-    expect(modelBlockReason(ollama, 'cloud-x', false)).toBe(NEEDS_PAID_REASON)
+    expect(modelBlockReason(ollama, 'cloud-x', false)).toBe(CLOUD_NEEDS_REASON)
     expect(modelBlockReason(ollama, 'cloud-x', true)).toBeNull()
     expect(modelBlockReason(ollama, 'gemma', false)).toBeNull()
   })
@@ -57,6 +57,9 @@ describe('usablePick', () => {
   it('drops only the model when the engine stays valid but the model does not', () => {
     expect(usablePick({ engine: 'claude', model: 'old' }, engines, true)).toEqual({ engine: 'claude', model: '' })
     expect(usablePick({ engine: 'ollama', model: 'cloud-x' }, engines, false)).toEqual({ engine: 'ollama', model: '' })
+    // Their own Ollama key opens cloud models, but not a paid engine.
+    expect(usablePick({ engine: 'ollama', model: 'cloud-x' }, engines, false, true)).toEqual({ engine: 'ollama', model: 'cloud-x' })
+    expect(usablePick({ engine: 'claude', model: '' }, engines, false, true)).toEqual(NO_PICK)
   })
   it('keeps a typed model for an engine without a model list', () => {
     const free = eng({ name: 'deepseek', models: null })

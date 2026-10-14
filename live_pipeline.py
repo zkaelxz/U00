@@ -261,7 +261,11 @@ class TranslationWorker:
         self._cond = threading.Condition()
         self._queue = collections.deque()
         self._closing = self._abandoned = False
-        self._thread = threading.Thread(target=self._run, daemon=True, name="live-translate")
+        # Context variables do not cross threads: a member's own Ollama key
+        # comes along explicitly, so their cloud model doesn't use the PC's account.
+        from engine_backends.local import carry_member_cloud_key, member_cloud_key
+        self._thread = threading.Thread(target=carry_member_cloud_key(self._run, member_cloud_key()),
+                                        daemon=True, name="live-translate")
         self._thread.start()
 
     def _stop_now(self) -> bool:

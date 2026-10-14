@@ -20,6 +20,7 @@ class AdminUser(BaseModel):
     permissions: List[str]
     active_sessions: int
     is_self: bool
+    has_own_ollama_key: bool = False
 
 
 class AdminUserList(BaseModel):

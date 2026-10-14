@@ -24,7 +24,8 @@ LOCAL_POST = {"X-Baihe-Local": "1"}
 ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"),
           ("POST", "/api/admin/users/{id}/deactivate"), ("POST", "/api/admin/users/{id}/activate"),
           ("POST", "/api/admin/users/{id}/revoke-sessions"),
-          ("POST", "/api/admin/users/{id}/revoke-admin")]
+          ("POST", "/api/admin/users/{id}/revoke-admin"),
+          ("DELETE", "/api/admin/users/{id}/ollama-key")]
 
 
 def _app(auth="on"):

@@ -13,6 +13,8 @@ export interface AdminUser {
   active_sessions: number
   // The row is the signed-in caller (never true for the local owner).
   is_self: boolean
+  // They saved their own Ollama key (never the key itself).
+  has_own_ollama_key?: boolean
 }
 
 export interface AdminUserList {

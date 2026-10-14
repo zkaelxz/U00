@@ -311,6 +311,8 @@ def init_db():
         _grant_lines_read_for_reader_page(conn)
         import device_tokens   # owns its table; imports db, so not at the top
         device_tokens.create_tables(conn)
+        import member_keys     # owns its table; imports db, so not at the top
+        member_keys.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
         if running:
             conn.execute("""
