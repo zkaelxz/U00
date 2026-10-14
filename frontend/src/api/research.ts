@@ -24,7 +24,15 @@ export const getCachedResearch = (id: number, mode: string, model: string, f: Fe
 
 // The server takes values from the stored result; only the choices are sent,
 // with the drama's values the user was shown (a 409 if they changed since).
+// A result from the cached read has no research_id: the server snapshots that lookup now,
+// if it is still the one shown (mode, model and retrieved_at identify it).
 export const applyResearch = (
-  id: number, researchId: string, choices: Record<string, ResearchChoice>,
-  seen: Record<string, string | null>, f: Fetch = fetch,
-) => postJson<ResearchApplied>(`${base(id)}/research/apply`, { research_id: researchId, choices, seen }, f)
+  id: number, shown: Pick<ResearchResult, 'research_id' | 'mode' | 'model' | 'retrieved_at'>,
+  choices: Record<string, ResearchChoice>, seen: Record<string, string | null>, f: Fetch = fetch,
+) => postJson<ResearchApplied>(
+  `${base(id)}/research/apply`,
+  shown.research_id
+    ? { research_id: shown.research_id, choices, seen }
+    : { lookup_mode: shown.mode, lookup_model: shown.model, retrieved_at: shown.retrieved_at, choices, seen },
+  f,
+)

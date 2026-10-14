@@ -60,7 +60,8 @@ def cached_research(drama_id: int = Path(ge=1), mode: str = "quick", model: str 
 def apply_research(payload: ResearchApply, request: Request, drama_id: int = Path(ge=1)):
     result = metadata_research_service.apply_research(
         drama_id, payload.research_id, payload.choices, seen=payload.seen,
-        principal=request.state.principal)
+        principal=request.state.principal, mode=payload.lookup_mode, model=payload.lookup_model,
+        retrieved_at=payload.retrieved_at)
     return {**result, "drama": to_detail(result["drama"])}
 
 

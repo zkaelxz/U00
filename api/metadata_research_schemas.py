@@ -56,7 +56,8 @@ class ResearchBudget(BaseModel):
 
 class ResearchResult(BaseModel):
     drama_id: int
-    research_id: str
+    # None for a cached read, which stores nothing; Apply then names lookup_mode, lookup_model and retrieved_at.
+    research_id: Optional[str] = None
     cached: bool
     mode: str
     model: str
@@ -72,7 +73,11 @@ class ResearchResult(BaseModel):
 class ResearchApply(BaseModel):
     """Values come from the stored research result, never from the client."""
     model_config = ConfigDict(extra="forbid")
-    research_id: str = Field(min_length=64, max_length=64)
+    research_id: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    # Which cached lookup was shown (a lookup, not a model to call).
+    lookup_mode: Optional[str] = Field(default=None, max_length=20)
+    lookup_model: Optional[str] = Field(default=None, max_length=100)
+    retrieved_at: Optional[str] = Field(default=None, max_length=40)
     choices: dict[str, Literal["keep", "replace", "save_both", "confirm"]] = Field(max_length=20)
     # The drama's value the user was shown for each chosen field (null = empty).
     seen: dict[str, Optional[str]] = Field(default_factory=dict, max_length=20)

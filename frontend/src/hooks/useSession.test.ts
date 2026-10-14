@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthMe } from '../api/auth'
 import { ApiError, getJson } from '../api/client'
+import { RUN_KEY_PREFIX, writeStored } from './useStoredRun'
 import {
   canSignOut, cancelsAnyJob, gateView, getSession, isRemoteAdmin, loadSession, markSignedOut, ME_RETRY_MS, menuUser, recheckSession,
   resetSessionForTests, sessionExpired, signOut, subscribeSession,
@@ -122,6 +123,26 @@ describe('signed out', () => {
     expect(s.status === 'ready' && s.me.user).toBeNull()
     expect(s.status === 'ready' && s.me.permissions).toEqual([])
     expect(l).toHaveBeenCalled()
+  })
+  it('a 401 forgets the answers stored in the browser', async () => {
+    const m = new Map<string, string>()
+    const storage = {
+      get length() { return m.size },
+      key: (i: number) => [...m.keys()][i] ?? null,
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+    }
+    vi.stubGlobal('window', { localStorage: storage })
+    writeStored(storage, 'reader.who.1', 'secret answer')
+    m.set('theme', 'dark')
+    resetSessionForTests(ready())
+    const f = (async () =>
+      new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'x' } }), { status: 401 })) as typeof fetch
+    await getJson('/api/library/dramas', f).catch(() => null)
+    expect([...m.keys()].filter((k) => k.startsWith(RUN_KEY_PREFIX))).toEqual([])
+    expect(m.get('theme')).toBe('dark')
+    vi.unstubAllGlobals()
   })
   it('a 401 before /me answers still shows Login', async () => {
     markSignedOut()

@@ -323,12 +323,18 @@ def _rows(result: dict, drama: dict) -> list:
     return rows
 
 
-def _response(drama_id: int, drama: dict, key: str, result: dict, cached: bool) -> dict:
+def _snapshot(drama_id: int, result: dict) -> str:
     # A fresh id per lookup shown, stored with this drama and a snapshot of
     # exactly what was shown: a later "Look up again" (another tab, another
     # user) rewrites the entity cache but never what this id applies.
     research_id = secrets.token_hex(32)
     db.put_research_result(research_id, drama_id, result)
+    return research_id
+
+
+def _response(drama_id: int, drama: dict, key: str, result: dict, cached: bool,
+              snapshot: bool = True) -> dict:
+    research_id = _snapshot(drama_id, result) if snapshot else None
     return {"drama_id": drama_id, "research_id": research_id, "cached": cached,
             "mode": result["mode"], "model": result["model"],
             "retrieved_at": result["retrieved_at"], "fields": _rows(result, drama),
@@ -342,7 +348,8 @@ def cached_research(drama_id: int, mode: str = "quick", model: Optional[str] = N
     """The result an earlier identical lookup left in the cache, shaped like
     `research`, so a page left and reopened shows it again without spending a
     search. NotFoundError when there is none (never looked up, or the title,
-    mode or model changed since). Never calls Gemini."""
+    mode or model changed since). Never calls Gemini, and writes nothing:
+    `research_id` is None, and Apply snapshots the cache entry itself."""
     drama = require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("Unknown research mode.", details={"allowed": list(MODES)})
@@ -354,7 +361,22 @@ def cached_research(drama_id: int, mode: str = "quick", model: Optional[str] = N
     cached = db.get_research_cache(key)
     if not cached:
         raise NotFoundError("No earlier lookup for this title with these settings.")
-    return _response(drama_id, drama, key, cached, cached=True)
+    return _response(drama_id, drama, key, cached, cached=True, snapshot=False)
+
+
+def _snapshot_cached(drama_id: int, drama: dict, mode: Optional[str], model: Optional[str],
+                     retrieved_at: Optional[str]) -> str:
+    """Apply for a result shown by `cached_research`: snapshot the cache entry
+    now, but only if it is still the lookup the person saw."""
+    if mode not in MODES or model not in MODELS or not retrieved_at:
+        raise InvalidInputError("Send research_id, or the mode, model and retrieved_at you were shown.")
+    cached = db.get_research_cache(_cache_key(_entity(drama, mode), mode, model))
+    if not cached:
+        raise NotFoundError("That research result is no longer available. Run it again.")
+    if cached.get("retrieved_at") != retrieved_at:
+        raise ConflictError("This lookup was refreshed since it was shown. Look again before applying.",
+                            details={"reason": "refreshed"})
+    return _snapshot(drama_id, cached)
 
 
 def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
@@ -473,8 +495,9 @@ def _reserve_search(mode: str, model: str, allow_paid: bool, free_tier: bool) ->
         return paid, free_before
 
 
-def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optional[dict] = None,
-                   principal=None) -> dict:
+def apply_research(drama_id: int, research_id: Optional[str], choices: dict,
+                   seen: Optional[dict] = None, principal=None, *, mode: Optional[str] = None,
+                   model: Optional[str] = None, retrieved_at: Optional[str] = None) -> dict:
     """choices: {field: "keep" | "replace" | "save_both" | "confirm"}. Values
     come from the cached research result, never from the client. `seen`
     holds, per chosen field, the drama's value the user was shown next to the
@@ -484,10 +507,12 @@ def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optiona
     Returns
     {"drama_id", "replaced", "saved_alternates", "kept", "drama"}."""
     drama = require_drama(drama_id)
-    if not isinstance(research_id, str) or not _RESEARCH_ID.match(research_id):
-        raise InvalidInputError("research_id is not valid.")
     if not isinstance(choices, dict) or not choices:
         raise InvalidInputError("Choose Keep, Replace or Save both for at least one field.")
+    if research_id is None:
+        research_id = _snapshot_cached(drama_id, drama, mode, model, retrieved_at)
+    elif not isinstance(research_id, str) or not _RESEARCH_ID.match(research_id):
+        raise InvalidInputError("research_id is not valid.")
     result = db.get_research_result(research_id, drama_id)  # this drama's lookup only
     if not result:
         raise NotFoundError("That research result is no longer available. Run it again.")

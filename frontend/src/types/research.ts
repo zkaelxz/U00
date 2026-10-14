@@ -38,7 +38,8 @@ export interface ResearchBudget {
 
 export interface ResearchResult {
   drama_id: number
-  research_id: string
+  // null for a cached read (nothing stored); Apply then names mode, model and retrieved_at.
+  research_id: string | null
   cached: boolean
   mode: string
   model: string

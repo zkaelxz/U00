@@ -6,6 +6,7 @@
 import { useState } from 'react'
 
 import { downloadRichDeck, readerApi, vocabApkgUrl, vocabCsvUrl } from '../../api/reader'
+import { useStoredState } from '../../hooks/useStoredRun'
 import { Section } from '../../components/Section'
 import type { ReaderVocabList } from '../../types/reader'
 import type { GlossaryTerm } from '../../types/translateStage'
@@ -13,6 +14,8 @@ import type { TranslateEngine } from '../../types/translate'
 import { ActionError, EditInTranslate } from './ReaderAction'
 import { useAction } from './useReaderAction'
 import { EnginePicker } from './ReaderEngine'
+
+const isText = (v: unknown): v is string | null => typeof v === 'string'
 
 export function WordsSection({ dramaId, page, chapterSize, engines, enginesOff, engine, onEngine, onLookedUp }: {
   dramaId: number
@@ -25,7 +28,8 @@ export function WordsSection({ dramaId, page, chapterSize, engines, enginesOff, 
   onLookedUp: () => void
 }) {
   const [useLlm, setUseLlm] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
+  // Per page, because the line says what was saved for this page's words.
+  const [result, setResult] = useStoredState<string | null>(`reader.words.${dramaId}.${page}`, null, isText)
   const paid = useLlm && !engines.find((e) => e.name === engine)?.free
   const lookup = useAction(async () => {
     setResult(null)

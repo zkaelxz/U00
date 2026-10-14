@@ -15,6 +15,7 @@ import {
   useStoredState,
   writeStored,
 } from './useStoredRun'
+import { useRunSelection } from '../pages/workspace/stages/useGlossaryRun'
 
 const memory = (init: Record<string, string> = {}) => {
   const m = new Map(Object.entries(init))
@@ -186,5 +187,31 @@ describe('panels that keep their last result in the browser', () => {
     vi.stubGlobal('window', { localStorage: s })
     writeStored(s, 'translate.text', '白河的故事')
     expect(renderToStaticMarkup(<TranslatePage />)).toContain('白河的故事')
+  })
+})
+
+function SelectionProbe({ run, pick }: { run: string | null; pick?: string[] }) {
+  const { picked, setPicked, edits } = useRunSelection(7, 'novel', run)
+  if (pick && picked === null) setPicked(new Set(pick))
+  return <p>{`picked:${picked ? [...picked].join('|') : 'default'} edits:${Object.keys(edits).join('|')}`}</p>
+}
+
+describe('glossary proposal selection (leave, then come back)', () => {
+  it('restores the ticks and edits of the same run, and starts over for another run', () => {
+    const s = memory()
+    vi.stubGlobal('window', { localStorage: s })
+    expect(renderToStaticMarkup(<SelectionProbe run="r1" pick={['魏婴', '蓝湛']} />)).toContain('picked:魏婴|蓝湛')
+    writeStored(s, 'glossary.7.novel.edits', { run: 'r1', value: { 魏婴: { translation: 'Wei Ying' } } })
+    expect(renderToStaticMarkup(<SelectionProbe run="r1" />)).toContain('picked:魏婴|蓝湛 edits:魏婴')
+    expect(renderToStaticMarkup(<SelectionProbe run="r2" />)).toContain('picked:default edits:<')
+    expect(renderToStaticMarkup(<SelectionProbe run={null} />)).toContain('picked:default')
+  })
+
+  it('ignores a corrupt copy', () => {
+    const s = memory()
+    vi.stubGlobal('window', { localStorage: s })
+    writeStored(s, 'glossary.7.novel.picked', { run: 'r1', value: [1, 2] })
+    writeStored(s, 'glossary.7.novel.edits', { run: 'r1', value: 'nope' })
+    expect(renderToStaticMarkup(<SelectionProbe run="r1" />)).toContain('picked:default edits:<')
   })
 })

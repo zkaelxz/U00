@@ -24,7 +24,6 @@ import {
   missingTranslations,
   reviewSource,
   startTranslationLabel,
-  type Edits,
   type GlossarySource,
   type ProposalValues,
 } from './glossaryExtract'
@@ -37,7 +36,7 @@ import {
   useGlossaryCatalogues,
   useGlossaryRun,
   useHasNovel,
-  useRunScoped,
+  useRunSelection,
 } from './useGlossaryRun'
 import './autotuneGlossary.css'
 import { buttonClass } from '../../../components/uiClasses'
@@ -113,8 +112,7 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
   const cur = run && status?.run_id === run ? status : null
   const fresh = failed || cur !== null
   // Selection and edits belong to the run shown.
-  const [picked, setPicked] = useRunScoped<Set<string> | null>(run, null)
-  const [edits, setEdits] = useRunScoped<Edits>(run, {})
+  const { picked, setPicked, edits, setEdits } = useRunSelection(dramaId, source, run)
   const active = isActiveStatus(cur?.status)
   const proposals: NovelGlossaryProposal[] = cur?.status === 'done' ? cur.proposals ?? [] : []
   const sel = picked ?? defaultTermSelection(proposals)
