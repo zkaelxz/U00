@@ -439,7 +439,7 @@ function RunPanel({
       </div>
       {guidance && (
         <details className="style-guidance">
-          <summary>What this style asks the translator for</summary>
+          <summary>What this style asks for</summary>
           <p className="muted" data-testid="style-guidance">{guidance}</p>
         </details>
       )}

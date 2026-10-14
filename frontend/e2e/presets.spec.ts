@@ -13,7 +13,7 @@ const PRESET = {
 test('the style guidance follows the chosen style', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   const guidance = page.getByTestId('style-guidance')
-  await page.getByText('What this style asks the translator for').click()
+  await page.getByText('What this style asks for').click()
   const first = await guidance.innerText()
   expect(first.length).toBeGreaterThan(20)
   await page.getByLabel('Style', { exact: true }).selectOption('subtitle')
