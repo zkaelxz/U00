@@ -164,36 +164,11 @@ fieldset.segmented {
 .segmented label { border-radius: var(--radius-sm); }
 .segmented label:has(input:checked) { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 
-/* Tabs: a tray with the selected tab raised on it. */
-.stage-tabs {
-  border: 1px solid var(--btn-edge);
-  background: var(--glass);
-  border-radius: var(--radius-panel);
-  padding: 5px;
-  gap: 2px;
-  max-width: 100%;
-  overflow: hidden;
-}
-.stage-tabs a { border: 0; border-radius: var(--radius); flex: 1 1 auto; min-width: 0; justify-content: center; text-align: center; white-space: nowrap; }
-.stage-tabs a[aria-current='page'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
-.ui-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: var(--radius-panel); background: var(--glass); }
-.ui-tabs .ui-tab { border: 0; border-radius: var(--radius); box-shadow: none; background: transparent; }
-.ui-tab[aria-selected='true'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
-/* On phones the tray adds no height: the Review toolbar collapses on scroll and hides these tabs, and its two scroll thresholds
-   (LinesPanel.tsx) only hold when that layout shift stays small. The ring is drawn inset instead of as a border and padding. */
-@media (max-width: 640px) {
-  .stage-tabs, .ui-tabs { border: 0; padding: 0; box-shadow: inset 0 0 0 1px var(--btn-edge); }
-}
-
 /* Tab labels stay whole words. On a phone the row wraps onto a second line instead of squeezing a label until it breaks inside the word or scrolling the rest out of sight. */
 @media (max-width: 640px) {
   .ui-tabs { flex-wrap: wrap; overflow: visible; }
   .ui-tabs .ui-tab { flex: 1 1 auto; min-width: 44px; white-space: nowrap; }
 }
-/* Discover's tabs were the one underline tab bar left; they match the others. */
-.discover-tabs { gap: 4px; padding: 4px; border: 1px solid var(--btn-edge); border-radius: var(--radius-panel); background: var(--glass); overflow-x: auto; }
-.discover-tabs .discover-tab { border: 0; border-radius: var(--radius); }
-.discover-tabs .discover-tab[aria-selected='true'] { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
 .discover-panel { padding: var(--space-4) var(--space-5); }
 
 /* Switches */
