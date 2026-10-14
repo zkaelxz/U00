@@ -28,7 +28,7 @@ const els = {
   notice: document.getElementById("notice"),
   noticeText: document.getElementById("noticeText"),
   noticeAction: document.getElementById("noticeAction"),
-  controls: [...document.querySelectorAll("#pageSection select, #pageSection input, #pageSection button, #textSection select, #textSection button, #novelSection button")],
+  controls: [...document.querySelectorAll(".pane select, .pane input, .pane button")],
 };
 
 // The service worker words this error; matching its opening is the only way to tell "no token" from
@@ -653,5 +653,31 @@ els.openLink.addEventListener("click", (event) => {
   chrome.tabs.create({ url: els.openLink.href });
 });
 els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
+
+const TAB_KEY = "popupTab";
+const tabButtons = [...document.querySelectorAll('[role="tab"]')];
+
+function selectTab(button, { focus = false } = {}) {
+  for (const tab of tabButtons) {
+    const on = tab === button;
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+    document.getElementById(tab.getAttribute("aria-controls")).hidden = !on;
+  }
+  if (focus) button.focus();
+  try { localStorage.setItem(TAB_KEY, button.id); } catch (e) { /* the tab just isn't remembered */ }
+}
+
+tabButtons.forEach((tab, i) => {
+  tab.addEventListener("click", () => selectTab(tab));
+  tab.addEventListener("keydown", (event) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+    if (step) selectTab(tabButtons[(i + step + tabButtons.length) % tabButtons.length], { focus: true });
+  });
+});
+try {
+  const saved = tabButtons.find((tab) => tab.id === localStorage.getItem(TAB_KEY));
+  if (saved) selectTab(saved);
+} catch (e) { /* storage blocked: start on Page */ }
 
 load().then(syncCaptureUi).then(restorePendingAccess).then(showNovelSection);
