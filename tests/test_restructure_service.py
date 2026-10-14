@@ -477,3 +477,29 @@ class TestUntranslatedAfterStructuralWrite:
         assert db.get_drama(did)["status"] == "translated"
         lines_service.patch_line(did, blank, zh="later")
         assert db.get_drama(did)["status"] == "aligned"
+
+
+def test_an_emotion_tag_added_mid_write_to_a_removed_line_refuses_the_write():
+    did, ids = _seed()
+
+    def build(work):
+        # The tag lands after the lines were read, before the write.
+        db.save_emotions(did, {3: {"emotion": "angry", "intensity": 0.9, "note": ""}})
+        return work[:3], work[:3]
+
+    with pytest.raises(ConflictError):
+        svc.structural_write(did, ids, "drop d", build, keep_new_notes=True)
+    assert len(_rows(did)) == 4
+    assert 3 in db.load_emotions(did)
+
+
+def test_a_background_resegment_refuses_a_tag_added_mid_run_with_no_orphan_snapshot():
+    did, ids = _seed([("我今天早上很早就起床了然后去公园跑步。" * 3, "x"), ("b", "B")])
+    lines = db.load_line_objects(did)
+    guard = resegmentation_service._apply_guard(did, lines)
+    db.save_emotions(did, {0: {"emotion": "angry", "intensity": 0.9, "note": ""}})
+    halves = [Line(idx=0, start=0.0, end=0.5, zh="a", en=""), Line(idx=1, start=0.5, end=1.0, zh="b", en="")]
+    with pytest.raises(RuntimeError, match="emotion tag"):
+        resegmentation_service._apply_resegmented(did, halves + lines[1:], guard)
+    assert db.list_line_history(did) == []
+    assert len(_rows(did)) == 2

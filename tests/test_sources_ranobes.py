@@ -2,6 +2,8 @@
 tests/test_sources_ranobes.py -- Step 91: the ranobes.net adapter, against
 recorded-shape fixtures only. No request ever reaches the real site.
 """
+import re
+
 import pytest
 
 from sources.adapters import ranobes
@@ -122,6 +124,15 @@ class TestChapters:
         chapters = a.get_chapters("novels/2001-test-novel.html")
         assert len(chapters) == 2
         assert len(t.calls) == 1
+
+    @pytest.mark.parametrize("bad", ['"abc"', '["x", 3]', '{"id": "1"}', '[[1, 2]]'])
+    def test_a_chapters_value_of_the_wrong_shape_is_a_layout_change(self, bad):
+        broken = CHAPTERS_PAGE_1.replace('"pages_count":2', '"pages_count":1')
+        broken = re.sub(r'"chapters":\[.*?\],"pages_count"', f'"chapters":{bad},"pages_count"',
+                        broken)
+        a, t = _adapter({f"{BASE}/chapters/2001/": html(broken)})
+        with pytest.raises(ranobes.LayoutChanged):
+            a.get_chapters("novels/2001-test-novel.html")
 
     def test_a_huge_pages_count_is_refused_before_walking_the_list(self, monkeypatch):
         monkeypatch.setattr(ranobes, "MAX_LIST_PAGES", 3)
