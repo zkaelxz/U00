@@ -338,6 +338,8 @@ class Qwen3ASRBackend:
                     seg = whisper_segments[i]
                     # An empty result for a span Whisper did hear would delete the line.
                     if not (text or "").strip() and (seg.get("text") or "").strip():
+                        out[i] = {**seg, "flag": "source_suspect",
+                                  "flag_note": "Qwen3-ASR returned no text here; Whisper's text was kept"}
                         continue
                     out[i] = {"start": seg["start"], "end": seg["end"], "text": text}
                 if progress_cb:
