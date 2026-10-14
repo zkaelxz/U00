@@ -1,6 +1,7 @@
 """Usage rows and run limits for AI calls that are not a translation batch.
 
-record_call is the one writer of a usage row for a single paid call. CallLimits
+record_call writes a usage row from a call's reported usage dict; usage_logger
+writes one from the (tokens in, tokens out) callbacks of the LLM helpers. CallLimits
 is opened around a job's call_llm_json calls: it re-checks the monthly cap
 before each one, ends the job after a run of failed requests, shares one
 rate-limit wait budget, and can write each call's usage row itself."""
@@ -57,6 +58,17 @@ def record_call(engine, engine_name: str, operation: str, usage: dict = None, *,
                  inp, out, estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
                  cache_read_tokens=cache_read)
     return True
+
+
+def usage_logger(drama_id, engine_name: str, engine, operation: str):
+    """A (tokens in, tokens out) callback that logs one usage row per call,
+    for the LLM helpers that report only token counts. The cache-aware
+    variants that also take cache token counts stay with their callers."""
+    def log(inp, out, *_):
+        import db
+        db.log_usage(drama_id, engine_name, getattr(engine, "model", None) or engine_name,
+                     operation, inp, out, estimate_cost_for_engine(engine, inp, out))
+    return log
 
 
 # Groq bills hosted Whisper by the hour of audio, not by token.

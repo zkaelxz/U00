@@ -28,6 +28,7 @@ import novel_text
 import db
 import dub_narration
 import translate_engines
+from engine_backends import paid_calls
 from core import Line
 from engine_backends.run_limits import TranslateRunStopped
 from services import job_checkpoint_service, job_timing_service, paid_job_service, settings_service
@@ -184,9 +185,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         with paid_job_service.job_calls(job_id, drama_id, engine, engine_name, "tag_speakers"):
             by_idx = translate_engines.tag_speakers_by_id(
                 {ln.idx: ln.zh for ln in lines}, engine, known,
-                usage_cb=lambda inp, out: db.log_usage(
-                    drama_id, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
-                    inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+                usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "tag_speakers"),
                 done=done, on_batch=_checkpoint,
                 cancel_check=lambda: _raise_if_cancelled(job_id))
     except TranslateRunStopped as stop:
