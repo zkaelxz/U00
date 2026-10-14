@@ -20,6 +20,9 @@ const els = {
   novelSection: document.getElementById("novelSection"),
   saveNovel: document.getElementById("saveNovel"),
   dramaTitle: document.getElementById("dramaTitle"),
+  autoCreate: document.getElementById("autoCreate"),
+  autoFill: document.getElementById("autoFill"),
+  autoSeries: document.getElementById("autoSeries"),
   openLink: document.getElementById("openInBaihe"),
   allowSites: document.getElementById("allowSites"),
   notice: document.getElementById("notice"),
@@ -39,6 +42,66 @@ let noticeHandler = null;
 const APP_URL = "http://127.0.0.1:8600";
 const dramaTitles = new Map();
 const dramaMedia = new Map();
+
+// The worker's saved "Automatic title options"; its defaults all on.
+let auto = { create: true, fill: true, series: true };
+
+function autoPickLabel(createEnabled) {
+  return createEnabled ? "Auto: create or reuse from this page" : "Auto: reuse a matching title only";
+}
+
+const AUTO_FIELD_NAMES = { title_zh: "original title", title_en: "English title", source_url: "source link" };
+
+function describeAutoTitle({ created, title, series_id: seriesId, filled = [] }) {
+  const name = `“${title}”`;
+  if (created) return `Created ${name}${seriesId ? " in a series" : ""}.`;
+  const added = filled.map((f) => AUTO_FIELD_NAMES[f]).filter(Boolean);
+  if (!added.length) return `Using the existing ${name}.`;
+  const list = added.length > 1 ? `${added.slice(0, -1).join(", ")} and ${added[added.length - 1]}` : added[0];
+  return `Using the existing ${name}; filled its blank ${list}.`;
+}
+
+function showAutoOptions() {
+  els.autoCreate.checked = auto.create;
+  els.autoFill.checked = auto.fill;
+  els.autoSeries.checked = auto.series;
+  els.drama.options[0].textContent = autoPickLabel(auto.create);
+}
+
+function addDramaOption(id, title, mediaType) {
+  const value = String(id);
+  if (![...els.drama.options].some((o) => o.value === value)) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = mediaType ? `${title} (${mediaType})` : title;
+    option.title = title;
+    els.drama.appendChild(option);
+  }
+  dramaTitles.set(value, title);
+  dramaMedia.set(value, mediaType || "");
+}
+
+// With no drama picked the app finds or creates the title this page belongs to; the picker then
+// shows it, so the next send in this popup goes to the same one. A pick made by hand always wins.
+async function autoTitle(tab, kind) {
+  say("Finding the title for this page…");
+  await ensureContentScript(tab.id);
+  const facts = await chrome.tabs.sendMessage(tab.id, { type: "pageFacts" });
+  if (!facts || !facts.ok) return say((facts && facts.error) || "Couldn't read this page's title.", true);
+  const made = await chrome.runtime.sendMessage({ type: "resolveTitle", ...facts.data, kind });
+  if (!made || !made.ok) return say((made && made.error) || "Couldn't set up a title for this page.", true);
+  const data = made.data;
+  addDramaOption(data.drama_id, data.title, data.media_type);
+  els.drama.value = String(data.drama_id);
+  showDramaTitle();
+  return { dramaId: data.drama_id, note: describeAutoTitle(data) };
+}
+
+async function saveAutoOption(name, value) {
+  auto = { ...auto, [name]: value };
+  showAutoOptions();
+  await chrome.runtime.sendMessage({ type: "setAutoTitle", options: { [name]: value } });
+}
 
 function setControlsEnabled(enabled) {
   for (const el of els.controls) el.disabled = !enabled;
@@ -296,6 +359,8 @@ async function load() {
   const { data } = health;
   els.drama.length = 1;
   const settings = (await chrome.runtime.sendMessage({ type: "getSettings" })).data || {};
+  auto = { ...auto, ...(settings.autoTitle || {}) };
+  showAutoOptions();
   const tab = await activeTab();
   const site = siteOf(tab && tab.url);
 
@@ -337,9 +402,12 @@ async function run(all) {
   try {
     const tab = await activeTab();
     if (!tab || !tab.id) return say("No active tab.", true);
-    const dramaId = els.drama.value ? Number(els.drama.value) : null;
+    let dramaId = els.drama.value ? Number(els.drama.value) : null;
+    let autoNote = "";
     if (els.store.checked && !dramaId) {
-      return say("Pick a drama to save into, or untick saving.", true);
+      const made = await autoTitle(tab, "comic");
+      if (!made) return;
+      ({ dramaId, note: autoNote } = made);
     }
     say(all ? "Reading every visible page…" : "Reading this page…");
     forgetPendingAccess();
@@ -353,7 +421,8 @@ async function run(all) {
       const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
       if (status && status.ok) site = status.data.host || "";
     }
-    if (dramaId && site) {
+    // An automatic title is not remembered for the site: the next series there needs its own.
+    if (dramaId && site && !autoNote) {
       await chrome.runtime.sendMessage({ type: "rememberDrama", site, dramaId });
     }
     await chrome.tabs.sendMessage(tab.id, {
@@ -369,7 +438,7 @@ async function run(all) {
     }
     const summary = summarizeCapture(result.data, { store: els.store.checked, dramaId });
     const saved = (result.data.pages || []).filter((p) => p.stored).length;
-    say(summary.text, summary.bad);
+    say(autoNote ? `${autoNote} ${summary.text}` : summary.text, summary.bad);
     if (result.data.origins) offerSiteAccess(result.data, { kind: "run", all });
     if (els.store.checked && dramaId && saved) showOpenLink(dramaId);
   } catch (e) {
@@ -415,16 +484,19 @@ async function runCapture(fromHere) {
 async function startCapture(fromHere) {
   const tab = await activeTab();
   if (!tab || !tab.id) return say("No active tab.", true);
-  const dramaId = els.drama.value ? Number(els.drama.value) : null;
+  let dramaId = els.drama.value ? Number(els.drama.value) : null;
+  let autoNote = "";
   if (els.store.checked && !dramaId) {
-    return say("Pick a drama to save into, or untick saving.", true);
+    const made = await autoTitle(tab, "comic");
+    if (!made) return;
+    ({ dramaId, note: autoNote } = made);
   }
   say("Starting…");
   forgetPendingAccess();
   showCapturing(true);
   try {
     await ensureContentScript(tab.id);
-    if (dramaId) {
+    if (dramaId && !autoNote) {
       const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
       const site = siteOf(tab.url) || (status && status.ok ? status.data.host : "");
       if (site) await chrome.runtime.sendMessage({ type: "rememberDrama", site, dramaId });
@@ -442,7 +514,8 @@ async function startCapture(fromHere) {
     const store = els.store.checked;
     const destination = describeDestination({
       sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
-    say(destination ? `${message} ${destination}.` : message, result.data.reason === "error" || result.data.failed > 0);
+    const line = destination ? `${message} ${destination}.` : message;
+    say(autoNote ? `${autoNote} ${line}` : line, result.data.reason === "error" || result.data.failed > 0);
     if (result.data.origins) offerSiteAccess(result.data, { kind: "capture", fromHere });
     if (store && dramaId && stored) showOpenLink(dramaId);
   } catch (e) {
@@ -511,8 +584,8 @@ let novelSaveInFlight = false;
 
 async function runSaveNovel() {
   if (novelSaveInFlight) return;
-  const dramaId = els.drama.value ? Number(els.drama.value) : null;
-  if (!dramaId || (dramaMedia.get(els.drama.value) || "").toLowerCase() !== "novel") {
+  let dramaId = els.drama.value ? Number(els.drama.value) : null;
+  if (dramaId && (dramaMedia.get(els.drama.value) || "").toLowerCase() !== "novel") {
     return say("Pick a novel title to save the text into.", true);
   }
   novelSaveInFlight = true;
@@ -520,11 +593,18 @@ async function runSaveNovel() {
   try {
     const tab = await activeTab();
     if (!tab || !tab.id) return say("No active tab.", true);
+    let autoNote = "";
+    if (!dramaId) {
+      const made = await autoTitle(tab, "novel");
+      if (!made) return;
+      ({ dramaId, note: autoNote } = made);
+    }
     say("Saving the text…");
     await ensureContentScript(tab.id);
     const result = await chrome.tabs.sendMessage(tab.id, { type: "saveNovelText", dramaId });
     if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
-    say(describeNovelSave({ ...result.data, drama_id: dramaId }));
+    const line = describeNovelSave({ ...result.data, drama_id: dramaId });
+    say(autoNote ? `${autoNote} ${line}` : line);
   } catch (e) {
     say(`Couldn't run on this page (${e.message}).`, true);
   } finally {
@@ -534,6 +614,9 @@ async function runSaveNovel() {
 }
 
 els.drama.addEventListener("change", showDramaTitle);
+els.autoCreate.addEventListener("change", () => saveAutoOption("create", els.autoCreate.checked));
+els.autoFill.addEventListener("change", () => saveAutoOption("fill", els.autoFill.checked));
+els.autoSeries.addEventListener("change", () => saveAutoOption("series", els.autoSeries.checked));
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
 els.captureChapter.addEventListener("click", () => runCapture(false));

@@ -45,7 +45,7 @@ def update_drama(drama_id: int, **fields):
 
 
 # Fixed literal columns: the names are interpolated into the statement.
-BLANK_FILLABLE = ("title_zh", "author", "release_date")
+BLANK_FILLABLE = ("title_zh", "title_en", "author", "release_date")
 
 
 def fill_blank_fields(drama_id: int, values: dict) -> list:

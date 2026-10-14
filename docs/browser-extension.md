@@ -34,6 +34,25 @@ Click the extension on a page you're reading:
 - **Everything visible** — a spread, or a whole visible strip. For a whole chapter in a scrolling reader, see *Capturing a whole chapter* below.
 - **Send pages to** — which drama they land in. Remembered per site, so
   reading a long series isn't a per-page decision.
+- **Auto (the default when no drama is picked)** — the app finds or
+  creates the title the page belongs to, so nothing needs picking first.
+  The page's titles (sharing title, first heading, tab title) are cleaned
+  of chapter numbers and the site's name; the one in CJK script becomes
+  the *Original title*, the one in Latin script the *English title*, never
+  the other way round. The page address is kept as the *Source link*. A
+  title is reused when its source link matches, or when it has a link on
+  the same site and the same original or English name, so later chapters
+  of a series land in the same title. A reused title only has its blank
+  fields filled; nothing you typed is overwritten. A new title also joins a
+  series of the same name (an existing one is joined, a series you chose is
+  never replaced). An automatic title is not remembered for the site.
+  **Automatic title options** (under the picker, saved in the extension):
+  *Create a new title when none matches* (off: Auto only reuses a match,
+  otherwise it says to pick a drama), *Fill name and source link from the
+  page* (off: a placeholder named after the site), *Put the title in a
+  series*. A drama picked by hand always wins over Auto. Merging two titles
+  or moving chapters between titles is not done here: move a title to
+  another series in its details in Baihe.
 - **Also save the page into that drama** — untick to translate for
   reading only, without importing anything. The result line says where
   the pages went: "Sent N pages to *title*", or, with saving off, that
@@ -166,7 +185,7 @@ services/extension_service.py  the opt-in switch, the token, the engine setting
 api/routers/extension_routes.py  /api/extension/*, PC-only; UI in Settings → Browser extension
 ```
 
-The endpoint's four routes:
+The endpoint's routes:
 
 | Route | What it does |
 |---|---|
@@ -174,6 +193,8 @@ The endpoint's four routes:
 | `POST /page` | One image. |
 | `POST /pages` | Several, up to the advertised cap per request. Answers `pages`, `skipped`, `failed`, `received`, `stored`, `already_stored` and, when a run stops early, `stopped`. |
 | `POST /text` | A block of raw page text. |
+| `POST /novel` | A web-novel page's text, appended to a novel title as a new raw chapter. |
+| `POST /title` | Finds or creates the title (and series) for a page: `url`, `titles` (page title candidates), `language`, `kind` (`comic` or `novel`) and the `create`, `fill`, `series` switches. Answers ids, booleans, the stored display name and which blank fields were filled; never the address. |
 
 A page whose bytes already match one in the drama is reused, not added again,
 and counts in `already_stored`. Its saved bubbles are never re-read or
