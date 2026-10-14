@@ -158,7 +158,9 @@ def _headers_for_hop(headers: Optional[dict], strip: bool) -> Optional[dict]:
     # rebuild_auth did this before the manual redirect loop replaced it).
     if not headers or not strip:
         return headers
-    return {k: v for k, v in headers.items() if not _is_credential_header(k)}
+    kept = {k: v for k, v in headers.items() if not _is_credential_header(k)}
+    # The Referer was chosen for the first host and is often a full page URL.
+    return url_guard.cross_origin_headers(kept)
 
 
 def _read_truncated(resp, cap_bytes, deadline_seconds, clock) -> bytes:
