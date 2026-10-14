@@ -1447,9 +1447,12 @@ class TestApplyOnce:
         background_jobs.clear_all_jobs()
 
         class FinishesInTheGap:
-            def locked(self):
+            def acquire(self, blocking=True):
                 isolated_db.update_bulk_job(bulk_id, status="applied")
-                return False
+                return True
+
+            def release(self):
+                pass
         monkeypatch.setattr(bulk_poll, "_check_lock", lambda _id: FinishesInTheGap())
 
         bulk_poll.resume_pending(did, lambda e, m: engine)
@@ -1842,8 +1845,8 @@ class TestReflectStageSubmitFailure:
         self._crash_mid_apply(isolated_db, engine, jid)
         sent = self._count_creates(monkeypatch, engine)
 
-        bulk_poll.reconcile_stranded_applies()
-        bulk_poll.reconcile_stranded_applies()
+        bulk_poll.reconcile_stranded_applies(min_age_seconds=0)
+        bulk_poll.reconcile_stranded_applies(min_age_seconds=0)
         assert isolated_db.get_bulk_job(jid)["status"] == "needs_resubmit" and sent == []
 
         provider = bp.ClaudeBatchProvider(engine)
@@ -1874,9 +1877,75 @@ class TestReflectStageSubmitFailure:
         background_jobs.clear_all_jobs()
         sent = self._count_creates(monkeypatch, engine)
 
-        bulk_poll.reconcile_stranded_applies()
+        bulk_poll.reconcile_stranded_applies(min_age_seconds=0)
 
         assert isolated_db.get_bulk_job(faithful["id"])["status"] == "failed" and sent == []
+
+    def _cancel_from_jobs_page(self, jid):
+        from services import jobs_service
+        jobs_service.cancel_job(bulk_poll.poll_job_id(jid))
+
+    def test_a_jobs_page_cancel_during_the_apply_sends_no_next_stage(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine)
+        real = isolated_db.set_bulk_job_line_result_texts
+
+        def record_then_cancel(*a, **k):
+            real(*a, **k)
+            self._cancel_from_jobs_page(jid)
+        monkeypatch.setattr(isolated_db, "set_bulk_job_line_result_texts", record_then_cancel)
+
+        bulk_poll.start_poller(jid, provider=bp.ClaudeBatchProvider(engine), engine=engine)
+        _wait_for(bulk_poll.poll_job_id(jid))
+
+        assert sent == [] and isolated_db.get_bulk_job(jid)["status"] == "cancelled"
+        pipeline = isolated_db.get_bulk_job(jid)["pipeline_id"]
+        assert [j["stage"] for j in isolated_db.list_bulk_jobs(pipeline_id=pipeline)] == ["faithful"]
+        background_jobs.clear_job(bulk_poll.poll_job_id(jid))
+
+    def test_a_jobs_page_cancel_during_the_next_stage_submit_cancels_that_stage(
+            self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        sent = self._count_creates(monkeypatch, engine, before=lambda: self._cancel_from_jobs_page(jid),
+                                   batch_id="msgbatch_child")
+
+        bulk_poll.start_poller(jid, provider=bp.ClaudeBatchProvider(engine), engine=engine)
+        _wait_for(bulk_poll.poll_job_id(jid))
+
+        assert len(sent) == 1 and isolated_db.get_bulk_job(jid)["status"] == "cancelled"
+        child = bulk_reflect.sibling_stage_job(isolated_db.get_bulk_job(jid)["pipeline_id"], "reflect")
+        assert child["status"] == "cancelled"
+        assert engine.client.messages.batches.cancelled == ["msgbatch_child"]
+        background_jobs.clear_job(bulk_poll.poll_job_id(jid))
+
+    def test_a_panel_cancel_is_offered_while_results_apply(self, isolated_db):
+        from services import bulk_job_view
+        engine, did, jid = self._pipeline(isolated_db)
+        isolated_db.update_bulk_job(jid, status="applying")
+        assert bulk_job_view.bulk_entry(isolated_db.get_bulk_job(jid))["cancellable"] is True
+
+    def test_a_faithful_stage_stranded_before_its_drafts_were_saved_stays_failed(
+            self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        isolated_db.update_bulk_job(jid, status="applying")
+        background_jobs.clear_all_jobs()
+        sent = self._count_creates(monkeypatch, engine)
+
+        bulk_poll.resume_pending(did, lambda e, m: engine)
+
+        job = isolated_db.get_bulk_job(jid)
+        assert job["status"] == "failed" and "run again" in job["last_error"] and sent == []
+
+    def test_startup_leaves_a_recent_apply_to_the_process_running_it(self, isolated_db, monkeypatch):
+        engine, did, jid = self._pipeline(isolated_db)
+        self._faithful_results(isolated_db, engine, jid)
+        self._crash_mid_apply(isolated_db, engine, jid)
+
+        bulk_poll.reconcile_stranded_applies()
+
+        assert isolated_db.get_bulk_job(jid)["status"] == "applying"
 
 
 class TestCancelWins:

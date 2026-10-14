@@ -87,6 +87,11 @@ def test_startup_recovers_a_bulk_job_left_mid_apply_with_auto_resume_off(fakes, 
     assert not settings_service.get("bulk_auto_resume")
     did = isolated_db.create_drama(title_en="B")
     bulk_id = isolated_db.create_bulk_job(did, "claude", "m", "applying", [])
+    import contextlib
+    with contextlib.closing(isolated_db.get_conn()) as conn:   # left by a crash long ago
+        conn.execute("UPDATE bulk_jobs SET updated_at = '2000-01-01T00:00:00' WHERE id = ?",
+                     (bulk_id,))
+        conn.commit()
     background.start_background_services()
     job = isolated_db.get_bulk_job(bulk_id)
     assert job["status"] == "failed" and "stopped while applying" in job["last_error"]

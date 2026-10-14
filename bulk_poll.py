@@ -85,7 +85,8 @@ def _check_lock(bulk_job_id: int) -> threading.Lock:
         return _check_locks.setdefault(bulk_job_id, threading.Lock())
 
 
-def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float = None) -> str:
+def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float = None,
+               cancel_check=None) -> str:
     """One status check. Returns the job's new status. Applies results
     as soon as the provider reports the batch ended. Raises BulkAuthError
     (after recording it on the job) if the key was refused. Serialized per
@@ -94,18 +95,22 @@ def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float =
 
     engine, monthly_cap_usd: only needed for a Reflect job (kind="reflect")
     -- once its results are in it submits the pipeline's next stage, which
-    needs a live engine and is refused once the month's cap is used up."""
+    needs a live engine and is refused once the month's cap is used up.
+    cancel_check: the polling job's Cancel, so a Cancel during the apply
+    stops that next stage."""
     with _check_lock(bulk_job_id):
-        return _check_once_locked(bulk_job_id, provider, engine, monthly_cap_usd)
+        return _check_once_locked(bulk_job_id, provider, engine, monthly_cap_usd, cancel_check)
 
 
-def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=None) -> str:
+def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=None,
+                       cancel_check=None) -> str:
     job = db.get_bulk_job(bulk_job_id)
     if job is not None and job["status"] == "needs_resubmit":
         if not db.set_bulk_job_status_if(bulk_job_id, ("needs_resubmit",), "applying"):
             return db.get_bulk_job(bulk_job_id)["status"]
         try:
-            return _advance_pipeline(job, engine, monthly_cap_usd, job.get("result_summary") or {})
+            return _advance_pipeline(job, engine, monthly_cap_usd, job.get("result_summary") or {},
+                                     cancel_check)
         except Exception:
             db.set_bulk_job_status_if(bulk_job_id, ("applying",), "needs_resubmit")
             raise
@@ -139,7 +144,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
             return _fail_keeping_drafts(job, "The provider returned no results for this batch.",
                                         summary)
         if job.get("kind") == "reflect" and job.get("stage") in ("faithful", "reflect"):
-            return _advance_pipeline(job, engine, monthly_cap_usd, summary)
+            return _advance_pipeline(job, engine, monthly_cap_usd, summary, cancel_check)
         if not db.set_bulk_job_status_if(bulk_job_id, ("applying",), "applied"):
             # Cancelled during the apply: it stays cancelled, but what landed is recorded.
             db.update_bulk_job(bulk_job_id, result_summary=summary)
@@ -262,7 +267,8 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             background_jobs.set_result(job_id, summary)
             return
         try:
-            status = check_once(bulk_job_id, provider, engine=engine, monthly_cap_usd=monthly_cap_usd)
+            status = check_once(bulk_job_id, provider, engine=engine, monthly_cap_usd=monthly_cap_usd,
+                                cancel_check=lambda: background_jobs.is_cancel_requested(job_id))
             guard.reached()
             if status == "submitted" and PollGuard.expired(bulk_job_id, job, now):
                 return
@@ -326,31 +332,55 @@ def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None)
 def _recover_stranded_apply(job: dict) -> str:
     """A job left "applying" by a stopped app: some results may have landed
     and been billed, so they are never applied a second time. A Reflect
-    faithful or reflection stage whose next stage was never sent holds its
-    paid drafts only in bulk_job_lines, so it goes back to needs_resubmit:
-    the next poll sends that stage once (_advance_pipeline checks for it), or
-    writes the drafts once the attempts run out. Returns the job's status."""
-    if _check_lock(job["id"]).locked():
+    faithful or reflection stage whose results were recorded but whose next
+    stage was never sent holds its paid drafts only in bulk_job_lines, so it
+    goes back to needs_resubmit: the next poll sends that stage once
+    (_advance_pipeline checks for it), or writes the drafts once the attempts
+    run out. Returns the job's status. Holds the job's check lock, so a
+    poller can't re-enter applying in between."""
+    lock = _check_lock(job["id"])
+    if not lock.acquire(blocking=False):
         return db.get_bulk_job(job["id"])["status"]
-    if (job.get("kind") == "reflect" and job.get("stage") in ("faithful", "reflect")
-            and sibling_stage_job(job["pipeline_id"], "reflect" if job["stage"] == "faithful"
-                                  else "expressive", skip_failed=True) is None):
-        if db.set_bulk_job_status_if(job["id"], ("applying",), "needs_resubmit"):
+    try:
+        if _resumable_stage(job):
+            if db.set_bulk_job_status_if(job["id"], ("applying",), "needs_resubmit"):
+                db.update_bulk_job(job["id"], last_error=(
+                    "The app stopped while applying these results; the next Reflect stage is "
+                    "sent when the batch is resumed."))
+        elif db.set_bulk_job_status_if(job["id"], ("applying",), "failed"):
             db.update_bulk_job(job["id"], last_error=(
-                "The app stopped while applying these results; the next Reflect stage is sent "
-                "when the batch is resumed."))
-    elif db.set_bulk_job_status_if(job["id"], ("applying",), "failed"):
-        db.update_bulk_job(job["id"], last_error=(
-            "The app stopped while applying these results; lines without a result can be run again."))
-    return db.get_bulk_job(job["id"])["status"]
+                "The app stopped while applying these results; lines without a result can be "
+                "run again."))
+        return db.get_bulk_job(job["id"])["status"]
+    finally:
+        lock.release()
 
 
-def reconcile_stranded_applies() -> None:
+def _resumable_stage(job: dict) -> bool:
+    if job.get("kind") != "reflect" or job.get("stage") not in ("faithful", "reflect"):
+        return False
+    nxt = "reflect" if job["stage"] == "faithful" else "expressive"
+    if sibling_stage_job(job["pipeline_id"], nxt, skip_failed=True) is not None:
+        return False
+    # A faithful stage that stopped before its drafts were recorded has
+    # nothing for the next stage; a reflection stage always has the drafts.
+    return job["stage"] == "reflect" or any(
+        r["result_text"] for r in db.list_bulk_job_lines(job["id"]))
+
+
+STRANDED_APPLY_MIN_AGE_SECONDS = 600
+
+
+def reconcile_stranded_applies(min_age_seconds: float = STRANDED_APPLY_MIN_AGE_SECONDS) -> None:
     """App start: recovers every job a stopped app left "applying" (see
     _recover_stranded_apply), whether or not pending batches are resumed.
-    Sends nothing to a provider."""
+    Sends nothing to a provider. The check lock is per process, so only rows
+    unchanged for min_age_seconds are touched: a second app process starting
+    must not take over an apply another process is still running."""
+    cutoff = (_utcnow() - datetime.timedelta(seconds=min_age_seconds)).isoformat()
     for job in db.list_bulk_jobs(statuses=("applying",)):
-        _recover_stranded_apply(job)
+        if (job.get("updated_at") or "") <= cutoff:
+            _recover_stranded_apply(job)
 
 
 # Every status a Cancel may end. "applying" is included so a Cancel that lands

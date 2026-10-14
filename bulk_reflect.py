@@ -333,10 +333,11 @@ def _stage_texts(job) -> dict:
     return {r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(job["id"])} if job else {}
 
 
-def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
+def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_check=None) -> str:
     """Submits the next Reflect stage (once per pipeline), returning job's new
     status. A failed submit holds "needs_resubmit"; past the cap or
-    STAGE_SUBMIT_ATTEMPTS the paid drafts are written."""
+    STAGE_SUBMIT_ATTEMPTS the paid drafts are written. cancel_check: the
+    polling job's own Cancel, which is only in memory until this records it."""
     nxt = "reflect" if job["stage"] == "faithful" else "expressive"
     rows = db.list_bulk_job_lines(job["id"])
     survivors = [r["line_id"] for r in rows
@@ -355,7 +356,7 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
                                last_error="Waiting for an API key to send the next Reflect stage.")
     _cap, error = translate_engines.resolve_cost_cap(
         None, monthly_cap_usd, db.get_month_spend() if monthly_cap_usd else 0.0)
-    if db.get_bulk_job(job["id"])["status"] != "applying":
+    if _cancelled(job["id"], cancel_check):
         # Cancelled while this stage's results were being applied: the next
         # paid stage is never sent.
         return db.get_bulk_job(job["id"])["status"]
@@ -368,7 +369,8 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
             drafts = _stage_texts(sibling_stage_job(job["pipeline_id"], "faithful"))
             error = _advance_to_expressive_stage(job, survivors, drafts, texts, en_at_submit, engine)
         if error is None:
-            status = _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
+            status = (db.get_bulk_job(job["id"])["status"] if _cancelled(job["id"], cancel_check)
+                      else _leave_applying(job["id"], "applied", result_summary=summary, last_error=None))
             if status != "applied":
                 _cancel_orphaned_stage(job, nxt, engine)
             return status
@@ -380,6 +382,14 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
     return _leave_applying(job["id"], "applied", result_summary=summary,
                            last_error=f"The next Reflect stage wasn't sent ({error}); "
                                       "the first-pass drafts were used instead.")
+
+
+def _cancelled(job_id: int, cancel_check) -> bool:
+    """True once this applying job was cancelled, in the database or by its
+    polling job (recorded here, so the Cancel wins over _leave_applying)."""
+    if cancel_check is not None and cancel_check():
+        db.set_bulk_job_status_if(job_id, ("applying",), "cancelled")
+    return db.get_bulk_job(job_id)["status"] != "applying"
 
 
 def _cancel_orphaned_stage(job: dict, stage: str, engine):
