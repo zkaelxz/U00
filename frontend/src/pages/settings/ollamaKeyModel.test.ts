@@ -20,8 +20,9 @@ describe('showOllamaKey', () => {
     expect(showOllamaKey(me({}))).toBe(true)
     expect(showOllamaKey(me({ permissions: ['library.read'] }))).toBe(false)
   })
-  it('is hidden for the owner at the PC and while loading', () => {
+  it('is hidden for the owner at the PC, admins and while loading', () => {
     expect(showOllamaKey(me({ auth_enabled: false }))).toBe(false)
+    expect(showOllamaKey(me({}, { is_admin: true }))).toBe(false)
     expect(showOllamaKey(me({}, { is_local_owner: true }))).toBe(false)
     expect(showOllamaKey({ status: 'loading' })).toBe(false)
   })

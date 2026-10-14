@@ -120,6 +120,9 @@ def is_ollama_cloud_model(model) -> bool:
 # member's runs spend their account, not the PC's signed-in one.
 OLLAMA_CLOUD_URL = "https://ollama.com"
 _NOT_CARRIED = object()
+# Carried in place of a key a member saved that can no longer be decrypted.
+# It has a space, so no real key (validated: no whitespace) equals it.
+UNREADABLE_MEMBER_KEY = "saved key unreadable"
 # Set only by carry_member_cloud_key, in a job's thread or child process. A
 # new thread starts with an empty context, so none inherits it by accident.
 _member_cloud_key_var = contextvars.ContextVar("ollama_member_cloud_key", default=_NOT_CARRIED)
@@ -150,6 +153,21 @@ def member_cloud_key():
     return key or None
 
 
+def _cloud_key_for(model):
+    """The member key a request for `model` sends, or None (a local model, or
+    the PC's own sign-in). A saved key that can't be read stops the call:
+    falling back to the PC would spend the owner's account."""
+    if not is_ollama_cloud_model(model):
+        return None
+    key = member_cloud_key()
+    if key == UNREADABLE_MEMBER_KEY:
+        raise OllamaUnavailableError(
+            "ollama_cloud_key_unreadable",
+            "Your saved Ollama key can't be read any more. Paste it again in "
+            "Settings > Your Ollama key, or remove it there.")
+    return key
+
+
 def direct_cloud_model(tag: str) -> str:
     """ollama.com names a model without the app's cloud suffix:
     "gemma4:31b-cloud" -> "gemma4:31b", "gemma4:cloud" -> "gemma4"."""
@@ -163,7 +181,7 @@ def chat_target(base_url: str, model: str):
     """(url, headers, model) for a /api/chat request made outside
     _ollama_chat: ollama.com with the member key for a cloud tag when one
     applies, else the configured Ollama with no headers."""
-    key = member_cloud_key() if is_ollama_cloud_model(model) else None
+    key = _cloud_key_for(model)
     if key:
         return (f"{OLLAMA_CLOUD_URL}/api/chat", {"Authorization": f"Bearer {key}"},
                 direct_cloud_model(model))
@@ -378,7 +396,7 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
     _ollama_chat_abortable. A cloud tag goes to ollama.com instead when a
     member key applies (member_cloud_key)."""
     import requests
-    key = member_cloud_key() if is_ollama_cloud_model(payload.get("model")) else None
+    key = _cloud_key_for(payload.get("model"))
     check = abort_check_var.get()
     if check is None:
         reply = _ollama_chat_request(requests.post, base_url, payload, cloud_key=key)

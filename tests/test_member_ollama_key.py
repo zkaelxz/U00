@@ -98,6 +98,63 @@ def test_a_lost_or_changed_secret_reads_as_no_key_never_an_error(env):
     assert member_key_service.save(u["id"], KEY)["has_key"] is True
 
 
+def test_a_secret_already_on_disk_is_never_replaced(env, monkeypatch):
+    """A .env read that fails, or another process that wrote the secret
+    meanwhile, must not mean "no secret yet": replacing it would make every
+    saved key unreadable."""
+    from cryptography.fernet import Fernet
+    first = Fernet.generate_key().decode()
+    with open(env, "w") as f:
+        f.write(f"OTHER=1\n{member_key_service.SECRET_ENV}={first}\n")
+    monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
+    u = auth_service.add_user("kid@example.com")
+    member_key_service.save(u["id"], KEY)
+    text = open(env).read()
+    assert text.count(member_key_service.SECRET_ENV) == 1 and first in text and "OTHER=1" in text
+    monkeypatch.undo()
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: env)
+    assert member_key_service.key_for_user(u["id"]) == KEY
+
+
+def test_an_unreadable_env_file_refuses_the_save_instead_of_making_a_new_secret(env, monkeypatch):
+    monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
+
+    def broken(path, transform):
+        raise OSError("read failed")
+    monkeypatch.setattr(settings_service, "_rewrite_env", broken)
+    u = auth_service.add_user("kid@example.com")
+    with pytest.raises(OSError):
+        member_key_service.save(u["id"], KEY)
+    assert member_keys.get(u["id"], "ollama") is None
+
+
+def test_a_damaged_secret_is_not_reported_as_a_missing_package(env):
+    settings_service.write_env_var(member_key_service.SECRET_ENV, "not-a-fernet-key")
+    u = auth_service.add_user("kid@example.com")
+    with pytest.raises(InvalidInputError) as info:
+        member_key_service.save(u["id"], KEY)
+    assert "damaged" in str(info.value) and "cryptography" not in str(info.value)
+
+
+def test_a_key_copied_onto_another_members_row_does_not_decrypt(env):
+    a = auth_service.add_user("a@example.com")
+    b = auth_service.add_user("b@example.com")
+    member_key_service.save(a["id"], KEY)
+    row = member_keys.get(a["id"], "ollama")
+    member_keys.put(b["id"], "ollama", row["ciphertext"], row["last4"], row["added_at"])
+    assert member_key_service.key_for_user(a["id"]) == KEY
+    assert member_key_service.key_for_user(b["id"]) is None
+    assert member_key_service.status(b["id"])["unreadable"] is True
+
+
+def test_admins_keep_the_pcs_sign_in_and_cannot_save_a_key(env):
+    admin, _ = _admin()
+    with pytest.raises(InvalidInputError) as info:
+        member_key_service.save(admin["id"], KEY)
+    assert KEY not in str(info.value)
+    assert member_keys.get(admin["id"], "ollama") is None
+
+
 def test_short_or_malformed_keys_are_refused_without_echoing_them(env):
     u = auth_service.add_user("kid@example.com")
     for bad in ("abc123def", "has space in the middle of it", "x" * 600):
@@ -180,6 +237,26 @@ def test_me_says_whether_the_caller_has_a_usable_key(env):
     member_key_service.save(u["id"], KEY)
     me = c.get("/api/auth/me", headers=h)
     assert me.json()["own_ollama_key"] is True and KEY not in me.text
+
+
+def test_a_member_who_lost_jobs_start_can_still_remove_their_key(env):
+    c = _remote()
+    u, h = _member("kid@example.com")
+    member_key_service.save(u["id"], KEY)
+    auth_service.revoke_permission(u["id"], "jobs.start")
+    assert c.post("/api/auth/ollama-key", json={"key": KEY}, headers=h).status_code == 403
+    assert c.delete("/api/auth/ollama-key", headers=h).status_code == 200
+    assert member_keys.get(u["id"], "ollama") is None
+    removal = [a for a in auth_service.list_audit(500) if a["action"] == "member_key.remove"]
+    assert removal[0]["user_id"] == u["id"]
+
+
+def test_a_removal_no_person_made_is_not_audited_as_the_members(env):
+    u = auth_service.add_user("kid@example.com")
+    member_key_service.save(u["id"], KEY)
+    assert member_key_service.remove(u["id"]) is True
+    removal = [a for a in auth_service.list_audit(500) if a["action"] == "member_key.remove"]
+    assert removal[0]["user_id"] is None
 
 
 def test_routes_need_sign_in_and_csrf(env):
@@ -315,6 +392,43 @@ def test_qa_uses_the_member_key_for_a_cloud_tag(monkeypatch):
         "who?", [], {}, te.OllamaEngine(model=CLOUD))
     assert seen == {"url": "https://ollama.com/api/chat",
                     "headers": {"Authorization": f"Bearer {KEY}"}, "model": "gemma4:31b"}
+
+
+def test_an_unreadable_saved_key_stops_a_cloud_call_instead_of_using_the_pc(monkeypatch):
+    seen = _capture(monkeypatch)
+    with pytest.raises(te.OllamaUnavailableError) as info:
+        local.carry_member_cloud_key(te._ollama_chat, local.UNREADABLE_MEMBER_KEY)(
+            "http://localhost:11434", {"model": CLOUD})
+    assert info.value.reason == "ollama_cloud_key_unreadable" and seen == []
+    # A local model is unaffected.
+    local.carry_member_cloud_key(te._ollama_chat, local.UNREADABLE_MEMBER_KEY)(
+        "http://localhost:11434", {"model": "gemma4:12b"})
+    assert seen[0]["url"].startswith("http://localhost:11434") and seen[0]["headers"] is None
+
+
+def test_a_job_of_a_member_whose_key_became_unreadable_carries_that(env):
+    u = auth_service.add_user("kid@example.com")
+    member_key_service.save(u["id"], KEY)
+    settings_service.write_env_var(member_key_service.SECRET_ENV, "not-a-fernet-key")
+    assert _key_seen_by_a_job(u["id"]) == local.UNREADABLE_MEMBER_KEY
+    import qa
+    with pytest.raises(te.OllamaUnavailableError):
+        local.carry_member_cloud_key(qa.ask_about_drama, local.UNREADABLE_MEMBER_KEY)(
+            "who?", [], {}, te.OllamaEngine(model=CLOUD))
+
+
+def test_qa_errors_on_the_own_key_path_name_the_members_account(monkeypatch):
+    import qa
+    seen = {}
+
+    def post_json(url, payload, timeout=None, headers=None, label=None):
+        seen["label"] = label
+        return {"message": {"content": "answer"}}, {}
+    monkeypatch.setattr(qa, "post_json", post_json)
+    local.carry_member_cloud_key(qa.ask_about_drama, KEY)("who?", [], {}, te.OllamaEngine(model=CLOUD))
+    assert seen["label"].startswith("Your Ollama account")
+    local.carry_member_cloud_key(qa.ask_about_drama, None)("who?", [], {}, te.OllamaEngine(model=CLOUD))
+    assert seen["label"] == "Ollama"
 
 
 # --- jobs carry their starter's key ------------------------------------------------

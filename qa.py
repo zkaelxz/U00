@@ -103,6 +103,7 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
             ],
             "stream": False,
             "options": {"num_ctx": estimate_ollama_num_ctx(system_prompt, history_text)},
-        }, timeout=300, headers=headers, label="Ollama"))
+        }, timeout=300, headers=headers,
+            label="Your Ollama account (your own key)" if headers else "Ollama"))
         return data["message"]["content"].strip()
     return "This engine doesn't support chat-style Q&A."

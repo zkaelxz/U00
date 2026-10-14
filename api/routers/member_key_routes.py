@@ -4,7 +4,7 @@ Thin: the rules live in `services/member_key_service.py`.
 
     GET    /api/auth/ollama-key     jobs.start   mine: set or not, last 4 characters
     POST   /api/auth/ollama-key     jobs.start   save or replace mine
-    DELETE /api/auth/ollama-key     jobs.start   remove mine
+    DELETE /api/auth/ollama-key     signed in    remove mine (even after losing jobs.start)
 
 The user id comes from the session, never the request, so a member only
 ever touches their own key. No response carries the key: the most it shows
@@ -20,7 +20,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from api.auth import is_auth_enabled, require_permission
+from api.auth import authenticated, is_auth_enabled, require_permission
 from api.schemas import MemberKeySaveRequest, MemberKeyStatus, error_responses
 from services import member_key_service as svc
 from services.service_errors import NotFoundError
@@ -53,9 +53,9 @@ def save_own(body: MemberKeySaveRequest, request: Request):
     return _no_store(MemberKeyStatus(**svc.save(_own_user_id(request), body.key)))
 
 
-@router.delete("/ollama-key", dependencies=_PERMISSION, response_model=MemberKeyStatus,
+@router.delete("/ollama-key", dependencies=[authenticated()], response_model=MemberKeyStatus,
                summary="Remove my own Ollama key")
 def remove_own(request: Request):
     user_id = _own_user_id(request)
-    svc.remove(user_id)
+    svc.remove(user_id, actor_id=user_id)
     return _no_store(MemberKeyStatus(**svc.status(user_id)))

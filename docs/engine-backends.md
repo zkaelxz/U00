@@ -17,12 +17,13 @@ name from the `engine_backends/` package so `import translate_engines` and
 | Module | Holds |
 |---|---|
 | `pricing.py` | `CLAUDE_MODELS`, `GEMINI_MODELS`, `OPENAI_MODELS`, `PRICING_PER_MILLION_TOKENS`, `estimate_cost*`, `resolve_cost_cap` |
-| `shared.py` | usage totals, `call_with_backoff`, secret redaction, id-keyed request and parsing, moderation detection |
+| `shared.py` | usage totals, `call_with_backoff`, id-keyed request and parsing, moderation detection (re-exports `redact_secrets`) |
+| `redaction.py` | `redact_secrets` and its `_SECRET_PATTERNS` |
 | `prompts.py` | prompt builders shared by the LLM engines |
 | `claude.py` | `ClaudeEngine` (Anthropic SDK) |
 | `openai_compat.py` | `DeepSeekEngine` (OpenAI SDK pointed at `api.deepseek.com`), `OpenAIEngine` (call through `lib.http` to Chat Completions) |
 | `gemini.py` | `GeminiEngine` (call through `lib.http` to `generateContent`), free-tier pacing and rate status |
-| `local.py` | `OllamaEngine` (REST to a local server), `check_ollama_reachable` |
+| `local.py` | `OllamaEngine` (REST to a local server, or ollama.com with a member's own key for a cloud tag), `check_ollama_reachable` |
 | `llm_tasks.py` | `call_llm_json` and the single-prompt helpers (speaker tagging, pacing rewrite, consistency check, episode summary, flagging) |
 | `engine_registry.py` | `ENGINES`, capability tags, notes, model overrides, `get_engine` |
 | `fallback.py` | `FallbackEngine`, the translate fallback chain |
@@ -58,7 +59,7 @@ were removed. `engine_registry.REMOVED_ENGINES` keeps their ids so a saved
 preset, routing rule or fallback chain that still names one is refused with
 `unknown_engine_message()` ("The X engine was removed") instead of a bare
 KeyError. The only trace left is a DeepL key pattern in
-`shared._SECRET_PATTERNS`, which is harmless. The key-free `FakeEngine` lives in `tests/fake_engine.py`
+`redaction._SECRET_PATTERNS`, which is harmless. The key-free `FakeEngine` lives in `tests/fake_engine.py`
 (id `fake`, output `[TEST] <text>`), is `EchoEngine` with a different prefix, is installed by `tests/conftest.py` and by
 `frontend/e2e/serve_seeded_api.py`, and is never in the shipped `ENGINES`.
 
@@ -389,7 +390,7 @@ fall back to `GOOGLE_API_KEY`). Ollama's URL comes from `ollama_url` /
 4. **Key handling:** key in a header (or the SDK client), never a URL;
    `timeout=` on every call (use `SDK_REQUEST_TIMEOUT` for slow replies);
    `redact_secrets` on any error text; capped read for unbounded bodies. Add
-   the key shape to `shared._SECRET_PATTERNS` if it has a recognisable prefix.
+   the key shape to `redaction._SECRET_PATTERNS` if it has a recognisable prefix.
 5. **Diagnostics:** register any new optional package in
    `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 6. **Routes and permissions:** if you add an API route, give it exactly one of

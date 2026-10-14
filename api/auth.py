@@ -13,7 +13,8 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
                                                          # sessions and extension
                                                          # device tokens (logout, the
                                                          # /api/auth/sessions routes,
-                                                         # list/revoke device tokens)
+                                                         # list/revoke device tokens,
+                                                         # remove my own Ollama key)
     dependencies=[require_device_token()]                # the extension bridge only:
                                                          # a device token, never a
                                                          # session (no route uses it yet)
@@ -223,8 +224,10 @@ def authenticated():
     `POST /api/auth/sessions/revoke-others` and
     `POST /api/auth/sessions/{auth_session_id}/revoke`) and extension
     device tokens (`GET /api/auth/device-tokens` and
-    `POST /api/auth/device-tokens/{device_token_id}/revoke`); the static
-    test pins it to those.
+    `POST /api/auth/device-tokens/{device_token_id}/revoke`), and removing
+    the caller's own Ollama key (`DELETE /api/auth/ollama-key`, so a member
+    who lost `jobs.start` can still take their key back); the static test
+    pins it to those.
     With auth off, the caller is the local owner as usual."""
     def dependency(request: Request):
         if not is_auth_enabled(request.app):
@@ -374,11 +377,10 @@ def require_engines_allowed(request: Request, *engine_names, model=None):
     `model` whenever it has one: an Ollama cloud tag is held to
     `engines.paid` too (`require_cloud_model_allowed`); an omitted model
     resolves to the local default, which is never a cloud tag."""
-    if holds(request, "engines.paid"):
-        return
-    from translate_engines import FREE_ENGINES
-    if any(not name or name not in FREE_ENGINES for name in engine_names):
-        raise ForbiddenError(_GENERIC_403)
+    if not holds(request, "engines.paid"):
+        from translate_engines import FREE_ENGINES
+        if any(not name or name not in FREE_ENGINES for name in engine_names):
+            raise ForbiddenError(_GENERIC_403)
     require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
 
 
@@ -389,16 +391,21 @@ def require_cloud_model_allowed(request: Request, *engine_models):
     the owner's Ollama quota, so it is held to the same permission as a paid
     engine even though Ollama is free; with their own key the quota is the
     member's, so that alone is enough (owner decision 2026-10-14). The key
-    lifts this check only: a paid engine still needs `engines.paid`."""
-    if holds(request, "engines.paid"):
-        return
+    lifts this check only: a paid engine still needs `engines.paid`. A key
+    saved but no longer readable is refused even with `engines.paid`: that
+    member's cloud runs would otherwise land on the owner's account."""
     from translate_engines import is_ollama_cloud_model
     if not any(engine in (None, "ollama") and is_ollama_cloud_model(model)
                for engine, model in engine_models):
         return
     from services import member_key_service
     principal = getattr(getattr(request, "state", None), "principal", None) or {}
-    if member_key_service.has_usable_key(principal.get("user_id")):
+    user_id = principal.get("user_id")
+    if member_key_service.has_unreadable_key(user_id):
+        raise ForbiddenError("Your own Ollama key is saved but can't be read any more, so "
+                             "cloud models are off for you until you paste it again in "
+                             "Settings > Your Ollama key, or remove it there.")
+    if holds(request, "engines.paid") or member_key_service.has_usable_key(user_id):
         return
     raise ForbiddenError("Ollama cloud models send your text off this PC and use the "
                          "owner's Ollama quota, so they need paid-engine permission or your "

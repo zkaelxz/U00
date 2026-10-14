@@ -39,7 +39,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/auth/login` | public() |
 | `POST /api/auth/logout` | authenticated() |
 | `GET /api/auth/me` | public() |
-| `DELETE /api/auth/ollama-key` | jobs.start |
+| `DELETE /api/auth/ollama-key` | authenticated() |
 | `GET /api/auth/ollama-key` | jobs.start |
 | `POST /api/auth/ollama-key` | jobs.start |
 | `GET /api/auth/sessions` | authenticated() |

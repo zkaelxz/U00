@@ -223,3 +223,18 @@ def test_an_unreadable_own_key_does_not_pass_the_gate(remote, drama, key_env):
                     json={"engine": "ollama", "model": CLOUD}, headers=h)
     assert r.status_code == 403
     assert "own Ollama key" in r.json()["error"]["message"]
+
+
+def test_an_unreadable_own_key_is_refused_even_with_engines_paid(remote, drama, key_env):
+    """Paid permission would otherwise run the member's cloud tag on the
+    owner's account; their saved key says it must be theirs."""
+    from services import settings_service
+    h = _household_with_key(key_env, "paid@example.com", ["lines.read", "engines.paid"])
+    settings_service.write_env_var(key_env.SECRET_ENV, "not-a-fernet-key")
+    r = remote.post(f"/api/line-ai/dramas/{drama}/lines/1/alternatives",
+                    json={"engine": "ollama", "model": CLOUD}, headers=h)
+    assert r.status_code == 403
+    assert "can't be read" in r.json()["error"]["message"]
+    r = remote.post(f"/api/line-ai/dramas/{drama}/lines/1/alternatives",
+                    json={"engine": "ollama", "model": "gemma4:12b"}, headers=h)
+    assert r.status_code != 403

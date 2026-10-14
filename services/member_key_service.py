@@ -13,8 +13,11 @@ Security rules kept here:
 - The key is stored encrypted (Fernet) with a server secret kept in the data
   folder's .env (SECRET_ENV), made on the first save, so a copied
   library.db alone does not reveal it. A lost or changed secret, or a
-  missing `cryptography`, leaves saved keys unreadable: they read as
-  "paste it again" and count as no key, never as an error.
+  missing `cryptography`, leaves saved keys unreadable: the card reads
+  "paste it again", and that member's cloud runs are refused rather than
+  moved onto the PC's sign-in. Never a crash. The plaintext carries its
+  row's user id, so a ciphertext moved to another row doesn't decrypt.
+- Admins keep the PC's own sign-in and can't save a key.
 - Write-only: nothing returns the key; status gives its last four characters.
 - A member reads, saves and removes only their own (the user id comes from
   their session). An admin sees only whether a member has one, and may
@@ -39,43 +42,75 @@ _SECRET_LOCK = threading.Lock()
 _SIGNED_IN_ONLY = "Only a signed-in household member can save their own Ollama key."
 _NEEDS_CRYPTOGRAPHY = ("Saving your own key needs the cryptography package, which this "
                        "install is missing. Ask the owner to repair the install.")
+_SECRET_DAMAGED = (f"The key-encryption secret ({SECRET_ENV}) in the main PC's .env is damaged, "
+                   "so keys can't be saved. Ask the owner to remove that line; saved keys then "
+                   "need pasting again.")
+_ADMINS_USE_PC = ("Admins' cloud runs use the main PC's own Ollama sign-in, so an admin "
+                  "account doesn't save a key here.")
 
 
-def _fernet(create: bool):
-    """The cipher for the server secret, or None (no secret yet and not
-    `create`, a malformed secret, or `cryptography` missing)."""
+def _secret_on_disk(candidate: str) -> str:
+    """The secret in .env, inserting `candidate` only when no line sets it.
+    The check runs inside the locked rewrite, on the lines just read, so a
+    failed read raises instead of looking like "no secret", and a secret
+    another process wrote meanwhile is kept: replacing it would leave every
+    key sealed with it unreadable."""
+    found = []
+
+    def transform(lines):
+        for line in lines:
+            if settings_service._line_var(line) == SECRET_ENV:
+                found.append(line.split("=", 1)[1].strip().strip('"').strip("'"))
+                return lines
+        out = list(lines)
+        if out and not out[-1].endswith("\n"):
+            out[-1] += "\n"
+        out.append(f"{SECRET_ENV}={candidate}\n")
+        return out
+
+    settings_service._rewrite_env(settings_service.default_env_path(), transform)
+    return found[0] if found else candidate
+
+
+def _cipher(create: bool):
+    """(cipher, problem): the cipher for the server secret, or None and the
+    reason it can't be had (None when there is simply no secret yet and not
+    `create`)."""
     try:
         from cryptography.fernet import Fernet
     except ImportError:
-        return None
+        return None, _NEEDS_CRYPTOGRAPHY
     secret = settings_service.resolve_env_names((SECRET_ENV,))
     if not secret and create:
         with _SECRET_LOCK:
-            # Two first saves at once must not each write a secret: the
-            # loser's key would be sealed with one that no longer exists.
-            secret = settings_service.resolve_env_names((SECRET_ENV,))
-            if not secret:
-                secret = Fernet.generate_key().decode("ascii")
-                settings_service.write_env_var(SECRET_ENV, secret)
+            secret = _secret_on_disk(Fernet.generate_key().decode("ascii"))
     if not secret:
-        return None
+        return None, None
     try:
-        return Fernet(secret.encode("ascii"))
+        return Fernet(secret.encode("ascii")), None
     except (ValueError, UnicodeEncodeError):
-        return None
+        return None, _SECRET_DAMAGED
+
+
+def _bound(user_id: int, key: str) -> bytes:
+    # The row's owner is sealed in with the key, so a ciphertext copied onto
+    # another member's row does not decrypt as theirs.
+    return f"{user_id}:{PROVIDER}:{key}".encode("utf-8")
 
 
 def _decrypt(row) -> Optional[str]:
     if not row:
         return None
-    cipher = _fernet(create=False)
+    cipher, _problem = _cipher(create=False)
     if cipher is None:
         return None
     from cryptography.fernet import InvalidToken
     try:
-        return cipher.decrypt(row["ciphertext"].encode("ascii")).decode("utf-8")
+        plain = cipher.decrypt(row["ciphertext"].encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError, UnicodeError):
         return None
+    owner, _, key = plain.partition(f":{PROVIDER}:")
+    return key if owner == str(row["user_id"]) and key else None
 
 
 def _require_member(user_id) -> int:
@@ -100,10 +135,13 @@ def save(user_id, value) -> dict:
     key = settings_service._validate_key_value(value)
     if len(key) < _MIN_KEY_LENGTH:
         raise InvalidInputError("That is too short to be an Ollama API key.")
-    cipher = _fernet(create=True)
+    import db
+    if (db.auth_get_user(user_id) or {}).get("is_admin"):
+        raise InvalidInputError(_ADMINS_USE_PC)
+    cipher, problem = _cipher(create=True)
     if cipher is None:
-        raise InvalidInputError(_NEEDS_CRYPTOGRAPHY)
-    member_keys.put(user_id, PROVIDER, cipher.encrypt(key.encode("utf-8")).decode("ascii"),
+        raise InvalidInputError(problem or _NEEDS_CRYPTOGRAPHY)
+    member_keys.put(user_id, PROVIDER, cipher.encrypt(_bound(user_id, key)).decode("ascii"),
                     key[-4:], time.time())
     from services import auth_service   # it imports this module
     auth_service.write_audit(user_id, "member_key.save", "ollama")
@@ -111,14 +149,14 @@ def save(user_id, value) -> dict:
 
 
 def remove(user_id, actor_id=None) -> bool:
-    """Removes the key; True when there was one. `actor_id` is who did it
-    (the member themselves, or an admin)."""
+    """Removes the key; True when there was one. `actor_id` is who did it:
+    the member, an admin, or None when no person did (the owner at the PC
+    with sign-in off, or a deactivation without an acting user)."""
     user_id = _require_member(user_id)
     removed = member_keys.delete(user_id, PROVIDER)
     if removed:
         from services import auth_service   # it imports this module
-        actor = user_id if actor_id is None else actor_id
-        auth_service.write_audit(actor, "member_key.remove", f"ollama, user {user_id}")
+        auth_service.write_audit(actor_id, "member_key.remove", f"ollama, user {user_id}")
     return removed
 
 
@@ -142,16 +180,38 @@ def has_usable_key(user_id) -> bool:
     return key_for_user(user_id) is not None
 
 
+def has_unreadable_key(user_id) -> bool:
+    """A key is saved but can't be decrypted: that member's cloud runs are
+    refused, never moved onto the PC's sign-in."""
+    if user_id is None:
+        return False
+    row = member_keys.get(int(user_id), PROVIDER)
+    return bool(row) and _decrypt(row) is None
+
+
+def cloud_key_for_user(user_id) -> Optional[str]:
+    """What a cloud call for this user sends: their key, UNREADABLE_MEMBER_KEY
+    when one is saved but can't be read, or None (none saved: the PC's
+    sign-in, as before)."""
+    if user_id is None:
+        return None
+    row = member_keys.get(int(user_id), PROVIDER)
+    if not row:
+        return None
+    from engine_backends.local import UNREADABLE_MEMBER_KEY
+    return _decrypt(row) or UNREADABLE_MEMBER_KEY
+
+
 def user_ids_with_key() -> set:
     """Users with a saved key, readable or not: the admin list's flag."""
     return member_keys.user_ids_with(PROVIDER)
 
 
 def acting_key() -> Optional[str]:
-    """The key of the member the current API request (or queue start) runs
-    for, or None: the owner, auth off, or a member without one."""
+    """cloud_key_for_user for the member the current API request (or queue
+    start) runs for; None for the owner, with auth off, or without a key."""
     from services import ownership_service
-    return key_for_user(ownership_service.acting_user_id())
+    return cloud_key_for_user(ownership_service.acting_user_id())
 
 
 def for_job(target):

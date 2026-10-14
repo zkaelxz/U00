@@ -15,12 +15,12 @@ export const OLLAMA_KEY_NOTE =
 export const MIN_KEY_CHARS = 16
 export const MAX_KEY_CHARS = 512
 
-/** Signed in as a household member who may start jobs: the owner at the PC
- * with sign-in off has no account and uses the PC's own Ollama sign-in. */
+/** Signed in as a household member who may start jobs. The owner at the PC
+ * and admins keep the PC's own Ollama sign-in (the server refuses an admin's key). */
 export function showOllamaKey(s: SessionState): boolean {
   if (s.status !== 'ready') return false
   const me = s.me
-  return me.auth_enabled && me.signed_in && !!me.user && !me.user.is_local_owner
+  return me.auth_enabled && me.signed_in && !!me.user && !me.user.is_local_owner && !me.user.is_admin
     && me.permissions.includes('jobs.start')
 }
 
