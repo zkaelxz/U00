@@ -18,6 +18,7 @@ import diagnostics
 import diagnostics_torch
 import qwen3_native
 import translate_engines
+import whisper_models
 from services import settings_service
 
 # Long enough that a page of controls asking at once costs one nvidia-smi and one
@@ -99,6 +100,11 @@ def _ollama_state() -> tuple:
     return True, True
 
 
+def whisper_cached_flag(size: str) -> str:
+    """The readiness flag for one Live Whisper size ("large-v3-turbo" -> "whisper_cached_large_v3_turbo")."""
+    return "whisper_cached_" + size.replace("-", "_")
+
+
 def _compute() -> dict:
     out = {flag: all(_safe(lambda n=n: diagnostics.check_dependency(n)) for n in names)
            for flag, names in _PACKAGES.items()}
@@ -113,6 +119,8 @@ def _compute() -> dict:
     out["ffmpeg_libass"] = out["ffmpeg"] and ffmpeg.get("libass") is True
     out["js_runtime"] = _safe(lambda: diagnostics.check_js_runtime().get("found"))
     out["tesseract_program"] = _safe(_tesseract_program_found)
+    for size in whisper_models.LIVE_WHISPER_SIZES:
+        out[whisper_cached_flag(size)] = _safe(lambda s=size: whisper_models.is_whisper_model_cached(s))
     out["gpu_found"] = _safe(lambda: diagnostics_torch.nvidia_driver_info() is not None)
     out["torch_cuda"] = _safe(_torch_cuda)
     out["hf_token_configured"] = _safe(lambda: settings_service.resolve_key("hf_token"))

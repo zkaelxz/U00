@@ -383,3 +383,16 @@ test('switching format while an export is in flight drops the old response', asy
   await page.waitForTimeout(700)
   await expect(page.getByTestId('export-text')).toHaveCount(0)
 })
+
+test('burned-in video is off with a reason when FFmpeg was built without libass, but subtitle-track video still works', async ({ page }) => {
+  await page.route('**/api/setup/readiness', (route) => route.fulfill({ json: { ffmpeg: true, ffmpeg_libass: false } }))
+  await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Burned-in video')
+  const burned = exportBlock(page, 'Burned-in video')
+  await expect(burned.getByRole('button', { name: 'Start burned-in video export' })).toBeDisabled()
+  await expect(burned.getByTestId('needs-libass')).toContainText('built without libass')
+  await expect(burned.getByRole('button', { name: 'Check again' })).toBeVisible()
+  await openExportBlock(page, 'Video with a subtitle track')
+  await expect(exportBlock(page, 'Video with a subtitle track').getByRole('button', { name: 'Start subtitle-track video export' })).toBeEnabled()
+})
+

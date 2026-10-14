@@ -6,19 +6,24 @@
 import { useState } from 'react'
 
 import { downloadRichDeck, readerApi, vocabApkgUrl, vocabCsvUrl } from '../../api/reader'
+import { useReadiness } from '../../hooks/useReadiness'
 import { useStoredState } from '../../hooks/useStoredRun'
 import { Section } from '../../components/Section'
 import type { ReaderVocabList } from '../../types/reader'
 import type { GlossaryTerm } from '../../types/translateStage'
 import type { TranslateEngine } from '../../types/translate'
+import { NeedsInstall } from '../readiness/NeedsInstall'
+import { ankiNeed, wordSplitterNeed } from '../readiness/needs'
 import { ActionError, EditInTranslate } from './ReaderAction'
 import { useAction } from './useReaderAction'
 import { EnginePicker } from './ReaderEngine'
 
 const isText = (v: unknown): v is string | null => typeof v === 'string'
 
-export function WordsSection({ dramaId, page, chapterSize, engines, enginesOff, engine, onEngine, onLookedUp }: {
+export function WordsSection({ dramaId, page, chapterSize, language, engines, enginesOff, engine, onEngine, onLookedUp }: {
   dramaId: number
+  /** The title's source language: which word splitter a lookup needs. */
+  language: string
   page: number
   chapterSize: number
   engines: TranslateEngine[]
@@ -28,6 +33,8 @@ export function WordsSection({ dramaId, page, chapterSize, engines, enginesOff, 
   onLookedUp: () => void
 }) {
   const [useLlm, setUseLlm] = useState(false)
+  const { readiness } = useReadiness()
+  const splitterNeed = wordSplitterNeed(readiness, language)
   // Per page, because the line says what was saved for this page's words.
   const [result, setResult] = useStoredState<string | null>(`reader.words.${dramaId}.${page}`, null, isText)
   const paid = useLlm && !engines.find((e) => e.name === engine)?.free
@@ -50,11 +57,12 @@ export function WordsSection({ dramaId, page, chapterSize, engines, enginesOff, 
       </label>
       {useLlm && <EnginePicker engines={engines} off={enginesOff} engine={engine} onChange={onEngine} />}
       <div className="actions">
-        <button type="button" className="primary" onClick={() => void lookup.run()} disabled={lookup.busy || (useLlm && !engine)}>
+        <button type="button" className="primary" onClick={() => void lookup.run()} disabled={lookup.busy || !!splitterNeed || (useLlm && !engine)}>
           {lookup.busy ? 'Looking up…' : 'Look up words on this page'}
         </button>
         {result && <span className="muted" role="status">{result}</span>}
       </div>
+      {splitterNeed && <NeedsInstall need={splitterNeed} />}
       <ActionError action={lookup} paidEngine={paid} />
     </Section>
   )
@@ -78,6 +86,8 @@ export function VocabSection({ dramaId, vocab, onChanged }: {
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [notes, setNotes] = useState<string[]>([])
+  const { readiness } = useReadiness()
+  const anki = ankiNeed(readiness)
   const queued = vocab.words.filter((w) => w.export_rich)
   const open = vocab.words.filter((w) => !w.export_rich)
 
@@ -147,11 +157,14 @@ export function VocabSection({ dramaId, vocab, onChanged }: {
       <ActionError action={queue} />
       <div className="actions reader-downloads">
         <a href={vocabCsvUrl(dramaId)} download>Word list (.csv)</a>
-        <a href={vocabApkgUrl(dramaId)} download>Anki deck (.apkg)</a>
-        <button type="button" disabled={queued.length === 0 || deck.busy} onClick={() => void deck.run()}>
+        {anki
+          ? <span className="muted" aria-disabled="true">Anki deck (.apkg)</span>
+          : <a href={vocabApkgUrl(dramaId)} download>Anki deck (.apkg)</a>}
+        <button type="button" disabled={queued.length === 0 || deck.busy || !!anki} onClick={() => void deck.run()}>
           {deck.busy ? 'Building…' : 'Sentence cards (.apkg)'}
         </button>
       </div>
+      {anki && <NeedsInstall need={anki} />}
       {queued.length === 0 && <p className="muted">Still needed for sentence cards: at least one queued word.</p>}
       {notes.length > 0 && <p className="muted" role="status">{notes.join(' ')}</p>}
       <ActionError action={deck} />

@@ -17,9 +17,12 @@ import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { browserStorage, readPref, writePref } from '../../../../hooks/usePersistedState'
+import { useReadiness } from '../../../../hooks/useReadiness'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
 import { useStageDraft } from '../../../../hooks/useStageDraft'
 import { useStageFocus } from '../../StageContext'
+import { NeedsInstall } from '../../../readiness/NeedsInstall'
+import { QWEN3_BACKENDS, qwen3Need, whisperNeed } from '../../../readiness/needs'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { transcribeExtraNames, whisperExclusionReason } from '../../sourceForm'
 import { promptFields } from '../transcribePrompt'
@@ -98,6 +101,7 @@ export function CompareTranscription({
   const panelRef = useRef<HTMLDivElement>(null)
   // Counted after mount so a section mounted by the very action that opens it still sees a change.
   const [sectionSignal, setSectionSignal] = useState(0)
+  const { readiness } = useReadiness()
   const [options, setOptions] = useState<CompareOptions | null>(null)
   // The run options as last left here; the names start from the Transcribe stage's.
   const { draft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, COMPARE_DRAFT_STAGE, COMPARE_DRAFT_SHAPE)
@@ -249,6 +253,10 @@ export function CompareTranscription({
           ? promptProblem(hint, extraNames)
         : tooMany ?? estimateError ?? (estimate?.monthly_refusal ? 'This month’s spending cap is used up, so translation can’t run.' : null)
   const chosenBackend = options.backends.find((b) => b.id === backend)
+  // The server says the backend is unavailable; readiness says which package, with the way to install it.
+  const backendNeed = !chosenBackend || chosenBackend.available ? null
+    : backend === 'whisper' ? whisperNeed(readiness)
+      : QWEN3_BACKENDS.includes(backend) ? qwen3Need(readiness) : null
 
   const start = () => {
     if (!('selection' in built)) return
@@ -383,6 +391,7 @@ export function CompareTranscription({
         {chosenBackend && !chosenBackend.available && (
           <p className="error" role="alert">{chosenBackend.reason}</p>
         )}
+        {backendNeed && <NeedsInstall need={backendNeed} />}
         <Field label="Hint for the model (names, terms)" help="Optional. Replaces the automatic Whisper prompt for this run; leave empty to use the glossary names plus the extra names below.">
           <input
             value={hint}

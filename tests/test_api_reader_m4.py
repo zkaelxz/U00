@@ -284,6 +284,7 @@ def test_apkg_without_genanki_is_503(client, isolated_db, monkeypatch):
     r = client.get(f"{BASE}/{did}/vocab/export.apkg")
     assert r.status_code == 503 and _code(r) == "dependency_unavailable"
     assert "/home/secret" not in r.text
+    assert "Diagnostics" in r.text and "pip install" not in r.text
 
 
 def test_apkg_with_genanki(client, isolated_db):

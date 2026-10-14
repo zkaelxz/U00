@@ -7,12 +7,15 @@ import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
 import { routeHref } from '../../../router'
 import { buttonClass } from '../../../components/uiClasses'
 import { browserStorage, readPref, writePref } from '../../../hooks/usePersistedState'
+import { useReadiness } from '../../../hooks/useReadiness'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import { assFormFromDraft, buildAssRequest, emptyAssForm, EXPORT_DRAFT_STAGE, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportJellyfin } from './ExportJellyfin'
 import { PreflightCard } from '../../preflight/PreflightCard'
+import { NeedsInstall } from '../../readiness/NeedsInstall'
+import { libassNeed, NO_LIBASS } from '../../readiness/needs'
 import { exportBlockOrder, exportBlockReason, type ExportBlockId } from '../exportBlocks'
 import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
@@ -40,6 +43,9 @@ export default function ExportStage() {
   const [startError, setStartError] = useState<StartError | null>(null)
   const kind = titleKind(drama.media_type, drama.content_mode)
   const inputs = useExportInputs(dramaId, drama.content_mode === 'novel_narration')
+  const { readiness: setup } = useReadiness()
+  // A missing FFmpeg has its own card above; this is only the build that lacks libass.
+  const libass = setup?.ffmpeg ? libassNeed(setup) : null
   const { draft, raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, EXPORT_DRAFT_STAGE, EXPORT_DRAFT_SHAPE)
   const [form, setForm] = useState<AssForm>(() => {
     const kept = assFormFromDraft(rawDraft)
@@ -97,7 +103,10 @@ export default function ExportStage() {
   const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
     options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
-  const share = (id: ExportBlockId) => ({ startError, onStartError: setStartError, reason: exportBlockReason(id, inputs) })
+  const share = (id: ExportBlockId) => ({
+    startError, onStartError: setStartError,
+    reason: exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null),
+  })
   const blocks: Record<ExportBlockId, ReactNode> = {
     subtitles: (
       <ExportBlock key="subtitles" id="subtitles" hint="SRT, VTT, LRC or ASS">
@@ -118,6 +127,7 @@ export default function ExportStage() {
     softsub_video: <SoftsubVideoBlock key="softsub_video" {...share('softsub_video')} />,
     burned_video: (
       <BurnedVideoBlock key="burned_video" request={mediaRequest} {...share('burned_video')}>
+        {libass && <NeedsInstall need={libass} />}
         {/* The ASS style is one form for the subtitle file and this video; it renders once, in the subtitle file block when ASS is chosen there. */}
         {fmt === 'ass' ? <p className="muted">Uses the ASS style set in Subtitle file.</p> : assStyle}
       </BurnedVideoBlock>

@@ -623,7 +623,9 @@ class TestSenseVoice:
     def test_missing_funasr_is_503(self, client, monkeypatch):
         did, _ = _audio_drama()
         monkeypatch.setattr(svc, "_sensevoice_installed", lambda: False)
-        _error(client.post(f"{BASE}/{did}/sensevoice", json={}), 503, "dependency_unavailable")
+        refused = client.post(f"{BASE}/{did}/sensevoice", json={})
+        _error(refused, 503, "dependency_unavailable")
+        assert "Diagnostics" in refused.text and "pip install" not in refused.text
         assert client.get(f"{BASE}/{did}/sensevoice").json()["installed"] is False
 
     def test_no_audio_is_refused(self, client, monkeypatch):
