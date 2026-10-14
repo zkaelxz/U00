@@ -30,7 +30,11 @@ KEY_BYTES = 32
 SIGNATURE_BYTES = 64
 MAX_KEY_FILE_BYTES = 4096
 
-_EXE_NAME_RE = re.compile(r"BaiheStudio-Setup-[0-9A-Za-z.+-]{1,100}\.exe")
+# A version as services/update_service.parse_version reads it.
+_VERSION = r"\d{1,6}\.\d{1,6}(?:\.\d{1,6})?(?:-[0-9A-Za-z.-]{1,40})?(?:\+[0-9A-Za-z.-]{1,40})?"
+# The full installer, or the app-only update zip (installer/build_app_zip.py).
+# The name is part of the signed text, so neither's signature verifies the other.
+_EXE_NAME_RE = re.compile(rf"BaiheStudio-(?:Setup-{_VERSION}\.exe|App-{_VERSION}\.zip)")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}")
 
 
@@ -43,7 +47,7 @@ def signed_message(exe_name: str, sha256_hex: str) -> bytes:
     """The exact bytes that are signed. Both parts are checked so neither can
     add a line of its own to the statement."""
     if not _EXE_NAME_RE.fullmatch(exe_name or "") or not _HEX64_RE.fullmatch(sha256_hex or ""):
-        raise SignatureFormatError("not an installer name and a lower-case SHA-256")
+        raise SignatureFormatError("not a release file name and a lower-case SHA-256")
     return f"{MESSAGE_HEADER}\nname: {exe_name}\nsha256: {sha256_hex}\n".encode("ascii")
 
 

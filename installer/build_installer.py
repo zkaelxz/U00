@@ -83,8 +83,9 @@ INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
 
 # The runtime half of installer/ that ships; the rest (this script, the
 # .iss) is build-only. The release public key ships so the installed app's
-# updater checks signatures against the key it was installed with.
-RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py", "release_public_key.txt")
+# updater checks signatures against the key it was installed with; app_swap
+# so it can take app-only updates.
+RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py", "release_public_key.txt", "app_swap.py")
 
 # The Python files of the elevated service script, which imports its siblings
 # as installer.<name> from helper/lib; one missing here breaks it only on
@@ -274,7 +275,7 @@ def check_payload(app_dest) -> None:
     for required in ("frontend/dist/index.html", "api/__main__.py", "portable.py", "process_guard.py",
                      "requirements-core.txt", "constraints.txt", "check_setup.py",
                      "installer/launcher.py", "installer/postinstall.py",
-                     "installer/release_public_key.txt"):
+                     "installer/release_public_key.txt", "installer/app_swap.py"):
         if not (app_dest / required).is_file():
             problems.append(f"missing: {required}")
     key_file = app_dest / "installer" / "release_public_key.txt"

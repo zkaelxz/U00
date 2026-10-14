@@ -36,6 +36,7 @@ def fake_repo(tmp_path):
         "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
         "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
         "installer/launcher.py", "installer/postinstall.py", "installer/release_public_key.txt",
+        "installer/app_swap.py",
         "run_tests.py",
         # Never ships
         ".env", ".env.local", ".env.example", "services/.env",
@@ -67,6 +68,7 @@ SHIPS = {
     "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
     "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
     "installer/launcher.py", "installer/postinstall.py", "installer/release_public_key.txt",
+    "installer/app_swap.py",
     "run_tests.py",
 }
 
@@ -167,7 +169,7 @@ class TestCheckPayload:
         for rel in ("frontend/dist/index.html", "api/__main__.py", "portable.py", "process_guard.py",
                     "requirements-core.txt", "constraints.txt", "check_setup.py",
                     "installer/launcher.py", "installer/postinstall.py",
-                    "installer/release_public_key.txt"):
+                    "installer/release_public_key.txt", "installer/app_swap.py"):
             _touch(dest, rel, "# no key yet\n" if rel.endswith("release_public_key.txt") else "x")
         return dest
 
@@ -677,3 +679,56 @@ class TestDownloadCap:
             bi.download("https://example.invalid/x.zip", tmp_path / "x.zip",
                         deadline_seconds=15, clock=lambda: next(ticks))
         assert list(tmp_path.iterdir()) == []
+
+
+class TestAppZip:
+    """installer/build_app_zip.py: the app-only update zip and its manifest."""
+
+    @pytest.fixture
+    def payload(self, tmp_path):
+        from installer import app_swap
+        payload = tmp_path / "payload"
+        for rel in app_swap.REQUIRED_ENTRIES:
+            if rel != app_swap.APP_MANIFEST_NAME:
+                _touch(payload / "app", rel)
+        _touch(payload / "app", "api/__pycache__/x.cpython-312.pyc")
+        (payload / "manifest.json").write_text(json.dumps({
+            "product": "Baihe Studio", "app_version": "0.2.0",
+            "python": {"embed_sha256": "p"}, "wheels": [{"file": "a.whl", "sha256": "1"}],
+            "services": {"caddy": {"sha256": "c"}, "winsw": {"sha256": "s"}}}))
+        return payload
+
+    def test_zip_is_the_staged_app_plus_its_manifest(self, payload, tmp_path):
+        import build_app_zip as baz
+        from installer import app_swap
+        out = tmp_path / "out"
+        path = baz.build_zip("0.2.0", payload, out, schema_sha256="f" * 64)
+        assert path.name == "BaiheStudio-App-0.2.0.zip"
+        with zipfile.ZipFile(path) as zf:
+            names = set(zf.namelist())
+            manifest = app_swap.read_manifest(zf)
+        assert names == set(app_swap.REQUIRED_ENTRIES)
+        installed = json.loads((payload / "manifest.json").read_text())
+        assert manifest["base"] == app_swap.base_fingerprint(installed)
+        assert manifest["db_schema_sha256"] == "f" * 64
+        assert manifest["min_base_version"] == baz.MIN_BASE_VERSION
+        assert json.loads((out / "BaiheStudio-App-0.2.0.json").read_text()) == manifest
+
+    def test_refuses_what_the_installed_app_would_refuse(self, payload, tmp_path):
+        import build_app_zip as baz
+        (payload / "app" / "installer" / "app_swap.py").unlink()
+        with pytest.raises(baz.BuildError, match="wouldn't be accepted"):
+            baz.build_zip("0.2.0", payload, tmp_path / "out", schema_sha256="f" * 64)
+        assert not (tmp_path / "out" / "BaiheStudio-App-0.2.0.zip").exists()
+
+    def test_needs_the_payload_manifest(self, payload, tmp_path):
+        import build_app_zip as baz
+        (payload / "manifest.json").unlink()
+        with pytest.raises(baz.BuildError, match="manifest.json"):
+            baz.build_zip("0.2.0", payload, tmp_path / "out", schema_sha256="f" * 64)
+
+    def test_fresh_schema_matches_an_unchanged_library(self, isolated_db):
+        # Otherwise every app update would ask for a backup.
+        import build_app_zip as baz
+        from services import app_update_service
+        assert baz.fresh_schema_fingerprint(baz.REPO_ROOT) == app_update_service._library_schema()

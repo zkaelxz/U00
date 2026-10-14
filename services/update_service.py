@@ -320,6 +320,7 @@ def _parse_release(data, allow_prereleases=False):
         return None
     size = exe.get("size")
     return {"version": version, "exe_name": exe_name, "exe_url": exe["browser_download_url"],
+            "app": _parse_app_assets(assets, version),
             "exe_size": size if isinstance(size, int) and size > 0 else None,
             "hash_url": sha["browser_download_url"],
             # Missing is not refused here: whether a signature is needed is
@@ -327,6 +328,24 @@ def _parse_release(data, allow_prereleases=False):
             "sig_url": sig["browser_download_url"]
             if sig and isinstance(sig.get("browser_download_url"), str) else None,
             "notes": _plain_notes(data.get("body"))}
+
+
+def _parse_app_assets(assets, version):
+    """The app-only update's zip, `.sha256`, `.sig` and manifest copy
+    (installer/build_app_zip.py), or None when the release has no usable
+    zip: then only the full installer is offered."""
+    name = f"BaiheStudio-App-{version}.zip"
+    found = {key: assets.get(asset_name) for key, asset_name in (
+        ("zip", name), ("hash", name + ".sha256"), ("sig", name + ".sig"),
+        ("manifest", f"BaiheStudio-App-{version}.json"))}
+    urls = {key: a["browser_download_url"] for key, a in found.items()
+            if a and isinstance(a.get("browser_download_url"), str)}
+    if "zip" not in urls or "hash" not in urls or "manifest" not in urls:
+        return None
+    size = found["zip"].get("size")
+    return {"name": name, "url": urls["zip"], "hash_url": urls["hash"],
+            "sig_url": urls.get("sig"), "manifest_url": urls["manifest"],
+            "size": size if isinstance(size, int) and size > 0 else None}
 
 
 def check() -> dict:
@@ -373,6 +392,8 @@ def check() -> dict:
                       notes=release["notes"] if release else "",
                       installer_name=release["exe_name"] if release else None,
                       size=release["exe_size"] if release else None)
+    from services import app_update_service
+    app_update_service.refresh_offer(release)
     return status()
 
 
@@ -419,7 +440,13 @@ def status() -> dict:
                             and s["download"] != "downloading"),
             "signature_check": signature_check_on(),
             "signature_verified": verified_signed,
-            "auto_check": get_auto_check(), "custom_source": custom_source()}
+            "auto_check": get_auto_check(), "custom_source": custom_source(),
+            **_app_status()}
+
+
+def _app_status() -> dict:
+    from services import app_update_service
+    return app_update_service.status_fields()
 
 
 # --- download -----------------------------------------------------------------
@@ -454,17 +481,19 @@ def _clear_setup_copies():
 
 
 def cleanup_leftovers() -> None:
-    """At startup: the temp Setup copies, partial downloads, and every
-    downloaded installer once it is no longer newer than this copy (after
-    an upgrade)."""
+    """At startup: the temp Setup and app-zip copies, partial downloads, and
+    every downloaded installer or app zip once it is no longer newer than
+    this copy (after an upgrade)."""
     _clear_setup_copies()
+    from services import app_update_service
+    app_update_service.cleanup_leftovers()
     folder = updates_dir()
     if not os.path.isdir(folder):
         return
     current, allow_pre = current_version(), include_prereleases()
     for name in os.listdir(folder):
-        m = re.match(r"^BaiheStudio-Setup-(.+)\.exe(\.part)?$", name)
-        if m and (m.group(2) or not is_newer(m.group(1), current, allow_pre)):
+        m = re.match(r"^BaiheStudio-(?:Setup-(.+)\.exe|App-(.+)\.zip)(\.part)?$", name)
+        if m and (m.group(3) or not is_newer(m.group(1) or m.group(2), current, allow_pre)):
             try:
                 os.remove(os.path.join(folder, name))
             except OSError:
@@ -556,6 +585,49 @@ def _progress(n):
         _state["downloaded_bytes"] = n
 
 
+def fetch_verified(url, final, size, max_bytes, expected, public_key, signature, name, progress,
+                   what="installer") -> None:
+    """Streams `url` to `final` and keeps it only when its size, SHA-256 and
+    (with a key) signature over `name` all match."""
+    part = final + ".part"
+    cap = min(max_bytes, size or max_bytes)
+    sha, total = hashlib.sha256(), 0
+    deadline = _monotonic() + DOWNLOAD_DEADLINE_SECONDS
+    resp = _open(url, DOWNLOAD_HOSTS, "application/octet-stream")
+    try:
+        declared = _declared_length(resp)
+        if declared is not None and declared > cap:
+            raise _too_big()
+        with open(part, "wb") as fh:
+            for chunk in resp.iter_content(CHUNK):
+                total += len(chunk)
+                if total > cap:
+                    raise _too_big()
+                if _monotonic() > deadline:
+                    raise DependencyUnavailableError("The download took too long, so it was "
+                                                     "stopped. Try again.")
+                sha.update(chunk)
+                fh.write(chunk)
+                progress(total)
+        if size and total != size:
+            raise DependencyUnavailableError("The download was incomplete. Try again.")
+        if not hmac.compare_digest(sha.hexdigest(), expected):
+            raise ConflictError("The download doesn't match the release's SHA-256, so it was "
+                                "deleted. Nothing was installed.")
+        if not _signature_ok(public_key, signature, name, sha.hexdigest()):
+            raise ConflictError(f"The {what}'s signature doesn't match this copy's release "
+                                "key, so it was deleted. Nothing was installed.")
+        os.replace(part, final)
+    except BaseException:
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        raise
+    finally:
+        resp.close()
+
+
 def download() -> dict:
     """Downloads the checked release's installer and verifies it. Runs on
     the caller's thread (start_download runs it on its own)."""
@@ -577,43 +649,8 @@ def download() -> dict:
     _clear_old_files(folder)
     _clear_setup_copies()
     final = os.path.join(folder, release["exe_name"])
-    part = final + ".part"
-    cap = min(MAX_INSTALLER_BYTES, release["exe_size"] or MAX_INSTALLER_BYTES)
-    sha, total = hashlib.sha256(), 0
-    deadline = _monotonic() + DOWNLOAD_DEADLINE_SECONDS
-    resp = _open(release["exe_url"], DOWNLOAD_HOSTS, "application/octet-stream")
-    try:
-        declared = _declared_length(resp)
-        if declared is not None and declared > cap:
-            raise _too_big()
-        with open(part, "wb") as fh:
-            for chunk in resp.iter_content(CHUNK):
-                total += len(chunk)
-                if total > cap:
-                    raise _too_big()
-                if _monotonic() > deadline:
-                    raise DependencyUnavailableError("The download took too long, so it was "
-                                                     "stopped. Try again.")
-                sha.update(chunk)
-                fh.write(chunk)
-                _progress(total)
-        if release["exe_size"] and total != release["exe_size"]:
-            raise DependencyUnavailableError("The download was incomplete. Try again.")
-        if not hmac.compare_digest(sha.hexdigest(), expected):
-            raise ConflictError("The download doesn't match the release's SHA-256, so it was "
-                                "deleted. Nothing was installed.")
-        if not _signature_ok(public_key, signature, release["exe_name"], sha.hexdigest()):
-            raise ConflictError("The installer's signature doesn't match this copy's release "
-                                "key, so it was deleted. Nothing was installed.")
-        os.replace(part, final)
-    except BaseException:
-        try:
-            os.remove(part)
-        except OSError:
-            pass
-        raise
-    finally:
-        resp.close()
+    fetch_verified(release["exe_url"], final, release["exe_size"], MAX_INSTALLER_BYTES, expected,
+                   public_key, signature, release["exe_name"], _progress)
     with _lock:
         if _release is None or _release["version"] != release["version"]:
             raise ConflictError("A different version was found while downloading. "

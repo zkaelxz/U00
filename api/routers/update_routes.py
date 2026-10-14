@@ -11,9 +11,9 @@ and booleans only (no URL, no path).
 from fastapi import APIRouter
 
 from api.auth import local_only
-from api.schemas import (UpdateInstallRequest, UpdateInstallResponse, UpdateSettingsRequest,
-                         UpdateStatus)
-from services import update_service
+from api.schemas import (AppUpdateApplyResponse, UpdateInstallRequest, UpdateInstallResponse,
+                         UpdateSettingsRequest, UpdateStatus)
+from services import app_update_service, update_service
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/system/update", tags=["system"])
@@ -49,3 +49,17 @@ def update_install(body: UpdateInstallRequest):
     if not body.confirm:
         raise InvalidInputError("Confirm to open Setup.")
     return UpdateInstallResponse(**update_service.install())
+
+
+@router.post("/app/download", dependencies=[local_only()], response_model=UpdateStatus,
+             status_code=202, summary="Download and verify the newer app-only update")
+def update_app_download():
+    return UpdateStatus(**app_update_service.start_download())
+
+
+@router.post("/app/apply", dependencies=[local_only()], response_model=AppUpdateApplyResponse,
+             status_code=202, summary="Switch to the verified app-only update and restart (Windows)")
+def update_app_apply(body: UpdateInstallRequest):
+    if not body.confirm:
+        raise InvalidInputError("Confirm to update the app and restart it.")
+    return AppUpdateApplyResponse(**app_update_service.apply())

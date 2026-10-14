@@ -15,8 +15,9 @@ name: Windows Installer
 # Actions minutes have run out before, and windows-latest bills at 2x. An
 # installer-v* tag builds and tests only; its version is the tag without
 # "installer-v". A v* tag (v0.1.0) does the same, and once every smoke test
-# has passed the release job attaches the installer, its SHA-256 and (when
-# the BAIHE_RELEASE_SIGNING_KEY secret is set) its Ed25519 signature to a
+# has passed the release job attaches the installer and the app-only update
+# zip (with its manifest copy), each with its SHA-256 and (when the
+# BAIHE_RELEASE_SIGNING_KEY secret is set) its Ed25519 signature, to a
 # GitHub Release named after the tag; the version is the tag without "v".
 on:
   workflow_dispatch:
@@ -119,11 +120,19 @@ jobs:
         shell: pwsh
         run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC" --go "$env:GO_EXE"
 
+      # The app-only update: the payload's app\ plus its manifest
+      # (installer/build_app_zip.py), from the payload just checked above.
+      - name: Build the app-only update
+        shell: pwsh
+        run: python installer/build_app_zip.py --version "$env:APP_VERSION"
+
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: BaiheStudio-Setup-${{ env.APP_VERSION }}
           path: |
             build/installer/output/BaiheStudio-Setup-*.exe
+            build/installer/output/BaiheStudio-App-*.zip
+            build/installer/output/BaiheStudio-App-*.json
             build/installer/payload/manifest.json
           if-no-files-found: error
 
@@ -523,16 +532,30 @@ jobs:
             --name "BaiheStudio-Setup-$version" --dir out
           exe="$(find out -name 'BaiheStudio-Setup-*.exe' | head -n 1)"
           test -n "$exe"
-          name="$(basename "$exe")"
-          dir="$(dirname "$exe")"
-          (cd "$dir" && sha256sum "$name" > "$name.sha256")
-          assets=("$dir/$name" "$dir/$name.sha256")
-          sha="$(sha256sum "$exe" | cut -d ' ' -f 1)"
-          # In the log of this tag's own run, out of reach of a later edit to
-          # the release's assets: what the owner checks a download against.
-          echo "Installer: $name sha256 $sha"
+          # The app-only update (installer/build_app_zip.py) and its manifest
+          # copy, when the build made them: hashed and signed like the installer.
+          appzip="$(find out -name "BaiheStudio-App-$version.zip" | head -n 1)"
+          signed=("$exe")
+          if [ -n "$appzip" ]; then signed+=("$appzip"); fi
+          assets=()
+          for file in "${signed[@]}"; do
+            name="$(basename "$file")"
+            dir="$(dirname "$file")"
+            (cd "$dir" && sha256sum "$name" > "$name.sha256")
+            assets+=("$dir/$name" "$dir/$name.sha256")
+            # In the log of this tag's own run, out of reach of a later edit to
+            # the release's assets: what the owner checks a download against.
+            label="Installer"
+            case "$name" in BaiheStudio-App-*) label="App update" ;; esac
+            echo "$label: $name sha256 $(sha256sum "$file" | cut -d ' ' -f 1)"
+          done
+          if [ -n "$appzip" ]; then
+            manifest="$(dirname "$appzip")/BaiheStudio-App-$version.json"
+            test -f "$manifest"
+            assets+=("$manifest")
+          fi
           if [ -z "${BAIHE_RELEASE_SIGNING_KEY:-}" ]; then
-            echo "::warning title=Unsigned release::BAIHE_RELEASE_SIGNING_KEY is not set, so this release is UNSIGNED (no $name.sig). Copies that have a release public key will refuse it as an in-app update until a .sig is added (docs/runbook.md, App updates)."
+            echo "::warning title=Unsigned release::BAIHE_RELEASE_SIGNING_KEY is not set, so this release is UNSIGNED (no .sig files). Copies that have a release public key will refuse it as an in-app update until a .sig is added (docs/runbook.md, App updates)."
           else
             seed="${BAIHE_RELEASE_SIGNING_KEY#ed25519-private:}"
             echo "::add-mask::$seed"
@@ -549,16 +572,21 @@ jobs:
               echo "::error::BAIHE_RELEASE_SIGNING_KEY is set but isn't a valid key. Nothing was published."
               exit 1
             fi
-            printf 'baihe-studio-release-signature-v1\nname: %s\nsha256: %s\n' "$name" "$sha" > "$keydir/message"
-            openssl pkeyutl -sign -rawin -keyform DER -inkey "$keydir/key.der" \
-              -in "$keydir/message" -out "$keydir/sig.bin"
             openssl pkey -inform DER -in "$keydir/key.der" -pubout -outform DER -out "$keydir/pub.der"
-            openssl pkeyutl -verify -rawin -pubin -keyform DER -inkey "$keydir/pub.der" \
-              -in "$keydir/message" -sigfile "$keydir/sig.bin" > /dev/null
-            { base64 -w 0 < "$keydir/sig.bin"; echo; } > "$dir/$name.sig"
-            assets+=("$dir/$name.sig")
-            # The public half only: compare it with installer/release_public_key.txt.
-            echo "Signed $name with ed25519-public:$(tail -c 32 "$keydir/pub.der" | base64 -w 0)"
+            for file in "${signed[@]}"; do
+              name="$(basename "$file")"
+              dir="$(dirname "$file")"
+              sha="$(sha256sum "$file" | cut -d ' ' -f 1)"
+              printf 'baihe-studio-release-signature-v1\nname: %s\nsha256: %s\n' "$name" "$sha" > "$keydir/message"
+              openssl pkeyutl -sign -rawin -keyform DER -inkey "$keydir/key.der" \
+                -in "$keydir/message" -out "$keydir/sig.bin"
+              openssl pkeyutl -verify -rawin -pubin -keyform DER -inkey "$keydir/pub.der" \
+                -in "$keydir/message" -sigfile "$keydir/sig.bin" > /dev/null
+              { base64 -w 0 < "$keydir/sig.bin"; echo; } > "$dir/$name.sig"
+              assets+=("$dir/$name.sig")
+              # The public half only: compare it with installer/release_public_key.txt.
+              echo "Signed $name with ed25519-public:$(tail -c 32 "$keydir/pub.der" | base64 -w 0)"
+            done
           fi
           flags=""
           case "$version" in *-*) flags="--prerelease" ;; esac
