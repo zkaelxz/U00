@@ -5,3 +5,4 @@
 # To turn signing on, add the one "ed25519-public:..." line that
 # `python tools/release_signing.py generate` prints (docs/runbook.md, App updates).
 # Never put the private key here: the build refuses a file holding one.
+ed25519-public:0owCUmqIibYNMccRD7xfRUAzDxa8k4BFBTSTlNyOSi0=
