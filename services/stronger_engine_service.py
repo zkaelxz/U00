@@ -128,7 +128,8 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
     translate run sends (workspace_job_service.build_run_style_context)."""
     is_novel = drama.get("content_mode") == "novel_narration"
     glossary, style, character_names = workspace_job_service.build_run_style_context(
-        drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False)
+        drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False,
+        principal=ownership_service.acting_principal())
     context = translate_engines.build_translation_context(
         engine, drama, locale=settings_service.get("default_locale"),
         novel_reference=translate_run_service.load_novel_reference(drama_id, drama),

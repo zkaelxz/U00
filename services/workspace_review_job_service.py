@@ -153,7 +153,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
                                source_language, engine, engine_choice, cost_cap_usd=None,
                                locale="en-US", include_genre_notes=None,
-                               default_female_pronouns=None, style_note=""):
+                               default_female_pronouns=None, style_note="", principal=None):
     """
     Bulk version of the single-line 🔧 tools in Review & edit: for every
     currently-flagged line, re-transcribes its own timing window from the
@@ -182,7 +182,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     glossary_terms, style_guidelines, character_names = build_run_style_context(
         drama_id, drama, lines, style_preset, with_emotions=False,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns)
+        default_female_pronouns=default_female_pronouns, principal=principal)
     base_context = translate_engines.build_translation_context(
         engine, drama, style_note=style_note or "", locale=locale,
         glossary_terms=glossary_terms, style_guidelines=style_guidelines)

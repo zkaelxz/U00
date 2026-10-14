@@ -516,9 +516,13 @@ class TestStyleRemote:
 
     def test_reset_is_pc_only_but_pause_is_not(self, isolated_db):
         did, sid = _style_drama()
-        db.save_style_profile(f"series:{sid}", {"preferences": ["Keep it short"]}, 8)
         c = _remote_client()
         h = _session("owner@example.com", "engines.paid")
+        # Learned by this member: a profile someone else learned doesn't reach
+        # them at all (test_learned_style_visibility.py).
+        uid = db.auth_get_user_by_email("owner@example.com")["id"]
+        db.save_style_profile(f"series:{sid}", {"preferences": ["Keep it short"],
+                                                "learned_by": uid}, 8)
         assert c.post(f"{BASE}/{did}/style/reset", json={"confirm": True},
                       headers=h).status_code == 403
         assert db.get_style_profile(f"series:{sid}")["profile"]["preferences"] == ["Keep it short"]

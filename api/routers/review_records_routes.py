@@ -11,7 +11,7 @@ any `/{id}` path in the same prefix.
 
 from typing import Annotated, List, Optional
 
-from fastapi import APIRouter, Path, Query, Response
+from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import require_permission
 from pydantic import Field
 
@@ -91,8 +91,9 @@ def get_emotions(drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/tendencies", dependencies=[require_permission("review.use")], response_model=ReviewRecordsTendencies,
             summary="Recorded edit statistics plus the stored learned style profile (or null)",
             responses=_NF)
-def get_tendencies(drama_id: int = Path(ge=1)):
-    return review_records_service.get_edit_tendencies(drama_id)
+def get_tendencies(request: Request, drama_id: int = Path(ge=1)):
+    return review_records_service.get_edit_tendencies(drama_id,
+                                                      principal=request.state.principal)
 
 
 @router.get("/dramas/{drama_id}/tm-suggestions", dependencies=[require_permission("review.use", "lines.read")], response_model=List[ReviewRecordsTmSuggestion],

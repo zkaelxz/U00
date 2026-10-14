@@ -603,3 +603,30 @@ def test_cancel_kills_the_hearing_process_within_bounded_time(monkeypatch, tmp_p
             break
         assert time.time() < deadline, "the hearing process outlived Cancel"
         time.sleep(0.05)
+
+
+def test_translation_leaves_out_a_style_profile_the_starter_may_not_see(monkeypatch, _env):
+    # The job thread has no request, so the start hands it the starter's view.
+    from services import ownership_service
+    from services.auth_service import PERMISSIONS
+    sid = db.get_or_create_series("Shared")
+    did, _ = _drama(2, series_id=sid)
+    db.save_style_profile(f"series:{sid}", {"preferences": ["Someone else's rule"]}, 8)
+    member = {"user_id": db.auth_create_user("m@example.com"), "is_admin": False,
+              "is_local_owner": False, "admin_override": False, "permissions": list(PERMISSIONS)}
+    seen = []
+    real = svc.workspace_job_service.build_run_style_context
+
+    def spy(*a, **k):
+        out = real(*a, **k)
+        seen.append(out[1])
+        return out
+    monkeypatch.setattr(svc.workspace_job_service, "build_run_style_context", spy)
+    token = ownership_service.bind_request()
+    try:
+        ownership_service.note_acting_principal(member)
+        _run(did, translate=True, engine_name="claude")
+    finally:
+        ownership_service.unbind_request(token)
+    _run(did, translate=True, engine_name="claude")
+    assert "Someone else's rule" not in seen[0] and "Someone else's rule" in seen[1]
