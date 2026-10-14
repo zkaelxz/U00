@@ -2,8 +2,7 @@
 
 Root modules (segment_splitting, sentence_groups, asr_backend, ...) never read
 settings: a service asks here and passes the numbers down as arguments, and the
-module constants stay as the defaults for any caller that passes nothing. The CLI
-reaches the same services, so it gets the same values. A changed value only
+module constants stay as the defaults for any caller that passes nothing. A changed value only
 affects runs that start afterwards; nothing rewrites saved lines.
 
 A Developer Mode row reads as its default while Developer Mode is off, so turning

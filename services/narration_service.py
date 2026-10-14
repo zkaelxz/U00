@@ -1,6 +1,6 @@
 """
 services/narration_service.py -- the novel-narration "Chunk & tag speakers"
-action for one drama (CLI: `cli.cmd_narrate_prep`).
+action for one drama.
 
 The `chunk_and_tag` path runs as a background job that does the WHOLE
 pipeline (chunk, LLM speaker tagging, history snapshot, DB write, status),
@@ -13,7 +13,7 @@ server-side and never returned (D2). Speakers come from
 `tag_speakers_by_id`, which returns {chunk idx: label}; the job looks each
 chunk's label up by its idx (missing -> "Narrator"), never by list position.
 
-Writes replace the drama's lines wholesale, exactly as the CLI does (the
+Writes replace the drama's lines wholesale, (the
 lines are brand new), but only after a "before chunk & tag
 speakers" history snapshot of whatever lines existed.
 
@@ -119,8 +119,8 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
 def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
                        max_chunk_chars=MAX_CHUNK_CHARS):
-    """(done {idx: label}, on_batch) for tag_speakers_by_id, shared
-    with `cli.py narrate-prep`. A re-run over the same text, engine, model,
+    """(done {idx: label}, on_batch) for tag_speakers_by_id, used by
+    the narration job. A re-run over the same text, engine, model,
     known characters and prompt version skips the batches an interrupted
     run already tagged (and paid for); fresh=True drops them first.
     Checkpoint failures never fail the run."""

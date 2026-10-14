@@ -70,7 +70,7 @@ def note_dismissed(drama_id: int, line_id: int, en_text: str) -> None:
         entries = entries[-_MAX_ENTRIES:]
         folder = os.path.dirname(_path(drama_id))
         os.makedirs(folder, exist_ok=True)
-        # A temp name of its own: the CLI and the app are separate processes.
+        # A temp name of its own: two processes can write this file at once.
         fd, tmp = tempfile.mkstemp(dir=folder, prefix=f"{_STATE_FILE}.", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:

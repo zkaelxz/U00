@@ -7,8 +7,8 @@ touches transcript text or timing (see diarize.merge_speakers's own
 docstring).
 
 No FastAPI import: plain functions, plain dicts in, plain
-values out, so a CLI or another service could call them too. The HF
-token itself is never returned (D2 -- server-side keys are never
+values out, so another service could call them too. The HF
+token itself is never returned (server-side keys are never
 exposed over an API), only whether one is configured.
 """
 import os

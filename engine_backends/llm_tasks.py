@@ -70,7 +70,7 @@ _scope_var = contextvars.ContextVar("llm_task_scope", default=None)
 # True inside the worker thread of a bounded call, so a nested call runs
 # directly instead of stacking a second worker and deadline.
 _in_worker_var = contextvars.ContextVar("llm_task_in_worker", default=False)
-# Calls with no job id (request threads, CLI) can't be limited per job, so the
+# Calls with no job id (request threads) can't be limited per job, so the
 # limit is on how many workers per engine may be alive at once, abandoned ones
 # included. A worker takes its slot under the lock before it starts, so two
 # calls checking together can't both pass with one slot left.
