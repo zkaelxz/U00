@@ -20,8 +20,13 @@ from typing import Optional
 import core as core_module
 import db
 from services import restructure_service as restructure
-from services import (speech_coverage_service, timing_settings_service, transcribe_pipeline,
-                      transcribe_service)
+from services import (
+    ownership_service,
+    speech_coverage_service,
+    timing_settings_service,
+    transcribe_pipeline,
+    transcribe_service,
+)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
@@ -91,8 +96,7 @@ def list_gaps(drama_id: int, min_gap: float = None) -> dict:
     NotFoundError for an unknown drama."""
     if min_gap is None:
         min_gap = timing_settings_service.value("gap_fill_min_gap_seconds")
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     gaps = find_line_gaps(lines, min_gap)
     coverage = _coverage_gaps(drama_id)

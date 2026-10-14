@@ -21,10 +21,24 @@ import db
 import sensitivity_preset as presets
 import source_change
 import translate_engines
-from services import (asr_options_service, compare_hear_worker, gpu_process_job, jobs_service,
-                      retranscribe_worker, settings_service, timing_settings_service, transcribe_pipeline,
-                      transcribe_service, translate_run_service, translate_service, workspace_job_service,
-                      retranscribe_line_service, transcribe_options_service, qwen3_requirements_service)
+from services import (
+    asr_options_service,
+    compare_hear_worker,
+    gpu_process_job,
+    jobs_service,
+    ownership_service,
+    qwen3_requirements_service,
+    retranscribe_line_service,
+    retranscribe_worker,
+    settings_service,
+    timing_settings_service,
+    transcribe_options_service,
+    transcribe_pipeline,
+    transcribe_service,
+    translate_run_service,
+    translate_service,
+    workspace_job_service,
+)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -55,9 +69,7 @@ def compare_job_id(drama_id: int) -> str:
 
 
 def _drama_or_404(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

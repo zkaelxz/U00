@@ -89,9 +89,7 @@ def _name(drama: dict) -> str:
 def _require(drama_id, principal) -> dict:
     if isinstance(drama_id, bool) or not isinstance(drama_id, int):
         raise InvalidInputError("A title id must be a whole number.")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     ownership_service.require_editable(principal, "drama", drama_id)
     return drama
 

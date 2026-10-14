@@ -37,7 +37,7 @@ import background_jobs
 import db
 import translate_engines
 from engine_backends import paid_calls
-from services import settings_service, translate_run_service, translate_service
+from services import ownership_service, settings_service, translate_run_service, translate_service
 from services.review_lines_service import line_dict
 from services.service_errors import (
     ConflictError,
@@ -69,9 +69,7 @@ def _log_failure(what: str, exc: Exception):
 
 
 def _load(drama_id: int, line_id: int):
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     for ln in db.load_line_objects(drama_id):
         if ln.id == line_id:
             return drama, ln
