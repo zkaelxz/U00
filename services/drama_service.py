@@ -40,8 +40,8 @@ import db
 import storage
 from jobs import job_store
 from core import SOURCE_LANGUAGES
-from services import (language_pack_service, library_service, ownership_service, profile_service,
-                      settings_service, source_link_service, vdb_names_service)
+from services import (language_pack_service, library_service, ownership_service, settings_service,
+                      source_link_service, vdb_names_service)
 from lib import file_manager
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
@@ -193,6 +193,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     fields["translation_engine"] = settings_service.get("default_engine")
     profile_plan = None
     if preset:
+        from services import profile_service   # a top-level import would make a cycle (see library_service.list_presets)
         profile_plan = profile_service.plan(preset, {"source_language": source_language})
         fields.update(profile_plan["columns"])
     try:

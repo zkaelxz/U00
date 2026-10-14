@@ -284,3 +284,14 @@ def test_a_profile_with_no_options_still_writes_its_toggles(isolated_db):
         "Bare", "claude", default_female_pronouns=True)["preset"]
     d = drama_service.create_drama(source_language="ko", title_en="T", preset_id=p["id"])
     assert db.get_drama(d["id"])["default_female_pronouns"] == 1
+
+
+@pytest.mark.parametrize("module", ["services.transcribe_options_service", "services.library_service",
+                                    "services.drama_service", "services.profile_service"])
+def test_each_module_imports_first_without_a_cycle(module):
+    """series_defaults_service builds its settings from transcribe_options_service at import,
+    so nothing that module reaches may import profile_service at the top."""
+    import subprocess
+    import sys
+    r = subprocess.run([sys.executable, "-c", f"import {module}"], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-400:]

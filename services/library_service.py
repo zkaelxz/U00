@@ -16,7 +16,7 @@ import sqlite3
 
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
-from services import ownership_service, profile_service
+from services import ownership_service
 
 
 def cache_hit_share(usage: dict) -> float:
@@ -220,6 +220,9 @@ def get_filter_options(principal=None) -> dict:
 
 
 def list_presets() -> list:
+    # Imported here: profile_service loads series_defaults_service, which needs
+    # transcribe_options_service fully loaded, and that module reaches this one while loading.
+    from services import profile_service
     return [profile_service.view(p) for p in db.list_presets()]
 
 
