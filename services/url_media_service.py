@@ -299,7 +299,7 @@ _FAILURE_REASONS = (
     (r"http error 429|too many requests|rate[- ]?limit",
      "The site is rate-limiting this PC. Wait a while and try again."),
     (r"http error 40[13]|forbidden",
-     "The site refused the download."),
+     "The site refused the download. This is often temporary, so try again."),
     (r"unsupported url|no suitable extractor",
      "yt-dlp doesn't support that site."),
     (r"private video|video unavailable|removed|has been terminated|copyright|"
@@ -390,25 +390,37 @@ def _free_floor() -> int:
     return MIN_FREE_BYTES * (1 + others)
 
 
-def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict = None) -> tuple:
-    """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
-    wall-clock cap and a nearly full drive kill, then returns (path, title,
-    link), link being the video's ytdlp_child.link_fields or None."""
-    options = options or {}
-    ranged = options.get("part_start") is not None or options.get("part_end") is not None
-    cookies = settings_service.get_cookie_settings()
-    if ranged and (cookies.get("cookies_browser") or cookies.get("cookies_file")):
-        raise RuntimeError(_PART_NO_COOKIES)
-    section = ranged and options.get("part_end") is not None
-    wall = _WallClock(extended=bool(options.get("exact_cuts") and section),
-                      may_extend=bool(options.get("allow_long")))
-    spec = {"url": url, "audio_only": audio_only, **cookies}
-    if options.get("allow_long"):
-        spec["max_seconds"] = ytdlp_child.HARD_MAX_DURATION_SECONDS
-    for key in ("part_start", "part_end", "exact_cuts"):
-        if options.get(key) is not None:
-            spec[key] = options[key]
-    watch = _SpaceWatch(tmp, floor=_free_floor)
+# Failures YouTube and similar sites often clear on their own within seconds
+# (a refused or throttled request, a dropped connection, a server error). A
+# sign-in prompt, format or availability error is not in this list: a retry
+# can't fix those.
+_TRANSIENT_RE = re.compile(r"http error (403|429|5\d\d)|too many requests|forbidden|rate[- ]?limit|"
+                           r"timed out|connection (reset|aborted|refused)|remote end closed|"
+                           r"unable to download (video data|webpage)|incompleteread", re.I)
+RETRY_BACKOFF_SECONDS = 8.0
+
+
+def _retryable(result: dict, end: dict, state: dict) -> bool:
+    if result.get("path") or result.get("rejected") or result.get("missing") or result.get("no_room"):
+        return False
+    if state["out_of_space"] or state["too_slow"] or end.get("timed_out") or end.get("cancelled"):
+        return False
+    error = result.get("error")
+    return isinstance(error, str) and not _DNS_RE.search(error) and bool(_TRANSIENT_RE.search(error))
+
+
+def _cancel_aware_sleep(job_id: str, seconds: float) -> bool:
+    """False if Cancel was requested during the wait."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if background_jobs.is_cancel_requested(job_id):
+            return False
+        time.sleep(min(0.25, max(deadline - time.monotonic(), 0)))
+    return not background_jobs.is_cancel_requested(job_id)
+
+
+def _run_child(job_id: str, tmp: str, spec: dict, wall, watch) -> tuple:
+    """One yt-dlp child run: (result, end, state) as collected from its events."""
     result, end = {}, {}
     state = {"out_of_space": False, "too_slow": False}
 
@@ -454,6 +466,34 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
                 result.update(event)
     finally:
         events.close()  # kills the child tree if we stopped early
+    return result, end, state
+
+
+def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict = None) -> tuple:
+    """Runs yt-dlp in a child process (services.ytdlp_child) that Cancel, the
+    wall-clock cap and a nearly full drive kill, then returns (path, title,
+    link), link being the video's ytdlp_child.link_fields or None."""
+    options = options or {}
+    ranged = options.get("part_start") is not None or options.get("part_end") is not None
+    cookies = settings_service.get_cookie_settings()
+    if ranged and (cookies.get("cookies_browser") or cookies.get("cookies_file")):
+        raise RuntimeError(_PART_NO_COOKIES)
+    section = ranged and options.get("part_end") is not None
+    wall = _WallClock(extended=bool(options.get("exact_cuts") and section),
+                      may_extend=bool(options.get("allow_long")))
+    spec = {"url": url, "audio_only": audio_only, **cookies}
+    if options.get("allow_long"):
+        spec["max_seconds"] = ytdlp_child.HARD_MAX_DURATION_SECONDS
+    for key in ("part_start", "part_end", "exact_cuts"):
+        if options.get(key) is not None:
+            spec[key] = options[key]
+    watch = _SpaceWatch(tmp, floor=_free_floor)
+    result, end, state = _run_child(job_id, tmp, spec, wall, watch)
+    if _retryable(result, end, state):
+        applog.get_logger().info("URL download failed with a likely temporary error; retrying once.")
+        if _cancel_aware_sleep(job_id, RETRY_BACKOFF_SECONDS):
+            background_jobs.update_progress(job_id, 0.02, "Retrying the download...")
+            result, end, state = _run_child(job_id, tmp, spec, wall, watch)
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     if state["out_of_space"]:

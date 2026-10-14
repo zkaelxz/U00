@@ -97,6 +97,7 @@ def env(isolated_db, monkeypatch):
                         lambda path: types.SimpleNamespace(total=10**13, used=0, free=10**13))
     # No stagger unless a test asks for one; module state must not leak between tests.
     monkeypatch.setattr(svc, "START_SPACING_SECONDS", 0.0)
+    monkeypatch.setattr(svc, "RETRY_BACKOFF_SECONDS", 0.0)
     monkeypatch.setattr(svc, "_last_start", float("-inf"))
     monkeypatch.setattr(svc, "_waiting", [])
     monkeypatch.setattr(svc, "_running", set())
@@ -706,6 +707,48 @@ def test_a_recognised_failure_shows_the_sentence_before_the_generic_text(client,
     _no_tmp(did)
 
 
+def test_a_temporary_refusal_is_retried_once_and_then_succeeds(client, env, monkeypatch):
+    real = FakeYDL.extract_info
+    attempts = []
+
+    def flaky(self, url, download=True):
+        attempts.append(url)
+        if len(attempts) == 1:
+            raise RuntimeError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+        return real(self, url, download)
+    monkeypatch.setattr(FakeYDL, "extract_info", flaky)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] != "error", st
+    assert len(attempts) >= 2
+
+
+def test_a_temporary_refusal_that_keeps_failing_says_to_try_again(client, env, monkeypatch):
+    attempts = []
+
+    def always(self, url, download=True):
+        attempts.append(url)
+        raise RuntimeError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+    monkeypatch.setattr(FakeYDL, "extract_info", always)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and "try again" in st["error"].lower()
+    assert len(attempts) == 2
+    _no_tmp(did)
+
+
+def test_a_permanent_failure_is_not_retried(client, env, monkeypatch):
+    attempts = []
+
+    def private(self, url, download=True):
+        attempts.append(url)
+        raise RuntimeError("ERROR: [youtube] abc: Private video. Sign in if you've been granted access")
+    monkeypatch.setattr(FakeYDL, "extract_info", private)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and len(attempts) == 1
+
+
 def _kept(did):
     kept = os.path.join(db.drama_dir(did), "kept_media")
     out = {}
@@ -860,7 +903,7 @@ def test_a_failed_download_does_not_block_the_line(client, env, monkeypatch):
     def flaky(self, url, download=True):
         seen.append(url)
         if len(seen) == 1:
-            raise RuntimeError("ERROR: HTTP Error 429: Too Many Requests")
+            raise RuntimeError("ERROR: [youtube] abc: Private video. Sign in if you have been granted access")
         return real(self, url, download)
     monkeypatch.setattr(FakeYDL, "extract_info", flaky)
     a, b = _drama(), _drama()
