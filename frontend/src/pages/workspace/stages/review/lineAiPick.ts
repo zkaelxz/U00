@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { withSignal } from '../../../../api/client'
 import type { LineAiPick } from '../../../../api/review'
 import { getTranslateConfig } from '../../../../api/translateStage'
-import { useHolds } from '../../../../hooks/useHolds'
+import { useCloudModelsAllowed, useHolds } from '../../../../hooks/useHolds'
 import type { TranslateEngine } from '../../../../types/translate'
 
 export interface LinePick {
@@ -17,6 +17,7 @@ export const NO_PICK: LinePick = { engine: '', model: '' }
 const NO_ENGINES: TranslateEngine[] = []
 const STORAGE_KEY = 'baihe.review.lineAiPick'
 export const NEEDS_PAID_REASON = 'needs paid-engine permission'
+export const CLOUD_NEEDS_REASON = 'needs paid-engine permission or your own Ollama key (Settings)'
 export const NO_KEY_REASON = 'no key, add one in Settings'
 
 // A convenience pick for this browser; storage can be blocked, so every access is guarded.
@@ -48,19 +49,22 @@ export function engineBlockReason(engine: TranslateEngine, holdsPaid: boolean): 
   return null
 }
 
-// An Ollama cloud tag sends the text off this PC, so it is held to engines.paid too.
-export function modelBlockReason(engine: TranslateEngine, model: string, holdsPaid: boolean): string | null {
-  return !holdsPaid && engine.cloud_models?.includes(model) ? NEEDS_PAID_REASON : null
+// An Ollama cloud tag sends the text off this PC and spends the owner's quota, so
+// it is held to engines.paid too, unless the person saved their own Ollama key.
+export function modelBlockReason(engine: TranslateEngine, model: string, cloudAllowed: boolean): string | null {
+  return !cloudAllowed && engine.cloud_models?.includes(model) ? CLOUD_NEEDS_REASON : null
 }
 
 // The remembered pick, minus whatever no longer works (engine removed or without
 // a key, permission lost, model dropped from the list): that falls back to the default.
-export function usablePick(pick: LinePick, engines: TranslateEngine[], holdsPaid: boolean): LinePick {
+export function usablePick(
+  pick: LinePick, engines: TranslateEngine[], holdsPaid: boolean, cloudAllowed: boolean = holdsPaid,
+): LinePick {
   const engine = engines.find((e) => e.name === pick.engine)
   if (!engine || engineBlockReason(engine, holdsPaid)) return NO_PICK
   const listed = engine.models ?? []
   const modelOk = !pick.model
-    || (listed.length > 0 ? listed.includes(pick.model) && !modelBlockReason(engine, pick.model, holdsPaid) : true)
+    || (listed.length > 0 ? listed.includes(pick.model) && !modelBlockReason(engine, pick.model, cloudAllowed) : true)
   return { engine: engine.name, model: modelOk ? pick.model : '' }
 }
 
@@ -71,6 +75,7 @@ export const toApiPick = (pick: LinePick): LineAiPick => ({ engine: pick.engine,
 // default (the server's choice) in force.
 export function useLineAiPick(dramaId: number) {
   const holdsPaid = useHolds('engines.paid')
+  const cloudAllowed = useCloudModelsAllowed()
   const [config, setConfig] = useState<{ engines: TranslateEngine[]; defaultEngine: string } | null>(null)
   const [ready, setReady] = useState(false)
   const [stored, setStored] = useState<LinePick>(loadPick)
@@ -87,10 +92,11 @@ export function useLineAiPick(dramaId: number) {
   }, [dramaId])
 
   const engines = config?.engines ?? NO_ENGINES
-  const pick = useMemo(() => usablePick(stored, engines, holdsPaid), [stored, engines, holdsPaid])
+  const pick = useMemo(() => usablePick(stored, engines, holdsPaid, cloudAllowed),
+    [stored, engines, holdsPaid, cloudAllowed])
   const setPick = (next: LinePick) => {
     setStored(next)
     savePick(next)
   }
-  return { ready, engines, defaultEngine: config?.defaultEngine ?? '', holdsPaid, pick, setPick }
+  return { ready, engines, defaultEngine: config?.defaultEngine ?? '', holdsPaid, cloudAllowed, pick, setPick }
 }

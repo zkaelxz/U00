@@ -10,6 +10,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/admin/users` | admin.users.read |
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
+| `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-admin` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-sessions` | admin.users |
 | `GET /api/artifacts/dramas/{drama_id}/{kind}` | media.stream |
@@ -38,6 +39,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/auth/login` | public() |
 | `POST /api/auth/logout` | authenticated() |
 | `GET /api/auth/me` | public() |
+| `DELETE /api/auth/ollama-key` | authenticated() |
+| `GET /api/auth/ollama-key` | jobs.start |
+| `POST /api/auth/ollama-key` | jobs.start |
 | `GET /api/auth/sessions` | authenticated() |
 | `POST /api/auth/sessions/revoke-others` | authenticated() |
 | `POST /api/auth/sessions/{auth_session_id}/revoke` | authenticated() |

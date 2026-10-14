@@ -45,6 +45,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
       { id: 'customize-menu' },
       { id: 'devices' },
       { id: 'extension-devices' },
+      { id: 'ollama-key' },
     ],
   },
   {
@@ -99,6 +100,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('customize-menu', 'Menu items', 'customize menu navigation hide pages order'),
   e('devices', 'Signed-in devices', 'sessions sign out'),
   e('extension-devices', 'Extension tokens per computer', 'browser extension devices token pair'),
+  e('ollama-key', 'Your Ollama key', 'ollama cloud api key account quota own'),
 
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),
   e('web-search', 'Web search', 'search lookup'),

@@ -99,6 +99,9 @@ __all__ = [
     "DeviceTokenRevoked",
     "AdminDeviceToken",
     "AdminDeviceTokenList",
+    "MemberKeyStatus",
+    "MemberKeySaveRequest",
+    "MemberKeyRemoved",
     "NotificationChannel",
     "NotificationOutcome",
     "NotificationStatus",
@@ -859,6 +862,26 @@ class AdminDeviceToken(DeviceToken):
 
 class AdminDeviceTokenList(BaseModel):
     tokens: List[AdminDeviceToken]
+
+
+# --- A member's own Ollama key (services/member_key_service.py) ----------------
+class MemberKeyStatus(BaseModel):
+    """Never the key: its last four characters at most. `unreadable`: a key
+    is saved but can't be decrypted on this server any more (paste it again)."""
+    has_key: bool
+    last4: Optional[str] = None
+    added_at: Optional[float] = None      # epoch seconds
+    unreadable: bool
+
+
+class MemberKeySaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: StrictStr = Field(..., min_length=1, max_length=512)
+
+
+class MemberKeyRemoved(BaseModel):
+    user_id: int
+    removed: bool
 
 # --- Job notifications (Discord / ntfy) ---------------------------------------
 NotificationChannel = Literal["discord", "ntfy"]
