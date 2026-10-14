@@ -16,9 +16,9 @@ off persists the setting and stops a running endpoint at once.
 from fastapi import APIRouter, Request, Response
 
 from api.auth import local_only, require_permission
-from api.schemas import (ErrorResponse, ExtensionEnabledRequest, ExtensionEnabledResult,
+from api.schemas import (ExtensionEnabledRequest, ExtensionEnabledResult,
                          ExtensionEngineRequest, ExtensionEngineSettings,
-                         ExtensionStatus, ExtensionToken, ExtensionTokenRequest)
+                         ExtensionStatus, ExtensionToken, ExtensionTokenRequest, error_responses)
 from services import extension_service as svc
 
 router = APIRouter(prefix="/api/extension", tags=["extension"])
@@ -34,7 +34,7 @@ def get_status():
 
 @router.post("/enabled", dependencies=[local_only()], response_model=ExtensionEnabledResult,
              summary="PC only: turn the extension bridge on or off (persisted)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 def post_enabled(body: ExtensionEnabledRequest, request: Request):
     settings = getattr(request.app.state, "settings", None)
     start_now = bool(getattr(settings, "background_services", False))
@@ -43,7 +43,7 @@ def post_enabled(body: ExtensionEnabledRequest, request: Request):
 
 @router.post("/token", dependencies=[local_only()], response_model=ExtensionToken,
              summary="PC only: show the extension token (confirm=true; never cached)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 def post_token(body: ExtensionTokenRequest, response: Response):
     result = svc.reveal_token(confirm=body.confirm)
     response.headers.update(_NO_STORE)
@@ -59,6 +59,6 @@ def get_engine():
 
 @router.post("/engine", dependencies=[local_only()], response_model=ExtensionEngineSettings,
              summary="PC only: set the extension's translation engine and model (persisted)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 def post_engine(body: ExtensionEngineRequest):
     return svc.set_translation_settings(body.engine, body.model)
