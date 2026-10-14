@@ -562,7 +562,7 @@ JOB_KIND_BY_PREFIX = {
     "dubbed_video_": "export", "burnpreview_": "export",
     "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
     "extract_audio_": "import",
-    "scanlate_": "other",
+    "scanlate_": "other", "restructure_": "other",
 }
 
 

@@ -407,6 +407,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `subtitle_import_service.py`
 - `source_suspect_service.py` (Review "Check source text": flag/flag_note only, list with the merge target)
 - `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
+- `title_restructure_service.py` (merging a title into another and moving comic or novel chapters between titles: preview, snapshot, then the move)
 - `timing_settings_service.py` (the Settings > Timing and splitting values as runs use them; Developer Mode rows read as defaults while it is off)
 - `resplit_config.py` (what a Review re-split cuts: the sensitivity presets, duration cap and fresh-transcription limits; moved out of restructure_service; used by resplit_service)
 - `reading_speed_dismissal_service.py` (remembers dismissed reading-speed flags in a sidecar, keyed by line id and English text hash)
@@ -499,6 +500,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
 - `source_suspect.py` (the Review "Check source text" shapes)
 - `timing_check.py` (the Review "Check timing" shapes)
+- `title_restructure.py` (merging titles and moving chapters: the chapter list, the preview and the result)
 - `transcribe.py` (Transcription shapes: transcribe runs and config, diarization, autotune, re-transcribe and live sessions)
 - `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets, bulk jobs, retrying failed lines, the glossary redo and the episode summary)
 - `vdb_names.py` (/api/vdb-names: the optional personal VTuber name list; booleans and counts only)
