@@ -795,7 +795,8 @@ def delete_job(job_id: str, confirm: bool = False, principal=None) -> dict:
         raise NotFoundError(f"No job with id {job_id!r}.")
     if not _is_finished(record):
         raise ConflictError(f"Job {job_id!r} is still {record.get('status')}; cancel it first.")
-    background_jobs.clear_job(job_id)
+    if not background_jobs.clear_finished_job(job_id, started_at=record.get("started_at")):
+        raise ConflictError(_RESTARTED)
     return {"job_id": job_id, "deleted": True}
 
 
@@ -806,7 +807,7 @@ def clear_finished_jobs(confirm: bool = False) -> dict:
         raise InvalidInputError("Deleting job history needs confirm=true.")
     deleted = 0
     for rec in db.list_job_records():
-        if _is_finished(rec):
-            background_jobs.clear_job(rec["job_id"])
+        if _is_finished(rec) and background_jobs.clear_finished_job(
+                rec["job_id"], started_at=rec.get("started_at")):
             deleted += 1
     return {"deleted_count": deleted}

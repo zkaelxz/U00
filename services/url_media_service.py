@@ -760,7 +760,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
             if _queued_total() >= MAX_QUEUED_DOWNLOADS:
                 raise ConflictError(_QUEUE_FULL)
             job_id = job_id_for(drama_id)
-            background_jobs.clear_job(job_id)
+            background_jobs.clear_finished_job(job_id)
             _enqueue(job_id)
             try:
                 started = job_launch.start_job(

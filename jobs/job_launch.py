@@ -332,7 +332,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                           job_id, proc, result_queue, gpu_touching, on_done=on_done,
                           on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
-                          worker_for=job_id)
+                          worker_for=job_id, worker_run=run)
     except Exception as exc:
         _fail_start(job_id, gpu_touching, exc, proc, result_queue, run=run)
         raise

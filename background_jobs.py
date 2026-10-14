@@ -31,6 +31,7 @@ One machine, one process owning each job: not a distributed job queue.
 
 import math
 import os
+import sqlite3
 import threading
 import time
 
@@ -53,6 +54,17 @@ JOB_STALL_SECONDS = 5 * 60
 JOB_STALL_NO_PROGRESS_SECONDS = 15 * 60
 
 
+def _superseded_locked(job_id: str) -> bool:
+    """Caller holds _lock. True in a run's worker thread once that run is no
+    longer job_id's current one (it was cleared, and maybe a new run of the
+    same id started): its progress and result must not land on that run."""
+    me = threading.current_thread()
+    if getattr(me, "baihe_job_id", None) != job_id:
+        return False
+    worker = _workers.get(job_id)
+    return worker is None or worker[1] is not me or worker[0] is not _jobs.get(job_id)
+
+
 def update_progress(job_id: str, frac: float, message: str = ""):
     """Called FROM inside the background thread to report progress.
     Silently does nothing if the job was cleared (e.g. by a reset) out
@@ -62,7 +74,8 @@ def update_progress(job_id: str, frac: float, message: str = ""):
     for a stage that cannot)."""
     _gpu_touching = False
     with _lock:
-        if job_id in _jobs and not job_force_stop.current_thread_abandoned():
+        if (job_id in _jobs and not job_force_stop.current_thread_abandoned()
+                and not _superseded_locked(job_id)):
             now = time.time()
             job = _jobs[job_id]
             job["progress"] = frac
@@ -112,6 +125,7 @@ class stage_ticker:
         self.job_id, self.message, self.frac, self.interval = job_id, message, frac, interval
         self._stop = threading.Event()
         self._thread = None
+        self._run = None
         self._t0 = time.time()
 
     def _text(self) -> str:
@@ -123,7 +137,7 @@ class stage_ticker:
         while not self._stop.wait(self.interval):
             with _lock:
                 job = _jobs.get(self.job_id)
-                if (job is not None and job.get("status") == "running"
+                if (job is not None and job is self._run and job.get("status") == "running"
                         and not job.get("cancel_requested")):
                     job["message"] = self._text()
                     _emit_change(self.job_id)
@@ -132,8 +146,9 @@ class stage_ticker:
         if self._thread is None:
             update_progress(self.job_id, self.frac, self._text())
             with _lock:
-                if self.job_id in _jobs:
-                    _jobs[self.job_id]["can_report_progress"] = False
+                if self.job_id in _jobs and not _superseded_locked(self.job_id):
+                    self._run = _jobs[self.job_id]
+                    self._run["can_report_progress"] = False
             self._thread = threading.Thread(target=self._tick, daemon=True,
                                             name=f"stage-ticker:{self.job_id}")
             self._thread.start()
@@ -163,7 +178,8 @@ def set_result(job_id: str, result, mirror: bool = False):
     # already carry the result, so an extra SQLite write from the job thread
     # is only worth it for a result other processes need mid-run.
     with _lock:
-        if job_id in _jobs and not job_force_stop.current_thread_abandoned():
+        if (job_id in _jobs and not job_force_stop.current_thread_abandoned()
+                and not _superseded_locked(job_id)):
             _jobs[job_id]["result"] = result
             if mirror:
                 _mirror_locked(job_id)
@@ -541,6 +557,41 @@ def clear_job(job_id: str):
     _delete_job_record(job_id)
     _emit_change(job_id)
     _run_finish_hooks(hooks)
+
+
+_ANY_RUN = object()
+
+
+def clear_finished_job(job_id: str, started_at=_ANY_RUN) -> bool:
+    """clear_job for a run the caller saw finished, which a new run of the
+    same id may have replaced since that check. A queued or running run
+    here is left alone, and so is, with `started_at`, a finished run other
+    than the one the caller saw (its result may not have been read yet).
+    The job_records row goes only while it is still that finished run, so
+    another process's new run keeps its row. False if a run was kept.
+    A run here with no started_at, or `started_at` None (a row written
+    without one), cannot be told apart, so it counts as the one seen."""
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is not None:
+            if job.get("status") in ("queued", "running"):
+                return False
+            if (started_at is not _ANY_RUN and started_at is not None
+                    and job.get("started_at") not in (None, started_at)):
+                return False
+        hooks = _clear_job_locked(job_id)
+    try:
+        import db
+        removed = (db.delete_finished_job_record(job_id) if started_at is _ANY_RUN
+                   else db.delete_finished_job_record(job_id, started_at))
+    except sqlite3.Error:
+        import applog
+        applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
+                                    exc_info=True)
+        removed = True
+    _emit_change(job_id)
+    _run_finish_hooks(hooks)
+    return removed
 
 
 def _clear_job_locked(job_id) -> list:

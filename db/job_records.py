@@ -134,6 +134,25 @@ def delete_job_record(job_id: str):
         conn.commit()
 
 
+_ANY_RUN = object()
+
+
+def delete_finished_job_record(job_id: str, started_at=_ANY_RUN) -> bool:
+    """Deletes the row only while it is a finished run (and, with
+    `started_at`, the run the caller saw): a run of the same id that started
+    since the caller's check keeps its row. False when a row is still there."""
+    finished = "status IN ('done', 'error', 'cancelled')"
+    with contextlib.closing(db.get_conn()) as conn:
+        if started_at is _ANY_RUN:
+            conn.execute(f"DELETE FROM job_records WHERE job_id = ? AND {finished}", (job_id,))
+        else:
+            conn.execute(f"DELETE FROM job_records WHERE job_id = ? AND {finished} "
+                         "AND started_at IS ?", (job_id, started_at))
+        conn.commit()
+        return conn.execute("SELECT 1 FROM job_records WHERE job_id = ?",
+                            (job_id,)).fetchone() is None
+
+
 def clear_all_job_records():
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("DELETE FROM job_records")

@@ -638,6 +638,7 @@ from db.job_records import (  # noqa: F401
     count_active_job_records,
     get_job_record,
     delete_job_record,
+    delete_finished_job_record,
     clear_all_job_records,
 )
 
