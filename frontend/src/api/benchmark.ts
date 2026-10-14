@@ -40,6 +40,8 @@ export interface BenchmarkTranscribeOptions {
 export interface BenchmarkBackendOption {
   name: string
   label: string
+  /** What it still needs on this PC (a package or a model to download); null when it can run. */
+  problem: string | null
 }
 
 export interface BenchmarkOptions {

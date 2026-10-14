@@ -6,10 +6,12 @@ loop, scoring and persistence stay in benchmark_lab_service.
 
 import json
 import os
+import re
 import tempfile
 import time
 
 import audio_preprocess
+import background_jobs
 import benchmark
 import db
 import sensitivity_preset as presets
@@ -39,11 +41,8 @@ def redact(text, key=None):
 # Recognisers the Lab offers besides Whisper, as asr_backend names. Qwen3-ASR is the
 # speech-detection backend: the one that needs no Whisper model.
 LAB_BACKENDS = {"qwen3_asr_vad": "Qwen3-ASR", "anime_whisper": "anime-whisper"}
-_BACKEND_PROBLEMS = {
-    "qwen3_asr_vad": "Qwen3-ASR isn't downloaded yet.",
-    "anime_whisper": "anime-whisper isn't downloaded yet.",
-}
-_LAB_NEVER_DOWNLOADS = " Run it once from a title's Transcribe page to download it; the Lab never downloads models."
+_BACKEND_NAMES = {"qwen3_asr_vad": "Qwen3-ASR", "anime_whisper": "anime-whisper"}
+_LAB_NEVER_DOWNLOADS = " Run it once from a title's Transcribe page to download it; the Lab does not download it for you."
 # Options a recogniser does not read, so a result is never taken to have been tuned by them.
 _IGNORED_OPTIONS = {
     "whisper": (),
@@ -58,31 +57,59 @@ def whisper_options() -> dict:
     """The Whisper choices the Lab offers, and the per-language table the picker reads."""
     return {"whisper_sizes": [*whisper_models.WHISPER_MODELS, benchmark.LOCAL_FOLDER_MODEL],
             "whisper_exclusions": whisper_models.whisper_language_exclusions(),
-            "transcription_backends": [{"name": name, "label": label} for name, label in LAB_BACKENDS.items()]}
+            "transcription_backends": [{"name": name, "label": label, "problem": backend_problem(name)}
+                                       for name, label in LAB_BACKENDS.items()]}
 
 
 def ignored_options(backend: str) -> list:
     return list(_IGNORED_OPTIONS.get(backend, ()))
 
 
-def require_backend_ready(backend: str) -> None:
-    """A recogniser other than Whisper runs only when its packages and model are already on
-    this PC: refused with the app's plain sentence otherwise, never downloaded from here."""
+def backend_problem(backend: str, language: str = None):
+    """The plain sentence naming what a recogniser still needs on this PC, or None when it can
+    run. Everything a real run would load counts, the forced aligner of timing refinement
+    included, because the loaders download whatever is missing and the Lab must not."""
     from services import model_readiness_service as ready
-    from services.transcribe_options_service import (_require_vad_packages, anime_whisper_package_problem)
-    from services.qwen3_requirements_service import require_qwen3_packages
-    if backend == "qwen3_asr_vad":
-        require_qwen3_packages("Qwen3-ASR")
+    from services.qwen3_requirements_service import require_qwen3_packages, require_vad_backend_packages
+    from services.transcribe_options_service import _require_vad_packages, anime_whisper_package_problem
+    name = _BACKEND_NAMES[backend]
+    try:
+        if backend == "qwen3_asr_vad":
+            if language:
+                require_vad_backend_packages(backend, language)
+            else:
+                require_qwen3_packages(name)
+        else:
+            problem = anime_whisper_package_problem()
+            if problem:
+                return problem
         _require_vad_packages()
-        found = ready.qwen_asr_ready()
-    else:
-        _require_vad_packages()
-        problem = anime_whisper_package_problem()
+    except DependencyUnavailableError as exc:
+        return exc.message
+    refine = asr_options_service.get_vad_refine_timing()
+    for need in ready._backend_needs(backend, refine, asr_options_service.get_mixed_languages()):
+        if not need():
+            what = "The Qwen3 forced aligner (used by timing refinement)" if need is ready.aligner_ready else name
+            return f"{what} isn't downloaded yet." + _LAB_NEVER_DOWNLOADS
+    return None
+
+
+def require_backend_ready(backend: str, cases) -> None:
+    """A recogniser other than Whisper runs only when its packages and models are already on
+    this PC: refused with the app's plain sentence otherwise, never downloaded from here."""
+    for language in sorted({c.get("source_language") or "zh" for c in cases}):
+        problem = backend_problem(backend, language)
         if problem:
             raise DependencyUnavailableError(problem)
-        found = ready.whisper_ready(whisper_models.ANIME_WHISPER_KEY)
-    if not found:
-        raise DependencyUnavailableError(_BACKEND_PROBLEMS[backend] + _LAB_NEVER_DOWNLOADS)
+
+
+def require_separation_ready(configs, use_gpu) -> None:
+    """Separate vocals first loads a separation model that is fetched on first use."""
+    from services import model_readiness_service as ready
+    if any(c["options"]["separate_vocals_first"] for c in configs) and not ready.separation_ready("auto", use_gpu):
+        raise DependencyUnavailableError(
+            "The vocal separation model isn't downloaded yet. Run Separate vocals first once on a title "
+            "to download it; the Lab does not download it for you.")
 
 
 def require_backend_fits_cases(backend: str, cases) -> None:
@@ -155,17 +182,17 @@ def run_ocr(cfg: dict, case: dict) -> dict:
     return r
 
 
-class _Quiet:
+class _Reporter:
     """The reporter difficult_audio_service.prepare wants; the Lab shows progress per case."""
+
+    def __init__(self, cancelled):
+        self.cancelled = cancelled
 
     def progress(self, frac, message=""):
         pass
 
-    def cancelled(self) -> bool:
-        return False
 
-
-def _whisper_kwargs(options: dict, timing: dict, tuning) -> dict:
+def _whisper_kwargs(options: dict, timing: dict, tuning, progress_cb) -> dict:
     row = {"vad_threshold": options["vad_threshold"], "sensitivity_preset": options["sensitivity_preset"],
            "difficult_audio": options["difficult_audio"]}
     # A Difficult audio run uses the Sensitive preset, as a title's run does.
@@ -179,53 +206,64 @@ def _whisper_kwargs(options: dict, timing: dict, tuning) -> dict:
         "sensitivity_preset": presets.normalize(run_row.get("sensitivity_preset")),
         "filter_hallucination_repeats": tuning.repeat_min_repeats,
         "stock_isolation_sec": tuning.stock_isolation_sec,
+        "progress_cb": progress_cb,
         **difficult.whisper_kwargs(timing),
     }
 
 
-def _backend_kwargs(backend: str, options: dict, tuning, language: str) -> dict:
+def _backend_kwargs(backend: str, options: dict, tuning, language: str, cancel_check) -> dict:
     detector = asr_options_service.resolve_voice_detector({}, language)
     if backend == "anime_whisper":
-        return {"detector": detector, "repeat_guard": options["whisper_repeat_guard"]}
+        return {"detector": detector, "repeat_guard": options["whisper_repeat_guard"], "cancel_check": cancel_check}
     return {"batch_size": asr_options_service.get_qwen_asr_batch_size(),
             "refine_timing": asr_options_service.get_vad_refine_timing(),
             "mixed_languages": asr_options_service.get_mixed_languages(),
-            "detector": detector, "tuning": tuning}
+            "detector": detector, "tuning": tuning, "cancel_check": cancel_check}
 
 
-def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str = None) -> dict:
+def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str = None, cancelled=None) -> dict:
     """One transcription case at the options of `cfg` (a checked config: engine is
     "whisper" or a LAB_BACKENDS name, "options" the complete set from
     transcribe_options_service.resolve_lab_options). Mirrors what a title's run does to
     the audio first (levelling, vocal separation) and which values it hands the
     recogniser, so the score is the one a real title would get. Scores the text only:
-    line timing, realigning and mixed-language splitting are not part of it."""
+    line timing, realigning and mixed-language splitting are not part of it.
+
+    Anything that goes wrong for this case, preparing its audio included, is its own
+    error: one unreadable clip must not end the run for every arm. `cancelled()` is
+    polled where the work can stop; the caller sees the cancel and drops the result."""
     started = time.monotonic()
     if not case.get("input_filename"):
         return {"output_text": "", "error": "This case has no input file.", "duration_seconds": 0.0}
     options, backend = cfg["options"], cfg["engine"]
     language = case.get("source_language") or "zh"
+    cancelled = cancelled or (lambda: False)
+
+    def cancel_check():
+        if cancelled():
+            raise background_jobs.JobCancelled()
+
     try:
         with tempfile.TemporaryDirectory(prefix="benchmark_") as scratch:
             timing = difficult.mark(timing_settings_service.values(), options)
             prepared = difficult.prepare(
-                _Quiet(), os.path.join(db.BENCHMARK_DIR, case["input_filename"]), scratch, "whisper",
-                backend, False, False, timing)
+                _Reporter(cancelled), os.path.join(db.BENCHMARK_DIR, case["input_filename"]), scratch, "whisper",
+                backend, False, asr_options_service.get_mixed_languages(), timing, own_group=True)
             audio = prepared.audio_path
             if options["separate_vocals_first"]:
                 audio = audio_preprocess.separate_vocals(
-                    audio, os.path.join(scratch, "vocals.wav"), use_gpu=use_gpu)
+                    audio, os.path.join(scratch, "vocals.wav"), use_gpu=use_gpu, cancel_check_cb=cancelled)
             tuning = timing_settings_service.asr_tuning(prepared.timing)
             if backend == "whisper":
-                kwargs = _whisper_kwargs(options, prepared.timing, tuning)
+                kwargs = _whisper_kwargs(options, prepared.timing, tuning, lambda frac: cancel_check())
             else:
-                kwargs = _backend_kwargs(backend, options, tuning, language)
+                kwargs = _backend_kwargs(backend, options, tuning, language, cancel_check)
             result = benchmark.run_transcription_case(
                 dict(case, input_path=audio), whisper_size=cfg["model"], use_gpu=use_gpu,
                 local_model_path=folder if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else None,
                 options=kwargs, backend=backend)
-    except audio_preprocess.VocalSeparationError as exc:
-        result = {"output_text": "", "error": str(exc)}
+    except Exception as exc:
+        result = {"output_text": "", "error": str(exc) or type(exc).__name__}
     result["duration_seconds"] = time.monotonic() - started
     result["error"] = redact(result.get("error"))
     return result
@@ -236,6 +274,9 @@ def app_version() -> str:
     from services import update_service
     from services.auto_backup_files import _app_version
     return update_service.current_version() or _app_version()
+
+
+_DIGEST = re.compile(r"^(sha256:)?[0-9a-f]{1,100}$")
 
 
 def _ollama_digest(model: str):
@@ -252,7 +293,7 @@ def _ollama_digest(model: str):
         for entry in json.loads(resp.body).get("models") or []:
             if isinstance(entry, dict) and wanted in (entry.get("name"), entry.get("model")):
                 digest = entry.get("digest")
-                return digest if isinstance(digest, str) else None
+                return digest if isinstance(digest, str) and _DIGEST.match(digest) else None
     except Exception:
         return None
     return None

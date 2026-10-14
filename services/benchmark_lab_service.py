@@ -58,7 +58,7 @@ from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
 from services import settings_service, transcribe_options_service, translate_service
-from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, model_identity, redact, require_backend_fits_cases,
+from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, require_separation_ready, model_identity, redact, require_backend_fits_cases,
                                                    require_backend_ready, require_whisper_fits_cases, whisper_options,
                                                    run_ocr as _run_ocr,
                                                    run_transcription as _run_transcription,
@@ -369,7 +369,7 @@ def _run_file_case(stage, cfg, case, use_gpu, folder=None):
         return _run_ocr(cfg, case)
     if cfg.get("model") == benchmark.LOCAL_FOLDER_MODEL and not folder:
         return {"output_text": "", "error": _NO_MODEL_FOLDER, "duration_seconds": 0.0}
-    return _run_transcription(cfg, case, use_gpu, folder)
+    return _run_transcription(cfg, case, use_gpu, folder, lambda: background_jobs.is_cancel_requested(JOB_ID))
 
 
 def check_config(stage: str, cfg) -> dict:
@@ -378,6 +378,8 @@ def check_config(stage: str, cfg) -> dict:
     engine, model = cfg.get("engine"), cfg.get("model")
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be text.")
+    if cfg.get("options") and stage != "transcription":
+        raise InvalidInputError("Transcription options apply to transcription runs only.")
     if stage == "translation":
         entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
         if entry is None:
@@ -396,7 +398,6 @@ def check_config(stage: str, cfg) -> dict:
     if stage == "transcription":
         options = transcribe_options_service.resolve_lab_options(cfg.get("options"))
         if engine in LAB_BACKENDS:
-            require_backend_ready(engine)
             return {"engine": engine, "model": None, "options": options}
         size = model or engine
         if size == benchmark.LOCAL_FOLDER_MODEL:
@@ -421,7 +422,10 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
         raise InvalidInputError(f"At most {MAX_CONFIGS} engines at once.")
     checked = [check_config(stage, c) for c in configs]
     # Two arms of one model are a real comparison when their options differ.
-    keys = [(c["engine"], c["model"], json.dumps(c.get("options"), sort_keys=True)) for c in checked]
+    # An option the recogniser does not read cannot make two arms different.
+    keys = [(c["engine"], c["model"], json.dumps(
+        {k: v for k, v in (c.get("options") or {}).items() if k not in ignored_options(c["engine"])}, sort_keys=True))
+        for c in checked]
     if len(set(keys)) != len(keys):
         raise InvalidInputError("The same engine and model is picked twice.")
     cases = _select_cases(stage, tier, set_name, case_ids, scorable_only=True)
@@ -431,6 +435,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
         for cfg in checked:
             if cfg["engine"] in LAB_BACKENDS:
                 require_backend_fits_cases(cfg["engine"], cases)
+                require_backend_ready(cfg["engine"], cases)
             else:
                 require_whisper_fits_cases(stage, [cfg], cases)
     return checked, cases
@@ -507,6 +512,8 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     if job_launch.exclusive_active() or job_launch.maintenance_active():
         raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
     use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
+    if stage == "transcription":
+        require_separation_ready(checked, use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
     case_filter = json.dumps({"tier": tier, "set_name": set_name,
                               "case_ids": sorted(case_ids) if case_ids else None})
@@ -578,6 +585,10 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
             from services import benchmark_judge_service
             benchmark_judge_service.run_pass(job_id, plan, judge)
     finally:
+        if stage == "transcription":
+            # This job runs in the API process: Qwen3-ASR, anime-whisper and the aligner would
+            # otherwise stay on the GPU and break the next title's run.
+            whisper_models.release_gpu_models()
         # A crash mid-run must not leave a run looking "running" forever.
         for sid, _cfg, _key in plan:
             s = db.get_benchmark_session(sid)
@@ -665,6 +676,10 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                     break
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu, folder)
+                if background_jobs.is_cancel_requested(job_id):
+                    # The interrupted case would be saved as an engine error.
+                    status = "cancelled"
+                    break
             score, metric, scorer = score_output(stage, r.get("output_text") or "",
                                                  case.get("reference_text"),
                                                  case.get("source_language"))

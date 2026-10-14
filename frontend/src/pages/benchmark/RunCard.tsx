@@ -286,7 +286,7 @@ function ConfigRow({ stage, options, config, index, onChange }: {
     const limitedPick = whisperGroups.limited.find((m) => m.size === config.model)
     const recogniser = options.transcription_backends.find((b) => b.name === config.engine)
     const help = recogniser
-      ? `${recogniser.label} runs only when it is installed and its model is already downloaded; the Lab never downloads a model.${config.engine === 'anime_whisper' ? ' Japanese only.' : ''}`
+      ? [recogniser.problem, `${recogniser.label} runs only when it is installed and its model is already downloaded; the Lab does not download it.`, config.engine === 'anime_whisper' ? 'Japanese only.' : null].filter(Boolean).join(' ')
       : limitedPick ? `${limitedPick.reasons.join(' ')} The run is refused on a case in a language this does not fit.` : undefined
     // Switching recogniser keeps the options typed so far: comparing two models at the same settings is the common case.
     const pick = (value: string) => {
@@ -310,7 +310,9 @@ function ConfigRow({ stage, options, config, index, onChange }: {
             {options.transcription_backends.length > 0 && (
               <optgroup label="Other recognisers (must be installed)">
                 {options.transcription_backends.map((b) => (
-                  <option key={b.name} value={b.name}>{b.label}</option>
+                  <option key={b.name} value={b.name} disabled={!!b.problem && b.name !== config.engine} title={b.problem ?? undefined}>
+                    {b.problem ? `${b.label} (not ready)` : b.label}
+                  </option>
                 ))}
               </optgroup>
             )}

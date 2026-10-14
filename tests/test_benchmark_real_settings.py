@@ -19,7 +19,7 @@ import whisper_transcribe
 from api.benchmark_schemas import BenchmarkRunRequest
 from services import benchmark_case_service as cases_svc
 from services import benchmark_lab_service as svc
-from services import model_readiness_service, transcribe_options_service as opts
+from services import asr_options_service, model_readiness_service, transcribe_options_service as opts
 from services.service_errors import DependencyUnavailableError, InvalidInputError
 from tests.saved_settings import patch_setting
 
@@ -43,6 +43,11 @@ def _run(configs, **kw):
 def _case(language="ja", name="clip"):
     return db.create_benchmark_case(name, "transcription", "audio_drama", input_filename=f"{name}.wav",
                                     reference_text="こんにちは", source_language=language)
+
+
+@pytest.fixture(autouse=True)
+def separation_downloaded(monkeypatch):
+    monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: True)
 
 
 @pytest.fixture
@@ -261,7 +266,7 @@ class TestExtraRecognisers:
         monkeypatch.setattr(model_readiness_service, ready, lambda *a, **k: False)
         with pytest.raises(DependencyUnavailableError, match=sentence) as err:
             svc.start_run("transcription", [{"engine": engine}])
-        assert "never downloads" in str(err.value)
+        assert "does not download" in str(err.value)
         assert backends == []
 
     def test_missing_packages_use_the_apps_plain_sentence(self, isolated_db, monkeypatch):
@@ -269,9 +274,25 @@ class TestExtraRecognisers:
 
         def missing(*a, **k):
             raise DependencyUnavailableError(qwen_req.MISSING_QWEN_MESSAGE)
-        monkeypatch.setattr(qwen_req, "require_qwen3_packages", missing)
+        monkeypatch.setattr(qwen_req, "require_vad_backend_packages", missing)
+        _case()
         with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
-            svc.check_config("transcription", {"engine": "qwen3_asr_vad"})
+            svc.start_run("transcription", [{"engine": "qwen3_asr_vad"}])
+
+    def test_timing_refinement_needs_the_forced_aligner_downloaded_too(
+            self, isolated_db, installed, monkeypatch, backends):
+        monkeypatch.setattr(asr_options_service, "get_vad_refine_timing", lambda: True)
+        monkeypatch.setattr(model_readiness_service, "aligner_ready", lambda: False)
+        _case()
+        with pytest.raises(DependencyUnavailableError, match="forced aligner"):
+            svc.start_run("transcription", [{"engine": "qwen3_asr_vad"}])
+        assert backends == []
+
+    def test_options_list_says_what_a_recogniser_still_needs(self, isolated_db, installed, monkeypatch):
+        monkeypatch.setattr(model_readiness_service, "qwen_asr_ready", lambda: False)
+        offered = {b["name"]: b["problem"] for b in svc.get_options()["transcription_backends"]}
+        assert "isn't downloaded" in offered["qwen3_asr_vad"]
+        assert offered["anime_whisper"] is None
 
     def test_anime_whisper_is_refused_on_a_chinese_case(self, isolated_db, installed, backends):
         _case(language="zh")
@@ -324,3 +345,102 @@ class TestApiShapes:
         got = svc.get_options()
         assert got["transcribe_defaults"] == opts.lab_option_defaults()
         assert got["transcribe_defaults"]["min_silence_ms"] == 300
+
+
+class TestRunSafety:
+    def test_separation_model_missing_is_refused_before_anything_runs(self, isolated_db, whisper_calls, monkeypatch):
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: False)
+        _case()
+        with pytest.raises(DependencyUnavailableError, match="separation model"):
+            svc.start_run("transcription", [{"engine": "whisper", "model": "small",
+                                             "options": {"separate_vocals_first": True}}])
+        assert whisper_calls == []
+
+    def test_any_preparation_failure_is_that_cases_error_and_the_run_goes_on(
+            self, isolated_db, whisper_calls, monkeypatch):
+        _case(name="bad")
+        _case(name="good")
+        real = audio_preprocess.separate_vocals
+
+        def flaky(src, out, **kw):
+            if "bad" in src:
+                raise RuntimeError("Error opening 'bad.wav': Format not recognised.")
+            return real(src, out, **kw) if False else out
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", flaky)
+        (sid,) = _run([{"engine": "whisper", "model": "small",
+                        "options": {"separate_vocals_first": True}}])["session_ids"]
+        detail = svc.get_run(sid)
+        assert detail["run"]["status"] == "done"
+        errors = sorted((r["case_label"], bool(r["error"])) for r in detail["results"])
+        assert errors == [("bad", True), ("good", False)]
+
+    def test_gpu_models_are_released_when_a_transcription_run_ends(self, isolated_db, whisper_calls, monkeypatch):
+        import whisper_models
+        released = []
+        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: released.append(1))
+        _case()
+        _run([{"engine": "whisper", "model": "small"}])
+        assert released == [1]
+
+    def test_cancel_stops_the_run_and_the_interrupted_case_is_not_saved(self, isolated_db, monkeypatch):
+        _case(name="a")
+        _case(name="b")
+        seen = []
+
+        def fake(path, **kw):
+            seen.append(path)
+            background_jobs.request_cancel(svc.JOB_ID)
+            kw["progress_cb"](0.5)        # the poll a real decode makes between segments
+            return [{"start": 0, "end": 1, "text": "こんにちは"}]
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake)
+        started = svc.start_run("transcription", [{"engine": "whisper", "model": "small"}])
+        _wait()
+        detail = svc.get_run(started["session_ids"][0])
+        assert detail["run"]["status"] == "cancelled"
+        assert detail["results"] == [] and len(seen) == 1
+
+    def test_levelling_is_cancellable_in_this_process(self, isolated_db, whisper_calls, monkeypatch):
+        seen = {}
+
+        def level(src, out, cancel=None, own_group=True, **kw):
+            seen.update(cancel=cancel, own_group=own_group)
+            return out
+        monkeypatch.setattr(audio_preprocess, "level_audio", level)
+        _case()
+        _run([{"engine": "whisper", "model": "small", "options": {"difficult_audio": True}}])
+        assert seen["own_group"] is True and callable(seen["cancel"])
+
+    def test_qwen_and_anime_get_a_cancel_check(self, isolated_db, installed, backends):
+        _case()
+        _run([{"engine": "anime_whisper"}])
+        assert callable(backends[0]["cancel_check"])
+
+
+class TestReviewTightening:
+    def test_bad_types_are_refused_not_coerced(self):
+        for bad in ({"beam_size": "5"}, {"whisper_repeat_guard": "yes"}, {"vad_threshold": "0.5"}, {"beam_size": 5.5}):
+            with pytest.raises(ValueError):
+                BenchmarkRunRequest(stage="transcription", configs=[{"engine": "whisper", "options": bad}])
+        ok = BenchmarkRunRequest(stage="transcription", configs=[
+            {"engine": "whisper", "options": {"vad_threshold": 1 // 2 + 0.4, "hallucination_silence_sec": 3}}])
+        assert ok.configs[0].options.hallucination_silence_sec == 3
+
+    def test_an_odd_ollama_digest_is_dropped(self, monkeypatch):
+        from lib import http
+
+        class Reply:
+            status = 200
+            body = json.dumps({"models": [{"name": "m:latest", "digest": "<script>" + "x" * 500}]})
+        monkeypatch.setattr(http, "get", lambda url, **kw: Reply())
+        assert cases_svc.model_identity("translation", {"engine": "ollama", "model": "m"})["digest"] is None
+
+    def test_options_an_arm_ignores_do_not_make_two_arms_different(self, isolated_db, installed):
+        _case()
+        with pytest.raises(InvalidInputError, match="twice"):
+            svc.estimate("transcription", [{"engine": "qwen3_asr_vad", "options": {"beam_size": 1}},
+                                           {"engine": "qwen3_asr_vad", "options": {"beam_size": 2}}])
+
+    @pytest.mark.parametrize("stage, engine", [("translation", "fake"), ("ocr", "tesseract")])
+    def test_options_are_refused_off_the_transcription_stage(self, isolated_db, stage, engine):
+        with pytest.raises(InvalidInputError, match="transcription runs only"):
+            svc.check_config(stage, {"engine": engine, "options": {"beam_size": 1}})

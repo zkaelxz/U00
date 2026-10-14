@@ -23,7 +23,7 @@ const options: BenchmarkOptions = {
   ],
   whisper_sizes: ['small', 'medium', 'large-v3', 'ja-1.5b'],
   whisper_exclusions: { medium: { ja: 'No medium for Japanese.' }, 'ja-1.5b': { zh: 'Japanese only.', ko: 'Japanese only.' } },
-  transcription_backends: [{ name: 'qwen3_asr_vad', label: 'Qwen3-ASR' }, { name: 'anime_whisper', label: 'anime-whisper' }],
+  transcription_backends: [{ name: 'qwen3_asr_vad', label: 'Qwen3-ASR', problem: null }, { name: 'anime_whisper', label: 'anime-whisper', problem: null }],
   transcribe_defaults: {
     beam_size: 5, min_silence_ms: 300, vad_threshold: 0.5, sensitivity_preset: 'normal', hallucination_silence_sec: 0,
     whisper_repeat_guard: false, difficult_audio: false, separate_vocals_first: false, initial_prompt: '',
