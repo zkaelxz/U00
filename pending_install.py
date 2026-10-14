@@ -33,6 +33,8 @@ import threading
 import time
 
 import portable
+from lib.atomic_write import atomic_write
+from lib.pid import pid_alive
 from lib.proc import run_captured, stream_tree
 
 SCHEMA = 1
@@ -76,14 +78,7 @@ def digest(payload: dict) -> str:
 
 def _write_json(kind: str, doc: dict) -> None:
     os.makedirs(state_dir(), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=state_dir(), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(doc, f, sort_keys=True)
-        os.replace(tmp, _path(kind))
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    atomic_write(_path(kind), json.dumps(doc, sort_keys=True))
 
 
 def _read_json(kind: str):
@@ -167,35 +162,6 @@ def _kernel32():
     return kernel32
 
 
-def _win_pid_running(pid: int, kernel32, get_last_error) -> bool:
-    import ctypes
-    handle = kernel32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
-    if not handle:
-        return get_last_error() == 5                        # access denied: it exists
-    try:
-        code = ctypes.c_ulong()
-        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-            return True         # the call failed: unknown, and wrongly calling it dead runs pip twice
-        return code.value == 259                            # STILL_ACTIVE
-    finally:
-        kernel32.CloseHandle(handle)
-
-
-def _pid_running(pid: int) -> bool:
-    if not 0 < pid <= 0xFFFFFFFF:
-        return False            # no real process has it; ctypes and os.kill would raise
-    if os.name == "nt":
-        import ctypes
-        return _win_pid_running(pid, _kernel32(), ctypes.get_last_error)
-    try:
-        os.kill(pid, 0)
-    except PermissionError:
-        return True                                             # EPERM: owned by someone else, still running
-    except (OSError, OverflowError):
-        return False
-    return True
-
-
 def _process_start(pid: int):
     """An opaque start time for `pid`, or None where it can't be read. A reused
     pid has a different one, so a lock written by a dead process isn't kept alive
@@ -223,7 +189,7 @@ def _process_start(pid: int):
 
 
 def _pid_alive(pid: int, started=None) -> bool:
-    if not _pid_running(pid):
+    if not pid_alive(pid):
         return False
     if not isinstance(started, int) or isinstance(started, bool):
         return True             # older lock files and the launcher's readers carry no start time

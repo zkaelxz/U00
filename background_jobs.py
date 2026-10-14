@@ -30,11 +30,11 @@ One machine, one process owning each job: not a distributed job queue.
 """
 
 import math
-import os
 import threading
 import time
 
 import job_force_stop
+from lib import pid as pid_lib
 from job_process_kill import kill_tree
 from jobs.gpu_queue import _refresh_queue_messages_locked, _run_finish_hooks, _take_queued_locked
 from jobs.job_table import _emit_change, _jobs, _lock, _mirror_locked, _warn, _workers
@@ -265,37 +265,12 @@ def owner_process_alive(pid) -> bool:
         pid = int(pid)
     except (TypeError, ValueError):
         return True
-    if pid <= 0:
-        return True
-    if os.name == "nt":
-        # os.kill(pid, 0) would end the process on Windows.
-        try:
-            import ctypes
-            from ctypes import wintypes
-            k = ctypes.WinDLL("kernel32", use_last_error=True)
-            k.OpenProcess.restype = wintypes.HANDLE
-            k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-            k.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
-            k.CloseHandle.argtypes = (wintypes.HANDLE,)
-            handle = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
-            if not handle:
-                return ctypes.get_last_error() == 5      # ERROR_ACCESS_DENIED: it exists
-            try:
-                code = wintypes.DWORD()
-                if not k.GetExitCodeProcess(handle, ctypes.byref(code)):
-                    return True
-                return code.value == 259                 # STILL_ACTIVE
-            finally:
-                k.CloseHandle(handle)
-        except Exception:
-            return True
+    if not 0 < pid <= pid_lib.MAX_PID:
+        return True     # not a pid at all; a record we cannot judge is never closed under its owner
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
+        return pid_lib.pid_alive(pid)
     except Exception:
-        return True   # PermissionError: it exists, owned by someone else
-    return True
+        return True
 
 
 def _cancel_queued_locked(job_id, job, requested_at=None) -> list:

@@ -25,7 +25,6 @@ No FastAPI import.
 import contextlib
 import logging
 import os
-import shutil
 import tempfile
 import threading
 import time
@@ -33,6 +32,7 @@ import time
 import background_jobs
 from jobs import job_launch
 import db
+import storage
 from db import fsync_dir as _fsync_dir
 from services import backup_space_check as space
 from services import library_admin_service as las
@@ -305,26 +305,12 @@ def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float 
     targets += [(os.path.join(db.LIBRARY_DIR, *sub), ".partial_", False)
                 for sub in las.ARTIFACT_SUBDIRS.values()]
     for folder, prefix, is_dir in targets:
-        try:
-            names = os.listdir(folder)
-        except OSError:
-            continue
-        for name in names:
-            if not name.startswith(prefix):
-                continue
-            path = os.path.join(folder, name)
-            try:
-                if os.path.islink(path) or (os.path.isdir(path) != is_dir):
-                    continue
-                if now - os.path.getmtime(path) < max_age:
-                    continue
-                if is_dir:
-                    shutil.rmtree(path)
-                else:
-                    os.remove(path)
-                removed += 1
-            except OSError:
-                log.warning("Could not remove a leftover backup/restore file")
+        # realpath: a backup or dramas folder behind a link is still swept.
+        removed += storage._sweep_folder(
+            os.path.realpath(folder),
+            lambda name, path, prefix=prefix, is_dir=is_dir: (
+                name.startswith(prefix) and os.path.isdir(path) == is_dir),
+            max_age, now, set(), False)["removed"]
     return removed
 
 

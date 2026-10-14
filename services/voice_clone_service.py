@@ -64,6 +64,7 @@ import db
 from jobs import job_store
 import dub
 import video_export
+from lib.atomic_write import atomic_write
 from services import characters_service
 from services.media_upload_service import AUDIO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
@@ -340,10 +341,7 @@ def _load_manifest(drama_id: int) -> dict:
 def _save_manifest(drama_id: int, manifest: dict):
     cdir = _candidates_dir(drama_id)
     os.makedirs(cdir, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".manifest_", suffix=".json", dir=cdir)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False)
-    os.replace(tmp, os.path.join(cdir, MANIFEST_NAME))
+    atomic_write(os.path.join(cdir, MANIFEST_NAME), json.dumps(manifest, ensure_ascii=False))
 
 
 def _speaker_segments(drama_id: int, speaker_label: str, lines: list) -> list:
