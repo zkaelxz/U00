@@ -6,7 +6,7 @@ Choices live in app_settings (no schema change): one JSON per title under
 `language_packs.title.<id>`, and one per source language under
 `language_packs.default.<lang>` that a title without its own choice follows.
 Both are {"packs": {pack id: style}}. Packs are off until someone turns them
-on. The app, the CLI and every job reach the prompt through
+on. The app and every job reach the prompt through
 `block_for`, so they cannot differ.
 """
 

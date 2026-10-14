@@ -1,7 +1,7 @@
 """
 services/assistant_pytest_guard.py -- a pytest plugin loaded (`-p`) only
 by the maintenance assistant's run_tests tool. Before any test
-module is imported it points db.py at a throwaway library and
+module is imported it points the db package at a throwaway library and
 settings_service at an empty .env, so a test that forgot `isolated_db`
 can't write the user's real library or read a real key. Refuses to load
 outside that run.

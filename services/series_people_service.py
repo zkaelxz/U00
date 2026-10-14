@@ -1,7 +1,7 @@
 """
 services/series_people_service.py -- add and edit a series' people
 (series_characters): name, pronouns, aliases and notes, for the "People &
-pronouns" editor (parity audit B1 #8, X15-X17). Listing stays in characters_service and
+pronouns" editor. Listing stays in characters_service and
 deleting in delete_service.
 
 Series pronouns feed translation gender hints
