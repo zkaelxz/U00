@@ -173,7 +173,7 @@ def get_suggestions(drama_id: int) -> dict:
            "reason_labels": dict(REASONS), "lines": []}
     if stronger is None:
         return out
-    lines = core.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     glossary = _glossary(drama)
     prompt_chars = None
     for pos, ln in enumerate(lines):
@@ -247,7 +247,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     against, so the client's compare-and-set patch can refuse a stale
     apply)."""
     drama = _drama(drama_id)
-    lines = core.lines_from_rows(db.load_lines(drama_id))
+    lines = db.load_line_objects(drama_id)
     pos = next((i for i, ln in enumerate(lines) if ln.id == line_id), None)
     if pos is None:
         raise NotFoundError(f"No line with id {line_id} in this title.")

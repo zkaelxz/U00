@@ -130,7 +130,7 @@ export async function mockReeval(page: Page, start: Json = overview()) {
     if (method === 'POST' && path === '/estimate') return route.fulfill({ json: ESTIMATE })
     if (method === 'POST' && path === '/settings') {
       o.settings = { ...body }
-      o.next_due_at = body?.schedule_enabled ? '2026-10-14T12:00:00' : null
+      o.next_due_at = body?.schedule_enabled ? '2099-10-14T12:00:00' : null
       return route.fulfill({ json: state.overview })
     }
     if (method === 'POST' && path === '/candidates') {
