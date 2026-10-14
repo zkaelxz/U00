@@ -46,6 +46,8 @@
 /* Last run and Advanced options keep their card: stripped of the padding but not the glass or shadow they drew, their text sat on the card edge. */
 .stage-source details.section .panel:not(.last-run, [aria-label="Advanced options"]),
 .stage-source section.panel[aria-label]:not([aria-label="Job"], .last-run, [aria-label="Advanced options"]) { border: 0; padding: 0; background: none; overflow: visible; }
+/* Tighter vertically than a default panel: the Tools tab is held to about one desktop screen (media-tabs.spec). */
+.stage-source section.panel[aria-label="Advanced options"] { padding-block: var(--space-1); }
 .stage-source details.section details.section { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding-inline: 0; margin: 0; }
 .source-group { display: grid; gap: var(--space-3); min-width: 0; }
 
