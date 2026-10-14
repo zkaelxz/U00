@@ -693,6 +693,13 @@ describe('a profile left on the title (applyStartToForm)', () => {
     expect(applyPresetToForm(initialForm(c), p, c).batch_size).toBe('8')
   })
 
+  it("an older preset's toggles start the form only while the title has no saved choice", () => {
+    const start = { default_female_pronouns: true, include_genre_notes: false }
+    expect(applyStartToForm(initialForm(c), start, c)).toMatchObject({ female_pronouns: true, genre_notes: false })
+    const saved = { ...c, default_female_pronouns: false, include_genre_notes: true } as unknown as TranslateRunConfig
+    expect(applyStartToForm(initialForm(saved), start, saved)).toMatchObject({ female_pronouns: false, genre_notes: true })
+  })
+
   it('names what was left out for the title language', () => {
     expect(skippedNote(['asr_backend_choice', 'whisper_size'])).toMatch(/asr backend choice, whisper size/)
     expect(skippedNote([])).toBe('')

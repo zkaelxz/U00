@@ -14,12 +14,14 @@ accepted on update: `status`, `content_mode`, `source_language` (owned by
 source_service), any *_filename, `translation_engine`, and
 `personal_notes` (per-profile; the API has no profile header yet).
 
-Preset handling: only the preset's `translation_engine` has a per-drama
-DB home, so only it is persisted. `style_preset`, `locale`,
-`default_female_pronouns` and `include_genre_notes` are not saved by
-create_drama, so it returns them as `preset_defaults` for the client to
-hold; the owner's later choice is saved on the drama (a run's toggles, or
-update_drama_metadata) and every run reads it from there.
+Preset handling: an older preset (no options_json) persists only its
+`translation_engine`, plus the form's starting style, model and toggles in
+dramas.translate_start_json. A profile (options_json set) also writes the
+prompt toggles, translate-by-sentence and the transcribe options, minus what
+doesn't suit the title's language (services/profile_service.py). Either way
+the same values come back as `preset_defaults` (locale only from a preset that
+stored one), and the owner's later choice is saved on the drama (a run's
+toggles, or update_drama_metadata) and every run reads it from there.
 
 No FastAPI import: plain dicts in, plain dicts out.
 """

@@ -133,7 +133,9 @@ def set_default_preset(preset_id: int, is_default: bool) -> bool:
     with contextlib.closing(db.get_conn()) as conn:
         if conn.execute("SELECT 1 FROM presets WHERE id = ?", (preset_id,)).fetchone() is None:
             return False
-        conn.execute("UPDATE presets SET is_default = CASE WHEN id = ? THEN ? ELSE 0 END",
-                     (preset_id, int(bool(is_default))))
+        if is_default:
+            conn.execute("UPDATE presets SET is_default = (id = ?)", (preset_id,))
+        else:
+            conn.execute("UPDATE presets SET is_default = 0 WHERE id = ?", (preset_id,))
         conn.commit()
     return True

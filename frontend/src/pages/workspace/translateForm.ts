@@ -482,6 +482,9 @@ export function applyStartToForm(
     out.fallbacks = fb.slice(0, MAX_FALLBACKS)
   }
   if (typeof start.thinking === 'boolean') out.thinking = start.thinking
+  // An older preset's toggles: the title's own saved choice still wins.
+  if (typeof start.default_female_pronouns === 'boolean' && c.default_female_pronouns == null) out.female_pronouns = start.default_female_pronouns
+  if (typeof start.include_genre_notes === 'boolean' && c.include_genre_notes == null) out.genre_notes = start.include_genre_notes
   return out
 }
 

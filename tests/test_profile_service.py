@@ -220,3 +220,67 @@ def test_profile_fields_route_lists_engines_styles_and_only_allowed_options(clie
     assert not keys & {"translation_engine", "include_genre_notes", "default_female_pronouns"}
     assert any(e["name"] == "claude" for e in body["engines"])
     assert {s["key"] for s in body["style_presets"]} >= {"audio_drama", "subtitle"}
+
+
+# --- review fixes -------------------------------------------------------------
+
+def test_a_huge_cost_cap_is_a_422_not_a_500(client):
+    body = {"name": "Big", "translation_engine": "claude"}
+    r = client.post(PRESETS, content=json.dumps({**body, "options": {"cost_cap": 10 ** 400}}),
+                    headers={"content-type": "application/json"})
+    assert r.status_code == 422, r.text
+    with pytest.raises(InvalidInputError):
+        profile_service.validate_options({"cost_cap": 10 ** 400})
+
+
+def test_clearing_one_default_leaves_the_others_alone(isolated_db):
+    a, b = _save("A"), _save("B")
+    translate_preset_service.set_default_preset(a["id"], True)
+    # Only a manual edit can leave two flags; clearing one must still touch only that row.
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE presets SET is_default = 1")
+        conn.commit()
+    translate_preset_service.set_default_preset(a["id"], False)
+    flags = {p["name"]: p["is_default"] for p in translate_preset_service.library_service.list_presets()}
+    assert flags == {"A": False, "B": True}
+    assert b["id"] != a["id"]
+
+
+def test_a_profile_deleted_mid_request_is_a_404_not_a_crash(isolated_db, monkeypatch):
+    p = _save()
+    monkeypatch.setattr(translate_preset_service.library_service, "list_presets", lambda: [])
+    with pytest.raises(NotFoundError):
+        translate_preset_service.set_default_preset(p["id"], True)
+    with pytest.raises(NotFoundError):
+        translate_preset_service.update_translate_preset(p["id"], "X", "claude")
+
+
+def test_an_old_preset_at_create_writes_the_engine_only(isolated_db):
+    sid = db.create_series("Saga")
+    series_defaults_service.set_defaults(None, sid, {"default_female_pronouns": True, "beam_size": 2})
+    pid = db.save_preset("Old", translation_engine="gemini", style_preset="subtitle",
+                         default_female_pronouns=False, include_genre_notes=False)
+    d = drama_service.create_drama(source_language="ko", title_en="T", series_id=sid, preset_id=pid)
+    row = db.get_drama(d["id"])
+    assert row["translation_engine"] == "gemini"
+    assert row["default_female_pronouns"] == 1 and row["beam_size"] == 2   # the series' defaults
+    assert profile_service.translate_start(row) == {
+        "style_preset": "subtitle", "default_female_pronouns": False, "include_genre_notes": False}
+
+
+def test_an_old_preset_applied_to_a_title_leaves_its_toggles_and_options(isolated_db):
+    pid = db.save_preset("Old", translation_engine="gemini", default_female_pronouns=False)
+    did = db.create_drama(title_zh="D", source_language="ko", default_female_pronouns=1, beam_size=3)
+    out = translate_preset_service.apply_translate_preset(did, pid)
+    row = db.get_drama(did)
+    assert row["translation_engine"] == "gemini"
+    assert row["default_female_pronouns"] == 1 and row["beam_size"] == 3
+    assert out["default_female_pronouns"] is False   # still returned for the form
+
+
+def test_a_profile_with_no_options_still_writes_its_toggles(isolated_db):
+    p = translate_preset_service.save_translate_preset(
+        "Bare", "claude", default_female_pronouns=True)["preset"]
+    d = drama_service.create_drama(source_language="ko", title_en="T", preset_id=p["id"])
+    assert db.get_drama(d["id"])["default_female_pronouns"] == 1

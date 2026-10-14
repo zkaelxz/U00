@@ -36,6 +36,10 @@ from services.service_errors import InvalidInputError
 _COLUMN_SETTINGS = ("translation_engine", "include_genre_notes", "default_female_pronouns")
 TITLE_OPTIONS = frozenset(series_defaults_service.SETTINGS) - set(_COLUMN_SETTINGS)
 
+# An older preset (no options_json) keeps its old reach: the engine goes on the title and
+# the form starts from its style, model and these two toggles, which the title does not store.
+_LEGACY_TOGGLES = ("default_female_pronouns", "include_genre_notes")
+
 MAX_FALLBACKS = 2
 MAX_OPTIONS_BYTES = 8192
 _INT_RANGES = {"batch_size": (1, 200), "context_window": (0, 100), "context_window_ahead": (0, 100)}
@@ -58,7 +62,11 @@ def _check_run_option(key, value):
             raise InvalidInputError(f"style_note is text of at most {_STYLE_NOTE_MAX} characters.")
     elif key == "cost_cap":
         ok = isinstance(value, (int, float)) and not isinstance(value, bool)
-        if not (ok and math.isfinite(value) and 0 <= value <= _COST_CAP_MAX):
+        try:
+            ok = ok and math.isfinite(value) and 0 <= value <= _COST_CAP_MAX
+        except OverflowError:   # an int too large for a float
+            ok = False
+        if not ok:
             raise InvalidInputError("cost_cap is a dollar amount of 0 or more.")
     elif key == "fallback_engines":
         ok = (isinstance(value, list) and len(value) <= MAX_FALLBACKS
@@ -111,7 +119,7 @@ def stored_options(preset: dict) -> dict:
 
 
 def dump_options(options: dict):
-    return json.dumps(options, sort_keys=True) if options else None
+    return json.dumps(options, sort_keys=True)
 
 
 def translate_start(drama: dict) -> dict:
@@ -132,6 +140,8 @@ def translate_start(drama: dict) -> dict:
             out[key] = value
         elif key == "style_preset" and value in translation_guide.STYLE_PRESETS:
             out[key] = value
+        elif key in _LEGACY_TOGGLES and isinstance(value, bool):
+            out[key] = value
         elif key == "engine_model" and isinstance(value, str) and 0 < len(value) <= 200:
             out[key] = value
     return out
@@ -147,15 +157,22 @@ def plan(preset: dict, drama: dict) -> dict:
     engine = preset.get("translation_engine")
     if engine not in translate_engines.ENGINES:
         engine = None   # an engine this build no longer has: leave the title's own
-    wanted = {k: v for k, v in options.items() if k in TITLE_OPTIONS}
+    genre = preset.get("include_genre_notes")
+    genre = True if genre is None else bool(genre)
+    pronouns = bool(preset.get("default_female_pronouns"))
+    wanted = {}
     if engine:
         wanted["translation_engine"] = engine
-    genre = preset.get("include_genre_notes")
-    wanted["include_genre_notes"] = True if genre is None else bool(genre)
-    wanted["default_female_pronouns"] = bool(preset.get("default_female_pronouns"))
+    start = {}
+    if preset.get("options_json") is None:
+        # The toggle columns of an older preset are just their column defaults, so they must not
+        # override a series default or what the title holds.
+        start.update(default_female_pronouns=pronouns, include_genre_notes=genre)
+    else:
+        wanted.update({k: v for k, v in options.items() if k in TITLE_OPTIONS},
+                      include_genre_notes=genre, default_female_pronouns=pronouns)
+        start.update({k: v for k, v in options.items() if k in RUN_OPTIONS})
     columns, skipped = series_defaults_service.plan_for(drama, wanted)
-
-    start = {k: v for k, v in options.items() if k in RUN_OPTIONS}
     style = preset.get("style_preset")
     if style in translation_guide.STYLE_PRESETS:
         start["style_preset"] = style

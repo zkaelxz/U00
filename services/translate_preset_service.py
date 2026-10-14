@@ -118,6 +118,14 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
     return {"preset": preset, "replaced": replaced}
 
 
+def _listed(preset_id: int) -> dict:
+    """The profile as listed; NotFoundError if it was deleted since the write."""
+    found = next((p for p in library_service.list_presets() if p["id"] == preset_id), None)
+    if found is None:
+        raise NotFoundError(f"No preset with id {preset_id}.")
+    return found
+
+
 def update_translate_preset(preset_id: int, name: str, translation_engine: str,
                             engine_model: Optional[str] = None, style_preset: Optional[str] = None,
                             locale: Optional[str] = None, default_female_pronouns: bool = False,
@@ -134,7 +142,7 @@ def update_translate_preset(preset_id: int, name: str, translation_engine: str,
         raise ConflictError(f"A preset named {fields['name']!r} already exists.") from None
     if not found:
         raise NotFoundError(f"No preset with id {preset_id}.")
-    return {"preset": next(p for p in library_service.list_presets() if p["id"] == preset_id)}
+    return {"preset": _listed(preset_id)}
 
 
 def profile_editor_fields() -> dict:
@@ -149,4 +157,4 @@ def set_default_preset(preset_id: int, is_default: bool) -> dict:
     """Marks this profile as the one New title preselects (or clears it)."""
     if not db.set_default_preset(preset_id, is_default):
         raise NotFoundError(f"No preset with id {preset_id}.")
-    return next(p for p in library_service.list_presets() if p["id"] == preset_id)
+    return _listed(preset_id)
