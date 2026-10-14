@@ -134,3 +134,52 @@ def test_unbuilt_frontend_serves_a_plain_page_and_logs(tmp_path, caplog):
     r = c.get("/")
     assert r.status_code == 200 and "npm run build" in r.text
     assert c.get("/api/nope").json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.parametrize("title", ["CON", "nul", "Aux", "COM1", "con.txt"])
+def test_device_names_get_a_guard_even_without_an_episode(isolated_db, title):
+    did = _drama(isolated_db, title)
+    assert export_service.folder_name(did).startswith("_")
+    assert export_service.download_filename(did, "subtitles", "en", "srt").split(".")[0].upper() \
+        not in export_service._DEVICE_NAMES
+
+
+def test_device_guard_survives_the_ascii_fallback():
+    assert 'filename="_CON.srt"' in export_service.content_disposition("_CON.srt")
+
+
+def test_zip_folders_never_collide_case_insensitively(isolated_db):
+    first = _drama(isolated_db, "Love", episode_number=1, status="translated")
+    ids = [first]
+    for t in ("love", "LOVE"):
+        ids.append(_drama(isolated_db, t, episode_number=1, status="translated"))
+    # a title that already looks like the id-suffixed name of the first
+    ids.append(_drama(isolated_db, f"Love - Ep 1 [{ids[1]}]", status="translated"))
+    names = _zip_names_for(isolated_db, ids)
+    folders = [n.split("/")[0] for n in names]
+    assert len({f.casefold() for f in set(folders)}) == len(ids)
+
+
+def _zip_names_for(isolated_db, ids):
+    for did in ids:
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+    captured = []
+    real = zipfile.ZipFile
+
+    class Spy(real):
+        def writestr(self, item, data, *a, **k):
+            captured.append(item)
+            return super().writestr(item, data, *a, **k)
+
+    library_backup_service.zipfile.ZipFile = Spy
+    try:
+        library_backup_service._export_job("job-z", ids)
+    finally:
+        library_backup_service.zipfile.ZipFile = real
+    return captured
+
+
+def test_storage_error_text_is_logged_redacted_not_returned(isolated_db, caplog):
+    with caplog.at_level("ERROR"):
+        r = _client_raising(sqlite3.DatabaseError("database disk image is malformed")).get("/api/_boom")
+    assert "malformed" not in r.text

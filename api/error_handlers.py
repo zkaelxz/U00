@@ -145,8 +145,10 @@ async def _unexpected_error(request: Request, exc: Exception):
         code, status, message = problem
         try:
             import applog
-            applog.get_logger().error("API: %s on %s %s (%s)", code, request.method,
-                                      request.url.path, type(exc).__name__)
+            # The redacted text says which database or file failed; only the
+            # log gets it, never the response.
+            applog.get_logger().error("API: %s on %s %s: %s", code, request.method,
+                                      request.url.path, _redact(str(exc)))
         except Exception:
             pass
         return JSONResponse(status_code=status, content=error_body(code, message))

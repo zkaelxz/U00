@@ -99,11 +99,12 @@ def _join_name(drama_id: int, title: str, tail: str, ext: str) -> str:
     ext = "." + re.sub(r"[^A-Za-z0-9]", "", ext.lstrip("."))[:10] if ext.strip(". ") else ""
     room = max(_MIN_TITLE_BYTES, _MAX_STEM_BYTES - len(tail.encode("utf-8")) - len(ext))
     title = _truncate_bytes(title.lstrip(". "), room).rstrip(". ")
-    # A dot in the title ends the Windows device-name part early ("CON.x").
-    if "." in title and title.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
-        title = "_" + title
-    # ".." is never a safe single segment, and _name_part already removed separators.
-    return (title or f"drama {drama_id}") + tail + ext
+    name = (title or f"drama {drama_id}") + tail + ext
+    # Windows reads the part before the first dot as the device, so "CON",
+    # "nul - Ep 1" with no tail, and "CON.x" all need the guard.
+    if name.split(".")[0].strip(" ").upper() in _DEVICE_NAMES:
+        name = "_" + name
+    return name
 
 
 def download_filename(drama_id: int, what: str, language: str, ext: str) -> str:
@@ -134,7 +135,8 @@ def content_disposition(filename: str) -> str:
     stem, dot, ext = fallback.rpartition(".")
     if not dot:
         stem, ext = fallback, ""
-    stem = re.sub(r"\s+", " ", stem).strip(" .-_")
+    # "_" is kept: it is the Windows device-name guard.
+    stem = re.sub(r"\s+", " ", stem).strip(" .-")
     if not any(c.isalnum() for c in stem):
         stem = "download"
     fallback = stem + (dot + ext if dot else "")

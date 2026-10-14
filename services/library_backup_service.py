@@ -13,7 +13,6 @@ No FastAPI import.
 """
 
 import os
-import re
 import tempfile
 import time
 import zipfile
@@ -87,9 +86,12 @@ def _export_job(job_id, drama_ids):
                 lns, _ = subtitle_formats.clamp_overlaps(lns)
                 folder = export_service.folder_name(did)
                 # Two titles can share a name; the id keeps their folders apart.
-                if folder in used_folders:
-                    folder = f"{folder} [{did}]"
-                used_folders.add(folder)
+                # Windows and macOS compare names case-insensitively, and an
+                # id-suffixed name can itself be another title's name.
+                base = folder
+                while folder.casefold() in used_folders:
+                    folder = f"{base} [{did}]" if folder == base else f"{folder} [{did}]"
+                used_folders.add(folder.casefold())
                 for field, text in (("en", lines_to_srt(lns, "en")), ("zh", lines_to_srt(lns, "zh")),
                                     ("bilingual", lines_to_bilingual_srt(lns))):
                     noun = "bilingual subtitles" if field == "bilingual" else "subtitles"

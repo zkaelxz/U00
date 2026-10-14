@@ -4,8 +4,9 @@ from the same FastAPI process and origin as `/api`.
 
 This is what lets the React app run as one process on one port with no
 Vite/npm at runtime (`docs/archive/remote-access-design.md` section 2). If
-`frontend/dist/index.html` doesn't exist, nothing is registered and the
-server is API-only, exactly as before.
+`frontend/dist/index.html` doesn't exist, no file route is registered: the
+server is API-only, logs a build hint, and `/` answers with a plain "not
+built" page (an exception handler, so the route list is the same).
 
 The app uses a hash router, so no deep-link path fallback is needed;
 unknown extension-less paths still get `index.html` so a stray path
