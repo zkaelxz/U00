@@ -1,6 +1,6 @@
-# Accuracy tuning: learn from the owner's corrections, pick settings by measurement (plan)
+# Accuracy tuning: test the owner's own clips, pick models and settings by measurement (plan)
 
-Status: **plan, not started** (owner decision 2026-10-14). Scope: transcription first, then translation. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
+Status: **plan, not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
 
 ## Why
 
@@ -23,9 +23,19 @@ The owner wants better transcription and translation accuracy, and evidence for 
 
 1. **Lab transcription arms vary only the Whisper model.** The transcription branch of `check_config` returns `{"engine": "whisper", "model": size}`.
 2. **Lab transcription cases don't run at real settings.** `benchmark.run_transcription_case` calls `transcribe_for_timing` with its function defaults, so cases run with `min_silence_duration_ms=2000` where titles use 300, and with no initial prompt. A Lab transcription score is therefore not the score a real title would get.
-3. **No transcription reference cases come from corrected source lines.** The raw-to-edited CER of each title is free to compute and nothing computes it.
+3. **No way to add audio test cases.** `create_case` takes translation text only; no route or screen registers an audio file, so transcription cases can't be made at all. Nothing builds them from corrected source lines either, and each title's raw-to-edited CER is free to compute but never computed.
 4. **Nothing sweeps settings.** Auto-tune (`services/autotune_service.py`) ranks min-silence candidates by long-line count, because it has no reference text.
-5. **Translation leftovers:**
+5. **Results can't be cleaned up or taken out.**
+   - A case can be deleted (Golden Sets card), but not edited or switched off, and a deleted case leaves older runs scored on a different set from newer ones.
+   - There is no route or button to delete a bad run.
+   - There is no export of runs or results.
+6. **The scores don't measure everything a subtitle needs.**
+   - The built-in CER counts punctuation and full-width/half-width differences as errors, while the jiwer path strips punctuation, so the same output scores differently depending on whether jiwer is installed.
+   - Transcription is scored on joined text only: line timing and line splits are not scored in the Lab (`tools/asr_bench.py` measures them, outside the database).
+   - Translation cases are translated alone (`translate_batch([source])` in `services/benchmark_case_service.py`), with no neighbouring lines, glossary, style profile or gender hints, so context-window and glossary settings can't be tested.
+   - Translation is scored only from a perfect transcript; nothing measures the whole chain (audio → transcript → translation).
+   - One reference translation per case: chrF marks down a valid wording that differs from it.
+7. **Translation leftovers:**
    - The context and batch defaults disagree: 10/6/30 in `engine_backends/engine_registry.py` against 6/3/20 in `services/workspace_job_service.py` and `bulk_translate.py`.
    - Temperature is never set.
    - Judge scores live in `app_settings` (`benchmark_judge.<run id>`), not beside the results.
@@ -33,20 +43,31 @@ The owner wants better transcription and translation accuracy, and evidence for 
 
 ## Method
 
-1. **Reference sets come from the owner's own work.**
-   - Transcription: lines whose source text was corrected, with the audio clipped to the line.
-   - Translation: `edit_samples` plus approved lines.
-   - Minimum before a result counts: about 30 minutes or 200 lines of transcription, and 100 or more translation lines, from at least 3 titles each.
-   - Mix the content types actually worked on: drama, ASMR and streamer.
-2. **Split by title**, 70% for tuning and 30% for hold-out, so no title is in both halves.
-3. **Measure the noise.** Run the default config twice; the gap between the runs is the noise floor.
-4. **Sweep one setting at a time** (coordinate descent) from the current default, keeping each winner before moving to the next setting.
+1. **Reference sets.**
+   - **Main source: the owner's clip set.** A folder of clips plus a manifest, one line per clip: `{"audio": "clip01.wav", "language": "zh", "transcript": "…", "translation": "…", "title": "…", "tags": ["music", "whisper"]}`. Clips from one scene keep their order so translation can be tested with context. `start`/`end` per line (or an SRT beside the clip) are optional and enable timing scores. What a line can test depends on what it has:
+
+     | Clip has | Tests |
+     |---|---|
+     | transcript and translation (best) | transcription, translation, and the whole chain |
+     | transcript only | transcription |
+     | translation only | the whole chain only (translation alone needs a source text) |
+
+   - **Top-up:** lines corrected in Review (source text against `raw_transcript`, and `edit_samples` for English).
+   - Size before a result counts: 50–100 clips of 5–30 s (about 20–30 minutes), and 100 or more translation lines, from at least 3 titles. Mix what is actually worked on: quiet dialogue, music, whispering or ASMR, crosstalk.
+   - References are written exactly as spoken; a wrong reference counts against every setup.
+   - Clips used as worked examples in the translation prompt (step T4) are never also test cases.
+2. **Split by title**, 70% for tuning and 30% for hold-out, so no title is in both halves. The hold-out is only used to confirm a winner, never to pick one.
+3. **Measure the noise.** Run the default setup twice; the gap is the noise floor.
+4. **Sweep one setting at a time** (coordinate descent) from the current default, keeping each winner before moving on.
 5. **Adopt a change only if it beats the default on the hold-out by the margin:**
-   - Transcription: at least 2 CER points (the streamer runs showed about 2 points of noise) and at least twice the measured noise.
+   - Transcription: at least 2 CER points and at least twice the measured noise.
    - Translation: at least 1.5 chrF points, with the judge score no lower.
+   - **Results are kept separate per language** and never averaged across Chinese, Japanese and Korean. Each language gets its own scores and its own recommendation, because the best setting can differ: the earlier tests found beam 1 cost large-v3 1.5 CER on Japanese but not on Chinese.
+   - Results are also shown per tag (music, whisper, crosstalk…), so a setting that helps one kind of audio and hurts another is promoted only for that kind. A tag group with fewer than about 15 clips is shown as too small to decide on.
    - Otherwise the default stays.
-6. **Promote only on the owner's approval**, per content type and language, the way `model_reeval_service` promotes a model.
-7. **Repeat** every few reviewed titles: new corrections join the sets, and the existing re-evaluation schedule re-checks the winners.
+6. **Compare like with like.** Two runs are compared only on the clips both scored; excluding or deleting a clip never skews a comparison.
+7. **Promote only on the owner's approval**, per content type and language, as `model_reeval_service` promotes a model. The approval is recorded.
+8. **Repeat.** New clips and corrections join the sets; after an app update or a provider model change, the baseline is re-run so a drop is caught.
 
 ## Starting numbers and sweep ranges
 
@@ -67,63 +88,88 @@ The owner wants better transcription and translation accuracy, and evidence for 
 | Translation batch size | 30 (60 for large models) | 15, 30, 60 | Unmeasured |
 | Context lines before / after | 10 / 6 | 3/1, 6/3, 10/6, 20/10 | Unmeasured; the defaults disagree |
 | Reflect pass | on for final passes | off, on | Unmeasured |
-| Translation-memory examples in the prompt | off | off, on | New (step T3) |
+| Translation-memory examples in the prompt | off | off, on | New (step T4) |
 | Temperature | provider default | default, 0.3 | Never set (step T4) |
 
 ## Build steps
 
 One PR each, in this order.
 
-### A1. Lab transcription runs at real settings
+### A1. Clip-set import and clean-up controls
 
-- Extend the transcription branch of `check_config` and `benchmark.run_transcription_case` to take the per-title options that `services/transcribe_options_service.py` validates: beam, min silence, VAD threshold, sensitivity, repeat guard, difficult audio, hallucination silence and initial prompt.
-- When an option is missing, default to the app's own defaults, not to the function defaults of `transcribe_for_timing`.
-- Record the options used in `benchmark_sessions.context_settings`.
+- Import a clip folder plus manifest (format in Method). Clips are copied into `db.BENCHMARK_DIR`; each line makes a transcription case and a translation case, with title, tags and scene order kept. Size and count caps like `MAX_IMPORT_CASES`; paths are never returned in API responses.
+- **Language per clip, not per import.** `language` (`zh`, `ja` or `ko`) is required on every manifest line, so one clip set can mix all three. Today's text import takes one `source_language` for the whole import; the clip import does not.
+- **One text normalisation for both scorers**, so results from the first import are comparable across PCs: drop punctuation, fold full-width to half-width, ignore spacing; keep Traditional→Simplified for Chinese. Today the built-in CER counts punctuation while the jiwer path strips it. (OCR keeps punctuation, per the 2026-09-30 decision.)
+- **Mismatch check on import.** Kana in a transcript points to Japanese and Hangul to Korean. When the text doesn't match the label, the import warns and names the clip rather than silently relabelling it.
+- **Exclude or include per case.** Safer than deleting: a suspect clip drops out of scoring and can be brought back later.
+- **Edit a reference in place.** Fix a case's transcript or translation without deleting it, so its past results stay tied to it. The edit is recorded (when and what changed), so a score from before the fix can be told apart from one after it.
+- **Delete a run** from the Runs list, with a confirmation, for runs that crashed, used the wrong settings or were otherwise bad. Its results go with it (`ON DELETE CASCADE`). Deleting a case stays as it is today.
+- **Compare only the clips both runs share.** Older runs still include a clip that was later removed, excluded or edited. The Arena view, run comparisons and the sweep's "beats the default" decision score only the cases both runs have, with the same reference version, and show how many were left out.
+- **Export** a run or a comparison as CSV or JSON: the setup, the scores and each case's output.
+- New routes are `local_only()` like the other Lab writes; regenerate `docs/route-permissions.md` with `python tools/route_table.py --write`. A new column (excluded flag, tags) is an `ALTER TABLE ... ADD COLUMN` in `init_db`, listed in `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
 
-### A2. Transcription reference cases from corrections
+### A2. Lab transcription runs at real settings, with more models
 
-- Add a set-builder path beside `benchmark_set_builder_service.py`:
-  - find lines whose source text differs from `raw_transcript`;
-  - clip each line's audio into `db.BENCHMARK_DIR`;
-  - create a transcription case from each clip.
-- Show each title's raw-to-edited CER, reusing `benchmark_scoring_service.error_rate`.
-- A new route declares `require_permission(...)`; regenerate its row with `python tools/route_table.py --write`.
+- Extend the transcription branch of `check_config` and `benchmark.run_transcription_case` to take the per-title options that `services/transcribe_options_service.py` validates: beam, min silence, VAD threshold, sensitivity, repeat guard, difficult audio, hallucination silence, initial prompt, vocal separation.
+- A missing option takes the app's default, not `transcribe_for_timing`'s.
+- Offer Qwen3-ASR and anime-whisper as Lab models.
+- Record the options in `benchmark_sessions.context_settings`, plus the app version and the model's identity (Whisper size or folder, Ollama digest, API model name), so a result can be traced and re-run.
 
-### A3. Sweep job
+### A3. Line timing scores and timing settings
 
-- Add a background job, launched through `jobs/`, that runs the coordinate-descent sweep for one stage and one golden set over the range table above. It repeats the default run to measure noise.
-- It runs configs one after another, so `MAX_CONFIGS` does not limit it.
-- Results go to `benchmark_sessions` and `benchmark_results`.
-- The recommendation shows the hold-out result and the margin rule, with an Approve action modelled on `model_reeval_service`.
+- **Scored only for clips with reference timings.** Timings must be accurate, or the app is tuned toward the mistakes.
+- **Timing references are made in Review's waveform**, not in a second editor in the Lab. Review already shows the waveform (`frontend/src/pages/workspace/stages/review/Waveform.tsx`, peaks from `/api/dramas/{id}/peaks`) with draggable line edges and nudge keys. The owner fixes a title's timing there, then adds that title's lines, with their start and end times and audio, to a test set (the A5 path). Clips that need timing are imported as a title first, timed in Review, then added.
+- **Measures:** median start and end error (ms); share of lines whose start and end are within 0.3 s; lines wrongly merged or split; missed lines; lines placed in silence. Reuse what `tools/asr_bench.py` already measures (`count_in_silence` and the merged/missed counts).
+- **Settings the sweep can tune for timing:** min silence and VAD threshold (where lines break); Whisper's speech pad (not passed today, so the library default of about 0.4 s applies); "Refine line timing" with the forced aligner, on or off; the split limits of 8 s and 40 characters (`segment_splitting.py`).
+- **Check the timing-flag thresholds** in `timing_drift.py` (`EARLY_START_S` and `LATE_END_S`, both 0.7 s) against the reference timings, instead of leaving them as guesses.
+- A timing win is judged on its own margin (to be set from the measured noise) and never traded silently for a worse CER.
+
+### A4. Sweep job
+
+- A background job (`jobs/` launch pattern) runs the coordinate-descent sweep over the range table for one stage and one set, repeating the default to measure noise.
+- Runs one test at a time, like `_run_plan`; the loaded Whisper model stays cached between passes, and passes are grouped by model so each model loads once. It is marked GPU-touching, so it waits for other GPU work.
+- **A time estimate before it starts**, from the total clip length, the models in the sweep and the number of passes (CPU or GPU). For paid engines it also shows the cost, as the Lab's `/estimate` already does, and it keeps to the Lab's cost cap.
+- **Stop and resume.** A long sweep can be cancelled and picked up later without redoing finished passes. Every finished pass is already saved as a run, so resuming skips the setups that have a finished run on the same cases.
+- **Winners are never applied automatically.** The recommendation shows the hold-out result, the margin rule and the per-tag breakdown. The app applies it only when the owner approves, and records the approval, as `model_reeval_service` does for models (`model_decisions`).
 - UI: a card in `frontend/src/pages/benchmark/`.
 
-### A4. Auto-tune uses references
+### A5. References from corrections and auto-tune
 
-When a title has reference lines, `autotune_service` scores its min-silence candidates by CER instead of by long-line count.
+- Build transcription cases from lines whose source text differs from `raw_transcript` (audio clipped per line), beside `benchmark_set_builder_service.py`.
+- Show each title's raw-to-edited CER, reusing `benchmark_scoring_service.error_rate`.
+- When a title has reference lines, `autotune_service` scores its min-silence candidates by CER instead of long-line count.
 
-### T1. Translation sweep and one set of defaults
+### T1. Translation tested the way titles are translated
 
-- The sweep covers batch size, context window, reflect, style preset and model.
+- Translation cases from one scene run as a batch in order, with the configured context window, and with a chosen series' glossary, style profile and hints, so these settings can be tested.
+- The sweep covers model, batch size, context window, reflect and style preset.
 - `workspace_job_service` and `bulk_translate` take the registry defaults instead of their own 6/3/20, unless the sweep says otherwise.
 
-### T2. Judge scores beside the results
+### T2. Judge scores and your own picks
 
-- Store judge scores in `benchmark_results`: an `ALTER TABLE ... ADD COLUMN` in `init_db`, with the column listed in `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py`.
-- The sweep then ranks by chrF and judge together.
+- Store judge scores in `benchmark_results` (ADD COLUMN, listed in `_INIT_DB_MIGRATED_COLUMNS`).
+- **Blind A/B:** the owner picks the better of two outputs without seeing which setup made them; the picks are stored and shown beside chrF and the judge. They also check whether the judge agrees with the owner.
+- Not now: more than one reference translation per case. Writing a second translation for every clip costs the owner more than it gains, and the blind A/B picks cover most of what it would fix.
 
-### T3. Translation-memory examples in the prompt
+### T3. End-to-end score
 
-- A sweep knob, off by default: pass the top matches at 0.85 similarity or above from `translation_memory.py` as few-shot examples through `translation_guide.build_style_guidelines`.
-- It becomes the default only if the T1 sweep shows a win.
+- Translate each clip's own transcription output (not the reference transcript) and score it against the reference translation, so a transcription setting is judged by what reaches the viewer.
 
-### T4. Temperature as a sweep knob
+### T4. Translation-memory examples and temperature
 
-- Add temperature as a sweep knob in `engine_backends/`.
-- It becomes a user setting only if a measured win needs one, with the sentence that CLAUDE.md asks for in that PR.
+- Sweep knob, off by default: the top matches at 0.85 or above from `translation_memory.py` as few-shot examples through `translation_guide.build_style_guidelines`. On by default only if the sweep shows a win.
+- Temperature as a sweep knob in `engine_backends/`; a user setting only if a measured win needs one, with the sentence CLAUDE.md asks for.
 
-### Later, only if the sweeps hit a ceiling
+## Where results are kept
 
-Real fine-tuning: LoRA on Whisper or on a local translation model. It needs a JSONL export of `edit_samples` and of the transcription cases, and a GPU.
+- **Runs and results.** Every run is saved in `library.db`: `benchmark_sessions` (the setup and totals) and `benchmark_results` (each case's output and score). Today the judge scores are the exception, in `app_settings`; T2 moves them in with the results.
+- **Clips.** Clips go in `library/benchmark_cases/`, the folder transcription cases already use (`db.BENCHMARK_DIR`). No transcription case can be added today, so every run so far is translation only.
+- **Backups.** A full library backup with media copies both the database tables and the clip folder, and a restore brings `benchmark_cases/` back. A per-user backup leaves the benchmark tables empty by design (`services/library_user_backup_service.py`: "this PC's test set"). A database-only backup has the tables but not the clips.
+- **Export.** None today. Step A1 adds CSV and JSON export.
+
+## Later, only if the sweeps hit a ceiling
+
+Real fine-tuning: LoRA on Whisper or a local translation model, from a JSONL export of the clip set and `edit_samples`, on a GPU. Speaker-label accuracy (diarization) is also not scored by any step here.
 
 ## Verification
 
@@ -131,4 +177,4 @@ Real fine-tuning: LoRA on Whisper or on a local translation model. It needs a JS
   - Run the area's tests (`tests/test_benchmark*.py`, `tests/test_autotune*.py` and so on) plus the guard set (`python tools/check_change.py`).
   - Frontend steps also run `npx tsc -b && npx vitest run`.
   - Tests are mocked and use `isolated_db`.
-- **Real runs:** GPU Whisper and paid keys are owed by the owner. A2 and A3 each come with a real-run checklist: build a set from one corrected title, run a sweep, and confirm the recommendation and the hold-out numbers look sane.
+- **Real runs:** GPU Whisper and paid keys are owed by the owner. A1, A2 and A4 each come with a real-run checklist: import a small clip set, run the default twice and one Arena comparison, run a short sweep, stop and resume it, and confirm the estimate, the recommendation and the hold-out numbers look sane.

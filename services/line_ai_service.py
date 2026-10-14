@@ -99,7 +99,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
 def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
              need_en: bool = True, check_cap: bool = True):
     drama = translate_run_service.require_drama(drama_id)
-    line = next((ln for ln in core.lines_from_rows(db.load_lines(drama_id))
+    line = next((ln for ln in db.load_line_objects(drama_id)
                  if ln.id == line_id), None)
     if line is None:
         raise NotFoundError(f"No line with id {line_id} in this title.")
