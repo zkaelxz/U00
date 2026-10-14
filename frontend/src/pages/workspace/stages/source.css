@@ -3,6 +3,9 @@
 .source-panel h3 { margin: 0; }
 .source-file { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; min-width: 0; }
 .source-file input[type='file'] { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
+/* The replace confirmation takes its own line: squeezed beside the Upload button its long label crowded the page edge. */
+.source-file > label { flex: 1 1 100%; display: flex; align-items: flex-start; gap: var(--space-2); }
+.source-file > label > input[type='checkbox'] { margin-top: 0.2rem; }
 /* start, not the default stretch: a tall cell (Voice detector's note and button) would otherwise stretch its
    neighbours' grid rows and push their inputs to the bottom, away from their labels. */
 .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-3); min-width: 0; align-items: start; }
@@ -40,8 +43,11 @@
 .source-manual p { margin: 0; }
 .source-subhead { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: 600; color: var(--muted); }
 /* One box per workflow: panels inside the Source stage are drawn flat, nested sections as dividers. */
-.stage-source details.section .panel,
-.stage-source section.panel[aria-label]:not([aria-label="Job"]) { border: 0; padding: 0; background: none; overflow: visible; }
+/* Last run and Advanced options keep their card: stripped of the padding but not the glass or shadow they drew, their text sat on the card edge. */
+.stage-source details.section .panel:not(.last-run, [aria-label="Advanced options"]),
+.stage-source section.panel[aria-label]:not([aria-label="Job"], .last-run, [aria-label="Advanced options"]) { border: 0; padding: 0; background: none; overflow: visible; }
+/* Tighter vertically than a default panel: the Tools tab is held to about one desktop screen (media-tabs.spec). */
+.stage-source section.panel[aria-label="Advanced options"] { padding-block: var(--space-1); }
 .stage-source details.section details.section { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding-inline: 0; margin: 0; }
 .source-group { display: grid; gap: var(--space-3); min-width: 0; }
 

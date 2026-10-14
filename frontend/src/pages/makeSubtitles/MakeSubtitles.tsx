@@ -223,20 +223,22 @@ export function MakeSubtitles() {
             </p>
           )}
           <div className="make-subtitles-fields">
-            <Field label="Audio or video file">
-              <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <Field label="Translator">
+              <select value={engine} onChange={(e) => setPickedEngine(e.target.value)}>
+                {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
+              </select>
             </Field>
             <Field label="Source language">
               <select value={LANGUAGES.includes(language) ? language : 'zh'} onChange={(e) => setLanguage(e.target.value)}>
                 {LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
               </select>
             </Field>
-            <Field label="Translator">
-              <select value={engine} onChange={(e) => setPickedEngine(e.target.value)}>
-                {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
-              </select>
-            </Field>
+            <div className="make-subtitles-file">
+              <Field label="Audio or video file">
+                <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              </Field>
+            </div>
           </div>
           {engine && (
             <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}
