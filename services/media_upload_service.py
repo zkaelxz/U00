@@ -575,7 +575,13 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     try:
         # ffmpeg writes into the title's folder, so this work folder only carries
         # the note that lets the next start stop it if the server dies first.
-        with storage.job_workdir(job_id):
+        # The note is a best-effort cleanup aid: a temp folder that can't be
+        # made must not fail an extraction that never needed one.
+        with contextlib.ExitStack() as note_holder:
+            try:
+                note_holder.enter_context(storage.job_workdir(job_id))
+            except OSError:
+                pass
             background_jobs.run_cancellable(job_id, cmd, cwd=ddir,
                                             timeout=EXTRACT_TIMEOUT_SECONDS)
         failed = _SAVE_FAILED

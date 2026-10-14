@@ -167,6 +167,18 @@ def test_the_extract_ffmpeg_is_noted_for_the_next_start(client, isolated_db, mon
     assert os.listdir(storage.temp_root()) == []
 
 
+def test_the_extract_still_runs_when_no_work_folder_can_be_made(client, isolated_db, monkeypatch):
+    import db
+    import storage
+
+    def no_room(*a, **kw):
+        raise OSError("read-only temp folder")
+    monkeypatch.setattr(storage, "new_workdir", no_room)
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4").json()["job_id"])["status"] == "done"
+    assert db.get_drama(did)["audio_filename"]
+
+
 def test_video_extract_cancel_is_cancelled_and_keeps_the_upload(client, isolated_db, monkeypatch):
     import db
 
