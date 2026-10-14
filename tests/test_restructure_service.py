@@ -341,10 +341,65 @@ class TestResegment:
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
         job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
-        assert job["status"] == "error"
+        # The edited line is left whole; it was the only split, so nothing is saved.
+        assert job["status"] == "done", job
+        assert job["result"] == {"changed": 0, "line_count": 2, "kept_your_edit": 1}
         rows = _rows(did)
         assert [r["id"] for r in rows] == ids and rows[1]["en"] == "typed meanwhile"
         assert not db.list_line_history(did)
+
+    def test_an_edit_mid_run_keeps_that_line_whole_and_saves_the_other_splits(self, monkeypatch):
+        did, ids = _seed([(LONG, ""), ("b", "B"), (LONG, "")])
+        real = resegment.resegment_lines
+
+        def slow(*a, **k):
+            out = real(*a, **k)
+            lines = db.load_line_objects(did)
+            lines[2].en = "typed meanwhile"
+            db.save_lines(did, lines, fields=("en",))
+            return out
+        monkeypatch.setattr(resegment, "resegment_lines", slow)
+        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        assert job["status"] == "done", job
+        assert job["result"]["changed"] == 1 and job["result"]["kept_your_edit"] == 1
+        rows = _rows(did)
+        assert len(rows) == 5 and ids[0] not in {r["id"] for r in rows}
+        assert [r["zh"] for r in rows[:3]] == ["我今天早上很早就起床了然后去公园跑步。"] * 3
+        assert (rows[3]["id"], rows[3]["en"]) == (ids[1], "B")
+        assert (rows[4]["id"], rows[4]["zh"], rows[4]["en"]) == (ids[2], LONG, "typed meanwhile")
+        assert [r["idx"] for r in rows] == list(range(5))
+        assert db.list_line_history(did)[0]["label"] == "before re-segment"
+
+    def test_a_paid_llm_split_is_saved_for_the_lines_not_edited_meanwhile(self, monkeypatch):
+        unpunctuated = "我" * 60
+        did, ids = _seed([(unpunctuated, ""), (unpunctuated, "")])
+        calls = []
+
+        def llm(text, engine, language, max_chars, bounds=None, usage_cb=None):
+            calls.append(text)
+            if len(calls) == 2:
+                lines = db.load_line_objects(did)
+                lines[1].en = "typed meanwhile"
+                db.save_lines(did, lines, fields=("en",))
+            half = len(text) // 2
+            return [(0, half), (half, len(text))]
+        monkeypatch.setattr(resegment, "llm_split_spans", llm)
+        monkeypatch.setattr(resegmentation_service, "_build_engine",
+                            lambda drama, engine, model: ("claude", object()))
+        job = _wait(resegmentation_service.start_resegmentation(did, ids, use_llm=True)["job_id"])
+        assert job["status"] == "done", job
+        assert len(calls) == 2
+        rows = _rows(did)
+        assert [r["zh"] for r in rows[:2]] == ["我" * 30] * 2
+        assert (rows[2]["id"], rows[2]["en"]) == (ids[1], "typed meanwhile")
+
+    def test_rules_only_needs_confirm_only_for_lines_the_rules_split(self, monkeypatch):
+        did, ids = _seed([("a", ""), (LONG, "translated")])
+        monkeypatch.setattr(resegment, "resegment_lines", lambda lines, *a, **k: (
+            [Line(**{**vars(ln), "merged_ids": list(ln.merged_ids)}) for ln in lines], []))
+        job = _wait(resegmentation_service.start_resegmentation(did, ids)["job_id"])
+        assert job["status"] == "done" and job["result"] == {"changed": 0}
+        assert _rows(did)[1]["en"] == "translated"
 
     def test_an_edit_racing_the_save_is_kept(self, monkeypatch):
         """Line edits don't take the drama lock, so one can land between the
@@ -365,7 +420,7 @@ class TestResegment:
         assert [r["id"] for r in _rows(did)] == ids and _notes(did) == {"公园": ids[1]}
 
     @pytest.mark.parametrize("confirm", [False, True])
-    def test_apply_refuses_a_split_that_now_loses_a_note(self, monkeypatch, confirm):
+    def test_apply_keeps_whole_a_line_given_a_note_mid_run(self, monkeypatch, confirm):
         did, ids = _seed([("a", ""), (LONG, "")])
         real = resegment.resegment_lines
 
@@ -374,10 +429,16 @@ class TestResegment:
                                              "note": "n"}])
             return real(*a, **k)
         monkeypatch.setattr(resegment, "resegment_lines", slow)
-        job = _wait(resegmentation_service.start_resegmentation(did, ids,
-                                                                confirm=confirm)["job_id"])
-        assert job["status"] == "error"
+        if confirm:
+            job = _wait(resegmentation_service.start_resegmentation(did, ids,
+                                                                    confirm=True)["job_id"])
+            assert job["status"] == "done" and job["result"]["kept_your_edit"] == 1
+        else:
+            # The rules split runs at the start, so the note is seen there.
+            with pytest.raises(InvalidInputError):
+                resegmentation_service.start_resegmentation(did, ids)
         assert [r["id"] for r in _rows(did)] == ids and _notes(did)["t"] == ids[1]
+        assert not db.list_line_history(did)
 
     def test_duplicate_start_409(self, monkeypatch):
         did, ids = _seed([("a", ""), (LONG, "")])
@@ -500,6 +561,6 @@ def test_a_background_resegment_refuses_a_tag_added_mid_run_with_no_orphan_snaps
     db.save_emotions(did, {0: {"emotion": "angry", "intensity": 0.9, "note": ""}})
     halves = [Line(idx=0, start=0.0, end=0.5, zh="a", en=""), Line(idx=1, start=0.5, end=1.0, zh="b", en="")]
     with pytest.raises(RuntimeError, match="emotion tag"):
-        resegmentation_service._apply_resegmented(did, halves + lines[1:], guard)
+        resegmentation_service._apply_resegmented(did, halves + lines[1:], {lines[0].id: 2}, guard)
     assert db.list_line_history(did) == []
     assert len(_rows(did)) == 2

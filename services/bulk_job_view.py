@@ -2,7 +2,8 @@
 import db
 import translate_engines
 
-CANCELLABLE = ("submitting",) + db.BULK_PENDING_STATUSES
+# "applying" too: a Cancel while results apply stops the next paid Reflect stage.
+CANCELLABLE = ("submitting",) + db.BULK_PENDING_STATUSES + ("applying",)
 
 
 def bulk_entry(job: dict) -> dict:

@@ -228,14 +228,17 @@ def _stage_chunks(job: dict, ids: list, engine):
         yield [ln.id for ln in batch], {ln.id: ln.zh for ln in batch}, instructions, batch_ctx, source_by_id
 
 
-def _submit_next_stage(job: dict, stage: str, batches: list, ids: list, en_at_submit_by_id: dict,
+def _submit_next_stage(job: dict, stage: str, build_batches, ids: list, en_at_submit_by_id: dict,
                        provider, max_tokens: int):
-    """None once submitted, else the (redacted) reason it wasn't."""
+    """None once submitted, else the (redacted) reason it wasn't. The
+    prompts are built inside the try so a failure building them counts as a
+    failed attempt (STAGE_SUBMIT_ATTEMPTS) instead of escaping the caller."""
     if provider is None:
         return f"{job['engine']} has no batch API"
-    if not batches:
-        return None
     try:
+        batches = build_batches()
+        if not batches:
+            return None
         submit_reflect_stage(job["drama_id"], stage, provider, batches, job["engine"],
                              job["model"], job["pipeline_id"], translate_args=job.get("translate_args"),
                              en_at_submit_by_id={lid: en_at_submit_by_id[lid] for lid in ids},
@@ -259,10 +262,11 @@ def _submit_next_stage(job: dict, stage: str, batches: list, ids: list, en_at_su
 def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_submit_by_id: dict,
                                  engine):
     provider = make_provider(job["engine"], engine)
-    batches = [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_reflection_prompt(
-                   instructions, batch_ctx, chunk, source_by_id, {lid: draft_by_id[lid] for lid in chunk}))
-               for chunk, zh_by_id, instructions, batch_ctx, source_by_id
-               in (_stage_chunks(job, ids, engine) if provider else ())]
+
+    def batches():
+        return [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_reflection_prompt(
+                    instructions, batch_ctx, chunk, source_by_id, {lid: draft_by_id[lid] for lid in chunk}))
+                for chunk, zh_by_id, instructions, batch_ctx, source_by_id in _stage_chunks(job, ids, engine)]
     return _submit_next_stage(job, "reflect", batches, ids, en_at_submit_by_id, provider, 2000)
 
 
@@ -312,12 +316,13 @@ def _apply_reflect_reflection(job: dict, results) -> dict:
 def _advance_to_expressive_stage(job: dict, ids: list, draft_by_id: dict, critique_by_id: dict,
                                  en_at_submit_by_id: dict, engine):
     provider = make_provider(job["engine"], engine)
-    batches = [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_expressive_prompt(
-                   instructions, batch_ctx, chunk, source_by_id,
-                   {lid: draft_by_id.get(lid, "") for lid in chunk},
-                   {lid: critique_by_id.get(lid) for lid in chunk}))
-               for chunk, zh_by_id, instructions, batch_ctx, source_by_id
-               in (_stage_chunks(job, ids, engine) if provider else ())]
+
+    def batches():
+        return [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_expressive_prompt(
+                    instructions, batch_ctx, chunk, source_by_id,
+                    {lid: draft_by_id.get(lid, "") for lid in chunk},
+                    {lid: critique_by_id.get(lid) for lid in chunk}))
+                for chunk, zh_by_id, instructions, batch_ctx, source_by_id in _stage_chunks(job, ids, engine)]
     return _submit_next_stage(job, "expressive", batches, ids, en_at_submit_by_id, provider, 4000)
 
 
@@ -328,10 +333,11 @@ def _stage_texts(job) -> dict:
     return {r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(job["id"])} if job else {}
 
 
-def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
+def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_check=None) -> str:
     """Submits the next Reflect stage (once per pipeline), returning job's new
     status. A failed submit holds "needs_resubmit"; past the cap or
-    STAGE_SUBMIT_ATTEMPTS the paid drafts are written."""
+    STAGE_SUBMIT_ATTEMPTS the paid drafts are written. cancel_check: the
+    polling job's own Cancel, which is only in memory until this records it."""
     nxt = "reflect" if job["stage"] == "faithful" else "expressive"
     rows = db.list_bulk_job_lines(job["id"])
     survivors = [r["line_id"] for r in rows
@@ -350,6 +356,10 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
                                last_error="Waiting for an API key to send the next Reflect stage.")
     _cap, error = translate_engines.resolve_cost_cap(
         None, monthly_cap_usd, db.get_month_spend() if monthly_cap_usd else 0.0)
+    if _cancelled(job["id"], cancel_check):
+        # Cancelled while this stage's results were being applied: the next
+        # paid stage is never sent.
+        return db.get_bulk_job(job["id"])["status"]
     if not error:
         en_at_submit = {r["line_id"]: r["en_at_submit"] for r in rows}
         texts = _stage_texts(job)
@@ -359,7 +369,11 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
             drafts = _stage_texts(sibling_stage_job(job["pipeline_id"], "faithful"))
             error = _advance_to_expressive_stage(job, survivors, drafts, texts, en_at_submit, engine)
         if error is None:
-            return _leave_applying(job["id"], "applied", result_summary=summary, last_error=None)
+            status = (db.get_bulk_job(job["id"])["status"] if _cancelled(job["id"], cancel_check)
+                      else _leave_applying(job["id"], "applied", result_summary=summary, last_error=None))
+            if status != "applied":
+                _cancel_orphaned_stage(job, nxt, engine)
+            return status
         summary["next_stage_attempts"] = summary.get("next_stage_attempts", 0) + 1
         if summary["next_stage_attempts"] < STAGE_SUBMIT_ATTEMPTS:
             return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
@@ -368,6 +382,32 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict) -> str:
     return _leave_applying(job["id"], "applied", result_summary=summary,
                            last_error=f"The next Reflect stage wasn't sent ({error}); "
                                       "the first-pass drafts were used instead.")
+
+
+def _cancelled(job_id: int, cancel_check) -> bool:
+    """True once this applying job was cancelled, in the database or by its
+    polling job (recorded here, so the Cancel wins over _leave_applying)."""
+    if cancel_check is not None and cancel_check():
+        db.set_bulk_job_status_if(job_id, ("applying",), "cancelled")
+    return db.get_bulk_job(job_id)["status"] != "applying"
+
+
+def _cancel_orphaned_stage(job: dict, stage: str, engine):
+    """A Cancel that landed while `stage` was being submitted left a paid
+    batch under a cancelled parent, which nothing would poll or cancel:
+    cancel it here and at the provider."""
+    child = sibling_stage_job(job["pipeline_id"], stage, skip_failed=True)
+    if child is None or not db.set_bulk_job_status_if(child["id"], ("submitted",), "cancelled"):
+        return
+    provider = make_provider(job["engine"], engine)
+    try:
+        provider.cancel(child["provider_batch_id"])
+        note = "Cancelled at the provider and here, with the stage before it."
+    except Exception as e:
+        note = ("Cancelled here with the stage before it, but the provider's own cancel call "
+                f"failed -- results that still arrive will be ignored. "
+                f"({translate_engines.redact_secrets(str(e))})")
+    db.update_bulk_job(child["id"], last_error=note)
 
 
 def _leave_applying(job_id: int, status: str, **fields) -> str:
