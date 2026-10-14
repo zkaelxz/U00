@@ -1,7 +1,10 @@
 /* Tabs: a tab row with an accent underline on the selected tab; 44px targets. */
 .ui-tabs { display: flex; gap: var(--space-2); border-bottom: 1px solid var(--border); }
 .ui-tab { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 44px; padding: var(--space-2) var(--space-4); border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: var(--weight-medium); cursor: pointer; }
-.ui-tab:hover { color: var(--text); }
+.ui-tab { border-radius: 0; }
+/* The global button:hover tints the background and recolours the border; a tab only darkens its label, and the underline stays the selected tab's alone. */
+.ui-tabs .ui-tab:hover:not(:disabled) { background: none; color: var(--text); border-bottom-color: transparent; }
+.ui-tabs .ui-tab[aria-selected="true"]:hover:not(:disabled) { border-bottom-color: var(--accent); }
 .ui-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 .ui-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* On a phone (Tabs.tsx) the short label shows and the full one stays in the accessible name. */
