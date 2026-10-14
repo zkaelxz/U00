@@ -65,7 +65,7 @@ test.describe('member without admin.library', () => {
     await expect(bar.getByRole('button', { name: 'Remove from list' })).toHaveCount(0)
 
     await page.goto('/#/library-tools')
-    await page.getByRole('group', { name: /Presets/ }).or(page.locator('summary', { hasText: 'Presets' })).first().click()
+    await page.getByRole('group', { name: /Profiles/ }).or(page.locator('summary', { hasText: 'Profiles' })).first().click()
     await expect(page.getByText('Fast draft')).toBeVisible()
     await expect(page.getByRole('button', { name: /^Rename/ })).toHaveCount(0)
     await expect(page.getByTestId('no-rename-note').first()).toBeVisible()

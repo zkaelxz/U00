@@ -90,6 +90,10 @@ class LibraryPreset(BaseModel):
     locale: Optional[str] = None
     default_female_pronouns: Optional[int] = None
     include_genre_notes: Optional[int] = None
+    # The profile's other settings (Translate run options, transcribe
+    # options) and whether New title preselects it.
+    options: Dict[str, Any] = Field(default_factory=dict)
+    is_default: bool = False
 
 
 class TimingPreferences(BaseModel):

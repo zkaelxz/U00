@@ -17,7 +17,7 @@ type CardInfo = { tab: LibraryToolsTab; title: string }
 // Cards are listed in the order they show; each tab starts with only its first card open.
 export const CARDS = {
   series: { tab: 'organize', title: 'Series' },
-  presets: { tab: 'organize', title: 'Presets' },
+  presets: { tab: 'organize', title: 'Profiles' },
   'voice-bank': { tab: 'organize', title: 'Voice bank' },
   'saved-manga': { tab: 'organize', title: 'Saved manga' },
   cost: { tab: 'activity', title: 'Cost by title' },

@@ -44,12 +44,13 @@ import { BackupTab } from './libraryTools/BackupTab'
 import { StorageTab } from './libraryTools/StorageTab'
 import { TabCard } from './libraryTools/TabCard'
 import { LinkCheckCard } from './libraryTools/LinkCheckCard'
+import { ProfileTools } from './libraryTools/ProfileTools'
 import { CARDS, LIBRARY_TOOLS_TABS, cardStorageKey, cardsOf, isLibraryToolsTab, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
 
 const ORGANIZE_EMPTY =
-  'No shared series, presets, voice-bank entries or saved manga yet. Make a series from a title\'s Details, '
+  'No shared series, profiles, voice-bank entries or saved manga yet. Make a series from a title\'s Details, '
   + 'save a preset from the Translate stage, save a voice to the voice bank from a character\'s voice, '
   + 'and save manga chapters as CBZ from Sources.'
 const ACTIVITY_EMPTY =
@@ -210,7 +211,7 @@ function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) 
   )
 }
 
-// Series, costs, reading history, presets, voice bank and backups: the Library's
+// Series, costs, reading history, profiles, voice bank and backups: the Library's
 // rarely used controls, each folded so people open them on purpose.
 export default function LibraryToolsPage() {
   useState(() => seedPageTabFolds('library-tools',
@@ -268,7 +269,7 @@ export default function LibraryToolsPage() {
       title="Library tools"
       className="library-page library-tools-page"
       back={<Breadcrumbs crumbs={routeCrumbs({ name: 'library-tools' })} />}
-      meta="Series, saved manga, costs, reading history, presets, backups, storage and the data folder. Titles and Continue stay on the Library page."
+      meta="Series, saved manga, costs, reading history, profiles, backups, storage and the data folder. Titles and Continue stay on the Library page."
       actions={<ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>}
       tabs={<Tabs label="Library tools" idPrefix="library-tools" tabs={LIBRARY_TOOLS_TABS} active={tab} onSelect={selectTab} />}
     >
@@ -305,15 +306,20 @@ export default function LibraryToolsPage() {
           </ul>
         </ToolSection>
         <ToolSection card="presets" ready={organizeReady} first={firstOf(organizeShown) === 1} count={presets.data?.items.length} error={presets.error}>
-          <DeletableList
+          <ProfileTools
+            presets={presets.data?.items}
             pc={pc}
-            help="Titles that used it keep their settings."
-            items={presets.data?.items.map((p) => ({
-              id: p.id, name: p.name, meta: p.translation_engine ? engineLabel(p.translation_engine) : null,
-            }))}
-            remove={deletePreset}
-            rename={renamePreset}
-            onDeleted={onChanged}
+            onChanged={onChanged}
+            list={(props) => (
+              <DeletableList
+                pc={pc}
+                help="Titles that used it keep their settings."
+                remove={deletePreset}
+                rename={renamePreset}
+                onDeleted={onChanged}
+                {...props}
+              />
+            )}
           />
         </ToolSection>
         <ToolSection card="voice-bank" ready={organizeReady} first={firstOf(organizeShown) === 2} count={voices.data?.items.length} error={voices.error}>

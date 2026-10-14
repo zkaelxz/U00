@@ -43,7 +43,7 @@ import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (bulk_job_view, bulk_submit_service, engine_routing_service,
-                      novel_files_service, ownership_service, paid_job_service,
+                      novel_files_service, ownership_service, paid_job_service, profile_service,
                       run_settings_service, settings_service, translate_service,
                       workspace_job_service)
 from services.service_errors import (
@@ -159,7 +159,7 @@ def get_translate_config(drama_id: int) -> dict:
         "default_female_pronouns": _saved_bool(drama.get("default_female_pronouns")),
         "include_genre_notes": _saved_bool(drama.get("include_genre_notes")),
         "translate_by_sentence": _saved_bool(drama.get("translate_by_sentence")),
-        "translate_by_sentence": _saved_bool(drama.get("translate_by_sentence")),
+        "translate_start": profile_service.translate_start(drama),
     }
 
 

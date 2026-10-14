@@ -60,6 +60,7 @@ def post_drama(payload: DramaCreateRequest, request: Request):
         result = drama_service.create_drama(**fields, principal=request.state.principal)
     return DramaCreateResult(**to_detail(result).model_dump(),
                              preset_defaults=result.get("preset_defaults"),
+                             profile_skipped=result.get("profile_skipped", []),
                              title_from_link=result.get("title_from_link"))
 
 

@@ -529,7 +529,9 @@ def _create_library_tool_tables(conn):
         -- A named, reusable snapshot of a Workspace configuration --
         -- captured at the library level (no drama_id/series_id), so it works
         -- across unrelated series/projects, not just the drama it was saved
-        -- from. Applying one is a one-time fill-in, never a live link: no
+        -- from. options_json holds the profile's other settings (Translate
+        -- run options, transcribe options; services/profile_service.py) and
+        -- is_default marks the one row New title preselects. Applying one is a one-time fill-in, never a live link: no
         -- other table references presets.id, so deleting or renaming a
         -- preset never touches any drama it was previously applied to.
         CREATE TABLE IF NOT EXISTS presets (
@@ -543,7 +545,9 @@ def _create_library_tool_tables(conn):
             default_female_pronouns INTEGER DEFAULT 0,
             include_genre_notes INTEGER DEFAULT 1,
             created_at TEXT,
-            updated_at TEXT
+            updated_at TEXT,
+            options_json TEXT,
+            is_default INTEGER DEFAULT 0
         );
 
         -- History for the standalone translate tool -- not tied to

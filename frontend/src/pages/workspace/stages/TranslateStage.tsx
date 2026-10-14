@@ -43,6 +43,7 @@ import { useStage } from '../StageContext'
 import { MediaTabPanel } from './MediaTabPanel'
 import {
   applyPresetToForm,
+  applyStartToForm,
   applyTierToForm,
   buildEstimateParams,
   estimateKeyFor,
@@ -144,8 +145,8 @@ function advancedSummary(f: RunForm, base: RunForm, reviewFirst: boolean): strin
   return parts.length ? parts.join(' · ') : 'defaults'
 }
 
-// "Save as preset". Captures engine, model, style,
-// locale and the two toggles. A taken name asks before replacing it.
+// "Save as profile". Captures every field of the form but the English variant
+// (see buildPresetBody). A taken name asks before replacing it.
 function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -164,7 +165,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
       (r) => {
         setError(null)
         setTaken(null)
-        setSaved(`${r.replaced ? 'Replaced' : 'Saved'} preset "${r.preset.name}".`)
+        setSaved(`${r.replaced ? 'Replaced' : 'Saved'} profile "${r.preset.name}".`)
         setOpen(false)
         setName('')
       },
@@ -180,13 +181,13 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
     <div className="advanced-wide">
       {!open ? (
         <div className="check-row">
-          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
-          <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any title.</span>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setOpen(true); setSaved(null) }}>Save as profile…</button>
+          <span className="muted">Saves this form (engine, model, style, the guidance toggles and the options below) to start any title from. The English variant and the glossary are not saved.</span>
           {saved && <span role="status">{saved}</span>}
         </div>
       ) : (
         <div className="fallback-row">
-          <Field label="Preset name">
+          <Field label="Profile name">
             <input
               type="text"
               maxLength={PRESET_NAME_MAX}
@@ -196,14 +197,14 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
               onKeyDown={(e) => { if (e.key === 'Enter') save(false) }}
             />
           </Field>
-          <button type="button" className="primary" disabled={pending} onClick={() => save(false)}>Save preset</button>
+          <button type="button" className="primary" disabled={pending} onClick={() => save(false)}>Save profile</button>
           <button type="button" className={buttonClass('ghost')} onClick={() => { setOpen(false); setTaken(null); setProblem(null) }}>Cancel</button>
         </div>
       )}
       {open && problem && <p className="error" role="alert">{problem}</p>}
       {open && taken && (
         <p className="error" role="alert">
-          A preset named "{taken}" already exists.{' '}
+          A profile named "{taken}" already exists.{' '}
           <button type="button" className={buttonClass('danger', 'sm')} disabled={pending} onClick={() => save(true)}>Replace it</button>
         </p>
       )}
@@ -262,7 +263,7 @@ function RunPanel({
   retryRef: MutableRefObject<(() => void) | null>
 }) {
   const { dramaId, drama } = useStage()
-  const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
+  const [base] = useState<RunForm>(() => applyStartToForm(initialForm(config, loadPresetStart(dramaId)), config.translate_start, config))
   // What the owner last chose for this title, restored after a reload.
   const { raw: rawDraft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, TRANSLATE_DRAFT_STAGE, {})
   const [restored] = useState(() => restoreRunOptions(rawDraft, base, config))

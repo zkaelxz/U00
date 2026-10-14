@@ -6,8 +6,8 @@ import { openFold } from './foldHelpers'
 // (the seeded three stay untouched); page.route mocks for job states,
 // restore errors, remote mode and presets.
 
-// A Library tools fold's summary ("Presets" plus its count badge).
-const presetsSummary = (page: Page) => page.locator('summary', { hasText: 'Presets' })
+// A Library tools fold's summary ("Profiles" plus its count badge).
+const presetsSummary = (page: Page) => page.locator('summary', { hasText: 'Profiles' })
 
 async function createDrama(page: Page, title: string): Promise<number> {
   const r = await page.request.post('/api/dramas', { data: { source_language: 'zh', title_en: title } })
@@ -206,7 +206,7 @@ test('preset delete is two-step: first press makes no call, second sends confirm
     return r.fulfill({ json: { preset_id: 7, deleted: true } })
   })
   await page.goto('/#/library-tools')
-  await openFold(page, 'Presets')
+  await openFold(page, 'Profiles')
   await expect(page.getByText('Titles that used it keep their settings.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Delete Wuxia preset' }).click()
@@ -246,7 +246,7 @@ test('a failed delete re-enables the first step with focus; one press then only 
     return r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job is running.' } } })
   })
   await page.goto('/#/library-tools')
-  await openFold(page, 'Presets')
+  await openFold(page, 'Profiles')
   await page.getByRole('button', { name: 'Delete Slow preset' }).click()
   await page.getByRole('button', { name: 'Confirm delete Slow preset' }).click()
   const first = page.getByRole('button', { name: 'Delete Slow preset' })

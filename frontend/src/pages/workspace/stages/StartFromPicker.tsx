@@ -12,7 +12,7 @@ import type {
   TranslateRunConfig,
   WorkflowTierApplied,
 } from '../../../types/translateStage'
-import { savePresetStart } from '../translateForm'
+import { skippedNote } from '../translateForm'
 import { useStage } from '../StageContext'
 
 export interface StartOption {
@@ -58,10 +58,7 @@ export async function applyStart(dramaId: number, value: string): Promise<StartA
   const parsed = parseStartValue(value)
   if (!parsed) return null
   if (parsed.kind === 'tier') return { kind: 'tier', tier: await applyWorkflowTier(dramaId, parsed.key) }
-  const preset = await applyTranslatePreset(dramaId, parsed.id)
-  // Kept so the preset's values come back on later visits, as for a preset chosen at creation.
-  savePresetStart(dramaId, preset)
-  return { kind: 'preset', preset }
+  return { kind: 'preset', preset: await applyTranslatePreset(dramaId, parsed.id) }
 }
 
 // The Style select doubles as the way to start from a tier or a saved preset:
@@ -101,7 +98,7 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
             setApplied(appliedText(r.tier))
             onTierApplied(r.tier)
           } else {
-            setApplied(`Applied preset "${r.preset.name}". Nothing has started.`)
+            setApplied(`Applied profile "${r.preset.name}". Nothing has started.${skippedNote(r.preset.skipped)}`)
             onPresetApplied(r.preset)
           }
         },
@@ -130,7 +127,7 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
             </optgroup>
           )}
           {groups.presets.length > 0 && (
-            <optgroup label="Start from my preset">
+            <optgroup label="Start from my profile">
               {groups.presets.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </optgroup>
           )}

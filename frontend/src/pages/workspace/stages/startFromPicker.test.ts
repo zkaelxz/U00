@@ -4,10 +4,8 @@ vi.mock('../../../api/translateStage', () => ({
   applyWorkflowTier: vi.fn(),
   applyTranslatePreset: vi.fn(),
 }))
-vi.mock('../translateForm', () => ({ savePresetStart: vi.fn() }))
 
 import { applyTranslatePreset, applyWorkflowTier } from '../../../api/translateStage'
-import { savePresetStart } from '../translateForm'
 import { applyStart, parseStartValue, startOptions } from './StartFromPicker'
 
 const tiers = [{ key: 'draft', label: 'Draft' }, { key: 'standard', label: 'Standard' }] as never
@@ -45,13 +43,12 @@ describe('applyStart', () => {
     expect(applyTranslatePreset).not.toHaveBeenCalled()
     expect(r).toEqual({ kind: 'tier', tier: { tier: 'draft' } })
   })
-  it('applies a preset and remembers it for later visits', async () => {
+  it('applies a preset through applyTranslatePreset only (the server saves it on the title)', async () => {
     const p = { id: 7, name: 'Wuxia' }
     vi.mocked(applyTranslatePreset).mockResolvedValue(p as never)
     const r = await applyStart(3, 'preset:7')
     expect(applyTranslatePreset).toHaveBeenCalledWith(3, 7)
     expect(applyWorkflowTier).not.toHaveBeenCalled()
-    expect(savePresetStart).toHaveBeenCalledWith(3, p)
     expect(r).toEqual({ kind: 'preset', preset: p })
   })
   it('does nothing for an empty choice', async () => {

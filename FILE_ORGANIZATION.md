@@ -421,7 +421,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `transcribe_options_service.py` (what a transcribe run may be asked to do: tuning defaults, the Whisper sizes a title may store, and validation of saved config fields and run choices)
 - `transcribe_service.py`
 - `transcribe_speed_service.py` (remembered speed of finished transcription and speaker-detection runs per model and device, behind the time estimate)
-- `translate_preset_service.py` (apply a workflow tier or preset to a title; save the Translate form as a preset)
+- `translate_preset_service.py` (apply a workflow tier or profile to a title; save, edit and default the saved profiles)
+- `profile_service.py` (translation setting profiles: the options a profile may hold, checked with the series-defaults rules, and what applying one writes to a title)
 - `translate_run_service.py`
 - `translate_service.py`
 - `translate_thinking_service.py`

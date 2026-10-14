@@ -9,7 +9,7 @@ test('New title sends the Summary (P06)', async ({ page }) => {
   await page.getByRole('button', { name: 'New title' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('E2E Summary Title')
-  await sheet.getByText('Credits, summary, series and preset').click()
+  await sheet.getByText('Credits, summary and series').click()
   await sheet.getByRole('textbox', { name: 'Summary' }).fill('  Two cultivators solve a mystery.  ')
   const req = page.waitForRequest((r) => r.url().endsWith('/api/dramas') && r.method() === 'POST')
   await sheet.getByRole('button', { name: 'Create title', exact: true }).click()

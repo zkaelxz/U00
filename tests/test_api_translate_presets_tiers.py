@@ -254,7 +254,8 @@ def test_apply_preset_saves_engine_and_returns_form_values(client, isolated_db, 
     assert r.json() == {"drama_id": did, "preset_id": pid, "name": "Mine",
                         "translation_engine": "gemini", "engine_model": "gemini-2.5-pro",
                         "style_preset": "subtitle", "locale": "en-GB",
-                        "default_female_pronouns": True, "include_genre_notes": False}
+                        "default_female_pronouns": True, "include_genre_notes": False,
+                        "options": {}, "skipped": []}
     d = db.get_drama(did)
     assert d["translation_engine"] == "gemini" and d["title_zh"] == "D"
 
