@@ -24,8 +24,8 @@ import translation_finish
 import emotion
 import core as core_module
 from services import (job_timing_service, language_pack_service, line_provenance_service,
-                      novel_files_service, run_settings_service, settings_service,
-                      timing_settings_service, vdb_names_service)
+                      novel_files_service, ownership_service, run_settings_service,
+                      settings_service, timing_settings_service, vdb_names_service)
 
 
 def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):
@@ -44,13 +44,18 @@ def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronou
 
 
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
-                            include_genre_notes=None, default_female_pronouns=None):
+                            include_genre_notes=None, default_female_pronouns=None,
+                            principal=None):
     """(glossary_terms, style_guidelines, character_names) for one drama,
     shared by the app's runs: series glossary, style
     profile, emotion guidance, gender hints, speaker labels and
     the title's language packs.
     include_genre_notes/default_female_pronouns are the Translate toggles;
-    None means the title's saved choice (resolve_style_toggles)."""
+    None means the title's saved choice (resolve_style_toggles).
+    principal: whom the run is for; the learned style is left out unless
+    they may see it (ownership_service.sees_learned_style). A job thread
+    has no acting principal, so its starter passes the one captured at
+    start (ownership_service.acting_principal)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
@@ -58,7 +63,9 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     series_chars = db.list_series_characters(series_id) if series_id else []
     drama_chars = db.list_characters_with_series_names(drama_id)
     prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
-    learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {})) if prof else ""
+    learned = ""
+    if prof and ownership_service.sees_learned_style(principal, prof.get("profile")):
+        learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {}))
     emap = db.load_emotions(drama_id) if with_emotions else None
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
     style_guidelines = tguide.build_style_guidelines(
@@ -238,7 +245,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                                   models: dict = None, monthly_cap: float = 0,
                                   expected_engines: dict = None, allow_paid_summary: bool = True,
                                   include_genre_notes: bool = None,
-                                  default_female_pronouns: bool = None):
+                                  default_female_pronouns: bool = None, principal=None):
     """Translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
@@ -360,7 +367,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         style_preset = "novel" if is_novel else "audio_drama"
         glossary_terms, style_guidelines, _ = build_run_style_context(
             did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
-            default_female_pronouns=default_female_pronouns)
+            default_female_pronouns=default_female_pronouns, principal=principal)
         defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
         novel_reference = novel_files_service.read_reference_text(did, drama)
 

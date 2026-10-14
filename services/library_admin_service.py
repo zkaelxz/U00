@@ -338,7 +338,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         models={}, monthly_cap=cap, expected_engines=expected_engines,
         allow_paid_summary=allow_paid_summary,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns)
+        default_female_pronouns=default_female_pronouns, principal=principal)
     if not started:
         raise ConflictError("A bulk translation is already running.")
     for did in queued:
