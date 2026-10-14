@@ -19,10 +19,12 @@ describe('comic api', () => {
     await comicApi.pages(4, f)
     await comicApi.regions(4, 17, f)
     await comicApi.progress(4, f)
+    await comicApi.sourceChapters(4, f)
     expect(calls.map((c) => c.url)).toEqual([
       '/api/scanlate/dramas/4/pages',
       '/api/scanlate/dramas/4/pages/17/regions',
       '/api/scanlate/dramas/4/progress',
+      '/api/scanlate/dramas/4/source-chapters',
     ])
     expect(calls.every((c) => !c.init?.method)).toBe(true)
   })

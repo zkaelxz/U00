@@ -38,7 +38,7 @@ def test_the_worker_posts_the_page_to_title_with_the_three_options_on_by_default
     assert out["path"] == "/title"
     assert out["body"] == {"url": "https://www.twmanga.com/c/1?x=1", "titles": ["一人之下"],
                            "language": "zh", "kind": "comic",
-                           "create": True, "fill": True, "series": True}
+                           "chapter_links": [], "create": True, "fill": True, "series": True}
     assert out["reply"]["ok"] is True and out["reply"]["data"]["drama_id"] == 9
     assert out["settings"] == {"create": True, "fill": True, "series": True}
 

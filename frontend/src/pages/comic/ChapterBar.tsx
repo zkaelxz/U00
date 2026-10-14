@@ -12,6 +12,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Sheet } from '../../components/Sheet'
 import { SourceLink } from '../discover/ExternalLink'
+import { SourceChapterList } from './SourceChapterList'
 import type { ComicChapter, ComicPageInfo } from '../../types/comic'
 import {
   chapterIndex,
@@ -134,6 +135,7 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
               />
             </Field>
           )}
+          {open && <SourceChapterList dramaId={dramaId} onImported={onChanged} />}
           <p className="muted">
             Hide credit and promo pages that are not part of the story. They stay saved, are skipped when translating, and can be restored.
           </p>

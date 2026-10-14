@@ -205,3 +205,10 @@
   .comic-chapters { padding-block: var(--space-1); }
   .comic-chapter-pos { flex: 1 1 auto; text-align: center; }
 }
+
+.comic-source-chapters {
+  max-height: 14rem;
+  overflow-y: auto;
+  margin: 0;
+  padding-left: 1.25rem;
+}
