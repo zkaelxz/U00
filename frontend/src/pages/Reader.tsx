@@ -16,6 +16,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
+import { buttonClass } from '../components/uiClasses'
 import { SourceLink } from './discover/ExternalLink'
 import { useDelayedSave } from '../hooks/useDelayedSave'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -409,7 +410,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       ) : (
         <div className="reader-top">
           <Breadcrumbs crumbs={routeCrumbs({ name: 'read', id, page: null }, { title })} />
-          <SourceLink href={sourceUrl} dramaId={id} />
+          <SourceLink href={sourceUrl} dramaId={id} className={buttonClass('secondary', 'sm', 'reader-source')} />
           {aa}
         </div>
       )}
