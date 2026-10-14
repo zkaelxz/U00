@@ -116,10 +116,13 @@ def refusal(info, max_seconds=MAX_DURATION_SECONDS, part=None):
 
 
 def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts=False,
-                audio_only=True) -> dict:
+                audio_only=True, proxy=None) -> dict:
     """The options merged over video_download's own (they win). Never any
     cookie option, and every default extractor except `generic`. `part`
-    (start, end-or-None seconds) downloads that section only."""
+    (start, end-or-None seconds) downloads that section only. `proxy`: every
+    request yt-dlp makes goes through it, because yt-dlp resolves DNS itself
+    after the parent's URL check and a rebinding answer would otherwise
+    reach a private address."""
     opts = {
         "allowed_extractors": ["default", "-generic"],
         "noplaylist": True,
@@ -136,6 +139,8 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
         "quiet": True,
         "no_warnings": True,
     }
+    if proxy:
+        opts["proxy"] = proxy
     if part:
         from yt_dlp.utils import download_range_func
         opts["download_ranges"] = download_range_func(
@@ -302,7 +307,8 @@ def run_worker(spec: dict, emit) -> None:
             spec["url"], spec["tmp"], audio_only=spec["audio_only"],
             title_cb=lambda t: emit({"title": t}),
             extra_opts=ydl_options(spec["tmp"], hook, match_filter, part=part,
-                                   exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only),
+                                   exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only,
+                                   proxy=spec.get("proxy")),
             cookies_browser=spec.get("cookies_browser"), cookies_file=spec.get("cookies_file"))
     except ImportError:
         emit({"error": "yt-dlp is not installed", "missing": True})

@@ -327,6 +327,16 @@ def test_the_download_child_is_noted_in_a_held_folder_for_the_next_start(client,
     _no_tmp(did)
 
 
+def test_the_download_goes_through_the_guarded_egress_proxy(client, env):
+    # yt-dlp resolves DNS itself after check_public_url, so its requests must
+    # reach the network only through the proxy that re-checks every connect.
+    did = _drama()
+    assert _run(client, did)["status"] == "done"
+    proxy_url = FakeYDL.last_opts["proxy"]
+    assert proxy_url.startswith("http://baihe:") and "@127.0.0.1:" in proxy_url
+    _no_tmp(did)
+
+
 def test_download_failure_hides_raw_text(client, env, monkeypatch):
     def boom(self, url, download=True):
         raise RuntimeError(f"HTTP 403 for {URL} at C:\\Users\\kae\\x")
