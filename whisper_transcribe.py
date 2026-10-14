@@ -4,7 +4,6 @@ path, the opt-in Groq cloud path and the Whisper prompt/sensitivity settings.
 """
 
 import json
-import math
 import re
 
 import whisper_models
@@ -271,11 +270,16 @@ class GroqTranscriptionError(RuntimeError):
     raw requests/HTTP exception."""
 
 
+# Far past any file Groq accepts (25 MB of audio); a later time is garbage.
+_GROQ_MAX_SECONDS = 7 * 24 * 3600.0
+
+
 def _groq_segments(segments) -> list:
     """Groq's segments as [{"start", "end", "text"}], blank ones left out. A
     reply of another shape is a GroqTranscriptionError, not a KeyError deep in
-    the job. A segment timed NaN or Infinity (json.loads accepts both) is
-    dropped: those times would crash every subtitle export later."""
+    the job. A segment timed NaN, Infinity (json.loads accepts both), below
+    zero, backwards or absurdly late is dropped: those times would crash or
+    garble every subtitle export later."""
     shape = "Groq's reply didn't have the expected segments."
     if not isinstance(segments, list):
         raise GroqTranscriptionError(shape)
@@ -283,12 +287,16 @@ def _groq_segments(segments) -> list:
     for seg in segments:
         if not isinstance(seg, dict) or not isinstance(seg.get("text"), str):
             raise GroqTranscriptionError(shape)
-        times = (seg.get("start"), seg.get("end"))
-        if not all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in times):
+        raw = (seg.get("start"), seg.get("end"))
+        if not all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in raw):
             raise GroqTranscriptionError(shape)
+        try:
+            start, end = float(raw[0]), float(raw[1])
+        except OverflowError:   # an integer too large for a float
+            raise GroqTranscriptionError(shape) from None
         text = seg["text"].strip()
-        if text and all(math.isfinite(t) for t in times):
-            result.append({"start": times[0], "end": times[1], "text": text})
+        if text and 0 <= start <= end <= _GROQ_MAX_SECONDS:
+            result.append({"start": start, "end": end, "text": text})
     return result
 
 

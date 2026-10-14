@@ -1358,9 +1358,24 @@ class TestTranscribeWithGroq:
 
         assert result == [{"start": 2.0, "end": 3.0, "text": "Kept."}]
 
+    def test_negative_backwards_and_absurd_times_are_dropped(self, monkeypatch, tmp_path):
+        import whisper_transcribe
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
+            segments=[{"start": -1.0, "end": 1.0, "text": "Before the start."},
+                      {"start": 5.0, "end": 4.0, "text": "Backwards."},
+                      {"start": 0.0, "end": 1e12, "text": "Years long."},
+                      {"start": 2, "end": 3, "text": "Kept."}]))
+
+        result = whisper_transcribe.transcribe_with_groq(str(audio), "en", "fake-key")
+
+        assert result == [{"start": 2.0, "end": 3.0, "text": "Kept."}]
+
     @pytest.mark.parametrize("segments", [
         None, "x", [{"end": 1.0, "text": "no start"}], [{"start": "0", "end": 1.0, "text": "a"}],
-        [{"start": 0.0, "end": 1.0, "text": None}], ["not a segment"]])
+        [{"start": 0.0, "end": 1.0, "text": None}], ["not a segment"],
+        [{"start": 0, "end": 10 ** 400, "text": "too big for a float"}]])
     def test_an_unexpected_reply_shape_is_a_groq_error(self, monkeypatch, tmp_path, segments):
         import whisper_transcribe
 

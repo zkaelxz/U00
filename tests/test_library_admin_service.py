@@ -2294,7 +2294,7 @@ def test_single_delete_refused_while_backing_up(isolated_db, job_id):
     gate = threading.Event()
     assert job_launch.start_job(job_id, gate.wait, 5)
     try:
-        with pytest.raises(ConflictError):
+        with pytest.raises(ConflictError, match="Try again when the backup finishes"):
             drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
     finally:
         gate.set()
