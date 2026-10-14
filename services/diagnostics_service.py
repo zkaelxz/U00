@@ -47,6 +47,11 @@ def _job_summary(job_id: str, job: dict) -> dict:
     }
 
 
+def get_gpu_reading() -> dict:
+    """Just the GPU name and memory, without the rest of the overview."""
+    return diagnostics_torch.gpu_reading()
+
+
 def get_diagnostics_overview() -> dict:
     """{dependencies, file_completeness, library_writable, gpu,
     model_engine_versions, running_jobs, recent_log_lines} -- the same

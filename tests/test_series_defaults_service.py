@@ -370,3 +370,34 @@ def test_apply_never_touches_a_title_the_caller_cannot_edit(people):
     assert (r["title_count"], r["titles_changed"]) == (1, 1)
     assert db.get_drama(mine)["beam_size"] == 8
     assert db.get_drama(hidden)["beam_size"] == 5
+
+
+# --- paths that join a series by a site-given name ------------------------
+
+class TestSiteNamedSeriesJoin:
+    def test_link_details_series_gives_the_title_the_series_defaults(self, people):
+        from services import link_details_service
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        svc.set_defaults(people["a"], s, GOOD)
+        d = db.create_drama(title_en="Old", source_language="ko", owner_user_id=people["a_id"])
+        link_details_service.apply(d, {"series": "Saga"}, principal=people["a"])
+        row = db.get_drama(d)
+        assert row["series_id"] == s and row["default_female_pronouns"] == 1
+
+    def test_extension_join_gives_the_title_the_series_defaults(self, people):
+        from services import extension_title_service
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        svc.set_defaults(people["a"], s, GOOD)
+        d = db.create_drama(title_en="Old", source_language="ko", owner_user_id=people["a_id"])
+        assert extension_title_service._join_series(d, "Saga") == s
+        assert db.get_drama(d)["default_female_pronouns"] == 1
+
+    def test_a_series_without_defaults_leaves_the_title_unchanged(self, people):
+        from services import extension_title_service
+        db.create_series("Plain", owner_user_id=people["a_id"])
+        d = db.create_drama(title_en="Old", source_language="ko", owner_user_id=people["a_id"])
+        before = db.get_drama(d)
+        extension_title_service._join_series(d, "Plain")
+        after = db.get_drama(d)
+        assert after["default_female_pronouns"] == before["default_female_pronouns"]
+        assert after["beam_size"] == before["beam_size"]

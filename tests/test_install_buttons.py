@@ -114,6 +114,30 @@ class TestExternalGpuLoad:
         out = diagnostics_torch.with_driver_vram_used({"available": True, "name": "RTX", "vram_total_gb": 8.0})
         assert (out["vram_used_gb"], out["vram_total_gb"]) == (6.0, 24.0)
 
+    def test_overview_name_and_memory_come_from_the_same_row_on_a_two_gpu_pc(self, monkeypatch):
+        # Two cards; torch's current_device could be the second, but the memory
+        # shown is row 0's, so the name must be row 0's too.
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured", self._fake_run(
+            "90, 6144, 24576, NVIDIA GeForce RTX 4090\n4, 300, 8192, NVIDIA GeForce RTX 3060\n"))
+        out = diagnostics_torch.with_driver_vram_used(
+            {"available": True, "name": "NVIDIA GeForce RTX 3060", "vram_total_gb": 8.0})
+        assert (out["name"], out["vram_used_gb"], out["vram_total_gb"]) == (
+            "NVIDIA GeForce RTX 4090", 6.0, 24.0)
+
+    def test_gpu_reading_is_name_and_memory_of_one_card(self, monkeypatch):
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics_torch, "run_captured", self._fake_run(
+            "90, 6144, 24576, NVIDIA GeForce RTX 4090\n4, 300, 8192, NVIDIA GeForce RTX 3060\n"))
+        assert diagnostics_torch.gpu_reading() == {
+            "found": True, "name": "NVIDIA GeForce RTX 4090",
+            "vram_used_gb": 6.0, "vram_total_gb": 24.0}
+
+    def test_gpu_reading_without_nvidia_smi_is_not_found(self, monkeypatch):
+        monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: None)
+        assert diagnostics_torch.gpu_reading() == {
+            "found": False, "name": None, "vram_used_gb": None, "vram_total_gb": None}
+
     def test_overview_reads_share_one_nvidia_smi_run_within_the_cache_window(self, monkeypatch):
         calls = []
         monkeypatch.setattr(diagnostics_torch.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -153,3 +177,22 @@ class TestExternalGpuLoad:
         assert diagnostics_torch.with_driver_vram_used(dict(gpu)) == gpu
 
 
+
+
+def test_gpu_route_is_local_only_and_returns_just_the_reading(monkeypatch, isolated_db):
+    from fastapi.testclient import TestClient
+    from api.server import create_app
+    from api.api_config import ApiSettings
+    from services import diagnostics_service
+    monkeypatch.setattr(diagnostics_service, "get_gpu_reading",
+                        lambda: {"found": True, "name": "RTX", "vram_used_gb": 1.0,
+                                 "vram_total_gb": 8.0})
+    local = TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
+                       client=("127.0.0.1", 5000),
+                       headers={"X-Baihe-Local": "1"})
+    r = local.get("/api/diagnostics/gpu")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"found": True, "name": "RTX", "vram_used_gb": 1.0, "vram_total_gb": 8.0}
+    remote = TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
+                        client=("203.0.113.9", 5000))
+    assert remote.get("/api/diagnostics/gpu").status_code in (401, 403)

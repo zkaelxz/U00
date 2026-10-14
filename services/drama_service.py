@@ -323,6 +323,13 @@ def _inherit_series_defaults(how, drama_id, series_id, **kw) -> None:
         log.warning("Could not apply series defaults to title %s", drama_id, exc_info=True)
 
 
+def inherit_series_defaults_on_join(drama_id, series_id) -> None:
+    """For paths that put a title in a series without update_drama_metadata
+    (a site-named series from link details or the extension): the same
+    fill-only-blanks inheritance a move gets."""
+    _inherit_series_defaults("inherit_moved", drama_id, series_id)
+
+
 def set_source_url_once(drama_id, url) -> bool:
     """Records where an import came from, only while the title has no link,
     so what the owner typed is never overwritten. Stores the display-safe

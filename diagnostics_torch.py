@@ -91,7 +91,8 @@ def with_driver_vram_used(gpu: dict) -> dict:
     torch.cuda.memory_allocated() only sees the process that asks, and
     transcription runs in a child, so it read 0 during real work; the driver
     counts every program. Both numbers come from nvidia-smi's first GPU so
-    they describe one card; torch's current_device can be another one."""
+    they describe one card; torch's current_device can be another one, so the
+    name is taken from that same row too."""
     if not gpu.get("available"):
         return gpu
     load = _recent_driver_load()
@@ -101,7 +102,20 @@ def with_driver_vram_used(gpu: dict) -> dict:
     else:
         gpu["vram_used_gb"] = load["memory_used_mb"] / 1024
         gpu["vram_total_gb"] = load["memory_total_mb"] / 1024
+        if load.get("name"):
+            gpu["name"] = load["name"]
     return gpu
+
+
+def gpu_reading() -> dict:
+    """Name and memory of the first nvidia-smi GPU, read in one query so they
+    describe one card (no torch import, no full diagnostics)."""
+    load = _recent_driver_load()
+    if load is None:
+        return {"found": False, "name": None, "vram_used_gb": None, "vram_total_gb": None}
+    return {"found": True, "name": load.get("name"),
+            "vram_used_gb": load["memory_used_mb"] / 1024,
+            "vram_total_gb": load["memory_total_mb"] / 1024}
 
 
 # Importing torch or ctranslate2 in the server opens a CUDA context that keeps
@@ -206,7 +220,7 @@ EXTERNAL_GPU_BUSY_MIN_FREE_MB = 1024
 
 
 def external_gpu_load() -> dict | None:
-    """Real utilization/VRAM for the first GPU nvidia-smi reports, or None
+    """Real utilization/VRAM (and name) for the first GPU nvidia-smi reports, or None
     if nvidia-smi isn't on PATH or the query fails for any reason --
     best-effort, same as the rest of this module's GPU detection, never
     raises. Deliberately reads the driver directly rather than anything
@@ -217,14 +231,19 @@ def external_gpu_load() -> dict | None:
         return None
     try:
         result = run_captured(
-            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total,name",
              "--format=csv,noheader,nounits"], timeout=5)
         if result.timed_out or result.returncode != 0:
             return None
         line = result.stdout.strip().splitlines()[0]
-        util_percent, used_mb, total_mb = (float(x.strip()) for x in line.split(","))
-        return {"utilization_percent": util_percent, "memory_used_mb": used_mb,
+        # Name last: it is the one text column and may hold a comma.
+        fields = [x.strip() for x in line.split(",", 3)]
+        util_percent, used_mb, total_mb = (float(x) for x in fields[:3])
+        load = {"utilization_percent": util_percent, "memory_used_mb": used_mb,
                 "memory_total_mb": total_mb, "memory_free_mb": total_mb - used_mb}
+        if len(fields) == 4 and fields[3]:
+            load["name"] = fields[3][:120]
+        return load
     except Exception:
         return None
 
