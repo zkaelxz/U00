@@ -516,3 +516,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 /* Gaps: step back and forward through the stretches with no line; the label still jumps to the next one. */
 .review-gap-step { display: inline-flex; align-items: center; gap: 2px; }
 .review-gap-arrow { min-width: 32px; min-height: 32px; padding: 0 var(--space-2); font-size: var(--text-lg); line-height: 1; }
+
+/* Accent is for the one primary action and the active state; the many quiet row and toolbar actions read as text and underline on hover. */
+.stage-review .btn.btn-ghost { color: var(--text); }
+.stage-review .btn.btn-ghost:hover:not(:disabled) { background: transparent; text-decoration: underline; }
