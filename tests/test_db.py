@@ -2547,6 +2547,15 @@ class TestSearchWildcards:
         assert [r["idx"] for r in isolated_db.search_lines_globally("%")] == [0]
         assert [r["idx"] for r in isolated_db.search_lines_globally("_")] == [1]
 
+    def test_search_ignores_case_in_accented_letters(self, isolated_db):
+        from core import Line
+        a = isolated_db.create_drama(title_en="CAFÉ Nights")
+        isolated_db.create_drama(title_en="Cafe Plain")
+        assert [d["id"] for d in isolated_db.list_dramas(search="café")] == [a]
+        assert [d["id"] for d in isolated_db.list_dramas(search="Café")] == [a]
+        isolated_db.save_lines(a, [Line(idx=0, start=0.0, end=1.0, zh="", en="ÉCOLE")])
+        assert [r["idx"] for r in isolated_db.search_lines_globally("école")] == [0]
+
 
 def _stored_version():
     return db.get_app_setting(db.APP_VERSION_SETTING)

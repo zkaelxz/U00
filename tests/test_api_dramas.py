@@ -355,6 +355,13 @@ def test_metadata_title_with_nul_is_422(client):
     assert resp.status_code == 422
 
 
+def test_metadata_blanking_the_only_title_is_422(client):
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
+    resp = client.post(f"/api/dramas/{did}/metadata", json={"title_en": "   "})
+    assert resp.status_code == 422
+    assert client.get(f"/api/library/dramas/{did}").json()["title_en"] == "T"
+
+
 def test_release_date_create_read_update_and_reject(client):
     made = client.post("/api/dramas", json={"source_language": "ja", "title_en": "Stream",
                                             "release_date": "2025-03-04"})
