@@ -37,6 +37,12 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // A video list found for one language is not reused for another.
+  useEffect(() => {
+    setItems(null)
+    setItemId('')
+  }, [language])
+
   useEffect(() => {
     let live = true
     void loadPcMode().then(() => {
