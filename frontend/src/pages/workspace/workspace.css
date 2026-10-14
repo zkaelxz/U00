@@ -136,7 +136,10 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 }
 
 /* Next step: at the end of the strip on desktop, a sticky bottom bar on phones. */
-.workspace-header .ws-next { flex: 0 0 auto; }
+.stage-row { display: flex; align-items: center; gap: var(--space-3); }
+.stage-row .stage-tabs { flex: 1 1 auto; min-width: 0; }
+.ws-next-link { flex: 0 0 auto; white-space: nowrap; color: var(--accent-text); font-weight: var(--weight-bold); text-decoration: none; }
+.ws-next-link:hover { text-decoration: underline; }
 @media (max-width: 640px) {
   .workspace.has-next-bar { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--space-3)); }
   .ws-next-bar {
