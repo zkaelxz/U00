@@ -102,7 +102,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             _with_errors = False
             _outcome = "done"
             with _lock:
-                if _still_running_locked(job_id):
+                if _still_running_locked(job_id, run):
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
                     _failed = _failed_outcome_error(_result, job_id)
@@ -129,7 +129,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                                  with_errors=_with_errors, reason=_reason)
         except JobCancelled:
             with _lock:
-                _mark_cancelled_locked(job_id)
+                _mark_cancelled_locked(job_id, run)
             logger.info(f"job {job_id} cancelled")
         except BaseException as exc:
             # BaseException too: a SystemExit from job code would otherwise
@@ -140,7 +140,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             tb = redact_secrets(traceback.format_exc())
             _description = _owner = None
             with _lock:
-                if _still_running_locked(job_id):
+                if _still_running_locked(job_id, run):
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = error_msg
                     _jobs[job_id]["traceback"] = tb
@@ -167,12 +167,15 @@ def _finish_message_locked(job):
         job["message"] = FINISHED_MESSAGE
 
 
-def _still_running_locked(job_id) -> bool:
+def _still_running_locked(job_id, run=None) -> bool:
     """Caller holds _lock. A worker records its outcome only over "running":
     a job already ended (cancelled while queued, or marked interrupted by
-    reconcile_dead_workers) keeps that state when a late worker returns."""
+    reconcile_dead_workers) keeps that state when a late worker returns.
+    `run`: the worker's own `_jobs` dict, so a run cleared while it worked
+    never records its outcome over a new run started under the same id."""
     job = _jobs.get(job_id)
-    return job is not None and job.get("status") == "running"
+    return (job is not None and (run is None or job is run)
+            and job.get("status") == "running")
 
 
 def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=None):
@@ -458,11 +461,11 @@ CANCELLED_MESSAGE = "Cancelled."
 FINISHED_MESSAGE = "Finished."
 
 
-def _mark_cancelled_locked(job_id):
+def _mark_cancelled_locked(job_id, run=None):
     """Caller holds _lock. A process job's subprocess was stopped (or its
     result dropped) because of a cancel: the record stops saying
     "Cancelling..."."""
-    if _still_running_locked(job_id):
+    if _still_running_locked(job_id, run):
         job = _jobs[job_id]
         job["status"] = "cancelled"
         job["finished_at"] = time.time()
@@ -493,6 +496,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         while True:
             with _lock:
                 job = _jobs.get(job_id)
+                if run is not None and job is not run:
+                    job = None   # cleared, and maybe replaced by a new run of this id
                 should_stop = job is None or job.get("cancel_requested")
             if not should_stop and _db_cancel_requested(job_id):
                 should_stop = True
@@ -508,7 +513,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 else:
                     _stop_process(proc)
                 with _lock:
-                    _mark_cancelled_locked(job_id)
+                    _mark_cancelled_locked(job_id, run)
                 logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
                            f"(subprocess terminated)")
                 return
@@ -561,13 +566,13 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         result = outcome[1] if outcome and outcome[0] == "ok" else None
         if outcome and outcome[0] == "ok" and on_done is not None:
             with _lock:
-                if job_id not in _jobs:
+                if job_id not in _jobs or (run is not None and _jobs[job_id] is not run):
                     return
             # A cancel that arrived while the subprocess was finishing: the
             # job applies nothing.
             if is_cancel_requested(job_id):
                 with _lock:
-                    _mark_cancelled_locked(job_id)
+                    _mark_cancelled_locked(job_id, run)
                 logger.info(f"job {job_id} cancelled (after its subprocess finished)")
                 return
             # Outside the lock: the hook does real DB/file work.
@@ -579,7 +584,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 # The hook applied its work, then a stop began (see
                 # _apply_transcription): cancelled, nothing is rolled back.
                 with _lock:
-                    _mark_cancelled_locked(job_id)
+                    _mark_cancelled_locked(job_id, run)
                 return
             except Exception as exc:
                 from translate_engines import redact_secrets
@@ -587,7 +592,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 logger.error(f"job {job_id} on_done hook failed: {hook_error}",
                              exc_info=True)
         with _lock:
-            if not _still_running_locked(job_id):
+            if not _still_running_locked(job_id, run):
                 return
             if hook_error is not None:
                 _jobs[job_id]["status"] = "error"
@@ -647,8 +652,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         except Exception:
             pass
         with _lock:
-            job = _jobs.get(job_id)
-            if job is not None and job.get("status") == "running":
+            if _still_running_locked(job_id, run):
+                job = _jobs[job_id]
                 job["status"] = "error"
                 job["error"] = f"Lost contact with the job's process: {error_msg}"
                 job["finished_at"] = time.time()
