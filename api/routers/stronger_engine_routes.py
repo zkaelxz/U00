@@ -17,23 +17,18 @@ from fastapi import APIRouter, Path, Request
 
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from api.stronger_engine_schemas import (StrongerEngineSuggestions, StrongerLineResult,
                                          StrongerLineTryRequest)
 from services import stronger_engine_service as svc
 
 router = APIRouter(prefix="/api/stronger-engine", tags=["review"])
 
-_ERRORS = {400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-           404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-           429: {"model": ErrorResponse}, 500: {"model": ErrorResponse},
-           503: {"model": ErrorResponse}}
-
 
 @router.get("/dramas/{drama_id}", dependencies=[require_permission("lines.read")],
             response_model=StrongerEngineSuggestions,
             summary="Lines where the stronger engine is suggested, and why (no engine call)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_suggestions(drama_id: int = Path(ge=1)):
     return svc.get_suggestions(drama_id)
 
@@ -42,7 +37,7 @@ def get_suggestions(drama_id: int = Path(ge=1)):
              dependencies=[require_permission("review.use", "lines.read")],
              response_model=StrongerLineResult,
              summary="Translate one line with the stronger engine (writes nothing)",
-             responses=_ERRORS)
+             responses=error_responses(400, 403, 404, 409, 422, 429, 500, 503))
 def try_line(request: Request, body: StrongerLineTryRequest = None,
              drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     engine = svc.stronger_engine_name(drama_id)
