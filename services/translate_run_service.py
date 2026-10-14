@@ -502,7 +502,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, style_preset,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns)
+        default_female_pronouns=default_female_pronouns,
+        principal=ownership_service.acting_principal())
 
     novel_reference = load_novel_reference(drama_id, drama)
     resp = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,

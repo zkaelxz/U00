@@ -532,6 +532,9 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .selection-bar.wide { padding: var(--space-1) var(--space-3); gap: var(--space-1); }
 .selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { gap: var(--space-1) var(--space-2); }
 .selection-bar.wide button, .selection-bar.wide select { min-height: 32px; padding-block: 2px; }
+/* The global select's percentage min/max width made each group measure narrower than its contents, so a button dropped under its own select and the next group sat stranded mid-bar. A fixed select width lets a group wrap as a whole. */
+.selection-bar.wide .bar-group { flex-wrap: nowrap; }
+.selection-bar.wide .bar-group select { width: 11rem; min-width: 0; max-width: none; }
 html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
 .app-shell:has(.selection-bar.wide) .app-content { padding-bottom: 6rem; }
 .selection-bar p { margin: 0; }
