@@ -71,37 +71,42 @@ body {
   background-attachment: fixed;
 }
 
-/* Panels. A .card holds one list or form, so it is a top hairline below instead of a box; glass stays on what floats or groups several things. */
-.panel,
-.tools-stack,
-.discover-panel,
-.review-toolbar,
-.review-toolbox,
-.review-lines,
-.sheet,
-.drama-card {
+/* Panels. Glass stays on what floats (sheets, the nav rail, popovers); a panel that sits on the page is a top hairline like a .card, and a title tile keeps only a hairline outline so the tiles still read as separate things. */
+.sheet {
   background: var(--glass);
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-shadow);
   border-radius: var(--radius-panel);
 }
-/* Same 1px border box as before, with only the top edge drawn, so a card's height does not move (the phone Review toolbar's scroll thresholds depend on page heights). */
-.card {
+/* Same 1px border box as before, with only the top edge drawn, so a panel's height does not move (the phone Review toolbar's scroll thresholds depend on page heights). */
+.card,
+.panel,
+.tools-stack,
+.discover-panel {
   background: none;
   border: 1px solid transparent;
   border-top-color: var(--border);
   border-radius: 0;
   box-shadow: none;
 }
+.drama-card { background: none; border-color: var(--border); box-shadow: none; }
+.review-toolbar,
+.review-toolbox,
+.review-lines {
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius-panel);
+}
 /* These two had no border: the edge is a ring that takes no space, so the page keeps its height (the phone Review toolbar's scroll thresholds depend on it). */
 .review-toolbox,
 .review-lines { border: 0; box-shadow: var(--glass-shadow), 0 0 0 1px var(--glass-edge); }
 @supports (backdrop-filter: blur(1px)) {
-  .panel, .tools-stack, .discover-panel, .review-toolbar, .review-toolbox, .review-lines, .drama-card { backdrop-filter: blur(22px) saturate(1.4); }
+  .review-toolbar, .review-toolbox, .review-lines { backdrop-filter: blur(22px) saturate(1.4); }
 }
 
-/* A fold that sits on the page is a panel like the rest; one inside a card, sheet or list is only a row of it. No blur here: backdrop-filter on a fold stops a toggle at its bottom edge from receiving taps on the part of its 44px target that falls below it. */
-details.section { background: var(--glass); border-color: var(--glass-edge); border-radius: var(--radius-panel); padding-inline: var(--space-4); }
+/* A fold that sits on the page is a top hairline like a panel; one inside a card, sheet or list is only a row of it. */
+details.section { background: none; border-color: transparent; border-top-color: var(--border); border-radius: 0; padding-inline: var(--space-4); }
 .card details.section, details.section details.section, .tools-stack details.section, .discover-panel details.section, .panel details.section, dialog.sheet details.section { background: none; }
 
 /* One control shape: the 8px control radius with a visible edge, so a white button never vanishes on a white panel. */
