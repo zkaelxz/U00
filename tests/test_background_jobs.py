@@ -2994,6 +2994,29 @@ class TestAClearedRunNeverWritesIntoTheNextRun:
             _wait(job_id)
             bg.clear_job(job_id)
 
+    def test_a_cleared_thread_run_is_told_to_stop(self):
+        job_id = "rerun_cancel"
+        go_old, go_new = threading.Event(), threading.Event()
+        heard = []
+
+        def old():
+            go_old.wait(5)
+            heard.append(bg.is_cancel_requested(job_id))
+
+        job_launch.start_job(job_id, old)
+        with job_table._lock:
+            bg.clear_job(job_id)
+            job_launch.start_job(job_id, lambda: go_new.wait(5))
+        try:
+            go_old.set()
+            assert _wait_for(lambda: heard)
+            assert heard == [True]
+            assert bg.is_cancel_requested(job_id) is False   # the new run was not asked
+        finally:
+            go_new.set()
+            _wait(job_id)
+            bg.clear_job(job_id)
+
     def test_old_process_watcher_stops_its_own_process_not_the_new_run(self, monkeypatch):
         instances = _install_fake_process(monkeypatch, alive_forever=True)
         job_id = "rerun_process"

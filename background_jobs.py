@@ -441,6 +441,8 @@ def is_cancel_requested(job_id: str) -> bool:
     if job_force_stop.current_thread_abandoned():
         return True   # lets the abandoned worker wind down at its next check
     with _lock:
+        if _superseded_locked(job_id):
+            return True   # its run was cleared: nothing it does will be kept
         job = _jobs.get(job_id)
         if job and job.get("cancel_requested"):
             return True
