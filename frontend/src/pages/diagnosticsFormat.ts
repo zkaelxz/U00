@@ -1,4 +1,5 @@
 import type { DependencyStatus, GpuStatus } from '../types/diagnostics'
+import { formatLeft, isNoPercentStage } from './workspace/stages/transcribeEstimate'
 import { cancellingText, isCancellingMessage, jobName, shownStatus, type JobRecord } from '../types/jobs'
 
 export const isActive = (status: string) => status === 'queued' || status === 'running'
@@ -58,6 +59,23 @@ export function pollWhenSettled(tick: () => Promise<unknown>, ms: number): () =>
 export function formatDuration(job: JobRecord, nowSec: number): string {
   if (job.started_at == null) return 'not started'
   return formatSeconds((job.finished_at ?? nowSec) - job.started_at)
+}
+
+// Too little progress or time makes the straight-line guess swing wildly, so
+// no estimate is shown until both are past these.
+const ETA_MIN_PROGRESS = 0.05
+const ETA_MIN_ELAPSED = 30
+
+// "about N min left" for a running job, from its elapsed time and progress;
+// null when there is nothing trustworthy to say. Queued jobs, stalled jobs and
+// stages that report no percent of their own (model load) get none.
+export function jobTimeLeftText(job: JobRecord, nowSec: number): string | null {
+  const p = job.progress
+  if (job.status !== 'running' || job.stalled || job.started_at == null || p == null) return null
+  if (p < ETA_MIN_PROGRESS || p >= 1 || isNoPercentStage(job.message)) return null
+  const elapsed = nowSec - job.started_at
+  if (elapsed < ETA_MIN_ELAPSED) return null
+  return formatLeft((elapsed * (1 - p)) / p)
 }
 
 // A length in seconds as "42s", "3m 05s", "1h 02m".
