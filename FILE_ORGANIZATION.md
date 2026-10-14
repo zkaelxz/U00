@@ -220,6 +220,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `safe_paths.py` (`plain_file_in`: a database-stored filename joined onto a title's folder only if it is a plain name whose real path stays inside it)
 - `ct2_repo.py` (which files of a Hugging Face CTranslate2 Whisper repo may be downloaded; refuses a listing holding code-bearing files; shared by `whisper_models` and `tools/ja_whisper_models.py`)
 - `ort_telemetry.py` (`disable`: switches off ONNX Runtime's usage reporting in this process before a session is made; called by the Whisper loader and the ASMR voice detector)
+- `file_manager.py` (`open_folder`: opens a folder the server resolved in the PC's file manager, without a shell)
 - `file_lock.py` (`hold`: an exclusive cross-process lock on a file, for a model download two processes must not run at once)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)

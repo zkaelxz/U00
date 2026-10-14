@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './client'
-import { createDrama, deleteDrama, getStats, searchLines } from './library'
+import { createDrama, deleteDrama, getStats, openDramaFolder, searchLines } from './library'
 
 function reply(status: number, body: unknown) {
   const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status }))
@@ -21,6 +21,16 @@ describe('library api', () => {
     const [url, init] = mock.mock.calls[0]
     expect(url).toBe('/api/dramas/4?confirm=true&confirm_text=DELETE')
     expect(init.method).toBe('DELETE')
+  })
+
+  it('opens a title folder by id only, as a PC-only call', async () => {
+    const { mock, f } = reply(200, { opened: true })
+    expect(await openDramaFolder(7, f)).toEqual({ opened: true })
+    const [url, init] = mock.mock.calls[0]
+    expect(url).toBe('/api/dramas/7/folder/open')
+    expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('X-Baihe-Local')).toBe('1')
+    expect(JSON.parse(init.body)).toEqual({})
   })
 
   it('posts the create body as JSON', async () => {

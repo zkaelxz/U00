@@ -103,6 +103,7 @@ __all__ = [
     "RomanizeCreditsResult",
     "CoverArtResult",
     "DramaSourceLink",
+    "DramaFolderOpened",
     "BurnPreviewStart",
     "BurnPreviewStarted",
     "BurnPreviewClip",
@@ -876,6 +877,10 @@ class RomanizeCreditsResult(BaseModel):
     drama_id: int
     romanized: Dict[str, str]
     updated: bool
+
+
+class DramaFolderOpened(BaseModel):
+    opened: bool
 
 
 class DramaSourceLink(BaseModel):

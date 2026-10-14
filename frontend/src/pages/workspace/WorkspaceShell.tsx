@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { openDramaFolder } from '../../api/library'
 import { getWorkflowProgress } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
@@ -106,6 +108,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           {comic ? 'Open in Scanlate' : 'Read'}
         </ButtonLink>
       )}
+      {drama && <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />}
     </div>
   )
   return (

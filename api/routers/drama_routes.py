@@ -15,6 +15,8 @@ the bug-report upload. The metadata update also takes "+ New series"
 (`new_series_name`) and `series_id: 0` to take a drama out of its series.
 GET /{id}/source-link (local_only) is the one response that may carry the
 link as imported, query included (services/source_link_service.py).
+POST /{id}/folder/open (local_only) opens the title's folder in the PC's
+file manager; the folder comes from the id, never from the client.
 Merging a title into another and moving chapters between titles are PC-only
 (local_only), like deleting one: they move files on disk
 (services/title_restructure_service.py). Series rename and presets CRUD are
@@ -31,8 +33,8 @@ from starlette.datastructures import UploadFile
 from api.auth import is_at_pc, local_only, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
-                         DramaDeleteResult, DramaDetail, DramaMetadataUpdate, DramaSourceLink,
-                         TitleRestructureApplyRequest, TitleRestructureInfo,
+                         DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
+                         DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
 from lib.capped_request import read_capped_form
@@ -79,6 +81,16 @@ def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
             responses=error_responses(404, 422))
 def get_source_link(drama_id: int = Path(ge=1, le=2**31 - 1)):
     return source_link_service.source_link(drama_id)
+
+
+# local_only: the folder opens on the PC's own screen, so a request from
+# anywhere else could do nothing useful with it.
+@router.post("/{drama_id}/folder/open", dependencies=[local_only()],
+             response_model=DramaFolderOpened,
+             summary="PC only: open the title's folder in this PC's file manager",
+             responses=error_responses(400, 404, 409, 422))
+def post_open_folder(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return drama_service.open_drama_folder(drama_id, request.state.principal)
 
 
 _COVER_MULTIPART_OVERHEAD = 64 * 1024

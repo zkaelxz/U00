@@ -82,6 +82,9 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
         "ok": False, "output_tail": list(E2E_STUB_OUTPUT)})
     setattr_(torch_svc, "verify_torch", lambda blocking=True, cancel=None: {"error": "stubbed in e2e"})
     setattr_(admin_svc, "reset_library", refuse_reset)
+    # "Open folder" runs the real route; only the file manager itself is left out.
+    from lib import file_manager
+    setattr_(file_manager, "open_folder", lambda folder: None)
     # The Transcribe button is disabled while faster-whisper is missing; specs that
     # press it need the config to say it is installed. transcription-missing mocks
     # the config to cover the missing case.

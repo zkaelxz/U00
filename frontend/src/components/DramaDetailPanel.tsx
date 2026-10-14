@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api, ApiError } from '../api/client'
-import { deleteDrama } from '../api/library'
+import { deleteDrama, openDramaFolder } from '../api/library'
 import type { DramaDetail } from '../api/types'
 import { engineLabel } from '../labels'
 import type { DramaDeleteResult } from '../types/library'
@@ -9,6 +9,7 @@ import { canConfirmDelete } from '../pages/libraryForm'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
 import { ErrorBanner } from './ErrorBanner'
+import { OpenFolderButton } from './OpenFolderButton'
 import { readHref, workspaceHref } from './libraryView'
 import { buttonClass } from './uiClasses'
 
@@ -104,6 +105,7 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
       <div className="actions drama-detail-actions">
         <ButtonLink variant="primary" href={workspaceHref(dramaId)}>Open workspace</ButtonLink>
         <ButtonLink href={readHref(drama)}>Read</ButtonLink>
+        <OpenFolderButton open={() => openDramaFolder(dramaId)} title="Show this title's files on the PC" />
       </div>
       <div className="drama-detail-danger">
         {!onDeleted && deleteNote && <p className="muted">{deleteNote}</p>}

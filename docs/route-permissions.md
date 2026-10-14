@@ -167,6 +167,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
 | `POST /api/dramas/{drama_id}/cover` | local_only() |
+| `POST /api/dramas/{drama_id}/folder/open` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/probe` | local_only() |
 | `POST /api/dramas/{drama_id}/metadata` | admin.library |

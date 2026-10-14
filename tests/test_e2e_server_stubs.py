@@ -106,3 +106,11 @@ def test_key_env_vars_are_removed(isolated_db, monkeypatch):
     _load_serve().install_e2e_stubs(monkeypatch.setattr, env)
     assert env == {"BAIHE_OLLAMA_URL": "http://127.0.0.1:11434",
                    "HF_HUB_DISABLE_IMPLICIT_TOKEN": "1"}
+
+
+def test_open_folder_never_starts_a_file_manager(stubbed, monkeypatch):
+    import subprocess
+    from lib import file_manager
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: pytest.fail("a file manager would start"))
+    monkeypatch.setattr(os, "startfile", lambda *a, **k: pytest.fail("Explorer would open"), raising=False)
+    file_manager.open_folder("/anywhere")

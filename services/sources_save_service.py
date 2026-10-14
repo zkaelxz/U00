@@ -34,8 +34,6 @@ each write their own `.part`, and the rename keeps one whole file.
 
 import os
 import re
-import subprocess
-import sys
 import threading
 import zipfile
 from xml.sax.saxutils import escape
@@ -43,6 +41,7 @@ from xml.sax.saxutils import escape
 import background_jobs
 import db
 import portable
+from lib.file_manager import open_folder as _launch
 from services.service_errors import InvalidInputError, UnsupportedOperationError
 from services.sources_import_service import parse_chapter_ids
 from services.sources_registry_service import scrub, safe_url
@@ -106,16 +105,6 @@ def set_save_folder(folder) -> dict:
         raise InvalidInputError("That folder does not exist on this PC.")
     db.set_app_setting(SETTING, {"folder": os.path.realpath(folder)})
     return get_save_folder()
-
-
-def _launch(folder: str):
-    if sys.platform.startswith("win"):
-        os.startfile(folder)  # noqa: S606 -- the owner's own folder, on the PC
-    else:
-        # Popen without a shell; the file manager outlives this call.
-        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", folder],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
 
 
 def open_save_folder() -> dict:
