@@ -294,6 +294,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `event_stream_service.py`
 - `export_service.py`
 - `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
+- `extension_title_service.py` (the extension bridge's "Auto" target: finds or creates the title and series a page belongs to, filling only blank fields)
 - `extension_service.py`
 - `fixflag_transcribe.py`
 - `fixflag_translate.py` (the re-translation half of "fix flagged lines": reason-aware, id-keyed batches)

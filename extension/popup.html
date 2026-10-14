@@ -24,6 +24,7 @@
     #translate { width: 100%; min-height: 44px; }
     #translateText, #saveNovel { width: 100%; overflow-wrap: anywhere; }
     #dramaTitle { overflow-wrap: anywhere; }
+    #autoOptions summary { cursor: pointer; color: var(--muted); font-size: 13px; min-height: 28px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -42,6 +43,15 @@
         <select id="drama"><option value="">— pick a drama —</option></select>
         <p id="dramaTitle" class="hint" hidden></p>
       </div>
+      <details id="autoOptions">
+        <summary>Automatic title options</summary>
+        <div class="switches">
+          <label class="switch"><input type="checkbox" role="switch" id="autoCreate" checked><span>Create a new title when none matches</span></label>
+          <label class="switch"><input type="checkbox" role="switch" id="autoFill" checked><span>Fill name and source link from the page</span></label>
+          <label class="switch"><input type="checkbox" role="switch" id="autoSeries" checked><span>Put the title in a series</span></label>
+        </div>
+        <p class="hint">Used while “Send pages to” is on Auto. A matching title only gets its blank fields filled. Merge or move titles afterwards in Baihe.</p>
+      </details>
       <div class="switches">
         <label class="switch"><input type="checkbox" role="switch" id="store" checked><span>Also save the page into that drama</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="overlay" checked><span>Draw over page</span></label>
@@ -61,7 +71,7 @@
     <section id="novelSection" class="quiet" aria-label="Save text into a title" hidden>
       <h2>Save this chapter</h2>
       <button id="saveNovel" type="button">Save text into a title</button>
-      <p class="hint">Uses your selection, or the page's main text. Added to the title picked above as a new raw chapter.</p>
+      <p class="hint">Uses your selection, or the page's main text. Added as a new raw chapter to the title picked above, or to an automatic one.</p>
     </section>
 
     <section id="textSection" class="quiet" aria-label="Translate selected text">
