@@ -434,6 +434,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       scopes={scopes}
       onChanged={refreshPages}
       onJob={setWatchedJob}
+      onGoToPage={(n) => go(n, false, true)}
     />
   )
 
