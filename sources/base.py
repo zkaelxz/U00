@@ -30,7 +30,32 @@ from urllib.parse import urlsplit
 
 from . import pacing, store
 from .http import PacingPolicy, SourceClient
-from .models import (NotSupportedError, Requirement, SourceCapabilities)
+from .models import (FailureReason, NotSupportedError, Requirement, SourceCapabilities,
+                     SourceError)
+
+
+def layout_changed_class(site_name: str, subject: str = "page layout"):
+    """The `LayoutChanged` error an adapter raises when a page lacks what it
+    expects. Each adapter binds its own class, so `except mod.LayoutChanged`
+    never catches another site's. `subject` is what changed ("API response"
+    for a JSON source); a name ending in an apostrophe (ranobes') is already
+    possessive."""
+    possessive = site_name if site_name.endswith("'") else f"{site_name}'s"
+
+    class LayoutChanged(SourceError):
+        """The page didn't have what this adapter expects -- most likely the
+        site changed its markup. Reported plainly, never guessed around."""
+
+        def __init__(self, what: str):
+            super().__init__(f"{possessive} {subject} has changed -- couldn't find {what}. "
+                             "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+
+    return LayoutChanged
+
+
+def soup(html: str):
+    from bs4 import BeautifulSoup
+    return BeautifulSoup(html or "", "html.parser")
 
 
 
@@ -56,6 +81,20 @@ def host_url_search(patterns, url, flags=0):
                     (m.start() == 0 or cand[m.start() - 1] == "." or cand[m.start()] == "."):
                 return True
     return False
+
+
+class PlainImageDownload:
+    """`download_page` for a site whose page URLs are plain image links.
+    A mixin, not the `SourceAdapter` default: `supports()` reports a method as
+    offered only when a subclass overrides it, and text and audio sources
+    must keep refusing page downloads."""
+
+    def download_page(self, page):
+        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
+                               action=f"Downloading page {page.index + 1}")
+        name = page.url.split("?", 1)[0]
+        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
+        return resp.content, ext
 
 
 class SourceAdapter:

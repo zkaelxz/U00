@@ -52,25 +52,14 @@ rule.
 import re
 from urllib.parse import quote, urljoin
 
-from ..base import SourceAdapter
-from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, soup as _soup
+from ..models import ChapterInfo, ContentAccess, ContentType, SearchResult, SeriesInfo
 from ..registry import register
 
 BASE_URL = "https://www.guazimanhua.com"
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"guazimanhua's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("guazimanhua")
 
 
 def _id_from_href(href: str) -> str:
@@ -87,7 +76,7 @@ def _status_from_meta(text: str) -> str:
 
 
 @register
-class GuazimanhuaSource(SourceAdapter):
+class GuazimanhuaSource(PlainImageDownload, SourceAdapter):
     name = "guazimanhua"
     display_name = "瓜子漫画 Guazimanhua"
     content_types = [ContentType.MANHUA.value]
@@ -190,13 +179,6 @@ class GuazimanhuaSource(SourceAdapter):
             raise LayoutChanged("any page images inside the reader-images container")
         return [PageRef(self.name, chapter.chapter_id, i, urljoin(self.base_url, u))
                 for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        name = page.url.split("?", 1)[0]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         m = re.search(r"guazimanhua\.com/chapter\.php\?id=(\d+)", url or "")

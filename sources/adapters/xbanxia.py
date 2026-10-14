@@ -38,9 +38,9 @@ pass assumed.
 import re
 from urllib.parse import urljoin
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class, soup as _soup
 from ..domains import SiteDomains
-from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
+from ..models import ChapterInfo, ContentAccess, ContentType, SearchResult, SeriesInfo
 from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 
@@ -54,18 +54,7 @@ SEARCH_HEADERS = {
 }
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"xbanxia's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("xbanxia")
 
 
 def _labelled_text(soup, *prefixes) -> str:

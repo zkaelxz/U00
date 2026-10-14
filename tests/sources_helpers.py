@@ -99,3 +99,13 @@ def make_client(source="test", transport=None, clock=None, rng=None, **policy_kw
                              "session_break_min_requests": 0, **policy_kw})
     return SourceClient(source, policy=policy, transport=transport, sleep=clock.sleep,
                         clock=clock.clock, rng=rng or FixedRng(0.0))
+
+
+def classify_comic_html(html, url, engine=None, use_cache=True):
+    """The AI tier on its own for a comic page's images, with nothing
+    downloaded: (data or None, report)."""
+    from sources import adaptive, ai_extract as ax, ai_extract_comic as axc
+    report = adaptive.ExtractionReport(url, "comic")
+    data = adaptive._classify_comic(ax.PageModel(html, url), axc.comic_candidates(html, url),
+                                    engine, report, use_cache)
+    return data, report

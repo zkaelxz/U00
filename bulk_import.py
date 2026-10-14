@@ -123,21 +123,3 @@ def bulk_extract(urls: list, engine, source_name: str = "", language: str = "zh"
         if progress_cb:
             progress_cb((i + 1) / len(urls))
     return combined, statuses
-
-
-def commit_entries_to_library(db_module, entries: list, source_name: str = "manual"):
-    """Inserts reviewed/approved entries into known_titles. `entries`
-    should be the (possibly user-edited) list from bulk_extract(),
-    each with title/author/has_audio_drama/tags/source_url/language."""
-    added = 0
-    for e in entries:
-        media_type = "audio_drama" if e.get("has_audio_drama") else "novel"
-        db_module.create_known_title(
-            title_original=e.get("title", ""), title_en="",
-            author=e.get("author", ""), tags=e.get("tags", ""),
-            summary_en="", summary_original="",
-            source_name=source_name, source_url=e.get("source_url", ""),
-            language=e.get("language", "zh"), media_type=media_type,
-        )
-        added += 1
-    return added

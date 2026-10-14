@@ -357,6 +357,30 @@ class TestPerHostPacing:
             worker.join(10)
         assert "https://q.invalid/3" not in t.urls()
 
+    @pytest.mark.parametrize("cancel_on_call", [1, 2])
+    def test_cancel_after_taking_a_free_turn_lock_releases_it(self, isolated_db, cancel_on_call):
+        """A cancel noticed right after a lock was taken (session break lock,
+        then host lock) raises Cancelled and leaves the lock free."""
+        from sources import http
+        from sources.http_transport import Cancelled
+        reset_pacing_state()
+        clock = FakeClock()
+        calls = []
+
+        def cancel_check():
+            calls.append(1)
+            return len(calls) >= cancel_on_call
+        client = self._client("freeturn", ScriptedTransport({}, clock), clock,
+                              cancel_check=cancel_check)
+        st = http._state("freeturn")
+        with pytest.raises(Cancelled):
+            client._wait_turn("freeturn.invalid", st)
+        assert st["break_lock"].acquire(blocking=False)
+        st["break_lock"].release()
+        hs = http._host("freeturn.invalid", 0.0)
+        assert hs["lock"].acquire(blocking=False)
+        hs["lock"].release()
+
     def test_host_spellings_share_one_clock(self, isolated_db):
         reset_pacing_state()
         clock = FakeClock()
@@ -1311,3 +1335,99 @@ def test_client_keeps_the_last_successful_html_get(isolated_db):
     with pytest.raises(Exception):
         c.get("https://lp.invalid/gone")
     assert c.last_page[0] == "https://lp.invalid/a"
+
+
+# ---------------------------------------------------------------------------
+# LayoutChanged: every adapter's message and reason stay as users see them
+# ---------------------------------------------------------------------------
+
+_LAYOUT_CHANGED_MESSAGES = {
+    "52shuku": "52shuku's page layout has changed",
+    "baozimh": "baozimh's page layout has changed",
+    "fanjiao": "Fanjiao's share page has changed",
+    "guazimanhua": "guazimanhua's page layout has changed",
+    "kuaikan": "Kuaikan's page layout has changed",
+    "lightnovel_fun": "轻之国度's page layout has changed",
+    "mangak": "MangaK's page layout has changed",
+    "manhuagui": "manhuagui's page layout has changed",
+    "manhuaku": "manhuaku's page layout has changed",
+    "miaoqumh": "miaoqumh's page layout has changed",
+    "missevan": "MissEvan's API response has changed",
+    "piaotian": "Piaotian's page layout has changed",
+    "ranobes": "ranobes' page layout has changed",
+    "syosetu": "Syosetu's page layout has changed",
+    "toonkor": "ToonKor's page layout has changed",
+    "twmanga": "twmanga's page layout has changed",
+    "xbanxia": "xbanxia's page layout has changed",
+    "zerosumonline": "zerosumonline's API response has changed",
+}
+
+
+@pytest.mark.parametrize("name,lead", sorted(_LAYOUT_CHANGED_MESSAGES.items()))
+def test_adapter_layout_changed_keeps_its_message_and_reason(name, lead):
+    import importlib
+    from sources.models import SourceError
+    exc = importlib.import_module(f"sources.adapters.{name}").LayoutChanged("the title")
+    assert isinstance(exc, SourceError)
+    assert str(exc) == f"{lead} -- couldn't find the title. The adapter needs updating."
+    assert exc.reason is FailureReason.LAYOUT_CHANGED
+
+
+def test_layout_changed_factory_builds_the_shared_message():
+    from sources.base import layout_changed_class
+    from sources.models import SourceError
+    cls = layout_changed_class("Example")
+    assert cls.__name__ == "LayoutChanged" and issubclass(cls, SourceError)
+    assert str(cls("a thing")) == ("Example's page layout has changed -- couldn't find a thing. "
+                                   "The adapter needs updating.")
+    assert str(layout_changed_class("Example", "API response")("x")).startswith(
+        "Example's API response has changed")
+    assert str(layout_changed_class("ranobes'")("x")).startswith("ranobes' page layout")
+    assert cls("a thing").reason is FailureReason.LAYOUT_CHANGED
+    assert cls is not layout_changed_class("Example")
+
+
+def test_shared_soup_parses_html_and_tolerates_none():
+    from sources.base import soup
+    assert soup("<p>hi</p>").p.text == "hi"
+    assert soup(None).get_text() == ""
+
+
+# ---------------------------------------------------------------------------
+# The shared plain image download
+# ---------------------------------------------------------------------------
+
+_PLAIN_IMAGE_ADAPTERS = ("baozimh", "guazimanhua", "kuaikan", "miaoqumh", "toonkor",
+                         "zerosumonline")
+
+
+class _RecordingClient:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, **kw):
+        self.calls.append((url, kw))
+        return type("R", (), {"content": b"IMG"})()
+
+
+@pytest.mark.parametrize("name", _PLAIN_IMAGE_ADAPTERS)
+def test_plain_image_adapters_download_the_page_bytes_and_keep_the_extension(name, isolated_db):
+    from sources import registry
+    cls = registry.adapter_classes()[name]
+    client = _RecordingClient()
+    adapter = cls(client=client)
+    assert adapter.supports("download_page")
+    page = PageRef(source=name, chapter_id="c", index=1, url="https://cdn.example/a/b.WEBP?x=1.png",
+                   headers={"Referer": "r"})
+    assert adapter.download_page(page) == (b"IMG", ".webp")
+    url, kw = client.calls[0]
+    assert url == page.url and kw["headers"] == {"Referer": "r"} and kw["classify_body"] is False
+    assert kw["action"] == "Downloading page 2"
+    assert adapter.download_page(PageRef(source=name, chapter_id="c", index=0, url="https://cdn.example/a/b?x=1.png"))[1] == ".jpg"
+
+
+def test_text_only_adapters_still_refuse_to_download_page_images(isolated_db):
+    a = PartialAdapter(client=make_client("partial", ScriptedTransport()))
+    assert not a.supports("download_page")
+    with pytest.raises(NotSupportedError):
+        a.download_page(None)

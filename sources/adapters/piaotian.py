@@ -63,7 +63,7 @@ adapter never requests a disallowed path. No terms page was found (see
 import re
 from urllib.parse import quote_from_bytes, urljoin, urlsplit
 
-from ..base import SourceAdapter, host_url_search
+from ..base import SourceAdapter, host_url_search, layout_changed_class, soup as _soup
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentHidden,
                       ContentType, FailureReason, FetchFailed, SearchResult, SeriesInfo,
                       SourceError)
@@ -93,18 +93,7 @@ _WATERMARK_STUB = re.compile(r"^www\.?$", re.I)
 _ADULT_MARKERS = ("年满18", "未满18", "18岁以上", "18禁")
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"Piaotian's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("Piaotian")
 
 
 def _norm_id(series_id) -> str:

@@ -59,7 +59,7 @@ service (https://syosetu.com/site/rule/, read 2026-09-30, revision dated
 import re
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter, host_url_search
+from ..base import SourceAdapter, host_url_search, layout_changed_class, soup as _soup
 from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason,
                       FetchFailed, SearchResult, SeriesInfo, SourceError, AutomationPermission)
 from ..registry import register
@@ -84,18 +84,7 @@ MAX_LIST_PAGES = 200
 _ADULT_MARKERS = ("over18", "年齢確認", "18歳以上", "18歳未満")
 
 
-class LayoutChanged(SourceError):
-    """The page didn't have what this adapter expects -- most likely the
-    site changed its markup. Reported plainly, never guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"Syosetu's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
-
-
-def _soup(html: str):
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html or "", "html.parser")
+LayoutChanged = layout_changed_class("Syosetu")
 
 
 def _norm_ncode(series_id: str) -> str:

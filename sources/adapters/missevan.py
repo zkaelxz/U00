@@ -83,23 +83,16 @@ import re
 from urllib.parse import quote, urljoin
 
 from .. import auth_browser
-from ..base import SourceAdapter
+from ..base import SourceAdapter, layout_changed_class
 from ..models import (AccessTier, AudioRef, AutomationPermission, CapabilityStatus, ChapterInfo,
                       ContentAccess, ContentHidden, ContentType, FailureReason, Requirement,
-                      SearchResult, SeriesInfo, SourceError, TechnicalStatus, TierResult)
+                      SearchResult, SeriesInfo, TechnicalStatus, TierResult)
 from ..registry import register
 
 BASE_URL = "https://www.missevan.com"
 
 
-class LayoutChanged(SourceError):
-    """The API's response didn't have the shape this adapter expects --
-    most likely MissEvan changed its API. Reported plainly, never
-    guessed around."""
-
-    def __init__(self, what: str):
-        super().__init__(f"MissEvan's API response has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
+LayoutChanged = layout_changed_class("MissEvan", "API response")
 
 
 def _json(text: str) -> dict:
