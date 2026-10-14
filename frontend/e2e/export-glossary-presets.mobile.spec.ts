@@ -83,7 +83,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   ] }))
   await page.goto('/#/drama/1/translate')
   await expectTall(page.getByLabel('Style', { exact: true }))
-  await page.getByText('What this style asks the translator for').click()
+  await page.getByText('What this style asks for').click()
   await expect(page.getByTestId('style-guidance')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await shot(page, 'translate-preset-phone')
