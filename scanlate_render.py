@@ -10,6 +10,7 @@ import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+import scanlate_art_text
 from scanlate_detect import bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import InpaintModelUnavailable, background_is_dark, inpaint_region
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
@@ -318,6 +319,11 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
         gray = (page_gray(image_path, page)
                 if any((b.get("kind") or "bubble") in SHAPE_FITTED_KINDS for b in to_render)
                 else None)
+        # Lettering on the artwork is painted out and re-lettered in its own
+        # style (scanlate_art_text); bubbles keep the balloon path below.
+        captions = [b for b in to_render if b.get("kind") == "caption"]
+        to_render = [b for b in to_render if b.get("kind") != "caption"]
+        caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
         for b in to_render:
             try:
                 inpaint_region(image_path, b, image=page)
@@ -328,7 +334,16 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
                 if not any(n[1] == "inpaint_fallback" for n in notes if len(n) > 1):
                     notes.append(("warning", "inpaint_fallback", str(exc)))
 
+        if captions and not scanlate_art_text.paint_out_captions(page, captions, backend="auto"):
+            if notes is not None and not any(n[1] == "inpaint_fallback" for n in notes if len(n) > 1):
+                notes.append(("warning", "inpaint_fallback",
+                              "The LaMa-manga model is not available, so the captions on the art "
+                              "were painted out with plain OpenCV, which leaves faint ghosts."))
+
         pil_img = Image.fromarray(np.ascontiguousarray(page[:, :, ::-1]))
+        for b, style in zip(captions, caption_styles):
+            scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
+                                           font_path=font_path)
         for b in to_render:
             shape_mask = (bubble_shape_mask(image_path, b, image=gray)
                           if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)

@@ -49,7 +49,7 @@ describe('scanlate api', () => {
   it('starts run, render and export jobs with JSON bodies', async () => {
     const calls: Call[] = []
     const f = fakeFetch(calls, 200, { job_id: 'scanlate_4' })
-    await scanlateApi.run(4, { mode: 'page', page_id: 9, engine: 'ollama', detect_backend: 'auto' }, f)
+    await scanlateApi.run(4, { mode: 'page', page_id: 9, engine: 'ollama', detect_backend: 'auto', art_captions: true }, f)
     await scanlateApi.render(4, null, f)
     await scanlateApi.render(4, 9, f)
     await scanlateApi.export(4, ['zip', 'pdf'], f)
@@ -62,7 +62,7 @@ describe('scanlate api', () => {
       '/api/scanlate/dramas/4/export',
     ])
     expect(calls.map((c) => JSON.parse(String(c.init?.body)))).toEqual([
-      { mode: 'page', page_id: 9, engine: 'ollama', detect_backend: 'auto' },
+      { mode: 'page', page_id: 9, engine: 'ollama', detect_backend: 'auto', art_captions: true },
       {},
       { page_id: 9 },
       { formats: ['zip', 'pdf'] },

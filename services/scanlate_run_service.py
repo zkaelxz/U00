@@ -102,6 +102,12 @@ def _require_ocr_backend(drama_id: int) -> None:
                         settings_service.get("tesseract_cmd") or None)
 
 
+def _require_paddle() -> None:
+    """Captions on the art are found by PaddleOCR whatever the page OCR is."""
+    import ocr
+    ocr.require_backend("paddle", None)
+
+
 def _require_opencv() -> None:
     """scanlate imports cv2 lazily inside detection and rendering, so without
     it every page would fail and the job would still end "done"."""
@@ -113,10 +119,11 @@ def _require_opencv() -> None:
 
 def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm: bool = False,
               engine: str = None, detect_backend: str = "auto",
-              chapter_id: str = None) -> dict:
+              chapter_id: str = None, art_captions: bool = False) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
-    pages. `chapter_id` limits "missing"/"all" to one chapter. Returns {job_id, engine, mode}."""
+    pages. `chapter_id` limits "missing"/"all" to one chapter. `art_captions` also
+    translates the large text drawn on the art (needs PaddleOCR). Returns {job_id, engine, mode}."""
     pages_svc.require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("mode must be 'missing', 'page' or 'all'.")
@@ -142,12 +149,14 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
         raise UnsupportedOperationError("No pages to run: they are all hidden.")
     _require_opencv()
     _require_ocr_backend(drama_id)
+    if art_captions:
+        _require_paddle()
     engine_name = engine or settings_service.get("default_engine")
     # Pure-MT engines are called once per region, outside call_llm_json.
     built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(
         drama_id, _run_job, pages_svc.job_id(drama_id), drama_id, mode, targets,
-        engine_name, built, detect_backend,
+        engine_name, built, detect_backend, art_captions,
         description=f"Scanlate translate (title {drama_id})")
     return {**started, "engine": engine_name, "mode": mode}
 
@@ -238,6 +247,11 @@ def _ocr_lost_text(existing: list, notes) -> bool:
             and any(_has_text(b) for b in existing))
 
 
+def _is_translated_caption(region: dict) -> bool:
+    return (region.get("kind") == "caption" and _has_text(region)
+            and bool((region.get("translated_text") or "").strip()))
+
+
 def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool,
                           notes: list = ()) -> bool:
     """A redo replaces the page's regions. It must not swap translated
@@ -246,6 +260,11 @@ def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool,
     regions, or for one where no region ended up translated; the page then
     keeps what it has."""
     if not bubbles or _ocr_lost_text(existing, notes):
+        return True
+    # Captions on the art come from a separate detector: when it fails, or the
+    # run has the option off, their earlier translations are not replaced by nothing.
+    if (any(_is_translated_caption(b) for b in existing)
+            and not any(b.get("kind") == "caption" and _has_text(b) for b in bubbles)):
         return True
     if not any((b.get("translated_text") or "").strip() for b in existing):
         return False
@@ -341,7 +360,7 @@ def _failure_note(exc: Exception) -> str:
 
 
 def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
-             detect_backend: str):
+             detect_backend: str, art_captions: bool = False):
     import scanlate_detect
     scanlate_detect.forget_ml_failure()
     drama = db.get_drama(drama_id) or {}
@@ -351,7 +370,8 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
     detect_kwargs = {"detect_backend": detect_backend,
                      "hf_token": settings_service.resolve_key("hf_token") or None,
                      "ocr_backend": ocr_backend,
-                     "tesseract_cmd": settings_service.get("tesseract_cmd") or None}
+                     "tesseract_cmd": settings_service.get("tesseract_cmd") or None,
+                     "art_captions": art_captions}
     counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "kept": 0, "failed": 0}
     total = len(page_ids)
     # Cancel and a total deadline for every AI call of the run, not only between
