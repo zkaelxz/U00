@@ -519,8 +519,14 @@ input[type='file']::file-selector-button { font: inherit; padding: 6px 12px; mar
 input[type='file'] { color: var(--muted); max-width: 100%; }
 .check-col input { width: 1.1rem; height: 1.1rem; margin: 0; }
 .selection-bar { position: sticky; z-index: 4; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
-/* Fixed over the page header, not in the flow: opening select mode, or the hint line changing height, must not push the list around. At the top because a bottom bar would cover the rows being ticked. */
-.selection-bar.wide { position: fixed; top: var(--space-3); left: 4.5rem; right: var(--space-4); max-width: 80rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
+/* Fixed to the bottom, not in the flow: opening select mode, or the hint line changing height, must not push the list around, and a top bar would cover the page header. The page keeps room below its last row (scroll-padding and content padding) so no row is stuck under the bar. */
+.selection-bar.wide { position: fixed; bottom: var(--space-3); left: 4.5rem; right: var(--space-4); max-width: 80rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
+/* Compact controls keep the bar short, so it covers as little of the list as possible. */
+.selection-bar.wide { padding: var(--space-1) var(--space-3); gap: var(--space-1); }
+.selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { gap: var(--space-1) var(--space-2); }
+.selection-bar.wide button, .selection-bar.wide select { min-height: 32px; padding-block: 2px; }
+html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
+.app-shell:has(.selection-bar.wide) .app-content { padding-bottom: 6rem; }
 .selection-bar p { margin: 0; }
 .bar-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .bar-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; flex: 1 1 auto; }
