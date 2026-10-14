@@ -87,44 +87,31 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
 
 STATIC_FETCH_MAX_BYTES = 5_000_000
 STATIC_FETCH_MAX_REDIRECTS = 5
-_REDIRECT_CODES = (301, 302, 303, 307, 308)
+
+
+class HTTPStatusError(Exception):
+    """The site answered with an error status."""
+
+    def __init__(self, status: int):
+        super().__init__(f"HTTP {status}")
+        self.status = status
 
 
 def fetch_static(url: str, timeout: int = 20):
     """Plain fetch. Returns (html, text). Raises on network failure, and
     `url_guard.UnsafeURLError` when the URL or any redirect hop is not a
     public http(s) address."""
-    from urllib.parse import urljoin
     from bs4 import BeautifulSoup
     from lib import http, url_guard
 
-    headers = {"User-Agent": _UA}
-    current = url
-    # Redirects are followed by hand so every hop is validated and the
-    # connection pinned to the validated IP (no DNS-rebinding window).
-    for _ in range(STATIC_FETCH_MAX_REDIRECTS + 1):
-        ip = url_guard.resolve_public(current)
-        resp = http.pinned_get(current, ip, headers, timeout=timeout)
-        location = resp.headers.get("Location")
-        if resp.status_code in _REDIRECT_CODES and location:
-            resp.close()
-            current = urljoin(current, location)
-            continue
-        break
-    else:
-        raise url_guard.UnsafeURLError("Too many redirects.")
-    try:
-        resp.raise_for_status()
-        encoding = resp.encoding or "utf-8"
-    except Exception:
-        resp.close()
-        raise
-    from lib import capped_body
-
-    def too_big():
-        return ValueError("The page is too large to fetch.")
-    html = capped_body.read_capped(resp, STATIC_FETCH_MAX_BYTES, max(timeout, 1) * 3,
-                                   too_big).decode(encoding, errors="replace")
+    # The raw guard, not `http.check_public`, so the caller still sees the
+    # guard's own exceptions and fixed messages (see `_redact`).
+    resp = http.get(url, timeout=timeout, max_bytes=STATIC_FETCH_MAX_BYTES,
+                    deadline=max(timeout, 1) * 3, max_redirects=STATIC_FETCH_MAX_REDIRECTS,
+                    guard=url_guard.resolve_public, headers={"User-Agent": _UA})
+    if resp.status >= 400:
+        raise HTTPStatusError(resp.status)
+    html = resp.text()
 
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
@@ -336,6 +323,8 @@ def _redact(exc) -> str:
     from lib import url_guard
     if isinstance(exc, (url_guard.UnsafeURLError, url_guard.URLResolveError, ImportError)):
         return redact_secrets(str(exc))
+    if isinstance(exc, HTTPStatusError):
+        return f"the site answered HTTP {exc.status}"
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int):
         return f"the site answered HTTP {status}"

@@ -172,7 +172,7 @@ class TestFetchStaticCap:
         monkeypatch.setattr(pf, "STATIC_FETCH_MAX_BYTES", 1000)
         _dns(monkeypatch)
         _pinned(monkeypatch, [page])
-        with pytest.raises(ValueError, match="too large"):
+        with pytest.raises(http.ResponseTooLarge):
             pf.fetch_static("https://example.com/")
         assert page.closed
 
@@ -244,13 +244,12 @@ class TestFetchStaticRedirectGuard:
         assert first.closed
 
     def test_too_many_redirects_are_refused(self, monkeypatch):
-        from lib import url_guard
         _dns(monkeypatch)
         calls = []
         hops = [_redirect(f"https://public.example/{i}")
                 for i in range(pf.STATIC_FETCH_MAX_REDIRECTS + 1)]
         _pinned(monkeypatch, hops, calls)
-        with pytest.raises(url_guard.UnsafeURLError):
+        with pytest.raises(http.FetchError):
             pf.fetch_static("https://public.example/start")
         assert len(calls) == pf.STATIC_FETCH_MAX_REDIRECTS + 1
         assert all(h.closed for h in hops)
@@ -311,13 +310,11 @@ class TestSmartFetchErrorWording:
         hops = [_redirect(f"https://public.example/{i}")
                 for i in range(pf.STATIC_FETCH_MAX_REDIRECTS + 1)]
         msg = self._message(monkeypatch, hops)
-        assert msg == "Couldn't reach that page: Too many redirects."
+        assert msg == "Couldn't reach that page: the connection failed"
 
-    def test_a_redirect_status_without_a_location_is_taken_as_the_page(self, monkeypatch):
-        _dns(monkeypatch)
-        _pinned(monkeypatch, [_Page(("<p>moved page text</p>" * 200).encode(), status=301)])
-        r = pf.smart_fetch("https://public.example/start", allow_render=False)
-        assert r["message"] == "Fetched successfully."
+    def test_a_redirect_status_without_a_location_is_a_failed_fetch(self, monkeypatch):
+        msg = self._message(monkeypatch, [_Page(b"<p>moved</p>", status=301)])
+        assert msg == "Couldn't reach that page: the connection failed"
 
 
 class TestSmartFetchRedaction:
