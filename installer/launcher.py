@@ -54,6 +54,7 @@ if str(APP_DIR) not in sys.path:
 import portable  # noqa: E402 -- needs APP_DIR on sys.path first
 import process_guard  # noqa: E402
 from api.api_config import DEFAULT_PORT  # noqa: E402 -- standard library only, so safe this early
+from lib.pid import pid_alive as _pid_alive  # noqa: E402
 
 APPLY_PENDING_SECONDS = 3600 + 300     # pending_install's own overall limit plus margin
 HEALTH_TRIES = 90          # seconds; a first start compiles every .pyc
@@ -262,32 +263,6 @@ def pending_install_file() -> Path:
 
 def apply_lock_file() -> Path:
     return pending_install_file().with_name("apply.lock")
-
-
-def _pid_alive(pid: int) -> bool:
-    if os.name == "nt":
-        import ctypes
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.OpenProcess.restype = ctypes.c_void_p
-        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
-        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
-        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-        handle = kernel32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
-        if not handle:
-            return ctypes.get_last_error() == 5                 # access denied: it exists
-        try:
-            code = ctypes.c_ulong()
-            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) \
-                and code.value == 259                           # STILL_ACTIVE
-        finally:
-            kernel32.CloseHandle(handle)
-    try:
-        os.kill(pid, 0)
-    except PermissionError:
-        return True                                             # EPERM: owned by someone else, still running
-    except (OSError, OverflowError):    # a corrupted lock can hold a pid no OS accepts
-        return False
-    return True
 
 
 def _apply_running() -> bool:

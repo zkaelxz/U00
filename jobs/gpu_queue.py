@@ -75,9 +75,8 @@ def _run_finish_hooks(hooks):
             _warn(f"job {job_id}: its finish hook failed", exc)
 
 
-# A queued job's message never names the job holding the GPU (auth B2,
-# review M-1): anyone who can see the waiting job reads its message, and
-# the busy job may be another user's private drama. Also what job_records
+# A queued job's message never names the job holding the GPU: anyone who can
+# see the waiting job reads its message, and the busy job may be another user's private drama. Also what job_records
 # mirrors, so the persisted row doesn't carry it either.
 GPU_WAIT_MESSAGE = "Waiting for the GPU (another job is running)"
 
@@ -139,7 +138,7 @@ def _gpu_slot_available_locked(job_id, description):
     running right now -- nothing else, in this process, another one
     (cross-process), or a completely different application, currently
     holds the GPU. This module's own guard is in-process state, invisible
-    to a `cli.py` run, so jobs/gpu_slots.py is the cross-process coordination point.
+    to other processes, so jobs/gpu_slots.py is the cross-process coordination point.
 
     Both of those locks only know about GPU-touching work Baihe
     itself started -- neither can see a different application on the same
@@ -166,7 +165,7 @@ def _gpu_slot_available_locked(job_id, description):
     No nvidia-smi (or a failing external check) is ignored for the first
     job, and means one at a time beyond it. A failing cross-process lock
     is not ignored: the job queues (False) until the lock can be taken,
-    since starting anyway could share the GPU with a CLI run."""
+    since starting anyway could share the GPU with another process."""
     if _running_gpu_job_count_locked(job_id) >= get_gpu_max_parallel():
         return False
     try:
@@ -176,7 +175,7 @@ def _gpu_slot_available_locked(job_id, description):
         _note_gpu_wait_reason_locked(job_id)
         return False
     except Exception as exc:
-        # Fails closed: without the cross-process lock a CLI GPU run could
+        # Fails closed: without the cross-process lock another process's GPU work could
         # share the card. The job queues and the API's GPU-queue poller
         # (api/background.py) retries it.
         _warn(f"job {job_id}: could not take the GPU lock; queuing", exc)

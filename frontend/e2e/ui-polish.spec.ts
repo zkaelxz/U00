@@ -87,8 +87,15 @@ for (const width of WIDTHS) {
         await pickTab(page, name)
         if (asRow) {
           await expectInside(page.getByRole('tab', { name }), tabs)
-          const bottom = await page.getByRole('tab', { name }).evaluate((t) => getComputedStyle(t).borderBottomWidth)
-          expect(bottom).toBe('0px')
+          // Underline tab: the open tab has an accent underline and no filled background.
+          const open = () => page.getByRole('tab', { name }).evaluate((t) => {
+            const s = getComputedStyle(t)
+            return { width: s.borderBottomWidth, color: s.borderBottomColor, bg: s.backgroundColor }
+          })
+          // Poll: the border colour transitions in when a tab opens, so the first read can still be transparent.
+          await expect.poll(async () => (await open()).color).not.toBe('rgba(0, 0, 0, 0)')
+          expect((await open()).width).toBe('2px')
+          expect((await open()).bg).toBe('rgba(0, 0, 0, 0)')
         }
         if (name === 'Organize') continue
         // First visible text of the panel starts well inside the card edge.

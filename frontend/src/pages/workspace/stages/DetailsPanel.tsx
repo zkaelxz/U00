@@ -33,6 +33,7 @@ import { CreditsCover } from './CreditsCoverPanel'
 import { EpisodeSummaryGenerate } from './EpisodeSummaryGenerate'
 import { FillFromLink } from './FillFromLink'
 import { MediaTabPanel } from './MediaTabPanel'
+import { TitleRestructurePanel } from './TitleRestructurePanel'
 import { ContentModeField } from './SourceModes'
 import { SERIES_HELP } from '../../../helpText'
 
@@ -271,6 +272,7 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
             </form>
           </Section>
         </section>
+        {mediaKind(drama.media_type) !== 'audio' && <TitleRestructurePanel />}
       </MediaTabPanel>
       <MediaTabPanel id="credits" active={tab}>
         <section className="panel" aria-label="Credits">

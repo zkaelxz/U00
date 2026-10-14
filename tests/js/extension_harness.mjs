@@ -380,7 +380,8 @@ async function background(scenario) {
 
 // A novel reader: paragraphs under one container, an optional selection, no page images
 // unless given. Returns the content script's API and what it asked the worker to send.
-function loadNovelPage({ paragraphs = [], selection = "", images = [], heading = "第三章 夜雨" }) {
+function loadNovelPage({ paragraphs = [], selection = "", images = [], heading = "第三章 夜雨", og = "",
+  tabTitle = null, lang = "" }) {
   const sent = [];
   const box = { tagName: "DIV", parentElement: null };
   const ps = paragraphs.map((text, i) => ({
@@ -390,10 +391,11 @@ function loadNovelPage({ paragraphs = [], selection = "", images = [], heading =
   }));
   const h1 = { textContent: `  ${heading}  ` };
   const document = {
-    title: `${heading}_书名_小说网`, body: { innerText: "", appendChild() {} },
-    documentElement: { appendChild() {} }, images, head: { appendChild() {} },
+    title: tabTitle === null ? `${heading}_书名_小说网` : tabTitle, body: { innerText: "", appendChild() {} },
+    documentElement: { appendChild() {}, lang }, images, head: { appendChild() {} },
     querySelectorAll: (sel) => (sel === "p" ? ps : []),
-    querySelector: (sel) => (sel === "h1" ? h1 : null),
+    querySelector: (sel) => (sel === "h1" ? (heading ? h1 : null)
+      : sel === 'meta[property="og:title"]' && og ? { content: og } : null),
     createElement: () => ({ style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
     getElementById: () => null, addEventListener() {},
   };
@@ -426,7 +428,7 @@ function loadPopupScript() {
     console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${read("site_access.js")}\n${read("popup.js")}\n;this.__popup = { novelButtonLabel, describeNovelSave, dramaTitles };`, sandbox);
+  vm.runInContext(`${read("site_access.js")}\n${read("popup.js")}\n;this.__popup = { novelButtonLabel, describeNovelSave, dramaTitles, autoPickLabel, describeAutoTitle };`, sandbox);
   return sandbox.__popup;
 }
 
@@ -473,6 +475,56 @@ async function novel(scenario) {
         return calls[0];
       };
       return { public: await post("https://novel.example/ch/3"), private: await post("http://192.168.1.5/ch/3") };
+    }
+    case "page_facts": {
+      const facts = (opts) => loadNovelPage({ paragraphs: [], ...opts }).api.pageFacts();
+      return {
+        full: facts({ og: "一人之下 第12话", heading: "第12话 追击", tabTitle: "一人之下 - 腾讯漫画", lang: "zh-CN" }),
+        bare: facts({ heading: "", tabTitle: "" }),
+        dupes: facts({ og: "同名", heading: "同名", tabTitle: "同名" }),
+        many: facts({ heading: "h".repeat(5000), tabTitle: "t" }),
+      };
+    }
+    case "worker_title": {
+      const ask = async (message, stored = {}) => {
+        const calls = [];
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t", ...stored },
+          fetchImpl: async (target, options) => {
+            calls.push({ path: new URL(target).pathname, body: JSON.parse(options.body) });
+            return new Response(JSON.stringify({ drama_id: 9, created: true }), { status: 200 });
+          },
+        });
+        const reply = await h.ask(message);
+        return { calls, reply, h };
+      };
+      const base = { type: "resolveTitle", url: "https://www.twmanga.com/c/1?x=1", titles: ["一人之下"], language: "zh", kind: "comic" };
+      const defaults = await ask(base);
+      const off = await ask(base, { autoTitle: { create: false, fill: false, series: false } });
+      const lan = await ask({ ...base, url: "http://192.168.1.5/c/1" });
+      const settings = await ask({ type: "getSettings" });
+      return {
+        path: defaults.calls[0].path, body: defaults.calls[0].body, reply: defaults.reply,
+        off: off.calls[0].body, lanUrl: lan.calls[0].body.url,
+        settings: settings.reply.data.autoTitle,
+      };
+    }
+    case "worker_save_options": {
+      const saved = [];
+      const h = loadBackground({ granted: () => true, stored: { token: "t", autoTitle: { fill: false } } });
+      h.sandbox.chrome.storage.local.set = async (value) => { saved.push(value); };
+      const reply = await h.ask({ type: "setAutoTitle", options: { series: false, bogus: true } });
+      return { reply, saved };
+    }
+    case "popup_auto": {
+      const p = loadPopupScript();
+      return {
+        on: p.autoPickLabel(true), off: p.autoPickLabel(false),
+        made: p.describeAutoTitle({ created: true, title: "一人之下", series_id: 3 }),
+        madeNoSeries: p.describeAutoTitle({ created: true, title: "一人之下", series_id: null }),
+        reused: p.describeAutoTitle({ created: false, title: "一人之下", series_id: 3, filled: [] }),
+        filled: p.describeAutoTitle({ created: false, title: "一人之下", series_id: 3, filled: ["title_en", "source_url"] }),
+      };
     }
     case "popup_labels": {
       const p = loadPopupScript();

@@ -1,0 +1,11 @@
+/* Merge or move chapters (TitleRestructurePanel.tsx). Plain fieldsets, radios
+   and checkboxes: no tab or segmented styling. */
+.title-restructure { display: grid; gap: var(--space-2); min-width: 0; }
+.title-restructure fieldset { margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+.title-restructure-kind label, .title-restructure-option { display: flex; gap: var(--space-2); align-items: baseline; overflow-wrap: anywhere; }
+.title-restructure-chapters ul { list-style: none; margin: 0; padding: 0; max-height: 18rem; overflow-y: auto; }
+.title-restructure-chapters label { display: flex; gap: var(--space-2); align-items: baseline; min-width: 0; }
+.title-restructure-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.title-restructure select { width: 100%; min-width: 0; box-sizing: border-box; }
+.title-restructure-preview { display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.title-restructure-preview p, .title-restructure-preview ul { margin: 0; overflow-wrap: anywhere; }

@@ -45,7 +45,7 @@ def update_drama(drama_id: int, **fields):
 
 
 # Fixed literal columns: the names are interpolated into the statement.
-BLANK_FILLABLE = ("title_zh", "author", "release_date")
+BLANK_FILLABLE = ("title_zh", "title_en", "author", "release_date")
 
 
 def fill_blank_fields(drama_id: int, values: dict) -> list:
@@ -296,6 +296,10 @@ def search_lines_globally(query: str, limit: int = 100, visible_to: int = None):
 # user-defined ones -- deliberately separate from dramas.status, which
 # tracks pipeline progress, not how the person is organizing their list.
 ORGANIZATIONAL_TAGS = ("Favorite", "On Hold", "Plan to Translate")
+# Set on a title whose chapters were all merged into another, so the Library
+# shows which empty titles are left to delete and the extension's automatic
+# title match stops sending new chapters to it.
+MERGED_TAG = "Merged"
 
 
 def has_custom_tag(drama: dict, tag: str) -> bool:

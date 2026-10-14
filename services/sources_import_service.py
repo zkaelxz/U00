@@ -152,7 +152,7 @@ def parse_chapter_ids(values) -> list:
 
 
 def require_drama(drama_id, principal=None) -> dict:
-    """A drama `principal` can't see (auth B2) is a 404 like a missing one."""
+    """A drama `principal` can't see is a 404 like a missing one."""
     if isinstance(drama_id, bool) or not isinstance(drama_id, int) or drama_id < 1:
         raise InvalidInputError("drama_id must be a positive integer.")
     drama = db.get_drama(drama_id)

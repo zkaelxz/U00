@@ -21,13 +21,13 @@ import json
 import math
 import os
 import subprocess
-import tempfile
 import threading
 from typing import Optional
 
 import background_jobs
 from jobs import job_launch
 import db
+from lib.atomic_write import atomic_write
 from lib.safe_paths import plain_file_in
 import timing_drift
 from services import speech_coverage_service
@@ -139,19 +139,10 @@ def _write_state(drama_id: int, state: dict) -> None:
     path = _state_path(drama_id)
     folder = os.path.dirname(path)
     os.makedirs(folder, exist_ok=True)
-    # A temp name of its own: the CLI and the app are separate processes that
-    # can write this sidecar at once, and _state_lock only covers one of them.
-    fd, tmp = tempfile.mkstemp(dir=folder, prefix=f"{_STATE_FILE}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(state, fh)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        raise
+    # A temp name of its own per write: two processes can
+    # write this sidecar at once, and _state_lock only
+    # covers one of them.
+    atomic_write(path, json.dumps(state), prefix=f"{_STATE_FILE}.")
 
 
 def note_dismissed(drama_id: int, line_id: int) -> None:

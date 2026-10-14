@@ -24,7 +24,7 @@ _think_refused = set()
 def title_thinking(drama_meta) -> bool:
     """Whether a run for this title asks the model to think. Read from the
     database rather than the caller's drama dict, which can predate the choice
-    saved when this run was accepted (e.g. `cli.py translate --thinking`)."""
+    saved when this run was accepted."""
     drama_id = (drama_meta or {}).get("id")
     if not isinstance(drama_id, int):
         return False
@@ -33,7 +33,7 @@ def title_thinking(drama_meta) -> bool:
 
 
 def think_flag(parser):
-    """Adds --thinking / --no-thinking to a CLI subparser; returns it. The
+    """Adds --thinking / --no-thinking to an argparse parser; returns it. The
     choice is saved for the title like the other Translate toggles."""
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=None,
                         help="Think before answering (DeepSeek/Ollama): slower, costs more.")

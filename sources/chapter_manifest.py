@@ -231,13 +231,18 @@ def drop(drama_id: int) -> bool:
     return True
 
 
+def serialise(size: int, chapters: list) -> str:
+    """The manifest text for a raw-novel file of `size` bytes."""
+    return json.dumps({"version": _VERSION, "size": size, "chapters": chapters},
+                      ensure_ascii=False)
+
+
 def _save(drama_id: int, size: int, chapters: list) -> None:
     folder = os.path.dirname(manifest_path(drama_id))
     fd, tmp = tempfile.mkstemp(prefix=".chapters_", suffix=".part", dir=folder)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"version": _VERSION, "size": size, "chapters": chapters}, f,
-                      ensure_ascii=False)
+            f.write(serialise(size, chapters))
         os.replace(tmp, manifest_path(drama_id))
     except BaseException:
         if os.path.exists(tmp):

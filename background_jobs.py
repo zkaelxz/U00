@@ -35,6 +35,7 @@ import threading
 import time
 
 import job_force_stop
+from lib import pid as pid_lib
 from job_process_kill import kill_tree
 from jobs.gpu_queue import _refresh_queue_messages_locked, _run_finish_hooks, _take_queued_locked
 from jobs.job_table import _emit_change, _jobs, _lock, _mirror_locked, _warn, _workers
@@ -213,7 +214,7 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "sourceimport_", "urlmedia_", "voiceref_", "lines_glossary_", "spelling_suggest_", "burnpreview_",
     "bulk_consistency_", "bulk_emotion_", "bulk_notes_", "bulk_flag_", "resegpreview_", "scanlate_",
     "lncrawl_",
-    "comparetx_", "retime_", "speechcov_",
+    "comparetx_", "retime_", "speechcov_", "restructure_",
 )
 
 
@@ -265,37 +266,14 @@ def owner_process_alive(pid) -> bool:
         pid = int(pid)
     except (TypeError, ValueError):
         return True
-    if pid <= 0:
-        return True
-    if os.name == "nt":
-        # os.kill(pid, 0) would end the process on Windows.
-        try:
-            import ctypes
-            from ctypes import wintypes
-            k = ctypes.WinDLL("kernel32", use_last_error=True)
-            k.OpenProcess.restype = wintypes.HANDLE
-            k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-            k.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
-            k.CloseHandle.argtypes = (wintypes.HANDLE,)
-            handle = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
-            if not handle:
-                return ctypes.get_last_error() == 5      # ERROR_ACCESS_DENIED: it exists
-            try:
-                code = wintypes.DWORD()
-                if not k.GetExitCodeProcess(handle, ctypes.byref(code)):
-                    return True
-                return code.value == 259                 # STILL_ACTIVE
-            finally:
-                k.CloseHandle(handle)
-        except Exception:
-            return True
+    if not 0 < pid <= pid_lib.MAX_PID:
+        return True     # not a pid at all; a record we cannot judge is never closed under its owner
+    if os.name != "nt" and pid > 0x7FFFFFFF:
+        return True     # past POSIX pid_t: os.kill cannot probe it, so it cannot be judged either
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
+        return pid_lib.pid_alive(pid)
     except Exception:
-        return True   # PermissionError: it exists, owned by someone else
-    return True
+        return True
 
 
 def _cancel_queued_locked(job_id, job, requested_at=None) -> list:
@@ -320,8 +298,8 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check
     is_cancel_requested() between units of work, since a thread can't be
-    forcibly killed. For a process-based job (start_process_job()), Step
-    4d's own _process_watcher notices this flag and actually calls
+    forcibly killed. For a process-based job (start_process_job()), the
+    _process_watcher notices this flag and actually calls
     proc.terminate() -- a real, non-cooperative stop, since that's the
     whole reason those jobs run in their own OS process instead of a
     thread in the first place (no cooperative checkpoint to hook into).

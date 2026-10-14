@@ -33,6 +33,7 @@ import threading
 
 import db
 import diagnostics_report
+from lib.atomic_write import atomic_write
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 DIR_NAME = "bug_reports"
@@ -367,10 +368,7 @@ def _folder_bytes(path: str) -> int:
 
 
 def _write(path: str, data, binary=False):
-    tmp = path + ".tmp"
-    with open(tmp, "wb" if binary else "w", **({} if binary else {"encoding": "utf-8"})) as fh:
-        fh.write(data)
-    os.replace(tmp, path)
+    atomic_write(path, data, binary=binary)
 
 
 def _read_counter(root: str) -> int:

@@ -11,7 +11,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `pid.py`, `atomic_write.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
 | `jobs/` | the job machinery behind `background_jobs.py`: `jobs/job_table.py` holds the in-memory job table and its lock; `jobs/job_launch.py` starts jobs (`start_job`, `start_process_job`) and holds the exclusive/maintenance/stopping refusals; `jobs/job_runner.py` runs them and handles how they end; `jobs/gpu_queue.py` is the in-process GPU wait line; `jobs/job_settings.py` the job settings; `jobs/process_worker.py` what a process-job worker calls in its child; `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `job_table._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
@@ -213,6 +213,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `http.py` (the one outbound GET/POST: guard on every redirect hop, pinned connection, byte cap, total deadline, fixed-text errors)
 - `proc.py` (the one runner for external commands whose output is read: own process group, tree kill on timeout or cancel, bounded output drain)
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)
+- `pid.py` (`pid_alive`: whether a pid is a running process, Windows and POSIX; standard library only so the launcher and `pending_install` can use it; `background_jobs.owner_process_alive` wraps it)
+- `atomic_write.py` (`atomic_write`: unique temp file in the target's folder, then `os.replace`; removed again on failure; `core.atomic_write` re-exports it)
 - `gzip_text.py` (`pack`/`unpack`: gzip for stored text that readers must take in both plain and compressed form, with a capped inflate)
 - `safe_paths.py` (`plain_file_in`: a database-stored filename joined onto a title's folder only if it is a plain name whose real path stays inside it)
 - `ct2_repo.py` (which files of a Hugging Face CTranslate2 Whisper repo may be downloaded; refuses a listing holding code-bearing files; shared by `whisper_models` and `tools/ja_whisper_models.py`)
@@ -293,6 +295,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `event_stream_service.py`
 - `export_service.py`
 - `extension_novel_service.py` (the extension bridge's "Save text into a title": a page's text appended to a novel title as a new raw chapter)
+- `extension_title_service.py` (the extension bridge's "Auto" target: finds or creates the title and series a page belongs to, filling only blank fields)
 - `extension_service.py`
 - `fixflag_transcribe.py`
 - `fixflag_translate.py` (the re-translation half of "fix flagged lines": reason-aware, id-keyed batches)
@@ -405,6 +408,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `subtitle_import_service.py`
 - `source_suspect_service.py` (Review "Check source text": flag/flag_note only, list with the merge target)
 - `timing_check_service.py` (Review "Check timing" job, snap to speech, dismissed ids)
+- `title_restructure_service.py` (merging a title into another and moving comic or novel chapters between titles: preview, snapshot, then the move)
 - `timing_settings_service.py` (the Settings > Timing and splitting values as runs use them; Developer Mode rows read as defaults while it is off)
 - `resplit_config.py` (what a Review re-split cuts: the sensitivity presets, duration cap and fresh-transcription limits; moved out of restructure_service; used by resplit_service)
 - `reading_speed_dismissal_service.py` (remembers dismissed reading-speed flags in a sidecar, keyed by line id and English text hash)
@@ -497,6 +501,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `system.py` (System-level shapes: health, settings, diagnostics and setup, jobs, updates, notifications, extension, ports and bug reports)
 - `source_suspect.py` (the Review "Check source text" shapes)
 - `timing_check.py` (the Review "Check timing" shapes)
+- `title_restructure.py` (merging titles and moving chapters: the chapter list, the preview and the result)
 - `transcribe.py` (Transcription shapes: transcribe runs and config, diarization, autotune, re-transcribe and live sessions)
 - `translate.py` (Translation shapes: the standalone translator, translate runs, workflow tiers, presets, bulk jobs, retrying failed lines, the glossary redo and the episode summary)
 - `vdb_names.py` (/api/vdb-names: the optional personal VTuber name list; booleans and counts only)
