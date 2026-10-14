@@ -514,3 +514,32 @@ def test_the_job_list_reads_ownership_once_and_agrees_with_the_per_job_rule(peop
         assert listed == expected[who], who
         assert len(bulk) <= 1, who
     assert reads == []
+
+
+def test_require_editable_reads_the_ownership_row_once(people, monkeypatch):
+    """A route guard runs on every edit: one ownership read, with the same
+    404 / 403 / pass outcomes as before."""
+    remote = _p(db.auth_get_user_by_email("admin@example.com")["id"], admin=True,
+                override=False)
+    theirs = db.create_drama(title_zh="p", owner_user_id=people["a_id"])
+    own.set_private(people["a"], "drama", theirs, True)
+    shared = db.create_drama(title_zh="s", owner_user_id=people["a_id"])
+    reads = []
+    real = db.get_item_ownership
+    monkeypatch.setattr(db, "get_item_ownership", lambda *a: (reads.append(a), real(*a))[1])
+    own.require_editable(remote, "drama", shared)
+    assert reads == [("drama", shared)]
+    reads.clear()
+    with pytest.raises(ForbiddenError):
+        own.require_editable(remote, "drama", theirs)
+    assert reads == [("drama", theirs)]
+    reads.clear()
+    with pytest.raises(NotFoundError):
+        own.require_editable(people["b"], "drama", theirs)
+    with pytest.raises(NotFoundError):
+        own.require_editable(people["a"], "drama", 999999)
+    with pytest.raises(NotFoundError):
+        own.require_editable(people["a"], "drama", "nope")
+    with pytest.raises(InvalidInputError):
+        own.require_editable(people["a"], "bogus", shared)
+    assert reads == [("drama", theirs), ("drama", 999999)]

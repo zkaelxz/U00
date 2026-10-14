@@ -404,3 +404,156 @@ def test_cancel_reaches_another_processes_run_past_a_finished_one_here(isolated_
     finally:
         with job_table._lock:
             job_table._jobs.pop(job_id, None)
+
+
+class TestListJobsReadsTheRecordsOnce:
+    """GET /api/jobs is polled while the Jobs page is open: one job_records
+    scan per call, whatever the job count, and none for the stale sweep
+    when nothing is queued or running."""
+
+    @staticmethod
+    def _count_scans(monkeypatch):
+        scans = []
+        real = db.list_job_records
+        monkeypatch.setattr(db, "list_job_records", lambda: (scans.append(1), real())[1])
+        return scans
+
+    def test_finished_jobs_cost_one_scan_and_no_sweep(self, isolated_db, monkeypatch):
+        from jobs import job_store
+        for n in range(25):
+            db.save_job_record(f"j{n}", status="done")
+        swept = []
+        real_sweep = job_store.sweep_dead_owners
+        monkeypatch.setattr(job_store, "sweep_dead_owners",
+                            lambda *a, **k: (swept.append(1), real_sweep(*a, **k))[1])
+        scans = self._count_scans(monkeypatch)
+        assert len(jobs_service.list_jobs()) == 25
+        assert scans == [1] and swept == []
+
+    def test_a_live_running_job_is_swept_from_the_same_scan(self, isolated_db, monkeypatch):
+        import threading
+        import background_jobs
+        from jobs import job_launch, job_store
+        gate = threading.Event()
+        assert job_launch.start_job("live_one", gate.wait, 10)
+        try:
+            for n in range(10):
+                db.save_job_record(f"old{n}", status="done")
+            scanned, swept = [], []
+            real_scan, real_sweep = db.list_job_records, job_store.sweep_dead_owners
+            monkeypatch.setattr(db, "list_job_records",
+                                lambda: scanned.append(real_scan()) or scanned[-1])
+            monkeypatch.setattr(job_store, "sweep_dead_owners", lambda stale, records=None: (
+                swept.append(records), real_sweep(stale, records=records))[1])
+            listed = {j["job_id"]: j["status"] for j in jobs_service.list_jobs()}
+            assert listed["live_one"] == "running" and len(listed) == 11
+            assert len(scanned) == 1 and len(swept) == 1 and swept[0] is scanned[0]
+        finally:
+            gate.set()
+            background_jobs.clear_job("live_one")
+
+    def test_a_job_whose_worker_died_does_not_list_as_running(self, isolated_db):
+        """The sweep marks this process's lost worker failed after the rows
+        were read, so the list reads them again."""
+        import threading
+        import background_jobs
+        from jobs import job_launch, job_runner, job_table
+        release = threading.Event()
+        assert job_launch.start_job("lost_one", release.wait, 10)
+        try:
+            dead = threading.Thread(target=lambda: None)
+            dead.start()
+            dead.join()
+            with job_table._lock:
+                job_table._workers["lost_one"] = (job_table._jobs["lost_one"], dead)
+            assert db.get_job_record("lost_one")["status"] == "running"
+            job = {j["job_id"]: j for j in jobs_service.list_jobs()}["lost_one"]
+            assert (job["status"], job["error"]) == ("error", job_runner.WORKER_LOST_MESSAGE)
+        finally:
+            release.set()
+            assert job_runner.wait_for_job_threads(5.0)
+            background_jobs.clear_job("lost_one")
+
+    def test_a_row_another_poll_closed_after_this_read_is_not_listed_running(
+            self, isolated_db, monkeypatch):
+        """Two polls at once: this one reads the rows, the other's sweep closes
+        a dead owner's row, and this one's sweep then finds nothing to close.
+        It must still not list the row as running."""
+        import subprocess
+        import sys
+        from jobs import job_store, job_table
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(timeout=30)
+        db.save_job_record("dead_two", "running", owner_pid=gone.pid)
+        real_scan = db.list_job_records
+        scans = []
+
+        def scan_then_other_poll_sweeps():
+            rows = real_scan()
+            scans.append(1)
+            if len(scans) == 1:
+                assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS) == 1
+            return rows
+        monkeypatch.setattr(db, "list_job_records", scan_then_other_poll_sweeps)
+        job = jobs_service.list_jobs()[0]
+        assert (job["job_id"], job["status"]) == ("dead_two", "cancelled")
+
+    def test_a_worker_another_poll_reconciled_after_this_read_is_not_listed_running(
+            self, isolated_db, monkeypatch):
+        import threading
+        import background_jobs
+        from jobs import job_launch, job_runner, job_table
+        release = threading.Event()
+        assert job_launch.start_job("lost_two", release.wait, 10)
+        try:
+            dead = threading.Thread(target=lambda: None)
+            dead.start()
+            dead.join()
+            real_scan = db.list_job_records
+            scans = []
+
+            def scan_then_other_poll_reconciles():
+                rows = real_scan()
+                if not scans:
+                    with job_table._lock:
+                        job_table._workers["lost_two"] = (job_table._jobs["lost_two"], dead)
+                    assert job_runner.reconcile_dead_workers() == ["lost_two"]
+                scans.append(1)
+                return rows
+            monkeypatch.setattr(db, "list_job_records", scan_then_other_poll_reconciles)
+            job = {j["job_id"]: j for j in jobs_service.list_jobs()}["lost_two"]
+            assert job["status"] == "error"
+        finally:
+            release.set()
+            assert job_runner.wait_for_job_threads(5.0)
+            background_jobs.clear_job("lost_two")
+
+    def test_a_dead_owners_row_still_lists_as_interrupted(self, isolated_db, monkeypatch):
+        """The sweep closing a row is the one case that reads the rows again,
+        so the list never shows a row the sweep just closed as running."""
+        import subprocess
+        import sys
+        import background_jobs
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(timeout=30)
+        db.save_job_record("dead_one", "running", owner_pid=gone.pid)
+        scans = self._count_scans(monkeypatch)
+        job = jobs_service.list_jobs()[0]
+        assert (job["job_id"], job["status"]) == ("dead_one", "cancelled")
+        assert job["error"] == background_jobs.INTERRUPTED_MESSAGE
+        assert len(scans) == 2
+
+    def test_the_account_names_are_read_once_per_list_and_still_redacted(
+            self, isolated_db, monkeypatch):
+        import getpass
+        for n in range(20):
+            db.save_job_record(f"e{n}", status="error", error=f"run {n} failed for zoya",
+                               message="zoya was here")
+        calls = []
+        monkeypatch.setattr(getpass, "getuser", lambda: calls.append(1) or "zoya")
+        jobs = jobs_service.list_jobs()
+        assert len(jobs) == 20 and len(calls) == 1
+        assert all("zoya" not in (j["error"] + j["message"]) for j in jobs)
+        # Outside a list, each redaction reads the names afresh.
+        monkeypatch.setattr(getpass, "getuser", lambda: calls.append(1) or "yuki")
+        assert jobs_service.get_job("e0")["message"] == "zoya was here"
