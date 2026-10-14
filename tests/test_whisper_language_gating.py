@@ -136,8 +136,8 @@ class TestPayloads:
 
 
 class TestSelectableSizes:
-    """One list feeds every non-Live picker: medium and below are hidden unless Developer
-    Mode is on, but the server keeps accepting them and a title that saved one keeps it."""
+    """One list feeds every non-Live picker: medium and below are hidden (Developer Mode
+    does not bring them back), but the server keeps accepting them and a title that saved one keeps it."""
 
     HIDDEN = ("tiny", "base", "small", "medium")
 
@@ -147,20 +147,16 @@ class TestSelectableSizes:
             assert sizes[:2] == ["large-v3", "large-v3-turbo"]
             assert not set(sizes) & set(self.HIDDEN)
 
-    def test_developer_mode_shows_the_hidden_sizes_again(self):
-        sizes = wm.selectable_whisper_sizes("transcribe", developer_mode=True)
-        assert set(self.HIDDEN) <= set(sizes)
+    def test_developer_mode_does_not_bring_the_hidden_sizes_back(self, isolated_db, monkeypatch):
+        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: True)
+        did = isolated_db.create_drama(title_en="D")
+        for context in ("transcribe", "compare"):
+            assert not set(transcribe_options_service.selectable_whisper_sizes(context)) & set(self.HIDDEN)
+        assert not set(transcribe_service.get_transcribe_config(did)["selectable_whisper_sizes"]) & set(self.HIDDEN)
 
     def test_live_keeps_its_own_list(self):
         assert wm.selectable_whisper_sizes("live") == list(wm.LIVE_WHISPER_SIZES)
         assert "medium" in wm.selectable_whisper_sizes("live")
-
-    def test_the_config_route_reads_the_developer_flag(self, isolated_db, monkeypatch):
-        did = isolated_db.create_drama(title_en="D")
-        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: False)
-        assert "medium" not in transcribe_service.get_transcribe_config(did)["selectable_whisper_sizes"]
-        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: True)
-        assert "medium" in transcribe_service.get_transcribe_config(did)["selectable_whisper_sizes"]
 
     def test_a_saved_hidden_size_is_kept_and_still_accepted(self, isolated_db, monkeypatch):
         monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: False)
