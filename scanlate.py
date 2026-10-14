@@ -230,7 +230,8 @@ def bulk_find_replace_preview(items: list, find: str, replace: str, text_field: 
 
 def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: str = "auto",
                         hf_token: str = None, ocr_backend: str = None, tesseract_cmd: str = None,
-                        prefer_paddle_vl_manga: bool = False, page_id: int = None):
+                        prefer_paddle_vl_manga: bool = False, page_id: int = None,
+                        art_captions: bool = False):
     """Detect -> structure (analyze_page_regions) -> OCR -> font-style
     sample for one page. Shared by the single-page Detect button and the
     whole-chapter batch (batch_process_pages()), so both do exactly the
@@ -241,6 +242,10 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     step; notes are (level, message) pairs -- "warning" when the ML
     detector fell back to the heuristic, "error" when nothing was found --
     for the caller to show.
+
+    art_captions: also find lettering drawn straight onto the artwork (see
+    scanlate_art_text), which the bubble detector never sees, and return it as
+    regions of kind "caption" after the bubbles.
 
     The page is decoded once (decode_page()) and that array shared by every
     step, instead of each step and each bubble reading the file again."""
@@ -258,7 +263,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
 
-    if not boxes:
+    if not boxes and not art_captions:
         _, rejected = detect_bubbles_cv(image_path, debug=True, image=page)
         reasons = {}
         for r in rejected:
@@ -296,12 +301,44 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b["irregular"] = style.get("irregular")
         b.update(translated_text="", font_size=18, skip=False, include_sfx=False)
         bubbles.append(b)
+    if art_captions:
+        bubbles += _art_caption_regions(image_path, source_language, bubbles, page, notes)
     if ocr_failed:
         # Fixed text: the exception may carry a model path, and the caller
         # needs "OCR broke" kept apart from "the bubble holds no text".
         notes.append(("error", f"OCR failed on {ocr_failed} of {len(bubbles)} regions. Check "
                                "that the OCR backend is installed (Diagnostics)."))
     return bubbles, notes
+
+
+def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,
+                         notes: list) -> list:
+    """Regions (kind "caption") for lettering on the artwork that no bubble
+    covers, with the OCR detector's own text. Appended after the bubbles in
+    reading order. A failure leaves the page with its bubbles and a note."""
+    import scanlate_art_text
+    try:
+        found = scanlate_art_text.find_art_captions(image_path, source_language, bubbles,
+                                                    image=page)
+    except HeadroomError:
+        raise
+    except Exception as exc:
+        notes.append(("warning", f"Captions on the art could not be read "
+                                 f"({type(exc).__name__}); the bubbles were still translated."))
+        return []
+    regions = []
+    for i, c in enumerate(found):
+        regions.append({
+            "x": c["x"], "y": c["y"], "w": c["w"], "h": c["h"],
+            "reading_order": len(bubbles) + i,
+            "language": detect_script_language(c["source_text"], source_language),
+            "confidence": None,
+            "orientation": "vertical" if c["h"] > 1.4 * c["w"] else "horizontal",
+            "panel_id": None, "kind": "caption", "kind_confidence": 0.5,
+            "source_text": c["source_text"], "font_category": "bold",
+            "ink_ratio": None, "irregular": None,
+            "translated_text": "", "font_size": 18, "skip": False, "include_sfx": False})
+    return regions
 
 
 def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,

@@ -425,6 +425,45 @@ def test_run_refused_when_paddle_vl_manga_needs_newer_transformers(client, fake_
     assert fake_detect == []
 
 
+def test_art_captions_are_off_unless_asked_for(client, fake_detect):
+    did = _drama()
+    _page(did)
+    assert _run(client, did, engine="fake").status_code == 200
+    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert fake_detect[0]["art_captions"] is False
+
+
+def test_art_captions_run_translates_the_detected_caption_text(client, monkeypatch):
+    seen = []
+
+    def detect(image_path, lang, page_id=None, **kw):
+        seen.append(kw["art_captions"])
+        return [_region(5, "你好"), _region(50, "世界破裂", kind="caption")], []
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    did = _drama()
+    pid = _page(did)
+    assert _run(client, did, engine="fake", art_captions=True).status_code == 200
+    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert seen == [True]
+    kinds = {b["kind"]: b for b in db.load_bubbles(pid)}
+    assert kinds["caption"]["translated_text"].strip()
+
+
+def test_art_captions_run_is_refused_without_paddle(client, fake_detect, monkeypatch):
+    def require(backend, cmd=None):
+        if backend == "paddle":
+            from services.service_errors import DependencyUnavailableError
+            raise DependencyUnavailableError("PaddleOCR is not installed.")
+    monkeypatch.setattr(ocr, "require_backend", require)
+    monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "tesseract")
+    did = _drama()
+    _page(did)
+    assert _run(client, did, engine="fake").status_code == 200
+    _wait(f"scanlate_{did}")
+    r = _run(client, did, engine="fake", mode="all", confirm=True, art_captions=True)
+    assert r.status_code == 503 and "PaddleOCR" in r.text
+
+
 def test_translate_all_skips_pages_with_regions(client, fake_detect):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)

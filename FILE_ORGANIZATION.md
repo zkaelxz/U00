@@ -172,6 +172,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `scanlate_inpaint.py`
 - `scanlate_regions.py` (text-region classification, script/orientation guesses, SFX exclusion)
 - `scanlate_render.py` (font choice, text fitting, the inpaint-and-draw render pass, font-style sampling)
+- `scanlate_art_text.py` (lettering drawn on the artwork: find it, paint it out with LaMa-manga, set English in the original colour and glow)
 - `scanlate_translate.py` (id-keyed translation of a page's regions)
 - `segment.py`
 

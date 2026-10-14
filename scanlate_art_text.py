@@ -31,9 +31,9 @@ def _overlap(a: dict, b: dict) -> float:
 
 
 def group_lines(lines: list) -> list:
-    """Joins text lines that belong to one caption (stacked closely, sharing
-    horizontal extent) into one box with the lines' texts in reading order.
-    lines: [{"x","y","w","h","text"}, ...]."""
+    """Joins text lines that belong to one caption (stacked closely, of one size,
+    sharing horizontal extent, not vertical columns) into one box with the
+    lines' texts in reading order. lines: [{"x","y","w","h","text"}, ...]."""
     ordered = sorted(lines, key=lambda l: (l["y"], l["x"]))
     groups = []
     for line in ordered:
@@ -54,15 +54,8 @@ def group_lines(lines: list) -> list:
         else:
             groups.append({"x": line["x"], "y": line["y"], "w": line["w"], "h": line["h"],
                            "lines": [line]})
-    out = []
-    for g in groups:
-        line_h = int(np.median([l["h"] if l["w"] >= l["h"] else l["w"] for l in g["lines"]]))
-        left_aligned = len(g["lines"]) > 1 and all(
-            abs(l["x"] - g["x"]) < 0.05 * g["w"] for l in g["lines"])
-        out.append({"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"],
-                    "source_text": "".join(l["text"] for l in g["lines"]),
-                    "line_h": line_h, "align": "left" if left_aligned else "center"})
-    return out
+    return [{"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"],
+             "source_text": "".join(l["text"] for l in g["lines"])} for g in groups]
 
 
 def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None) -> list:
@@ -112,12 +105,14 @@ def _inside(shape, box, x0, y0):
 
 def paint_out_captions(page, boxes: list, backend: str = "auto"):
     """Erases each caption's lettering from `page` (a BGR array, changed in
-    place) with the LaMa-manga model. Returns True when the model ran, False
-    when OpenCV did instead (its result is ghostier). Raises nothing for a
-    missing model: the caller shows the OpenCV result with a note."""
+    place) with the LaMa-manga model. Returns True when the model painted every
+    caption, False when OpenCV did for any (its result is ghostier): the model
+    isn't downloaded or can't load, or a caption was too large for it. Nothing
+    is raised: the caller shows the OpenCV result with a note."""
     import cv2
-    from scanlate_inpaint import InpaintModelUnavailable, _resolve_inpaint_backend, _run_ml_inpaint
-    ran_model = _resolve_inpaint_backend(backend) == "ml"
+    from scanlate_inpaint import _resolve_inpaint_backend, _run_ml_inpaint
+    model_usable = _resolve_inpaint_backend(backend) == "ml"
+    all_by_model = model_usable
     for box in boxes:
         mask = caption_mask(page, box)
         ys, xs = np.nonzero(mask)
@@ -125,33 +120,56 @@ def paint_out_captions(page, boxes: list, backend: str = "auto"):
             continue
         y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
         roi, roi_mask = page[y0:y1, x0:x1], mask[y0:y1, x0:x1]
-        try:
-            if not ran_model:
-                raise InpaintModelUnavailable("model not downloaded")
-            page[y0:y1, x0:x1] = _run_ml_inpaint(roi, roi_mask)
-        except Exception:
-            ran_model = False
-            page[y0:y1, x0:x1] = cv2.inpaint(roi, roi_mask, 5, cv2.INPAINT_TELEA)
-    return ran_model
+        if model_usable:
+            try:
+                page[y0:y1, x0:x1] = _run_ml_inpaint(roi, roi_mask, allow_download=False)
+                continue
+            except ValueError:
+                pass            # too large for the model: OpenCV for this caption only
+            except Exception:
+                model_usable = False
+        all_by_model = False
+        page[y0:y1, x0:x1] = cv2.inpaint(roi, roi_mask, 5, cv2.INPAINT_TELEA)
+    return all_by_model
+
+
+def _line_layout(ink, box: dict) -> tuple:
+    """(line height, "left" or "center") of the original lettering, read from its
+    ink pixels: the height of one line of glyphs (a column's width for vertical
+    text), and whether every line starts at the same left edge."""
+    if box["h"] > 1.4 * box["w"]:
+        return box["w"], "center"
+    profile = ink.sum(axis=1).astype(float)
+    inked = profile > 0.12 * profile.max()
+    edges = np.flatnonzero(np.diff(np.concatenate([[0], inked.view(np.int8), [0]])))
+    lines = [(int(s), int(e)) for s, e in zip(edges[::2], edges[1::2]) if e - s >= 12]
+    if not lines:
+        return box["h"], "center"
+    lefts = [int(np.flatnonzero(ink[s:e].any(axis=0))[0]) for s, e in lines]
+    left_aligned = len(lines) > 1 and max(lefts) - min(lefts) < 0.05 * box["w"]
+    return int(np.median([e - s for s, e in lines])), "left" if left_aligned else "center"
 
 
 def caption_style(page, box: dict) -> dict:
-    """The original lettering's colour and glow, sampled from the page before
-    it is painted out: the fill is the typical bright (or dark) ink pixel, the
-    glow the colour of the halo just outside the strokes."""
+    """The original lettering's look, sampled from the page before it is
+    painted out: the fill is the typical bright (or dark) ink pixel, the glow the
+    colour of the halo just outside the strokes, plus the line height and
+    alignment of the lines."""
     import cv2
     mask = caption_mask(page, box)
     gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
     ys, xs = np.nonzero(mask)
     if not len(xs):
-        return {"fill": (255, 255, 255), "glow": None}
+        return {"fill": (255, 255, 255), "glow": None, "line_h": box["h"], "align": "center"}
     y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
     region = page[y0:y1, x0:x1]
     reg_gray, reg_mask = gray[y0:y1, x0:x1], mask[y0:y1, x0:x1] > 0
     dark_bg = background_is_dark(reg_gray)
     ink = reg_mask & ((reg_gray > 180) if dark_bg else (reg_gray < 110))
     if not ink.any():
-        return {"fill": (255, 255, 255) if dark_bg else (0, 0, 0), "glow": None}
+        return {"fill": (255, 255, 255) if dark_bg else (0, 0, 0), "glow": None,
+                "line_h": box["h"], "align": "center"}
+    line_h, align = _line_layout(ink, box)
     fill = tuple(int(v) for v in np.median(region[ink][:, ::-1], axis=0))
     ring = cv2.dilate(ink.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
     ring &= ~cv2.erode(ink.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
@@ -161,7 +179,7 @@ def caption_style(page, box: dict) -> dict:
         pix = region[ring][:, ::-1].astype(float)
         brightest = pix[np.argsort(pix.sum(axis=1))[-max(1, len(pix) // 5):]]
         glow = tuple(int(v) for v in brightest.mean(axis=0)) if dark_bg else None
-    return {"fill": fill, "glow": glow}
+    return {"fill": fill, "glow": glow, "line_h": line_h, "align": align}
 
 
 def draw_caption(pil_img, box: dict, text: str, style: dict = None, font_path: str = None):
@@ -172,11 +190,12 @@ def draw_caption(pil_img, box: dict, text: str, style: dict = None, font_path: s
     from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
     from scanlate_render import _find_font
     style = style or {"fill": (255, 255, 255), "glow": None}
+    align = style.get("align", "center")
     path = _find_font(font_path, category="bold")
     draw = ImageDraw.Draw(pil_img)
     words = text.split()
-    line_h0 = box.get("line_h") or box["h"]
-    if box["h"] > 2 * box["w"]:
+    line_h0 = style.get("line_h") or box["h"]
+    if box["h"] > 1.4 * box["w"]:
         # Vertical CJK column: English can't stack, so it reads across the column's centre.
         max_w = max(box["w"] * 3, 1)
     else:
@@ -204,7 +223,7 @@ def draw_caption(pil_img, box: dict, text: str, style: dict = None, font_path: s
     placed = []
     for i, line in enumerate(lines):
         width = draw.textlength(line, font=font)
-        x = box["x"] if box.get("align") == "left" and box["h"] <= 2 * box["w"] else cx - width / 2
+        x = box["x"] if align == "left" and box["h"] <= 1.4 * box["w"] else cx - width / 2
         placed.append((x, top + i * line_h, line))
         layer_draw.text((x, top + i * line_h), line, font=font, fill=255)
     if style.get("glow"):
