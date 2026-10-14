@@ -199,7 +199,7 @@ Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
 
 Which sizes the pickers offer is one function, `whisper_models.selectable_whisper_sizes(context)`: the
 Transcribe stage and Compare transcription list `large-v3`, `large-v3-turbo` and the opt-in Japanese models;
-`tiny`, `base`, `small` and `medium` are hidden unless Developer Mode is on. The API and saved titles
+`tiny`, `base`, `small` and `medium` are hidden everywhere outside Live, Developer Mode included. The API and saved titles
 still accept the hidden sizes, and a title that saved one shows it as "medium (older choice, hidden)" with a
 one-click switch to large-v3; it is never changed silently. Live keeps its own list
 (`whisper_models.LIVE_WHISPER_SIZES`: tiny to medium and turbo, default small) and the Groq hosted model stays

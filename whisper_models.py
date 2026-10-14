@@ -30,9 +30,9 @@ WHISPER_MODELS = {
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
 
-# Sizes the Workspace pickers no longer offer. The API, the CLI and titles that saved
-# one still accept them; Developer Mode shows them again. tiny and base exist only here
-# and in Live's list, not in WHISPER_MODELS.
+# Sizes the Workspace pickers no longer offer (Live keeps them). The API, the CLI and
+# titles that saved one still accept them. tiny and base exist only here and in Live's
+# list, not in WHISPER_MODELS.
 HIDDEN_WHISPER_SIZES = ("tiny", "base", "small", "medium")
 
 # Keys that name a pinned Hugging Face repo instead of a faster-whisper size. The
@@ -137,18 +137,15 @@ LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo")
 
 
 
-def selectable_whisper_sizes(context: str, developer_mode: bool = False) -> list:
+def selectable_whisper_sizes(context: str) -> list:
     """The Whisper sizes a picker offers, in display order. `context` is "live" (its own
     list) or any Workspace picker ("transcribe", "compare"). One place decides this so
     the pickers cannot drift; server validation does not use it and keeps accepting the
     hidden sizes."""
     if context == "live":
         return list(LIVE_WHISPER_SIZES)
-    shown = ["large-v3", "large-v3-turbo", *(k for k in WHISPER_MODELS if k not in HIDDEN_WHISPER_SIZES
-                                              and k not in ("large-v3", "large-v3-turbo"))]
-    if developer_mode:
-        return [*shown, *HIDDEN_WHISPER_SIZES]
-    return shown
+    return ["large-v3", "large-v3-turbo", *(k for k in WHISPER_MODELS if k not in HIDDEN_WHISPER_SIZES
+                                            and k not in ("large-v3", "large-v3-turbo"))]
 
 
 def release_gpu_models():

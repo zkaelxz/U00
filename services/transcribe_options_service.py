@@ -234,11 +234,7 @@ def _allowed_whisper_sizes() -> frozenset:
 
 
 def selectable_whisper_sizes(context: str) -> list:
-    """The sizes a Workspace picker lists: whisper_models' table, plus the hidden ones when
-    Developer Mode is on. Read here (not in whisper_models) so that module stays free of settings."""
-    from services import maintenance_assistant_service
-    return whisper_models.selectable_whisper_sizes(
-        context, developer_mode=maintenance_assistant_service.developer_mode_enabled())
+    return whisper_models.selectable_whisper_sizes(context)
 
 
 def default_whisper_size() -> str:

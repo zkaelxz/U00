@@ -11,7 +11,7 @@ const exclusions: WhisperExclusions = {
 
 // What the server's selectable_whisper_sizes sends: the large models and the opt-in Japanese ones.
 const SELECTABLE = ['large-v3', 'large-v3-turbo', 'ja-1.5b', 'kotoba-v2']
-// Developer Mode adds the sizes the picker normally hides.
+// A list that includes the sizes the server hides, to show the picker only echoes what it is sent.
 const WITH_HIDDEN = [...SELECTABLE, 'tiny', 'base', 'small', 'medium']
 
 const choice = (language: string, current = 'large-v3') =>
@@ -42,7 +42,7 @@ describe('Whisper model choices per language', () => {
     expect(sizes).toEqual([...SELECTABLE, 'anime-whisper'])
   })
 
-  it('offers only the large models without Developer Mode, and the small ones with it', () => {
+  it('offers only the large models the server lists, and the small ones only if it ever lists them', () => {
     const plain = whisperSizeChoices('zh', 'large-v3', exclusions, SELECTABLE).map((c) => c.size)
     expect(plain).not.toContain('medium')
     expect(plain).not.toContain('tiny')
@@ -58,7 +58,7 @@ describe('Whisper model choices per language', () => {
     const c = whisperSizeChoices('zh', 'medium', exclusions, SELECTABLE)
     expect(c[0]).toEqual({ size: 'medium', reason: null, hidden: true })
     expect(c.filter((x) => x.hidden)).toHaveLength(1)
-    // The same size is not hidden once Developer Mode lists it.
+    // The same size is not hidden if the server lists it.
     expect(whisperSizeChoices('zh', 'medium', exclusions, WITH_HIDDEN).some((x) => x.hidden)).toBe(false)
   })
 
