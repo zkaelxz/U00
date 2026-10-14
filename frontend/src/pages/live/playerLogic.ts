@@ -5,8 +5,20 @@
  */
 import { apiUrl } from '../../api/client'
 
-/** How far (s) the measured delay may sit from the wanted one before the player seeks. */
-export const SEEK_TOLERANCE_S = 3
+/**
+ * How far (s) the measured delay may sit from its goal before the player seeks. The
+ * newest recorded second moves in steps of one segment (4 s) as the playlist reloads,
+ * so the measure swings by that much on its own; a tighter limit would seek forward
+ * over footage every few seconds.
+ */
+export const SEEK_TOLERANCE_S = 6
+/**
+ * Seconds the recording's newest second trails the real live edge: a finished 4 s
+ * segment is up to 4 s old when it is listed, plus the source's own 2 s piece and its
+ * fetch. The captions are timed from real live, so the picture is this much further
+ * behind than the player can see.
+ */
+export const RECORDER_LAG_S = 6
 /** Seconds after a seek during which another is not started (the player is still settling). */
 export const SEEK_COOLDOWN_S = 5
 /** Seconds without playback progress before the player is nudged, then rebuilt. */

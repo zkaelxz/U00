@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { MUTED_NOTE } from './embedLogic'
 import {
-  PREPARING_NOTE, RECOVERING_NOTE, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, placement, playerSrc, stallAction,
+  PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, placement, playerSrc, stallAction,
 } from './playerLogic'
 
 export function DelayedPlayer({ sessionId, ready, delay, captions }: {
@@ -25,7 +25,7 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
   const goalRef = useRef<number | null>(null)
   const [note, setNote] = useState(PREPARING_NOTE)
   const [muted, setMuted] = useState(false)
-  // Seconds the picture really plays behind the newest recorded second; the captions wait that long.
+  // Seconds the picture plays behind real live (behind the newest recorded second, plus the recorder's lag); the captions wait that long.
   const [pictureDelay, setPictureDelay] = useState(0)
   // Bumped to throw the player away and start it again after an error it could not recover from.
   const [attempt, setAttempt] = useState(0)
@@ -54,10 +54,11 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
       if (!alive || v.seekable.length === 0) return
       const start = v.seekable.start(0)
       const end = v.seekable.end(v.seekable.length - 1)
-      setPictureDelay(Math.max(0, Math.round(end - v.currentTime)))
       const now = performance.now() / 1000
       const place = placement(start, end, v.currentTime, delayRef.current, goalRef.current)
       goalRef.current = place.goal
+      // The held goal, not the measure: that steps by a segment and would make the captions jump.
+      setPictureDelay(Math.max(0, Math.round((place.goal ?? end - v.currentTime) + RECORDER_LAG_S)))
       if (place.to !== null && now - lastSeekAt >= SEEK_COOLDOWN_S) {
         lastSeekAt = now
         v.currentTime = place.to

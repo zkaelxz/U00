@@ -14,6 +14,10 @@ describe('placement', () => {
     expect(placement(0, 34, 2, 40, 32)).toEqual({ goal: 32, to: null })
     expect(placement(0, 60, 28, 40, 32)).toEqual({ goal: 32, to: null })
   })
+  it('does not seek on the step the measure takes each time the playlist reloads', () => {
+    expect(placement(0, 100, 66, 30, 30)).toEqual({ goal: 30, to: null })
+    expect(placement(0, 100, 74, 30, 30)).toEqual({ goal: 30, to: null })
+  })
   it('seeks back when playback has fallen behind its goal, and places again off the back of the window', () => {
     expect(placement(0, 100, 50, 30, 30)).toEqual({ goal: 30, to: 70 })
     expect(placement(40, 140, 20, 30, 30)).toEqual({ goal: 30, to: 110 })
