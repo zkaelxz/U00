@@ -11,3 +11,11 @@ export function useHolds(permission: string): boolean {
   if (s.status !== 'ready') return true
   return !s.me.auth_enabled || s.me.permissions.includes(permission)
 }
+
+// Ollama cloud models: with engines.paid they use the PC's own Ollama account;
+// with their own key saved in Settings, a member uses theirs instead.
+export function useCloudModelsAllowed(): boolean {
+  const s = useSession()
+  const holdsPaid = useHolds('engines.paid')
+  return holdsPaid || (s.status === 'ready' && !!s.me.own_ollama_key)
+}

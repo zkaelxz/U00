@@ -143,15 +143,21 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
   - Ollama: runs `OLLAMA_MODELS` (Gemma 4) on your own GPU; free, private and
     unlimited. See the model sizes in `OLLAMA_MODELS` for what fits a 12 GB card.
     The `OLLAMA_CLOUD_MODELS` tags (`gemma4:31b-cloud`, `gemma4:cloud`) are Ollama's hosted
-    models, reached through the same local server after `ollama signin`: no API key is
-    stored here, but the subtitle text is processed on Ollama's servers and free use is capped.
+    models, reached through the same local server after `ollama signin` (the owner's
+    account): the subtitle text is processed on Ollama's servers and free use is capped.
     They are never a default or fallback, are skipped by the GPU/headroom checks
     (`ollama_touches_local_gpu`, which also decides whether a job takes the GPU queue slot), and a 429 becomes `OllamaCloudLimitError`, which the normal
-    backoff retries. The direct `ollama.com/api` path (Bearer key) is not built. Any tag
+    backoff retries. A signed-in member who saved their own Ollama key has their cloud calls
+    sent to `https://ollama.com/api/chat` instead, with `Authorization: Bearer <key>`, no
+    redirects, and the tag without its cloud suffix (`direct_cloud_model`); the key comes from
+    `member_cloud_key` (the request's member, or the key a job carried from its start through
+    `carry_member_cloud_key`, so removing it mid-run never moves the run onto the owner's
+    account). A member without a key still uses the PC's sign-in. Any tag
     ending `-cloud` or `:cloud` counts as hosted (`is_ollama_cloud_model`); the engine list
     flags those. They are kept out of `ENGINE_MODEL_DICTS["ollama"]`, refused as a Diagnostics
     default replacement, and ignored on read if a restored backup carries one as the default
-    (`model_override_for_default`). A household user needs `engines.paid` to use one: every
+    (`model_override_for_default`). A household user needs `engines.paid`, or their own saved
+    Ollama key, to use one: every
     route that takes a client-chosen `model` passes it to `require_engines_allowed(request,
     engine, model=...)` (or calls `require_cloud_model_allowed`), and a sweep test fails any
     such route that doesn't. Routes that need `engines.paid` or are PC-only, and the

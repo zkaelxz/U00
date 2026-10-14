@@ -81,6 +81,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "loudness.py",
     "media_inspect.py",
     "memory_headroom.py",
+    "member_keys.py",
     "metadata_lookup.py",
     "mixed_language.py",
     "navigator.py",

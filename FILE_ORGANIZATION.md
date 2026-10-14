@@ -14,7 +14,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 | `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `pid.py`, `atomic_write.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
 | `jobs/` | the job machinery behind `background_jobs.py`: `jobs/job_table.py` holds the in-memory job table and its lock; `jobs/job_launch.py` starts jobs (`start_job`, `start_process_job`) and holds the exclusive/maintenance/stopping refusals; `jobs/job_runner.py` runs them and handles how they end; `jobs/gpu_queue.py` is the in-process GPU wait line; `jobs/job_settings.py` the job settings; `jobs/process_worker.py` what a process-job worker calls in its child; `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `job_table._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
-| `engine_backends/` | translation engines by provider, retry/redaction helpers (`shared.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
+| `engine_backends/` | translation engines by provider, retry helpers (`shared.py`), redaction (`redaction.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
 | `sources/` | site adapters (`sources/adapters/`), fetch ladder, source store | `sources/registry.py`, `sources/front_door.py` |
 | `frontend/` | React + Vite + TypeScript app; built output `frontend/dist` is served by the API | `frontend/src/main.tsx` |
 | `extension/` | browser-side JavaScript (Chrome extension), not Python; `site_access.js` decides which origins the extension may ask the person to grant (no private or LAN hosts); `shared.js` holds the status-line and error-wording helpers the popup and options pages share | `extension/manifest.json`, bridge in `page_server.py` |
@@ -193,6 +193,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `device_tokens.py` (the browser extension's per-device token table; rules in `services/device_token_service.py`)
 - `epub_io.py`
 - `known_sites.py`
+- `member_keys.py` (members' own provider API keys, encrypted; rules in `services/member_key_service.py`)
 - `metadata_lookup.py`
 - `navigator.py`
 - `page_fetch.py` (static and browser-rendered page fetches, shell detection, `smart_fetch`)
@@ -351,6 +352,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `media_peaks_service.py`
 - `media_playback_service.py`
 - `media_upload_service.py`
+- `member_key_service.py` (a member's own Ollama key: encrypted storage, who may see or remove it, and carrying it into their jobs)
 - `metadata_research_service.py`
 - `metadata_service.py`
 - `model_readiness_service.py` (whether a run's models are on disk; refuses a run started away from the PC that would download one)
@@ -565,6 +567,7 @@ Models for the domains that have been moved into the package; `from api.schemas 
 - `live_routes.py`
 - `loaded_models_routes.py`
 - `media_routes.py`
+- `member_key_routes.py` (a signed-in member's own Ollama key: status, save, remove)
 - `metadata_research_routes.py`
 - `metadata_routes.py`
 - `model_reeval_routes.py`
@@ -633,6 +636,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `medium_prompts.py` (Per-medium prompt wording: subtitle, novel and stream kinds for the base prompt, Reflect and Improve)
 - `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
 - `paid_calls.py` (the one usage-row writer for a paid call, and the failure-streak, cap and wait-budget limits for a job's single-prompt AI calls)
+- `redaction.py` (`redact_secrets`: API keys, bearer tokens and URL userinfo scrubbed from error text)
 - `shared.py` (Helpers every engine uses)
 - `standalone.py` (Standalone text translation)
 - `thinking.py` (Switching a model's reasoning off or on in the request)

@@ -27,6 +27,7 @@ import { ExtensionSection } from './settings/ExtensionSection'
 import { LanguagePacksCard } from './settings/LanguagePacksCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { OllamaKeyCard } from './settings/OllamaKeyCard'
 import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
@@ -284,6 +285,7 @@ export default function SettingsPage() {
             <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
             <SettingsCard id="devices"><DevicesCard /></SettingsCard>
             <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
+            <SettingsCard id="ollama-key"><OllamaKeyCard /></SettingsCard>
           </>
         ))}
         {settings && prefProps && panel('integrations', (
