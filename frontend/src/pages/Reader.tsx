@@ -455,6 +455,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
                 dramaId={id}
                 page={page}
                 chapterSize={prefs.chapterSize}
+                language={sourceLanguage}
                 engines={engines}
                 enginesOff={enginesOff}
                 engine={engine}

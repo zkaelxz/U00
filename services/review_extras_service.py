@@ -434,7 +434,7 @@ def start_sensevoice(drama_id: int) -> dict:
     """Starts the SenseVoice tagging job (writes only audio_tags.json)."""
     _require_drama(drama_id)
     if not _sensevoice_installed():
-        raise DependencyUnavailableError("Audio emotion tags need: pip install funasr")
+        raise DependencyUnavailableError("Audio emotion tags need the funasr package, which isn't installed (see Diagnostics > Packages).")
     audio = _audio_path(drama_id)
     if audio is None:
         raise UnsupportedOperationError("This title has no audio to tag.")
