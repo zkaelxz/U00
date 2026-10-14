@@ -2545,6 +2545,56 @@ def test_a_refused_library_stays_refused_on_the_next_use(isolated_db, monkeypatc
         db.get_conn()
 
 
+def test_a_second_thread_waits_for_the_first_use_to_finish_migrating(isolated_db, monkeypatch):
+    # Without the wait, the second thread gets a connection while the first is
+    # still migrating, and can read a table or column that isn't there yet.
+    real_init_db = db.init_db
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def slow_init_db():
+        calls.append(threading.current_thread().name)
+        started.set()
+        assert release.wait(5)
+        real_init_db()
+
+    monkeypatch.setattr(db, "init_db", slow_init_db)
+    db.configure_library_dir(db.LIBRARY_DIR)   # forget readiness, as a fresh start
+    first = threading.Thread(target=lambda: db.get_conn().close(), name="first")
+    first.start()
+    assert started.wait(5)
+    second_done = threading.Event()
+    second = threading.Thread(target=lambda: (db.get_conn().close(), second_done.set()),
+                              name="second")
+    second.start()
+    try:
+        assert not second_done.wait(0.3)
+    finally:
+        release.set()
+        first.join(5)
+        second.join(5)
+    assert second_done.is_set()
+    assert calls == ["first"]
+
+
+def test_a_failed_first_use_lets_the_next_one_retry(isolated_db, monkeypatch):
+    real_init_db = db.init_db
+    attempts = []
+
+    def failing_once():
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise sqlite3.OperationalError("disk I/O error")
+        real_init_db()
+
+    monkeypatch.setattr(db, "init_db", failing_once)
+    db.configure_library_dir(db.LIBRARY_DIR)
+    with pytest.raises(sqlite3.OperationalError):
+        db.get_conn()
+    db.get_conn().close()
+    assert len(attempts) == 2
+
+
 @pytest.mark.parametrize("stored", ["1.9.0", "2.0.5"])
 def test_init_db_opens_an_older_or_equal_version_and_records_the_running_one(
         isolated_db, monkeypatch, stored):

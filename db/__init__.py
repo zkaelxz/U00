@@ -124,24 +124,35 @@ def _close_leaked_connections():
                     "for the rest of this process's life.", exc_info=True)
 
 
+# Held while the first use migrates the schema, so another thread waits for
+# it instead of getting a connection to a half-migrated database. Re-entrant:
+# init_db() calls get_conn() on the same thread.
+_init_lock = threading.RLock()
+_db_initializing = False
+
+
 def _ensure_ready():
     """Creates the library dir and schema for the current LIBRARY_DIR, the
     first time any real database operation runs -- not at import time.
-    Sets _db_ready before doing the work, since init_db() itself calls
-    get_conn(), which would otherwise recurse back into this function."""
-    global _db_ready
+    _db_ready is set only once init_db() has finished; until then other
+    threads wait on _init_lock, and init_db()'s own get_conn() calls on this
+    thread return early through _db_initializing."""
+    global _db_ready, _db_initializing
     if _db_ready:
         return
-    recover_interrupted_restore(LIBRARY_DIR)
-    _db_ready = True
-    os.makedirs(DRAMAS_DIR, exist_ok=True)
-    try:
-        init_db()
-    except BaseException:
-        # Left set, a refused (newer) database would be used unmigrated by
-        # the next caller instead of being refused again.
-        _db_ready = False
-        raise
+    with _init_lock:
+        if _db_ready or _db_initializing:
+            return
+        _db_initializing = True
+        try:
+            recover_interrupted_restore(LIBRARY_DIR)
+            os.makedirs(DRAMAS_DIR, exist_ok=True)
+            # Left unset on failure, so a refused (newer) database is refused
+            # again by the next caller instead of being used unmigrated.
+            init_db()
+            _db_ready = True
+        finally:
+            _db_initializing = False
 
 
 def get_conn():
