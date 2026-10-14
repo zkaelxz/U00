@@ -92,8 +92,8 @@ test('household member: no People and access, Diagnostics or Benchmark Lab; Jobs
   await expect(rail(page).getByRole('link', { name: 'Settings', exact: true })).toBeVisible()
 })
 
-test('the dock shows icons at rest, opens to labelled rows on hover, and swaps for the drawer below 600px', async ({ page }) => {
-  await page.setViewportSize({ width: 834, height: 900 })
+test('the dock shows icons at rest, opens to labelled rows on hover from 900px, stays icons only to 600px, and swaps for the drawer below', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 900 })
   await page.goto('/#/library')
   const dock = page.locator('.app-rail')
   const resting = (await dock.boundingBox())!.width
@@ -103,6 +103,13 @@ test('the dock shows icons at rest, opens to labelled rows on hover, and swaps f
   await dock.hover()
   await expect.poll(async () => (await dock.boundingBox())!.width).toBeGreaterThan(resting * 2)
   await expect(page.getByRole('button', { name: 'Side menu' })).toHaveCount(0)
+
+  // Opened it would cover the page's own toolbar, so a narrower window keeps the dock at its resting width.
+  await page.setViewportSize({ width: 834, height: 900 })
+  await page.mouse.move(600, 600)
+  await dock.hover()
+  await page.waitForTimeout(500)
+  expect((await dock.boundingBox())!.width).toBeLessThan(90)
 
   await page.setViewportSize({ width: 560, height: 900 })
   await expect(page.locator('.app-rail')).toHaveCount(0)
