@@ -101,8 +101,10 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             _description = _owner = _reason = None
             _with_errors = False
             _outcome = "done"
+            _recorded = False
             with _lock:
                 if _still_running_locked(job_id, run):
+                    _recorded = True
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
                     _failed = _failed_outcome_error(_result, job_id)
@@ -125,8 +127,10 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
-            _notify_job_finished(_description, _outcome, job_id=job_id, owner_user_id=_owner,
-                                 with_errors=_with_errors, reason=_reason)
+            # A run that was cleared, or replaced by a new one, tells no one.
+            if _recorded:
+                _notify_job_finished(_description, _outcome, job_id=job_id, owner_user_id=_owner,
+                                     with_errors=_with_errors, reason=_reason)
         except JobCancelled:
             with _lock:
                 _mark_cancelled_locked(job_id, run)
@@ -139,8 +143,10 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
             _description = _owner = None
+            _recorded = False
             with _lock:
                 if _still_running_locked(job_id, run):
+                    _recorded = True
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = error_msg
                     _jobs[job_id]["traceback"] = tb
@@ -149,14 +155,15 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
-            _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
+            if _recorded:
+                _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
         finally:
             _timing_finish(job_id, _timing)
             _forget_cancel_check(job_id, run)
             _release_gpu_slot(job_id, gpu_touching, run)
             _promote_next_queued_gpu_job()
 
-    _start_job_thread(runner, f"job:{job_id}", worker_for=job_id)
+    _start_job_thread(runner, f"job:{job_id}", worker_for=job_id, worker_run=run)
 
 
 def _finish_message_locked(job):
@@ -218,7 +225,7 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
     _promote_next_queued_gpu_job()
 
 
-def _start_job_thread(target, name, *args, worker_for=None, **kwargs):
+def _start_job_thread(target, name, *args, worker_for=None, worker_run=None, **kwargs):
     def run():
         try:
             target(*args, **kwargs)
@@ -233,7 +240,10 @@ def _start_job_thread(target, name, *args, worker_for=None, **kwargs):
     with _lock:
         thread.start()
         _job_threads.add(thread)
-        if worker_for is not None and worker_for in _jobs:
+        # Only over its own run: one cleared or replaced before this thread
+        # started must not have the new run's worker slot.
+        if worker_for is not None and worker_for in _jobs and (
+                worker_run is None or _jobs[worker_for] is worker_run):
             _workers[worker_for] = (_jobs[worker_for], thread)
 
 
@@ -387,7 +397,7 @@ def _promote_one_queued_gpu_job(dropped):
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
                               on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
-                              worker_for=job_id)
+                              worker_for=job_id, worker_run=run)
         else:
             _spawn(job_id, target, args, kwargs, gpu_touching=True, run=run)
     except Exception as exc:

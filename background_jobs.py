@@ -31,6 +31,7 @@ One machine, one process owning each job: not a distributed job queue.
 
 import math
 import os
+import sqlite3
 import threading
 import time
 
@@ -61,7 +62,7 @@ def _superseded_locked(job_id: str) -> bool:
     if getattr(me, "baihe_job_id", None) != job_id:
         return False
     worker = _workers.get(job_id)
-    return worker is None or worker[1] is not me
+    return worker is None or worker[1] is not me or worker[0] is not _jobs.get(job_id)
 
 
 def update_progress(job_id: str, frac: float, message: str = ""):
@@ -558,21 +559,32 @@ def clear_job(job_id: str):
     _run_finish_hooks(hooks)
 
 
-def clear_finished_job(job_id: str, **run) -> bool:
+_ANY_RUN = object()
+
+
+def clear_finished_job(job_id: str, started_at=_ANY_RUN) -> bool:
     """clear_job for a run the caller saw finished, which a new run of the
-    same id may have replaced since that check: a queued or running run here
-    is left alone, and the job_records row goes only while it is still a
-    finished run (with `started_at=`, only the run the caller saw), so
-    another process's new run keeps its row. False if a run was kept."""
+    same id may have replaced since that check. A queued or running run
+    here is left alone, and so is, with `started_at`, a finished run other
+    than the one the caller saw (its result may not have been read yet).
+    The job_records row goes only while it is still that finished run, so
+    another process's new run keeps its row. False if a run was kept.
+    A run here with no started_at, or `started_at` None (a row written
+    without one), cannot be told apart, so it counts as the one seen."""
     with _lock:
         job = _jobs.get(job_id)
-        if job is not None and job.get("status") in ("queued", "running"):
-            return False
+        if job is not None:
+            if job.get("status") in ("queued", "running"):
+                return False
+            if (started_at is not _ANY_RUN and started_at is not None
+                    and job.get("started_at") not in (None, started_at)):
+                return False
         hooks = _clear_job_locked(job_id)
     try:
         import db
-        removed = db.delete_finished_job_record(job_id, **run)
-    except Exception:
+        removed = (db.delete_finished_job_record(job_id) if started_at is _ANY_RUN
+                   else db.delete_finished_job_record(job_id, started_at))
+    except sqlite3.Error:
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
                                     exc_info=True)

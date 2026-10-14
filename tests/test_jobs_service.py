@@ -333,6 +333,27 @@ class TestDeleteJobs:
             go.set()
             _wait_until_finished("race")
 
+    def test_a_run_that_also_finished_after_the_check_keeps_its_result(self, isolated_db,
+                                                                        monkeypatch):
+        import time
+        import background_jobs
+        from jobs import job_launch
+        from services.service_errors import ConflictError
+        _run_job_with_result("race3", {"run": 1})
+        real = jobs_service._is_finished
+
+        def finished_then_rerun(record):
+            seen = real(record)
+            time.sleep(0.01)
+            _run_job_with_result("race3", {"run": 2})
+            return seen
+
+        monkeypatch.setattr(jobs_service, "_is_finished", finished_then_rerun)
+        with pytest.raises(ConflictError):
+            jobs_service.delete_job("race3", confirm=True)
+        assert background_jobs.get_status("race3")["result"] == {"run": 2}
+        assert db.get_job_record("race3") is not None
+
     def test_clear_finished_skips_a_run_restarted_after_the_check(self, isolated_db, monkeypatch):
         import threading
         import background_jobs

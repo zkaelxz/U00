@@ -2960,7 +2960,10 @@ class TestAClearedRunNeverWritesIntoTheNextRun:
     can be followed by a new run of the same id. The old run's progress,
     result and outcome belong to it alone, never to the new run."""
 
-    def test_old_thread_run_leaves_the_new_run_alone(self):
+    def test_old_thread_run_leaves_the_new_run_alone(self, monkeypatch):
+        told = []
+        monkeypatch.setattr(job_runner, "_notify_job_finished",
+                            lambda *a, **k: told.append(k.get("job_id")))
         job_id = "rerun_thread"
         go_old, go_new = threading.Event(), threading.Event()
         old_thread = []
@@ -2985,6 +2988,7 @@ class TestAClearedRunNeverWritesIntoTheNextRun:
             assert new["status"] == "running"
             assert new["progress"] == 0.0 and new["message"] != "old run"
             assert new["result"] is None
+            assert told == []   # the cleared run's outcome is nobody's news
         finally:
             go_new.set()
             _wait(job_id)
@@ -3027,6 +3031,19 @@ class TestClearFinishedJob:
         db.save_job_record("cf_other", status="running", started_at=2.0)
         assert bg.clear_finished_job("cf_other", started_at=1.0) is False
         assert db.get_job_record("cf_other")["status"] == "running"
+
+    def test_a_newer_finished_run_here_keeps_its_unread_result(self):
+        job_launch.start_job("cf_rerun", lambda: bg.set_result("cf_rerun", "first"))
+        assert _wait_for(lambda: bg.get_status("cf_rerun")["status"] == "done")
+        seen = db.get_job_record("cf_rerun")["started_at"]
+        time.sleep(0.01)    # a distinct started_at for the second run
+        job_launch.start_job("cf_rerun", lambda: bg.set_result("cf_rerun", "second"))
+        assert _wait_for(lambda: bg.get_status("cf_rerun")["result"] == "second"
+                         and bg.get_status("cf_rerun")["status"] == "done")
+        assert bg.clear_finished_job("cf_rerun", started_at=seen) is False
+        assert bg.get_status("cf_rerun")["result"] == "second"
+        assert db.get_job_record("cf_rerun") is not None
+        bg.clear_job("cf_rerun")
 
     def test_a_newer_finished_run_keeps_its_row(self):
         db.save_job_record("cf_newer", status="done", started_at=2.0)
