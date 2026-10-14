@@ -1,24 +1,33 @@
 import { describe, expect, it } from 'vitest'
 
-import { STALL_NUDGE_S, STALL_REBUILD_S, errorAction, planSeek, playerSrc, stallAction } from './playerLogic'
+import { STALL_NUDGE_S, STALL_REBUILD_S, errorAction, placement, playerSrc, stallAction } from './playerLogic'
 
-describe('planSeek', () => {
-  it('holds the picture the wanted number of seconds behind the newest recorded second', () => {
-    expect(planSeek(0, 100, 99, 30)).toBe(70)
-    expect(planSeek(0, 100, 70, 30)).toBeNull()
-    expect(planSeek(0, 100, 72, 30)).toBeNull()
+describe('placement', () => {
+  it('places the picture the wanted number of seconds behind the newest recorded second', () => {
+    expect(placement(0, 100, 99, 30, null)).toEqual({ goal: 30, to: 70 })
+    expect(placement(0, 100, 70, 30, null)).toEqual({ goal: 30, to: null })
+    expect(placement(0, 100, 72, 30, 30)).toEqual({ goal: 30, to: null })
   })
-  it('plays from the oldest second when less is recorded than asked, and then stays put', () => {
-    expect(planSeek(10, 25, 24, 30)).toBe(10)
-    expect(planSeek(10, 25, 11, 30)).toBeNull()
+  it('with less recorded than wanted, starts at the oldest second and then stays put as the recording grows', () => {
+    expect(placement(0, 32, 20, 40, null)).toEqual({ goal: 32, to: 0 })
+    // Two seconds on, the playhead and the newest second have both moved two seconds.
+    expect(placement(0, 34, 2, 40, 32)).toEqual({ goal: 32, to: null })
+    expect(placement(0, 60, 28, 40, 32)).toEqual({ goal: 32, to: null })
+  })
+  it('seeks back when playback has fallen behind its goal, and places again off the back of the window', () => {
+    expect(placement(0, 100, 50, 30, 30)).toEqual({ goal: 30, to: 70 })
+    expect(placement(40, 140, 20, 30, 30)).toEqual({ goal: 30, to: 110 })
+  })
+  it('a new delay (goal reset) moves the picture', () => {
+    expect(placement(0, 100, 70, 10, null)).toEqual({ goal: 10, to: 90 })
   })
   it('does nothing without a measurable window', () => {
-    expect(planSeek(0, 0, 0, 30)).toBeNull()
-    expect(planSeek(0, NaN, 0, 30)).toBeNull()
-    expect(planSeek(0, 100, NaN, 30)).toBeNull()
+    expect(placement(0, 0, 0, 30, null)).toEqual({ goal: null, to: null })
+    expect(placement(0, NaN, 0, 30, null).to).toBeNull()
+    expect(placement(0, 100, NaN, 30, null).to).toBeNull()
   })
   it('a delay of 0 follows the live edge', () => {
-    expect(planSeek(0, 100, 80, 0)).toBe(100)
+    expect(placement(0, 100, 80, 0, null)).toEqual({ goal: 0, to: 100 })
   })
 })
 

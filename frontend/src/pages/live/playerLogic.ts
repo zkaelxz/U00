@@ -19,17 +19,28 @@ export const RECOVERING_NOTE = 'The picture stalled; recovering…'
 
 export const playerSrc = (sessionId: string) => apiUrl(`/api/live/sessions/${sessionId}/player/master.m3u8`)
 
+export interface Placement {
+  /** Seconds behind the newest recorded second the picture is meant to stay. */
+  goal: number | null
+  /** Where to move the playhead now, or null. */
+  to: number | null
+}
+
 /**
- * Where to move the playhead so the picture is `delay` seconds behind the newest
- * recorded second, or null when it already is (within tolerance) or there is
- * nothing to measure. With less recorded than asked it plays from the oldest second.
+ * Where the playhead belongs so the picture sits behind the newest recorded second by
+ * the wanted delay. The goal is fixed when the picture is first placed (or the delay
+ * changes, or the playhead falls off the back of the window): with less recorded than
+ * wanted it is however much there is, and it then stays, because playing on moves the
+ * playhead and the newest second together. Chasing the wanted delay as the recording
+ * grows would seek back over what was just played, again and again.
  */
-export function planSeek(seekStart: number, seekEnd: number, current: number, delay: number): number | null {
-  if (!Number.isFinite(seekEnd) || !Number.isFinite(current) || seekEnd - seekStart < 1) return null
-  const target = Math.max(seekStart, seekEnd - Math.max(0, delay))
-  const measured = seekEnd - current
-  const reachable = Math.min(Math.max(0, delay), seekEnd - seekStart)
-  return Math.abs(measured - reachable) > SEEK_TOLERANCE_S ? target : null
+export function placement(seekStart: number, seekEnd: number, current: number, delay: number, goal: number | null): Placement {
+  if (!Number.isFinite(seekEnd) || !Number.isFinite(current) || seekEnd - seekStart < 1) return { goal, to: null }
+  const fixed = goal === null || current < seekStart - 0.5
+    ? Math.min(Math.max(0, delay), seekEnd - seekStart)
+    : goal
+  const off = Math.abs(seekEnd - current - fixed) > SEEK_TOLERANCE_S
+  return { goal: fixed, to: off ? seekEnd - fixed : null }
 }
 
 export type ErrorAction = 'ignore' | 'reload' | 'recover-media' | 'rebuild'

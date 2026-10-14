@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { MUTED_NOTE } from './embedLogic'
 import {
-  PREPARING_NOTE, RECOVERING_NOTE, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, planSeek, playerSrc, stallAction,
+  PREPARING_NOTE, RECOVERING_NOTE, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, placement, playerSrc, stallAction,
 } from './playerLogic'
 
 export function DelayedPlayer({ sessionId, ready, delay, captions }: {
@@ -21,6 +21,8 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
   const video = useRef<HTMLVideoElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const delayRef = useRef(delay)
+  // Where the picture was last placed (seconds behind the newest recording); null = place it again.
+  const goalRef = useRef<number | null>(null)
   const [note, setNote] = useState(PREPARING_NOTE)
   const [muted, setMuted] = useState(false)
   // Seconds the picture really plays behind the newest recorded second; the captions wait that long.
@@ -31,6 +33,7 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
 
   useEffect(() => {
     delayRef.current = delay
+    goalRef.current = null
   }, [delay])
 
   useEffect(() => {
@@ -53,10 +56,11 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
       const end = v.seekable.end(v.seekable.length - 1)
       setPictureDelay(Math.max(0, Math.round(end - v.currentTime)))
       const now = performance.now() / 1000
-      const to = planSeek(start, end, v.currentTime, delayRef.current)
-      if (to !== null && now - lastSeekAt >= SEEK_COOLDOWN_S) {
+      const place = placement(start, end, v.currentTime, delayRef.current, goalRef.current)
+      goalRef.current = place.goal
+      if (place.to !== null && now - lastSeekAt >= SEEK_COOLDOWN_S) {
         lastSeekAt = now
-        v.currentTime = to
+        v.currentTime = place.to
       }
       const moving = Math.abs(v.currentTime - lastTime) > 0.05
       lastTime = v.currentTime
