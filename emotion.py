@@ -15,9 +15,8 @@ Two things happen here:
      the same charge.
 """
 
-import re
-import json
 from engine_backends.run_limits import TranslateRunStopped
+from engine_backends.shared import load_json_reply
 from translate_engines import call_llm_json
 
 # Registers worth distinguishing because they change word choice in English.
@@ -105,11 +104,7 @@ def parse_emotion_tags(text: str) -> dict:
     function doesn't care which, it just echoes back what the model
     returned). Shared by detect_emotions (live) and bulk_translate.py's
     bulk submission."""
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        tagged = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
+    tagged = load_json_reply(text, {})
     if not isinstance(tagged, list):
         return {}
     results = {}

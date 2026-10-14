@@ -429,6 +429,17 @@ def redact_for_storage(text):
     return strip_url_queries(redact_secrets(str(text)))
 
 
+def load_json_reply(text: str, default):
+    """Parses a model reply that may be wrapped in a markdown fence. Only the
+    reply as a whole is parsed: prose around the JSON returns `default`
+    (extract_first_json_value is for replies that may carry prose)."""
+    stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return default
+
+
 def parse_json_array(text: str, fallback_count: int):
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
