@@ -246,6 +246,11 @@ def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str = None):
     return np.where(mask3, out_bgr, roi_bgr)
 
 
+def background_is_dark(gray_roi) -> bool:
+    """True when most of the region is dark, i.e. the lettering is the light part."""
+    return float(np.median(gray_roi)) < 100
+
+
 def _resolve_inpaint_backend(backend: str) -> str:
     if backend == "auto":
         return "ml" if lama_ml_weights_cached() else "cv"
@@ -281,8 +286,12 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
 
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    # Text is the dark pixels inside an otherwise light bubble
-    _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY_INV)
+    if background_is_dark(gray_roi):
+        # Light lettering on a dark balloon: masking the dark pixels would
+        # erase the whole balloon and smear the surrounding art across it.
+        _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY)
+    else:
+        _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY_INV)
     mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
 
     resolved = _resolve_inpaint_backend(backend)

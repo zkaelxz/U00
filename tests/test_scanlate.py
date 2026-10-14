@@ -113,6 +113,32 @@ class TestInpaintRegion:
         assert isinstance(result, np.ndarray)
 
 
+class TestInpaintDarkBalloon:
+    def _dark_page(self, temp_dir):
+        img = np.full((300, 400, 3), (40, 90, 160), np.uint8)
+        img[60:240, 80:320] = (15, 10, 10)
+        cv2.putText(img, "HELLO", (110, 160), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 4)
+        path = os.path.join(temp_dir, "dark.png")
+        cv2.imwrite(path, img)
+        return path, img
+
+    def test_light_text_on_dark_balloon_keeps_the_balloon_dark(self, temp_dir):
+        path, original = self._dark_page(temp_dir)
+        box = {"x": 80, "y": 60, "w": 240, "h": 180}
+        out = scanlate_inpaint.inpaint_region(path, box, backend="cv")
+        inside = out[70:230, 90:310]
+        assert inside.mean() < 60
+        assert not (inside > 150).any()
+
+    def test_text_fill_is_white_on_dark_and_black_on_light(self):
+        from PIL import Image
+        dark = Image.new("RGB", (50, 50), (10, 10, 10))
+        light = Image.new("RGB", (50, 50), (240, 240, 240))
+        box = {"x": 0, "y": 0, "w": 50, "h": 50}
+        assert scanlate_render._text_fill(dark, box) == (255, 255, 255)
+        assert scanlate_render._text_fill(light, box) == (0, 0, 0)
+
+
 class TestRenderTextInBox:
     def test_render_produces_correctly_sized_image(self, synthetic_page):
         from PIL import Image
