@@ -332,8 +332,15 @@ class Qwen3ASRBackend:
                     if seg["end"] - seg["start"] <= SEGMENT_DURATION_WARNING_SECONDS]
             for pos in range(0, len(todo), batch_size):
                 batch = todo[pos:pos + batch_size]
-                texts = self._transcribe_batch(model, audio_path, whisper_segments, batch,
-                                               language_name, tmp_dir, prompt)
+                try:
+                    texts = self._transcribe_batch(model, audio_path, whisper_segments, batch,
+                                                   language_name, tmp_dir, prompt)
+                except Exception as exc:
+                    if not (use_gpu and is_gpu_error(exc)):
+                        raise
+                    model, use_gpu = self._cpu_model_after(exc, on_device, on_gpu_fallback), False
+                    texts = self._transcribe_batch(model, audio_path, whisper_segments, batch,
+                                                   language_name, tmp_dir, prompt)
                 for i, text in texts.items():
                     seg = whisper_segments[i]
                     # An empty result for a span Whisper did hear would delete the line.
@@ -348,6 +355,21 @@ class Qwen3ASRBackend:
                 if progress_cb:
                     progress_cb(min(pos + len(batch), len(todo)) / len(todo))
         return out
+
+    def _cpu_model_after(self, exc, on_device, on_gpu_fallback):
+        """The CPU model, for a run whose GPU failed mid-inference (a long
+        segment can run the card out of memory after the model loaded fine).
+        The GPU copy is dropped from the cache first so its memory can go."""
+        _asr_model_cache.pop(f"{self.model_size}_gpu", None)
+        try:
+            import torch
+            torch.cuda.empty_cache()
+        except Exception:
+            pass   # no torch or no CUDA: nothing to free
+        if on_gpu_fallback:
+            on_gpu_fallback("Qwen3-ASR", exc)
+        return load_qwen3_asr(use_gpu=False, model_size=self.model_size,
+                              **_device_callbacks("Qwen3-ASR", on_device, None))
 
     def _transcribe_batch(self, model, audio_path, segments, indices, language_name, tmp_dir,
                           prompt=None):
@@ -562,13 +584,23 @@ class Qwen3ASRVadBackend:
         model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size,
                                **_device_callbacks("Qwen3-ASR", on_device, on_gpu_fallback))
         extra = {"prompt": prompt} if prompt else {}
+        on_gpu = use_gpu
         with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
             def transcribe(span, language_name):
+                nonlocal model, on_gpu
                 window = windows[spans.index(span)]
                 path = os.path.join(tmp_dir, "span.wav")
                 extract_audio_slice(audio_path, window.start_s, window.end_s, path)
                 try:
-                    results = model.transcribe(audio=path, language=language_name, **extra)
+                    try:
+                        results = model.transcribe(audio=path, language=language_name, **extra)
+                    except Exception as exc:
+                        if not (on_gpu and is_gpu_error(exc)):
+                            raise
+                        model = Qwen3ASRBackend(self.model_size)._cpu_model_after(
+                            exc, on_device, on_gpu_fallback)
+                        on_gpu = False
+                        results = model.transcribe(audio=path, language=language_name, **extra)
                 finally:
                     if os.path.exists(path):
                         os.unlink(path)

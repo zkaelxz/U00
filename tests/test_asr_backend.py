@@ -204,6 +204,56 @@ class TestQwen3ASRBackendTranscription:
         assert result[0]["text"] == "好的我知道了"
 
 
+    def test_gpu_out_of_memory_mid_run_finishes_on_the_cpu(self, monkeypatch):
+        """A load can fit and a long segment still run the card out of
+        memory: the rest of the run moves to the CPU instead of failing."""
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+        loads, fallbacks, devices = [], [], []
+
+        class GpuModel:
+            def transcribe(self, audio, language):
+                if audio.endswith("seg_1.wav"):
+                    raise RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
+                return [FakeResult("gpu text")]
+
+        class CpuModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("cpu text")]
+
+        def load(use_gpu=False, model_size="1.7B", on_device=None, on_gpu_fallback=None):
+            loads.append(use_gpu)
+            if on_device:
+                on_device("GPU" if use_gpu else "CPU")
+            return GpuModel() if use_gpu else CpuModel()
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", load)
+        segs = [{"start": float(i), "end": i + 1.0, "text": "w"} for i in range(3)]
+        result = ab.Qwen3ASRBackend().transcribe(
+            "/fake.wav", "zh", whisper_segments=segs, use_gpu=True,
+            on_device=lambda task, label: devices.append(label),
+            on_gpu_fallback=lambda task, exc: fallbacks.append((task, str(exc))))
+
+        assert [r["text"] for r in result] == ["gpu text", "cpu text", "cpu text"]
+        assert loads == [True, False]
+        assert devices == ["GPU", "CPU"]
+        assert fallbacks and fallbacks[0][0] == "Qwen3-ASR" and "out of memory" in fallbacks[0][1]
+
+    def test_a_non_gpu_error_mid_run_still_fails_the_run(self, monkeypatch):
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+
+        class BrokenModel:
+            def transcribe(self, audio, language):
+                raise ValueError("bad audio")
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B", **k: BrokenModel())
+        with pytest.raises(ValueError):
+            ab.Qwen3ASRBackend().transcribe(
+                "/fake.wav", "zh", whisper_segments=[{"start": 0.0, "end": 1.0, "text": "w"}],
+                use_gpu=True)
+
+
 class TestLoadQwen3Asr:
     def _install_fake_qwen_asr(self, from_pretrained):
         """from_pretrained keeps the (model_id, dtype, device_map, max_new_tokens)

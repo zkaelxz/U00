@@ -287,3 +287,23 @@ def test_pipeline_writes_lang_on_lines_only_in_mixed_mode(monkeypatch):
     assert [ln.lang for ln in mixed_lines] == [None, "zh"] and seen["mixed"]
     assert all(isinstance(ln, Line) for ln in mixed_lines)
     assert [ln.lang for ln in run(False)["lines"]] == [None]
+
+
+def test_qwen_vad_mixed_moves_to_the_cpu_when_the_gpu_runs_out_of_memory(qwen, monkeypatch):
+    cpu = FakeQwen([(ZH, "Chinese")])
+
+    class GpuQwen(FakeQwen):
+        def transcribe(self, audio, language):
+            if self.languages:
+                raise RuntimeError("CUDA out of memory")
+            return super().transcribe(audio, language)
+
+    gpu = GpuQwen([(KO, "Korean")])
+    monkeypatch.setattr(ab, "load_qwen3_asr",
+                        lambda use_gpu=False, model_size="1.7B", **k: gpu if use_gpu else cpu)
+    fallbacks = []
+    out = ab.Qwen3ASRVadBackend().transcribe(
+        "x.wav", "ko", vad_fn=VAD, mixed_languages=True, use_gpu=True,
+        on_gpu_fallback=lambda task, exc: fallbacks.append(task))
+    assert [s.get("lang") for s in out] == [None, "zh"]
+    assert fallbacks == ["Qwen3-ASR"] and cpu.languages == [None]
