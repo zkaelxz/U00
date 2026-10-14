@@ -11,7 +11,6 @@ import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import type { GithubConnection, GithubStatus } from '../../types/assistant'
-import { cardStartsOpen } from './assistantTabs'
 import { githubErrorText } from './githubFormat'
 
 type Props = { status: GithubStatus; onStatus: (s: GithubStatus) => void }
@@ -43,7 +42,7 @@ export function GithubCard({ status, onStatus }: Props) {
 
   return (
     <section aria-label="GitHub pull requests">
-      <Section title="GitHub pull requests" summary={status.enabled ? 'On' : 'Off by default'} storageKey="assistant.github" defaultOpen={cardStartsOpen('github', true)}>
+      <Section title="GitHub pull requests" summary={status.enabled ? 'On' : 'Off by default'} storageKey="assistant.github" defaultOpen>
       <p className="muted">Send a proposed fix to your own repository as a draft pull request, after you review the exact diff. Off by default.</p>
       <div className="setting-list">
         <Field label="Deliver fixes as pull requests" help="Nothing is sent to GitHub while this is off.">

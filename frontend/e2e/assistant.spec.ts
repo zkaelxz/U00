@@ -222,7 +222,7 @@ test('desktop screenshot', async ({ page }) => {
   await page.screenshot({ path: `${SHOTS}/assistant-desktop.png`, fullPage: true })
 })
 
-test('tabs: Ask, Work list, GitHub and tools; the first card of each starts open, a toggle and the tab are remembered', async ({ page }) => {
+test('tabs: Ask, Work list, GitHub and tools; every card starts open, a fold and the tab are remembered', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
   const fold = (name: string) => page.getByRole('region', { name }).locator('details.section').first()
@@ -236,30 +236,28 @@ test('tabs: Ask, Work list, GitHub and tools; the first card of each starts open
 
   await openTab(page, 'Work list')
   await expect(fold('Backlog')).toHaveJSProperty('open', true)
-  await expect(fold('Changelog')).toHaveJSProperty('open', false)
+  await expect(fold('Changelog')).toHaveJSProperty('open', true)
 
   await openTab(page, 'GitHub and tools')
   await expect(fold('GitHub pull requests')).toHaveJSProperty('open', true)
-  await expect(fold('Tools')).toHaveJSProperty('open', false)
-  // The closed summary says what is inside without opening it.
-  await expect(page.getByRole('region', { name: 'Tools' }).locator('.section-summary')).toContainText('read-only tool')
+  await expect(fold('Tools')).toHaveJSProperty('open', true)
   await fold('Tools').locator('summary').first().click()
 
   await openTab(page, 'Work list')
-  await fold('Changelog').locator('summary').first().click()
+  await fold('Changelog').locator('summary').first().click() // fold it: the closed choice is the one that must be remembered
   // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
   await page.waitForFunction(() => ['assistant.tools', 'assistant.changelog'].every((k) => window.localStorage.getItem(`baihe.section.${k}`) !== null))
   await page.reload()
   await expect(page.getByRole('tab', { name: 'Work list', exact: true })).toHaveAttribute('aria-selected', 'true')
-  await expect(fold('Changelog')).toHaveJSProperty('open', true)
+  await expect(fold('Changelog')).toHaveJSProperty('open', false)
   await expect(fold('Backlog')).toHaveJSProperty('open', true)
   await openTab(page, 'GitHub and tools')
-  await expect(fold('Tools')).toHaveJSProperty('open', true)
+  await expect(fold('Tools')).toHaveJSProperty('open', false)
   expect(s.unmocked).toEqual([])
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`tabs at 1280x800 ${scheme}: each fits about one screen with no sideways scroll`, async ({ page }) => {
+  test(`tabs at 1280x800 ${scheme}: each fits about a screen and a half with no sideways scroll`, async ({ page }) => {
     await mockAssistant(page, { developerMode: true })
     await page.emulateMedia({ colorScheme: scheme })
     await page.setViewportSize({ width: 1280, height: 800 })
@@ -270,12 +268,12 @@ for (const scheme of ['light', 'dark'] as const) {
         scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth, height: document.documentElement.scrollHeight,
       }))
       expect(scroll, `${label} scrolls sideways`).toBeLessThanOrEqual(client)
-      expect(height, `${label} is taller than about a screen`).toBeLessThanOrEqual(900)
+      expect(height, `${label} is taller than about a screen and a half`).toBeLessThanOrEqual(1400)
     }
   })
 }
 
-test('tabs: without GitHub the third tab has no GitHub card and Tools opens first', async ({ page }) => {
+test('tabs: without GitHub the third tab has no GitHub card and Tools is open', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true })
   await page.route(/\/api\/assistant\/github$/, (r) => r.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'No.' } } }))
   await page.goto('/#/assistant')
