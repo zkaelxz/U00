@@ -40,6 +40,7 @@ import { BackButton } from './nav/BackButton'
 import { MenuButton, NavDrawer } from './nav/NavDrawer'
 import { PhoneBar } from './nav/PhoneBar'
 import { DOCK_MIN_WIDTH } from './nav/navItems'
+import { useNavDock } from './nav/navDock'
 import { SideNav } from './nav/SideNav'
 import { useHeaderHeight } from './nav/useHeaderHeight'
 import { ReportProblemButton } from './report/ReportProblem'
@@ -166,6 +167,7 @@ export default function App() {
   const pcMode = usePcOnly()
   const [hidden] = useHiddenNav(session)
   const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`)
+  const navDock = useNavDock()
   const headerRef = useHeaderHeight()
   const mainRef = useRef<HTMLElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -252,7 +254,7 @@ export default function App() {
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
       <a className="skip-link" href="#main-content" onClick={skipToContent}>Skip to content</a>
-      <div className={wide ? 'app-shell has-rail' : phoneBar ? 'app-shell has-phone-bar' : 'app-shell'}>
+      <div className={wide ? (navDock === 'docked' ? 'app-shell has-rail is-docked' : 'app-shell has-rail') : phoneBar ? 'app-shell has-phone-bar' : 'app-shell'}>
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
           {wide ? (
