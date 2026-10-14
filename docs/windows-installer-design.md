@@ -397,7 +397,8 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   full installer, whose flow is unchanged. Only a server the Start-menu
   launcher started can apply it: the boot service's account can't write the
   install folder, and stopping the service needs an administrator, so under
-  the service the full installer is the way.
+  the service the status says the full installer is needed. No elevated
+  step is built for it (owner decision 2026-10-14: leave as is).
 - **Download.** Like the installer: size-capped (400 MB), SHA-256 checked,
   and with a release key the `.sig` is fetched first and verified; a missing,
   malformed or wrong one is refused and the download deleted.
