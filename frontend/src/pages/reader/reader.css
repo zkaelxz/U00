@@ -2,6 +2,8 @@
 /* minmax(0, 1fr): an auto track would grow to the nowrap phone title and overflow the page. */
 .reader { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .reader-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+/* Pushed against Aa so the two buttons read as one group instead of floating mid-bar. */
+.reader-source { margin-left: auto; flex: 0 0 auto; white-space: nowrap; }
 .reader-crumbs { min-width: 0; font-weight: 600; }
 .reader-crumbs a:first-child { font-weight: 400; }
 

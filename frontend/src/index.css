@@ -671,6 +671,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 /* Settings-style rows: label (+ help) on the left, control on the right. */
 .setting-list { display: grid; margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
 .setting-list > .field-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); min-height: 52px; }
+.setting-list > .muted { padding: var(--space-2) var(--space-4); }
 .setting-list > .field-item + .field-item { border-top: 1px solid var(--border); }
 .setting-list .field-label-row { font-size: var(--text-md); color: var(--text); }
 .setting-list .field-label-row label { font-weight: var(--weight-medium); cursor: pointer; }
@@ -775,7 +776,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 
 @media (pointer: coarse), (max-width: 640px) {
   button.toggle::after { inset: -11px -8px; }
-  .setting-list > .field-item { padding-inline: var(--space-3); }
+  .setting-list > .field-item, .setting-list > .muted { padding-inline: var(--space-3); }
   .btn { min-height: 44px; }
   /* Dense buttons look 32px but keep a 44px hit area: the ::after reaches 6px beyond the border box above and below (the Toggle trick; the inset is one more because it is measured from the padding box).
      Rows holding several of them keep a gap of at least --space-3 so the areas never overlap. */
