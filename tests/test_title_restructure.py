@@ -2,10 +2,13 @@
 (services/title_restructure_service.py and its routes): comic pages with
 their files and chapter labels, novel chapters in the raw-novel file, the
 refusals, the preview fingerprint, the snapshot, and failures halfway."""
+import contextlib
 import io
 import json
 import os
 import sqlite3
+import threading
+import time
 
 import pytest
 
@@ -16,11 +19,13 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import background_jobs
 import comic_chapters
 from core import Line
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
+from jobs import job_launch
 from services import drama_service, novel_chapters_service
 from services import title_restructure_service as trs
 from services.service_errors import ConflictError, InvalidInputError
@@ -510,6 +515,189 @@ def test_novel_failure_halfway_puts_the_target_back(isolated_db, monkeypatch):
             assert f.read() == before[p], p
     for d in (a, b):
         assert not [n for n in os.listdir(db.drama_dir(d)) if n.endswith(".part")]
+
+
+# ---------------------------------------------------------------------------
+# Running alongside other work
+# ---------------------------------------------------------------------------
+
+def test_jobs_and_deletes_are_refused_while_chapters_move(isolated_db, monkeypatch):
+    a, b = _comic(), _comic()
+    _add(a, ("c1", "Chapter 1", "src"), 1)
+    real_snapshot = trs._take_snapshot
+    seen = []
+
+    def during_move(plan):
+        for d in (a, b):
+            with pytest.raises(ConflictError):
+                job_launch.start_job(f"scanlate_{d}", lambda: None)
+            with pytest.raises(ConflictError):
+                drama_service.delete_drama(d, confirm=True, confirm_text="DELETE")
+            with pytest.raises(ConflictError):
+                trs.apply(a, b, "merge", fingerprint="x", confirm=True)
+            seen.append(d)
+        return real_snapshot(plan)
+    monkeypatch.setattr(trs, "_take_snapshot", during_move)
+
+    _run(a, b, "merge")
+
+    assert seen == [a, b]
+    # The holds end with the move: the next job on either title starts.
+    for d in (a, b):
+        assert job_launch.start_job(f"scanlate_{d}", lambda: None)
+        _wait_for_job(f"scanlate_{d}")
+        background_jobs.clear_job(f"scanlate_{d}")
+
+
+def _wait_for_job(job_id):
+    deadline = time.monotonic() + 5
+    while background_jobs.is_running(job_id) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not background_jobs.is_running(job_id)
+
+
+def test_a_move_is_refused_while_another_one_holds_the_title(isolated_db):
+    a, b = _comic(), _comic()
+    _add(a, ("c1", "Chapter 1", "src"), 1)
+    plan = trs.preview(a, b, "merge")
+    release = threading.Event()
+    assert job_launch.start_job(f"restructure_{b}", release.wait)
+    try:
+        with pytest.raises(ConflictError):
+            trs.apply(a, b, "merge", fingerprint=plan["fingerprint"], confirm=True)
+    finally:
+        release.set()
+        _wait_for_job(f"restructure_{b}")
+    assert len(db.list_pages(a)) == 1
+    _run(a, b, "merge")
+    assert len(db.list_pages(b)) == 1
+
+
+@pytest.mark.parametrize("write", ["upload", "paste", "remove"])
+def test_raw_novel_writers_take_the_page_lock(isolated_db, monkeypatch, write):
+    from services import delete_service, novel_files_service
+    n = _novel()
+    _novel_text(n, [("Ch 1", "第一章")])
+    path = os.path.join(db.drama_dir(n), chapter_manifest.RAW_NOVEL_FILENAME)
+    with open(path, "rb") as f:
+        before = f.read()
+    real_lock = pipeline._page_lock
+    inside = []
+
+    @contextlib.contextmanager
+    def watched(drama_id):
+        with real_lock(drama_id):
+            inside.append(drama_id)
+            yield
+            # Still under the lock: the file must already be in its new state.
+            inside.append(os.path.exists(path) and open(path, "rb").read() != before)
+    monkeypatch.setattr(pipeline, "_page_lock", watched)
+
+    if write == "upload":
+        novel_files_service.upload_raw_novel(n, "new.txt", io.BytesIO("新的文本".encode()))
+    elif write == "paste":
+        novel_files_service.save_raw_novel_text(n, "新的文本")
+    else:
+        delete_service.remove_raw_novel(n, confirm=True)
+
+    assert inside == [n, write != "remove"]
+
+
+def test_a_failed_label_move_leaves_no_label_on_the_freed_page_names(isolated_db, monkeypatch):
+    a, b = _comic(), _comic()
+    _add(a, ("c1", "Chapter 1", "src"), 2)
+    _add(a, ("c2", "Chapter 2", "src"), 1, seed=5)
+    moved = {p["filename"] for p in db.list_pages(a)[:2]}
+
+    def broken(*_a, **_k):
+        raise OSError("disk full")
+    monkeypatch.setattr(comic_chapters, "move_labels", broken)
+
+    result = _run(a, b, chapter_ids=["src:c1"])
+
+    assert trs._LABELS_NOT_MOVED in result["warnings"]
+    labelled = {f for c in comic_chapters.load(a)["chapters"] for f in c["files"]}
+    assert not labelled & moved
+    assert [g["id"] for g in _groups(a)] == ["src:c2"]
+    # The next import reuses a freed name; it must not land in the moved chapter.
+    _add(a, ("c3", "Chapter 3", "src"), 1, seed=9)
+    assert [g["id"] for g in _groups(a)] == ["src:c2", "src:c3"]
+
+
+def test_moving_part_of_a_split_chapter_keeps_its_record_on_both_titles(isolated_db):
+    a, b = _comic(), _comic()
+    _add(a, ("c1", "Chapter 1", "src"), 1)
+    _add(a, ("c2", "Chapter 2", "src"), 1, seed=2)
+    _add(a, ("c1", "Chapter 1", "src"), 1, seed=4)
+    assert [g["id"] for g in _groups(a)] == ["src:c1", "src:c2", "src:c1~2"]
+    store.record_imported("src", "s1", "c1", a)
+    store.record_imported("src", "s1", "c2", a)
+
+    _run(a, b, chapter_ids=["src:c1~2"])
+
+    assert store.imported_chapter_ids("src", "s1", a) == {"c1", "c2"}
+    assert store.imported_chapter_ids("src", "s1", b) == {"c1"}
+
+
+def test_import_records_keep_their_own_series(isolated_db):
+    a, b = _comic(), _comic()
+    _add(a, ("c1", "Chapter 1", "src"), 1)
+    store.record_imported("src", "s1", "c1", a)
+    store.record_imported("src", "s2", "c1", a)
+
+    _run(a, b, chapter_ids=["src:c1"])
+
+    assert store.imported_chapter_ids("src", "s1", b) == {"c1"}
+    assert store.imported_chapter_ids("src", "s2", b) == {"c1"}
+    assert store.imported_chapter_ids("src", "s1", a) == set()
+
+
+def test_a_novel_move_says_its_import_records_stay(isolated_db):
+    a, b = _novel(), _novel()
+    _novel_text(a, [("Ch 1", "第一章"), ("Ch 2", "第二章")])
+    store.record_imported("ex", "s1", "1", a)
+
+    result = _run(a, b, chapter_ids=["2"])
+
+    assert trs._NOVEL_TRACKING in result["warnings"]
+    assert store.imported_chapter_ids("ex", "s1", a) == {"1"}
+
+    c, d = _novel(), _novel()
+    _novel_text(c, [("Ch 1", "第一章"), ("Ch 2", "第二章")])
+    assert trs._NOVEL_TRACKING not in _run(c, d, chapter_ids=["2"])["warnings"]
+
+
+@pytest.mark.parametrize("fail", ["target_gone", "tag", "prune"])
+def test_a_failure_after_the_move_is_a_warning(isolated_db, monkeypatch, fail):
+    a, b = _comic(), _comic()
+    _add(a, ("c1", "Chapter 1", "src"), 2)
+
+    def broken(*_a, **_k):
+        raise sqlite3.OperationalError("database is locked")
+    if fail == "target_gone":
+        real_get = db.get_drama
+        monkeypatch.setattr(trs.db, "get_drama",
+                            lambda d, *x, **k: None if d == b and seen else real_get(d, *x, **k))
+        real_move = db.move_pages
+        seen = []
+
+        def then_gone(*args):
+            seen.append(1)   # deleted elsewhere right after the pages moved
+            return real_move(*args)
+        monkeypatch.setattr(trs.db, "move_pages", then_gone)
+    elif fail == "tag":
+        monkeypatch.setattr(trs.db, "set_custom_tag", broken)
+    else:
+        monkeypatch.setattr(trs, "_prune_snapshots", broken)
+
+    result = _run(a, b, "merge")
+
+    assert result["moved_pages"] == 2
+    assert len(db.list_pages(b)) == 2
+    if fail == "prune":
+        assert result["warnings"] == []
+    else:
+        assert trs._TITLE_FIELDS_NOT_MERGED in result["warnings"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TitleRestructurePreview, TitleRestructureResult } from '../../../types/titleRestructure'
-import { chapterSize, confirmLabel, previewBlocker, previewSummary, resultText } from './titleRestructureModel'
+import { chapterSize, confirmLabel, previewBlocker, previewSummary, resultText, safetyNote } from './titleRestructureModel'
 
 const preview: TitleRestructurePreview = {
   source_id: 1, target_id: 2, kind: 'move', media: 'comic', target_title: 'B',
@@ -31,6 +31,18 @@ describe('title restructure wording', () => {
     expect(text).toContain('Moved 3 chapters to “B”.')
     expect(text).toContain("delete it from the Library when you're sure")
     expect(text).toContain('20261014-x')
+  })
+
+  it('never promises a comic page backup: the undo is moving the chapters back', () => {
+    const comic = safetyNote('comic')
+    expect(comic).toContain('page images are moved, not copied')
+    expect(comic).toContain('to undo, move the chapters back')
+    expect(comic).not.toContain('changed files')
+    expect(safetyNote('novel')).toContain("both titles' original text")
+    expect(resultText({
+      source_id: 1, target_id: 2, kind: 'move', moved_chapters: 1, moved_pages: 4,
+      skipped_duplicates: 0, source_empty: false, snapshot: 's', warnings: [],
+    }, 'B')).not.toContain('safety copy')
   })
 
   it('says what is still needed before a preview', () => {

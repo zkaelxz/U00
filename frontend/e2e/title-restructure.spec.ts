@@ -20,6 +20,7 @@ test('moving a chapter shows a preview first and confirms with its fingerprint',
   const shown = page.getByTestId('title-restructure-preview')
   await expect(shown).toContainText('1 chapter will move to the end of “Heaven Official (part 2)”.')
   await expect(shown).toContainText('that copy stays here')
+  await expect(shown).toContainText("A copy of the library database and both titles' original text is saved")
   expect(calls).toEqual([{ path: 'preview', body: { target_id: 5, kind: 'move', chapter_ids: ['2'], move_duplicates: false } }])
 
   await shown.getByRole('button', { name: 'Move 1 chapter to “Heaven Official (part 2)”' }).click()

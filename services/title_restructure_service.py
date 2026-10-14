@@ -24,7 +24,9 @@ then the source; if the source can't be written, the target (and anything
 else already swapped) is put back from the snapshot.
 
 Writers hold both titles' page locks (sources.pipeline, the lock page and
-chapter imports use), lower id first.
+chapter imports use), lower id first, and register a restructure_<id> job on
+both titles for the whole move, so job launches and deleting either title are
+refused until it ends.
 
 No FastAPI import. Responses carry ids, names, counts and the snapshot's
 folder name, never a path or stored filename.
@@ -36,13 +38,16 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import time
 
+import background_jobs
 import comic_chapters
 import db
 from dub_narration import NOVEL_SOURCE_FILENAME
 from services import drama_service, novel_chapters_service, ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
+from jobs import job_launch
 from sources import chapter_manifest, pipeline, store
 
 log = logging.getLogger(__name__)
@@ -62,6 +67,12 @@ _LABELS_NOT_MOVED = ("The pages moved, but their chapter names could not be upda
                      "show as \"Chapter unknown\".")
 _TRACKING_NOT_MOVED = ("The chapters moved, but the source import records still name the old "
                        "title, so a later import may offer them again.")
+_NOVEL_TRACKING = ("Novel chapters don't record which source chapter they came from, so this "
+                   "title's source import records stay with it; a later import into the other "
+                   "title may offer these chapters again.")
+_TITLE_FIELDS_NOT_MERGED = ("The chapters moved, but the other title's tags, link or the "
+                            "Merged tag could not be updated. Set them in Edit details.")
+_HOLD_WAIT_SECONDS = 5.0
 
 
 def _media(drama: dict):
@@ -212,6 +223,10 @@ def _mark_duplicates(media: str, source_id: int, target_id: int, src: dict, dst:
         row["duplicate"] = dup
 
 
+def _hold_id(drama_id: int) -> str:
+    return f"{job_launch.RESTRUCTURE_JOB_PREFIX}{int(drama_id)}"
+
+
 def _blocked_reasons(kind, source, target, media, src, dst) -> list:
     reasons = []
     if media is None:
@@ -222,7 +237,7 @@ def _blocked_reasons(kind, source, target, media, src, dst) -> list:
     if (source.get("source_language") or "") != (target.get("source_language") or ""):
         reasons.append("These titles have different original languages.")
     for drama in (source, target):
-        if drama_service.job_running_for_drama(drama["id"]):
+        if drama_service.job_running_for_drama(drama["id"], exclude_job_id=_hold_id(drama["id"])):
             reasons.append(f"A job is running on \"{_name(drama)}\". Wait for it to finish or "
                            "cancel it first.")
     if not src.get("readable", True) or not dst.get("readable", True):
@@ -478,6 +493,12 @@ def _move_comic(plan) -> dict:
     except OSError:
         log.warning("Could not move chapter labels from title %s to %s", a, b, exc_info=True)
         warnings.append(_LABELS_NOT_MOVED)
+        # Page names freed in the source get reused by its next import, and a
+        # label left on them would put that new page in the moved chapter.
+        try:
+            comic_chapters.forget_pages(a, list(renames))
+        except OSError:
+            log.warning("Could not drop moved chapter labels from title %s", a, exc_info=True)
     stuck = 0
     for path in originals:
         try:
@@ -489,11 +510,14 @@ def _move_comic(plan) -> dict:
     if missing:
         warnings.append(f"{missing} page image(s) were already missing from the old title; "
                         "those pages moved without an image.")
-    moved_keys = {r["key"] for r in plan["moving"] if r["key"]}
     chapters = []
     for c in plan["src"]["manifest"]["chapters"]:
-        if c["key"] in moved_keys and c["id"] and c["key"].endswith(f":{c['id']}"):
-            chapters.append((c["key"][:-len(c["id"]) - 1], c["id"]))
+        moved = [f for f in c["files"] if f in renames]
+        if moved and c["id"] and c["key"].endswith(f":{c['id']}"):
+            # A chapter split into runs can move one run and leave another;
+            # both titles then hold part of it, so both keep the record.
+            whole = len(moved) == len(c["files"])
+            chapters.append((c["key"][:-len(c["id"]) - 1], c["id"], whole))
     return {"pages": len(moves), "warnings": warnings, "tracked_chapters": chapters}
 
 
@@ -666,6 +690,8 @@ def _gap_start(rows: list, row: dict) -> int:
 
 def _merge_title_fields(source: dict, target_id: int) -> None:
     target = db.get_drama(target_id)
+    if target is None:
+        raise LookupError("The other title is gone.")
     tags, seen = [], set()
     for t in ((target.get("custom_tags") or "") + "," + (source.get("custom_tags") or "")).split(","):
         t = t.strip()
@@ -682,23 +708,58 @@ def _merge_title_fields(source: dict, target_id: int) -> None:
 
 def _move_import_records(old: int, new: int, chapters=None) -> None:
     """The source import records (sources.db) follow the chapters, so a
-    later import into the new title skips them. `chapters`: the (source,
-    chapter_id) pairs that moved; None (a merge) moves them all, plus the
-    failed-chapter list and any tracked series importing into the old title.
-    A record the new title already has is kept and the old one dropped."""
+    later import into the new title skips them. `chapters`: (source,
+    chapter_id, whole) per chapter that moved, `whole` False when part of it
+    stayed (the record is then copied, not moved); None (a merge) moves them
+    all, plus the failed-chapter list and any tracked series importing into
+    the old title. Each row keeps its own series id; a record the new title
+    already has is kept."""
     with store.connect() as conn:
         if chapters is None:
-            chapters = [tuple(r) for r in conn.execute(
-                "SELECT source, chapter_id FROM imported_chapters WHERE drama_id=?", (old,))]
+            chapters = [(r[0], r[1], True) for r in conn.execute(
+                "SELECT DISTINCT source, chapter_id FROM imported_chapters WHERE drama_id=?",
+                (old,))]
             for table in ("import_retry", "tracked_series"):
                 conn.execute(f"UPDATE OR IGNORE {table} SET drama_id=? WHERE drama_id=?",
                              (new, old))
-        for source, chapter_id in chapters:
+        for source, chapter_id, whole in chapters:
             key = (source, str(chapter_id), old)
-            conn.execute("UPDATE OR IGNORE imported_chapters SET drama_id=? WHERE source=? "
-                         "AND chapter_id=? AND drama_id=?", (new,) + key)
-            conn.execute("DELETE FROM imported_chapters WHERE source=? AND chapter_id=? "
-                         "AND drama_id=?", key)
+            conn.execute("INSERT OR IGNORE INTO imported_chapters(source, series_id, chapter_id, "
+                         "drama_id, imported_at) SELECT source, series_id, chapter_id, ?, "
+                         "imported_at FROM imported_chapters WHERE source=? AND chapter_id=? "
+                         "AND drama_id=?", (new,) + key)
+            if whole:
+                conn.execute("DELETE FROM imported_chapters WHERE source=? AND chapter_id=? "
+                             "AND drama_id=?", key)
+
+
+def _has_import_records(drama_id: int) -> bool:
+    with store.connect() as conn:
+        return conn.execute("SELECT 1 FROM imported_chapters WHERE drama_id=? LIMIT 1",
+                            (drama_id,)).fetchone() is not None
+
+
+@contextlib.contextmanager
+def _job_holds(*drama_ids):
+    """A running `restructure_<id>` job on each title for the whole move, so
+    job starts (jobs/job_launch.py) and deleting either title are refused
+    meanwhile, in this process and (through the job record) in others."""
+    release = threading.Event()
+    held = []
+    try:
+        for d in sorted(set(drama_ids)):
+            if not job_launch.start_job(_hold_id(d), release.wait,
+                                         description="Moving chapters between titles"):
+                raise ConflictError("Chapters are already being moved to or from this title.")
+            held.append(_hold_id(d))
+        yield
+    finally:
+        release.set()
+        # The hold's thread ends on its own; wait for it so an immediate next
+        # move (or job) isn't refused by a hold that is just finishing.
+        deadline = time.monotonic() + _HOLD_WAIT_SECONDS
+        while any(background_jobs.is_running(j) for j in held) and time.monotonic() < deadline:
+            time.sleep(0.005)
 
 
 def apply(source_id, target_id, kind, chapter_ids=None, move_duplicates=False, fingerprint="",
@@ -710,7 +771,7 @@ def apply(source_id, target_id, kind, chapter_ids=None, move_duplicates=False, f
         raise InvalidInputError("Preview the change first.")
     for d in (source_id, target_id):
         _require(d, principal)
-    with _page_locks(source_id, target_id):
+    with _job_holds(source_id, target_id), _page_locks(source_id, target_id):
         plan = _plan(source_id, target_id, kind, chapter_ids, move_duplicates, principal)
         public = plan["public"]
         if public["blocked"]:
@@ -725,21 +786,34 @@ def apply(source_id, target_id, kind, chapter_ids=None, move_duplicates=False, f
             done = _move_novel(plan, snapshot)
         warnings = list(done["warnings"])
         a, b = plan["source"]["id"], plan["target"]["id"]
+        # Everything below runs after the move is committed: a failure here
+        # (a title deleted meanwhile, a busy sources.db) is a warning, never
+        # an error that would hide a move that happened.
         if kind == "merge":
-            _merge_title_fields(plan["source"], b)
-            # Not when skipped duplicates stayed behind: that title still holds chapters.
-            if public["source_empty_after"]:
-                db.set_custom_tag(a, db.MERGED_TAG, True)
+            try:
+                _merge_title_fields(plan["source"], b)
+                # Not when skipped duplicates stayed behind: that title still holds chapters.
+                if public["source_empty_after"]:
+                    db.set_custom_tag(a, db.MERGED_TAG, True)
+            except Exception:
+                log.warning("Could not update titles %s and %s after a merge", a, b,
+                            exc_info=True)
+                warnings.append(_TITLE_FIELDS_NOT_MERGED)
         try:
             if kind == "merge":
                 _move_import_records(a, b)
             elif done["tracked_chapters"]:
                 _move_import_records(a, b, done["tracked_chapters"])
+            elif plan["media"] == "novel" and _has_import_records(a):
+                warnings.append(_NOVEL_TRACKING)
         except Exception:
             log.warning("Could not move source import records from title %s to %s", a, b,
                         exc_info=True)
             warnings.append(_TRACKING_NOT_MOVED)
-    _prune_snapshots()
+    try:
+        _prune_snapshots()
+    except Exception:
+        log.warning("Could not prune old restructure snapshots", exc_info=True)
     return {"source_id": a, "target_id": b, "kind": kind,
             "moved_chapters": public["moving_chapters"], "moved_pages": done["pages"],
             "skipped_duplicates": public["skipped_duplicates"],

@@ -13,7 +13,7 @@ import type {
   TitleRestructureRequest,
 } from '../../../types/titleRestructure'
 import { useStage } from '../StageContext'
-import { chapterSize, confirmLabel, previewBlocker, previewSummary, resultText } from './titleRestructureModel'
+import { chapterSize, confirmLabel, previewBlocker, previewSummary, resultText, safetyNote } from './titleRestructureModel'
 import './titleRestructure.css'
 
 // Merge this title into another, or move some of its chapters there. Always
@@ -194,7 +194,7 @@ function RestructureBody() {
             </ul>
           )}
           {[...preview.stays, ...preview.notes].map((s) => <p key={s} className="muted">{s}</p>)}
-          <p className="muted">A safety copy of the library database and the changed files is saved before anything moves. Nothing is deleted.</p>
+          <p className="muted">{safetyNote(preview.media)}</p>
           <div className="actions">
             <button type="button" className={buttonClass('primary', 'sm')} disabled={busy || preview.blocked.length > 0} onClick={runApply}>
               {confirmLabel(preview)}

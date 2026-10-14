@@ -26,9 +26,19 @@ export function resultText(r: TitleRestructureResult, targetTitle: string): stri
   const empty = r.source_empty ? " This title is now empty: delete it from the Library when you're sure." : ''
   return (
     `Moved ${plural(r.moved_chapters, 'chapter')}${pages} to “${targetTitle}”.${empty} ` +
-    `A safety copy was saved first, in the library's backups/restructure folder as ${r.snapshot}. ` +
+    `A copy of the library database was saved first, in the library's backups/restructure folder as ${r.snapshot}. ` +
     'To undo, move the chapters back from that title.'
   )
+}
+
+// The snapshot holds the database and the label or raw-novel files, never
+// page images (those are moved, not copied), so it can't promise to restore a
+// comic's pages: undo is moving the chapters back.
+export function safetyNote(media: TitleRestructurePreview['media']): string {
+  const saved = media === 'novel'
+    ? "the library database and both titles' original text"
+    : "the library database and both titles' chapter labels (page images are moved, not copied)"
+  return `A copy of ${saved} is saved before anything moves. Nothing is deleted; to undo, move the chapters back.`
 }
 
 /** Why Preview can't be pressed yet, or null when it can. */
