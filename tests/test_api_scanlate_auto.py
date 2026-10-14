@@ -18,7 +18,6 @@ from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
-pytest.importorskip("cv2")
 PIL = pytest.importorskip("PIL")
 
 from fastapi.testclient import TestClient
