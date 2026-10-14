@@ -39,7 +39,7 @@ import job_force_stop
 from lib import pid as pid_lib
 from job_process_kill import kill_tree
 from jobs.gpu_queue import _refresh_queue_messages_locked, _run_finish_hooks, _take_queued_locked
-from jobs.job_table import _emit_change, _jobs, _lock, _mirror_locked, _warn, _workers
+from jobs.job_table import HEARTBEAT_INTERVAL, _emit_change, _jobs, _lock, _mirror_locked, _warn, _workers
 
 
 class JobCancelled(Exception):
@@ -59,7 +59,8 @@ def _superseded_locked(job_id: str) -> bool:
     longer job_id's current one (it was cleared, and maybe a new run of the
     same id started): its progress and result must not land on that run."""
     me = threading.current_thread()
-    if getattr(me, "baihe_job_id", None) != job_id:
+    tag = getattr(me, "baihe_job_id", None)
+    if tag is None or tag != job_id:
         return False
     worker = _workers.get(job_id)
     return worker is None or worker[1] is not me or worker[0] is not _jobs.get(job_id)
@@ -84,13 +85,19 @@ def update_progress(job_id: str, frac: float, message: str = ""):
             # Once cancel is asked, the job keeps saying so until it stops.
             if message and not job.get("cancel_requested"):
                 job["message"] = message
-            _gpu_touching = bool(_jobs[job_id].get("gpu_touching"))
+            # At most once per heartbeat interval: a per-line loop would
+            # otherwise write the GPU row on every line.
+            _gpu_touching = (bool(job.get("gpu_touching"))
+                             and now - job.get("gpu_beat_at", 0) >= HEARTBEAT_INTERVAL)
+            if _gpu_touching:
+                job["gpu_beat_at"] = now
             _emit_change(job_id)
     if _gpu_touching:
         # Refreshes this job's cross-process GPU lock (see
         # _gpu_slot_available_locked) so a long-running job's own regular
         # progress updates keep it from looking abandoned to another
-        # process before it's actually done. Best-effort, same reasoning
+        # process before it's actually done, should the heartbeat thread
+        # stall. Best-effort, same reasoning
         # as _gpu_slot_available_locked -- never raises into a job thread.
         try:
             from jobs import gpu_slots
@@ -435,6 +442,8 @@ def is_cancel_requested(job_id: str) -> bool:
     if job_force_stop.current_thread_abandoned():
         return True   # lets the abandoned worker wind down at its next check
     with _lock:
+        if _superseded_locked(job_id):
+            return True   # its run was cleared: nothing it does will be kept
         job = _jobs.get(job_id)
         if job and job.get("cancel_requested"):
             return True

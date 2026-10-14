@@ -149,9 +149,16 @@ same id starts. The protections:
 - While this process has queued/running jobs, the daemon `job-heartbeat` thread
   (`_ensure_heartbeat`, started by the first write) runs `job_store.heartbeat_tick` every
   `HEARTBEAT_INTERVAL` (60 s): `db.touch_job_records`, `reconcile_dead_workers`, and
-  the retry of failed writes.
-- A GPU job also refreshes its `gpu_lock` row on every `update_progress`
-  (`gpu_slots.heartbeat`).
+  the retry of failed writes and of failed GPU slot releases
+  (`gpu_queue.retry_unreleased_gpu_slots`).
+- A GPU job also refreshes its `gpu_lock` row from `update_progress`, at most once
+  per `HEARTBEAT_INTERVAL` (`gpu_slots.heartbeat`).
+- The slot row is taken and freed under `_lock` with a short busy wait
+  (`gpu_queue.GPU_ROW_BUSY_SECONDS`): a job that cannot take it in time queues, and
+  the API's GPU-queue poller retries it.
+- `GET /api/jobs` skips the sweep while its active rows and this process's active
+  jobs are unchanged since a sweep that closed nothing, for up to
+  `jobs_service._SWEEP_REPEAT_SECONDS` (10 s).
 - A `queued`/`running` row is stale when its owner pid is gone (`owner_pid`, via
   `owner_process_alive`), or when `updated_at` is older than `STALE_JOB_SECONDS` (15 min)
   and its owner pid is not another live process (`job_store.owner_alive_elsewhere`): a
