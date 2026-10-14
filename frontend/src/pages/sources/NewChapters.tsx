@@ -126,6 +126,7 @@ export function NewChapters({
     >
       {canAct && <AutoImportLine />}
       <ErrorBanner error={error ?? untrackError} onDismiss={() => (error ? setError(null) : clearUntrackError())} />
+      <ErrorBanner error={dramas.error} />
       {canAct && tracked.length > 0 && (
         <div className="sources-check" data-testid="sources-check">
           <p className="muted" aria-live="polite">

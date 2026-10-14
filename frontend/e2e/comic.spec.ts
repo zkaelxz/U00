@@ -202,14 +202,39 @@ test('Typeset and Text: rendered pages, boxes and the side panel, text only', as
   expect(s.unmocked).toEqual([])
 })
 
+test('a failed text read is asked for again with Try again', async ({ page }) => {
+  const s = await mockComic(page, { id: 12, mediaType: 'manga', pageCount: 3, regionsFailFirst: true })
+  await page.goto('/#/comic/12?page=1')
+  await page.getByRole('button', { name: 'Text' }).click()
+  const panel = page.getByRole('complementary', { name: 'Page text' })
+  await expect(panel.getByRole('alert')).toContainText('Could not load the text for this page.')
+  await panel.getByRole('button', { name: 'Try again' }).click()
+  await expect(panel.getByTestId('comic-lines').locator('li')).toHaveCount(3)
+  expect(s.calls.filter((c) => c.path.endsWith('/regions')).length).toBe(2)
+  expect(s.unmocked).toEqual([])
+})
+
+test('leaving within a second of turning a page still saves it', async ({ page }) => {
+  const s = await mockComic(page, { id: 13, mediaType: 'manga', pageCount: 5, lastPage: 1 })
+  await page.goto('/#/comic/13?page=1')
+  await expect(label(page)).toHaveText('Page 1 of 5')
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(label(page)).toHaveText('Page 2 of 5')
+  // Gone before the one-second wait is over.
+  await page.goto('/#/library')
+  await expect.poll(() => s.progressPosts, { timeout: 5000 }).toEqual([2])
+})
+
 test('a failed saved-page read never overwrites it; moving still saves', async ({ page }) => {
   // One page at a time: sitting on page 1 sends nothing, turning to page 2 saves 2.
+  // The save is debounced by a timer; a fake clock lets the test run it out without waiting.
+  await page.clock.install()
   const s = await mockComic(page, { id: 14, mediaType: 'manga', pageCount: 5, lastPage: 4, progressFails: true })
   await page.goto('/#/comic/14')
   await expect(page).toHaveURL(/#\/comic\/14\?page=1$/)
   await expect(page.getByTestId('comic-page').locator('img')).toHaveJSProperty('complete', true)
-  // Proving a non-event: no progress save may follow arrival, and the save is debounced, so wait past it.
-  await page.waitForTimeout(2500)
+  // Proving a non-event: no progress save may follow arrival, so run the debounce timer out first.
+  await page.clock.runFor(2500)
   expect(s.calls.filter((c) => c.method === 'GET' && c.path.endsWith('/progress')).length).toBe(1)
   expect(s.progressPosts).toEqual([])
   await page.getByRole('button', { name: 'Next page' }).click()
@@ -224,7 +249,7 @@ test('a failed saved-page read never overwrites it; moving still saves', async (
   await expect(page).toHaveURL(/#\/comic\/16\?page=1$/)
   await expect(page.getByTestId('comic-page').first().locator('img')).toHaveJSProperty('complete', true)
   // Proving a non-event: same as above for the vertical reader.
-  await page.waitForTimeout(2500)
+  await page.clock.runFor(2500)
   expect(v.progressPosts).toEqual([])
   await page.keyboard.press('End')
   await expect(label(page)).toHaveText('Page 6 of 6')

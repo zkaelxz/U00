@@ -193,6 +193,9 @@ export async function fetchBody<T>(
 
 const JSON_ACCEPT = { Accept: 'application/json' }
 
+// A fetch that the browser finishes even if the page is left meanwhile (a progress save sent as the reader closes).
+export const keepaliveFetch: Fetch = (input, init) => fetch(input, { ...init, keepalive: true })
+
 // A fetch that aborts with `signal`, for api functions that take a Fetch.
 export function withSignal(signal: AbortSignal, fetchImpl: Fetch = fetch): Fetch {
   return (input, init) => fetchImpl(input, { ...init, signal })
