@@ -257,6 +257,10 @@ h1 { margin: 0; font-size: var(--text-xl); }
 h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
 h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
 
+.app-back { gap: var(--space-1); }
+/* Alone in a wide header the header-end cluster must stay at the right edge. */
+.app-header > .app-back + .header-end { margin-left: auto; }
+@media (max-width: 640px) { .app-back { min-width: 44px; min-height: 44px; padding-inline: 0; font-size: var(--text-xl); } .app-back-text { display: none; } }
 .app-brand { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold); }
 .app-brand a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; min-width: 44px; color: inherit; text-decoration: none; }
 /* The circle mark stands in for the word where the six header controls leave no room for it (login.css). */

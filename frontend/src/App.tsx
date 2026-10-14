@@ -36,6 +36,7 @@ import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
 import { useDocumentTitle } from './nav/documentTitle'
 import { useHiddenNav } from './nav/hiddenNav'
+import { BackButton } from './nav/BackButton'
 import { MenuButton, NavDrawer } from './nav/NavDrawer'
 import { PhoneBar } from './nav/PhoneBar'
 import { DOCK_MIN_WIDTH } from './nav/navItems'
@@ -188,6 +189,7 @@ export default function App() {
 
   const headerEnd = (
     <div className="header-end">
+      {!wide && <BackButton />}
       <CommandPalette route={route} context={navContext} />
       <JobsMenu />
       <NotificationBell />
@@ -254,7 +256,10 @@ export default function App() {
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
           {wide ? (
-            <header className="app-header" ref={headerRef}>{headerEnd}</header>
+            <header className="app-header" ref={headerRef}>
+              <BackButton />
+              {headerEnd}
+            </header>
           ) : (
             <header className="app-header" ref={headerRef}>
               {!phoneBar && <MenuButton open={menuOpen} onOpen={() => setMenuOpen(true)} />}
