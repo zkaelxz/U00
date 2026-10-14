@@ -20,7 +20,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from starlette.exceptions import HTTPException
 from starlette.routing import Match
 
@@ -61,6 +61,25 @@ def _media_type(path: Path) -> str:
 DEFAULT_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
+_UNBUILT_HTML = ("<!doctype html><title>Baihe</title><h1>The web app is not built</h1>"
+                 "<p>Run <code>npm run build</code> in the <code>frontend</code> folder, "
+                 "then restart Baihe.</p>")
+
+
+def install_unbuilt_page(app: FastAPI):
+    # An exception handler, not a route: the route list and the permission
+    # table must stay the same whether or not the frontend is built.
+    previous = app.exception_handlers.get(HTTPException)
+
+    async def handler(request: Request, exc: HTTPException):
+        if exc.status_code == 404 and request.method == "GET" and request.url.path == "/":
+            return HTMLResponse(_UNBUILT_HTML, status_code=200)
+        return await previous(request, exc)
+
+    if previous is not None:
+        app.add_exception_handler(HTTPException, handler)
+
+
 def install_frontend(app: FastAPI, dist_dir=None) -> bool:
     """Registers the catch-all GET route that serves `dist_dir`
     (default `frontend/dist`). Must run after every API router so their
@@ -68,8 +87,9 @@ def install_frontend(app: FastAPI, dist_dir=None) -> bool:
     dist = Path(dist_dir) if dist_dir is not None else DEFAULT_DIST
     index = dist / "index.html"
     if not index.is_file():
-        log.info("React frontend not built (%s missing): serving the API only. "
-                 "Build it with: cd frontend && npm ci && npm run build", index)
+        log.warning("The web app is not built; run npm run build (cd frontend && npm ci "
+                    "first). Serving the API only.")
+        install_unbuilt_page(app)
         return False
     root = dist.resolve()
 

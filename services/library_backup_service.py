@@ -24,7 +24,7 @@ import db
 import storage
 import subtitle_formats
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import keep_original_service, vdb_names_service
+from services import export_service, keep_original_service, vdb_names_service
 from services import library_translated_guard
 from services import library_restore_service as lrs
 from services.library_admin_service import (BACKUP_JOB_ID, DATABASE_BACKUP_JOB_ID, EXPORT_JOB_ID,
@@ -69,6 +69,7 @@ def _write_artifact(kind: str, suffix: str, fail_message: str, write) -> tuple:
 
 def _export_job(job_id, drama_ids):
     exported = 0
+    used_folders = set()
 
     def write(tmp):
         nonlocal exported
@@ -84,11 +85,17 @@ def _export_job(job_id, drama_ids):
                 if not lns:
                     continue
                 lns, _ = subtitle_formats.clamp_overlaps(lns)
-                safe = re.sub(r"[^\w\- ]", "", d["title_en"] or d["title_zh"] or "") or str(did)
-                folder = f"{did} {safe}"
-                zf.writestr(f"{folder}/english.srt", lines_to_srt(lns, "en"))
-                zf.writestr(f"{folder}/chinese.srt", lines_to_srt(lns, "zh"))
-                zf.writestr(f"{folder}/bilingual.srt", lines_to_bilingual_srt(lns))
+                folder = export_service.folder_name(did)
+                # Two titles can share a name; the id keeps their folders apart.
+                if folder in used_folders:
+                    folder = f"{folder} [{did}]"
+                used_folders.add(folder)
+                for field, text in (("en", lines_to_srt(lns, "en")), ("zh", lines_to_srt(lns, "zh")),
+                                    ("bilingual", lines_to_bilingual_srt(lns))):
+                    noun = "bilingual subtitles" if field == "bilingual" else "subtitles"
+                    entry = export_service.download_filename(
+                        did, noun, export_service.field_language(d, field), "srt")
+                    zf.writestr(f"{folder}/{entry}", text)
                 keep_original_service.export_title_files(
                     zf, did, d, folder,
                     has_room=lambda need: has_disk_room(os.path.dirname(tmp), need),

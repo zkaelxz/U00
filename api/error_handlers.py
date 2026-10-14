@@ -24,6 +24,9 @@ so the React client (and later the browser extension) can branch on
 | 413  | too_large               | an over-cap request body (HTTPException)    |
 | 503  | dependency_unavailable  | `DependencyUnavailableError`                |
 | 503  | sources_db_busy         | sources.db stayed locked past its timeout   |
+| 507  | disk_full               | OSError ENOSPC, sqlite "database or disk is full" |
+| 503  | library_read_only       | a read-only folder or sqlite "readonly database" |
+| 500  | database_corrupt        | sqlite "database disk image is malformed"   |
 | 500  | application_error       | any other `ServiceError`                    |
 | 500  | internal_error          | anything unexpected (a bug)                 |
 
@@ -34,6 +37,9 @@ to the app's own log file (`applog`) instead, where they already go for
 the other surfaces. Known messages are still passed through
 `services.jobs_service.redact_text` (keys and paths) in case a service slipped one in.
 """
+
+import errno
+import sqlite3
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -106,7 +112,44 @@ async def _http_error(request: Request, exc: StarletteHTTPException):
                         headers=getattr(exc, "headers", None))
 
 
+# Fixed text only: the exception's own text can carry the library path.
+_DISK_FULL = ("disk_full", 507, "The disk is full.")
+_READ_ONLY = ("library_read_only", 503, "The library folder is read-only.")
+_DB_DAMAGED = ("database_corrupt", 500,
+               "The library database looks damaged; restore from a backup.")
+
+
+def _storage_problem(exc: BaseException):
+    """(code, status, message) when `exc` is a full disk, a read-only
+    library or a damaged database, else None. Only those causes are
+    recognised, so a bug that happens to raise OSError stays a 500."""
+    if isinstance(exc, OSError) and not isinstance(exc, sqlite3.Error):
+        if exc.errno == errno.ENOSPC:
+            return _DISK_FULL
+        if exc.errno == errno.EROFS:
+            return _READ_ONLY
+    if isinstance(exc, sqlite3.Error):
+        text = str(exc).lower()
+        if "disk image is malformed" in text or "file is not a database" in text:
+            return _DB_DAMAGED
+        if "readonly database" in text or "read-only" in text:
+            return _READ_ONLY
+        if "database or disk is full" in text:
+            return _DISK_FULL
+    return None
+
+
 async def _unexpected_error(request: Request, exc: Exception):
+    problem = _storage_problem(exc)
+    if problem is not None:
+        code, status, message = problem
+        try:
+            import applog
+            applog.get_logger().error("API: %s on %s %s (%s)", code, request.method,
+                                      request.url.path, type(exc).__name__)
+        except Exception:
+            pass
+        return JSONResponse(status_code=status, content=error_body(code, message))
     try:
         import applog
         applog.get_logger().exception("API: unhandled error on %s %s",
