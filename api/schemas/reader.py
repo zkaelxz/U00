@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
+from api.schemas.common import ConfirmRequest
+
 __all__ = [
     "ReaderPageResponse",
     "NovelAttachTextRequest",
@@ -266,9 +268,8 @@ class ReaderWikiUpdateResult(BaseModel):
     next_line_idx: Optional[int] = None
 
 
-class ReaderWikiClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class ReaderWikiClearRequest(ConfirmRequest):
+    pass
 
 
 class ReaderWikiClearResult(BaseModel):

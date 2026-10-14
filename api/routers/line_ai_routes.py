@@ -17,15 +17,13 @@ Both take an LLM slot, since each holds a worker thread on a network call.
 from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
-from api.schemas import (ErrorResponse, LineAlternatives, LineExplainRequest, LineExplanation,
-                         LineGrammar, LineImproveRequest, LineImprovement)
+from api.schemas import (LineAlternatives, LineExplainRequest, LineExplanation,
+                         LineGrammar, LineImproveRequest, LineImprovement, error_responses)
 from services import line_ai_service
 
 router = APIRouter(prefix="/api/line-ai", tags=["line-ai"])
 
-_ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-           422: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
-           503: {"model": ErrorResponse}}
+_ERRORS = error_responses(400, 404, 422, 429, 503)
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/improve", dependencies=[require_permission("engines.paid")], response_model=LineImprovement,
@@ -51,7 +49,7 @@ def post_explain(body: LineExplainRequest, request: Request, drama_id: int = Pat
 @router.post("/dramas/{drama_id}/lines/{line_id}/alternatives", dependencies=[require_permission("lines.read")],
              response_model=LineAlternatives,
              summary="Other valid translations of one line (writes nothing)",
-             responses={**_ERRORS, 403: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                       line_id: int = Path(ge=1)):
     engine = line_ai_service.tool_engine_name(drama_id, body.engine)
@@ -64,7 +62,7 @@ def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int 
 @router.post("/dramas/{drama_id}/lines/{line_id}/grammar", dependencies=[require_permission("lines.read")],
              response_model=LineGrammar,
              summary="Word-by-word breakdown of one line's source text (writes nothing)",
-             responses={**_ERRORS, 403: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_grammar(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
     engine = line_ai_service.tool_engine_name(drama_id, body.engine)

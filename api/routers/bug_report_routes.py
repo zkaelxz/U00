@@ -35,7 +35,7 @@ from starlette.formparsers import MultiPartException
 
 from api.auth import is_auth_enabled, holds, is_local_request, local_only, require_permission
 from api.schemas import (BugReportClient, BugReportDeleteConfirm, BugReportDeleted,
-                         BugReportListItem, BugReportSaved, BugReportText, ErrorResponse)
+                         BugReportListItem, BugReportSaved, BugReportText, error_responses)
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from services import bug_report_service as svc
 from services.auth_service import SlidingWindowRateLimiter
@@ -43,9 +43,7 @@ from services.service_errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/diagnostics/bug-reports", tags=["diagnostics"])
 
-_ERRS = {403: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-         409: {"model": ErrorResponse}, 413: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}}
+_ERRS = error_responses(403, 404, 409, 413, 422, 429)
 _MULTIPART_OVERHEAD = 64 * 1024
 _MAX_BODY = svc.MAX_JSON_BYTES + svc.MAX_SCREENSHOT_BYTES + _MULTIPART_OVERHEAD
 _TOO_LARGE = "The report is too large (text max 256 KB, screenshot max 5 MB)."

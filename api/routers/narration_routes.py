@@ -6,7 +6,7 @@ services/narration_service.py. Poll the job via GET /api/jobs/{job_id}.
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import require_engines_allowed, require_permission
-from api.schemas import ErrorResponse, NarrationConfig, NarrationRunRequest, NarrationRunResult
+from api.schemas import NarrationConfig, NarrationRunRequest, NarrationRunResult, error_responses
 from services import narration_service
 
 router = APIRouter(prefix="/api/narration", tags=["narration"])
@@ -14,15 +14,14 @@ router = APIRouter(prefix="/api/narration", tags=["narration"])
 
 @router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")], response_model=NarrationConfig,
             summary="Read-only chunk-and-tag options for one drama",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_narration_config(drama_id: int = Path(ge=1)):
     return narration_service.get_narration_config(drama_id)
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=NarrationRunResult,
              summary="Start the background chunk-and-tag job for one drama",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422, 503))
 def post_start_narration(payload: NarrationRunRequest, request: Request,
                          drama_id: int = Path(ge=1),
                          fresh: bool = Query(False, description=(

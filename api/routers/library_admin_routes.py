@@ -19,12 +19,12 @@ from fastapi.responses import StreamingResponse
 
 from api.auth import holds_paid_engines, local_only, require_engines_allowed, require_permission
 from api.schemas import (
-    ErrorResponse, LibraryArtifactInfo, LibraryArtifactKind, LibraryBackupRequest,
+    LibraryArtifactInfo, LibraryArtifactKind, LibraryBackupRequest,
     LibraryBulkDeleteRequest, LibraryBulkDeleteResult, LibraryBulkResult,
     LibraryBulkStatusRequest, LibraryBulkTagRequest, LibraryBulkTranslateRequest,
     LibraryBulkTranslateStarted, LibraryExportRequest, LibraryExportStarted, LibraryJobStarted,
     LibraryRestoreDone, LibraryStorageCleanRequest, LibraryStorageCleanResult,
-    LibraryStoragePreset, LibraryStorageScan, LibraryUserBackupRequest)
+    LibraryStoragePreset, LibraryStorageScan, LibraryUserBackupRequest, error_responses)
 from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
@@ -35,9 +35,9 @@ from services.service_errors import InvalidInputError, NotFoundError
 router = APIRouter(prefix="/api/library/admin", tags=["library-admin"])
 
 _CHUNK = 1024 * 1024
-_ERR = {422: {"model": ErrorResponse}}
-_ERR_409 = {409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
-_ERR_404 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERR = error_responses(422)
+_ERR_409 = error_responses(409, 422)
+_ERR_404 = error_responses(404, 422)
 _MEDIA_TYPES = {"backup": "application/zip", "export": "application/zip",
                 "database": "application/octet-stream", "user_backup": "application/zip"}
 _NO_ARTIFACT = "No artifact available."
@@ -76,7 +76,7 @@ def post_bulk_delete(body: LibraryBulkDeleteRequest):
 
 @router.post("/bulk/translate", dependencies=[require_permission("jobs.start")],
              response_model=LibraryBulkTranslateStarted,
-             responses={403: {"model": ErrorResponse}, **_ERR_409},
+             responses=error_responses(403, 409, 422),
              summary="Start the bulk translate job for the picked untranslated dramas")
 def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
     principal = request.state.principal
@@ -105,7 +105,7 @@ def post_backup(body: LibraryBackupRequest = None):
 
 
 @router.post("/backup/user", dependencies=[local_only()], response_model=LibraryJobStarted,
-             responses={404: {"model": ErrorResponse}, **_ERR_409},
+             responses=error_responses(404, 409, 422),
              summary="Start a backup of one person's dramas and series (no user: the PC's)")
 def post_user_backup(body: LibraryUserBackupRequest = None):
     return lub.start_user_backup(body.user_id if body else None)

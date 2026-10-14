@@ -28,8 +28,8 @@ from api.disk_usage_schemas import (
     DiskUsageTrashPurgeDone, DiskUsageTrashPurgeRequest, DiskUsageTrashRestoreDone,
     DiskUsageTrashRestoreRequest, TempCleanRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
     UnusedVoiceClipTrashRequest)
-from api.schemas import (ErrorResponse, PreviousLibrary, PreviousLibraryDeleted,
-                         PreviousLibraryDeleteRequest, TempCleanResult)
+from api.schemas import (PreviousLibrary, PreviousLibraryDeleted,
+                         PreviousLibraryDeleteRequest, TempCleanResult, error_responses)
 from services import disk_usage_clips_service as clips_svc
 from services import disk_usage_service as svc
 from services import disk_usage_trash_service as trash_svc
@@ -38,8 +38,7 @@ from services import temp_cleanup_service
 
 router = APIRouter(prefix="/api/data-usage", tags=["disk-usage"])
 
-_ERR = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-        422: {"model": ErrorResponse}}
+_ERR = error_responses(404, 409, 422)
 
 
 @router.get("", dependencies=[local_only()], response_model=DiskUsageScan, responses=_ERR,

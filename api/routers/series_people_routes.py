@@ -13,14 +13,13 @@ name or position.
 from fastapi import APIRouter, Path
 
 from api.auth import require_permission
-from api.schemas import (CharactersSeriesEntry, ErrorResponse, SeriesPersonCreate,
-                         SeriesPersonUpdate)
+from api.schemas import (CharactersSeriesEntry, SeriesPersonCreate,
+                         SeriesPersonUpdate, error_responses)
 from services import series_people_service as svc
 
 router = APIRouter(prefix="/api/characters/series", tags=["characters"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 
 
 def _id():

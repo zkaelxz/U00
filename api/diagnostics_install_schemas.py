@@ -6,21 +6,18 @@ setup, Deno install, "Test first" for an update).
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
+from pydantic import BaseModel, Field
 
-from api.schemas import DiagnosticsInstallResult, DiagnosticsTorchVerify
-
-
-class DiagnosticsJobState(BaseModel):
-    status: Optional[str] = None
-    progress: float = 0.0
-    message: str = ""
-    error: Optional[str] = None
+from api.schemas import (ConfirmRequest, DiagnosticsInstallResult, DiagnosticsTorchVerify, JobStarted, JobState,
+                         UpgradeRequest)
 
 
-class DiagnosticsJobStarted(BaseModel):
-    job_id: str
-    started: bool
+class DiagnosticsJobState(JobState):
+    pass
+
+
+class DiagnosticsJobStarted(JobStarted):
+    pass
 
 
 class DiagnosticsDenoResult(BaseModel):
@@ -43,17 +40,12 @@ class DiagnosticsDenoStatus(BaseModel):
     last_result: Optional[DiagnosticsDenoResult] = None
 
 
-class DiagnosticsDenoInstallRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class DiagnosticsDenoInstallRequest(ConfirmRequest):
+    pass
 
 
-class DiagnosticsUpgradeCheckRequest(BaseModel):
+class DiagnosticsUpgradeCheckRequest(UpgradeRequest, ConfirmRequest):
     """confirm=true and the version the last update check offered."""
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
-    target: Optional[StrictStr] = Field(None, max_length=64,
-                                        pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
 
 
 class DiagnosticsUpgradeCheckResult(BaseModel):

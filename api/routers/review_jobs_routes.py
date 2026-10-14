@@ -8,15 +8,13 @@ in services/review_jobs_service.py.
 
 from fastapi import APIRouter, Path, Request
 from api.auth import is_at_pc, require_engines_allowed, require_permission
-from api.schemas import (EmotionJobStart, ErrorResponse, FixFlaggedJobStart,
-                         ReviewJobStart, ReviewJobStarted)
+from api.schemas import (EmotionJobStart, FixFlaggedJobStart,
+                         ReviewJobStart, ReviewJobStarted, error_responses)
 from services import model_readiness_service, review_jobs_service
 
 router = APIRouter(prefix="/api/review-jobs", tags=["review-jobs"])
 
-_ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-           409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-           503: {"model": ErrorResponse}}
+_ERRORS = error_responses(400, 404, 409, 422, 503)
 
 
 @router.post("/dramas/{drama_id}/consistency", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,

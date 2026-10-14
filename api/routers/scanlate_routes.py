@@ -27,7 +27,7 @@ from api.auth import is_at_pc, local_only, require_engines_allowed, require_perm
 from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from lib.capped_request import read_capped_form
 from services import (model_readiness_service, page_import_limits, scanlate_pages_service,
                       scanlate_render_service, scanlate_run_service, settings_service)
@@ -35,10 +35,8 @@ from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/scanlate", tags=["scanlate"])
 
-_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
-_JOB_ERRS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-             409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-             503: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 422)
+_JOB_ERRS = error_responses(400, 404, 409, 422, 503)
 
 
 @router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")],
@@ -73,8 +71,7 @@ _UPLOAD_BODY = {"requestBody": {"required": True, "content": {"multipart/form-da
 
 @router.post("/dramas/{drama_id}/pages", dependencies=[local_only()],
              response_model=ScanlateUploadResult, openapi_extra=_UPLOAD_BODY,
-             responses={413: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        **_ERRS, 503: {"model": ErrorResponse}},
+             responses=error_responses(413, 409, 404, 422, 503),
              summary="Add page images or PDFs (PNG/JPEG/WebP/PDF; see config upload_limits)")
 async def post_pages(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
     form = await read_capped_form(

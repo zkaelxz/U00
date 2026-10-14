@@ -9,8 +9,8 @@ visible through GET /api/jobs/{job_id}.
 from fastapi import APIRouter
 
 from api.auth import local_only, require_permission
-from api.schemas import (ErrorResponse, RealModelCheckStart, RealModelCheckStarted,
-                         RealModelCheckState)
+from api.schemas import (RealModelCheckStart, RealModelCheckStarted,
+                         RealModelCheckState, error_responses)
 from services import real_model_check_service as svc
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
@@ -27,6 +27,6 @@ def get_real_model_check():
              response_model=RealModelCheckStarted,
              summary="PC only: run one transcription, OCR read and Ollama translation "
                      "(confirm=true; background job, uses the GPU)",
-             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(409, 422))
 def post_real_model_check(body: RealModelCheckStart):
     return svc.start(confirm=body.confirm)

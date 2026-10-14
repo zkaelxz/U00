@@ -18,10 +18,10 @@ from fastapi import APIRouter, Path, Query, Request
 import translate_engines
 from api.auth import require_permission
 from api.schemas import (
-    DramaDetail, DramaListResponse, DramaSummary, ErrorResponse, LibraryCostResponse,
+    DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
     LibraryContinueResponse, LibraryDashboard, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
     LibraryRecentResponse, LibraryRename, LibrarySearchResponse, LibrarySeriesResponse,
-    LibraryVoice, LibraryVoiceBankResponse)
+    LibraryVoice, LibraryVoiceBankResponse, error_responses)
 from services import library_service, novel_files_service
 
 router = APIRouter(prefix="/api/library", tags=["library"])
@@ -53,7 +53,7 @@ def to_detail(drama: dict) -> DramaDetail:
 
 @router.get("/dramas", dependencies=[require_permission("library.read")], response_model=DramaListResponse,
             summary="List dramas in the library (the Library page's 'All dramas' list)",
-            responses={422: {"model": ErrorResponse}})
+            responses=error_responses(422))
 def list_dramas(
         request: Request,
         search: str = Query("", max_length=200, description="Substring of title or summary."),
@@ -75,14 +75,13 @@ def list_dramas(
 
 
 @router.get("/dramas/{drama_id}", dependencies=[require_permission("library.read")], response_model=DramaDetail, summary="One drama's details",
-            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+            responses=error_responses(404, 422))
 def get_drama(drama_id: int = Path(ge=1)):
     return to_detail(library_service.get_library_drama(drama_id))
 
 
-_ERR = {422: {"model": ErrorResponse}}
-_ERR_WRITE = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-              422: {"model": ErrorResponse}}
+_ERR = error_responses(422)
+_ERR_WRITE = error_responses(404, 409, 422)
 
 
 @router.get("/stats", dependencies=[require_permission("library.read")], response_model=LibraryDashboard, summary="Dashboard counts and spend")

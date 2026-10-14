@@ -10,12 +10,12 @@ from fastapi import APIRouter, Path
 from api.auth import require_permission
 from fastapi.responses import FileResponse
 
-from api.schemas import ArtifactInfo, ErrorResponse
+from api.schemas import ArtifactInfo, error_responses
 from services import artifact_service, export_service
 
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])
 
-_ERRORS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERRORS = error_responses(404, 422)
 
 
 def _safe_name(name: str) -> str:

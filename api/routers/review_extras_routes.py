@@ -21,16 +21,14 @@ from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, 
                          EnCleanupPreview, EnCleanupResult, ErrorResponse,
                          MergeShortApply, MergeShortPreview, MergeShortResult, SenseVoiceStarted,
                          SenseVoiceTags, StyleApplyRequest, StyleLearnRequest, StyleResetRequest,
-                         StyleRestoreRequest, StyleState)
+                         StyleRestoreRequest, StyleState, error_responses)
 from services import model_readiness_service
 from services import review_extras_service as svc
 from services.service_errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/review-extras", tags=["review-extras"])
 
-_R = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-      409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-      503: {"model": ErrorResponse}}
+_R = error_responses(400, 404, 409, 422, 503)
 
 
 # --- Merge short adjacent lines ---------------------------------------
@@ -83,7 +81,7 @@ def _global_style_pc_only(request: Request, drama_id: int) -> None:
 
 @router.get("/dramas/{drama_id}/style", dependencies=[require_permission("review.use")],
             response_model=StyleState, summary="The learned style profile for this drama's scope",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_style(request: Request, drama_id: int = Path(ge=1)):
     return svc.get_style(drama_id, principal=request.state.principal)
 
@@ -91,7 +89,7 @@ def get_style(request: Request, drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/style/learn", dependencies=[require_permission("jobs.start")],
              response_model=StyleState,
              summary="Learn style preferences from recorded edits (one LLM call)",
-             responses={**_R, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503, 403, 429))
 def post_style_learn(body: StyleLearnRequest, request: Request, drama_id: int = Path(ge=1)):
     _global_style_pc_only(request, drama_id)
     require_engines_allowed(request, body.engine, model=body.model)
@@ -103,7 +101,7 @@ def post_style_learn(body: StyleLearnRequest, request: Request, drama_id: int = 
 @router.post("/dramas/{drama_id}/style/apply", dependencies=[require_permission("lines.edit")],
              response_model=StyleState,
              summary="Turn the learned profile on or off for future translations",
-             responses={**_R, 403: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503, 403))
 def post_style_apply(body: StyleApplyRequest, request: Request, drama_id: int = Path(ge=1)):
     _global_style_pc_only(request, drama_id)
     return svc.set_style_applied(drama_id, body.apply, principal=request.state.principal)
@@ -113,7 +111,7 @@ def post_style_apply(body: StyleApplyRequest, request: Request, drama_id: int = 
 # (deletes are PC-only, docs/remote-access-decision.md).
 @router.post("/dramas/{drama_id}/style/reset", dependencies=[local_only()],
              response_model=StyleState, summary="Forget the learned profile (confirm=true; PC only)",
-             responses={**_R, 403: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503, 403))
 def post_style_reset(body: StyleResetRequest, request: Request, drama_id: int = Path(ge=1)):
     if body.confirm is not True:
         raise InvalidInputError("Resetting the learned style needs confirm=true.")
@@ -125,7 +123,7 @@ def post_style_reset(body: StyleResetRequest, request: Request, drama_id: int = 
 @router.post("/dramas/{drama_id}/style/restore", dependencies=[local_only()],
              response_model=StyleState,
              summary="Restore an earlier learned profile (index 0 = the last replaced; PC only)",
-             responses={**_R, 403: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422, 503, 403))
 def post_style_restore(body: StyleRestoreRequest, request: Request, drama_id: int = Path(ge=1)):
     return svc.restore_style(drama_id, body.index, principal=request.state.principal)
 
@@ -144,7 +142,7 @@ def post_sensevoice(request: Request, drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/sensevoice", dependencies=[require_permission("lines.read")],
             response_model=SenseVoiceTags,
             summary="Text-based vs audio tags per line, side by side",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_sensevoice(drama_id: int = Path(ge=1)):
     return svc.get_sensevoice(drama_id)
 
@@ -166,7 +164,7 @@ def post_burn_preview(body: BurnPreviewStart, drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/burn-preview/info", dependencies=[require_permission("lines.read")],
             response_model=BurnPreviewInfo,
             summary="Whether a preview clip exists (and for which line), presets, limits",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_burn_preview_info(drama_id: int = Path(ge=1)):
     return svc.get_burn_preview_info(drama_id)
 

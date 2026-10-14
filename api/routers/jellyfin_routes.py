@@ -16,13 +16,12 @@ from api.jellyfin_schemas import (JellyfinConfig, JellyfinConfigUpdate, Jellyfin
                                   JellyfinKeySet, JellyfinScanReport, JellyfinScanRequest,
                                   JellyfinSendRequest, JellyfinSendResult, JellyfinTestResult)
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import jellyfin_service
 
 router = APIRouter(prefix="/api/jellyfin", tags=["jellyfin"])
 
-_ERRS = {409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+_ERRS = error_responses(409, 422, 503)
 
 
 @router.get("/config", dependencies=[local_only()], response_model=JellyfinConfig,
@@ -34,7 +33,7 @@ def get_config():
 @router.post("/config", dependencies=[local_only()], response_model=JellyfinConfig,
              summary="PC only: save the Jellyfin library folder or on/off; the address also "
                      "needs the key-write gate and confirm",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 def set_config(payload: JellyfinConfigUpdate, request: Request):
     if payload.server_url is not None:  # where the key goes: same gate as endpoint URLs
         require_local_admin(request)
@@ -45,7 +44,7 @@ def set_config(payload: JellyfinConfigUpdate, request: Request):
 
 @router.post("/key", dependencies=[local_only()], response_model=JellyfinConfig,
              summary="PC only: set the Jellyfin API key (write-only; same gate as engine keys)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 async def set_key(request: Request):
     require_local_admin(request)
     body = await read_body(request, JellyfinKeySet)
@@ -55,7 +54,7 @@ async def set_key(request: Request):
 
 @router.post("/key/clear", dependencies=[local_only()], response_model=JellyfinConfig,
              summary="PC only: remove the Jellyfin API key from .env",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 async def clear_key(request: Request):
     require_local_admin(request)
     body = await read_body(request, JellyfinKeyClear)
@@ -80,7 +79,7 @@ def scan(payload: JellyfinScanRequest):
              response_model=JellyfinSendResult,
              summary="PC only: put the drama's subtitles (and optionally video) into the "
                      "Jellyfin library, then refresh",
-             responses={**_ERRS, 404: {"model": ErrorResponse}})
+             responses=error_responses(409, 422, 503, 404))
 def send(payload: JellyfinSendRequest, drama_id: int = Path(ge=1)):
     return jellyfin_service.send_to_jellyfin(
         drama_id, item_id=payload.item_id, fmt=payload.format, field=payload.field,

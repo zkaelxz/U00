@@ -13,7 +13,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
 
 from api.auth import local_only, require_permission
-from api.schemas import ErrorResponse, SpendHistory
+from api.schemas import SpendHistory, error_responses
 from services import spend_history_service
 
 router = APIRouter(prefix="/api/settings/spend-history", tags=["settings"])
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/settings/spend-history", tags=["settings"])
 
 @router.get("", dependencies=[require_permission("admin.settings")], response_model=SpendHistory,
             summary="Estimated paid-API spend by month, with the operations, models and titles behind one month",
-            responses={422: {"model": ErrorResponse}})
+            responses=error_responses(422))
 def spend_history(request: Request, month: Optional[str] = Query(None, max_length=7)):
     return spend_history_service.get_spend_history(month, principal=request.state.principal)
 

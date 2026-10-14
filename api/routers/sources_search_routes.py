@@ -18,15 +18,13 @@ and, only to a request from this PC, the sign-in and tier-test jobs
 from fastapi import APIRouter, Path, Request
 
 from api.auth import is_local_request, require_permission
-from api.schemas import (ErrorResponse, SourcesJobResult, SourcesJobStarted,
-                         SourcesSearchRequest, SourcesSeriesRequest)
+from api.schemas import (SourcesJobResult, SourcesJobStarted,
+                         SourcesSearchRequest, SourcesSeriesRequest, error_responses)
 from services import sources_search_service as svc
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
-_ERRS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+_ERRS = error_responses(400, 404, 409, 422, 503)
 
 
 @router.post("/search", dependencies=[require_permission("library.read")],

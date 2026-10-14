@@ -11,7 +11,7 @@ Thin: see services/usage_recost_service.py.
 from fastapi import APIRouter
 
 from api.auth import local_only, require_permission
-from api.schemas import ErrorResponse, UsageRecostApplyRequest, UsageRecostPreview, UsageRecostResult
+from api.schemas import UsageRecostApplyRequest, UsageRecostPreview, UsageRecostResult, error_responses
 from services import usage_recost_service
 
 router = APIRouter(prefix="/api/settings/usage-recost", tags=["settings"])
@@ -25,7 +25,7 @@ def preview_recost():
 
 @router.post("/apply", dependencies=[local_only()], response_model=UsageRecostResult,
              summary="PC only: re-cost past usage rows (needs confirm=true; Undo restores them)",
-             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(409, 422))
 def apply_recost(body: UsageRecostApplyRequest):
     return usage_recost_service.apply(body.confirm, body.previewed, body.fingerprint)
 

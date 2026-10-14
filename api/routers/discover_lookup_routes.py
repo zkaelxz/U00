@@ -28,14 +28,12 @@ from api.schemas import (DiscoverBaihehubResult, DiscoverBaihehubSearchRequest,
                          DiscoverImportSuggestionRequest, DiscoverJobResult,
                          DiscoverJobStarted, DiscoverNavigationHelpRequest,
                          DiscoverTranslateQueryRequest, DiscoverTranslateQueryResult,
-                         ErrorResponse)
+                         error_responses)
 from services import discover_lookup_service as svc
 
 router = APIRouter(prefix="/api/discover", tags=["discover"])
 
-_ERRS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+_ERRS = error_responses(400, 404, 422, 429, 503)
 
 
 @router.post("/translate-query", dependencies=[require_permission("library.read")],

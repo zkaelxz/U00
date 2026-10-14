@@ -26,9 +26,9 @@ from fastapi import APIRouter, Request
 from api.auth import local_only, require_permission
 from api.notification_schemas import NotificationCategoriesRequest, NotificationSettingsStatus
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
-from api.schemas import (ErrorResponse, NotificationChannelClearRequest,
+from api.schemas import (NotificationChannelClearRequest,
                          NotificationChannelResult, NotificationChannelSetRequest,
-                         NotificationTestResult)
+                         NotificationTestResult, error_responses)
 from services import notification_service as svc
 
 router = APIRouter(prefix="/api/settings/notifications", tags=["settings"])
@@ -46,14 +46,14 @@ def get_status():
 @router.post("/categories", dependencies=[local_only()],
              response_model=NotificationSettingsStatus,
              summary="PC only: choose which events go to Discord/ntfy",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 def set_categories(body: NotificationCategoriesRequest):
     return svc.set_categories(jobs=body.jobs, chapters=body.chapters, remote=body.remote)
 
 
 @router.post("/test", dependencies=[local_only()], response_model=NotificationTestResult,
              summary="PC only: send a test notification to every configured channel",
-             responses={422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
+             responses=error_responses(422, 429))
 def send_test():
     return svc.send_test()
 
@@ -61,7 +61,7 @@ def send_test():
 @router.post("/{channel}", dependencies=[local_only()], response_model=NotificationChannelResult,
              summary="PC only: set a Discord webhook or ntfy topic URL (write-only; "
                      "disabled by default)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 async def set_channel(channel: str, request: Request):
     require_local_admin(request)
     body = await read_body(request, NotificationChannelSetRequest)
@@ -72,7 +72,7 @@ async def set_channel(channel: str, request: Request):
 @router.post("/{channel}/clear", dependencies=[local_only()],
              response_model=NotificationChannelResult,
              summary="PC only: remove a Discord webhook or ntfy topic URL from .env",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 async def clear_channel(channel: str, request: Request):
     require_local_admin(request)
     body = await read_body(request, NotificationChannelClearRequest)

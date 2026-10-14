@@ -27,7 +27,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
-from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
+from api.schemas import (GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
@@ -39,7 +39,7 @@ from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkD
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
                          LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
-                         NovelGlossaryStatus)
+                         NovelGlossaryStatus, error_responses)
 from services import (export_service, glossary_name_report_service, glossary_service,
                       glossary_spelling_service, glossary_variants_service)
 from services.service_errors import ForbiddenError, InvalidInputError
@@ -55,15 +55,14 @@ def get_catalogues():
 
 @router.get("/dramas/{drama_id}/terms", dependencies=[require_permission("library.read")], response_model=List[GlossaryTerm],
             summary="The drama's series glossary (empty when it has no series)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_terms(drama_id: int = Path(ge=1)):
     return glossary_service.list_glossary_terms(drama_id)
 
 
 @router.post("/dramas/{drama_id}/terms", dependencies=[require_permission("lines.edit")], response_model=GlossaryTerm,
              summary="Create or update a glossary term (update when id is given)",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422))
 def post_term(payload: GlossaryTermUpsert, drama_id: int = Path(ge=1)):
     return glossary_service.upsert_glossary_term(drama_id, payload.model_dump(exclude_unset=True))
 
@@ -71,7 +70,7 @@ def post_term(payload: GlossaryTermUpsert, drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/terms/bulk-delete", dependencies=[require_permission("lines.edit")],
              response_model=GlossaryBulkDeleteResult,
              summary="Delete several glossary terms by id (requires confirm=true)",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def post_bulk_delete_terms(payload: GlossaryBulkDeleteRequest, drama_id: int = Path(ge=1)):
     return glossary_service.bulk_delete_glossary_terms(drama_id, payload.term_ids,
                                                        confirm=payload.confirm)
@@ -80,8 +79,7 @@ def post_bulk_delete_terms(payload: GlossaryBulkDeleteRequest, drama_id: int = P
 @router.post("/dramas/{drama_id}/import", dependencies=[require_permission("lines.edit")],
              response_model=GlossaryImportResult,
              summary="Import glossary text (CSV, TSV or JSON) into the series glossary",
-             responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-                        404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 403, 404, 422))
 def post_import_glossary(payload: GlossaryImportRequest, request: Request,
                          drama_id: int = Path(ge=1)):
     # Overwriting is the LAN exception in docs/remote-access-decision.md; with
@@ -97,7 +95,7 @@ def post_import_glossary(payload: GlossaryImportRequest, request: Request,
 
 @router.get("/dramas/{drama_id}/export.csv", dependencies=[require_permission("library.read")],
             summary="The series glossary as CSV (download)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_glossary_csv(drama_id: int = Path(ge=1)):
     return Response(content=glossary_service.glossary_csv(drama_id),
                     media_type="text/csv; charset=utf-8",
@@ -109,7 +107,7 @@ def get_glossary_csv(drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/variants", dependencies=[require_permission("lines.read")],
             response_model=GlossaryVariants,
             summary="Spellings in the source lines that sound like a term (read-only, offline)",
-            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+            responses=error_responses(404, 422))
 def get_term_variants(drama_id: int = Path(ge=1),
                       term: str = Query(..., min_length=1, max_length=200, description=(
                           "The term, or any name being worked out; its aliases are included "
@@ -120,7 +118,7 @@ def get_term_variants(drama_id: int = Path(ge=1),
 @router.get("/dramas/{drama_id}/name-clusters", dependencies=[require_permission("lines.read")],
             response_model=GlossaryNameClusters,
             summary="Names that recur under several sound-alike spellings (read-only, offline)",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_name_clusters(drama_id: int = Path(ge=1)):
     return glossary_variants_service.discover_names(drama_id)
 
@@ -133,7 +131,7 @@ def get_name_clusters(drama_id: int = Path(ge=1)):
 @router.post("/name-report", dependencies=[require_permission("lines.read", "jobs.start")],
              response_model=NameReportRunResult,
              summary="Start the name check over every title you can see (read-only)",
-             responses={409: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
+             responses=error_responses(409, 429))
 def post_start_name_report(request: Request):
     return glossary_name_report_service.start_scan(request.state.principal)
 
@@ -148,8 +146,7 @@ def get_name_report(request: Request):
 @router.post("/name-report/cancel", dependencies=[require_permission("jobs.cancel")],
              response_model=JobCancelResult,
              summary="Cancel your running name check (an admin or the PC owner may name another person's)",
-             responses={403: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(403, 409, 422))
 def post_cancel_name_report(request: Request, payload: Optional[NameReportCancelRequest] = None):
     return glossary_name_report_service.cancel_scan(request.state.principal,
                                                     payload.job_id if payload else None)
@@ -158,14 +155,14 @@ def post_cancel_name_report(request: Request, payload: Optional[NameReportCancel
 @router.post("/name-report/marks", dependencies=[require_permission("lines.read", "lines.edit")],
              response_model=NameReportMarkResult,
              summary="Mark a name group right, wrong or skip (or clear the mark)",
-             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(409, 422))
 def post_name_report_mark(payload: NameReportMarkRequest, request: Request):
     return glossary_name_report_service.set_mark(request.state.principal, payload.key, payload.mark)
 
 
 @router.get("/name-report/export.md", dependencies=[require_permission("lines.read")],
             summary="The unresolved name groups as plain text (names, counts, example lines)",
-            responses={409: {"model": ErrorResponse}})
+            responses=error_responses(409))
 def get_name_report_export(request: Request):
     principal = request.state.principal
     return Response(content=glossary_name_report_service.export_report(principal),
@@ -179,9 +176,7 @@ def get_name_report_export(request: Request):
 @router.post("/dramas/{drama_id}/spelling-suggestions", dependencies=[require_permission("jobs.start")],
              response_model=SpellingSuggestRunResult,
              summary="Start one model call proposing how a known name may be spelled in the lines",
-             responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-                        404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(400, 403, 404, 409, 422, 503))
 def post_start_spelling_suggestions(payload: SpellingSuggestRequest, request: Request,
                                     drama_id: int = Path(ge=1)):
     engine_name = glossary_spelling_service.spelling_engine(drama_id)
@@ -193,7 +188,7 @@ def post_start_spelling_suggestions(payload: SpellingSuggestRequest, request: Re
 @router.get("/dramas/{drama_id}/spelling-suggestions", dependencies=[require_permission("lines.read")],
             response_model=SpellingSuggestStatus,
             summary="Status and (when done) the verified spelling proposals",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_spelling_suggestions(drama_id: int = Path(ge=1)):
     return glossary_spelling_service.get_spelling_status(drama_id)
 
@@ -201,8 +196,7 @@ def get_spelling_suggestions(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/spelling-suggestions/cancel", dependencies=[require_permission("jobs.cancel")],
              response_model=JobCancelResult,
              summary="Cancel this drama's spelling suggestions, only if it is still run run_id",
-             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(403, 404, 409, 422))
 def post_cancel_spelling_suggestions(request: Request, payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
     return glossary_spelling_service.cancel_spelling_run(drama_id, payload.run_id, request.state.principal)
 
@@ -210,7 +204,7 @@ def post_cancel_spelling_suggestions(request: Request, payload: GlossaryRunCance
 @router.get("/dramas/{drama_id}/name-consistency", dependencies=[require_permission("lines.read")],
             response_model=NameConsistency,
             summary="Lines where a term's name is not rendered as the given English (read-only, offline)",
-            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+            responses=error_responses(404, 422))
 def get_name_consistency(drama_id: int = Path(ge=1), term_id: int = Query(..., ge=1),
                          english: str = Query(None, max_length=80, description=(
                              "The English to look for; defaults to the term's saved translation"))):
@@ -219,22 +213,21 @@ def get_name_consistency(drama_id: int = Path(ge=1), term_id: int = Query(..., g
 
 @router.get("/dramas/{drama_id}/instructions", dependencies=[require_permission("library.read")], response_model=GlossaryInstructions,
             summary="Project and series instructions for a drama",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_instructions(drama_id: int = Path(ge=1)):
     return glossary_service.get_instructions(drama_id)
 
 
 @router.post("/dramas/{drama_id}/instructions/project", dependencies=[require_permission("lines.edit")], response_model=GlossaryInstructions,
              summary="Set this drama's project instructions",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def post_project_instructions(payload: GlossaryInstructionsUpdate, drama_id: int = Path(ge=1)):
     return glossary_service.set_project_instructions(drama_id, payload.text)
 
 
 @router.post("/dramas/{drama_id}/instructions/series", dependencies=[require_permission("lines.edit")], response_model=GlossaryInstructions,
              summary="Set the series instructions (drama must belong to a series)",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422))
 def post_series_instructions(payload: GlossaryInstructionsUpdate, drama_id: int = Path(ge=1)):
     return glossary_service.set_series_instructions(drama_id, payload.text)
 
@@ -246,9 +239,7 @@ def post_series_instructions(payload: GlossaryInstructionsUpdate, drama_id: int 
 
 @router.post("/dramas/{drama_id}/from-novel", dependencies=[require_permission("jobs.start")], response_model=NovelGlossaryRunResult,
              summary="Start proposing glossary terms from this drama's saved novel",
-             responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-                        404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(400, 403, 404, 409, 503))
 def post_start_novel_glossary(request: Request, drama_id: int = Path(ge=1),
                               fresh: bool = Query(False, description=(
                                   "Ignore replies cached by an earlier run"))):
@@ -262,15 +253,14 @@ def post_start_novel_glossary(request: Request, drama_id: int = Path(ge=1),
 
 @router.get("/dramas/{drama_id}/from-novel", dependencies=[require_permission("library.read")], response_model=NovelGlossaryStatus,
             summary="Status and (when done) the proposed terms of this drama's novel extraction",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_novel_glossary(drama_id: int = Path(ge=1)):
     return _status_body(glossary_service.get_novel_glossary_status(drama_id))
 
 
 @router.post("/dramas/{drama_id}/from-novel/apply", dependencies=[require_permission("lines.edit")], response_model=NovelGlossaryApplyResult,
              summary="Add named proposals to the series glossary (overwrite needs confirm=true)",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422))
 def post_apply_novel_glossary(payload: GlossaryProposalsApplyRequest, drama_id: int = Path(ge=1)):
     return _apply(glossary_service.apply_novel_glossary, drama_id, payload)
 
@@ -278,8 +268,7 @@ def post_apply_novel_glossary(payload: GlossaryProposalsApplyRequest, drama_id: 
 @router.post("/dramas/{drama_id}/from-novel/cancel", dependencies=[require_permission("jobs.cancel")],
              response_model=JobCancelResult,
              summary="Cancel this drama's novel extraction, only if it is still run run_id",
-             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(403, 404, 409, 422))
 def post_cancel_novel_glossary(request: Request, payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
     return glossary_service.cancel_novel_glossary_run(drama_id, payload.run_id, request.state.principal)
 
@@ -306,7 +295,7 @@ def _apply(apply_fn, drama_id: int, payload: GlossaryProposalsApplyRequest) -> d
 @router.get("/dramas/{drama_id}/dismissals", dependencies=[require_permission("library.read")],
             response_model=GlossaryDismissals,
             summary="Glossary proposals ignored for this drama's series",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_glossary_dismissals(drama_id: int = Path(ge=1)):
     return glossary_service.list_glossary_dismissals(drama_id)
 
@@ -314,8 +303,7 @@ def get_glossary_dismissals(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/dismissals", dependencies=[require_permission("lines.edit")],
              response_model=GlossaryDismissResult,
              summary="Ignore proposed terms so they are not proposed again",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422))
 def post_dismiss_glossary_proposals(payload: GlossaryDismissRequest, drama_id: int = Path(ge=1)):
     return glossary_service.dismiss_glossary_proposals(drama_id, payload.terms)
 
@@ -323,8 +311,7 @@ def post_dismiss_glossary_proposals(payload: GlossaryDismissRequest, drama_id: i
 @router.post("/dramas/{drama_id}/dismissals/restore", dependencies=[require_permission("lines.edit")],
              response_model=GlossaryDismissResult,
              summary="Take terms off the ignore list",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 422))
 def post_restore_glossary_proposals(payload: GlossaryDismissRequest, drama_id: int = Path(ge=1)):
     return glossary_service.restore_glossary_proposals(drama_id, payload.terms)
 
@@ -335,9 +322,7 @@ def post_restore_glossary_proposals(payload: GlossaryDismissRequest, drama_id: i
 
 @router.post("/dramas/{drama_id}/from-lines", dependencies=[require_permission("jobs.start")], response_model=LinesGlossaryRunResult,
              summary="Start proposing glossary terms from this drama's source lines",
-             responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-                        404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(400, 403, 404, 409, 503))
 def post_start_lines_glossary(request: Request, drama_id: int = Path(ge=1)):
     engine_name = glossary_service.lines_glossary_engine(drama_id)
     require_engines_allowed(request, engine_name)
@@ -346,15 +331,14 @@ def post_start_lines_glossary(request: Request, drama_id: int = Path(ge=1)):
 
 @router.get("/dramas/{drama_id}/from-lines", dependencies=[require_permission("library.read")], response_model=NovelGlossaryStatus,
             summary="Status and (when done) the proposed terms of this drama's lines extraction",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_lines_glossary(drama_id: int = Path(ge=1)):
     return _status_body(glossary_service.get_lines_glossary_status(drama_id))
 
 
 @router.post("/dramas/{drama_id}/from-lines/apply", dependencies=[require_permission("lines.edit")], response_model=NovelGlossaryApplyResult,
              summary="Add named lines proposals to the series glossary (overwrite needs confirm=true)",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(400, 404, 409, 422))
 def post_apply_lines_glossary(payload: LinesGlossaryApplyRequest, drama_id: int = Path(ge=1)):
     return _apply(glossary_service.apply_lines_glossary, drama_id, payload)
 
@@ -362,7 +346,6 @@ def post_apply_lines_glossary(payload: LinesGlossaryApplyRequest, drama_id: int 
 @router.post("/dramas/{drama_id}/from-lines/cancel", dependencies=[require_permission("jobs.cancel")],
              response_model=JobCancelResult,
              summary="Cancel this drama's lines extraction, only if it is still run run_id",
-             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(403, 404, 409, 422))
 def post_cancel_lines_glossary(request: Request, payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
     return glossary_service.cancel_lines_glossary_run(drama_id, payload.run_id, request.state.principal)

@@ -26,13 +26,13 @@ from fastapi.responses import Response
 from api.auth import local_only, require_permission
 from api.saved_comics_schemas import (SavedChapterList, SavedChapterPages, SavedComicsFolder,
                                       SavedComicsFolderUpdate, SavedComicsOpened, SavedSeries)
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import saved_comics_service as library
 from services import sources_save_service as saves
 
 router = APIRouter(prefix="/api/saved-comics", tags=["saved-comics"])
 
-_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 422)
 _NAME = {"min_length": 1, "max_length": library.MAX_NAME_LEN}
 
 
@@ -44,14 +44,14 @@ def get_folder():
 
 @router.post("/folder", dependencies=[local_only()], response_model=SavedComicsFolder,
              summary="PC only: pick the folder chapters saved as CBZ go to (\"\" = default)",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 def post_folder(body: SavedComicsFolderUpdate):
     return saves.set_save_folder(body.folder)
 
 
 @router.post("/folder/open", dependencies=[local_only()], response_model=SavedComicsOpened,
              summary="PC only: open the save folder in this PC's file manager",
-             responses={400: {"model": ErrorResponse}})
+             responses=error_responses(400))
 def post_open_folder():
     return saves.open_save_folder()
 

@@ -8,14 +8,13 @@ keys only, and responses carry no paths, URLs or secrets.
 from fastapi import APIRouter
 
 from api.auth import local_only
-from api.schemas import (ErrorResponse, PendingInstallPlan, PendingInstallPlanRequest,
-                         PendingInstallQueued, PendingInstallQueueRequest, PendingInstallStatus)
+from api.schemas import (PendingInstallPlan, PendingInstallPlanRequest,
+                         PendingInstallQueued, PendingInstallQueueRequest, PendingInstallStatus, error_responses)
 from services import pending_install_service as svc
 
 router = APIRouter(prefix="/api/diagnostics/pending-install", tags=["diagnostics"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 
 
 @router.get("", dependencies=[local_only()], response_model=PendingInstallStatus,

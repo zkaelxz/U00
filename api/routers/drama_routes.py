@@ -29,7 +29,7 @@ from api.auth import is_at_pc, local_only, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaMetadataUpdate, DramaSourceLink,
-                         ErrorResponse)
+                         error_responses)
 from lib.capped_request import read_capped_form
 from services import cover_art_service, drama_service, link_details_service, source_link_service
 from services.service_errors import InvalidInputError
@@ -39,8 +39,7 @@ router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 
 @router.post("", dependencies=[require_permission("admin.library")], response_model=DramaCreateResult, status_code=201,
              summary="Create a drama (optionally with a series and/or preset)",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_drama(payload: DramaCreateRequest, request: Request):
     fields = payload.model_dump()
     url = fields.pop("source_url").strip()
@@ -58,8 +57,7 @@ def post_drama(payload: DramaCreateRequest, request: Request):
 
 @router.post("/{drama_id}/metadata", dependencies=[require_permission("admin.library")], response_model=DramaDetail,
              summary="Update a drama's metadata (partial update)",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 422))
 def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
                         drama_id: int = Path(ge=1)):
     return to_detail(drama_service.update_drama_metadata(
@@ -72,7 +70,7 @@ def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
 # the drama detail.
 @router.get("/{drama_id}/source-link", dependencies=[local_only()], response_model=DramaSourceLink,
             summary="The title's source link as imported or typed (PC only; may carry a query)",
-            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+            responses=error_responses(404, 422))
 def get_source_link(drama_id: int = Path(ge=1, le=2**31 - 1)):
     return source_link_service.source_link(drama_id)
 
@@ -87,8 +85,7 @@ _COVER_BODY = {"requestBody": {"required": True, "content": {"multipart/form-dat
 @router.post("/{drama_id}/cover", dependencies=[local_only()], response_model=CoverArtResult,
              summary="Set or replace the cover art (PNG/JPEG/WebP, max 10 MB; metadata stripped)",
              openapi_extra=_COVER_BODY,
-             responses={404: {"model": ErrorResponse}, 413: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+             responses=error_responses(404, 413, 422, 503))
 async def post_cover(request: Request, drama_id: int = Path(ge=1)):
     form = await read_capped_form(
         request, cover_art_service.MAX_COVER_BYTES + _COVER_MULTIPART_OVERHEAD, "the image",
@@ -104,7 +101,7 @@ async def post_cover(request: Request, drama_id: int = Path(ge=1)):
 
 
 @router.get("/{drama_id}/cover", dependencies=[require_permission("library.read")],
-            summary="The cover art image", responses={404: {"model": ErrorResponse}})
+            summary="The cover art image", responses=error_responses(404))
 def get_cover(drama_id: int = Path(ge=1)):
     path, media_type = cover_art_service.cover_file(drama_id)
     return FileResponse(path, media_type=media_type, content_disposition_type="inline",
@@ -116,8 +113,7 @@ def get_cover(drama_id: int = Path(ge=1)):
 
 @router.delete("/{drama_id}", dependencies=[local_only()], response_model=DramaDeleteResult, response_model_exclude_none=True,
                summary="Permanently delete a drama (requires confirm=true and confirm_text=DELETE)",
-               responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                          422: {"model": ErrorResponse}})
+               responses=error_responses(404, 409, 422))
 def delete_drama(drama_id: int = Path(ge=1), confirm: bool = Query(False),
                  confirm_text: str = Query("")):
     return drama_service.delete_drama(drama_id, confirm=confirm, confirm_text=confirm_text)

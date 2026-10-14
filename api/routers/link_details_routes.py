@@ -9,15 +9,14 @@ the internet on this PC's connection, and the stored link may carry a token.
 from fastapi import APIRouter, Path, Request
 
 from api.auth import local_only
-from api.schemas import (ErrorResponse, LinkDetailsApplyRequest, LinkDetailsApplyResult,
+from api.schemas import (LinkDetailsApplyRequest, LinkDetailsApplyResult,
                          LinkScanResult, LinkScanStarted, MediaLinkProbe, MediaLinkProbeRequest,
-                         TitleLinkProbe)
+                         TitleLinkProbe, error_responses)
 from services import link_details_service
 
 router = APIRouter(tags=["link details"])
 
-_ERRORS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-           422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
+_ERRORS = error_responses(404, 409, 422, 503)
 
 
 @router.post("/api/media-link/probe", dependencies=[local_only()], response_model=MediaLinkProbe,

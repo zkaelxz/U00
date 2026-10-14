@@ -13,14 +13,13 @@ from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.routers.library_routes import to_detail
 from api.schemas import (AutofillApply, AutofillRequest, AutofillSuggestion, DramaDetail,
-                         ErrorResponse, MediaAnalysis, RomanizeCreditsRequest,
-                         RomanizeCreditsResult)
+                         MediaAnalysis, RomanizeCreditsRequest,
+                         RomanizeCreditsResult, error_responses)
 from services import metadata_service
 
 router = APIRouter(prefix="/api/metadata", tags=["metadata"])
 
-_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 422, 503)
 
 
 @router.post("/dramas/{drama_id}/analyze-media", dependencies=[require_permission("library.read")], response_model=MediaAnalysis,
@@ -32,7 +31,7 @@ def analyze_media(drama_id: int = Path(ge=1)):
 
 @router.post("/dramas/{drama_id}/autofill", dependencies=[require_permission("media.import_url")], response_model=AutofillSuggestion,
              summary="Suggest metadata from a public page or pasted text (writes nothing)",
-             responses={**_ERRS, 429: {"model": ErrorResponse}})
+             responses=error_responses(404, 422, 503, 429))
 def autofill(payload: AutofillRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, payload.engine)
     with llm_slot(request):
@@ -43,7 +42,7 @@ def autofill(payload: AutofillRequest, request: Request, drama_id: int = Path(ge
 @router.post("/dramas/{drama_id}/romanize-credits", dependencies=[require_permission("admin.library")],
              response_model=RomanizeCreditsResult,
              summary="Romanize the credits with an LLM and store them beside the originals",
-             responses={**_ERRS, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
+             responses=error_responses(404, 422, 503, 403, 429))
 def romanize_credits(payload: RomanizeCreditsRequest, request: Request, drama_id: int = Path(ge=1)):
     # A drama-metadata write (admin.library) that also calls an engine: a
     # paid one needs engines.paid, checked against the engine that will run.

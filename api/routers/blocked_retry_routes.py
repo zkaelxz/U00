@@ -16,15 +16,11 @@ from fastapi import APIRouter, Depends, Path, Request
 
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
-from api.schemas import BlockedRetryRequest, BlockedRetryResult, ErrorResponse
+from api.schemas import BlockedRetryRequest, BlockedRetryResult, error_responses
 from services import blocked_retry_service
 
 router = APIRouter(prefix="/api/lines", tags=["lines"])
 
-_ERRS = {400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-         404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
-         500: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
 _BUSY = "Another AI request is running; try the retry again in a moment."
 
 
@@ -41,7 +37,7 @@ async def _engine_gate(request: Request):
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/retry-blocked",
              dependencies=[require_permission("jobs.start", "lines.read", "lines.edit"), Depends(_engine_gate)],
-             response_model=BlockedRetryResult, responses=_ERRS,
+             response_model=BlockedRetryResult, responses=error_responses(400, 403, 404, 409, 422, 429, 500, 503),
              summary="Re-translate one content-blocked line with the chosen engine")
 def post_retry_blocked(body: BlockedRetryRequest, request: Request,
                        drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):

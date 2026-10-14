@@ -21,14 +21,13 @@ from api.assistant_schemas import (AssistantAnswer, AssistantAskRequest, Assista
                                    AssistantReportRequest, AssistantSettings,
                                    AssistantSettingsUpdate, AssistantTools)
 from api.auth import local_only
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import (assistant_backlog_service as backlog, assistant_settings_service as settings_svc,
                       assistant_tools_service as tools_svc, maintenance_assistant_service as svc)
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422, 503)
 
 
 @router.get("/settings", dependencies=[local_only()], response_model=AssistantSettings,

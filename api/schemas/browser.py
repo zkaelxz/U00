@@ -4,7 +4,9 @@ status text only: no folder path, URL or secret."""
 
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, Field
+
+from api.schemas.common import ConfirmRequest, JobStarted, JobState
 
 __all__ = [
     "BrowserInstallJob",
@@ -15,11 +17,8 @@ __all__ = [
 ]
 
 
-class BrowserInstallJob(BaseModel):
-    status: Optional[str] = None
-    progress: float = 0.0
-    message: str = ""
-    error: Optional[str] = None
+class BrowserInstallJob(JobState):
+    pass
 
 
 class BrowserInstallResult(BaseModel):
@@ -40,11 +39,9 @@ class BrowserInstallStatus(BaseModel):
     last_result: Optional[BrowserInstallResult] = None
 
 
-class BrowserInstallStarted(BaseModel):
-    job_id: str
-    started: bool
+class BrowserInstallStarted(JobStarted):
+    pass
 
 
-class BrowserInstallRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
+class BrowserInstallRequest(ConfirmRequest):
+    pass

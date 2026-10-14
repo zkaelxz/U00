@@ -41,14 +41,13 @@ from api.diagnostics_install_schemas import (DiagnosticsCudaRuntimeStatus,
                                              DiagnosticsUpgradeCheckState)
 from api.schemas import (DiagnosticsDependencyInstallRequest,
                          DiagnosticsGpuTorchSetupRequest, DiagnosticsUpgradePlanRequest,
-                         DiagnosticsUpgradeRequest, ErrorResponse, PendingInstallPlan)
+                         DiagnosticsUpgradeRequest, PendingInstallPlan, error_responses)
 from services import cuda_runtime_service
 from services import diagnostics_installs_service as svc
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 _PACKAGE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
 

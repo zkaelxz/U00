@@ -18,7 +18,7 @@ from fastapi import APIRouter
 from api.auth import local_only, require_permission
 from api.engine_routing_schemas import (CapabilityEngineRequest, CapabilityRoute,
                                         EngineRouteStatus, EngineRouting, EngineTestRequest)
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import engine_routing_service as svc
 
 router = APIRouter(prefix="/api/settings/engine-routing", tags=["settings"])
@@ -33,7 +33,7 @@ def get_routing():
 @router.post("/capabilities/{capability}", dependencies=[local_only()],
              response_model=CapabilityRoute,
              summary="PC only: choose the engine for a task (null = default)",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(404, 422))
 def set_capability(capability: str, body: CapabilityEngineRequest):
     return svc.set_capability_engine(capability, body.engine)
 
@@ -41,7 +41,6 @@ def set_capability(capability: str, body: CapabilityEngineRequest):
 @router.post("/engines/{engine}/test", dependencies=[local_only()],
              response_model=EngineRouteStatus,
              summary="PC only: test an engine with one short real call",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
+             responses=error_responses(404, 409, 503))
 def test_engine(engine: str, body: EngineTestRequest = None):
     return svc.test_engine(engine, body.model if body else None)

@@ -6,15 +6,14 @@ No network, no LLM.
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import local_only, require_permission
-from api.schemas import (DiscoverPlatforms, DiscoverSearchLinks, ErrorResponse, KnownTitle,
+from api.schemas import (DiscoverPlatforms, DiscoverSearchLinks, KnownTitle,
                          KnownTitleCreate, KnownTitleDelete, KnownTitleDeleted, KnownTitleList,
-                         KnownTitleSeedResult)
+                         KnownTitleSeedResult, error_responses)
 from services import discover_catalog_service as svc
 
 router = APIRouter(prefix="/api/discover", tags=["discover"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422)
 
 
 @router.get("/titles", dependencies=[require_permission("library.read")], response_model=KnownTitleList, summary="Search the known-titles catalog",

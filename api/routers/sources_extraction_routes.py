@@ -29,7 +29,7 @@ from fastapi.responses import Response
 
 from api.auth import (is_local_request, local_only, require_engines_allowed,
                       require_permission)
-from api.schemas import ErrorResponse, SourcesJobStarted
+from api.schemas import SourcesJobStarted, error_responses
 from api.sources_extraction_schemas import (ExtractionComicRerunRequest,
                                             ExtractionImportRequest,
                                             ExtractionNovelRerunRequest,
@@ -41,9 +41,7 @@ from services import sources_import_service as import_svc
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
-_ERRS = {400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-         404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
+_ERRS = error_responses(400, 403, 404, 409, 422, 503)
 
 
 def ai_engine_for(request: Request, use_ai, engine):

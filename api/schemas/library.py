@@ -11,7 +11,7 @@ from services.library_admin_service import MAX_BULK_IDS as _MAX_BULK_IDS, STATUS
 import db as _db
 import storage as _storage
 
-from api.schemas.common import LibraryPreset
+from api.schemas.common import ConfirmRequest, LibraryPreset
 
 __all__ = [
     "TempCleanResult",
@@ -595,11 +595,9 @@ class WorkflowProgress(BaseModel):
 # ---------------------------------------------------------------------------
 # PC-only delete routes
 # ---------------------------------------------------------------------------
-class DeleteConfirm(BaseModel):
+class DeleteConfirm(ConfirmRequest):
     """Body of every PC-only delete: `confirm: true` (strict) is the whole
     bar; no typed word."""
-    model_config = ConfigDict(extra="forbid")
-    confirm: StrictBool = False
 
 
 class MediaRemoveResult(BaseModel):

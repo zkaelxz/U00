@@ -12,7 +12,7 @@ POST /api/jobs/{job_id}/cancel.
 from fastapi import APIRouter
 
 from api.auth import local_only, require_permission
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from api.schemas.browser import BrowserInstallRequest, BrowserInstallStarted, BrowserInstallStatus
 from services import browser_install_service as svc
 
@@ -30,6 +30,6 @@ def get_browser():
              response_model=BrowserInstallStarted,
              summary="PC only: download Chromium for JavaScript-heavy sites as a background job "
                      "(confirm=true)",
-             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses=error_responses(409, 422))
 def post_browser_install(body: BrowserInstallRequest):
     return svc.start_install(confirm=body.confirm)

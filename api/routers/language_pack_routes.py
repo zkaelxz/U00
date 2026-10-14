@@ -15,8 +15,8 @@ from typing import List
 from fastapi import APIRouter, Path, Request
 
 from api.auth import local_only, require_permission
-from api.schemas import (ErrorResponse, LanguagePack, LanguagePackChoice,
-                         LanguagePackDefaultResult, LanguagePackSummary, TitleLanguagePacks)
+from api.schemas import (LanguagePack, LanguagePackChoice,
+                         LanguagePackDefaultResult, LanguagePackSummary, TitleLanguagePacks, error_responses)
 from services import language_pack_service
 
 router = APIRouter(prefix="/api/language-packs", tags=["glossary"])
@@ -30,7 +30,7 @@ def list_packs():
 
 @router.get("/packs/{pack_id}", dependencies=[require_permission("library.read")], response_model=LanguagePack,
             summary="One language pack with its entries",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_pack(pack_id: str = Path(max_length=40)):
     return language_pack_service.get_pack(pack_id)
 
@@ -38,7 +38,7 @@ def get_pack(pack_id: str = Path(max_length=40)):
 @router.get("/dramas/{drama_id}", dependencies=[require_permission("library.read")],
             response_model=TitleLanguagePacks,
             summary="The packs that fit the title's source language, and which are on",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_title_packs(request: Request, drama_id: int = Path(ge=1)):
     return language_pack_service.get_title_packs(drama_id, principal=request.state.principal)
 
@@ -46,8 +46,7 @@ def get_title_packs(request: Request, drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}", dependencies=[require_permission("lines.edit")],
              response_model=TitleLanguagePacks,
              summary="Choose the packs (and their styles) for this title",
-             responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+             responses=error_responses(403, 404, 422))
 def set_title_packs(request: Request, payload: LanguagePackChoice, drama_id: int = Path(ge=1)):
     return language_pack_service.set_title_packs(drama_id, payload.model_dump(), principal=request.state.principal)
 
@@ -55,7 +54,7 @@ def set_title_packs(request: Request, payload: LanguagePackChoice, drama_id: int
 @router.get("/defaults/{language}", dependencies=[require_permission("library.read")],
             response_model=LanguagePackDefaultResult,
             summary="The packs on by default for a source language",
-            responses={422: {"model": ErrorResponse}})
+            responses=error_responses(422))
 def get_language_default(language: str = Path(max_length=2)):
     return language_pack_service.get_language_default(language)
 
@@ -63,6 +62,6 @@ def get_language_default(language: str = Path(max_length=2)):
 @router.post("/defaults/{language}", dependencies=[local_only()],
              response_model=LanguagePackDefaultResult,
              summary="Set the packs used by titles of a source language that have no choice of their own",
-             responses={422: {"model": ErrorResponse}})
+             responses=error_responses(422))
 def set_language_default(payload: LanguagePackChoice, language: str = Path(max_length=2)):
     return language_pack_service.set_language_default(language, payload.model_dump())

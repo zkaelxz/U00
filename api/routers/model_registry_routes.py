@@ -24,13 +24,12 @@ from api.model_registry_schemas import (ModelOverrideClearRequest, ModelOverride
                                         ModelOverrideResult, ModelStatus,
                                         PresetModelSwitchRequest, PresetModelSwitchResult)
 from api.routers.settings_routes import require_confirm
-from api.schemas import ErrorResponse
+from api.schemas import error_responses
 from services import model_registry_service as svc
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
-_ERRS = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
-         422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}}
+_ERRS = error_responses(404, 409, 422, 429)
 
 
 @router.get("/status", dependencies=[require_permission("admin.diagnostics")],

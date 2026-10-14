@@ -8,7 +8,7 @@ the existing GET /api/jobs/{job_id}.
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import is_at_pc, require_permission
-from api.schemas import DiarizationConfig, DiarizationRunResult, ErrorResponse
+from api.schemas import DiarizationConfig, DiarizationRunResult, error_responses
 from services import diarization_service, model_readiness_service
 
 router = APIRouter(prefix="/api/diarization", tags=["diarization"])
@@ -16,15 +16,14 @@ router = APIRouter(prefix="/api/diarization", tags=["diarization"])
 
 @router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")], response_model=DiarizationConfig,
             summary="Read-only Diarize-stage summary for one drama",
-            responses={404: {"model": ErrorResponse}})
+            responses=error_responses(404))
 def get_diarization_config(drama_id: int = Path(ge=1)):
     return diarization_service.get_diarization_config(drama_id)
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=DiarizationRunResult,
             summary="Start a real speaker-detection job for one drama's stored audio",
-            responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                      409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+            responses=error_responses(400, 404, 409, 422, 503))
 def post_start_diarization(request: Request, drama_id: int = Path(ge=1),
                            expected_speakers: int = Query(None, ge=0, le=20),
                            overwrite_manual: bool = Query(False),
@@ -40,6 +39,6 @@ def post_start_diarization(request: Request, drama_id: int = Path(ge=1),
 
 @router.post("/dramas/{drama_id}/reassign", dependencies=[require_permission("lines.edit")],
              summary="Re-label lines from the speaker turns already saved (no detection run)",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
+             responses=error_responses(404, 409))
 def post_reassign_speakers(drama_id: int = Path(ge=1)):
     return diarization_service.reassign_speakers_from_saved_turns(drama_id)
