@@ -2,6 +2,7 @@
 
 import re
 from core import LANGUAGE_NAMES
+from . import medium_prompts
 
 
 # How each of this app's own content_mode/media_type values reads in a
@@ -118,9 +119,10 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
         drama_meta.get("content_mode") or drama_meta.get("media_type"), "content")
 
     genre_framing = "baihe (GL/yuri) " if _wants_baihe_framing(drama_meta) else ""
+    kind = medium_prompts.kind_for(drama_meta)
     instructions = (
         f"You are translating {source_language_name} {genre_framing}{medium} into "
-        "natural, idiomatic English subtitles. You will be given numbered lines to "
+        f"{medium_prompts.output_phrase(kind)}. You will be given numbered lines to "
         "translate in each request, each optionally prefixed with the name of the "
         "character speaking it in [brackets] -- use that to get pronouns, honorifics, "
         "and register right, but never include the bracketed name itself in your "
@@ -129,7 +131,7 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
         + locale_instruction
         + glossary_block
         + "Rules:\n"
-        "- Keep each translation concise enough to read comfortably as a subtitle.\n"
+        + medium_prompts.length_rule(kind) +
         "- Keep character names, honorifics, and recurring terms consistent.\n"
         "- Match tone/register to the reference novel translation below, if provided -- "
         "that is the authoritative source for names, relationships, and voice for THIS "

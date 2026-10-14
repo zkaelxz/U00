@@ -1,6 +1,7 @@
 """Reflect mode: three LLM passes (draft, critique, rewrite) over one batch."""
 
 from .prompts import batch_context_for, build_stable_prompt, pronoun_batch_note
+from .medium_prompts import kind_for
 from .reflect_prompts import (build_reflect_expressive_task, build_reflect_faithful_task,
                               build_reflect_reflection_task)
 from .shared import _id_keyed_batch_request, spoken_language_tag
@@ -95,6 +96,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     instructions, novel_block = build_stable_prompt(context)
     if novel_block:
         instructions = instructions + "\n\n" + novel_block
+    kind = kind_for(context.get("drama_meta") or {})
     batch_ctx = batch_context_for(context)
     batch_ctx = batch_ctx + "\n" if batch_ctx else ""
     batch_ctx = pronoun_batch_note(context.get("style_guidelines"),
@@ -107,7 +109,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     def build_faithful_batch(batch_ids):
         return build_reflect_faithful_task(
             batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids},
-            {i: speaker_names[pos[i]] for i in batch_ids} if speaker_names else None)
+            {i: speaker_names[pos[i]] for i in batch_ids} if speaker_names else None, kind)
 
     def announce(pass_no):
         if pass_cb:
@@ -124,7 +126,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
 
     def build_reflection_batch(batch_ids):
         return build_reflect_reflection_task(
-            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct)
+            batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct, kind)
 
     # Only ids with an actual faithfulness draft go on to reflection/
     # expressiveness -- there's nothing sensible to critique or rewrite
@@ -147,7 +149,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     def build_expressive_batch(batch_ids):
         return build_reflect_expressive_task(
             batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct,
-            {i: critique_map.get(str(i)) for i in batch_ids})
+            {i: critique_map.get(str(i)) for i in batch_ids}, kind)
 
     if has_draft_ids:
         announce(3)

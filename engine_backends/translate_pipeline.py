@@ -63,7 +63,7 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
 
 # Recorded with each translated line (line_provenance).
 # Bump it whenever the translate prompt or its batching changes meaning.
-TRANSLATE_PROMPT_VERSION = "1"
+TRANSLATE_PROMPT_VERSION = "2"
 
 
 # A pause this long between two lines is treated as a scene break. Matches
