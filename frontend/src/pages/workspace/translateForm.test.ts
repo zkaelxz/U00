@@ -6,6 +6,8 @@ import {
   batchSizeRange,
   contextRange,
   applyPresetToForm,
+  applyStartToForm,
+  skippedNote,
   applyTierToForm,
   buildEstimateParams,
   estimateKeyFor,
@@ -33,7 +35,6 @@ import {
   thinkingHelp,
   restoreRunOptions,
   runOptionsDraft,
-  savePresetStart,
   splitLines,
   translateButtonLabel,
   styleGuidance,
@@ -230,28 +231,19 @@ describe('preset start values', () => {
     expect(f).toMatchObject({ style_preset: 'natural', locale: 'en-US' })
   })
 
-  it('remembers per title, keeps only style and locale, and clears on an empty preset', () => {
-    vi.stubGlobal('localStorage', memory())
-    savePresetStart(3, { style_preset: 'wuxia', locale: 'en-GB' })
+  // Nothing writes this key any more (a profile's values are saved on the title); titles
+  // created before that still read what the old version kept.
+  it('reads the style, locale, toggles and model an older version kept per title', () => {
+    const storage = memory()
+    vi.stubGlobal('localStorage', storage)
+    const keep = (id: number, v: unknown) => storage.setItem(`baihe.translatePreset.${id}`, JSON.stringify(v))
+    keep(3, { style_preset: 'wuxia', locale: 'en-GB', other: 'ignored' })
     expect(loadPresetStart(3)).toEqual({ style_preset: 'wuxia', locale: 'en-GB' })
     expect(loadPresetStart(4)).toEqual({})
-    savePresetStart(5, { style_preset: null, locale: 'en-GB' })
-    expect(loadPresetStart(5)).toEqual({ locale: 'en-GB' })
-    savePresetStart(3, null)
-    expect(loadPresetStart(3)).toEqual({})
-  })
-
-  it('remembers the pronoun, genre and model values from preset_defaults', () => {
-    vi.stubGlobal('localStorage', memory())
-    savePresetStart(7, {
-      style_preset: null, locale: null, default_female_pronouns: true,
-      include_genre_notes: false, engine_model: 'gemini-pro',
-    })
+    keep(7, { default_female_pronouns: true, include_genre_notes: false, engine_model: 'gemini-pro' })
     expect(loadPresetStart(7)).toEqual({
       default_female_pronouns: true, include_genre_notes: false, engine_model: 'gemini-pro',
     })
-    savePresetStart(8, { default_female_pronouns: false, include_genre_notes: true, engine_model: null })
-    expect(loadPresetStart(8)).toEqual({ default_female_pronouns: false, include_genre_notes: true })
   })
 
   it('starts the toggles from the preset (defaults: she/her off, genre notes on) and sends them', () => {
@@ -300,7 +292,6 @@ describe('preset start values', () => {
     }
     vi.stubGlobal('localStorage', { getItem: boom, setItem: boom, removeItem: boom })
     expect(loadPresetStart(1)).toEqual({})
-    expect(() => savePresetStart(1, { locale: 'en-GB' })).not.toThrow()
   })
 })
 
@@ -365,9 +356,11 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
 
   it('builds the preset body from the form', () => {
     const f = { ...initialForm(withEngines), style_preset: 'wuxia', locale: 'en-GB', female_pronouns: true, genre_notes: false }
+    // The English variant is never saved: a profile does not carry it.
     expect(buildPresetBody(f, 'fake_mt', ' Mine ')).toEqual({
       name: 'Mine', translation_engine: 'fake_mt', engine_model: null, style_preset: 'wuxia',
-      locale: 'en-GB', default_female_pronouns: true, include_genre_notes: false,
+      locale: null, default_female_pronouns: true, include_genre_notes: false,
+      options: { reflect: false, bulk: false, thinking: false, context_window: 5, context_window_ahead: 2 },
     })
     const g = { ...f, engine: 'claude', model: 'claude-sonnet-5' }
     expect(buildPresetBody(g, 'fake_mt', 'Mine', true)).toMatchObject({
@@ -647,5 +640,77 @@ describe('translate button label', () => {
     expect(translateButtonLabel(false, 1)).toBe('Translate 1 line')
     expect(translateButtonLabel(false, 4)).toBe('Translate 4 lines')
     expect(translateButtonLabel(true, 4)).toBe('Scan glossary, then translate')
+  })
+})
+
+describe('a profile left on the title (applyStartToForm)', () => {
+  const c = {
+    ...config,
+    translation_engine: 'claude',
+    style_presets: [{ key: 'natural', label: 'Natural' }, { key: 'wuxia', label: 'Wuxia' }],
+    engines: [{ name: 'claude', models: ['claude-a', 'claude-b'] }, { name: 'deepseek', models: [] }, { name: 'gemini', models: [] }],
+    bulk_supported_engines: ['claude'],
+  } as unknown as TranslateRunConfig
+
+  it('fills every run option the profile holds', () => {
+    const f = applyStartToForm(initialForm(c), {
+      style_preset: 'wuxia', engine_model: 'claude-b', style_note: 'Keep honorifics.', batch_size: 12,
+      context_window: 4, context_window_ahead: 1, cost_cap: 1.5, thinking: true, fallback_engines: ['deepseek'],
+    }, c)
+    expect(f).toMatchObject({
+      style_preset: 'wuxia', model: 'claude-b', style_note: 'Keep honorifics.', batch_size: '12',
+      context_window: '4', context_window_ahead: '1', cost_cap: '1.5', thinking: true, fallbacks: ['deepseek'],
+    })
+  })
+
+  it('is a no-op without a profile and never touches the English variant', () => {
+    const base = { ...initialForm(c), locale: 'en-GB' }
+    expect(applyStartToForm(base, undefined, c)).toBe(base)
+    expect(applyStartToForm(base, {}, c).locale).toBe('en-GB')
+  })
+
+  it('skips what this server or engine does not offer', () => {
+    const f = applyStartToForm(initialForm(c), {
+      style_preset: 'gone', engine_model: 'claude-z', batch_size: 999, fallback_engines: ['nope', 'claude'],
+    }, c)
+    expect(f).toMatchObject({ style_preset: 'natural', model: '', batch_size: '60', fallbacks: [] })
+  })
+
+  it('keeps Reflect only where it can run, and bulk only where it is supported', () => {
+    const noReflect = { ...c, translation_engine: 'fake_mt' } as unknown as TranslateRunConfig
+    expect(applyStartToForm(initialForm(noReflect), { reflect: true }, noReflect).reflect).toBe(false)
+    expect(applyStartToForm(initialForm(c), { bulk: true }, c).bulk).toBe(true)
+    const deepseek = { ...c, translation_engine: 'deepseek' } as unknown as TranslateRunConfig
+    expect(applyStartToForm(initialForm(deepseek), { bulk: true }, deepseek).bulk).toBe(false)
+  })
+
+  it('an applied profile carries its options into the form', () => {
+    const p = {
+      drama_id: 1, preset_id: 2, name: 'Mine', translation_engine: 'claude', engine_model: null,
+      style_preset: null, locale: null, default_female_pronouns: false, include_genre_notes: true,
+      options: { batch_size: 8 }, skipped: ['beam_size'],
+    } as TranslatePresetApplied
+    expect(applyPresetToForm(initialForm(c), p, c).batch_size).toBe('8')
+  })
+
+  it('names what was left out for the title language', () => {
+    expect(skippedNote(['asr_backend_choice', 'whisper_size'])).toMatch(/asr backend choice, whisper size/)
+    expect(skippedNote([])).toBe('')
+    expect(skippedNote(undefined)).toBe('')
+  })
+})
+
+describe('Save as profile captures every form field', () => {
+  it('saves run options, and leaves blank ones out', () => {
+    const f = {
+      ...initialForm(config), style_note: ' Be formal ', batch_size: '15', cost_cap: '2', reflect: true,
+      fallbacks: ['deepseek'], thinking: true,
+    }
+    const body = buildPresetBody(f, 'claude', 'P')
+    expect(body.locale).toBeNull()
+    expect(body.options).toEqual({
+      reflect: true, bulk: false, thinking: true, style_note: 'Be formal', batch_size: 15,
+      context_window: 5, context_window_ahead: 2, cost_cap: 2, fallback_engines: ['deepseek'],
+    })
   })
 })

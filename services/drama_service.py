@@ -38,8 +38,8 @@ import db
 import storage
 from jobs import job_store
 from core import SOURCE_LANGUAGES
-from services import (language_pack_service, library_service, ownership_service, settings_service,
-                      source_link_service, vdb_names_service)
+from services import (language_pack_service, library_service, ownership_service, profile_service,
+                      settings_service, source_link_service, vdb_names_service)
 from lib import file_manager
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
@@ -185,12 +185,14 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         # Whisper or Whisper + Qwen title comes back as minute-long lines.
         # Existing titles keep their stored value.
         fields["split_by_sentences"] = 1
-    if preset and preset.get("translation_engine"):
-        fields["translation_engine"] = preset["translation_engine"]
-    else:
-        # Settings > Defaults for new dramas (the column's own default is
-        # claude, so an unstamped drama would never see the setting).
-        fields["translation_engine"] = settings_service.get("default_engine")
+    # Settings > Defaults for new dramas (the column's own default is
+    # claude, so an unstamped drama would never see the setting); a profile's
+    # settings replace it, except what doesn't suit the title's language.
+    fields["translation_engine"] = settings_service.get("default_engine")
+    profile_plan = None
+    if preset:
+        profile_plan = profile_service.plan(preset, {"source_language": source_language})
+        fields.update(profile_plan["columns"])
     try:
         new_id = db.create_drama(**fields)
     except db.DramaFolderConflict as exc:
@@ -209,8 +211,9 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             db.delete_drama(new_id)
             raise
     if series_id is not None:
-        _inherit_series_defaults("inherit_new", new_id, series_id, skip=(
-            ("translation_engine",) if preset and preset.get("translation_engine") else ()))
+        # What the profile chose wins over the series' defaults.
+        _inherit_series_defaults("inherit_new", new_id, series_id, skip=tuple(
+            k for k in profile_plan["columns"] if k != "translate_start_json") if profile_plan else ())
 
     detail = library_service.get_library_drama(new_id)
     detail["preset_defaults"] = None if preset is None else {
@@ -223,6 +226,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         "engine_model": (preset.get("engine_model") or None)
         if preset.get("translation_engine") else None,
     }
+    detail["profile_skipped"] = profile_plan["skipped"] if profile_plan else []
     return detail
 
 

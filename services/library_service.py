@@ -16,7 +16,7 @@ import sqlite3
 
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
-from services import ownership_service
+from services import ownership_service, profile_service
 
 
 def cache_hit_share(usage: dict) -> float:
@@ -219,12 +219,8 @@ def get_filter_options(principal=None) -> dict:
             "custom_tags": sorted(split("custom_tags"))}
 
 
-_PRESET_FIELDS = ("id", "name", "translation_engine", "engine_model", "style_preset",
-                  "locale", "default_female_pronouns", "include_genre_notes")
-
-
 def list_presets() -> list:
-    return [{k: p.get(k) for k in _PRESET_FIELDS} for p in db.list_presets()]
+    return [profile_service.view(p) for p in db.list_presets()]
 
 
 def rename_preset(preset_id: int, name: str) -> dict:

@@ -583,7 +583,7 @@ from db.style import (  # noqa: E402,F401
 
 from db.presets import (  # noqa: E402,F401
     delete_preset, insert_preset, list_presets, rename_preset, save_preset,
-    set_preset_engine_model)
+    set_default_preset, set_preset_engine_model, update_preset)
 
 
 # ---------------------------------------------------------------------------
