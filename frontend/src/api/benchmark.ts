@@ -369,6 +369,8 @@ export interface AddCorrectionsResult {
   unedited_skipped: number
   unclippable_skipped: number
   case_count: number
+  /** Lines left for another add: one call adds at most 100. */
+  remaining: number
   added: number
   skipped: number
   dry_run: boolean

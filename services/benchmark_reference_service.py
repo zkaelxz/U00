@@ -15,6 +15,7 @@ no scorer could tell apart from the raw text.
 import os
 import shutil
 import subprocess
+import threading
 import uuid
 
 import db
@@ -25,7 +26,8 @@ from services import benchmark_lab_service as lab
 from services import benchmark_scoring_service as scoring
 from services import ownership_service
 from services.media_upload_service import check_room_for
-from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError
+from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+                                     NotFoundError)
 from services.transcribe_service import _drama_audio_path
 
 # Speech just outside a line's edges is kept so a clip does not start mid-syllable.
@@ -36,6 +38,12 @@ MAX_LINE_SECONDS = 60.0
 MIN_LINE_SECONDS = 0.2
 CLIP_SAMPLE_RATE = 16000
 CLIP_TIMEOUT_SECONDS = 120
+WAV_HEADER_BYTES = 44
+# A long add holds clips on disk before their rows exist, where the clip import's
+# leftover sweep could take them; a smaller batch keeps that window to seconds.
+MAX_LINES_PER_ADD = 100
+_adding_lock = threading.Lock()
+_adding_sets = set()
 
 
 def _unit(language: str) -> str:
@@ -57,8 +65,17 @@ def reference_lines(drama_id: int, drama: dict = None) -> dict:
     only lines where the two differ as CER sees them are listed. `usable_lines`
     counts the lines that could have been compared (spoken, not flagged)."""
     drama = drama or ownership_service.require_drama(drama_id)
-    raw = raw_transcript.load_latest(db.drama_dir(drama_id))
     rows = db.load_lines(drama_id)
+    try:
+        return _compare_with_raw(drama_id, drama, rows)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        # A truncated or hand-edited raw transcript must not fail auto-tune or the Lab:
+        # it counts as having no original to compare with.
+        return {"lines": [], "usable_lines": 0, "raw_available": False}
+
+
+def _compare_with_raw(drama_id: int, drama: dict, rows: list) -> dict:
+    raw = raw_transcript.load_latest(db.drama_dir(drama_id))
     if not raw:
         return {"lines": [], "usable_lines": 0, "raw_available": False}
     drama_lang = _drama_language(drama)
@@ -141,20 +158,22 @@ def score_against_references(segments, references: list) -> dict:
     return {"cer": round(edits / total, 4) if total else None, "lines": len(references)}
 
 
-def _cut_clip(source: str, start: float, end: float) -> str:
+def _cut_clip(source: str, start: float, end: float, what: str = "a line") -> str:
     """Writes [start, end] of the title's audio to a new clip_<16hex>.wav in
-    the clip folder and returns its name. A failed cut leaves no file."""
+    the clip folder and returns its name. A failed cut leaves no file; `what`
+    names the line in the error."""
     name = f"clip_{uuid.uuid4().hex[:16]}.wav"
     final = os.path.join(db.BENCHMARK_DIR, name)
     part = final + ".part"
     cmd = ["ffmpeg", "-v", "error", "-y", *video_export.local_input(),
            "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", source, "-vn", "-ac", "1",
-           "-ar", str(CLIP_SAMPLE_RATE), "-f", "wav", part]
+           "-ar", str(CLIP_SAMPLE_RATE), "-map_metadata", "-1", "-bitexact", "-f", "wav", part]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        timeout=CLIP_TIMEOUT_SECONDS)
-        if os.path.getsize(part) <= 44:
-            raise OSError("empty clip")
+        # Half the expected PCM: a source that ends early gives a short clip, not a usable one.
+        if os.path.getsize(part) < WAV_HEADER_BYTES + (end - start) * CLIP_SAMPLE_RATE:
+            raise OSError("short clip")
         os.replace(part, final)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
         for leftover in (part, final):
@@ -163,11 +182,28 @@ def _cut_clip(source: str, start: float, end: float) -> str:
             except OSError:
                 pass
         # str() of these carries the ffmpeg command line, i.e. absolute paths.
-        raise DependencyUnavailableError("ffmpeg could not cut a clip from this title's audio.") from None
+        raise DependencyUnavailableError(
+            f"ffmpeg could not cut a clip for {what} from this title's audio.") from None
     return name
 
 
 def add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool = False) -> dict:
+    """See _add_title_lines. One add per set at a time, so a double click cannot
+    read "not yet in the set" twice and duplicate the cases."""
+    if dry_run:
+        return _add_title_lines(principal, drama_id, set_name, dry_run)
+    with _adding_lock:
+        if set_name in _adding_sets:
+            raise ConflictError(f"Lines are already being added to '{set_name}'. Wait for that to finish.")
+        _adding_sets.add(set_name)
+    try:
+        return _add_title_lines(principal, drama_id, set_name, dry_run)
+    finally:
+        with _adding_lock:
+            _adding_sets.discard(set_name)
+
+
+def _add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool) -> dict:
     """Adds a transcription case for each corrected line of a title to a set:
     the line's audio, clipped, scored against the edited text. ref_start and
     ref_end are the line's edges in seconds from the clip's start, for scoring
@@ -192,7 +228,8 @@ def add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool = Fal
     existing = [c for c in db.list_benchmark_cases("transcription") if c.get("set_name") == set_name]
     already = {c.get("origin_line_id") for c in existing
                if c.get("origin_drama_id") == drama_id and c.get("origin_line_id") is not None}
-    fresh = [r for r in candidates if r["id"] not in already]
+    pending = [r for r in candidates if r["id"] not in already]
+    fresh = pending[:MAX_LINES_PER_ADD]
     if len(existing) + len(fresh) > lab.MAX_IMPORT_CASES:
         raise InvalidInputError(
             f"Set '{set_name}' has {len(existing)} cases and this adds {len(fresh)}; a set holds "
@@ -200,9 +237,13 @@ def add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool = Fal
     result = {"set_name": set_name, "lines_compared": found["usable_lines"],
               "lines_corrected": len(found["lines"]), "unedited_skipped": found["usable_lines"] - len(found["lines"]),
               "unclippable_skipped": too_long, "case_count": len(fresh),
-              "added": 0, "skipped": len(candidates) - len(fresh), "dry_run": dry_run}
+              "remaining": len(pending) - len(fresh), "added": 0, "skipped": len(candidates) - len(pending), "dry_run": dry_run}
     if dry_run or not fresh:
         return result
+    return _write_cases(drama_id, drama, fresh, set_name, result)
+
+
+def _write_cases(drama_id: int, drama: dict, fresh: list, set_name: str, result: dict) -> dict:
     source = _drama_audio_path(drama_id, drama)
     if source is None:
         raise InvalidInputError("This title has no audio to clip.")
@@ -216,7 +257,7 @@ def add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool = Fal
     try:
         for ref in fresh:
             origin = max(0.0, ref["start"] - CLIP_PAD_SECONDS)
-            name = _cut_clip(source, origin, ref["end"] + CLIP_PAD_SECONDS)
+            name = _cut_clip(source, origin, ref["end"] + CLIP_PAD_SECONDS, f"line {ref['idx'] + 1}")
             written.append(name)
             rows.append({"label": f"{title} · line {ref['idx'] + 1}", "stage": "transcription",
                          "content_type": drama.get("content_mode") or "audio_drama",

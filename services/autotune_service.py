@@ -97,7 +97,7 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
                 sensitivity_preset=preset)
             results.append(score_autotune_segments(candidate_ms, segments, references))
         result_queue.put(("ok", {"results": results, "best_candidate_ms": best_candidate(results),
-                                 "scored_by": "cer" if references else "long_lines",
+                                 "scored_by": "cer" if results and all(r.get("cer") is not None for r in results) else "long_lines",
                                  "reference_lines": corrected_lines,
                                  "reference_minimum": MIN_REFERENCE_LINES}))
     except Exception as exc:

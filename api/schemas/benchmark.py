@@ -121,6 +121,8 @@ class BenchmarkCorrectionsAddResult(BaseModel):
     unedited_skipped: int
     unclippable_skipped: int
     case_count: int
+    # Lines left for another add: one call adds at most 100.
+    remaining: int = 0
     added: int
     skipped: int
     dry_run: bool

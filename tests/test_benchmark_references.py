@@ -50,8 +50,9 @@ def fake_ffmpeg(monkeypatch):
 
     def run(cmd, **kw):
         calls.append(cmd)
+        seconds = float(cmd[cmd.index("-t") + 1])
         with open(cmd[-1], "wb") as f:
-            f.write(b"RIFF" + b"\0" * 100)
+            f.write(b"\0" * (44 + int(seconds * 32000)))
 
     monkeypatch.setattr(refs.subprocess, "run", run)
     monkeypatch.setattr(refs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
@@ -78,6 +79,35 @@ class TestWhichLinesAreReferences:
         did = isolated_db.create_drama(title_en="Bare", source_language="zh")
         db.save_lines(did, [Line(0, 0.0, 1.0, "你好")])
         assert refs.reference_lines(did) == {"lines": [], "usable_lines": 0, "raw_available": False}
+
+
+class TestUnreadableRawTranscript:
+    def test_a_corrupt_raw_transcript_means_no_references_not_an_error(self, isolated_db):
+        did = _title(isolated_db)
+        ddir = db.drama_dir(did)
+        path = raw_transcript.list_raw_transcripts(ddir)[-1]
+        open(path, "wb").write(b'{"lines": [{"id": 1, "idx": 0, "text": "x"')
+        assert refs.reference_lines(did) == {"lines": [], "usable_lines": 0, "raw_available": False}
+        assert refs.title_stats(None, did)["raw_available"] is False
+
+    def test_a_raw_line_missing_its_times_is_unavailable_too(self, isolated_db):
+        import json
+        did = _title(isolated_db)
+        path = raw_transcript.list_raw_transcripts(db.drama_dir(did))[-1]
+        data = json.load(open(path, encoding="utf-8"))
+        del data["lines"][0]["start"]
+        json.dump(data, open(path, "w", encoding="utf-8"))
+        assert refs.reference_lines(did)["raw_available"] is False
+
+    def test_autotune_starts_as_before_with_a_corrupt_raw_transcript(self, isolated_db, monkeypatch):
+        from jobs import job_launch
+        did = _title(isolated_db)
+        open(raw_transcript.list_raw_transcripts(db.drama_dir(did))[-1], "wb").write(b"{")
+        captured = {}
+        monkeypatch.setattr(job_launch, "start_process_job",
+                            lambda job_id, target, args=(), **kw: captured.update(target=target) or True)
+        at.start_autotune_run(did, candidates=[300])
+        assert captured["target"].keywords == {"references": [], "corrected_lines": 0}
 
 
 class TestRawToEditedRate:
@@ -151,7 +181,7 @@ class TestAddingLinesToASet:
         def run(cmd, **kw):
             seen.append(cmd)
             with open(cmd[-1], "wb") as f:
-                f.write(b"RIFF" + b"\0" * 100)
+                f.write(b"\0" * 100000)
             if len(seen) == 2:
                 raise subprocess.CalledProcessError(1, cmd)
 
@@ -159,9 +189,49 @@ class TestAddingLinesToASet:
         monkeypatch.setattr(refs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
         with pytest.raises(DependencyUnavailableError) as err:
             refs.add_title_lines(None, did, "moon-fixes")
-        assert "audio.wav" not in str(err.value)
+        assert "audio.wav" not in str(err.value) and "line 5" in str(err.value)
         assert os.listdir(db.BENCHMARK_DIR) == []
         assert db.list_benchmark_cases("transcription") == []
+
+    def test_a_header_only_clip_is_refused_and_names_the_line(self, isolated_db, monkeypatch):
+        did = _title(isolated_db)
+
+        def run(cmd, **kw):
+            with open(cmd[-1], "wb") as f:
+                f.write(b"\0" * 200)  # a WAV header plus a metadata chunk, no audio
+
+        monkeypatch.setattr(refs.subprocess, "run", run)
+        monkeypatch.setattr(refs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        with pytest.raises(DependencyUnavailableError, match="line 3"):
+            refs.add_title_lines(None, did, "moon-fixes")
+        assert os.listdir(db.BENCHMARK_DIR) == []
+
+    def test_a_second_add_to_the_same_set_is_refused_while_one_runs(self, isolated_db, monkeypatch):
+        did = _title(isolated_db)
+        inner = {}
+
+        def run(cmd, **kw):
+            if "second" not in inner:
+                inner["second"] = True
+                with pytest.raises(refs.ConflictError, match="already being added"):
+                    refs.add_title_lines(None, did, "moon-fixes")
+            with open(cmd[-1], "wb") as f:
+                f.write(b"\0" * 200000)
+
+        monkeypatch.setattr(refs.subprocess, "run", run)
+        monkeypatch.setattr(refs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        assert refs.add_title_lines(None, did, "moon-fixes")["added"] == 2
+        assert len(db.list_benchmark_cases("transcription")) == 2
+        # The set is free again afterwards.
+        assert refs.add_title_lines(None, did, "moon-fixes")["added"] == 0
+
+    def test_one_add_stops_at_the_cap_and_reports_what_is_left(self, isolated_db, fake_ffmpeg, monkeypatch):
+        monkeypatch.setattr(refs, "MAX_LINES_PER_ADD", 1)
+        did = _title(isolated_db)
+        first = refs.add_title_lines(None, did, "moon-fixes")
+        assert (first["added"], first["remaining"], first["skipped"]) == (1, 1, 0)
+        second = refs.add_title_lines(None, did, "moon-fixes")
+        assert (second["added"], second["remaining"], second["skipped"]) == (1, 0, 1)
 
     def test_refusals(self, isolated_db, fake_ffmpeg, monkeypatch):
         untouched = _title(isolated_db, lines=[("你好", "你好")])
@@ -228,6 +298,18 @@ class TestAutotuneScoredByCer:
         kw = self._started(isolated_db, monkeypatch, at.MIN_REFERENCE_LINES)
         assert [r["edited"] for r in kw["references"]][0] == "改文0字"
         assert len(kw["references"]) == 5 and kw["corrected_lines"] == 5
+
+    def test_scored_by_says_long_lines_when_no_candidate_has_a_cer(self, monkeypatch):
+        class Q:
+            items = []
+            def put(self, item): self.items.append(item)
+        monkeypatch.setattr(at.whisper_transcribe, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        empty = [{"id": 1, "idx": 0, "start": 0.0, "end": 1.0, "language": "zh", "raw": "。", "edited": "！"}]
+        q = Q()
+        at._autotune_all_worker("a", "small", "zh", False, None, "", 5, [300], 0.5, False, "normal", False,
+                                q, references=empty, corrected_lines=1)
+        assert q.items[-1][1]["scored_by"] == "long_lines"
 
     def test_status_reports_how_it_was_scored(self, isolated_db, monkeypatch):
         import background_jobs
