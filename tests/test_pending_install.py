@@ -821,3 +821,150 @@ def test_without_clashing_cv2_keeps_other_packages_and_a_contrib_the_owner_had()
     assert pi.without_clashing_cv2(wanted, {"opencv-contrib-python": "4"},
                                    {"opencv-contrib-python": "3"}) == (wanted, [])
     assert pi.without_clashing_cv2(wanted, {}, {}) == (wanted, [])
+
+
+# --- an apply that was killed mid-way is put right on the next start --------
+
+def _killed_mid_pip(before, packages=("paddleocr",)):
+    """The result a start leaves when it dies while pip runs (power loss, a
+    closed console): status "running" with the snapshot taken before pip."""
+    pi._write_json("result", {"status": "running", "packages": list(packages), "before": before,
+                              "tail": [], "message": "Installing the packages you queued...",
+                              "restored": [], "restore_failed": []})
+
+
+def test_next_start_puts_back_what_a_killed_install_changed(data, monkeypatch):
+    before = {"numpy": "2.5.3", "pyyaml": "6.0.2", "requests": "2.33.0"}
+    _killed_mid_pip(before)
+    half_done = {"pyyaml": "7.0", "requests": "2.33.0"}         # numpy removed, pyyaml replaced
+    fake = Fake(monkeypatch, [half_done, before])
+    out = pi.apply()
+    assert out["ran"] and len(fake.runs) == 1
+    restore = fake.runs[0]
+    assert restore[:4] == ["python", "-m", "pip", "install"] and "--no-deps" in restore
+    assert "numpy==2.5.3" in restore and "pyyaml==6.0.2" in restore
+    assert not any(a.startswith("requests==") for a in restore)
+    result = pi.status()["result"]
+    assert result["status"] == "interrupted"
+    assert result["restored"] == ["numpy", "pyyaml"] and result["restore_failed"] == []
+    assert "put back" in result["message"] and result["packages"] == ["paddleocr"]
+    assert not (data / "pending_install" / "apply.lock").exists()
+
+
+def test_a_killed_install_that_changed_nothing_runs_no_pip(data, monkeypatch):
+    before = {"numpy": "2.5.3"}
+    _killed_mid_pip(before)
+    fake = Fake(monkeypatch, [before])
+    pi.apply()
+    assert fake.runs == []
+    result = pi.read_result()
+    assert result["status"] == "interrupted" and result["restored"] == []
+    assert "Nothing else was changed" in result["message"]
+
+
+@pytest.mark.parametrize("status", ["ok", "failed", "timed_out", "refused", "interrupted"])
+def test_a_finished_result_is_never_restored_from(data, monkeypatch, status):
+    doc = {"status": status, "packages": ["paddleocr"], "before": {"numpy": "1"},
+           "message": "kept", "tail": [], "restored": [], "restore_failed": []}
+    pi._write_json("result", doc)
+    fake = Fake(monkeypatch, [])
+    assert pi.apply() == {"ran": False}
+    assert fake.runs == [] and pi.read_result() == doc
+
+
+def test_a_restore_that_fails_names_only_the_packages(data, monkeypatch):
+    before = {"numpy": "2.5.3", "torch": "2.11.0+cu128", "../evil": "1", "pyyaml": "C:\\Users\\kae"}
+    _killed_mid_pip(before)
+    fake = Fake(monkeypatch, [{}, {}], rcs=(1,))
+    pi.apply()
+    assert len(fake.runs) == 1 and fake.runs[0][-1] == "numpy==2.5.3"
+    result = pi.read_result()
+    assert result["status"] == "interrupted" and result["restored"] == []
+    # torch's local build and the path-shaped version can't be fetched by name;
+    # the name that isn't a dist name is dropped and never shown.
+    assert result["restore_failed"] == ["numpy", "pyyaml", "torch"]
+    assert "could not be put back: numpy, pyyaml, torch" in result["message"]
+    assert "Packages in Diagnostics" in result["message"]
+    assert "evil" not in json.dumps(result) and "Users" not in json.dumps(result)
+
+
+def test_two_starts_do_not_restore_twice(data, monkeypatch):
+    before = {"numpy": "2.5.3"}
+    _killed_mid_pip(before)
+    fake = Fake(monkeypatch, [{}, before])
+    pi.apply()
+    assert len(fake.runs) == 1
+    first = pi.read_result()
+    pi.apply()
+    assert len(fake.runs) == 1 and pi.read_result() == first
+
+
+def test_a_restore_that_is_itself_killed_is_reported_not_retried(data, monkeypatch):
+    # A restore that keeps dying (pip crashes the PC, the console is closed
+    # each time) must not run again on every start.
+    _killed_mid_pip({"numpy": "2.5.3"})
+    Fake(monkeypatch, [{}])
+    monkeypatch.setattr(pi, "run_capture", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        pi.apply()
+    result = pi.status()["result"]
+    assert result["status"] == "interrupted" and "Packages in Diagnostics" in result["message"]
+    fake = Fake(monkeypatch, [{}])
+    assert pi.apply() == {"ran": False} and fake.runs == []
+    assert pi.read_result() == result
+
+
+def test_the_watchdog_leaves_a_restore_for_the_next_start(data, monkeypatch):
+    _killed_mid_pip({"numpy": "2.5.3"})
+    pi._write_json("result", pi._watchdog_result())
+    fake = Fake(monkeypatch, [{"numpy": "2.6.0"}, {"numpy": "2.5.3"}])
+    pi.apply()
+    assert fake.runs[0][-1] == "numpy==2.5.3"
+    assert pi.read_result()["restored"] == ["numpy"]
+
+
+def test_a_watchdog_exit_during_the_restore_is_not_restored_again(data, monkeypatch):
+    _killed_mid_pip({"numpy": "2.5.3"})
+    Fake(monkeypatch, [{}])
+
+    def watchdog_fires(argv, timeout, echo=False):
+        pi._write_json("result", pi._watchdog_result())
+        raise SystemExit(0)             # the watchdog's os._exit, as far as this start goes
+    monkeypatch.setattr(pi, "run_capture", watchdog_fires)
+    with pytest.raises(SystemExit):
+        pi.apply()
+    fake = Fake(monkeypatch, [{}])
+    assert pi.apply() == {"ran": False} and fake.runs == []
+
+
+def test_a_live_apply_is_not_mistaken_for_a_killed_one(data, monkeypatch):
+    _killed_mid_pip({"numpy": "2.5.3"})
+    lock = data / "pending_install" / "apply.lock"
+    lock.write_text(json.dumps({"pid": 4242, "time": int(time.time())}))    # another start, alive
+    monkeypatch.setattr(pi, "_pid_alive", lambda pid, started=None: True)
+    fake = Fake(monkeypatch, [])
+    assert pi.apply(wait_seconds=0) == {"ran": False, "locked": True}
+    assert fake.runs == [] and pi.read_result()["status"] == "running"
+
+
+def test_a_queued_install_still_runs_after_the_restore(data, monkeypatch):
+    _killed_mid_pip({"numpy": "2.5.3"})
+    pi.write_pending(["paddleocr"])
+    _killed_mid_pip({"numpy": "2.5.3"})         # write_pending clears the result; put it back
+    fake = Fake(monkeypatch, [{}, {"numpy": "2.5.3"}, {"numpy": "2.5.3"}])
+    out = pi.apply()
+    assert [r[-1] for r in fake.runs] == ["numpy==2.5.3", "paddleocr"]
+    assert out["status"] == "ok" and pi.read_pending() == (None, None)
+
+
+def test_launcher_runs_the_apply_step_when_a_restore_is_owed(data, monkeypatch):
+    sys.path.insert(0, os.path.join(ROOT, "installer"))
+    import launcher
+    calls = []
+    monkeypatch.setattr(launcher.subprocess, "run", lambda *a, **k: calls.append(a))
+    pi._write_json("result", {"status": "ok", "packages": ["x"], "before": {"numpy": "1"}})
+    launcher.apply_pending_install("python.exe", {}, headless=True)
+    assert calls == []
+    _killed_mid_pip({"numpy": "1"})
+    launcher.apply_pending_install("python.exe", {}, headless=True)
+    assert calls == [(["python.exe", "-s", "-m", "pending_install"],)]

@@ -300,6 +300,16 @@ def apply_running() -> bool:
     return _record_live(_read_json("lock") or {}, mtime)
 
 
+def restore_owed(result=None) -> bool:
+    """True when an apply was killed while pip ran (power loss, a closed
+    console, the watchdog) and the next start must put back its snapshot.
+    A result still marked running means a dead apply only once the lock says
+    nobody holds it, which apply() checks under the lock."""
+    result = read_result() if result is None else result
+    return (isinstance(result, dict) and isinstance(result.get("before"), dict)
+            and (result.get("status") == "running" or result.get("restore_owed") is True))
+
+
 def status() -> dict:
     """What Diagnostics shows: the queued install, the last outcome, and
     whether an apply is running right now."""
@@ -543,6 +553,55 @@ def _restore(before: dict, now_versions: dict, budget: float, echo: bool):
     return sorted(ok), sorted(failed + [n for n in safe if n not in ok])
 
 
+def _restore_sentence(restored: list, failed: list, left_out: list) -> str:
+    if failed:
+        tail = ("Some packages could not be put back: " + ", ".join(failed) +
+                ". Install them again from Packages in Diagnostics.")
+    elif restored:
+        tail = "Your earlier packages were put back."
+    else:
+        tail = "Nothing else was changed."
+    if left_out:
+        tail += (" " + ", ".join(left_out) + " was not put back because opencv-contrib-python "
+                 "is installed now and the two cannot share one 'cv2' folder.")
+    return tail
+
+
+def _recover_interrupted(echo: bool, deadline: float):
+    """Puts back what a killed apply had at risk, using the snapshot it saved
+    before pip ran. Runs at most once per killed apply: the owed record is
+    replaced before pip starts, so a restore that is itself killed is reported
+    on the next start instead of being retried on every one. Call only while
+    holding the lock, so a live apply's running result is never taken for a
+    dead one."""
+    result = read_result()
+    if not restore_owed(result):
+        return None
+    # Only names snapshot() could have written; anything else is a damaged or
+    # edited file and must not reach pip or the message shown to the owner.
+    before = {n: v for n, v in result["before"].items()
+              if isinstance(n, str) and _NAME_RE.match(n) and isinstance(v, str)}
+    packages = result.get("packages")
+    packages = [k for k in packages if isinstance(k, str) and _NAME_RE.match(k)] \
+        if isinstance(packages, list) else []
+    _write_json("result", {"status": "interrupted", "packages": packages, "tail": [],
+                           "restored": [], "restore_failed": [],
+                           "message": "The install did not finish: Baihe was closed while it ran, "
+                                      "and again while it put your earlier packages back. Package "
+                                      "versions may have been changed. Check Packages in Diagnostics."})
+    if echo:
+        print("An earlier install did not finish. Putting your earlier packages back...", flush=True)
+    now = snapshot()
+    left_out = without_clashing_cv2({n: v for n, v in before.items() if now.get(n) != v},
+                                    now, before)[1]
+    restored, failed = _restore(before, now,
+                                min(RESTORE_SECONDS, max(60.0, deadline - time.time())), echo)
+    return _finish({"status": "interrupted", "packages": packages,
+                    "restored": restored, "restore_failed": failed,
+                    "message": "The install did not finish: Baihe was closed while it ran. "
+                               + _restore_sentence(restored, failed, left_out)}, [])
+
+
 def _finish(result: dict, lines: list) -> dict:
     result["tail"] = _redacted_tail(lines)
     result["finished"] = int(time.time())
@@ -555,7 +614,7 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
     pending file behind; the outcome is in result.json. Returns a short
     summary dict for the caller and tests."""
     started = time.time()
-    if not os.path.exists(_path("pending")):
+    if not os.path.exists(_path("pending")) and not restore_owed():
         if not wait_while_running(started + wait_seconds, echo):
             return {"ran": False, "locked": True}
         return {"ran": False}
@@ -564,10 +623,13 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
     deadline = time.time() + OVERALL_SECONDS     # the lock wait is not part of the install's budget
     temp_files = []
     try:
+        # Before the queued install, whose snapshot must be of the restored set.
+        recovered = _recover_interrupted(echo, deadline)
         payload, problem = read_pending()
         if payload is None:
             if problem is None:
-                return {"ran": False}      # the apply we waited for ran it; keep its outcome
+                # Nothing queued, or the apply we waited for ran it; keep its outcome.
+                return {"ran": True, **recovered} if recovered else {"ran": False}
             _remove("pending")
             return {"ran": True, **_finish({
                 "status": "refused", "packages": [], "restored": [], "restore_failed": [],
@@ -639,19 +701,10 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
             head = "The install did not finish in time and was stopped. "
         else:
             head = "The install did not work. "
-        if failed:
-            tail = ("Some packages could not be put back: " + ", ".join(failed) +
-                    ". Install them again from Packages in Diagnostics.")
-        elif restored:
-            tail = "Your earlier packages were put back."
-        else:
-            tail = "Nothing else was changed."
-        if left_out:
-            tail += (" " + ", ".join(left_out) + " was not put back because opencv-contrib-python "
-                     "is installed now and the two cannot share one 'cv2' folder.")
         return {"ran": True, **_finish({
             "status": "timed_out" if timed_out else "failed", "packages": keys,
-            "restored": restored, "restore_failed": failed, "message": head + tail}, lines)}
+            "restored": restored, "restore_failed": failed,
+            "message": head + _restore_sentence(restored, failed, left_out)}, lines)}
     finally:
         for path in temp_files:
             try:
@@ -671,6 +724,8 @@ def _watchdog_result() -> dict:
     return {"status": "timed_out", "tail": [], "restored": [], "restore_failed": [],
             "packages": packages if isinstance(packages, list) else [],
             "before": before if isinstance(before, dict) else {},
+            # Only a running result owes one: a restore cut off by this exit is not retried.
+            "restore_owed": isinstance(before, dict),
             "message": "The install did not finish in time. Baihe started without waiting "
                        "for it, so package versions may have been changed. Check Packages "
                        "in Diagnostics.",
