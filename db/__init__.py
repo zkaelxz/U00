@@ -1,5 +1,5 @@
 """
-db.py -- local SQLite-backed library for the subtitler app.
+db -- local SQLite-backed library for the subtitler app.
 
 Everything lives in ./library/library.db plus per-drama folders under
 ./library/dramas/<id>/ for audio and novel reference files. This is
@@ -78,7 +78,7 @@ def configure_library_dir(path: str):
 # The sweep in _close_leaked_connections only ever closes connections whose
 # owning thread has died -- a dead thread can never touch them again, so
 # there's no race. background_jobs.py runs real threading.Thread workers
-# that call straight into db.py concurrently with the request threads, and
+# that call straight into db concurrently with the request threads, and
 # a live thread's still-open connection is never closed by anyone else
 # (an earlier version that did reliably broke the other thread's very next
 # statement with "Cannot operate on a closed database").
@@ -575,7 +575,7 @@ from db.style import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 # Workspace-configuration presets -- library-level, reusable
 # across unrelated series/projects. See the `presets` table's own comment
-# in init_db for why deleting/renaming one never touches a drama it was
+# in db/schema.py for why deleting/renaming one never touches a drama it was
 # previously applied to: nothing else references presets.id at all.
 # ---------------------------------------------------------------------------
 
