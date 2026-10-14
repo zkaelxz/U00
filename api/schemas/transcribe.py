@@ -310,6 +310,9 @@ class LiveSessionStart(BaseModel):
     use_gpu: StrictBool = False
     reply_without_thinking: StrictBool = Field(
         True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
+    delayed_player: StrictBool = Field(
+        False, description="Also record a rolling copy of the picture and sound for the page's "
+                           "own player, so the picture can be held back on a stream the embed cannot rewind.")
     glossary_drama_id: Optional[StrictInt] = Field(
         None, ge=1, le=2**62,
         description="A title whose glossary and language packs the translation may use (read-only).")
@@ -356,6 +359,8 @@ class LiveSessionStatus(BaseModel):
     translations_skipped: int = 0   # lines shown untranslated to keep up
     translate_queue: int = 0
     chunks_measured: int = 0
+    # True once the delayed player's playlists have segments to play.
+    player_ready: bool = False
     cues: List[LiveCue]
     next_index: int
 
