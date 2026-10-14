@@ -9,8 +9,10 @@ It also adds "Apply tier" (lines.edit: per-drama stage config) and
 write; a new name deletes nothing. Replacing a preset of the same name
 needs overwrite=true, else 409, and overwrite is PC-only like other
 deletes: refused with 403 from a non-loopback client when auth is on).
+Editing a profile's fields replaces them like an overwrite, so it is PC-only
+the same way; "Make default" is a library catalogue write (admin.library).
 "Apply a preset" works on an existing drama (lines.edit, like
-"Apply tier": it saves only the engine on the drama and starts nothing).
+"Apply tier": it saves the profile's title settings on the drama and starts nothing).
 The glossary-affected preview (`lines.read`: it carries line text) and its
 run (`jobs.start`, engine-checked like the run above) re-translate only
 the lines a glossary change affects; see services/glossary_retranslate_service.py.
@@ -23,14 +25,15 @@ from typing import List, Optional
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
-from api.schemas import (EpisodeSummaryGenerate, EpisodeSummaryGenerated, EpisodeSummaryOptions,
+from api.schemas import (EpisodeSummaryGenerate, LibraryPreset, ProfileEditorFields, EpisodeSummaryGenerated, EpisodeSummaryOptions,
                          GlossaryFlaggedRedoStart, GlossaryFlaggedRedoStarted,
                          RetryFailedLinesStart, RetryFailedLinesStarted, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, SourceChangedRetranslateStart,
                          SourceChangedRetranslateStarted, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
                          TranslatePresetApplied, TranslatePresetApply,
-                         TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
+                         TranslatePresetDefault, TranslatePresetSave, TranslatePresetSaved,
+                         TranslatePresetUpdate, TranslatePresetUpdated, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply, error_responses)
 from api.llm_slots import llm_slot
@@ -276,7 +279,7 @@ def apply_workflow_tier(body: WorkflowTierApply, drama_id: int = Path(ge=1, le=2
 
 @router.post("/dramas/{drama_id}/apply-preset", dependencies=[require_permission("lines.edit")],
              response_model=TranslatePresetApplied,
-             summary="Apply a saved preset: saves its engine on the drama, returns the form values",
+             summary="Apply a saved profile: saves its title settings on the drama, returns the form values",
              responses=error_responses(404, 422))
 def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1, le=2**31 - 1)):
     return translate_preset_service.apply_translate_preset(drama_id, body.preset_id)
@@ -294,4 +297,37 @@ def save_translate_preset(body: TranslatePresetSave, request: Request):
         body.name, body.translation_engine, engine_model=body.engine_model,
         style_preset=body.style_preset, locale=body.locale,
         default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes, overwrite=body.overwrite)
+        include_genre_notes=body.include_genre_notes, overwrite=body.overwrite,
+        options=body.options)
+
+
+@router.get("/profile-fields", dependencies=[require_permission("library.read")],
+            response_model=ProfileEditorFields,
+            summary="What the profile editor offers: engines, styles and transcribe option specs")
+def get_profile_editor_fields():
+    return translate_preset_service.profile_editor_fields()
+
+
+@router.post("/presets/{preset_id}/update", dependencies=[require_permission("admin.library")],
+             response_model=TranslatePresetUpdated,
+             summary="Edit a saved profile: replaces every field and the name",
+             responses=error_responses(403, 404, 409, 422))
+def update_translate_preset(body: TranslatePresetUpdate, request: Request,
+                            preset_id: int = Path(ge=1, le=2**31 - 1)):
+    if is_auth_enabled(request.app) and not is_local_request(request):
+        raise ForbiddenError("Editing a preset is only allowed at the PC.")
+    require_cloud_model_allowed(request, (body.translation_engine, body.engine_model))
+    return translate_preset_service.update_translate_preset(
+        preset_id, body.name, body.translation_engine, engine_model=body.engine_model,
+        style_preset=body.style_preset, locale=body.locale,
+        default_female_pronouns=body.default_female_pronouns,
+        include_genre_notes=body.include_genre_notes, options=body.options)
+
+
+@router.post("/presets/{preset_id}/default", dependencies=[require_permission("admin.library")],
+             response_model=LibraryPreset,
+             summary="Make a saved profile the default for New title, or clear it",
+             responses=error_responses(404, 422))
+def set_default_translate_preset(body: TranslatePresetDefault,
+                                 preset_id: int = Path(ge=1, le=2**31 - 1)):
+    return translate_preset_service.set_default_preset(preset_id, body.is_default)
