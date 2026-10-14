@@ -237,7 +237,69 @@ class TestQwen3ASRBackendTranscription:
         assert [r["text"] for r in result] == ["gpu text", "cpu text", "cpu text"]
         assert loads == [True, False]
         assert devices == ["GPU", "CPU"]
-        assert fallbacks and fallbacks[0][0] == "Qwen3-ASR" and "out of memory" in fallbacks[0][1]
+        assert fallbacks and fallbacks[0][0] == ab.GPU_FAILED_MID_RUN_TASK
+        assert "out of memory" in fallbacks[0][1]
+        assert whisper_models.gpu_fallback_notice(fallbacks[0][0], "x").startswith(
+            "Part of Qwen3-ASR ran on the CPU")
+
+    def test_the_gpu_model_is_let_go_before_the_cpu_copy_loads(self, monkeypatch):
+        """The card is shared with other programs: a GPU model still
+        referenced (by a caller's variable or the error's traceback) would keep
+        its memory for the rest of the run."""
+        import gc
+        import weakref
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+        gpu_ref = []
+
+        class GpuModel:
+            def transcribe(self, audio, language):
+                raise RuntimeError("CUDA out of memory")
+
+        class CpuModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("cpu text")]
+
+        def load(use_gpu=False, model_size="1.7B", **k):
+            if use_gpu:
+                model = GpuModel()
+                gpu_ref.append(weakref.ref(model))
+                ab._asr_model_cache[f"{model_size}_gpu"] = model
+                return model
+            gc.collect()
+            assert gpu_ref[0]() is None, "the GPU model was still referenced"
+            return CpuModel()
+
+        monkeypatch.setattr(ab, "_asr_model_cache", {})
+        monkeypatch.setattr(ab, "load_qwen3_asr", load)
+        result = ab.Qwen3ASRBackend().transcribe(
+            "/fake.wav", "zh", whisper_segments=[{"start": 0.0, "end": 1.0, "text": "w"}],
+            use_gpu=True)
+        assert [r["text"] for r in result] == ["cpu text"]
+        assert "1.7B_gpu" not in ab._asr_model_cache
+
+    def test_a_run_that_already_loaded_on_the_cpu_never_reports_a_second_fallback(
+            self, monkeypatch):
+        """The GPU was asked for, but the load already fell back: an error
+        that looks like a GPU one is not a reason to reload or report again."""
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+        cpu_model = type("CpuModel", (), {"transcribe": lambda self, audio, language: (
+            _ for _ in ()).throw(RuntimeError("CUDA error: device-side assert"))})()
+        loads, fallbacks = [], []
+
+        def load(use_gpu=False, model_size="1.7B", **k):
+            loads.append(use_gpu)
+            ab._asr_model_cache[f"{model_size}_cpu"] = cpu_model
+            return cpu_model
+
+        monkeypatch.setattr(ab, "_asr_model_cache", {})
+        monkeypatch.setattr(ab, "load_qwen3_asr", load)
+        with pytest.raises(RuntimeError, match="device-side"):
+            ab.Qwen3ASRBackend().transcribe(
+                "/fake.wav", "zh", whisper_segments=[{"start": 0.0, "end": 1.0, "text": "w"}],
+                use_gpu=True, on_gpu_fallback=lambda task, exc: fallbacks.append(task))
+        assert loads == [True] and fallbacks == []
 
     def test_a_non_gpu_error_mid_run_still_fails_the_run(self, monkeypatch):
         import asr_backend as ab
@@ -375,7 +437,7 @@ class TestLoadQwen3Asr:
 
 class TestWholeFileAudioGuard:
     """The speech detectors read the whole file as 16 kHz float32 (about
-    230 MB an hour). A file too long for the free RAM is refused up front in
+    550 MB an hour at the decoding peak). A file too long for the free RAM is refused up front in
     plain words instead of running out of memory mid-job."""
 
     def _setup(self, monkeypatch, seconds, ram):
@@ -397,6 +459,26 @@ class TestWholeFileAudioGuard:
         with pytest.raises(memory_headroom.HeadroomError, match="about 10.0 hours"):
             ab.load_audio_16k("/long.wav")
         assert decoded == []
+
+    def test_a_file_that_fits_in_the_free_ram_is_decoded(self, monkeypatch):
+        # An hour needs about 550 MB at the peak; 600 MB free is enough.
+        ab, decoded = self._setup(monkeypatch, 3600, (16000.0, 600.0))
+        assert ab.load_audio_16k("/hour.wav") == "audio" and decoded == ["/hour.wav"]
+
+    def test_the_length_is_not_probed_when_the_ram_cannot_be_read(self, monkeypatch):
+        import media_inspect
+        ab, decoded = self._setup(monkeypatch, 36000, None)
+        monkeypatch.setattr(media_inspect, "duration_seconds",
+                            lambda path, **k: pytest.fail("ran ffprobe for nothing"))
+        assert ab.load_audio_16k("/x.wav") == "audio"
+
+    def test_the_refusal_only_suggests_splitting(self, monkeypatch):
+        import memory_headroom
+        ab, decoded = self._setup(monkeypatch, 10 * 3600, (16000.0, 2000.0))
+        with pytest.raises(memory_headroom.HeadroomError) as info:
+            ab.load_audio_16k("/long.wav")
+        assert "Split it into shorter files" in str(info.value)
+        assert "Whisper" not in str(info.value)
 
     def test_a_file_that_fits_is_decoded(self, monkeypatch):
         ab, decoded = self._setup(monkeypatch, 3600, (16000.0, 8000.0))

@@ -306,4 +306,4 @@ def test_qwen_vad_mixed_moves_to_the_cpu_when_the_gpu_runs_out_of_memory(qwen, m
         "x.wav", "ko", vad_fn=VAD, mixed_languages=True, use_gpu=True,
         on_gpu_fallback=lambda task, exc: fallbacks.append(task))
     assert [s.get("lang") for s in out] == [None, "zh"]
-    assert fallbacks == ["Qwen3-ASR"] and cpu.languages == [None]
+    assert fallbacks == [ab.GPU_FAILED_MID_RUN_TASK] and cpu.languages == [None]
