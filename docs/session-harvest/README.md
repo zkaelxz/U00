@@ -14,6 +14,8 @@ body under "Found but not fixed"; this folder is the backstop for the sessions t
 | `session-summaries-2026-09-28-to-10-03.md` | Final summaries of the 97 sessions from the first week (history starts 2026-09-28). 15 flagged. |
 | `session-summaries-2026-10-04-to-10-10.md` | Final summaries of the 583 sessions from 10/04 to 10/10. 200 flagged. |
 | `triage-2026-10-10.md` | Every flagged note checked against the code at c67ad646, PR bodies, issues and the fix queue: done, covered, still open, owner decision, too vague. |
+| `session-summaries-2026-10-10-to-10-13.md` | Final summaries of the 262 sessions from 2026-10-10 16:23Z to 10-13 23:45Z (after the previous harvest). 107 flagged. |
+| `triage-2026-10-13.md` | Leftovers named by those sessions and their 71 PRs, checked against the code at 90a5ac0d: done, covered, still open, owner decision, too vague. |
 | `open-pr-findings-2026-10-10.md` | "Found but not fixed", "unsure" and failing-test notes harvested from the bodies, comments and reviews of the open PRs. |
 | `merged-pr-findings-2026-10-10.md` | The same harvest over the 61 PRs merged 10/04 to 10/10. |
 
