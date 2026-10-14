@@ -37,7 +37,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   const [using, setUsing] = useState(false)
   const [busy, setBusy] = useState(true)
   // Alternatives and Grammar need engines.paid only for a paid engine.
-  const picker = useLineAiPick(dramaId, false)
+  const picker = useLineAiPick(dramaId)
   const pickRef = useRef(picker.pick)
   // Declared before the request effect, so it holds the latest pick when that runs.
   useEffect(() => {
@@ -83,7 +83,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
 
   return (
     <div className="review-ai-panel" data-testid="line-tools-panel" aria-label={title} role="group">
-      <LineAiPicker picker={picker} allPaid={false} disabled={busy || using} />
+      <LineAiPicker picker={picker} disabled={busy || using} />
       {busy && <p className="muted">Working…</p>}
       {result?.kind === 'alternatives' && (
         <AlternativeList line={line} data={result.data} busy={using} onUse={use} />

@@ -484,16 +484,38 @@ class TestPermissions:
         assert remote.post(url, json={"engine": "claude"}, headers=_h(paid)).status_code == 200
 
     @pytest.mark.parametrize("verb", ["improve", "explain"])
-    def test_improve_and_explain_need_the_paid_permission_for_any_engine(self, remote, monkeypatch, verb):
+    def test_improve_and_explain_allow_free_engines_for_members(self, remote, monkeypatch, verb):
         did, ids = _seed()
         monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
         monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
+        monkeypatch.setattr(line_tools, "alternative_translations",
+                            lambda *a, **k: [{"translation": "x"}])
         url = _ai(did, ids[0], verb)
-        reader = _user("r@example.com", "lines.read")
-        for engine in ("ollama", "claude"):
-            assert remote.post(url, json={"engine": engine}, headers=_h(reader)).status_code == 403
+        assert remote.post(url, json={"engine": "ollama"}).status_code == 401
+        nobody = _user("n@example.com")
+        assert remote.post(url, json={"engine": "ollama"}, headers=_h(nobody)).status_code == 403
+        member = _user("m@example.com", *auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+        assert remote.post(url, json={"engine": "ollama"}, headers=_h(member)).status_code == 200
+        refused = remote.post(url, json={"engine": "claude"}, headers=_h(member))
+        assert refused.status_code == 403
+        # the same refusal a member gets from the sibling Alternatives tool
+        sibling = remote.post(_ai(did, ids[0], "alternatives"), json={"engine": "claude"},
+                              headers=_h(member))
+        assert sibling.status_code == 403
+        assert refused.json()["error"]["message"] == sibling.json()["error"]["message"]
         paid = _user("p@example.com", "lines.read", "engines.paid")
         assert remote.post(url, json={"engine": "claude"}, headers=_h(paid)).status_code == 200
+
+    @pytest.mark.parametrize("verb", ["improve", "explain"])
+    def test_member_cannot_reach_another_users_private_title(self, remote, monkeypatch, verb):
+        monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
+        monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
+        owner = auth_service.add_user("o@example.com")
+        did, ids = _seed()
+        db.update_drama(did, owner_user_id=owner["id"], is_private=1)
+        member = _user("m@example.com", *auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+        r = remote.post(_ai(did, ids[0], verb), json={"engine": "ollama"}, headers=_h(member))
+        assert r.status_code == 404
 
     def test_shorten_needs_lines_edit_and_paid_gate(self, remote, monkeypatch):
         did, _ = _overlong_drama()
@@ -506,8 +528,10 @@ class TestPermissions:
         assert remote.post(url, json={"confirm": True, "engine": "claude"}, headers=_h(editor)).status_code == 403
         assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=_h(editor)).status_code == 200
 
-    @pytest.mark.parametrize("tool", ["alternatives", "grammar", "shorten"])
+    @pytest.mark.parametrize("tool", ["alternatives", "grammar", "shorten", "improve", "explain"])
     def test_gate_uses_the_dramas_engine_when_none_is_named(self, remote, monkeypatch, tool):
+        monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "better")
+        monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "why")
         monkeypatch.setattr(line_tools, "alternative_translations",
                             lambda *a, **k: [{"translation": "x"}])
         monkeypatch.setattr(line_tools, "grammar_breakdown",

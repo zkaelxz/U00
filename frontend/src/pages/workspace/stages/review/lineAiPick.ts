@@ -41,11 +41,10 @@ export function savePick(pick: LinePick): void {
   }
 }
 
-// Why an engine can't be picked, or null. `allPaid`: the tool's route needs
-// engines.paid whatever the engine (Improve, Why this?); the others only for a paid one.
-export function engineBlockReason(engine: TranslateEngine, holdsPaid: boolean, allPaid: boolean): string | null {
+// Why an engine can't be picked, or null.
+export function engineBlockReason(engine: TranslateEngine, holdsPaid: boolean): string | null {
   if (!engine.key_configured) return NO_KEY_REASON
-  if (!holdsPaid && (allPaid || !engine.free)) return NEEDS_PAID_REASON
+  if (!holdsPaid && !engine.free) return NEEDS_PAID_REASON
   return null
 }
 
@@ -56,9 +55,9 @@ export function modelBlockReason(engine: TranslateEngine, model: string, holdsPa
 
 // The remembered pick, minus whatever no longer works (engine removed or without
 // a key, permission lost, model dropped from the list): that falls back to the default.
-export function usablePick(pick: LinePick, engines: TranslateEngine[], holdsPaid: boolean, allPaid: boolean): LinePick {
+export function usablePick(pick: LinePick, engines: TranslateEngine[], holdsPaid: boolean): LinePick {
   const engine = engines.find((e) => e.name === pick.engine)
-  if (!engine || engineBlockReason(engine, holdsPaid, allPaid)) return NO_PICK
+  if (!engine || engineBlockReason(engine, holdsPaid)) return NO_PICK
   const listed = engine.models ?? []
   const modelOk = !pick.model
     || (listed.length > 0 ? listed.includes(pick.model) && !modelBlockReason(engine, pick.model, holdsPaid) : true)
@@ -70,7 +69,7 @@ export const toApiPick = (pick: LinePick): LineAiPick => ({ engine: pick.engine,
 // Loads the engine list for the title and holds the remembered pick. `ready`
 // turns true once the list answered or failed; a failed list leaves the
 // default (the server's choice) in force.
-export function useLineAiPick(dramaId: number, allPaid: boolean) {
+export function useLineAiPick(dramaId: number) {
   const holdsPaid = useHolds('engines.paid')
   const [config, setConfig] = useState<{ engines: TranslateEngine[]; defaultEngine: string } | null>(null)
   const [ready, setReady] = useState(false)
@@ -88,7 +87,7 @@ export function useLineAiPick(dramaId: number, allPaid: boolean) {
   }, [dramaId])
 
   const engines = config?.engines ?? NO_ENGINES
-  const pick = useMemo(() => usablePick(stored, engines, holdsPaid, allPaid), [stored, engines, holdsPaid, allPaid])
+  const pick = useMemo(() => usablePick(stored, engines, holdsPaid), [stored, engines, holdsPaid])
   const setPick = (next: LinePick) => {
     setStored(next)
     savePick(next)
