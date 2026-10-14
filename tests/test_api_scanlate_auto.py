@@ -1274,3 +1274,26 @@ def test_page_with_no_bubbles_is_a_short_warning(tmp_path):
     levels = [n[0] for n in notes]
     assert "warning" in levels and "error" not in levels
     assert len(notes[-1][-1]) < 300
+
+
+def test_read_ahead_detection_keeps_the_runs_offline_switch(isolated_db, monkeypatch):
+    """A run started away from the PC must never download a model, and the
+    read-ahead runs on another thread."""
+    from lib import model_offline
+    did = _drama()
+    p1, p2 = _page(did, 0), _page(did, 1)
+    seen = []
+
+    def detect(image_path, lang, page_id=None, **kw):
+        seen.append((page_id, model_offline.active()))
+        return [], []
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    jid = f"scanlate_{did}"
+    _put_job(jid)
+    engine = type("E", (), {"name": "deepseek", "model": "m"})()
+    token = model_offline.set_offline(True)
+    try:
+        run_svc._run_job(jid, did, "all", [p1, p2], "deepseek", engine, "cv")
+    finally:
+        model_offline.reset(token)
+    assert seen == [(p1, True), (p2, True)]

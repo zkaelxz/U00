@@ -192,13 +192,20 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
 
     global _bubble_ml_model, _bubble_ml_processor
     if "_bubble_ml_model" not in globals():
-        import qwen3_native
-        offline = qwen3_native._offline_kwargs()
-        globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
-            _BUBBLE_ML_REPO, token=_tok, **offline)
-        model = AutoModelForObjectDetection.from_pretrained(_BUBBLE_ML_REPO, token=_tok, **offline)
-        model.eval()
-        globals()["_bubble_ml_model"] = model
+        try:
+            import qwen3_native
+            offline = qwen3_native._offline_kwargs()
+            globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
+                _BUBBLE_ML_REPO, token=_tok, **offline)
+            model = AutoModelForObjectDetection.from_pretrained(
+                _BUBBLE_ML_REPO, token=_tok, **offline)
+            model.eval()
+            globals()["_bubble_ml_model"] = model
+        except Exception as exc:
+            # detect_bubbles remembers only failures to load the model, never a
+            # per-page inference error.
+            exc.ml_load_failure = True
+            raise
 
     model = globals()["_bubble_ml_model"]
     processor = globals()["_bubble_ml_processor"]
@@ -333,9 +340,11 @@ class BubbleModelUnavailable(RuntimeError):
 
 # A model that failed to load fails again the same way on the next page, after
 # another network timeout. A run forgets this on start (forget_ml_failure), and
-# it lapses by itself so a fixed connection is not blocked for long.
+# it lapses by itself so a fixed connection is not blocked for long. Only the
+# fixed message text is kept: an exception object would keep the decoded page
+# alive through its traceback.
 _ML_FAILURE_MEMORY_SECONDS = 300
-_ml_failure = None            # (monotonic time, the BubbleModelUnavailable raised)
+_ml_failure = None            # (monotonic time, message)
 
 
 def forget_ml_failure() -> None:
@@ -362,21 +371,22 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
 
     `image`: the page already decoded as BGR (see page_bgr()).
     """
+    global _ml_failure
     if backend == "auto":
         backend = "ml" if bubble_ml_weights_cached() else "cv"
     if backend != "ml":
         return detect_bubbles_cv(image_path, image=image)
 
-    global _ml_failure
-    if _ml_failure and time.monotonic() - _ml_failure[0] < _ML_FAILURE_MEMORY_SECONDS:
-        raise BubbleModelUnavailable(str(_ml_failure[1]))
+    remembered = _ml_failure          # one read: forget_ml_failure() may clear it meanwhile
+    if remembered and time.monotonic() - remembered[0] < _ML_FAILURE_MEMORY_SECONDS:
+        raise BubbleModelUnavailable(remembered[1])
     try:
         return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, image=image, **kwargs))
     except ImportError as exc:
         message = ("The ML detector needs extra packages:\n"
                    "    pip install transformers huggingface_hub\n\n"
                    "Falling back to the free heuristic for this page.")
-        cause = exc
+        cause, remember = exc, True
     except Exception as exc:
         from whisper_models import is_network_error
         cause = exc
@@ -387,12 +397,14 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
                        "(Pi-hole, AdGuard), whitelist:\n"
                        "  huggingface.co\n  cdn-lfs.huggingface.co\n  cdn-lfs-us-1.hf.co\n  hf.co\n\n"
                        "Falling back to the free heuristic for this page.")
+            remember = getattr(exc, "ml_load_failure", False)
         else:
             message = (f"The ML detector failed: {type(exc).__name__}: {exc}\n\n"
                        "Falling back to the free heuristic for this page.")
-    unavailable = BubbleModelUnavailable(message)
-    _ml_failure = (time.monotonic(), unavailable)
-    raise unavailable from cause
+            remember = False
+    if remember:
+        _ml_failure = (time.monotonic(), message)
+    raise BubbleModelUnavailable(message) from cause
 
 
 # ---------------------------------------------------------------------------

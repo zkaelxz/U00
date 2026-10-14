@@ -34,6 +34,7 @@ Safety (spec §4):
 Model runs hold the pipeline lock shared with the extension bridge.
 No FastAPI import.
 """
+import contextvars
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor
 
@@ -266,6 +267,7 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
     # as done would make "Translate all" skip the page forever.
     if mode == "missing" and any(_has_text(b) for b in existing):
         if not page.get("rendered_filename"):
+            render_svc.check_cancel(jid)        # a read-ahead may start after a cancel
             notes = []
             render_svc.render_page(drama_id, page_id, notes, lambda: render_svc.check_cancel(jid))
             render_svc.append_notes(page_id, notes)
@@ -369,7 +371,9 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                         prev.exception(), (HeadroomError, background_jobs.JobCancelled)):
                     raise _DetectSkipped()
                 return _detect_stage(drama_id, drama, pid, mode, detect_kwargs, jid)
-            return detector.submit(run)
+            # A worker thread starts with an empty context; copy this job's so the read-ahead
+            # keeps the offline switch (a remote run never downloads a model) and the rest.
+            return detector.submit(contextvars.copy_context().run, run)
         ahead = {page_ids[0]: start_detect(page_ids[0])} if page_ids else {}
         for n, pid in enumerate(page_ids, start=1):
             render_svc.check_cancel(jid)

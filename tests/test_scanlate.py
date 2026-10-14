@@ -1175,7 +1175,9 @@ class TestMlLoadFailureIsRemembered:
 
         def load_fails(*a, **k):
             attempts.append(1)
-            raise ConnectionError("getaddrinfo failed")
+            exc = ConnectionError("getaddrinfo failed")
+            exc.ml_load_failure = True        # as detect_bubbles_ml marks a failure while loading
+            raise exc
         monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", load_fails)
         for _ in range(3):
             with pytest.raises(scanlate_detect.BubbleModelUnavailable) as exc_info:
@@ -1186,3 +1188,31 @@ class TestMlLoadFailureIsRemembered:
         with pytest.raises(scanlate_detect.BubbleModelUnavailable):
             scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
         assert len(attempts) == 2
+
+
+class TestMlFailureMemoryOnlyCoversTheModelLoad:
+    def test_a_per_page_error_does_not_make_the_next_page_fall_back(self, synthetic_page, monkeypatch):
+        attempts = []
+
+        def inference_fails(*a, **k):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise ConnectionError("timed out reading this page")   # a network-looking message
+            return []
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", inference_fails)
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert scanlate_detect.detect_bubbles(synthetic_page, backend="ml") == []
+        assert len(attempts) == 2
+
+    def test_only_the_fixed_text_is_kept_for_a_failed_load(self, synthetic_page, monkeypatch):
+        def load_fails(*a, **k):
+            exc = ConnectionError("getaddrinfo failed for /home/kae/pages/p1.png")
+            exc.ml_load_failure = True
+            raise exc
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", load_fails)
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable) as again:
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert "/home/kae" not in str(again.value) and again.value.__cause__ is None
