@@ -41,11 +41,12 @@ def _owner_alive(pid) -> bool:
     return background_jobs.owner_process_alive(pid)
 
 
-def _alive(row, now) -> bool:
+def _alive(row, now, alive_pids=frozenset()) -> bool:
     """A row counts while its heartbeat is fresh and its owner still runs. An
     owner is gone when its pid has exited, or the pid is this process's but
     the instance is not (an earlier server had the pid). A row written before
-    the owner columns existed has only the heartbeat to go on."""
+    the owner columns existed has only the heartbeat to go on. `alive_pids`
+    holds pids already found running (see _probe_owners)."""
     if now - row["heartbeat_at"] >= GPU_LOCK_STALE_SECONDS:
         return False
     pid = row["owner_pid"]
@@ -53,7 +54,17 @@ def _alive(row, now) -> bool:
         return True
     if pid == os.getpid():
         return row["owner_instance"] == job_store.INSTANCE_ID
-    return _owner_alive(pid)
+    return pid in alive_pids or _owner_alive(pid)
+
+
+def _probe_owners(rows) -> frozenset:
+    """The pids among `rows`' other owners that are running. take() probes
+    them before BEGIN IMMEDIATE, because every other process's take waits on
+    that write lock. Only "running" is carried into the lock: a pid found
+    dead may be reused by a new holder before the lock is taken, so it is
+    probed again there, as is any pid first seen inside it."""
+    pids = {r["owner_pid"] for r in rows} - {None, os.getpid()}
+    return frozenset(pid for pid in pids if _owner_alive(pid))
 
 
 def _mine(row) -> bool:
@@ -86,9 +97,10 @@ def take(holder: str, description: str = None, *, max_holders: int = 1,
     now = time.time()
     max_holders = max(1, min(int(max_holders), GPU_LOCK_MAX_SLOTS))
     with contextlib.closing(db.get_conn()) as conn:
+        alive_pids = _probe_owners(_rows(conn))
         conn.execute("BEGIN IMMEDIATE")
         rows = _rows(conn)
-        live = [r for r in rows if _alive(r, now)]
+        live = [r for r in rows if _alive(r, now, alive_pids)]
         mine = next((r for r in live if r["holder"] == holder and _mine(r)), None)
         if mine is not None:
             slot = mine["id"]
