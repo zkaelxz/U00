@@ -14,6 +14,17 @@ __all__ = [
     "BenchmarkJudgeEstimate",
     "BenchmarkSetBuildRequest",
     "BenchmarkSetBuildResult",
+    "BenchmarkClipRow",
+    "BenchmarkClipCheckRequest",
+    "BenchmarkClipNote",
+    "BenchmarkClipCheck",
+    "BenchmarkClipImportResult",
+    "BenchmarkCaseExcluded",
+    "BenchmarkCaseReference",
+    "BenchmarkCaseEdit",
+    "BenchmarkCaseEdits",
+    "BenchmarkLeftOut",
+    "BenchmarkRunDelete",
 ]
 
 
@@ -78,3 +89,75 @@ class BenchmarkSetBuildResult(BaseModel):
     added: int
     skipped: int
     dry_run: bool
+
+
+class BenchmarkClipRow(BaseModel):
+    """One clip as typed in the table (no audio: that is a file part)."""
+    model_config = ConfigDict(extra="forbid")
+    filename: Optional[str] = Field(default=None, max_length=300)
+    language: Literal["zh", "ja", "ko"]
+    transcript: str = Field(max_length=4000)
+    translation: Optional[str] = Field(default=None, max_length=4000)
+    title: str = Field(default="", max_length=80)
+    tags: List[str] = Field(default_factory=list, max_length=10)
+    scene_order: Optional[int] = Field(default=None, ge=0)
+
+
+class BenchmarkClipCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    clips: List[BenchmarkClipRow] = Field(max_length=250)
+
+
+class BenchmarkClipNote(BaseModel):
+    clip: str
+    message: str
+
+
+class BenchmarkClipCheck(BaseModel):
+    problems: List[BenchmarkClipNote]
+    warnings: List[BenchmarkClipNote]
+
+
+class BenchmarkClipImportResult(BaseModel):
+    set_name: str
+    clips: int
+    transcription_cases: int
+    translation_cases: int
+    case_ids: List[int]
+    warnings: List[BenchmarkClipNote]
+
+
+class BenchmarkCaseExcluded(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    excluded: bool
+
+
+class BenchmarkCaseReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reference_text: str = Field(max_length=4000)
+
+
+class BenchmarkCaseEdit(BaseModel):
+    field: str
+    old_text: Optional[str] = None
+    new_text: Optional[str] = None
+    version: int
+    edited_at: Optional[str] = None
+
+
+class BenchmarkCaseEdits(BaseModel):
+    edits: List[BenchmarkCaseEdit]
+
+
+class BenchmarkLeftOut(BaseModel):
+    """Cases not compared: deleted, excluded, edited between the runs, or missing from a run."""
+    total: int
+    removed: int
+    excluded: int
+    edited: int
+    not_in_every_run: int
+
+
+class BenchmarkRunDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: bool = False

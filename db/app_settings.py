@@ -32,6 +32,12 @@ def set_app_setting(key: str, value):
         conn.commit()
 
 
+def delete_app_setting(key: str):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+        conn.commit()
+
+
 def get_research_cache(cache_key: str):
     """A cached grounded-research result (the decoded dict), or None."""
     with contextlib.closing(db.get_conn()) as conn:

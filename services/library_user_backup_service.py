@@ -84,6 +84,7 @@ USER_BACKUP_TABLES = {
     "assistant_backlog": ("empty", "this PC's maintenance notes"),
     "benchmark_cases": ("empty", "this PC's test set, may quote any title"),
     "benchmark_runs": ("empty", "belongs to benchmark_cases"),
+    "benchmark_case_edits": ("empty", "belongs to benchmark_cases"),
     "benchmark_sessions": ("empty", "this PC's benchmark runs"),
     "benchmark_results": ("empty", "belongs to benchmark_sessions"),
     "model_candidates": ("empty", "this PC's model choices"),

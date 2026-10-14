@@ -219,6 +219,20 @@ def _init_benchmark_lab_schema():
             FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_benchmark_results_session ON benchmark_results(session_id);
+        -- Every change to a case's reference text, so a score from before a
+        -- fix can be told apart from one after it (version = the case's
+        -- ref_version once the change was applied).
+        CREATE TABLE IF NOT EXISTS benchmark_case_edits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            field TEXT NOT NULL,     -- 'reference_text' or 'source_text'
+            old_text TEXT,
+            new_text TEXT,
+            version INTEGER NOT NULL,
+            edited_at TEXT,
+            FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_benchmark_case_edits_case ON benchmark_case_edits(case_id);
         -- Candidate models for scheduled re-evaluation, and every
         -- promote/reject decision (kept so a rejected candidate isn't re-proposed
         -- as new).
@@ -244,10 +258,15 @@ def _init_benchmark_lab_schema():
         """)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_cases)").fetchall()}
         for col, coltype in (("tier", "TEXT DEFAULT 'application'"), ("set_name", "TEXT DEFAULT ''"),
-                             ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER")):
+                             ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER"),
+                             ("title", "TEXT"), ("tags", "TEXT"), ("scene_order", "INTEGER"),
+                             ("clip_key", "TEXT"), ("excluded", "INTEGER DEFAULT 0"),
+                             ("ref_version", "INTEGER DEFAULT 1")):
             if col not in cols:
                 db._safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
         result_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_results)").fetchall()}
         if "scorer" not in result_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN scorer TEXT")
+        if "ref_version" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN ref_version INTEGER")
         conn.commit()

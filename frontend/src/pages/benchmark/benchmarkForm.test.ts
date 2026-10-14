@@ -7,7 +7,7 @@ import type { JobRecord } from '../../types/jobs'
 import {
   arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
-  formatJudgeScore, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
+  formatJudgeScore, leftOutLine, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
   scriptCountsLine, toggleCompare, whisperChoiceGroups, type RunSelection,
 } from './benchmarkForm'
 import { BENCH_INTRO, BENCH_PAGE_HELP, BENCH_SECTIONS } from './benchmarkHelp'
@@ -198,7 +198,7 @@ describe('whether Start is enabled', () => {
 describe('sets', () => {
   const sets: BenchmarkSet[] = [
     { stage: 'translation', tier: 'public', set_name: 'flores', case_count: 10, with_reference: 10 },
-    { stage: 'translation', tier: 'application', set_name: 'mine', case_count: 3, with_reference: 2 },
+    { stage: 'translation', tier: 'application', set_name: 'mine', case_count: 3, with_reference: 2, excluded: 1 },
     { stage: 'translation', tier: 'application', set_name: '', case_count: 2, with_reference: 0 },
     { stage: 'ocr', tier: 'application', set_name: 'pages', case_count: 4, with_reference: 4 },
   ]
@@ -210,8 +210,9 @@ describe('sets', () => {
   })
 
   it('counts the cases a selection covers', () => {
-    expect(casesInSelection(sets, 'translation', '', '')).toBe(15)
-    expect(casesInSelection(sets, 'translation', 'application', '')).toBe(5)
+    // An excluded case is not run, so it is not counted.
+    expect(casesInSelection(sets, 'translation', '', '')).toBe(14)
+    expect(casesInSelection(sets, 'translation', 'application', '')).toBe(4)
     expect(casesInSelection(sets, 'translation', '', 'flores')).toBe(10)
     expect(casesInSelection(sets, 'transcription', '', '')).toBe(0)
   })
@@ -425,5 +426,19 @@ describe('scriptCountsLine', () => {
   it('is empty when the run is not a Chinese transcript', () => {
     expect(scriptCountsLine(null)).toBe('')
     expect(scriptCountsLine(undefined)).toBe('')
+  })
+})
+
+describe('leftOutLine', () => {
+  const none = { total: 0, removed: 0, excluded: 0, edited: 0, not_in_every_run: 0 }
+
+  it('says what was compared, and nothing more when no case was left out', () => {
+    expect(leftOutLine(3, none)).toBe('Compared on the 3 cases every run scored against the same reference.')
+    expect(leftOutLine(1, undefined)).toBe('Compared on the 1 case every run scored against the same reference.')
+  })
+
+  it('counts every reason a case was left out', () => {
+    expect(leftOutLine(2, { total: 5, removed: 1, excluded: 1, edited: 2, not_in_every_run: 1 })).toBe(
+      'Compared on the 2 cases every run scored against the same reference. 5 left out: 2 edited between the runs, 1 excluded, 1 deleted, 1 not scored in every run.')
   })
 })

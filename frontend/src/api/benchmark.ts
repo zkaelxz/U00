@@ -3,7 +3,7 @@
 // estimate need admin.diagnostics; adding, importing and deleting cases and
 // starting a run are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403
 // marks the tab remote). No key, path or file name is ever returned.
-import { getJson, postJson } from './client'
+import { apiUrl, getJson, postJson, postMultipart } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
@@ -51,6 +51,13 @@ export interface BenchmarkCase {
   has_input_file: boolean
   origin_drama_id: number | null
   origin_line_id: number | null
+  title: string
+  tags: string[]
+  scene_order: number | null
+  /** An excluded case is not run and drops out of comparisons; its results are kept. */
+  excluded: boolean
+  /** Goes up by one each time the reference is edited. */
+  ref_version: number
   created_at: string | null
 }
 
@@ -60,6 +67,8 @@ export interface BenchmarkSet {
   set_name: string
   case_count: number
   with_reference: number
+  /** Cases left out of scoring. */
+  excluded?: number
 }
 
 interface BenchmarkCaseCreate {
@@ -199,6 +208,8 @@ export interface BenchmarkRun {
   context_settings: Record<string, unknown>
   case_filter: Record<string, unknown>
   delta_vs_first: number | null
+  /** Arena only: the run's own total over all its cases (aggregate_score covers only the compared ones). */
+  stored_aggregate_score?: number | null
   judge?: BenchmarkJudgeSummary | null
   script_counts?: ScriptCounts | null
 }
@@ -217,6 +228,7 @@ export interface BenchmarkResult {
   error: string | null
   judge?: BenchmarkJudgeScore | null
   script_counts?: ScriptCounts | null
+  ref_version?: number
 }
 
 interface BenchmarkRunDetail {
@@ -233,9 +245,20 @@ export interface BenchmarkArenaRow {
   results: (BenchmarkResult | null)[]
 }
 
+/** Cases an Arena comparison skipped, and why. */
+export interface BenchmarkLeftOut {
+  total: number
+  removed: number
+  excluded: number
+  edited: number
+  not_in_every_run: number
+}
+
 export interface BenchmarkArena {
   runs: BenchmarkRun[]
   rows: BenchmarkArenaRow[]
+  /** Absent for a single run's results. */
+  left_out?: BenchmarkLeftOut | null
 }
 
 /** The query string for GET /cases: only the filters that are set. */
@@ -325,4 +348,75 @@ export function getBenchmarkArena(runIds: number[], f?: Fetch) {
   const params = new URLSearchParams()
   runIds.forEach((id) => params.append('run_ids', String(id)))
   return getJson<BenchmarkArena>(`${BASE}/arena?${params}`, f)
+}
+
+// ---- the owner's clip set -------------------------------------------------
+
+export interface ClipRowPayload {
+  filename: string
+  language: SourceLanguage
+  transcript: string
+  translation?: string
+  title?: string
+  tags?: string[]
+}
+
+export interface ClipNote {
+  clip: string
+  message: string
+}
+
+export interface ClipImportResult {
+  set_name: string
+  clips: number
+  transcription_cases: number
+  translation_cases: number
+  case_ids: number[]
+  warnings: ClipNote[]
+}
+
+// Reports what would refuse the import and kana/Hangul that contradicts a language label; saves nothing.
+export const checkBenchmarkClips = (clips: ClipRowPayload[], f?: Fetch) =>
+  postJson<{ problems: ClipNote[]; warnings: ClipNote[] }>(`${BASE}/clips/check`, { clips }, f)
+
+// Uploads the audio with its rows. PC only. Paths and file names are never returned.
+export function importBenchmarkClips(body: { set_name: string; clips: ClipRowPayload[]; files: File[] }, f?: Fetch) {
+  const form = new FormData()
+  form.set('set_name', body.set_name)
+  form.set('clips', JSON.stringify(body.clips))
+  body.files.forEach((file) => form.append('files', file, file.name))
+  return postMultipart<ClipImportResult>(`${BASE}/clips/import`, form, pcOnlyFetch(f))
+}
+
+export const setCaseExcluded = (id: number, excluded: boolean, f?: Fetch) =>
+  postJson<BenchmarkCase>(`${BASE}/cases/${id}/excluded`, { excluded }, pcOnlyFetch(f))
+
+// Fixes a transcript or translation in place; the change is logged and the case's version goes up.
+export const editCaseReference = (id: number, reference_text: string, f?: Fetch) =>
+  postJson<BenchmarkCase>(`${BASE}/cases/${id}/reference`, { reference_text }, pcOnlyFetch(f))
+
+export interface CaseEdit {
+  field: string
+  old_text: string | null
+  new_text: string | null
+  version: number
+  edited_at: string | null
+}
+
+export const getCaseEdits = (id: number, f?: Fetch) => getJson<{ edits: CaseEdit[] }>(`${BASE}/cases/${id}/edits`, f)
+
+// Removes a run and its results; its cases stay.
+export const deleteBenchmarkRun = (id: number, f?: Fetch) =>
+  postJson<{ deleted: boolean; id: number }>(`${BASE}/runs/${id}/delete`, { confirm: true }, pcOnlyFetch(f))
+
+export type ExportFormat = 'csv' | 'json'
+
+/** Download links: the setup, scores and each case's output for a run, or for runs compared on their shared cases. */
+export const runExportUrl = (id: number, format: ExportFormat) => apiUrl(`${BASE}/runs/${id}/export?format=${format}`)
+
+export function arenaExportUrl(runIds: number[], format: ExportFormat) {
+  const params = new URLSearchParams()
+  runIds.forEach((id) => params.append('run_ids', String(id)))
+  params.set('format', format)
+  return apiUrl(`${BASE}/arena/export?${params}`)
 }

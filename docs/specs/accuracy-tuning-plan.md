@@ -1,6 +1,6 @@
 # Accuracy tuning: test the owner's own clips, pick models and settings by measurement (plan)
 
-Status: **plan, not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
+Status: **plan; step A1 built, A2 onward not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
 
 ## Why
 
@@ -44,7 +44,7 @@ The owner wants better transcription and translation accuracy, and evidence for 
 ## Method
 
 1. **Reference sets.**
-   - **Main source: the owner's clip set.** A folder of clips plus a manifest, one line per clip: `{"audio": "clip01.wav", "language": "zh", "transcript": "…", "translation": "…", "title": "…", "tags": ["music", "whisper"]}`. Clips from one scene keep their order so translation can be tested with context. `start`/`end` per line (or an SRT beside the clip) are optional and enable timing scores. What a line can test depends on what it has:
+   - **Main source: the owner's clip set,** uploaded in the app. On the Benchmark Lab page the owner picks or drops audio files in the browser and fills a table with each clip's transcript, optional translation, language, title and tags (text can be pasted for many rows). No folder path is typed and no manifest file is needed. **Optional extra:** a manifest, one JSON line per clip, fills the same table (and the import accepts it too): `{"audio": "clip01.wav", "language": "zh", "transcript": "…", "translation": "…", "title": "…", "tags": ["music", "whisper"]}`. Clips from one scene keep their order so translation can be tested with context. `start`/`end` per line (or an SRT beside the clip) are optional and enable timing scores. What a line can test depends on what it has:
 
      | Clip has | Tests |
      |---|---|
@@ -97,7 +97,7 @@ One PR each, in this order.
 
 ### A1. Clip-set import and clean-up controls
 
-- Import a clip folder plus manifest (format in Method). Clips are copied into `db.BENCHMARK_DIR`; each line makes a transcription case and a translation case, with title, tags and scene order kept. Size and count caps like `MAX_IMPORT_CASES`; paths are never returned in API responses.
+- **Upload first, in the app** (built): the Lab's "Your own clips" section takes audio files by multi-select or drag and drop, with a table for transcript, optional translation, language, title and tags, and a paste box for many rows. A folder plus manifest (format in Method) is an optional extra the same import also accepts. Clips are copied into `db.BENCHMARK_DIR` under generated names; each clip makes a transcription case and, when it has a translation, a translation case, with title, tags and scene order kept. Caps: 250 clips and 1 GB per save, 50 MB per clip (`services/benchmark_clip_service.py`); paths and file names are never returned in API responses.
 - **Language per clip, not per import.** `language` (`zh`, `ja` or `ko`) is required on every manifest line, so one clip set can mix all three. Today's text import takes one `source_language` for the whole import; the clip import does not.
 - **One text normalisation for both scorers**, so results from the first import are comparable across PCs: drop punctuation, fold full-width to half-width, ignore spacing; keep Traditional→Simplified for Chinese. Today the built-in CER counts punctuation while the jiwer path strips it. (OCR keeps punctuation, per the 2026-09-30 decision.)
 - **Mismatch check on import.** Kana in a transcript points to Japanese and Hangul to Korean. When the text doesn't match the label, the import warns and names the clip rather than silently relabelling it.
