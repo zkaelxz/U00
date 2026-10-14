@@ -40,6 +40,13 @@ def _json_for_script(value) -> str:
             .replace("\u2029", "\\u2029"))
 
 
+# Every word is its own <ruby> element with an onclick, so a line this long
+# makes a page of megabytes that takes seconds to build and the browser longer
+# to lay out; no subtitle line comes near it, so it is a pasted wall of text,
+# which reads as plain text.
+MAX_ANNOTATED_LINE_CHARS = 20_000
+
+
 def build_reader_html(lines, source_language: str, definitions: dict,
                        audio_data_uri: str = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
@@ -66,7 +73,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     missing_segmenters = []
     for ln in lines:
         try:
-            segments = segment.segment_and_annotate(ln.zh, source_language)
+            segments = (None if len(ln.zh or "") > MAX_ANNOTATED_LINE_CHARS
+                        else segment.segment_and_annotate(ln.zh, source_language))
         except ImportError as e:
             # The word splitter (jieba/pypinyin, sudachipy/pykakasi, kiwipiepy)
             # is an optional install: show the line unsplit rather than no page.

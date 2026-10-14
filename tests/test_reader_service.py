@@ -412,6 +412,32 @@ class TestReaderHtmlEscaping:
         assert _EVIL in text
 
 
+class TestReaderHtmlLongLine:
+    def test_a_200kb_line_renders_unannotated_in_seconds(self):
+        import time
+        pytest.importorskip("jieba")
+        pytest.importorskip("pypinyin")
+        import reader
+        text = "我今天早上很早就起床了然后去公园跑步" * 11_000
+        assert len(text) > 190_000
+        started = time.monotonic()
+        page = reader.build_reader_html(
+            [Line(idx=0, start=0.0, end=1.0, zh=text, en="e"),
+             Line(idx=1, start=1.0, end=2.0, zh="你好", en="hi")], "zh", {})
+        assert time.monotonic() - started < 2
+        assert text in page                     # shown whole, just not split into words
+        assert page.count('class="word"') == 1  # only the short line is annotated
+        assert len(page) < 1_000_000
+
+    def test_a_line_just_under_the_cap_is_still_annotated(self, monkeypatch):
+        import reader
+        import segment
+        monkeypatch.setattr(segment, "segment_and_annotate", lambda t, lang, *a, **k: [("词", "ci")])
+        text = "词" * reader.MAX_ANNOTATED_LINE_CHARS
+        page = reader.build_reader_html([Line(idx=0, start=0.0, end=1.0, zh=text, en="")], "zh", {})
+        assert page.count('class="word"') == 1
+
+
 class TestLookupDefinitions:
     def _setup(self, isolated_db, monkeypatch, lang="zh"):
         import dictionary
@@ -725,7 +751,7 @@ class TestReviewFixes:
             assert name.isascii() and name == want
 
 
-def test_a_200kb_single_line_title_is_segmented_in_bounded_chunks_with_the_same_text(
+def test_a_longest_annotated_line_is_segmented_in_bounded_chunks_with_the_same_text(
         monkeypatch):
     import re
     import reader
@@ -738,7 +764,7 @@ def test_a_200kb_single_line_title_is_segmented_in_bounded_chunks_with_the_same_
     monkeypatch.setattr(segment._jieba, "cut",
                         lambda chunk, *a, **kw: (cut_sizes.append(len(chunk)),
                                                  real_cut(chunk, *a, **kw))[1])
-    text = "很" * 200_000
+    text = "很" * reader.MAX_ANNOTATED_LINE_CHARS   # the longest line still annotated
     line = Line(idx=0, start=0.0, end=1.0, zh=text, en="")
     out = reader.build_reader_html([line], "zh", {})
     # Segmenting cost grows with the size of the text handed to jieba at once,
