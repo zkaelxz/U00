@@ -208,6 +208,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 
 - `cancellable_lock.py` (`hold`: take a lock while polling a cancel check, so a job waiting on the pipeline lock can be cancelled)
 - `capped_body.py` (byte- and time-capped read of a streamed HTTP body)
+- `capped_request.py` (`read_capped_form`: the upload routes' shared prelude: chunked bodies refused, Content-Length checked against the route's cap, the body stream counted, an unreadable form given the route's own message)
 - `http.py` (the one outbound GET/POST: guard on every redirect hop, pinned connection, byte cap, total deadline, fixed-text errors)
 - `proc.py` (the one runner for external commands whose output is read: own process group, tree kill on timeout or cancel, bounded output drain)
 - `proc_kill.py` (`kill_tree`: kills a child and everything it started)

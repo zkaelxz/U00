@@ -40,13 +40,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.auth import (is_local_request, local_only, require_engines_allowed,
                       require_permission)
-from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.schemas import DiscoverJobStarted, ErrorResponse, SourcesJobStarted
 from api.sources_tools_schemas import (DiscoverBulkPastedRequest, SourceExtraction,
                                        SourcesIdentifyMediaRequest, SourcesMediaResource,
                                        SourcesPastedImportRequest,
                                        SourcesPastedPreview, SourcesPastedPreviewRequest,
                                        SourcesPreflightRequest)
+from lib.capped_request import BodyTooLarge, capped
 from services import discover_lookup_service as discover_svc
 from services import sources_tools_service as svc
 from services.service_errors import InvalidInputError
