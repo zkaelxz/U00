@@ -36,7 +36,7 @@ def fake_repo(tmp_path):
         "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
         "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
         "installer/launcher.py", "installer/postinstall.py", "installer/release_public_key.txt",
-        "installer/app_swap.py",
+        "installer/app_swap.py", "installer/wheels.lock.txt",
         "run_tests.py",
         # Never ships
         ".env", ".env.local", ".env.example", "services/.env",
@@ -68,7 +68,7 @@ SHIPS = {
     "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
     "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
     "installer/launcher.py", "installer/postinstall.py", "installer/release_public_key.txt",
-    "installer/app_swap.py",
+    "installer/app_swap.py", "installer/wheels.lock.txt",
     "run_tests.py",
 }
 
@@ -169,7 +169,8 @@ class TestCheckPayload:
         for rel in ("frontend/dist/index.html", "api/__main__.py", "portable.py", "process_guard.py",
                     "requirements-core.txt", "constraints.txt", "check_setup.py",
                     "installer/launcher.py", "installer/postinstall.py",
-                    "installer/release_public_key.txt", "installer/app_swap.py"):
+                    "installer/release_public_key.txt", "installer/app_swap.py",
+                    "installer/wheels.lock.txt"):
             _touch(dest, rel, "# no key yet\n" if rel.endswith("release_public_key.txt") else "x")
         return dest
 

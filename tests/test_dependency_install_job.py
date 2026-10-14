@@ -299,6 +299,32 @@ def test_install_now_refuses_what_must_wait_for_a_restart(env, monkeypatch):
     assert background_jobs.get_status(JOB) is None
 
 
+def test_files_in_use_since_the_preview_stop_the_install_before_pip(env, monkeypatch):
+    """The plan found nothing loaded; by the time the job holds the library
+    something has imported numpy, which pip would fail to replace on Windows."""
+    real = install_plan.build_plan
+    monkeypatch.setattr(install_plan, "build_plan", lambda keys, specs=None: real(
+        keys, windows=True, report=_report(("numpy", "2.1")), installed={"numpy": "2.0"},
+        in_use=lambda name: False, mins={}, required=set()))
+    monkeypatch.setattr(install_plan, "_is_windows", lambda: True)
+    monkeypatch.setattr(install_plan, "dist_in_use", lambda name: name == "numpy")
+    monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("pip must not run"))
+    svc.start_dependency_install("jieba", confirm=True)
+    assert _wait(_finished)["status"] == "error"
+    assert svc.get_dependency_install()["result"]["hint"] == (
+        "Nothing was changed: Baihe started using numpy after the preview, and Windows can't "
+        "replace files in use. Queue it for the next start instead.")
+    assert job_launch.exclusive_active() is False
+
+
+def test_files_in_use_are_rechecked_only_on_windows(env, monkeypatch):
+    monkeypatch.setattr(install_plan, "_is_windows", lambda: False)
+    monkeypatch.setattr(install_plan, "dist_in_use", lambda name: pytest.fail("not asked off Windows"))
+    _commands(monkeypatch, "pass")
+    svc.start_dependency_install("jieba", confirm=True)
+    assert _wait(_finished)["status"] == "done"
+
+
 @pytest.mark.parametrize("which", ["purelib", "platlib"])
 def test_a_read_only_install_folder_refuses_before_a_job_exists(env, monkeypatch, tmp_path, which):
     """os.access would say yes on a Windows folder whose ACL denies writing,
@@ -338,6 +364,9 @@ def restore(monkeypatch):
     def fake_restore_pip(argv, timeout, cancel=None, **_kw):
         if state.get("cancel_again"):
             background_jobs.request_cancel(JOB)
+        if "-r" in argv:        # the kept-wheel restore names its packages in a requirements file
+            with open(argv[argv.index("-r") + 1], encoding="utf-8") as f:
+                argv = [line.split()[0] for line in f]
         state["calls"].append({"specs": [a for a in argv if "==" in a],
                                "cancel": cancel is not None,
                                "stopped": cancel is not None and cancel()})
@@ -429,6 +458,26 @@ def test_a_package_from_outside_the_index_is_not_put_back_from_it(env, monkeypat
     hint = svc.get_dependency_install()["result"]["hint"]
     assert "mylib came from outside the package index" in hint
     assert "Your earlier packages were put back" not in hint
+
+
+def test_a_kept_core_wheel_is_put_back_on_its_own_before_the_index(env, monkeypatch, restore, tmp_path):
+    """Setup's kept numpy wheel goes back with no index (so with the network
+    down too); pyyaml has no kept wheel and comes from the index after it."""
+    import hashlib
+    folder = tmp_path / "wheels"
+    folder.mkdir()
+    (folder / "numpy-2.0-cp312-cp312-win_amd64.whl").write_bytes(b"numpy")
+    lock = tmp_path / "wheels.lock.txt"
+    lock.write_text(f"numpy==2.0 \\\n    --hash=sha256:{hashlib.sha256(b'numpy').hexdigest()}\n")
+    monkeypatch.setattr(pending_install, "kept_wheels_dir", lambda: str(folder))
+    monkeypatch.setattr(pending_install, "_app_wheel_lock", lambda: str(lock))
+    monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path / "data"))
+    restore["env"]["pyyaml"] = "6.0"
+    _pip_moves(restore, monkeypatch, {"numpy": "2.1", "pyyaml": "6.1"})
+    svc.start_dependency_install("jieba", confirm=True)
+    _wait(_finished)
+    assert [c["specs"] for c in restore["calls"]] == [["numpy==2.0"], ["pyyaml==6.0"]]
+    assert restore["env"] == {"numpy": "2.0", "pyyaml": "6.0"}
 
 
 def test_a_package_that_could_not_be_put_back_is_named(env, monkeypatch, restore):

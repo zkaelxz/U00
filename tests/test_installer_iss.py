@@ -103,9 +103,15 @@ class TestNoSecrets:
             for bad in (".env", "library", "model_cache", "tests", "venv"):
                 assert bad not in lower, source
 
-    def test_wheels_are_temporary(self, iss):
+    def test_wheels_are_kept_in_the_install_folder_for_an_offline_restore(self, iss):
+        # pending_install.kept_wheels_dir looks beside {app}\python; an
+        # update replaces the folder so it holds only this Setup's versions.
         wheels = [e for e in _entries(iss, "Files") if "wheels" in e]
-        assert wheels and all("{tmp}" in e and "deleteafterinstall" in e for e in wheels)
+        assert wheels and all('DestDir: "{app}\\wheels"' in e and "deleteafterinstall" not in e
+                              for e in wheels)
+        assert any('"{app}\\wheels"' in e for e in _entries(iss, "InstallDelete"))
+        assert "ExpandConstant('{app}\\wheels')" in _func(iss, "RunPostInstall")
+        assert "{tmp}\\wheels" not in iss
 
 
 class TestDataFolder:
@@ -197,7 +203,7 @@ class TestUninstall:
         assert "'app-*'" not in uninstall
         folders = _func(iss, "DeleteAppVersionFolders")
         assert "IsAppVersionName(Rec.Name)" in folders
-        assert "$400" in folders and folders.index("$400") < folders.index("DelTree(")
+        assert "$400" in folders and folders.index("$400") < folders.index("DelTreeNoLinks(")
         assert "RemoveDir(Path)" in folders
         # Each delete site is declared before it is used (Pascal Script).
         assert iss.index("function DeleteAppVersionFolders") < iss.index("procedure CurStepChanged")
@@ -334,7 +340,7 @@ class TestUninstall:
         folders = _func(iss, "DeleteMatchingFolders")
         # A junction or symlink loses only the link: RemoveDir, never DelTree.
         assert "$400" in folders
-        assert folders.index("$400") < folders.index("DelTree(")
+        assert folders.index("$400") < folders.index("DelTreeNoLinks(")
         assert "RemoveDir(Path)" in folders
 
     def test_the_typed_delete_prompt_names_the_restore_copies_and_their_size(self, iss):
@@ -376,8 +382,27 @@ class TestUninstall:
 
     def test_failed_deletions_are_reported(self, iss):
         tree = _func(iss, "DeleteTree")
-        assert "if DelTree(Path, True, True, True) and not DirExists(Path) then" in tree
+        assert "else if DelTreeNoLinks(Path) and not DirExists(Path) then" in tree
         assert "couldn''t be removed" in tree
+
+    def test_no_delete_follows_a_junction_or_symlink(self, iss):
+        # Inno's DelTree recurses only from inside DelTreeNoLinks, and there with
+        # subfolders off: every folder level is walked here, links removed as links.
+        assert re.findall(r"\bDelTree\([^)]*\)", iss) == ["DelTree(Path, True, True, False)"]
+        walk = _func(iss, "DelTreeNoLinks")
+        # Unreadable attributes fail closed: nothing is deleted.
+        assert re.search(r"Result := False;\s+if not PathAttributes\(Path, Attributes\) then\s+Exit;\s+"
+                         r"if \(Attributes and \$400\) <> 0 then\s+begin\s+"
+                         r"Result := RemoveDir\(Path\) or DeleteFile\(Path\);\s+Exit;", walk)
+        assert re.search(r"if \(Rec\.Attributes and \$400\) <> 0 then\s+RemoveDir\(Child\)\s+else\s+DelTreeNoLinks\(Child\);",
+                         walk)
+        assert "$400" in _func(iss, "IsLink")
+        assert iss.index("function DelTreeNoLinks") < iss.index("function DeleteAppVersionFolders")
+
+    def test_a_folder_that_is_itself_a_link_loses_only_the_link_and_says_so(self, iss):
+        tree = _func(iss, "DeleteTree")
+        assert tree.index("if IsLink(Path) then") < tree.index("DelTreeNoLinks(Path)")
+        assert "the folder it points to was kept" in tree
 
     def test_lockdown_only_for_a_folder_made_now(self, iss):
         assert "DataDirIsNew := not DirExists(DataDir());" in _func(iss, "PrepareToInstall")

@@ -243,6 +243,22 @@ def _is_windows() -> bool:
     return os.name == "nt"
 
 
+def replaced_names(plan: dict) -> set:
+    """The installed dists a plan's pip run would replace or remove."""
+    return {c["name"] for c in plan["changes"] if c["kind"] != "install"} | set(plan["swap"])
+
+
+def loaded_now(names, windows: bool = None, in_use=None) -> list:
+    """Which of `names` Windows couldn't replace right now; none elsewhere."""
+    windows = _is_windows() if windows is None else windows
+    in_use = dist_in_use if in_use is None else in_use
+    return sorted(n for n in names if windows and in_use(n))
+
+
+def in_use_note(loaded: list, lead: str = "Baihe is using {} right now") -> str:
+    return lead.format(", ".join(loaded)) + ", and Windows can't replace files in use."
+
+
 def apply_in_use(plan: dict, jobs_running: bool, windows: bool = None, in_use=None) -> dict:
     """Sets `loaded`, `note` and `mode` of a previewed plan from what is in use
     right now. Also re-run on a cached plan, whose answer goes stale as soon as
@@ -250,14 +266,11 @@ def apply_in_use(plan: dict, jobs_running: bool, windows: bool = None, in_use=No
     if not plan["available"]:
         return plan     # no preview: its restart mode and note don't depend on what is in use
     windows = _is_windows() if windows is None else windows
-    in_use = dist_in_use if in_use is None else in_use
-    names = {c["name"] for c in plan["changes"] if c["kind"] != "install"} | set(plan["swap"])
-    plan["loaded"] = sorted(n for n in names if windows and in_use(n))
+    plan["loaded"] = loaded_now(replaced_names(plan), windows, in_use)
     plan["note"] = None
     plan["mode"] = "now"
     if plan["loaded"]:
-        plan["note"] = ("Baihe is using " + ", ".join(plan["loaded"]) + " right now, and "
-                        "Windows can't replace files in use.")
+        plan["note"] = in_use_note(plan["loaded"])
     elif windows and jobs_running:
         plan["note"] = "A job is running and may load these packages while pip works."
     if windows and (plan["loaded"] or jobs_running):
