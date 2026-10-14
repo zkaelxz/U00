@@ -8,7 +8,7 @@ import {
   arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   formatJudgeScore, leftOutLine, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
-  scriptCountsLine, toggleCompare, whisperChoiceGroups, type RunSelection,
+  optionValue, runConfigLabel, runExtraLabel, scriptCountsLine, toggleCompare, whisperChoiceGroups, withOption, type RunSelection,
 } from './benchmarkForm'
 import { BENCH_INTRO, BENCH_PAGE_HELP, BENCH_SECTIONS } from './benchmarkHelp'
 
@@ -23,6 +23,12 @@ const options: BenchmarkOptions = {
   ],
   whisper_sizes: ['small', 'medium', 'large-v3', 'ja-1.5b'],
   whisper_exclusions: { medium: { ja: 'No medium for Japanese.' }, 'ja-1.5b': { zh: 'Japanese only.', ko: 'Japanese only.' } },
+  transcription_backends: [{ name: 'qwen3_asr_vad', label: 'Qwen3-ASR', problem: null }, { name: 'anime_whisper', label: 'anime-whisper', problem: null }],
+  transcribe_defaults: {
+    beam_size: 5, min_silence_ms: 300, vad_threshold: 0.5, sensitivity_preset: 'normal', hallucination_silence_sec: 0,
+    whisper_repeat_guard: false, difficult_audio: false, separate_vocals_first: false, initial_prompt: '',
+  },
+  transcribe_options_ignored: { whisper: [], qwen3_asr_vad: ['beam_size'], anime_whisper: ['beam_size'] },
   ocr_backends: ['tesseract', 'paddle'],
   pass_threshold: 0.8,
   chrf_pass_threshold: 0.5,
@@ -440,5 +446,58 @@ describe('leftOutLine', () => {
   it('counts every reason a case was left out', () => {
     expect(leftOutLine(2, { total: 5, removed: 1, excluded: 1, edited: 2, not_in_every_run: 1 })).toBe(
       'Compared on the 2 cases every run scored against the same reference. 5 left out: 2 edited between the runs, 1 excluded, 1 deleted, 1 not scored in every run.')
+  })
+})
+
+describe('transcription arms at real settings', () => {
+  const defaults = options.transcribe_defaults
+
+  it('sends no options for a default arm and only the changed ones otherwise', () => {
+    const plain = sel({ stage: 'transcription', configs: [{ engine: 'whisper', model: 'large-v3' }] })
+    expect(runRequestBody(plain).configs).toEqual([{ engine: 'whisper', model: 'large-v3' }])
+    const changed = withOption(withOption({ engine: 'whisper', model: 'large-v3' }, defaults, 'beam_size', 1), defaults, 'difficult_audio', true)
+    expect(runRequestBody(sel({ stage: 'transcription', configs: [changed] })).configs).toEqual([
+      { engine: 'whisper', model: 'large-v3', options: { beam_size: 1, difficult_audio: true } },
+    ])
+  })
+
+  it('drops options on a stage that has none', () => {
+    const stray = { engine: 'tesseract', options: { beam_size: 1 } }
+    expect(runRequestBody(sel({ stage: 'ocr', configs: [stray] })).configs).toEqual([{ engine: 'tesseract' }])
+  })
+
+  it('setting an option back to the default removes it', () => {
+    const once = withOption({ engine: 'whisper', model: 'small' }, defaults, 'min_silence_ms', 600)
+    expect(optionValue(once, defaults, 'min_silence_ms')).toBe(600)
+    const back = withOption(once, defaults, 'min_silence_ms', 300)
+    expect(back).toEqual({ engine: 'whisper', model: 'small' })
+    expect(optionValue(back, defaults, 'min_silence_ms')).toBe(300)
+  })
+
+  it('treats one model at two different settings as two arms, and the same settings twice as a duplicate', () => {
+    const a = withOption({ engine: 'whisper', model: 'small' }, defaults, 'beam_size', 1)
+    const b = { engine: 'whisper', model: 'small' }
+    expect(selectionProblems(sel({ stage: 'transcription', configs: [a, b] }), 4)).toEqual([])
+    expect(selectionProblems(sel({ stage: 'transcription', configs: [b, { ...b }] }), 4)).toEqual(['The same engine and model is picked twice.'])
+  })
+
+  it('changing the options changes what an estimate is for', () => {
+    const base = sel({ stage: 'transcription', configs: [{ engine: 'whisper', model: 'small' }] })
+    const tuned = sel({ stage: 'transcription', configs: [withOption({ engine: 'whisper', model: 'small' }, defaults, 'beam_size', 1)] })
+    expect(estimateKey(base, 3)).not.toBe(estimateKey(tuned, 3))
+  })
+
+  it('restores the other recognisers (picked by hand, without a model) and their options', () => {
+    expect(restoreConfigs('transcription', [{ engine: 'anime_whisper', options: { beam_size: 2, junk: 1 } }, { engine: 'gone' }], options)).toEqual([
+      { engine: 'anime_whisper', options: { beam_size: 2 } },
+    ])
+    expect(configLabel('transcription', 'qwen3_asr_vad')).toBe('Qwen3-ASR')
+  })
+
+  it('names the options a run changed beside its model, and nothing for a default run', () => {
+    const run = (changes?: Record<string, unknown>) => ({ stage: 'transcription', engine: 'whisper', model: 'large-v3', context_settings: changes ? { transcribe_changes: changes } : {} })
+    expect(runConfigLabel(run())).toBe('Whisper large-v3')
+    expect(runConfigLabel(run({ beam_size: 1, min_silence_ms: 600 }))).toBe('Whisper large-v3 (beam 1, min silence 600 ms)')
+    expect(runExtraLabel({ ...run({ beam_size: 1 }), label: 'Whisper large-v3 (beam 1)' })).toBeNull()
   })
 })

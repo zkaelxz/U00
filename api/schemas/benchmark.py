@@ -5,9 +5,13 @@ api/benchmark_schemas.py. No key, path or URL field exists on any model.
 
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Union
+
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt
 
 __all__ = [
+    "BenchmarkTranscribeOptions",
+    "BenchmarkBackendOption",
     "BenchmarkJudgeConfig",
     "BenchmarkJudgeScore",
     "BenchmarkJudgeSummary",
@@ -161,3 +165,27 @@ class BenchmarkLeftOut(BaseModel):
 class BenchmarkRunDelete(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: bool = False
+
+
+class BenchmarkTranscribeOptions(BaseModel):
+    """A Lab transcription arm's per-title options (services/transcribe_options_service.py
+    checks the values); a field left out takes the app's default."""
+    model_config = ConfigDict(extra="forbid")
+
+    # Strict: "5" or "yes" is refused, not coerced.
+    beam_size: Optional[StrictInt] = None
+    min_silence_ms: Optional[StrictInt] = None
+    vad_threshold: Optional[Union[StrictInt, StrictFloat]] = None
+    sensitivity_preset: Optional[str] = Field(default=None, max_length=20)
+    hallucination_silence_sec: Optional[Union[StrictInt, StrictFloat]] = None
+    whisper_repeat_guard: Optional[StrictBool] = None
+    difficult_audio: Optional[StrictBool] = None
+    separate_vocals_first: Optional[StrictBool] = None
+    initial_prompt: Optional[str] = Field(default=None, max_length=1000)
+
+
+class BenchmarkBackendOption(BaseModel):
+    name: str
+    label: str
+    # What it still needs on this PC; None when it can run.
+    problem: Optional[str] = None
