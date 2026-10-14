@@ -95,7 +95,9 @@ import { useGlossaryScans } from './useGlossaryRun'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import { SourceChangedWarning } from './SourceChangedWarning'
+import { EngineGateNote } from './EngineGateNote'
 import { translateBlocker } from './stageBlockers'
+import { useEngineGate } from './useEngineGate'
 import './translate.css'
 import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
 
@@ -356,6 +358,7 @@ function RunPanel({
   const batchOverridden = batchOverride(config, f)
   const guidance = styleGuidance(config, f.style_preset)
   const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
+  const gate = useEngineGate(config.engines, effEngine, config.ollama_reachable)
   // "Re-translate existing…" unmounts itself; hand focus to the confirm box that replaces it.
   const focusAck = useRef(false)
   // Fallbacks: same kind as the main engine, never with Reflect or Bulk.
@@ -448,12 +451,13 @@ function RunPanel({
         <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
       )}
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
+      {gate && gate.id !== 'engine_ollama' && <div id="translate-gate"><EngineGateNote gate={gate} /></div>}
       <div className="translate-go">
         <button
           type="button"
           className="primary"
-          disabled={busy || starting || reviewing > 0 || blocker !== null}
-          aria-describedby={blocker ? 'translate-blocker' : busy ? 'translate-busy' : undefined}
+          disabled={busy || starting || reviewing > 0 || blocker !== null || gate !== null}
+          aria-describedby={blocker ? 'translate-blocker' : gate ? 'translate-gate' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
         >
           {translateButtonLabel(scanFirst, lineCount)}

@@ -5,6 +5,7 @@ import type { LineAiPick } from '../../../../api/review'
 import { getTranslateConfig } from '../../../../api/translateStage'
 import { useHolds } from '../../../../hooks/useHolds'
 import type { TranslateEngine } from '../../../../types/translate'
+import { useEngineGate } from '../useEngineGate'
 
 export interface LinePick {
   engine: string
@@ -92,5 +93,8 @@ export function useLineAiPick(dramaId: number) {
     setStored(next)
     savePick(next)
   }
-  return { ready, engines, defaultEngine: config?.defaultEngine ?? '', holdsPaid, pick, setPick }
+  const defaultEngine = config?.defaultEngine ?? ''
+  // Why the engine this request would use can't run (no key, package missing, Ollama stopped), or null.
+  const gate = useEngineGate(engines, pick.engine || defaultEngine, undefined)
+  return { ready, engines, defaultEngine, holdsPaid, pick, setPick, gate }
 }
