@@ -13,8 +13,6 @@ export interface ChapterPrefs {
   showHidden: boolean
 }
 
-export const DEFAULT_CHAPTER_PREFS: ChapterPrefs = { chapterOnly: false, showHidden: false }
-
 const prefsKey = (dramaId: number) => `comic.chapters.${dramaId}`
 
 export function loadChapterPrefs(storage: StorageLike | null, dramaId: number): ChapterPrefs {

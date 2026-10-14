@@ -129,6 +129,8 @@ export interface MockState {
   // Keep a running series job running (no auto-finish on the next poll).
   seriesHold: boolean
   tracked: unknown[]
+  // GET tracked answers a server fault.
+  trackedFail?: boolean
   notifications: unknown[]
   local: boolean
   // Calls that nothing mocks: aborted, and must stay empty.
@@ -171,7 +173,10 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
   })
   await page.route(/\/api\/sources\/tracked$/, (route) => {
     record(route)
-    return route.request().method() === 'GET' ? json(route, s.tracked) : guard(route)
+    if (route.request().method() !== 'GET') return guard(route)
+    return s.trackedFail
+      ? json(route, { error: { code: 'internal', message: 'Something went wrong.' } }, 500)
+      : json(route, s.tracked)
   })
   await page.route(/\/api\/sources\/notifications(\?.*)?$/, (route) => {
     record(route)

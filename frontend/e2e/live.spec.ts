@@ -16,6 +16,14 @@ test('a chosen title is sent with Start, and None sends nothing extra', async ({
   expect(m.unmocked).toEqual([])
 })
 
+test('a failed check for a running session is shown, not swallowed', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.sessionsFail = true
+  const live = await openLive(page)
+  await expect(live.getByRole('alert')).toContainText('Could not check for a running live session.')
+  expect(m.unmocked).toEqual([])
+})
+
 test('start, see lines arrive, stop', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)

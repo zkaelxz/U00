@@ -186,6 +186,7 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
   await page.route(/\/api\/assistant\/changelog$/, (route) => {
     record(route)
     const b = route.request().postDataJSON() as { from_ref: string; to_ref?: string }
+    if (b.from_ref === 'no-such-ref') return json(route, { error: { code: 'application_error', message: 'Unknown revision.' } }, 500)
     return json(route, { changelog: '- Added the maintenance assistant.\n- Fixed dub skipping lines.', commit_count: 2, from_ref: b.from_ref, to_ref: b.to_ref ?? 'HEAD' })
   })
   await page.route(/\/api\/assistant\/backlog$/, (route) => {

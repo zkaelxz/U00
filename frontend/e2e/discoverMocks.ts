@@ -48,6 +48,8 @@ interface Call {
 interface DiscoverMock {
   titles: typeof TITLES
   engines: typeof ENGINES
+  // The engine list answers a server fault.
+  enginesFail: boolean
   local: boolean
   bulk: 'none' | 'running' | 'done'
   nav: 'none' | 'running' | 'done'
@@ -64,7 +66,7 @@ const json = (route: Route, body: unknown, status = 200) =>
 
 export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {}): Promise<DiscoverMock> {
   const s: DiscoverMock = {
-    titles: [...TITLES], engines: ENGINES, local: true, bulk: 'none', nav: 'none', importConflict: false,
+    titles: [...TITLES], engines: ENGINES, enginesFail: false, local: true, bulk: 'none', nav: 'none', importConflict: false,
     calls: [], unmocked: [], ...over,
   }
   const record = (route: Route) => {
@@ -90,7 +92,8 @@ export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {})
   await page.route(/\/api\/meta$/, (route) =>
     json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: s.local }),
   )
-  await page.route(/\/api\/translate\/engines$/, (route) => json(route, { items: s.engines }))
+  await page.route(/\/api\/translate\/engines$/, (route) =>
+    s.enginesFail ? json(route, { error: { code: 'internal', message: 'Something went wrong.' } }, 500) : json(route, { items: s.engines }))
 
   await page.route(/\/api\/discover\/titles(\?.*)?$/, (route) => {
     const url = record(route)

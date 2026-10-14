@@ -14,6 +14,7 @@ import type { ImageProblem } from '../api/comic'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { usePreloadImages } from '../hooks/usePreloadImages'
 import { useShortcut } from '../hooks/useShortcut'
 import type { ComicPageInfo } from '../types/comic'
 import type { SavedChapterPages } from '../types/savedComics'
@@ -34,23 +35,6 @@ function browserStorage() {
   } catch {
     return null
   }
-}
-
-// Keeps the next pages' images warm in the browser cache.
-function usePreload(urls: string[]) {
-  const held = useRef(new Map<string, HTMLImageElement>())
-  const key = urls.join('\n')
-  useEffect(() => {
-    const want = key ? key.split('\n') : []
-    for (const u of want) {
-      if (held.current.has(u)) continue
-      const img = new Image()
-      img.decoding = 'async'
-      img.src = u
-      held.current.set(u, img)
-    }
-    for (const u of [...held.current.keys()]) if (!want.includes(u)) held.current.delete(u)
-  }, [key])
 }
 
 type Props = { source: string; series: string; chapter: string; page: number | null }
@@ -205,7 +189,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
     () => (current === null ? [] : preloadWindow(current, count, prefs.mode).map((n) => pages[n - 1]).filter(Boolean).map(srcFor)),
     [current, count, prefs.mode, pages, srcFor],
   )
-  usePreload(forbidden ? [] : preload)
+  usePreloadImages(forbidden ? [] : preload)
 
   const onProblem = useCallback((kind: ImageProblem) => {
     if (kind === 'forbidden') setForbidden(true)

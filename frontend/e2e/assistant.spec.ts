@@ -206,6 +206,11 @@ test('backlog: add, delete (two-step), clear all; changelog', async ({ page }) =
   await expect(log.getByTestId('changelog-result')).toContainText('2 commits from v0.9 to HEAD')
   await expect(log.locator('pre')).toContainText('Added the maintenance assistant.')
   expect(s.calls.find((c) => c.path === '/api/assistant/changelog')?.body).toEqual({ from_ref: 'v0.9', to_ref: 'HEAD' })
+  // A failed run takes the old summary away instead of leaving it under the error.
+  await log.getByLabel('From', { exact: true }).fill('no-such-ref')
+  await log.getByRole('button', { name: 'Generate' }).click()
+  await expect(log.getByRole('alert')).toBeVisible()
+  await expect(log.getByTestId('changelog-result')).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
 

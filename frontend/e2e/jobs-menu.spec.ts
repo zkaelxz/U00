@@ -27,6 +27,17 @@ test('badge counts active jobs and the panel lists active first', async ({ page 
   await expect(panel).toBeHidden()
 })
 
+test('a package install is named by what it is for, not by its raw package name', async ({ page }) => {
+  const t = Math.floor(Date.now() / 1000)
+  const base = { progress: 0.3, message: 'Collecting ctranslate2', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, started_at: t - 30, finished_at: null }
+  await mockJobs(page, [{ ...base, job_id: 'dependency_install', status: 'running', description: 'Installing faster_whisper' }])
+  await page.goto('/#/library')
+  await page.getByRole('button', { name: /^Jobs/ }).click()
+  const panel = page.getByRole('region', { name: 'Jobs' })
+  await expect(panel.locator('.jobs-item-name')).toHaveText(['Installing Whisper'])
+  await expect(panel.getByRole('button', { name: 'Cancel Installing Whisper' })).toBeVisible()
+})
+
 test('the panel offers Force stop only for a job stuck in Cancelling', async ({ page }) => {
   const stuck = sampleJobs().map((j) => (j.job_id === 'r1' ? { ...j, can_force_stop: true } : j))
   await mockJobs(page, stuck)
