@@ -51,8 +51,8 @@ jobs:
       INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
       # Builds the bundled Caddy (installer/build_installer.py CADDY_GO_VERSION);
       # the hash is go.dev's published one for this zip.
-      GO_URL: "https://go.dev/dl/go1.26.8.windows-amd64.zip"
-      GO_SHA256: "b92c3b2adae85a11ba71fe7216daf0d84e82af4c8ab6c5625807f28622043a59"
+      GO_URL: "https://go.dev/dl/go1.26.9.windows-amd64.zip"
+      GO_SHA256: "d722201a9c0c086d1610e111c48203009af690892ed708072bd5ae20160e7a59"
     steps:
       # Actions pinned by commit (tag in the comment; each runs on Node 24).
       # No token left on disk: npm ci runs package install scripts.

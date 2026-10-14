@@ -55,7 +55,7 @@ def test_improve_matches_by_id_and_writes_nothing(client, monkeypatch):
     _forbid_writes(monkeypatch)
     seen = {}
 
-    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines=""):
+    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle"):
         seen.update(zh=zh, en=en, issue=issue, style=style_guidelines)
         return "farewell"
     monkeypatch.setattr(line_tools, "improve_line", fake)
@@ -134,7 +134,7 @@ def test_improve_uses_the_shared_style_context_with_emotion(monkeypatch):
     db.save_emotions(did, {1: {"emotion": "angry", "intensity": 0.9, "note": "shouting"}})
     seen = {}
 
-    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines=""):
+    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle"):
         seen["style"] = style_guidelines
         return en
     monkeypatch.setattr(line_tools, "improve_line", fake)

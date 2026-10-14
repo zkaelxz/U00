@@ -474,7 +474,7 @@ class TestCaddyBuild:
         assert f"go/{bi.CADDY_GO_VERSION[2:]}.windows" in wf or f"{bi.CADDY_GO_VERSION}.windows-amd64.zip" in wf
 
     def test_source_is_pinned_to_lf_so_the_hash_is_the_same_on_a_windows_checkout(self):
-        # A CRLF main.go builds a different binary (03e740b... instead of e09cc7eb...).
+        # A CRLF main.go builds a different binary (d37ffe33... instead of 8cf980cd...).
         attrs = (Path(bi.REPO_ROOT) / ".gitattributes").read_text(encoding="utf-8")
         assert "installer/caddy/* text eol=lf" in attrs.splitlines()
         for name in ("go.mod", "go.sum", "main.go"):

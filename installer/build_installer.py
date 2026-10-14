@@ -114,9 +114,9 @@ DOWNLOAD_DEADLINE_SECONDS = 600
 # version changes CADDY_SHA256.
 CADDY_SOURCE_DIR = INSTALLER_DIR / "caddy"
 CADDY_MODULE = "baihe.local/caddy"
-CADDY_VERSION = "2.11.4"
-CADDY_GO_VERSION = "go1.26.8"
-CADDY_SHA256 = "e09cc7eb846934a7fd870b90c53a5b51527cda2fcaabced1490ea7f9478aa150"
+CADDY_VERSION = "2.11.7"
+CADDY_GO_VERSION = "go1.26.9"
+CADDY_SHA256 = "8cf980cdc00cbdfa63e607f6ac4eae00dd616e2f55bebab960494f7735f923c1"
 CADDY_TEMPLATE = REPO_ROOT / "deploy" / "caddy" / "Caddyfile.template"
 _LICENSE_FILE_RE = re.compile(r"(?i)(licen[cs]e|notice|copying|patents)([._-].*)?")
 

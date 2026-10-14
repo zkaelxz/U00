@@ -680,7 +680,7 @@ The owner's step-by-step guide, with a table of which ports are opened or forwar
 A second service, `BaiheCaddy` (WinSW, `NT SERVICE\BaiheCaddy`, same privilege
 cut, depends on `BaiheStudio`), is installed **disabled and stopped**, with
 `caddy.exe` built from `installer/caddy`: stock Caddy plus `rate_limit`, every
-module pinned by `go.sum`, Go `go1.26.8` pinned by SHA-256 in the workflow, and
+module pinned by `go.sum`, Go `go1.26.9` pinned by SHA-256 in the workflow, and
 the binary pinned by `CADDY_SHA256` in `build_installer.py`. Its certificates
 and ACME key live in `%ProgramFiles%\Baihe Studio Services\caddy-data`
 (Caddy, SYSTEM and Administrators only).
@@ -704,8 +704,8 @@ the rest of the admin folder, so a link Caddy made in them is never followed)
 and tells the owner the command to delete a rule they added.
 
 *Reproducible Caddy build.* The same `go build -trimpath -buildvcs=false`
-gives `e09cc7eb...` (`CADDY_SHA256`) on Linux and on Windows only from the
+gives `8cf980cd...` (`CADDY_SHA256`) on Linux and on Windows only from the
 same source bytes: CRLF line endings in `installer/caddy/main.go` (what a
 Windows checkout gives without `.gitattributes`) give a different hash
-(`03e740b8...` when last tried; no test pins that value). `.gitattributes` pins
+(`d37ffe33...` when last tried; no test pins that value). `.gitattributes` pins
 `installer/caddy/*` to LF, and a test checks it.
