@@ -310,19 +310,19 @@ function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps;
       )}
       {props.forceStoppable(job) && (
         <>
-          <ConfirmButton name={name} label="Force stop…" verb="force stop" confirmLabel="Confirm force stop" onConfirm={() => props.onForceStop(job.job_id)} />
+          <ConfirmButton name={name} label="Force stop…" verb="force stop" confirmLabel="Confirm force stop" size="sm" onConfirm={() => props.onForceStop(job.job_id)} />
           <span className="muted">{FORCE_STOP_HINT}</span>
         </>
       )}
       {links.stage && (
-        <ButtonLink href={routeHref(links.stage.route)} size="sm" aria-label={`Open ${links.stage.label.toLowerCase()} for ${name}`}>
+        <ButtonLink href={routeHref(links.stage.route)} variant="secondary" size="sm" aria-label={`Open ${links.stage.label.toLowerCase()} for ${name}`}>
           Open {links.stage.label.toLowerCase()}
         </ButtonLink>
       )}
-      <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={expanded} aria-label={`Details for ${name}`} onClick={() => props.onToggle(job.job_id)}>
+      <button type="button" className={buttonClass('secondary', 'sm')} aria-expanded={expanded} aria-label={`Details for ${name}`} onClick={() => props.onToggle(job.job_id)}>
         Details
       </button>
-      {props.pc !== 'remote' && isFinished(job.status) && <ConfirmButton name={name} confirmLabel="Confirm delete" onConfirm={() => props.onDelete(job.job_id)} />}
+      {props.pc !== 'remote' && isFinished(job.status) && <ConfirmButton name={name} confirmLabel="Confirm delete" size="sm" onConfirm={() => props.onDelete(job.job_id)} />}
     </div>
   )
 }
