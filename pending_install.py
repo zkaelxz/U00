@@ -104,7 +104,8 @@ def write_pending(keys, before: dict = None, now=time.time) -> dict:
     payload = {"schema": SCHEMA, "packages": list(keys), "created": int(now()),
                "before": dict(before or {})}
     _write_json("pending", {"payload": payload, "sha256": digest(payload)})
-    _remove("result")
+    if not restore_owed():
+        _remove("result")       # an owed restore still runs first on the next start
     return payload
 
 
@@ -315,12 +316,20 @@ def status() -> dict:
     whether an apply is running right now."""
     payload, problem = read_pending()
     result = read_result()
-    if result and result.get("status") == "running" and not apply_running():
+    applying = apply_running()
+    if result and restore_owed(result) and not applying:
+        result = {"status": "interrupted" if result.get("status") == "running" else result.get("status"),
+                  "packages": result.get("packages", []),
+                  "message": ("The install did not finish: Baihe was closed while it ran. "
+                              "Baihe will put your earlier packages back when it next starts; "
+                              "Dismiss to keep the packages as they are now."),
+                  "tail": [], "restored": [], "restore_failed": []}
+    elif result and result.get("status") == "running" and not applying:
         result = {"status": "interrupted", "packages": result.get("packages", []),
                   "message": "The install did not finish: Baihe was closed while it ran.",
                   "tail": [], "restored": [], "restore_failed": []}
     return {"pending": payload, "problem": problem, "result": result,
-            "applying": apply_running()}
+            "applying": applying}
 
 
 # --- running things -------------------------------------------------------
@@ -458,6 +467,20 @@ def snapshot() -> dict:
     return out
 
 
+def non_index_dists() -> set:
+    """Installed dists pip took from git, a link or a local wheel or folder:
+    pip writes direct_url.json only for those, and `name==version` from the
+    index would not bring them back (or would fetch someone else's)."""
+    out = set()
+    for dist in importlib.metadata.distributions():
+        try:
+            if dist.read_text("direct_url.json") is not None:
+                out.add(re.sub(r"[-_.]+", "-", dist.metadata["Name"] or "").lower())
+        except Exception:     # noqa: BLE001 -- unreadable metadata just isn't skipped
+            continue
+    return out
+
+
 def _redacted_tail(lines: list) -> list:
     text = "\n".join(lines[-TAIL_LINES:])
     doc = child_json("redact", stdin_text=text)
@@ -536,21 +559,21 @@ def without_clashing_cv2(wanted: dict, now: dict, before: dict):
 
 def _restore(before: dict, now_versions: dict, budget: float, echo: bool):
     """Puts back every package whose version changed or that went missing.
-    Returns (restored, failed) dist names."""
+    Returns (restored, failed) dist names and pip's output lines."""
     wanted = {n: v for n, v in before.items()
               if now_versions.get(n) != v}
     wanted, _left_out = without_clashing_cv2(wanted, now_versions, before)
     safe = {n: v for n, v in wanted.items() if _NAME_RE.match(n) and _VERSION_RE.match(v)}
     failed = sorted(set(wanted) - set(safe))
     if not safe:
-        return [], failed
+        return [], failed, []
     argv = _python() + ["-m", "pip", "install", "--no-deps", "--no-cache-dir",
                         "--disable-pip-version-check",
                         *[f"{n}=={v}" for n, v in sorted(safe.items())]]
-    rc, _lines, timed_out = run_capture(argv, budget, echo)
+    _rc, lines, _timed_out = run_capture(argv, budget, echo)
     after = snapshot()
     ok = [n for n, v in safe.items() if after.get(n) == v]
-    return sorted(ok), sorted(failed + [n for n in safe if n not in ok])
+    return sorted(ok), sorted(failed + [n for n in safe if n not in ok]), lines
 
 
 def _restore_sentence(restored: list, failed: list, left_out: list) -> str:
@@ -567,6 +590,39 @@ def _restore_sentence(restored: list, failed: list, left_out: list) -> str:
     return tail
 
 
+def _canonical_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _touchable_dists(keys: list):
+    """The dists the dead apply could have changed, re-derived from its
+    registry keys exactly as the install was: names in result.json are never
+    trusted for more than the registry offers (see the module docstring).
+    None when the keys don't check out."""
+    plan = child_json("derive", ",".join(keys)) if keys else None
+    if not plan or not plan.get("ok"):
+        return None
+    if isinstance(plan.get("temp_files"), list):
+        for path in plan["temp_files"]:
+            if _is_pins_file(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+    argv = plan.get("argv")
+    if not _argv_accepted(argv):
+        return None
+    rest, names, i = argv[4:], set(_UNINSTALLABLE), 0
+    while i < len(rest):
+        if rest[i] == "-c":
+            i += 2
+            continue
+        if rest[i] not in _PIP_FLAGS:
+            names.add(_canonical_name(rest[i]))
+        i += 1
+    return names
+
+
 def _recover_interrupted(echo: bool, deadline: float):
     """Puts back what a killed apply had at risk, using the snapshot it saved
     before pip ran. Runs at most once per killed apply: the owed record is
@@ -577,10 +633,6 @@ def _recover_interrupted(echo: bool, deadline: float):
     result = read_result()
     if not restore_owed(result):
         return None
-    # Only names snapshot() could have written; anything else is a damaged or
-    # edited file and must not reach pip or the message shown to the owner.
-    before = {n: v for n, v in result["before"].items()
-              if isinstance(n, str) and _NAME_RE.match(n) and isinstance(v, str)}
     packages = result.get("packages")
     packages = [k for k in packages if isinstance(k, str) and _NAME_RE.match(k)] \
         if isinstance(packages, list) else []
@@ -589,17 +641,38 @@ def _recover_interrupted(echo: bool, deadline: float):
                            "message": "The install did not finish: Baihe was closed while it ran, "
                                       "and again while it put your earlier packages back. Package "
                                       "versions may have been changed. Check Packages in Diagnostics."})
+    head = "The install did not finish: Baihe was closed while it ran. "
+    touchable = _touchable_dists(packages)
+    if touchable is None:
+        return _finish({"status": "interrupted", "packages": packages, "restored": [],
+                        "restore_failed": [],
+                        "message": head + "Its package list was not accepted, so nothing was put "
+                                          "back. Check Packages in Diagnostics."}, [])
+    before = {n: v for n, v in result["before"].items()
+              if isinstance(n, str) and n in touchable and isinstance(v, str)}
     if echo:
         print("An earlier install did not finish. Putting your earlier packages back...", flush=True)
     now = snapshot()
+    left = result.get("left")
+    if result.get("status") != "running":
+        # The watchdog's record: the server ran after it, so the owner may have
+        # changed packages since. Only what is still as the dead apply left it is reverted.
+        left = left if isinstance(left, dict) else {}
+        before = {n: v for n, v in before.items() if n in left and now.get(n) == left[n]}
+    local = non_index_dists()
+    skipped = sorted(n for n in before if n in local and now.get(n) != before[n])
+    before = {n: v for n, v in before.items() if n not in skipped}
     left_out = without_clashing_cv2({n: v for n, v in before.items() if now.get(n) != v},
                                     now, before)[1]
-    restored, failed = _restore(before, now,
-                                min(RESTORE_SECONDS, max(60.0, deadline - time.time())), echo)
-    return _finish({"status": "interrupted", "packages": packages,
-                    "restored": restored, "restore_failed": failed,
-                    "message": "The install did not finish: Baihe was closed while it ran. "
-                               + _restore_sentence(restored, failed, left_out)}, [])
+    restored, failed, lines = _restore(before, now,
+                                       min(RESTORE_SECONDS, max(60.0, deadline - time.time())), echo)
+    message = head + _restore_sentence(restored, failed, left_out)
+    if skipped:
+        message += (" " + ", ".join(skipped) + " came from outside the package index (git, a "
+                    "link or a local file), so it was not put back; install it again the way "
+                    "you first did.")
+    return _finish({"status": "interrupted", "packages": packages, "restored": restored,
+                    "restore_failed": failed, "message": message}, lines)
 
 
 def _finish(result: dict, lines: list) -> dict:
@@ -695,8 +768,8 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
             now = snapshot()
             left_out = without_clashing_cv2(
                 {n: v for n, v in before.items() if now.get(n) != v}, now, before)[1]
-            restored, failed = _restore(before, now,
-                                        min(RESTORE_SECONDS, max(60.0, deadline - time.time())), echo)
+            restored, failed, _lines = _restore(
+                before, now, min(RESTORE_SECONDS, max(60.0, deadline - time.time())), echo)
         if timed_out:
             head = "The install did not finish in time and was stopped. "
         else:
@@ -721,11 +794,24 @@ def _watchdog_result() -> dict:
     if not (running and running.get("status") == "running"):
         running = {}
     packages, before = running.get("packages"), running.get("before")
+    left = {}
+    if isinstance(before, dict):
+        try:
+            now = snapshot()
+            # None for a dist the dead apply left missing.
+            left = {n: now.get(n) for n, v in before.items() if now.get(n) != v}
+        except Exception:       # noqa: BLE001 -- no record means nothing is reverted
+            left = {}
     return {"status": "timed_out", "tail": [], "restored": [], "restore_failed": [],
             "packages": packages if isinstance(packages, list) else [],
             "before": before if isinstance(before, dict) else {},
-            # Only a running result owes one: a restore cut off by this exit is not retried.
+            # Only a running result owes one. Recovery replaces its record before pip
+            # runs, so a restore recovery started is not retried; apply()'s own
+            # failure-path restore, cut off here, is retried once on the next start.
             "restore_owed": isinstance(before, dict),
+            # The server runs after this exit, so the next start reverts only dists
+            # still at these versions: anything changed meanwhile was the owner's choice.
+            "left": left,
             "message": "The install did not finish in time. Baihe started without waiting "
                        "for it, so package versions may have been changed. Check Packages "
                        "in Diagnostics.",

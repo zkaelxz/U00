@@ -302,9 +302,12 @@ def apply_pending_install(python_exe: str, env: dict, headless: bool) -> None:
     start's apply is running it waits for that one, so the server never loads
     numpy or cv2 under a pip that is replacing them."""
     queued = pending_install_file().is_file()
-    if not queued and not _apply_running() and not _restore_owed():
+    owed = _restore_owed()
+    if not queued and not _apply_running() and not owed:
         return
-    if headless and not queued:
+    if headless and owed:
+        print("Putting back packages from an install that did not finish before starting the server.")
+    elif headless and not queued:
         # No window shows the wait, and the server doesn't start until it ends.
         print("Waiting for an install from an earlier start to finish before starting the server.")
     kwargs = {"cwd": str(APP_DIR), "env": env}
