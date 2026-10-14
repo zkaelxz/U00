@@ -235,13 +235,14 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
     held a readable account). An upload
     without sources.db gets a snapshot of the live one instead, migrated
     the same way; either sources.db must pass quick_check. Running and
-    queued job_records rows are marked cancelled and gpu_lock is cleared
-    (a backup can only hold stale ones). The uploaded files never become
-    a live schema: they are only ATTACHed read-only after
-    _check_uploaded_db."""
+    queued job_records rows are marked cancelled, gpu_lock is cleared and
+    the job queue's start time is dropped (a backup can only hold stale
+    ones). The uploaded files never become a live schema: they are only
+    ATTACHed read-only after _check_uploaded_db."""
     import shutil
     import sqlite3
     from jobs import gpu_slots
+    from services import queue_service
     from sources import store as src_store
     staged = os.path.join(staging_dir, "library.db")
     upload = os.path.join(staging_dir, ".uploaded_library.db")
@@ -281,6 +282,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> tuple:
                              "cancel_requested = 0 WHERE status IN ('queued', 'running')",
                              (time.time(),))
                 gpu_slots.clear(conn)
+                queue_service.clear_schedule(conn)
                 _carry_app_settings(conn, live_lib)
                 library_restore_sql.settle_accounts(conn, live_lib)
                 if from_upload:

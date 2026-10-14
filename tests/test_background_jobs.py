@@ -1706,6 +1706,49 @@ class TestCancelCheckStateIsPerRun:
         bg.clear_job("cc_run")
 
 
+    def test_a_finished_run_leaves_a_newer_runs_throttle_alone(self, monkeypatch):
+        """The old run's thread forgets its throttle state after its status is
+        final, when a new run of the same id may already be checking."""
+        from jobs import job_store
+        reads = []
+        monkeypatch.setattr(job_store, "row_cancel_time", lambda job_id: reads.append(job_id))
+        old_finishing, old_go, old_forgot = threading.Event(), threading.Event(), threading.Event()
+        real_timing_finish, real_forget = job_runner._timing_finish, job_runner._forget_cancel_check
+
+        def timing_finish(job_id, token, thread_job=True):
+            if not old_finishing.is_set():
+                old_finishing.set()
+                old_go.wait(5)
+            real_timing_finish(job_id, token, thread_job)
+
+        def forget(job_id, *args):
+            real_forget(job_id, *args)
+            old_forgot.set()
+        monkeypatch.setattr(job_runner, "_timing_finish", timing_finish)
+        monkeypatch.setattr(job_runner, "_forget_cancel_check", forget)
+
+        checked, again, seen = threading.Event(), threading.Event(), []
+
+        def new_run():
+            seen.append(bg.is_cancel_requested("cc_same"))
+            checked.set()
+            again.wait(5)
+            seen.append(bg.is_cancel_requested("cc_same"))
+
+        assert job_launch.start_job("cc_same", lambda: None)
+        assert old_finishing.wait(5)
+        assert job_launch.start_job("cc_same", new_run)
+        assert checked.wait(5)
+        old_go.set()
+        assert old_forgot.wait(5)
+        again.set()
+        assert job_runner.wait_for_job_threads(5.0)
+        assert seen == [False, False]
+        # One read: the second check is inside the new run's interval.
+        assert reads == ["cc_same"]
+        bg.clear_job("cc_same")
+
+
 class TestNotifyOnCompletion:
     """Step 23c item 4: an optional desktop notification when a
     background job finishes, gated behind set_notify_on_completion()
