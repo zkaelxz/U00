@@ -186,10 +186,12 @@ of the diff.
    can be replaced.
 3. Copy files. The wheels go to `{app}\wheels` and stay there (an update
    replaces the folder): when a Diagnostics install fails and its restore
-   must put a core package back, `pending_install.restore_argvs` takes that
-   exact version from here with `--no-index`, after checking its SHA-256
-   against the folder's `wheels.lock.txt`, so it works with the network down.
-   Packages with no kept wheel come from the index as before.
+   must put a core package back, `pending_install.restore_commands` takes that
+   exact version from here with `--no-index --require-hashes`, the hashes taken
+   from the app's own `installer\wheels.lock.txt` (never the copy beside the
+   wheels), so it works with the network down. Only an installed copy run by
+   its bundled Python looks for this folder. Packages with no kept wheel come
+   from the index as before.
 4. `postinstall.py`, run by the bundled `python.exe -s`:
    1. Writes `app\INSTALLED` with the data folder, then creates the folder.
       The marker comes first, and the launcher refuses to start an install
@@ -496,7 +498,10 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
    `{app}` itself is removed if it is empty. Every folder the uninstaller deletes
    (program, data, Trash, temp) goes through `DelTreeNoLinks`: a junction or symbolic
    link anywhere inside, or the named folder itself being one, is removed as a link and
-   what it points to is never entered. The summary says when a named folder was only a link.
+   what it points to is never entered. A folder whose own attributes can't be read is
+   left and reported, never deleted. The summary says when a named folder was only a link.
+   Residual: a folder swapped for a link between that check and its delete (which needs
+   write access to the folder being uninstalled) is not caught.
 4. Only the ticked items are deleted, by name (`<data>\library`, `<data>\.env`,
    `<data>\model_cache`, `<data>\baihe_trash`). The data folder's other contents are never touched,
    since it may be a folder the user picked and shares with other files. Two files are removed by

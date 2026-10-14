@@ -115,7 +115,7 @@ Source: "{#PayloadDir}\app\*"; DestDir: "{app}\app"; Flags: ignoreversion recurs
 Source: "{#PayloadDir}\service\*"; DestDir: "{app}\service"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PayloadDir}\manifest.json"; DestDir: "{app}"; Flags: ignoreversion
 ; Kept after the install: a Diagnostics install that fails puts these core
-; packages back from here when the network is down (pending_install.restore_argvs).
+; packages back from here when the network is down (pending_install.restore_commands).
 Source: "{#PayloadDir}\wheels\*"; DestDir: "{app}\wheels"; Flags: ignoreversion
 
 [Icons]
@@ -263,18 +263,27 @@ begin
   Result := True;
 end;
 
-// True when Path is a junction or a symbolic link (FILE_ATTRIBUTE_REPARSE_POINT).
-function IsLink(const Path: String): Boolean;
+// Path's own attributes (a link's, not its target's). False when they
+// can't be read.
+function PathAttributes(const Path: String; var Attributes: DWord): Boolean;
 var
   Rec: TFindRec;
 begin
-  Result := False;
-  if FindFirst(RemoveBackslashUnlessRoot(Path), Rec) then
+  Result := FindFirst(RemoveBackslashUnlessRoot(Path), Rec);
+  if Result then
   try
-    Result := (Rec.Attributes and $400) <> 0;
+    Attributes := Rec.Attributes;
   finally
     FindClose(Rec);
   end;
+end;
+
+// True when Path is a junction or a symbolic link (FILE_ATTRIBUTE_REPARSE_POINT).
+function IsLink(const Path: String): Boolean;
+var
+  Attributes: DWord;
+begin
+  Result := PathAttributes(Path, Attributes) and ((Attributes and $400) <> 0);
 end;
 
 // Deletes Path and everything in it, removing every junction or symbolic
@@ -285,8 +294,14 @@ function DelTreeNoLinks(const Path: String): Boolean;
 var
   Rec: TFindRec;
   Child: String;
+  Attributes: DWord;
 begin
-  if IsLink(Path) then
+  // A folder whose own attributes can't be read might be a link: leave it,
+  // and the caller reports it as not removed.
+  Result := False;
+  if not PathAttributes(Path, Attributes) then
+    Exit;
+  if (Attributes and $400) <> 0 then
   begin
     Result := RemoveDir(Path) or DeleteFile(Path);
     Exit;

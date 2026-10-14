@@ -657,13 +657,14 @@ def _restore(before: dict, skip: set, cancel):
     failed = sorted(set(wanted) - set(safe) - set(skipped))
     stopped = False
     end = time.monotonic() + pending_install.RESTORE_SECONDS
-    for argv in pending_install.restore_argvs(safe):
-        for event in proc_run.stream_tree(argv, max(1.0, end - time.monotonic()), cancel=cancel,
-                                          warn=job_process_kill._warn_via_jobs):
-            stopped = stopped or bool(event.get("cancelled"))
-        now = pending_install.snapshot()
-        if stopped:
-            break
+    with pending_install.restore_commands(safe) as argvs:
+        for argv in argvs:
+            for event in proc_run.stream_tree(argv, max(1.0, end - time.monotonic()), cancel=cancel,
+                                              warn=job_process_kill._warn_via_jobs):
+                stopped = stopped or bool(event.get("cancelled"))
+            now = pending_install.snapshot()
+            if stopped:
+                break
     restored = sorted(n for n, v in safe.items() if now.get(n) == v)
     failed = sorted(failed + [n for n in safe if n not in restored])
     return restored, failed, skipped, stopped, sorted(set(now) - set(before)), left_out

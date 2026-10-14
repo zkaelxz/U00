@@ -390,8 +390,10 @@ class TestUninstall:
         # subfolders off: every folder level is walked here, links removed as links.
         assert re.findall(r"\bDelTree\([^)]*\)", iss) == ["DelTree(Path, True, True, False)"]
         walk = _func(iss, "DelTreeNoLinks")
-        assert re.search(r"if IsLink\(Path\) then\s+begin\s+Result := RemoveDir\(Path\) or DeleteFile\(Path\);\s+Exit;",
-                         walk)
+        # Unreadable attributes fail closed: nothing is deleted.
+        assert re.search(r"Result := False;\s+if not PathAttributes\(Path, Attributes\) then\s+Exit;\s+"
+                         r"if \(Attributes and \$400\) <> 0 then\s+begin\s+"
+                         r"Result := RemoveDir\(Path\) or DeleteFile\(Path\);\s+Exit;", walk)
         assert re.search(r"if \(Rec\.Attributes and \$400\) <> 0 then\s+RemoveDir\(Child\)\s+else\s+DelTreeNoLinks\(Child\);",
                          walk)
         assert "$400" in _func(iss, "IsLink")

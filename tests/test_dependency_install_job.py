@@ -364,6 +364,9 @@ def restore(monkeypatch):
     def fake_restore_pip(argv, timeout, cancel=None, **_kw):
         if state.get("cancel_again"):
             background_jobs.request_cancel(JOB)
+        if "-r" in argv:        # the kept-wheel restore names its packages in a requirements file
+            with open(argv[argv.index("-r") + 1], encoding="utf-8") as f:
+                argv = [line.split()[0] for line in f]
         state["calls"].append({"specs": [a for a in argv if "==" in a],
                                "cancel": cancel is not None,
                                "stopped": cancel is not None and cancel()})
@@ -464,9 +467,11 @@ def test_a_kept_core_wheel_is_put_back_on_its_own_before_the_index(env, monkeypa
     folder = tmp_path / "wheels"
     folder.mkdir()
     (folder / "numpy-2.0-cp312-cp312-win_amd64.whl").write_bytes(b"numpy")
-    (folder / "wheels.lock.txt").write_text(
-        f"numpy==2.0 \\\n    --hash=sha256:{hashlib.sha256(b'numpy').hexdigest()}\n")
+    lock = tmp_path / "wheels.lock.txt"
+    lock.write_text(f"numpy==2.0 \\\n    --hash=sha256:{hashlib.sha256(b'numpy').hexdigest()}\n")
     monkeypatch.setattr(pending_install, "kept_wheels_dir", lambda: str(folder))
+    monkeypatch.setattr(pending_install, "_app_wheel_lock", lambda: str(lock))
+    monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path / "data"))
     restore["env"]["pyyaml"] = "6.0"
     _pip_moves(restore, monkeypatch, {"numpy": "2.1", "pyyaml": "6.1"})
     svc.start_dependency_install("jieba", confirm=True)
