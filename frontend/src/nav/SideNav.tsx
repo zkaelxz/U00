@@ -7,6 +7,7 @@ import type { NavContext } from './navItems'
 import { NavGroups } from './navLinks'
 import { setNavDock, useNavDock } from './navDock'
 import './sideNav.css'
+import './navPosition.css'
 
 export function SideNav({ route, context }: { route: Route; context: NavContext }) {
   const mode = useNavDock()
@@ -24,7 +25,7 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
       {docked && (
         <button
           type="button"
-          className="rail-toggle"
+          className="rail-toggle rail-collapse"
           aria-pressed={minimized}
           title={minimized ? 'Expand the navigation' : 'Minimize the navigation'}
           onClick={() => setNavDock(minimized ? 'docked' : 'minimized')}
@@ -37,7 +38,7 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
       )}
       <button
         type="button"
-        className="rail-toggle"
+        className="rail-toggle rail-dock"
         aria-pressed={docked}
         title={docked ? 'Float the navigation' : 'Dock the navigation'}
         onClick={() => setNavDock(docked ? 'float' : 'docked')}
