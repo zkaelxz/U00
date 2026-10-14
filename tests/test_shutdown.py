@@ -602,6 +602,8 @@ class TestStopCancelIsAnInterruption:
         assert job_runner.wait_for_job_threads(5.0)
         assert background_jobs.get_status("stop_run")["status"] == "cancelled"
         assert self._outcome("stop_run") == "interrupted"
+        from services import jobs_service
+        assert jobs_service.get_job("stop_run")["outcome_message"] == background_jobs.STOPPED_MESSAGE
 
     def test_a_queued_job_the_stop_cancels_is_interrupted(self, isolated_db):
         from jobs import job_runner, job_settings

@@ -302,6 +302,8 @@ class TestThisServersRunningJobKeepsItsSlot:
                              (gpu_slots.GPU_LOCK_STALE_SECONDS + 60,))
                 conn.commit()
             assert gpu_slots.take("live-whisper:1") is False
+            assert gpu_slots.holder_count() == 1
+            assert gpu_slots.status()[0] == "ui:on_gpu"
             assert gpu_slots.take("live-whisper:1", max_holders=2) is True
             assert _holders() == {"ui:on_gpu", "live-whisper:1"}
         finally:

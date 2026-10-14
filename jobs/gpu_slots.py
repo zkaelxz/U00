@@ -106,7 +106,9 @@ def _rows(conn):
 def _live_rows(now=None):
     now = time.time() if now is None else now
     with contextlib.closing(db.get_conn()) as conn:
-        return [r for r in _rows(conn) if _alive(r, now)]
+        rows = _rows(conn)
+    running_here = _running_here(rows)
+    return [r for r in rows if _alive(r, now, running_here=running_here)]
 
 
 def take(holder: str, description: str = None, *, max_holders: int = 1,

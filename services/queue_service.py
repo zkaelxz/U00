@@ -803,9 +803,11 @@ def _start_next(now: float, deferred=frozenset()) -> None:
 def clear_schedule(conn) -> None:
     """Drops the start time from the document on `conn` (a restored library:
     its start time is from the moment the backup was taken, and one still
-    ahead would start the queue on its own). The caller commits."""
-    conn.execute("UPDATE app_settings SET value = json_set(value, '$.schedule', json('null')) "
-                 "WHERE key = ? AND json_valid(value)", (QUEUE_KEY,))
+    ahead would start the queue on its own), and its instance, so the next
+    read settles it even when this same server wrote the backup (a running
+    queue would otherwise go on starting items). The caller commits."""
+    conn.execute("UPDATE app_settings SET value = json_remove(json_set(value, '$.schedule', "
+                 "json('null')), '$.instance') WHERE key = ? AND json_valid(value)", (QUEUE_KEY,))
 
 
 def restore_at_startup(now: float = None) -> None:

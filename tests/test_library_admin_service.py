@@ -579,6 +579,19 @@ def test_a_restored_queue_start_time_is_dropped(isolated_db):
     assert queue_service.get_queue(None)["schedule"] is None
 
 
+def test_a_queue_running_when_the_backup_was_taken_restores_stopped(isolated_db):
+    # The backup holds this same server's document: without settling it on
+    # the next read, a queue that was running would start its next item.
+    from services import queue_service
+    _new("A")
+    queue_service.start(None)
+    assert queue_service.get_queue(None)["state"] == "running"
+    data = _backup_bytes()
+    queue_service.pause(None)
+    _restore(data)
+    assert queue_service.get_queue(None)["state"] == "idle"
+
+
 def test_restore_revokes_sessions_and_audits(isolated_db):
     _new("A")
     uid = auth_service.add_user("a@example.com")["id"]

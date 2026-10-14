@@ -256,6 +256,8 @@ CANCELLING_MESSAGE = "Cancelling... (finishes the current step first)"
 # A queued/running job_records row whose owner process is gone (closed by
 # services/jobs_service.py's sweep, at startup and on every job list).
 INTERRUPTED_MESSAGE = "Interrupted: Baihe restarted while this was running."
+# A job the clean stop itself cancelled (Stop Baihe, closing its window).
+STOPPED_MESSAGE = "Interrupted: Baihe was stopped while this was running."
 
 
 def owner_process_alive(pid) -> bool:
@@ -295,8 +297,8 @@ def _interrupted_by_stop_locked(job) -> None:
     job is active."""
     if job.get("cancelled_by_stop"):
         job["detail_state"] = "interrupted"
-        job["error"] = INTERRUPTED_MESSAGE
-        job["message"] = INTERRUPTED_MESSAGE
+        job["error"] = STOPPED_MESSAGE
+        job["message"] = STOPPED_MESSAGE
 
 
 def _cancel_queued_locked(job_id, job, requested_at=None) -> list:
@@ -434,9 +436,14 @@ def later_cancel_probe(job_id: str):
     packages back after a cancelled install) would otherwise stop at once and
     could not hear a second Cancel; before any cancel it is
     is_cancel_requested (which also hears another process's)."""
-    if not is_cancel_requested(job_id):
+    _db_cancel_requested(job_id)    # a cancel from another process sets the flag first
+    # Flag and count in one read: a Cancel between two reads would be counted
+    # as the one the probe waits past.
+    with _lock:
+        job = _jobs.get(job_id) or {}
+        cancelled, asked = bool(job.get("cancel_requested")), job.get("cancel_count", 0)
+    if not cancelled:
         return lambda: is_cancel_requested(job_id)
-    asked = _cancel_count(job_id)
     return lambda: _cancel_count(job_id) > asked
 
 
