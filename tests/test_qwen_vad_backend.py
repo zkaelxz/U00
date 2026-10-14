@@ -67,7 +67,10 @@ def test_long_spans_are_capped_and_tile_the_original(fakes):
 
 
 def test_long_text_is_split_into_ordered_lines_inside_the_span(fakes):
-    fakes(["你好你好你好你好你好。" * 6])
+    # Varied sentences: a repeated one would be collapsed as a phrase loop.
+    fakes(["今天天气很好，我们一起出去走走吧。公园里的花都开了，到处都是游客。"
+           "我们在湖边坐了一会儿，看着小船。后来下起了小雨，大家赶快回家了。"
+           "晚上妈妈做了一桌好吃的饭菜。吃完饭以后，我们一起看了电影。"])
     out = run(vad([(0.0, 14.0)]))
     assert len(out) > 1
     assert out[0]["start"] >= 0.0 and out[-1]["end"] <= 14.2
