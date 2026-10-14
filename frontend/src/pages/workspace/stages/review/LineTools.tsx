@@ -41,6 +41,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   // Alternatives and Grammar need engines.paid only for a paid engine.
   const picker = useLineAiPick(dramaId)
   const pickRef = useRef(picker.pick)
+  const gated = picker.gate !== null
   // Declared before the request effect, so it holds the latest pick when that runs.
   useEffect(() => {
     pickRef.current = picker.pick
@@ -50,7 +51,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   useEffect(() => {
     if (!picker.ready) return
     // The note under the picker says why; asking would only fail.
-    if (picker.gate) {
+    if (gated) {
       setBusy(false)
       return
     }
@@ -73,7 +74,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
       setResult(r)
     }, fail)
     return () => ctl.abort()
-  }, [dramaId, line.id, mode, attempt, picker.ready, picker.gate?.id])
+  }, [dramaId, line.id, mode, attempt, picker.ready, gated])
 
   const retry = () => {
     setBusy(true)
