@@ -263,18 +263,12 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         reasons = {}
         for r in rejected:
             reasons[r[4]] = reasons.get(r[4], 0) + 1
-        detail = ("Rejected candidates: "
-                  + ", ".join(f"{n}× {why}" for why, n in
-                              sorted(reasons.items(), key=lambda x: -x[1]))
-                  ) if reasons else "No light enclosed regions found at all."
-        notes.append(("error",
-            "**No bubbles detected on this page.**\n\n"
-            f"{detail}\n\n"
-            "Detection looks for enclosed light regions that don't touch the page "
-            "edge. It struggles with borderless bubbles, dark/inverted panels, "
-            "very low-contrast scans, and text drawn straight onto artwork.\n\n"
-            "What to try: the ML backend if you can reach Hugging Face, or add "
-            "boxes by hand with '➕ Add a bubble manually' below."))
+        top = sorted(reasons.items(), key=lambda x: -x[1])[:3]
+        detail = (" Skipped: " + ", ".join(f"{n} {why}" for why, n in top) + ".") if top else ""
+        # A warning, not an error: covers and splash art legitimately have no bubbles.
+        notes.append(("warning",
+            "No bubbles found on this page. That is normal for covers and splash art; "
+            "otherwise try the ML detector (Advanced) or add boxes by hand." + detail))
         return [], notes
 
     bubbles = []

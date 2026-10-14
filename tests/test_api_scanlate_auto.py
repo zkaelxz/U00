@@ -1172,3 +1172,25 @@ def test_a_headroom_refusal_in_ocr_is_not_turned_into_blank_text(monkeypatch):
     monkeypatch.setattr(scanlate, "ocr_box_region", refuse)
     with pytest.raises(HeadroomError):
         scanlate.detect_and_ocr_page("page.png", "zh")
+
+
+def test_job_summary_leads_with_the_failures(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
+    _run(client, did, mode="page", page_id=pid, engine="fake")
+    st = _wait(f"scanlate_{did}")
+    assert st["message"].startswith("Pages: 1 with no translation")
+    assert "0 translated" in st["message"]
+
+
+def test_page_with_no_bubbles_is_a_short_warning(tmp_path):
+    import cv2
+    import numpy as np
+    blank = tmp_path / "blank.png"
+    cv2.imwrite(str(blank), np.zeros((200, 200, 3), dtype=np.uint8))
+    bubbles, notes = scanlate.detect_and_ocr_page(str(blank), "zh", detect_backend="cv")
+    assert bubbles == []
+    levels = [n[0] for n in notes]
+    assert "warning" in levels and "error" not in levels
+    assert len(notes[-1][-1]) < 300

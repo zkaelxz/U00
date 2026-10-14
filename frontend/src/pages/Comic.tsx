@@ -415,13 +415,21 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       aria-controls="comic-scanlate"
       onClick={() => {
         setToolsOpen((v) => !v)
-        // The panel sits above the stage and shifts every page; scroll back to the current one.
-        if (current !== null) requestJump(current)
+        // Closing removes the panel above the stage and shifts every page; scroll back to the current
+        // one. Opening scrolls to the panel instead (see the effect on toolsOpen).
+        if (toolsOpen && current !== null) requestJump(current)
       }}
     >
       Translate
     </button>
   )
+  // The desktop panel renders above the pages, so a reader scrolled down would never see it open.
+  useEffect(() => {
+    if (!toolsOpen || phone) return
+    const el = document.getElementById('comic-scanlate')
+    el?.scrollIntoView({ block: 'start' })
+    el?.focus({ preventScroll: true })
+  }, [toolsOpen, phone])
   const scopes = useMemo(
     () => scopeCounts(pages, chapters, currentPage?.chapter_id ?? null),
     [pages, chapters, currentPage],
@@ -434,6 +442,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       scopes={scopes}
       onChanged={refreshPages}
       onJob={setWatchedJob}
+      onGoToPage={(n) => go(n, false, true)}
     />
   )
 
@@ -569,7 +578,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         </div>
       )}
       {!phone && toolsOpen && !empty && (
-        <div id="comic-scanlate" className="comic-scanlate">
+        <div id="comic-scanlate" className="comic-scanlate" tabIndex={-1}>
           {panel}
         </div>
       )}
