@@ -39,6 +39,10 @@ def require_qwen3_packages(feature: str, aligner_language: str = None) -> None:
             raise DependencyUnavailableError(problem)
 
 
+MISSING_VAD_MESSAGE = ("Speech detection needs transcription, which isn't installed yet. "
+                       "Open Diagnostics to install it.")
+
+
 def require_vad_backend_packages(backend: str, language: str) -> None:
     """require_qwen3_packages for a speech-detection backend. The long-window
     backend always runs the forced aligner; the short-span one only with the

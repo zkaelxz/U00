@@ -18,7 +18,8 @@ import sensitivity_preset as presets
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS
 from services import asr_options_service, diarization_service, settings_service, transcribe_pipeline
-from services.qwen3_requirements_service import require_qwen3_packages, require_vad_backend_packages
+from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
+                                                 require_vad_backend_packages)
 from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
 # The per-drama tuning values used when the drama has none stored.
@@ -182,9 +183,7 @@ def _require_vad_packages() -> None:
     """The speech-detection backends need faster-whisper (it bundles the
     Silero VAD and decodes the audio for it)."""
     if importlib.util.find_spec("faster_whisper") is None:
-        raise DependencyUnavailableError(
-            "Speech detection needs transcription, which isn't installed yet. "
-            "Open Diagnostics to install it.")
+        raise DependencyUnavailableError(MISSING_VAD_MESSAGE)
 
 
 _CHINESE_SCRIPTS = ("simplified", "traditional")

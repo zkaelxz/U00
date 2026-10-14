@@ -31,6 +31,7 @@ from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from diarize import select_device
 from services import difficult_audio_service as difficult, settings_service, timing_settings_service
+from services.qwen3_requirements_service import MISSING_VAD_MESSAGE as _MISSING_VAD_MESSAGE
 from services.qwen3_requirements_service import import_failure_message
 from translate_engines import redact_secrets
 
@@ -64,8 +65,6 @@ MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnos
 # Hard-subtitle reading is OCR, not speech recognition: saying "Transcription isn't installed"
 # would send the user to install Whisper while the missing piece is an OCR package.
 MISSING_OCR_MESSAGE = "Reading on-screen text needs an OCR package that isn't installed yet. Open Diagnostics to install one."
-_MISSING_VAD_MESSAGE = ("Speech detection needs transcription, which isn't installed yet. "
-                        "Open Diagnostics to install it.")
 
 
 def missing_package_outcome(message: str = MISSING_TRANSCRIPTION_MESSAGE) -> dict:
