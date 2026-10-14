@@ -60,7 +60,7 @@ import storage
 from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
-from services import drama_service, settings_service
+from services import drama_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
@@ -472,9 +472,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
     """Streams the body to a hidden file in the drama folder; returns
     (ext, size, staged path). Nothing is put in place here."""
     ext = _safe_extension(client_filename)
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     if (drama.get("content_mode") or "audio_drama") not in UPLOAD_CONTENT_MODES:
         raise InvalidInputError(NO_UPLOAD_MODE)
     if has_media(drama, drama_id) and not confirm_replace_audio:
@@ -687,9 +685,7 @@ def kept_media_usage(drama_id) -> dict:
 
 def get_media_status(drama_id) -> dict:
     """Booleans, counts and the upload cap only -- never a path or filename."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     audio = drama.get("audio_filename")
     return {
         "drama_id": drama_id,

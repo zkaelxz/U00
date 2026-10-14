@@ -30,7 +30,7 @@ import db
 from lib.atomic_write import atomic_write
 from lib.safe_paths import plain_file_in
 import timing_drift
-from services import speech_coverage_service
+from services import ownership_service, speech_coverage_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -265,9 +265,7 @@ def start_timing_check(drama_id: int, after_transcription: bool = False) -> dict
     UnsupportedOperationError (no stored audio or no lines),
     ConflictError (a transcription is running, unless this is the automatic
     run it starts itself, or a check is already running)."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     audio_path = _audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
@@ -321,8 +319,7 @@ def get_timing_check(drama_id: int) -> dict:
     status is "idle" (job_id "") when no check is held in this app session;
     last_check is the newest finished check, kept across restarts;
     suggestions lists each flagged line's saved corrected times."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     with _state_lock:
         state = _read_state(drama_id)
     suggestions = [{"line_id": int(k), **v} for k, v in state["suggestions"].items()]
@@ -351,8 +348,7 @@ def snap_to_speech(drama_id: int, line_ids=None) -> dict:
         if (not isinstance(line_ids, (list, tuple)) or len(line_ids) > _MAX_SNAP_IDS
                 or any(isinstance(i, bool) or not isinstance(i, int) for i in line_ids)):
             raise InvalidInputError("line_ids must be a list of integer line ids.")
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     with _state_lock:
         state = _read_state(drama_id)
         wanted = set(line_ids) if line_ids is not None else None

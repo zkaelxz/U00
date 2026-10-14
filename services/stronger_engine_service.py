@@ -32,8 +32,14 @@ import core
 import db
 import translate_engines
 from engine_backends import llm_tasks
-from services import (engine_routing_service, settings_service, translate_run_service,
-                      translate_service, workspace_job_service)
+from services import (
+    engine_routing_service,
+    ownership_service,
+    settings_service,
+    translate_run_service,
+    translate_service,
+    workspace_job_service,
+)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -59,9 +65,7 @@ AMBIGUOUS_FLAGS = {"ambiguous_reference", "name_uncertain"}
 
 
 def _drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

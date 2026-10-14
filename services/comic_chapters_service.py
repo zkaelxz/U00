@@ -10,12 +10,12 @@ skip them.
 """
 import comic_chapters
 import db
+from services import ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _groups(drama_id: int):
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     pages = db.list_pages(drama_id)
     return pages, comic_chapters.group_pages(pages, comic_chapters.load(drama_id))
 
