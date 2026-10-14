@@ -291,6 +291,12 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
                                                       drama.get("owner_user_id"))
         fields[key] = value
 
+    if "title_en" in fields or "title_zh" in fields:
+        current = db.get_drama(drama_id)
+        if not (fields.get("title_en", current.get("title_en") or "").strip()
+                or fields.get("title_zh", current.get("title_zh") or "").strip()):
+            raise InvalidInputError("A title needs an English or original name.")
+
     series_id = fields.pop("series_id", None)
     if new_series_name is not None:   # first: a refused move writes nothing
         series_id = ownership_service.get_or_create_series_for(principal, new_series_name)
