@@ -14,7 +14,8 @@ from bulk_apply import (apply_bulk_results, apply_consistency_results, apply_emo
 from bulk_providers import (BulkAuthError, PollGuard, is_deepseek_offpeak,
                             make_provider, next_deepseek_offpeak_start, reschedule_for_next_window,
                             WindowGate, offpeak_cap)
-from bulk_reflect import _advance_pipeline, _fail_keeping_drafts, apply_reflect_stage_results
+from bulk_reflect import (_advance_pipeline, _fail_keeping_drafts, apply_reflect_stage_results,
+                          sibling_stage_job)
 from bulk_translate import _character_names, _utcnow
 import db
 import job_force_stop
@@ -114,12 +115,15 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
         state = provider.poll(job["provider_batch_id"])
         if state == "pending":
             if job["status"] != "submitted":
-                db.update_bulk_job(bulk_job_id, status="submitted", last_error=None)
+                if not db.set_bulk_job_status_if(bulk_job_id, ("auth_error",), "submitted"):
+                    return db.get_bulk_job(bulk_job_id)["status"]
+                db.update_bulk_job(bulk_job_id, last_error=None)
             return "submitted"
         failure = state.startswith("failed") and f"The provider reported the batch {state[7:] or 'failed'}."
         results = [] if failure else list(provider.results(job["provider_batch_id"]))
     except BulkAuthError as e:
-        db.update_bulk_job(bulk_job_id, status="auth_error", last_error=str(e))
+        if db.set_bulk_job_status_if(bulk_job_id, ("submitted", "auth_error"), "auth_error"):
+            db.update_bulk_job(bulk_job_id, last_error=str(e))
         raise
     # Claimed before anything is applied: applying logs paid usage and can
     # submit the next paid Reflect stage, so a Cancel clicked while results
@@ -136,10 +140,16 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
                                         summary)
         if job.get("kind") == "reflect" and job.get("stage") in ("faithful", "reflect"):
             return _advance_pipeline(job, engine, monthly_cap_usd, summary)
-        db.update_bulk_job(bulk_job_id, status="applied", result_summary=summary, last_error=None)
+        if not db.set_bulk_job_status_if(bulk_job_id, ("applying",), "applied"):
+            # Cancelled during the apply: it stays cancelled, but what landed is recorded.
+            db.update_bulk_job(bulk_job_id, result_summary=summary)
+            return db.get_bulk_job(bulk_job_id)["status"]
+        db.update_bulk_job(bulk_job_id, result_summary=summary, last_error=None)
         return "applied"
     except Exception as e:
-        db.update_bulk_job(bulk_job_id, status="failed", last_error=translate_engines.redact_secrets(
+        if not db.set_bulk_job_status_if(bulk_job_id, ("applying",), "failed"):
+            return db.get_bulk_job(bulk_job_id)["status"]
+        db.update_bulk_job(bulk_job_id, last_error=translate_engines.redact_secrets(
             f"Applying the results failed part-way, so they won't be applied again: {e}"))
         return "failed"
 
@@ -231,15 +241,16 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
                 return
             cap, refusal = offpeak_cap(job, monthly_cap_usd)
             if refusal:
-                db.update_bulk_job(bulk_job_id, status="failed", last_error=refusal)
+                if db.set_bulk_job_status_if(bulk_job_id, ("running",), "failed"):
+                    db.update_bulk_job(bulk_job_id, last_error=refusal)
                 return
             try:
                 summary = run_scheduled_job(bulk_job_id, engine, cost_cap_usd=cap,
                                             cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
                                             window_open=lambda: is_deepseek_offpeak(now_fn()))
             except Exception as e:
-                db.update_bulk_job(bulk_job_id, status="failed",
-                                   last_error=translate_engines.redact_secrets(str(e)))
+                if db.set_bulk_job_status_if(bulk_job_id, ("running",), "failed"):
+                    db.update_bulk_job(bulk_job_id, last_error=translate_engines.redact_secrets(str(e)))
                 return
             if summary.pop("window_closed"):
                 reschedule_for_next_window(bulk_job_id, now_fn())
@@ -290,14 +301,9 @@ def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None)
     for job in db.list_bulk_jobs(drama_id, statuses=(
             "submitted", "scheduled", "running", "needs_resubmit", "applying")):
         if job["status"] == "applying":
-            # Left mid-apply by a stopped app: some results may have landed
-            # and been billed, so they are never applied a second time.
-            if not _check_lock(job["id"]).locked() and db.set_bulk_job_status_if(
-                    job["id"], ("applying",), "failed"):
-                db.update_bulk_job(job["id"], last_error=(
-                    "The app stopped while applying these results; lines without a result "
-                    "can be run again."))
-            continue
+            job["status"] = _recover_stranded_apply(job)
+            if job["status"] != "needs_resubmit":
+                continue
         if background_jobs.is_running(poll_job_id(job["id"])) or _polled_by_outer_job(job):
             out[job["id"]] = "running"
             continue
@@ -317,13 +323,51 @@ def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None)
     return out
 
 
+def _recover_stranded_apply(job: dict) -> str:
+    """A job left "applying" by a stopped app: some results may have landed
+    and been billed, so they are never applied a second time. A Reflect
+    faithful or reflection stage whose next stage was never sent holds its
+    paid drafts only in bulk_job_lines, so it goes back to needs_resubmit:
+    the next poll sends that stage once (_advance_pipeline checks for it), or
+    writes the drafts once the attempts run out. Returns the job's status."""
+    if _check_lock(job["id"]).locked():
+        return db.get_bulk_job(job["id"])["status"]
+    if (job.get("kind") == "reflect" and job.get("stage") in ("faithful", "reflect")
+            and sibling_stage_job(job["pipeline_id"], "reflect" if job["stage"] == "faithful"
+                                  else "expressive", skip_failed=True) is None):
+        if db.set_bulk_job_status_if(job["id"], ("applying",), "needs_resubmit"):
+            db.update_bulk_job(job["id"], last_error=(
+                "The app stopped while applying these results; the next Reflect stage is sent "
+                "when the batch is resumed."))
+    elif db.set_bulk_job_status_if(job["id"], ("applying",), "failed"):
+        db.update_bulk_job(job["id"], last_error=(
+            "The app stopped while applying these results; lines without a result can be run again."))
+    return db.get_bulk_job(job["id"])["status"]
+
+
+def reconcile_stranded_applies() -> None:
+    """App start: recovers every job a stopped app left "applying" (see
+    _recover_stranded_apply), whether or not pending batches are resumed.
+    Sends nothing to a provider."""
+    for job in db.list_bulk_jobs(statuses=("applying",)):
+        _recover_stranded_apply(job)
+
+
+# Every status a Cancel may end. "applying" is included so a Cancel that lands
+# while results are being applied wins over the applier's own status write.
+_CANCEL_FROM = ("submitting",) + db.BULK_PENDING_STATUSES + ("running", "applying")
+
+
 def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
     """Stops polling and marks the job cancelled, so any result that
     still arrives is ignored. Cancels at the provider too when there's a
     batch id and a provider to ask; if that call fails the job is still
-    cancelled locally. Returns a message for the panel."""
+    cancelled locally. A job that already finished (applied, failed) keeps
+    its status. Returns a message for the panel."""
     job = db.get_bulk_job(bulk_job_id)
     background_jobs.request_cancel(poll_job_id(bulk_job_id))
+    if not db.set_bulk_job_status_if(bulk_job_id, _CANCEL_FROM, "cancelled"):
+        return "This batch had already finished, so there was nothing to cancel."
     note = "Cancelled -- results that still arrive will be ignored."
     if job and job.get("provider_batch_id") and provider is not None:
         try:
@@ -332,5 +376,5 @@ def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
         except Exception as e:
             note = ("Stopped here, but the provider's own cancel call failed -- results that "
                     f"still arrive will be ignored. ({translate_engines.redact_secrets(str(e))})")
-    db.update_bulk_job(bulk_job_id, status="cancelled", last_error=None)
+    db.update_bulk_job(bulk_job_id, last_error=None)
     return note
