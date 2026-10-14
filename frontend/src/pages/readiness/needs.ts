@@ -199,6 +199,120 @@ export function scanlateNeed(r: SetupReadiness | null, ocrBackend: string, ocrIn
   }
 }
 
+export const NO_LIBASS = 'Needs an FFmpeg build with libass.'
+
+/** Burning subtitles into the picture goes through ffmpeg's libass; a build without it fails the whole export. */
+export function libassNeed(r: SetupReadiness | null): Need | null {
+  const ffmpeg = ffmpegNeed(r)
+  if (ffmpeg || !r || r.ffmpeg_libass) return ffmpeg
+  return {
+    id: 'libass', label: 'FFmpeg with libass', action: 'recheck', packages: [],
+    reason: "This FFmpeg can't draw subtitles into the picture (it was built without libass). Install a full FFmpeg build, then check again.",
+    link: { href: 'https://ffmpeg.org/download.html', label: 'Get FFmpeg' },
+  }
+}
+
+/** Downloading a live stream goes through yt-dlp (and so does the delayed player's recording). */
+export function ytDlpNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.yt_dlp) return null
+  return {
+    id: 'yt_dlp', label: 'yt-dlp', action: 'diagnostics', packages: ['yt-dlp'],
+    reason: "Live needs yt-dlp to read the stream, and it isn't installed.",
+  }
+}
+
+/** Some sites (YouTube) only download through yt-dlp when a JavaScript runtime is present. A suggestion, not a requirement. */
+export function jsRuntimeNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.js_runtime) return null
+  return {
+    id: 'js_runtime', label: 'JavaScript runtime', action: 'diagnostics', packages: [], recommended: true,
+    reason: "No JavaScript runtime (Deno or Node) was found. YouTube streams may not open without one.",
+  }
+}
+
+export interface LiveNeedsForm {
+  delayedPlayer: boolean
+}
+
+export interface LiveNeeds {
+  whisper: Need | null
+  ffmpeg: Need | null
+  ytDlp: Need | null
+  jsRuntime: Need | null
+}
+
+export function liveNeeds(r: SetupReadiness | null, f: LiveNeedsForm): LiveNeeds {
+  return {
+    whisper: whisperNeed(r),
+    ffmpeg: ffmpegNeed(r),
+    ytDlp: ytDlpNeed(r),
+    // The delayed player downloads the picture too, which is where the runtime matters most.
+    jsRuntime: f.delayedPlayer ? jsRuntimeNeed(r) : null,
+  }
+}
+
+/** What stops Start: Live cannot hear, read or record without these. */
+export function liveBlockers(n: LiveNeeds): Need[] {
+  return [n.whisper, n.ffmpeg, n.ytDlp].filter((x): x is Need => !!x)
+}
+
+/** Why the GPU box is off: no NVIDIA GPU was found at all. Unknown readiness leaves it usable. */
+export function liveGpuReason(r: SetupReadiness | null): string | null {
+  return r && !r.gpu_found ? 'No NVIDIA GPU was found on this PC, so Whisper runs on the CPU.' : null
+}
+
+const LIVE_SIZE_FLAGS: Record<string, keyof SetupReadiness> = {
+  tiny: 'whisper_cached_tiny', base: 'whisper_cached_base', small: 'whisper_cached_small', medium: 'whisper_cached_medium',
+  'large-v3-turbo': 'whisper_cached_large_v3_turbo',
+}
+
+/**
+ * Whether a Live Whisper size can be picked. A model that is on the PC always can. One that is not
+ * downloads on first use at the main PC (when Whisper itself is installed), but away from it the
+ * server refuses it, so it is switched off there with the reason.
+ */
+export function liveWhisperSize(r: SetupReadiness | null, size: string, atMainPc: boolean): { reason: string | null; download: boolean } {
+  const flag = LIVE_SIZE_FLAGS[size]
+  if (!r || !flag || r[flag]) return { reason: null, download: false }
+  if (!r.faster_whisper) return { reason: 'Needs Whisper, which is not installed.', download: false }
+  if (!atMainPc) return { reason: 'Not downloaded yet. Download it from the main PC first.', download: false }
+  return { reason: null, download: true }
+}
+
+/** Looking up a page's words splits it into words first: Chinese through jieba, Japanese through Sudachi, Korean through Kiwi. */
+export function wordSplitterNeed(r: SetupReadiness | null, language: string): Need | null {
+  if (!r) return null
+  const table: Record<string, { ready: boolean; name: string; key: string }> = {
+    zh: { ready: r.jieba, name: 'jieba', key: 'jieba' },
+    ja: { ready: r.sudachi, name: 'Sudachi', key: 'sudachipy' },
+    ko: { ready: r.kiwi, name: 'Kiwi', key: 'kiwipiepy' },
+  }
+  const splitter = table[language]
+  if (!splitter || splitter.ready) return null
+  return {
+    id: 'word_splitter', label: 'Word splitter', action: 'diagnostics', packages: [splitter.key],
+    reason: `Looking up words needs ${splitter.name} to split the text, and it isn't installed.`,
+  }
+}
+
+/** Anki decks are built with genanki; the word list CSV needs nothing. */
+export function ankiNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.genanki) return null
+  return {
+    id: 'anki', label: 'Anki deck export', action: 'diagnostics', packages: ['genanki'],
+    reason: "Anki decks (.apkg) need the genanki package, which isn't installed. The word list (.csv) works without it.",
+  }
+}
+
+/** Audio emotion tags run SenseVoice through funasr. The server reports whether it is installed with the tags themselves. */
+export function senseVoiceNeed(installed: boolean): Need | null {
+  if (installed) return null
+  return {
+    id: 'sensevoice', label: 'Audio tags (SenseVoice)', action: 'diagnostics', packages: ['funasr'],
+    reason: "Tagging from the audio needs the funasr package, which isn't installed.",
+  }
+}
+
 /** Ollama is a separate program Baihe talks to; it has no installer here. */
 export function ollamaNeed(r: SetupReadiness | null): Need | null {
   if (!r || (r.ollama_reachable && r.ollama_model_pulled)) return null

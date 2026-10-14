@@ -603,7 +603,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
                 vocab_export.export_vocab_apkg(vocab, deck, out_path)
         except ImportError:
             raise DependencyUnavailableError(
-                "Needs `pip install genanki` for .apkg export -- CSV works without it.") from None
+                "Anki deck export needs the genanki package, which isn't installed (see Diagnostics > Packages). The CSV works without it.") from None
         with open(out_path, "rb") as f:
             content = f.read()
     return {"filename": name, "media_type": "application/octet-stream", "content": content,

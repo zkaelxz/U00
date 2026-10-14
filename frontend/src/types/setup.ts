@@ -29,6 +29,12 @@ export interface SetupReadiness {
   ffmpeg_libass: boolean
   js_runtime: boolean
   tesseract_program: boolean
+  // Live's Whisper sizes: the model is already on the PC.
+  whisper_cached_tiny: boolean
+  whisper_cached_base: boolean
+  whisper_cached_small: boolean
+  whisper_cached_medium: boolean
+  whisper_cached_large_v3_turbo: boolean
   gpu_found: boolean
   torch_cuda: boolean
   hf_token_configured: boolean

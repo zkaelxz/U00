@@ -8,12 +8,15 @@ import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useReadiness } from '../../../../hooks/useReadiness'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
 import { draftStorage, readDraft } from '../../../../hooks/useStageDraft'
 import { assFormFromDraft, buildAssRequest, EXPORT_DRAFT_STAGE } from '../../exportForm'
 import { burnPreviewJobId } from '../../stageJobIds'
 import type { AssStyleOptions } from '../../../../types/export'
 import type { BurnPreviewInfo } from '../../../../types/reviewExtras'
+import { NeedsInstall } from '../../../readiness/NeedsInstall'
+import { libassNeed, NO_LIBASS } from '../../../readiness/needs'
 import { JobPanel } from '../JobPanel'
 import { clipCaption, resolveLineNumber } from './aiExtrasLogic'
 
@@ -40,6 +43,9 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
   const reload = useCallback(() => setLoadKey((n) => n + 1), [])
   const { job, done, error: pollError } = useJob(jobId, { runKey, onDone: reload })
   const running = starting || (jobId !== null && !done && !pollError)
+  const { readiness } = useReadiness()
+  // The plain reason below covers a missing FFmpeg; this is the build that lacks libass.
+  const libass = readiness?.ffmpeg ? libassNeed(readiness) : null
 
   useEffect(() => {
     let cancelled = false
@@ -75,7 +81,7 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
       ? 'This project has no source video.'
       : !info.ffmpeg_available
         ? 'Needs ffmpeg (with libass) on the PC.'
-        : null
+        : libass ? NO_LIBASS : null
 
   const render = async () => {
     setError(null)
@@ -150,6 +156,7 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
           )}
         </div>
       </form>
+      {libass && info?.has_video && <NeedsInstall need={libass} />}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [burnPreviewJobId(dramaId)], retryFor: () => () => void render() }} />
       {info?.clip && (

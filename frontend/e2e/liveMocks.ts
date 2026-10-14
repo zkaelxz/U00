@@ -82,7 +82,13 @@ interface LiveMocks {
 
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
 
-export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean } = {}): Promise<LiveMocks> {
+/** Everything Live looks at in GET /api/setup/readiness, present; a spec overrides what it wants missing. */
+export const LIVE_READY: Record<string, boolean> = {
+  faster_whisper: true, ffmpeg: true, yt_dlp: true, js_runtime: true, gpu_found: true,
+  whisper_cached_tiny: true, whisper_cached_base: true, whisper_cached_small: true, whisper_cached_medium: true, whisper_cached_large_v3_turbo: true,
+}
+
+export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean> } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
     follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
@@ -94,6 +100,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     m.unmocked.push(`${r.method()} ${new URL(r.url()).pathname}`)
     return route.abort()
   })
+  await page.route('**/api/setup/readiness', (route) => json(route, { ...LIVE_READY, ...opts.readiness }))
   await page.route('**/api/meta', (route) =>
     json(route, { app: 'baihe', api_version: '1', environment: 'development', local: !opts.remote }))
   await page.route('**/api/auth/me', (route) => json(route, {

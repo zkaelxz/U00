@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SetupReadiness } from '../../types/setup'
 import {
-  audioToolNeed, gpuTorchNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  ankiNeed, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
   scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
@@ -15,6 +15,8 @@ const FRESH: SetupReadiness = {
   js_runtime: false, tesseract_program: false, gpu_found: true, torch_cuda: false, hf_token_configured: false,
   key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false,
   ollama_reachable: false, ollama_model_pulled: false,
+  whisper_cached_tiny: false, whisper_cached_base: false, whisper_cached_small: false, whisper_cached_medium: false,
+  whisper_cached_large_v3_turbo: false,
 }
 const READY: SetupReadiness = Object.fromEntries(Object.keys(FRESH).map((k) => [k, true])) as unknown as SetupReadiness
 
@@ -184,5 +186,59 @@ describe('scanlateNeed', () => {
   it('lists the packages a backend lacks', () => {
     expect(scanlateNeed(null, 'paddle', false)?.packages).toEqual(['paddleocr', 'paddlepaddle'])
     expect(scanlateNeed(null, 'manga_ocr', false)?.packages).toEqual(['manga-ocr'])
+  })
+})
+
+describe('Export, Live, Reader and Review needs', () => {
+  it('stay silent while readiness is unknown', () => {
+    expect(libassNeed(null)).toBeNull()
+    expect(ytDlpNeed(null)).toBeNull()
+    expect(wordSplitterNeed(null, 'zh')).toBeNull()
+    expect(ankiNeed(null)).toBeNull()
+    expect(liveGpuReason(null)).toBeNull()
+    expect(liveWhisperSize(null, 'medium', false)).toEqual({ reason: null, download: false })
+    expect(liveBlockers(liveNeeds(null, { delayedPlayer: true }))).toEqual([])
+  })
+
+  it('burned-in export names FFmpeg first, then the missing libass', () => {
+    expect(libassNeed({ ...READY, ffmpeg: false })).toMatchObject({ id: 'ffmpeg' })
+    expect(libassNeed({ ...READY, ffmpeg_libass: false })).toMatchObject({ id: 'libass', action: 'recheck' })
+    expect(libassNeed(READY)).toBeNull()
+  })
+
+  it('Live stops on Whisper, FFmpeg and yt-dlp, and only suggests a JavaScript runtime for the delayed player', () => {
+    const bare = { ...FRESH, ffmpeg: false }
+    expect(liveBlockers(liveNeeds(bare, { delayedPlayer: false })).map((n) => n.id)).toEqual(['whisper', 'ffmpeg', 'yt_dlp'])
+    expect(liveNeeds(bare, { delayedPlayer: false }).jsRuntime).toBeNull()
+    expect(liveNeeds(bare, { delayedPlayer: true }).jsRuntime).toMatchObject({ recommended: true })
+    expect(liveBlockers(liveNeeds(READY, { delayedPlayer: true }))).toEqual([])
+  })
+
+  it('switches the GPU box off only when no NVIDIA GPU exists', () => {
+    expect(liveGpuReason({ ...READY, gpu_found: false })).toContain('No NVIDIA GPU')
+    expect(liveGpuReason({ ...READY, torch_cuda: false })).toBeNull()
+  })
+
+  it('offers a Whisper size that is on the PC, downloadable at the PC, and refuses the rest away from it', () => {
+    const r = { ...READY, whisper_cached_medium: false }
+    expect(liveWhisperSize(r, 'small', false)).toEqual({ reason: null, download: false })
+    expect(liveWhisperSize(r, 'medium', true)).toEqual({ reason: null, download: true })
+    expect(liveWhisperSize(r, 'medium', false).reason).toContain('main PC')
+    expect(liveWhisperSize({ ...r, faster_whisper: false }, 'medium', true).reason).toContain('Whisper')
+  })
+
+  it('names the word splitter for the title language', () => {
+    expect(wordSplitterNeed({ ...READY, jieba: false }, 'zh')).toMatchObject({ packages: ['jieba'] })
+    expect(wordSplitterNeed({ ...READY, sudachi: false }, 'ja')).toMatchObject({ packages: ['sudachipy'] })
+    expect(wordSplitterNeed({ ...READY, kiwi: false }, 'ko')).toMatchObject({ packages: ['kiwipiepy'] })
+    expect(wordSplitterNeed({ ...READY, jieba: false }, 'ja')).toBeNull()
+    expect(wordSplitterNeed({ ...READY, jieba: false }, 'en')).toBeNull()
+  })
+
+  it('names genanki for Anki decks and funasr for audio tags', () => {
+    expect(ankiNeed({ ...READY, genanki: false })).toMatchObject({ packages: ['genanki'] })
+    expect(ankiNeed(READY)).toBeNull()
+    expect(senseVoiceNeed(false)).toMatchObject({ packages: ['funasr'], action: 'diagnostics' })
+    expect(senseVoiceNeed(true)).toBeNull()
   })
 })

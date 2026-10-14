@@ -34,8 +34,11 @@ import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { useEventStream } from '../hooks/useEventStream'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { useReadiness } from '../hooks/useReadiness'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { LIVE_STARTED_EVENT, followOptions } from '../api/liveFollows'
+import { NeedsInstall } from './readiness/NeedsInstall'
+import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
 import { DelayedPlayer } from './live/DelayedPlayer'
@@ -244,9 +247,16 @@ export default function LivePage() {
   const urlReason = checkLiveUrl(url)
   // While the engine list loads there is no engine to send; never start then
   // (a missing engine would fall back to the server default, a paid one).
+  const { readiness } = useReadiness()
+  const needs = liveNeeds(readiness, { delayedPlayer: form.delayed_player })
+  const needList = [...liveBlockers(needs), ...(needs.jsRuntime ? [needs.jsRuntime] : [])]
+  const gpuReason = liveGpuReason(readiness)
+  const sizeReason = liveWhisperSize(readiness, form.whisper_size, pc !== 'remote').reason
   const blocker = urlReason ?? (engines === null
     ? 'Loading engines…'
-    : !engine ? 'Still needed: an engine with a key (see Settings).' : null)
+    : !engine ? 'Still needed: an engine with a key (see Settings).'
+      : liveBlockers(needs).length ? 'Still needed: what is listed under Start.'
+        : sizeReason ? `Still needed: a Whisper model that is ready. ${sizeReason}` : null)
 
   async function start(e: React.FormEvent) {
     e.preventDefault()
@@ -380,11 +390,14 @@ export default function LivePage() {
             <div className="field-row">
               <Field label="Whisper model" help={WHISPER_HELP}>
                 <select value={form.whisper_size} disabled={active} onChange={(e) => setOpt('whisper_size', e.target.value)}>
-                  {WHISPER_SIZES.map((w) => (
-                    <option key={w} value={w}>
-                      {w}
-                    </option>
-                  ))}
+                  {WHISPER_SIZES.map((w) => {
+                    const size = liveWhisperSize(readiness, w, pc !== 'remote')
+                    return (
+                      <option key={w} value={w} disabled={!!size.reason && w !== form.whisper_size} title={size.reason ?? undefined}>
+                        {w}{size.reason ? ' (not available)' : size.download ? ' (downloads first)' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
               </Field>
               <Field label="Chunk" unit="s" help="Shorter shows lines sooner; longer transcribes better per chunk.">
@@ -401,9 +414,10 @@ export default function LivePage() {
               </Field>
             </div>
             <label className="live-check">
-              <input type="checkbox" checked={form.use_gpu} disabled={active} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
+              <input type="checkbox" checked={form.use_gpu && !gpuReason} disabled={active || !!gpuReason} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
               Use GPU for Whisper
             </label>
+            {gpuReason && <p className="muted" data-testid="live-gpu-note">{gpuReason}</p>}
             <Field label="Delayed player"
               help="Records a delayed copy of the picture and sound on this PC and plays that instead of the stream's own player, so the picture can be held back to match the lines even where the stream can't be rewound. Downloads the video as well as the audio. Takes effect when you press Start.">
               <Toggle checked={form.delayed_player} disabled={active} onChange={(v) => setOpt('delayed_player', v)} />
@@ -439,6 +453,7 @@ export default function LivePage() {
             )}
           </div>
           {!active && blocker && <p className="muted">{blocker}</p>}
+          {!active && needList.length > 0 && <div className="stack">{needList.map((n) => <NeedsInstall key={n.id} need={n} />)}</div>}
           {pc === 'remote' && !active && (
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
           )}

@@ -227,7 +227,8 @@ test('SenseVoice without funasr explains why the button is off', async ({ page }
   await openExtras(page)
   const extras = await openSub(page, 'Audio tags')
   await expect(extras.getByRole('button', { name: 'Tag from the audio' })).toBeDisabled()
-  await expect(extras.getByText(/pip install funasr/)).toBeVisible()
+  await expect(extras.getByTestId('needs-sensevoice')).toContainText(/funasr package, which isn't installed/)
+  await expect(extras.getByText(/pip install/)).toHaveCount(0)
 })
 
 test('burned preview: a line number resolves to its id, then the clip plays (ffmpeg mocked)', async ({ page }) => {

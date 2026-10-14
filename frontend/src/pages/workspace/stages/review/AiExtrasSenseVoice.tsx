@@ -6,6 +6,8 @@ import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { NeedsInstall } from '../../../readiness/NeedsInstall'
+import { senseVoiceNeed } from '../../../readiness/needs'
 import { senseVoiceJobId } from '../../stageJobIds'
 import { lineNumber } from '../../../../lineNumber'
 import type { SenseVoiceTags } from '../../../../types/reviewExtras'
@@ -57,10 +59,11 @@ export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
     startSenseVoice(dramaId).then((r) => setJobId(r.job_id), setError)
   }
 
+  const need = tags ? senseVoiceNeed(tags.installed) : null
   const reason = !tags
     ? null
-    : !tags.installed
-      ? 'Needs the optional funasr package on the PC (pip install funasr).'
+    : need
+      ? 'Needs the funasr package.'
       : !tags.has_audio
         ? 'This project has no audio to listen to.'
         : null
@@ -81,6 +84,7 @@ export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
           </span>
         )}
       </div>
+      {need && <NeedsInstall need={need} />}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <JobPanel jobId={jobId} job={job} pollError={pollError} lastRun={{ dramaId, ids: [senseVoiceJobId(dramaId)], retryFor: () => start }} />
       {tags && <p data-testid="sensevoice-summary">{senseVoiceSummary(tags)}</p>}
