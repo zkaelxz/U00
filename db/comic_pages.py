@@ -68,10 +68,9 @@ def next_page_idx(drama_id: int) -> int:
     return 0 if row is None or row[0] is None else int(row[0]) + 1
 
 
-# Scanlate S0: id-preserving region writes. Unlike save_bubbles (a full
-# delete-and-reinsert that gives every bubble a new id, still used by the
-# extension bridge in page_server.py), each of
-# these keeps every other bubble's id and bumps pages.rev once.
+# Id-preserving region writes. Unlike save_bubbles (a full delete-and-reinsert
+# that gives every bubble a new id), each of these keeps every other bubble's
+# id and bumps pages.rev once.
 BUBBLE_EDIT_FIELDS = ("x", "y", "w", "h", "source_text", "translated_text", "font_size",
                       "skip", "font_category", "kind", "kind_confidence", "confidence",
                       "language", "orientation", "panel_id", "include_sfx")

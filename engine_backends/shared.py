@@ -3,6 +3,7 @@ id-keyed request and parsing, content-moderation detection."""
 
 import contextvars
 import json
+import random
 import re
 import time
 from typing import Optional
@@ -129,6 +130,11 @@ def _cancellable_sleep(seconds: float):
         raise TranslationCancelled("cancelled")
 
 
+def _jitter() -> float:
+    """1.0 to 1.25: parallel jobs hit by one rate limit must not retry in step."""
+    return 1.0 + random.random() * 0.25
+
+
 def _retry_after_seconds(e: Exception) -> float:
     """The provider's own Retry-After wait in seconds, 0 when absent or not a number."""
     headers = getattr(getattr(e, "response", None), "headers", None)
@@ -174,7 +180,7 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             if _is_rate_limit_error(e):
                 if attempt == max_retries - 1:
                     raise  # a wait before the final raise only delays the error
-                delay = max(min(base_delay * (2 ** attempt), max_delay),
+                delay = max(min(base_delay * (2 ** attempt) * _jitter(), max_delay),
                             min(_retry_after_seconds(e), max_delay))
                 charge_rate_limit_wait(delay)
                 if on_wait:

@@ -108,6 +108,7 @@ def test_backoff_hook_reports_wait_without_error_text(monkeypatch):
 
 def test_call_with_backoff_on_wait_receives_numbers_only(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda *_: None)
+    monkeypatch.setattr("engine_backends.shared._jitter", lambda: 1.0)  # exact waits for the assert
     got, state = [], {"n": 0}
 
     def flaky():
