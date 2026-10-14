@@ -146,6 +146,25 @@ class TestPinnedDownload:
         text = str(err.value)
         assert "hf_SECRET" not in text and "C:\\" not in text and "http" not in text
 
+    def test_a_short_drive_is_refused_before_the_download(self, monkeypatch, tmp_path, hf_home):
+        import shutil
+        hub = FakeHub(monkeypatch, tmp_path)
+        monkeypatch.setattr(shutil, "disk_usage",
+                            lambda path: types.SimpleNamespace(total=0, used=0, free=1024 ** 3))
+        with pytest.raises(wm.ModelDownloadError) as err:
+            wm._fetch_pinned_model(KEY, None)
+        assert str(err.value) == ("Not enough free disk space for this model: it needs about "
+                                  "3 GB; free some space and try again.")
+        assert hub.downloads == [] and str(tmp_path) not in str(err.value)
+
+    def test_room_on_the_drive_lets_the_download_run(self, monkeypatch, tmp_path, hf_home):
+        import shutil
+        hub = FakeHub(monkeypatch, tmp_path)
+        monkeypatch.setattr(shutil, "disk_usage",
+                            lambda path: types.SimpleNamespace(total=0, used=0, free=8 * 1024 ** 3))
+        wm._fetch_pinned_model(KEY, None)
+        assert len(hub.downloads) == 1
+
     def test_load_uses_the_pinned_folder_and_ignores_a_client_repo_id(self, monkeypatch, tmp_path, hf_home):
         FakeHub(monkeypatch, tmp_path)
         loaded = []

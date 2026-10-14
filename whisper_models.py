@@ -60,6 +60,10 @@ ANIME_WHISPER_PIN = {
 }
 ANIME_WHISPER_MANIFEST = "baihe-manifest.json"
 
+# Approximate download sizes in GB. A member can start these downloads, so free space
+# is checked first rather than letting a full drive fail partway through.
+_DOWNLOAD_GB = {ANIME_WHISPER_KEY: 1.5, "ja-1.5b": 3, "kotoba-v2": 1.5}
+
 # Models that must not be asked for word timestamps. kotoba's CTranslate2 config copies
 # large-v3's alignment_heads (decoder layers 7-19) onto a 2-layer decoder, so
 # word_timestamps=True can fail inside ctranslate2. Their lines keep Whisper's segment
@@ -381,6 +385,18 @@ def _download_model(model_size: str, token: str) -> str:
                                               "model.bin", "tokenizer.json", "vocabulary.*"])
 
 
+def _refuse_without_room(folder: str, model_key: str) -> None:
+    """Raises ModelDownloadError when `folder`'s drive can't hold the model plus a margin.
+    The folder may not exist yet, so the nearest existing parent is measured."""
+    from services.library_admin_service import has_disk_room
+    gb = _DOWNLOAD_GB[model_key]
+    while not os.path.isdir(folder) and os.path.dirname(folder) != folder:
+        folder = os.path.dirname(folder)
+    if not has_disk_room(folder, int(gb * 1024 ** 3)):
+        raise ModelDownloadError(f"Not enough free disk space for this model: it needs about "
+                                 f"{gb:g} GB; free some space and try again.")
+
+
 def _fetch_pinned_model(model_size: str, token) -> str:
     """Local folder of a pinned repo, listed before anything is downloaded.
 
@@ -401,6 +417,7 @@ def _fetch_pinned_model(model_size: str, token) -> str:
             raise ModelDownloadError(
                 f"Not downloading the '{model_size}' model: {exc}. Nothing was downloaded. "
                 "This model is only used when its repository holds plain CTranslate2 files.") from exc
+        _refuse_without_room(_hub_dir(), model_size)
         return huggingface_hub.snapshot_download(
             repo, revision=revision, token=token, allow_patterns=wanted, etag_timeout=30)
     except ModelDownloadError:
@@ -519,6 +536,7 @@ def _fetch_anime_whisper(token) -> str:
             for name in os.listdir(parent):
                 if name.startswith("anime_whisper.") and name.endswith((".partial", ".old")):
                     shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
+            _refuse_without_room(parent, ANIME_WHISPER_KEY)
             partial = tempfile.mkdtemp(prefix="anime_whisper.", suffix=".partial", dir=parent)
             huggingface_hub.snapshot_download(
                 repo, revision=revision, token=token, allow_patterns=wanted, local_dir=partial,
