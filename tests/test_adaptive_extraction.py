@@ -15,7 +15,7 @@ import pytest
 
 from sources import adaptive, ai_extract as ax, ai_extract_comic as axc, ai_extract_media as axm, ai_extract_novel as axn, generic_import, novel_follow, profiles, store
 
-from .sources_helpers import ScriptedTransport, html as html_resp, make_client
+from .sources_helpers import ScriptedTransport, classify_comic_html, html as html_resp, make_client
 
 URL = "https://www.novel.example/book/77/1002.html"
 DOMAIN = "novel.example"
@@ -269,7 +269,7 @@ class TestComicClassification:
         monkeypatch.setattr(requests, "get", no_download)
         engine = FakeEngine(comic_answer)
 
-        data, report = adaptive.classify_comic_page(COMIC_HTML, COMIC_URL, engine)
+        data, report = classify_comic_html(COMIC_HTML, COMIC_URL, engine)
         assert len(engine.calls) == 1 and report.llm_calls == 1
         assert data["content_type"] == "comic"
         assert set(data) >= {"title", "chapter_title", "chapter_number", "pages"}

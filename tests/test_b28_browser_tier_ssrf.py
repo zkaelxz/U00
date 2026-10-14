@@ -145,8 +145,7 @@ def test_every_launched_context_is_guarded(monkeypatch):
     monkeypatch.setattr(page_fetch, "_require_playwright", lambda: _fake_playwright(contexts))
     page_fetch.fetch_rendered("https://public.example/", wait_ms=0)
     page_fetch.fetch_rendered_resolving_blobs("https://public.example/", wait_ms=0)
-    with page_fetch.rendered_session("https://public.example/", wait_ms=0):
-        pass
+    page_fetch.fetch_rendered("https://public.example/", wait_selector="body")
     with page_fetch.api_capture_session("https://public.example/", "x", wait_ms=0):
         pass
     assert len(contexts) == 4

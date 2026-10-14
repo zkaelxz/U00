@@ -334,8 +334,7 @@ def test_page_fetch_closes_the_browser_and_driver_when_the_page_fails(isolated_d
 
     monkeypatch.setattr(page_fetch, "_require_playwright", lambda: (lambda: _Play()))
     with pytest.raises(RuntimeError):
-        with page_fetch.rendered_session("https://public.example/", wait_ms=0):
-            pass
+        page_fetch.fetch_rendered("https://public.example/", wait_ms=0)
     assert browsers and all(b.closed for b in browsers)
     assert log[-1][0] == "stop"
     assert os.listdir(storage.temp_root()) == []

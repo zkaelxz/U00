@@ -118,7 +118,6 @@ PIPELINE_LOCK = threading.Lock()
 
 _server_lock = threading.Lock()
 _server_started = False
-_server_port = None
 _server = None          # the running ThreadingHTTPServer, for stop_server()
 # Bumped by every start and stop, so a server thread still binding when
 # stop_server() runs knows not to serve, and a failed old start can't mark a
@@ -813,12 +812,11 @@ def serve(port: int, generation=None):
     # Daemon handler threads are not joined by server_close(), so stopping
     # never waits on an in-flight OCR run.
     server.daemon_threads = True
-    global _server_port, _server
+    global _server
     with _server_lock:
         if generation is not None and generation != _server_generation:
             server.server_close()
             return
-        _server_port = port
         _server = server
     server.serve_forever()
 
@@ -879,7 +877,3 @@ def stop_server() -> bool:
 def server_running() -> bool:
     with _server_lock:
         return _server_started
-
-
-def server_port():
-    return _server_port

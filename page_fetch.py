@@ -203,25 +203,6 @@ def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: s
     return html, _visible_lines(html), blob_bytes
 
 
-@contextmanager
-def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500):
-    """An open, loaded page the caller drives itself, instead of the
-    one-shot fetch_rendered() shape.
-
-    For a site whose content only appears as its own viewer is navigated:
-    the caller steps through using that site's own public viewer API and
-    reads what it produces, rather than this project reproducing the
-    site's rendering itself.
-    """
-    sync_playwright = _require_playwright()
-    with storage.playwright_session(sync_playwright) as p:
-        with _guarded_chromium(p) as (browser, proxy):
-            page = _guarded_page(browser)
-            _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
-            page.wait_for_timeout(wait_ms)
-            yield page
-
-
 def _url_matches(url: str, pattern) -> bool:
     """`pattern` is a plain substring or a compiled regex; either way,
     answers "does this response belong to the endpoint a caller is
@@ -249,8 +230,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     """Opens `url` in a real browser and records every network response
     whose URL matches `url_pattern`, as the page's own JavaScript makes
     them -- yielding `(page, captured)` so the caller can also drive the
-    page further (click, scroll, call a viewer's own API) the same way
-    `rendered_session()` lets a caller step through a reader.
+    page further (click, scroll, call a viewer's own API).
 
     For a site that protects its own content API with something computed
     client-side -- a request signature built from a nonce, a timestamp,
