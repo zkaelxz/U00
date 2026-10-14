@@ -138,7 +138,9 @@ def get_autotune(drama_id: int = Path(ge=1)):
     result = s.get("result") or {}
     return {"job_id": s["job_id"], "status": s["status"], "progress": s.get("progress"),
             "message": s.get("message") or "", "results": result.get("results"),
-            "best_candidate_ms": result.get("best_candidate_ms")}
+            "best_candidate_ms": result.get("best_candidate_ms"),
+            "scored_by": result.get("scored_by") or "long_lines",
+            "reference_lines": result.get("reference_lines") or 0}
 
 
 @router.post("/dramas/{drama_id}/autotune/apply", dependencies=[require_permission("lines.edit")], response_model=TranscribeConfig,

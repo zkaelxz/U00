@@ -169,7 +169,8 @@ class TestAutotuneStatus:
         r = client.get(_at(did))
         assert r.status_code == 200
         assert r.json() == {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
-                            "results": None, "best_candidate_ms": None}
+                            "results": None, "best_candidate_ms": None,
+                            "scored_by": "long_lines", "reference_lines": 0}
 
     def test_unknown_drama_is_still_404(self, client, isolated_db):
         assert client.get(_at(999)).status_code == 404
@@ -181,7 +182,7 @@ class TestAutotuneStatus:
         body = client.get(_at(did)).json()
         assert body == {"job_id": f"autotune_{did}", "status": "running", "progress": 0.5,
                         "message": "Testing candidate 2 of 4 (800ms)...", "results": None,
-                        "best_candidate_ms": None}
+                        "best_candidate_ms": None, "scored_by": "long_lines", "reference_lines": 0}
         _put_job(f"autotune_{did}", result=SCORES)
         body = client.get(_at(did)).json()
         assert body["status"] == "done"

@@ -18,6 +18,9 @@ __all__ = [
     "BenchmarkJudgeEstimate",
     "BenchmarkSetBuildRequest",
     "BenchmarkSetBuildResult",
+    "BenchmarkTitleCorrections",
+    "BenchmarkCorrectionsAddRequest",
+    "BenchmarkCorrectionsAddResult",
     "BenchmarkClipRow",
     "BenchmarkClipCheckRequest",
     "BenchmarkClipNote",
@@ -89,6 +92,34 @@ class BenchmarkSetBuildResult(BaseModel):
     lines_in_range: int
     reviewed_lines: int
     lines_used: int
+    case_count: int
+    added: int
+    skipped: int
+    dry_run: bool
+
+
+class BenchmarkTitleCorrections(BaseModel):
+    """How far a title's raw transcript is from the owner's corrections. The
+    rate is None until at least one line has been corrected."""
+    drama_id: int
+    raw_available: bool
+    lines_compared: int
+    lines_corrected: int
+    raw_to_edited_cer: Optional[float] = None
+
+
+class BenchmarkCorrectionsAddRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    set_name: str = Field(min_length=1, max_length=60)
+    dry_run: bool = False
+
+
+class BenchmarkCorrectionsAddResult(BaseModel):
+    set_name: str
+    lines_compared: int
+    lines_corrected: int
+    unedited_skipped: int
+    unclippable_skipped: int
     case_count: int
     added: int
     skipped: int

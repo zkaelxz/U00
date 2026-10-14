@@ -17,6 +17,8 @@ export interface AutotuneCandidateScore {
   candidate_ms: number
   long_lines: number
   total_lines: number
+  /** Error rate against the title's corrected lines (0.12 = 12%); null when it has none. */
+  cer: number | null
 }
 
 export interface AutotuneStatus {
@@ -26,6 +28,8 @@ export interface AutotuneStatus {
   message: string
   results: AutotuneCandidateScore[] | null
   best_candidate_ms: number | null
+  scored_by: 'cer' | 'long_lines'
+  reference_lines: number
 }
 
 export interface NovelGlossaryRunResult {
