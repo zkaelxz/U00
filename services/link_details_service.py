@@ -280,6 +280,7 @@ def apply(drama_id, values: dict, principal=None) -> dict:
     if clean.get("series") and series_id is not None \
             and db.dramas.assign_series_if_none(int(drama_id), series_id):
         applied.append("series")
+        drama_service.inherit_series_defaults_on_join(int(drama_id), series_id)
     return {"applied": applied, "kept": sorted(set(clean) - set(applied))}
 
 

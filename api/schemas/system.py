@@ -21,6 +21,7 @@ __all__ = [
     "DependencyStatus",
     "FileCompleteness",
     "GpuStatus",
+    "GpuReading",
     "ModelEngineVersion",
     "RunningJob",
     "DiagnosticsOverview",
@@ -160,6 +161,13 @@ class GpuStatus(BaseModel):
     vram_total_gb: Optional[float] = None
     torch_cuda_version: Optional[str] = None
     message: Optional[str] = None
+
+
+class GpuReading(BaseModel):
+    found: bool
+    name: Optional[str] = None
+    vram_used_gb: Optional[float] = None
+    vram_total_gb: Optional[float] = None
 
 
 class ModelEngineVersion(BaseModel):
