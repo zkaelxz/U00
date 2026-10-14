@@ -60,7 +60,7 @@ _READ = [require_permission("admin.diagnostics")]
 
 
 def _configs(body: BenchmarkRunRequest) -> list:
-    return [c.model_dump() for c in body.configs]
+    return [c.model_dump(exclude_none=True) for c in body.configs]
 
 
 def _judge(body: BenchmarkRunRequest):

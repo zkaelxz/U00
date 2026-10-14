@@ -24,6 +24,26 @@ export interface BenchmarkEngineOption {
   key_configured: boolean
 }
 
+/** A transcription arm's per-title options; a field left out takes the app's default (BenchmarkOptions.transcribe_defaults). */
+export interface BenchmarkTranscribeOptions {
+  beam_size?: number
+  min_silence_ms?: number
+  vad_threshold?: number
+  sensitivity_preset?: string
+  hallucination_silence_sec?: number
+  whisper_repeat_guard?: boolean
+  difficult_audio?: boolean
+  separate_vocals_first?: boolean
+  initial_prompt?: string
+}
+
+export interface BenchmarkBackendOption {
+  name: string
+  label: string
+  /** What it still needs on this PC (a package or a model to download); null when it can run. */
+  problem: string | null
+}
+
 export interface BenchmarkOptions {
   stages: BenchmarkStage[]
   tiers: BenchmarkTier[]
@@ -32,6 +52,11 @@ export interface BenchmarkOptions {
   whisper_sizes: string[]
   // {model: {language: reason}} for models not recommended for a language.
   whisper_exclusions: Record<string, Record<string, string>>
+  /** Recognisers besides Whisper (Qwen3-ASR, anime-whisper); they run only when already installed. */
+  transcription_backends: BenchmarkBackendOption[]
+  transcribe_defaults: Required<BenchmarkTranscribeOptions>
+  /** Per recogniser ("whisper" included), the options it does not read. */
+  transcribe_options_ignored: Record<string, string[]>
   ocr_backends: string[]
   pass_threshold: number
   chrf_pass_threshold: number
@@ -98,6 +123,8 @@ interface BenchmarkImportResult {
 export interface BenchmarkConfig {
   engine: string
   model?: string
+  /** Transcription only, and only the fields changed from the app's defaults. */
+  options?: BenchmarkTranscribeOptions
 }
 
 /** The engine that scores a translation run's outputs. allow_same_model must be true to judge with a tested model. */

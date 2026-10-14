@@ -78,7 +78,8 @@ LOCAL_FOLDER_LABEL = "offline model folder"
 
 
 def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bool = False,
-                           local_model_path: str = None):
+                           local_model_path: str = None, options: dict = None,
+                           backend: str = "whisper"):
     """
     case: {"input_path": audio file, "source_language": "zh"/"ja"/"ko",
     "reference_text": optional known-correct transcript}.
@@ -93,7 +94,10 @@ def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bo
     Returns {"output_text", "score" (None if no reference_text),
     "duration_seconds", "error" (None on success)}. local_model_path, when
     given, is a trusted folder the caller resolved from settings (it wins
-    over whisper_size, as in a real transcription). An exception is
+    over whisper_size, as in a real transcription). `options` are the
+    keyword arguments of the chosen recogniser, resolved by the caller (the Lab
+    builds them from the per-title options; this module knows no settings), and
+    `backend` is an asr_backend choice other than Whisper. An exception is
     caught and recorded, not raised -- one broken/missing case file must
     never stop the rest of the suite from running.
     """
@@ -101,10 +105,15 @@ def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bo
 
     started = time.monotonic()
     try:
-        segments = whisper_transcribe.transcribe_for_timing(
-            case["input_path"], model_size=whisper_size,
-            language=case.get("source_language", "zh"), use_gpu=use_gpu,
-            local_model_path=local_model_path)
+        language = case.get("source_language", "zh")
+        if backend == "whisper":
+            segments = whisper_transcribe.transcribe_for_timing(
+                case["input_path"], model_size=whisper_size, language=language,
+                use_gpu=use_gpu, local_model_path=local_model_path, **(options or {}))
+        else:
+            import asr_backend
+            segments = asr_backend.get_backend(backend).transcribe(
+                case["input_path"], language, use_gpu=use_gpu, **(options or {}))
         output_text = "".join(s["text"] for s in segments)
         error = None
     except Exception as exc:

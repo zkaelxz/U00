@@ -8,7 +8,7 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.benchmark import BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
+from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkTranscribeOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
 from core import SOURCE_LANGUAGES
 
 Stage = Literal["translation", "transcription", "ocr"]
@@ -99,6 +99,8 @@ class BenchmarkRegressionResult(BaseModel):
 class BenchmarkConfig(_Strict):
     engine: str = Field(max_length=40)
     model: Optional[str] = Field(default=None, max_length=100)
+    # Transcription only: the per-title options this arm runs with.
+    options: Optional[BenchmarkTranscribeOptions] = None
 
 
 class BenchmarkRunRequest(_Strict):
@@ -243,6 +245,10 @@ class BenchmarkOptions(BaseModel):
     translation_engines: List[BenchmarkEngineOption]
     whisper_sizes: List[str]
     whisper_exclusions: Dict[str, Dict[str, str]]
+    transcription_backends: List[BenchmarkBackendOption]
+    transcribe_defaults: BenchmarkTranscribeOptions
+    # Per recogniser, the options it does not read (shown disabled in the form).
+    transcribe_options_ignored: Dict[str, List[str]]
     ocr_backends: List[str]
     pass_threshold: float
     chrf_pass_threshold: float

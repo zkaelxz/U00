@@ -405,7 +405,7 @@ class TestFileStages:
                                  reference_text="你好")
         seen = {}
 
-        def fake(case, whisper_size="medium", use_gpu=False):
+        def fake(case, whisper_size="medium", use_gpu=False, **kw):
             seen["size"] = whisper_size
             return {"output_text": "你好", "duration_seconds": 0.1, "error": None, "score": None}
         monkeypatch.setattr(benchmark, "run_transcription_case", fake)
@@ -431,7 +431,7 @@ class TestOfflineModelFolderArm:
         self._case()
         seen = {}
 
-        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None):
+        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None, **kw):
             seen["path"] = local_model_path
             return {"output_text": "こんにちは", "duration_seconds": 0.1, "error": None, "score": None}
         monkeypatch.setattr(benchmark, "run_transcription_case", fake)
@@ -450,7 +450,7 @@ class TestOfflineModelFolderArm:
         other.mkdir()
         used = []
 
-        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None):
+        def fake(case, whisper_size="medium", use_gpu=False, local_model_path=None, **kw):
             used.append(local_model_path)
             # Settings are edited while the run is going.
             patch_setting(monkeypatch, "whisper_model_path", str(other))
