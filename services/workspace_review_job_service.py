@@ -13,6 +13,7 @@ import os
 import db
 import background_jobs
 import translate_engines
+from engine_backends import paid_calls
 import translation_guide as tguide
 import emotion
 import whisper_models
@@ -52,9 +53,7 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
             lines, engine, use_audio_cues=use_audio_cues,
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "emotion_detect"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
@@ -82,9 +81,7 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
             lines, engine, source_language=lang, stats=stats,
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "flag_review"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     items = []
@@ -115,9 +112,7 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=Non
                                     "consistency_check") as limits:
         issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
             lines, engine, batch_size=CONSISTENCY_BATCH_SIZE, source_language=lang,
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "consistency_check"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     if limits.stop_reason:
@@ -146,9 +141,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
                                     "translation_notes") as limits:
         found_notes = tguide.generate_translation_notes_llm(
             lines, engine,
-            usage_cb=lambda inp, out: db.log_usage(
-                drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "translation_notes"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
     if found_notes:

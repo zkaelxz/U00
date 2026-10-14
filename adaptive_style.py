@@ -15,8 +15,7 @@ applied, because a mis-learned preference would quietly degrade every
 future translation.
 """
 
-import re
-import json
+from engine_backends.shared import load_json_reply
 from translate_engines import call_llm_json
 
 MIN_SAMPLES_TO_LEARN = 8
@@ -66,10 +65,8 @@ def analyze_edit_patterns(edit_samples, engine, existing_profile: dict = None, u
     )
 
     text = call_llm_json(engine, prompt, max_tokens=1500, fallback="{}", usage_cb=usage_cb)
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
+    data = load_json_reply(text, None)
+    if data is None:
         return {"preferences": [], "summary": "Could not analyze.", "confidence": "none"}
     return {
         "preferences": data.get("preferences", []),

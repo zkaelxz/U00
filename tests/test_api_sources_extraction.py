@@ -763,10 +763,15 @@ def test_signed_in_review_is_pc_only(env):
     assert local.get(f"/api/sources/dramas/{did}/extraction").status_code == 200
 
 
-def test_signed_paths_are_blanked():
+def test_a_signed_next_link_shows_only_the_host():
     from services import sources_extraction_service as svc
-    shown = svc.display_url("https://cdn.example/token/abcdefghijklmnopqrstuv/001.png?sig=1")
-    assert shown == "https://cdn.example/token/[REDACTED]/001.png"
+    data = {"next_url": "https://cdn.example/token/abcdefghijklmnopqrstuv/002.png?sig=1",
+            "previous_url": "https://cdn.example/novel/1/001.html",
+            "confidence": {"next_url": {"bucket": "high", "score": 0.9},
+                           "previous_url": {"bucket": "high", "score": 0.9}}}
+    shown = {f["field"]: f["value"] for f in svc._confidence_view(data)["fields"]}
+    assert shown == {"next_url": "https://cdn.example/",
+                     "previous_url": "https://cdn.example/novel/1/001.html"}
 
 
 # ---------------------------------------------------------------------------

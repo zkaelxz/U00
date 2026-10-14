@@ -1,8 +1,20 @@
 """Parsing an id-keyed JSON reply ({"12": "text"}) into {id: text}, including
-the complete pairs of a reply cut off by the output limit. No provider code."""
+the complete pairs of a reply cut off by the output limit, and a fenced JSON
+reply taken whole. No provider code."""
 
 import json
 import re
+
+
+def load_json_reply(text: str, default):
+    """Parses a model reply that may be wrapped in a markdown fence. Only the
+    reply as a whole is parsed: prose around the JSON returns `default`
+    (extract_first_json_value is for replies that may carry prose)."""
+    stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return default
 
 
 def parse_id_keyed_json(text: str, expected_ids: list, recover: bool = False,

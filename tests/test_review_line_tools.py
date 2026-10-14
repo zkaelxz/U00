@@ -198,6 +198,20 @@ class TestShorten:
         assert [x["en"] for x in snap][0] == LONG
         assert "fine as it is" not in prompts[0]
 
+    def test_usage_is_logged_as_pacing_shorten(self, client, monkeypatch):
+        did, _ = _overlong_drama()
+        logged = []
+        monkeypatch.setattr(db, "log_usage", lambda d, e, m, op, i, o, *a, **k:
+                            logged.append((d, e, m, op, i, o)))
+
+        def fake_llm(engine, prompt, max_tokens=2000, fallback="{}", usage_cb=None):
+            usage_cb(10, 5)
+            return json.dumps({"1": "Short one."})
+        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", fake_llm)
+        r = client.post(_shorten(did), json={"confirm": True, "engine": "ollama"})
+        assert r.status_code == 200, r.text
+        assert logged and set(logged) == {(did, "ollama", "fake-model", "pacing_shorten", 10, 5)}
+
     def test_line_ids_limit_and_stale_skip(self, client, monkeypatch):
         did, ids = _overlong_drama()
 
