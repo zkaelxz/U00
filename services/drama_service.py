@@ -502,14 +502,17 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
         raise InvalidInputError("Deleting a title needs confirm=true and confirm_text set to "
                                 "the word DELETE, in capitals.")
-    if job_running_for_drama(drama_id):
-        raise ConflictError("A background job is still running for this title -- wait for it "
-                            "to finish or cancel it before deleting.")
-    # A backup reading the library would list the title's files and then
-    # miss them; the restore and bulk delete are held off the same way.
+    from jobs import job_launch
     from services import library_admin_service
-    with library_admin_service.maintenance("deleting a title"):
-        leftover = hard_delete_drama(drama_id)
+    busy = ("A background job is still running for this title -- wait for it to finish or "
+            "cancel it before deleting.")
+    with job_launch.hold_title(drama_id, busy):
+        if job_running_for_drama(drama_id):
+            raise ConflictError(busy)
+        # A backup reading the library would list the title's files and then
+        # miss them; the restore and bulk delete are held off the same way.
+        with library_admin_service.maintenance("deleting a title"):
+            leftover = hard_delete_drama(drama_id)
     result = {"deleted": True, "drama_id": drama_id}
     if leftover:
         result["warning"] = LEFTOVER_FILES_MESSAGE
