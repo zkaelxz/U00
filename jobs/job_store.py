@@ -435,12 +435,12 @@ def sweep_dead_owners(stale_seconds: float, records=None) -> int:
     `stale_seconds`. Also marks this process's own running jobs whose
     worker thread is gone (job_runner.reconcile_dead_workers). `records`:
     the job_records rows the caller has just read, so they aren't read
-    twice. Returns how many rows it closed or marked failed; when that is
-    0, `records` still describes the table."""
+    twice. Returns how many rows it closed."""
     import background_jobs as bj
     from jobs import job_runner
-    closed = len(job_runner.reconcile_dead_workers())
+    job_runner.reconcile_dead_workers()
     cutoff = time.time() - stale_seconds
+    closed = 0
     for rec in db.list_job_records() if records is None else records:
         job_id = rec.get("job_id")
         if rec.get("status") not in ACTIVE or bj.get_status(job_id):

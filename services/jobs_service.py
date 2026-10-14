@@ -635,6 +635,10 @@ def sweep_stale_job_records(records=None) -> int:
     return job_store.sweep_dead_owners(STALE_JOB_SECONDS, records=records)
 
 
+def _still_active_here(job_id) -> bool:
+    return (background_jobs.get_status(job_id) or {}).get("status") in job_store.ACTIVE
+
+
 def list_jobs(principal=None) -> list:
     """Every job_records row `principal` may see (auth B2:
     ownership_service.can_see_job; None = auth off, all), newest-started
@@ -642,11 +646,14 @@ def list_jobs(principal=None) -> list:
     (sweep_stale_job_records), so they don't list as running forever."""
     records = db.list_job_records()
     # The list is polled: with nothing queued or running, here or in a row,
-    # the sweep has nothing to close. Rows are read again only when it
-    # closed one.
-    if (any(r.get("status") in job_store.ACTIVE for r in records)
-            or background_jobs.active_job_ids()):
-        if sweep_stale_job_records(records):
+    # the sweep has nothing to close. The rows are read again unless every
+    # queued/running row is a job still queued or running in this process:
+    # any other may have been closed since the read, by this sweep or by a
+    # concurrent poll's, and must not list as running.
+    active = [r for r in records if r.get("status") in job_store.ACTIVE]
+    if active or background_jobs.active_job_ids():
+        sweep_stale_job_records(records)
+        if not all(_still_active_here(r.get("job_id")) for r in active):
             records = db.list_job_records()
     rows = ownership_service.job_drama_ownership(principal, [r.get("job_id") for r in records])
     with diagnostics_report.reusing_account_names():
