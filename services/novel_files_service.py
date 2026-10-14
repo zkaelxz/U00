@@ -49,6 +49,7 @@ from typing import Optional
 
 import db
 import subtitle_parse
+from lib.safe_paths import plain_file_in
 from services import drama_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -87,15 +88,7 @@ def _folder(drama_id: int) -> str:
 def _plain_file(drama_id: int, filename):
     """The path of a stored filename only if it is a plain name inside the
     drama folder (never follow a stored value out of it); else None."""
-    if not isinstance(filename, str) or not filename or filename in (".", ".."):
-        return None
-    if filename != os.path.basename(filename) or "\\" in filename or "/" in filename:
-        return None
-    folder = _folder(drama_id)
-    path = os.path.join(folder, filename)
-    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(folder):
-        return None
-    return path
+    return plain_file_in(_folder(drama_id), filename)
 
 
 def _readable_path(drama_id: int, filename, capped: bool = True):
