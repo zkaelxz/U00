@@ -247,7 +247,7 @@ class TestClaudeAliases:
         models = set(translate_engines.CLAUDE_MODELS)
         models |= {t["engine_model"] for t in translate_engines.WORKFLOW_TIERS.values()
                    if t["translation_engine"] == "claude" and t.get("engine_model")}
-        models.add(svc._default_model("claude"))
+        models.add(translate_engines.effective_default_model("claude"))
         return models
 
     def _check(self, monkeypatch, ids):
@@ -457,7 +457,7 @@ class TestModelOverrides:
         run._require_offered_model("deepseek", "deepseek-flash")
         with pytest.raises(InvalidInputError):
             run._require_offered_model("deepseek", "deepseek-other")
-        assert run._default_model("deepseek") == "deepseek-v4-pro"
+        assert translate_engines.effective_default_model("deepseek") == "deepseek-v4-pro"
         item = self._default_item("deepseek")
         assert item["model"] == "deepseek-v4-pro" and item["is_override"] is True
         assert item["builtin_model"] == "deepseek-flash"

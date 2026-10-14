@@ -60,7 +60,7 @@ def test_migration_upgrades_a_pre_b1_database(isolated_db):
     db.init_db()
     row = db.list_series()[0]
     assert row["owner_user_id"] is None and row["is_private"] == 0
-    assert own.can_see_series(_p(999), row["id"])
+    assert own.can_see(_p(999), "series", row["id"])
 
 
 def test_visibility_rule_every_branch(people):
@@ -88,7 +88,7 @@ def test_private_series_hides_its_dramas(people):
     a, b = people["a"], people["b"]
     sid = db.get_or_create_series("Mine", owner_user_id=people["a_id"], is_private=True)
     did = db.create_drama(title_zh="ep1", series_id=sid, owner_user_id=people["a_id"])
-    assert not own.can_see_series(b, sid)
+    assert not own.can_see(b, "series", sid)
     assert not own.can_see_drama(b, did)
     assert own.can_see_drama(a, did) and own.can_see_drama(people["admin"], did)
     assert sid not in {s["id"] for s in db.list_series(visible_to=people["b_id"])}

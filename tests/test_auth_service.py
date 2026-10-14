@@ -57,7 +57,7 @@ def test_session_raw_token_returned_once_and_only_hash_stored(adb):
         dump = repr([tuple(r) for r in conn.execute("SELECT * FROM auth_sessions")])
         dump += repr([tuple(r) for r in conn.execute("SELECT * FROM audit_log")])
     assert s["session_token"] not in dump and s["csrf_token"] not in dump
-    listed = auth.list_sessions(u["id"])
+    listed = db.auth_list_sessions(u["id"])
     assert len(listed) == 1
     blob = repr(listed)
     assert s["session_token"] not in blob and "id_hash" not in blob and "csrf" not in blob
@@ -93,7 +93,7 @@ def test_revoke_and_deactivate_stop_sessions(adb):
     assert not auth.revoke_session(s2["session_id"], other["id"])   # not theirs
     auth.deactivate_user(u["id"])
     assert auth.resolve_session(s2["session_token"]) is None
-    assert auth.list_sessions(u["id"]) == []
+    assert db.auth_list_sessions(u["id"]) == []
     with pytest.raises(NotFoundError):
         auth.create_session(u["id"])
 
@@ -236,7 +236,7 @@ def test_ip_prefix_is_coarse(ip, expected):
 def test_ipv6_session_stores_only_the_48(adb):
     u = auth.add_user("a@example.com")
     auth.create_session(u["id"], ip="2001:db8:aa:bb::5")
-    assert auth.list_sessions(u["id"])[0]["ip_prefix"] == "2001:db8:aa::/48"
+    assert db.auth_list_sessions(u["id"])[0]["ip_prefix"] == "2001:db8:aa::/48"
 
 
 @pytest.mark.parametrize("ip, expected", [

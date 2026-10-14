@@ -124,10 +124,6 @@ def can_see_drama(principal, drama_id: int) -> bool:
     return can_see(principal, "drama", drama_id)
 
 
-def can_see_series(principal, series_id: int) -> bool:
-    return can_see(principal, "series", series_id)
-
-
 def can_edit(principal, kind: str, item_id: int) -> bool:
     """Visibility-based (user decision 1), except that an admin without the
     override edits only what a member could; the lines.edit permission is

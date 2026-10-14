@@ -39,6 +39,7 @@ import threading
 import background_jobs
 from jobs import job_launch
 import db
+import translate_engines
 from services import benchmark_lab_service, settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
@@ -88,7 +89,7 @@ def get_production(capability: str = "translation") -> dict:
     if isinstance(saved, dict) and saved.get("engine") == engine:
         return {"engine": saved["engine"], "model": saved.get("model"), "source": "promoted",
                 "promoted_at": saved.get("promoted_at")}
-    return {"engine": engine, "model": benchmark_lab_service.default_model(engine),
+    return {"engine": engine, "model": translate_engines.effective_default_model(engine),
             "source": "settings"}
 
 
@@ -233,7 +234,7 @@ def add_candidate(engine: str, model: str = None, note: str = "",
     added again as if it were new."""
     _check_capability(capability)
     cfg = benchmark_lab_service.check_config("translation", {"engine": engine, "model": model})
-    model = cfg["model"] or benchmark_lab_service.default_model(cfg["engine"])
+    model = cfg["model"] or translate_engines.effective_default_model(cfg["engine"])
     note = (note or "").strip()[:200]
     with _decision_lock:
         return _add_candidate_locked(capability, cfg, model, note)
