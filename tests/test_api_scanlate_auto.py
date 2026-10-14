@@ -6,6 +6,7 @@ Mocked: detection/OCR is a fake, translation is the fake engine or a stub
 engine with a patched call_llm_json. Rendering and slicing run for real on
 tiny synthetic images (OpenCV + Pillow, no models, no network)."""
 
+import importlib.util
 import io
 import json
 import os
@@ -18,8 +19,12 @@ from tests.saved_settings import patch_setting
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
-pytest.importorskip("cv2")
 PIL = pytest.importorskip("PIL")
+
+# Only the tests that render or slice pages need OpenCV, which CI does not
+# install; the id-matching tests must keep running there.
+needs_cv2 = pytest.mark.skipif(importlib.util.find_spec("cv2") is None,
+                               reason="OpenCV is not installed")
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -270,6 +275,7 @@ def test_size_count_and_total_caps(client, monkeypatch):
     assert db.list_pages(did) == []
 
 
+@needs_cv2
 def test_tall_strip_sliced_by_default_and_optional(client):
     did = _drama()
     strip = _png(200, 2400)
@@ -281,6 +287,7 @@ def test_tall_strip_sliced_by_default_and_optional(client):
     assert r.json()["added"] == 1 and len(db.list_pages(did)) == n + 1
 
 
+@needs_cv2
 def test_a_strip_over_the_slice_cap_is_rejected_not_left_whole(monkeypatch):
     import scanlate_detect
     monkeypatch.setattr(scanlate_detect, "_MAX_WEBTOON_SLICES", 2)
@@ -425,6 +432,7 @@ def test_run_refused_when_paddle_vl_manga_needs_newer_transformers(client, fake_
     assert fake_detect == []
 
 
+@needs_cv2
 def test_art_captions_are_off_unless_asked_for(client, fake_detect):
     did = _drama()
     _page(did)
@@ -433,6 +441,7 @@ def test_art_captions_are_off_unless_asked_for(client, fake_detect):
     assert fake_detect[0]["art_captions"] is False
 
 
+@needs_cv2
 def test_art_captions_run_translates_the_detected_caption_text(client, monkeypatch):
     seen = []
 
@@ -449,6 +458,7 @@ def test_art_captions_run_translates_the_detected_caption_text(client, monkeypat
     assert kinds["caption"]["translated_text"].strip()
 
 
+@needs_cv2
 def test_art_captions_run_is_refused_without_paddle(client, fake_detect, monkeypatch):
     def require(backend, cmd=None):
         if backend == "paddle":
@@ -464,6 +474,7 @@ def test_art_captions_run_is_refused_without_paddle(client, fake_detect, monkeyp
     assert r.status_code == 503 and "PaddleOCR" in r.text
 
 
+@needs_cv2
 def test_a_redo_that_loses_the_captions_keeps_the_translated_page(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -479,6 +490,7 @@ def test_a_redo_that_loses_the_captions_keeps_the_translated_page(client, monkey
                                                                  ("caption", "Bang")]
 
 
+@needs_cv2
 def test_translate_all_skips_pages_with_regions(client, fake_detect):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -505,6 +517,7 @@ def test_translate_all_skips_pages_with_regions(client, fake_detect):
     assert img.status_code == 200 and img.headers["content-type"] == "image/png"
 
 
+@needs_cv2
 def test_uses_saved_ocr_backend_and_tesseract(client, fake_detect, monkeypatch):
     from services import settings_service
     monkeypatch.setattr(settings_service, "resolve_ocr_backend", lambda lang: "paddle")
@@ -518,6 +531,7 @@ def test_uses_saved_ocr_backend_and_tesseract(client, fake_detect, monkeypatch):
     assert fake_detect[0]["detect_backend"] == "cv"
 
 
+@needs_cv2
 def test_redo_page_replaces_and_redo_all_needs_confirm(client, fake_detect):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -537,6 +551,7 @@ def test_redo_page_replaces_and_redo_all_needs_confirm(client, fake_detect):
     assert len(db.load_bubbles(p2)) == 3
 
 
+@needs_cv2
 def test_page_edited_mid_run_is_not_wiped(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -556,6 +571,7 @@ def test_page_edited_mid_run_is_not_wiped(client, monkeypatch):
     assert "edited while the job ran" in db.get_page(pid)["run_notes"]
 
 
+@needs_cv2
 def test_context_from_predecessor_and_usage_logged(client, fake_detect, monkeypatch):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -594,6 +610,7 @@ def test_context_skips_a_hidden_page(client, isolated_db):
     assert run_svc._predecessor_context(did, p2) == "FROM-VISIBLE-PAGE"
 
 
+@needs_cv2
 def test_failed_redo_keeps_the_translated_regions(client, fake_detect, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -611,6 +628,7 @@ def test_failed_redo_keeps_the_translated_regions(client, fake_detect, monkeypat
     assert "kept unchanged" in db.get_page(pid)["run_notes"]
 
 
+@needs_cv2
 def test_redo_that_detects_nothing_keeps_the_regions(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -621,6 +639,7 @@ def test_redo_that_detects_nothing_keeps_the_regions(client, monkeypatch):
     assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
 
 
+@needs_cv2
 def test_redo_with_partial_ocr_failure_keeps_the_page(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -642,6 +661,7 @@ def test_redo_with_partial_ocr_failure_keeps_the_page(client, monkeypatch):
     assert "OCR" in db.get_page(pid)["run_notes"]
 
 
+@needs_cv2
 def test_redo_where_nothing_gets_translated_keeps_the_page(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -655,6 +675,7 @@ def test_redo_where_nothing_gets_translated_keeps_the_page(client, monkeypatch):
     assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
 
 
+@needs_cv2
 def test_redo_keeps_the_page_when_one_chunk_of_a_dense_page_is_rejected(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -676,6 +697,7 @@ def test_redo_keeps_the_page_when_one_chunk_of_a_dense_page_is_rejected(client, 
     assert "weren't translated" in db.get_page(pid)["run_notes"]
 
 
+@needs_cv2
 def test_a_partly_translated_first_run_still_saves_what_was_translated(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -691,6 +713,7 @@ def test_a_partly_translated_first_run_still_saves_what_was_translated(client, m
     assert len(done) == 40 and "weren't translated" in db.get_page(pid)["run_notes"]
 
 
+@needs_cv2
 def test_redo_with_ocr_error_keeps_hand_corrected_source_text(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -709,6 +732,7 @@ def test_redo_with_ocr_error_keeps_hand_corrected_source_text(client, monkeypatc
     assert paid == []
 
 
+@needs_cv2
 def test_a_redo_that_will_be_thrown_away_is_not_translated_or_billed(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -769,6 +793,7 @@ def test_llm_prompt_names_the_source_language(monkeypatch):
     assert "Japanese" in prompts[0]
 
 
+@needs_cv2
 def test_unmatched_answer_keeps_ocr_and_notes_it(client, fake_detect, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -784,6 +809,7 @@ def test_unmatched_answer_keeps_ocr_and_notes_it(client, fake_detect, monkeypatc
     assert db.get_page(pid)["rendered_filename"] is None      # nothing to typeset
 
 
+@needs_cv2
 def test_secret_and_path_in_error_are_redacted(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -801,6 +827,7 @@ def test_secret_and_path_in_error_are_redacted(client, monkeypatch):
     assert "SECRETSECRET" not in r.text and "/home/kae" not in r.text
 
 
+@needs_cv2
 def test_cancel_between_pages(client, monkeypatch):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -892,6 +919,7 @@ def test_a_cancel_raised_by_the_render_after_a_translate_is_not_a_page_note(isol
     assert "Render failed" not in (db.get_page(pid).get("run_notes") or "")
 
 
+@needs_cv2
 def test_run_refusals(client, monkeypatch):
     from services import translate_service
     did = _drama()
@@ -937,6 +965,7 @@ def test_engine_gate_for_household_user(isolated_db, monkeypatch):
 
 # --- S6 / S8 ------------------------------------------------------------------------
 
+@needs_cv2
 def test_render_uses_db_regions_and_leaves_blank_untouched(client):
     did = _drama()
     pid = _page(did, w=200, h=120)
@@ -958,6 +987,7 @@ def test_render_uses_db_regions_and_leaves_blank_untouched(client):
     assert leftovers == []
 
 
+@needs_cv2
 def test_concurrent_renders_do_not_collide(tmp_path):
     src = tmp_path / "p.png"
     src.write_bytes(_png(120, 80))
@@ -978,6 +1008,7 @@ def test_concurrent_renders_do_not_collide(tmp_path):
     assert sorted(os.listdir(tmp_path)) == ["out.png", "p.png"]
 
 
+@needs_cv2
 def test_export_zip_and_pdf(client):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -1046,6 +1077,7 @@ def test_pdf_export_is_capped_and_zip_is_not(client, monkeypatch):
     _wait(f"scanlate_{did}")
 
 
+@needs_cv2
 def test_render_appends_to_the_run_notes(client):
     did = _drama()
     pid = _page(did)
@@ -1179,6 +1211,7 @@ def test_stored_page_error_note_is_redacted(isolated_db, monkeypatch):
     assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123" not in stored[0]
 
 
+@needs_cv2
 def test_a_headroom_refusal_in_detect_stops_the_job_with_its_message(client, monkeypatch):
     from memory_headroom import HeadroomError
     did = _drama()
@@ -1196,6 +1229,7 @@ def test_a_headroom_refusal_in_detect_stops_the_job_with_its_message(client, mon
     assert db.get_page(p2)["run_notes"] in (None, "", "[]")
 
 
+@needs_cv2
 def test_a_headroom_refusal_in_translate_stops_the_job_once(client, fake_detect, monkeypatch):
     from memory_headroom import HeadroomError
     did = _drama()
@@ -1245,6 +1279,7 @@ def test_translation_asks_the_engine_not_to_think(isolated_db, monkeypatch):
     assert scopes[0]["no_thinking"] is True
 
 
+@needs_cv2
 def test_next_page_is_detected_while_this_one_is_translated(client, monkeypatch):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -1271,6 +1306,7 @@ def test_next_page_is_detected_while_this_one_is_translated(client, monkeypatch)
     assert [b["translated_text"] for b in db.load_bubbles(p2)] == ["hi"]
 
 
+@needs_cv2
 def test_a_page_failing_ocr_does_not_fail_the_next_one(client, monkeypatch):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -1308,6 +1344,7 @@ def test_export_message_names_the_pages_left_untranslated(client):
     assert "1 page(s) have no translated text and are the original" in st["message"]
 
 
+@needs_cv2
 def test_job_summary_leads_with_the_failures(client, monkeypatch):
     did = _drama()
     pid = _page(did)
@@ -1318,6 +1355,7 @@ def test_job_summary_leads_with_the_failures(client, monkeypatch):
     assert "0 translated" in st["message"]
 
 
+@needs_cv2
 def test_page_with_no_bubbles_is_a_short_warning(tmp_path):
     import cv2
     import numpy as np

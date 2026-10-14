@@ -129,8 +129,8 @@ def maintenance(action: str):
                               (USER_BACKUP_JOB_ID, "backup"),
                               (EXPORT_JOB_ID, "library export")):
             if _job_id_running(job_id):
-                raise ConflictError(f"A {label} is running -- wait for it to finish before "
-                                    f"{action}.")
+                raise ConflictError(f"A {label} is running, so {action} is not possible "
+                                    f"right now. Try again when the {label} finishes.")
         yield
     finally:
         job_launch.exit_maintenance()

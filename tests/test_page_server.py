@@ -472,6 +472,33 @@ class TestTranslatingAPage:
         assert len(db.list_pages(drama_id)) == 1
         assert db.load_bubbles(page["page_id"])[0]["source_text"] == "原文"
 
+    def test_a_rotate_tagged_jpeg_is_read_upright(self, token, fake_pipeline, isolated_db):
+        """A downloaded JPEG stored sideways with an EXIF rotate tag shows
+        upright in the browser; its boxes must be found on that view."""
+        Image = pytest.importorskip("PIL.Image")
+        seen = {}
+        import scanlate
+        real = scanlate.detect_and_ocr_page
+
+        def capture(image_path, *a, **kw):
+            with Image.open(image_path) as im:
+                seen["size"] = im.size
+            return real(image_path, *a, **kw)
+        scanlate.detect_and_ocr_page = capture
+        img = Image.new("RGB", (900, 600), (240, 240, 240))
+        img.paste((10, 10, 10), (100, 100, 300, 300))
+        exif = Image.Exif()
+        exif[0x0112] = 6     # rotate 90 degrees clockwise to view
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", exif=exif)
+        try:
+            handler = _post(token, {"images": [{"data": _b64(buf.getvalue()),
+                                                "content_type": "image/jpeg"}], "store": False})
+        finally:
+            scanlate.detect_and_ocr_page = real
+        assert handler.status == 200
+        assert seen["size"] == (600, 900)
+
     def test_the_dramas_own_source_language_is_used(self, token, fake_pipeline, isolated_db):
         import db
         drama_id = db.create_drama(title_en="JP", media_type="manga", source_language="ja")
@@ -1503,3 +1530,15 @@ class TestConcurrentCapturesOfOneTitle:
         # Page 0 was captured after page 1, so it reads page 1's context.
         assert [c["kwargs"]["previous_context"] for c in fake_pipeline["translate"]] == [
             "", "context after call 1"]
+
+
+def test_captured_pages_from_two_hosts_are_not_judged_third_party():
+    """The extension labels a canvas page with the page's own address and a
+    downloaded one with its CDN's, so within one batch real pages can come
+    from two hosts. Only the size, duplicate and shape rules apply here."""
+    images = [{"url": f"https://cdn{1 if i < 3 else 2}.example/p{i}.png",
+               "content": _png_bytes(colour=(240 - i, 240, 240)), "content_type": "image/png"}
+              for i in range(5)]
+    kept, rejected = page_capture_checks.select_page_images(
+        images, "https://reader.example/chapter/1")
+    assert len(kept) == 5 and rejected == []
