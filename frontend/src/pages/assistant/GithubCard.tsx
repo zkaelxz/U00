@@ -73,7 +73,7 @@ export function GithubCard({ status, onStatus }: Props) {
         </button>
       </div>
       {/* Not a <form>: a browser shouldn't offer to save the token as a password. */}
-      <div className="assistant-engine">
+      <div className="assistant-engine assistant-token-row">
         <Field
           label="Token"
           help="A fine-grained GitHub token with Contents and Pull requests write access to this repository only (not Workflows). Stored on this PC; never shown again."

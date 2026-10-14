@@ -96,6 +96,15 @@ test('the Gaps chip sits next to Flagged and jumps to the next gap', async ({ pa
   await expect(page.getByRole('status').filter({ hasText: /^Gap:/ })).toBeVisible()
 })
 
+test('the Gaps chip has Previous and Next gap buttons that step to a gap', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await open(page)
+  await page.getByRole('button', { name: 'Next gap' }).click()
+  await expect(page.getByRole('status').filter({ hasText: /^Gap:/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Previous gap' }).click()
+  await expect(page.getByTestId('wave-range')).toContainText('0:0')
+})
+
 test('a timing-uncertain line offers Snap to speech, Check timing and the Whisper hint', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   let runs = 0
