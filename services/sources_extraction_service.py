@@ -54,8 +54,8 @@ the page are used, never the text or images themselves. Each change makes a
 new `revision`; a request naming an older one is a 409, so a stale screen
 can't import or save a result it didn't show. An image whose download
 failed or that Pillow couldn't read can't be marked as a page. Text is
-scrubbed and URLs reduced to scheme+host+path, with signed path segments
-blanked (`display_url`). A review of a page read through the saved
+scrubbed and URLs reduced to scheme+host+path, or the bare host when a
+path segment looks like a credential (`translate_engines.display_url`). A review of a page read through the saved
 signed-in browser is shown only at this PC (it can carry the account's
 page chrome), and a run started from another device never auto-saves a
 site profile (adaptive `hold_profiles`).
@@ -84,7 +84,7 @@ from services.service_errors import (
     MissingKeyError,
     NotFoundError,
 )
-from services.sources_registry_service import scrub, safe_url
+from services.sources_registry_service import scrub
 from services.sources_search_service import JobFailed
 from sources import adaptive, ai_extract, ai_extract_comic as axc, ai_extract_novel as axn, pipeline, profiles
 from sources import store as src_store
@@ -371,13 +371,6 @@ def drop_review(drama_id: int):
         _discard(_REVIEWS.pop(int(drama_id), None))
 
 
-def display_url(url):
-    """scheme+host+path, with credential-shaped path segments blanked (a
-    signed CDN path is a credential, as for the AI prompt)."""
-    shown = safe_url(url)
-    return ai_extract.SENSITIVE_PATH_SEGMENT.sub(r"\1[REDACTED]", shown) if shown else shown
-
-
 def _label(text) -> str:
     return (scrub(str(text or "")) or "")[:MAX_LABEL]
 
@@ -393,7 +386,7 @@ def _confidence_view(data: dict) -> dict:
         value = (data or {}).get(f)
         shown = None if value is None or isinstance(value, (list, dict)) else _label(value)
         if f in ("next_url", "previous_url") and isinstance(value, str):
-            shown = display_url(value)
+            shown = translate_engines.display_url(value)
         fields.append({"field": f, "bucket": c.get("bucket"), "score": float(c.get("score") or 0),
                        "checks": [_label(x) for x in c.get("checks") or []], "value": shown})
     return {"overall": {"bucket": o.get("bucket"), "score": float(o.get("score") or 0)},
@@ -473,7 +466,7 @@ def _novel_view(rv: _Review) -> dict:
         "exclude_selectors": [x for x in base.get("exclude_selectors") or [] if x in ex_now],
         "headings": [{"id": b.id, "text": _label(b.text)} for b in heads],
         "title_block": title_id if title_id in {b.id for b in heads} else None,
-        "links": [{"id": l.id, "text": _label(l.text), "url": display_url(l.url)}
+        "links": [{"id": l.id, "text": _label(l.text), "url": translate_engines.display_url(l.url)}
                   for l in _links(rv)],
         "next_link": _link_id_for(rv, data.get("next_url")),
         "previous_link": _link_id_for(rv, data.get("previous_url")),
@@ -490,7 +483,7 @@ def _comic_items(rv: _Review) -> list:
         p = roles.get(c.url) or {}
         role = p.get("role") or "other"
         page = (p.get("index") + 1) if role == "content" and isinstance(p.get("index"), int) else 0
-        out.append({"id": i, "display_url": display_url(c.url), "attr": _label(c.attr or "src"),
+        out.append({"id": i, "display_url": translate_engines.display_url(c.url), "attr": _label(c.attr or "src"),
                     "width": int(c.width or 0), "height": int(c.height or 0),
                     "role": role if role in ai_extract.COMIC_ROLES else "other", "page": page,
                     "reason": _label(c.reject_reason or p.get("reason") or ""),
@@ -586,7 +579,7 @@ def review_view(drama_id: int, principal=None, local: bool = True) -> dict:
     rv = _get(drama_id, local=local)
     out = {
         "kind": "extraction_review", "drama_id": rv.drama_id, "revision": rv.revision,
-        "content_type": rv.kind, "why": rv.why, "display_url": display_url(rv.url),
+        "content_type": rv.kind, "why": rv.why, "display_url": translate_engines.display_url(rv.url),
         "confidence": _confidence_view(rv.data), "report": _report_view(rv.report),
         "can_save_profile": bool(rv.rules), "novel": None, "comic": None,
         "follow": _follow_view(rv),

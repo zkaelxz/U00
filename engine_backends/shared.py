@@ -391,6 +391,18 @@ def _segment_holds_secret(segment: str) -> bool:
             or 2 * sum(map(len, random_parts)) >= sum(map(len, parts)))
 
 
+# A credential also shows up as a raw path segment with no `=` at all (a real
+# CDN shape, e.g. https://cdn.example/priv/<signed-token>/page1.jpg). Gated on a
+# marker segment immediately before the token so an ordinary chapter/page slug,
+# which never sits right after a segment literally named "token"/"auth"/"priv",
+# is never touched. Catches tokens _segment_holds_secret cannot tell from a
+# long lowercase slug word.
+SENSITIVE_PATH_SEGMENT = re.compile(
+    r"((?:^|/)(?:token|sign(?:ed)?|auth|session|sess|secret|credential|ticket|jwt|access|"
+    r"policy|hmac|nonce|cookie|passport|key|priv(?:ate)?|secure)/)"
+    r"[\w-]{16,}(?=/|$|[?#])", re.I)
+
+
 def display_url(url) -> str:
     """A stored link as the API may show it: http(s) only, scheme + host +
     path, no query, fragment, userinfo or ;params. A pasted link can carry
@@ -408,7 +420,8 @@ def display_url(url) -> str:
     if ":" in host:
         host = f"[{host}]"          # IPv6 keeps its brackets
     path = parts.path.split(";", 1)[0]
-    if any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg))):
+    if (SENSITIVE_PATH_SEGMENT.search(path)
+            or any(_segment_holds_secret(s) for seg in path.split("/") for s in (seg, unquote(seg)))):
         path = "/"
     return f"{parts.scheme.lower()}://{host}{port}{path}"
 
@@ -427,17 +440,6 @@ def redact_for_storage(text):
     if not text:
         return text
     return strip_url_queries(redact_secrets(str(text)))
-
-
-def load_json_reply(text: str, default):
-    """Parses a model reply that may be wrapped in a markdown fence. Only the
-    reply as a whole is parsed: prose around the JSON returns `default`
-    (extract_first_json_value is for replies that may carry prose)."""
-    stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        return default
 
 
 def parse_json_array(text: str, fallback_count: int):
@@ -554,7 +556,7 @@ def parse_flag_entries(entries):
     return by_id, unreadable
 
 
-from .id_keyed_parse import parse_id_keyed_json  # noqa: E402,F401  (re-exported: engines and tests import it from here)
+from .id_keyed_parse import load_json_reply, parse_id_keyed_json  # noqa: E402,F401  (re-exported: engines and tests import it from here)
 
 
 class TruncatedReply(str):
