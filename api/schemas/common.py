@@ -10,6 +10,7 @@ __all__ = [
     "API_VERSION",
     "ErrorInfo",
     "ErrorResponse",
+    "error_responses",
     "TranslateEngine",
     "LibraryPreset",
     "TimingPreferences",
@@ -28,6 +29,11 @@ class ErrorInfo(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorInfo
+
+
+def error_responses(*codes: int) -> Dict[int, Dict[str, Any]]:
+    """The `responses=` mapping that documents each status code with the error envelope."""
+    return {code: {"model": ErrorResponse} for code in codes}
 
 
 class TranslateEngine(BaseModel):

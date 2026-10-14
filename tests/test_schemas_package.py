@@ -15,7 +15,7 @@ def _defined_names(mod_name):
         tree = ast.parse(fh.read())
     names = []
     for node in tree.body:
-        if isinstance(node, ast.ClassDef):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
             names.append(node.name)
         elif isinstance(node, ast.Assign):
             names += [t.id for t in node.targets if isinstance(t, ast.Name)]
@@ -49,3 +49,12 @@ def test_domain_modules_import_only_common():
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("api.schemas"):
                 assert node.module == "api.schemas.common", f"{m} imports {node.module}"
+
+
+def test_error_responses_documents_each_code_with_the_error_envelope():
+    assert schemas.error_responses() == {}
+    assert schemas.error_responses(404, 409) == {
+        404: {"model": schemas.ErrorResponse},
+        409: {"model": schemas.ErrorResponse},
+    }
+    assert list(schemas.error_responses(422, 400)) == [422, 400]
