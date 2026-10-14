@@ -235,6 +235,53 @@ class TestTwoProcesses:
         assert _holders() == {f"cli:{OTHER_PID}", f"cli:{OTHER_PID + 1}"}
 
 
+    def test_owner_pids_are_probed_before_the_write_lock(self, isolated_db, monkeypatch):
+        """Every other process's take waits on BEGIN IMMEDIATE, so a running
+        holder's pid is probed before it."""
+        _row(1, f"cli:{OTHER_PID}", OTHER_PID, "aaaa")
+        locked_during_probe = []
+
+        def probe(pid):
+            with contextlib.closing(db.get_conn()) as other:
+                other.execute("PRAGMA busy_timeout = 0")
+                try:
+                    other.execute("BEGIN IMMEDIATE")
+                    other.execute("ROLLBACK")
+                    locked_during_probe.append(False)
+                except Exception:
+                    locked_during_probe.append(True)
+            return pid != DEAD_PID
+
+        monkeypatch.setattr(bg, "owner_process_alive", probe)
+        assert gpu_slots.take("ui:next", max_holders=2) is True
+        assert locked_during_probe and not any(locked_during_probe)
+        assert _holders() == {f"cli:{OTHER_PID}", "ui:next"}
+
+
+    def test_a_pid_found_dead_before_the_lock_is_probed_again_inside_it(self, isolated_db,
+                                                                        monkeypatch):
+        """The pid can be reused by a new holder between the early probe and
+        BEGIN IMMEDIATE; only an alive answer is carried into the lock."""
+        _row(1, f"cli:{DEAD_PID}", DEAD_PID, "aaaa")
+        probes = []
+
+        def probe(pid):
+            probes.append(pid)
+            if len(probes) == 1:
+                now = time.time()
+                with contextlib.closing(db.get_conn()) as other:
+                    other.execute("UPDATE gpu_lock SET holder = ?, owner_instance = 'cccc', "
+                                  "acquired_at = ?, heartbeat_at = ? WHERE id = 1",
+                                  (f"cli:{DEAD_PID}:new", now, now))
+                    other.commit()
+                return False
+            return True
+
+        monkeypatch.setattr(bg, "owner_process_alive", probe)
+        assert gpu_slots.take("ui:next") is False
+        assert _holders() == {f"cli:{DEAD_PID}:new"}
+
+
 class TestReap:
     def test_frees_dead_pid_other_instance_and_stale_rows_only(self, isolated_db):
         _row(1, f"cli:{DEAD_PID}", DEAD_PID, "aaaa")

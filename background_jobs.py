@@ -29,6 +29,7 @@ Rules for anything run this way:
 One machine, one process owning each job: not a distributed job queue.
 """
 
+import math
 import os
 import threading
 import time
@@ -415,45 +416,37 @@ def is_cancel_requested(job_id: str) -> bool:
 def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,
                     kill_timeout: float = 10.0, timeout: float = None):
     """Runs an external command (ffmpeg) for a thread job and kills it when
-    the job's cancel is requested, raising JobCancelled. The command gets
-    its own process group (POSIX session / Windows process group) and the
-    whole tree is killed; the post-kill pipe drain is bounded by
-    kill_timeout. A non-zero exit raises subprocess.CalledProcessError,
-    like subprocess.run(check=True). With timeout (seconds), the tree is
-    killed and subprocess.TimeoutExpired raised once that much time passes.
-    The command is noted in the job's work folder (job_workdir) so the next
-    start can stop it if this server dies without stopping it
-    (storage.stop_orphaned_job_children)."""
+    the job's cancel is requested, raising JobCancelled. The command runs
+    through lib.proc.run_captured: its own process group, the whole tree
+    killed, the post-kill pipe drain bounded by kill_timeout. A non-zero
+    exit raises subprocess.CalledProcessError, like subprocess.run(check=True).
+    With timeout (seconds), the tree is killed and subprocess.TimeoutExpired
+    raised once that much time passes. The command is noted in the job's
+    work folder (job_workdir) so the next start can stop it if this server
+    dies without stopping it (storage.stop_orphaned_job_children)."""
     import subprocess
-    deadline = None if timeout is None else time.monotonic() + timeout
-    if os.name == "nt":
-        group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-    else:
-        group = {"start_new_session": True}
-    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            **group)
-    try:
-        import storage
-        storage.record_job_child(job_id, proc.pid)
-    except Exception as exc:
-        _warn(f"job {job_id}: could not note process {proc.pid} for a later cleanup", exc)
-    while True:
+    from lib import proc
+
+    def note_child(pid):
         try:
-            out, err = proc.communicate(timeout=poll_interval)
-            break
-        except subprocess.TimeoutExpired:
-            cancelled = is_cancel_requested(job_id)
-            if cancelled or (deadline is not None and time.monotonic() >= deadline):
-                kill_tree(proc)
-                try:
-                    proc.communicate(timeout=kill_timeout)
-                except subprocess.TimeoutExpired:
-                    pass   # a grandchild still holds a pipe; don't hang the job
-                if cancelled:
-                    raise JobCancelled(job_id) from None
-                raise subprocess.TimeoutExpired(cmd, timeout) from None
-    if proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, cmd, output=out, stderr=err)
+            import storage
+            storage.record_job_child(job_id, pid)
+        except Exception as exc:
+            _warn(f"job {job_id}: could not note process {pid} for a later cleanup", exc)
+
+    # ffmpeg reads no Python I/O settings, so the child keeps the caller's environment.
+    run = proc.run_captured(cmd, math.inf if timeout is None else timeout,
+                            drain_seconds=kill_timeout, cwd=cwd,
+                            cancel=lambda: is_cancel_requested(job_id), warn=_warn,
+                            utf8_env=False,
+                            on_start=note_child, poll_seconds=poll_interval)
+    if run.cancelled:
+        raise JobCancelled(job_id)
+    if run.timed_out:
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    if run.returncode != 0:
+        raise subprocess.CalledProcessError(run.returncode, cmd, output=run.stdout,
+                                            stderr=run.stderr)
 
 
 def cancel_queued(job_id: str) -> bool:

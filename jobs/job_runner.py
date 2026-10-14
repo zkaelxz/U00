@@ -18,7 +18,7 @@ from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_reques
                              is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
 from jobs import user_caps
-from jobs.gpu_queue import (_gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
+from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
                             _release_gpu_slot, _run_finish_hooks, _running_gpu_job_count_locked)
 from jobs.job_settings import _notify_job_finished, get_gpu_max_parallel
 from jobs.job_table import _job_threads, _jobs, _lock, _mirror_locked, _warn, _workers
@@ -410,15 +410,24 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     mp = multiprocessing.get_context(start_method) if start_method else multiprocessing
     result_queue = job_process_result.wrap_queue(mp.Queue(), job_id)
     proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
-    _jobs[job_id] = {
-        "status": "running", "progress": 0.0, "message": "Starting...",
-        "error": None, "started_at": time.time(), "finished_at": None,
-        "cancel_requested": False, "result": initial_result,
-        "gpu_touching": gpu_touching, "description": description, "kind": "process",
-        "process": proc, "owner_user_id": owner_user_id, "run_settings": run_settings,
-    }
+    _jobs[job_id] = _new_entry("running", "process", gpu_touching, description, owner_user_id,
+                               run_settings, result=initial_result, process=proc)
     _mirror_locked(job_id)
     return proc, result_queue
+
+
+def _new_entry(status, kind, gpu_touching, description, owner_user_id, run_settings,
+               result=None, **extra) -> dict:
+    """A new run's `_jobs` entry, "queued" or "running". A process job passes
+    process= (None while queued)."""
+    return {
+        "status": status, "progress": 0.0,
+        "message": GPU_WAIT_MESSAGE if status == "queued" else "Starting...",
+        "error": None, "started_at": time.time(), "finished_at": None,
+        "cancel_requested": False, "result": result,
+        "gpu_touching": gpu_touching, "description": description, "kind": kind,
+        "owner_user_id": owner_user_id, "run_settings": run_settings, **extra,
+    }
 
 
 def _apply_progress_item(job_id, item, stage=None) -> bool:
