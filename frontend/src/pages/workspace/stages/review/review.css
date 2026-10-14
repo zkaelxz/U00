@@ -493,9 +493,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-toolbar.is-collapsed { padding-block: 0; }
 }
 .review-toolbar.is-collapsed .review-search-toggle, .review-toolbar.is-collapsed .review-more-toggle { display: none; }
-/* Phones: tighter line height on the two texts, so a scrolled screen holds 8 lines (padding and the 44px targets are untouched). */
+/* Phones: tighter line height on the two texts, so a scrolled screen holds 8 lines at any scroll offset: a row must be at most an eighth of the ~680px between the sticky bar and the edit bar (padding and the 44px targets are untouched). */
 @media (max-width: 640px) {
-  .review-zh, .stage-review button.review-en { line-height: 1.3; }
+  .review-zh, .stage-review button.review-en { line-height: 1.2; }
 }
 
 .review-suspect-chip { align-items: center; min-height: 32px; padding-inline: 12px; border: 1px solid var(--accent); border-radius: 999px; background: var(--field-bg); color: var(--text); font: inherit; cursor: pointer; }
