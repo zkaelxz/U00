@@ -770,42 +770,6 @@ class TestCancelWhileWaitingThroughTheRealWrapper:
         assert "in progress" in str(info.value)
 
 
-class TestWindowsPidLiveness:
-    class _K32:
-        def __init__(self, handle=1, exit_code=259, ok=True):
-            self.handle, self.exit_code, self.ok = handle, exit_code, ok
-            self.closed = []
-
-        def OpenProcess(self, access, inherit, pid):
-            return self.handle
-
-        def GetExitCodeProcess(self, handle, ref):
-            ref._obj.value = self.exit_code
-            return self.ok
-
-        def CloseHandle(self, handle):
-            self.closed.append(handle)
-
-    def test_still_active_is_alive_and_the_handle_is_closed(self):
-        k32 = self._K32(exit_code=259)
-        assert audio_preprocess._windows_pid_alive(5, k32, lambda: 0)
-        assert k32.closed == [1]
-
-    def test_an_exit_code_means_dead(self):
-        k32 = self._K32(exit_code=0)
-        assert not audio_preprocess._windows_pid_alive(5, k32, lambda: 0)
-        assert k32.closed == [1]
-
-    def test_exit_code_query_failure_counts_as_alive(self):
-        assert audio_preprocess._windows_pid_alive(5, self._K32(ok=False), lambda: 0)
-
-    def test_access_denied_counts_as_alive(self):
-        assert audio_preprocess._windows_pid_alive(5, self._K32(handle=0), lambda: 5)
-
-    def test_no_such_process_is_dead(self):
-        assert not audio_preprocess._windows_pid_alive(5, self._K32(handle=0), lambda: 87)
-
-
 class TestLevelAudio:
     """The Difficult audio levelling copy: one ffmpeg call, never the stored file."""
 

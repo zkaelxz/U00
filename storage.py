@@ -306,8 +306,11 @@ def _held_by_other_process(path: str, now: float) -> bool:
     try:
         if now - os.lstat(marker).st_mtime > HOLD_MARKER_MAX_AGE:
             return False
-        with open(marker, encoding="utf-8") as fh:
-            pid = int(fh.read().strip())
+        # A planted link or FIFO under the marker's name must neither be followed nor block the sweep.
+        text = _read_small_regular_file(marker, limit=64)
+        if text is None:
+            return False
+        pid = int(text.strip())
     except (OSError, ValueError):
         return False
     if pid == os.getpid():

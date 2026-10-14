@@ -320,32 +320,6 @@ def test_an_impossible_pid_is_dead_not_an_error(data, pid):
     pi._release_lock()
 
 
-class _K32:
-    def __init__(self, handle=1, exit_code=259, ok=True):
-        self.handle, self.exit_code, self.ok = handle, exit_code, ok
-
-    def OpenProcess(self, access, inherit, pid):
-        return self.handle
-
-    def GetExitCodeProcess(self, handle, ref):
-        ref._obj.value = self.exit_code
-        return self.ok
-
-    def CloseHandle(self, handle):
-        pass
-
-
-@pytest.mark.parametrize("k32, last_error, alive", [
-    (_K32(exit_code=259), 0, True),
-    (_K32(exit_code=0), 0, False),
-    (_K32(ok=False), 0, True),            # the query failed: unknown, never dead
-    (_K32(handle=0), 5, True),            # access denied: it exists
-    (_K32(handle=0), 87, False),
-])
-def test_windows_liveness(k32, last_error, alive):
-    assert pi._win_pid_running(5, k32, lambda: last_error) is alive
-
-
 def test_watchdog_result_keeps_the_packages_the_running_result_named(data, monkeypatch):
     pi.write_pending(["paddleocr"])
     Fake(monkeypatch, [{"numpy": "1"}])

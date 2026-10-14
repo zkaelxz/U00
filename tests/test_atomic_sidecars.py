@@ -6,7 +6,6 @@ import os
 
 import pytest
 
-import core
 import dictionary
 import diarize
 import sensevoice_tags
@@ -19,7 +18,7 @@ def _fail_replace(*a, **k):
 def test_save_turns_failure_keeps_old_file(tmp_path, monkeypatch):
     diarize.save_turns(str(tmp_path), [{"start": 0, "end": 1, "speaker": "A"}])
     with monkeypatch.context() as m:
-        m.setattr(core.os, "replace", _fail_replace)
+        m.setattr(os, "replace", _fail_replace)
         with pytest.raises(OSError):
             diarize.save_turns(str(tmp_path), [{"start": 5, "end": 6, "speaker": "B"}])
     assert diarize.load_turns(str(tmp_path))[0]["speaker"] == "A"
@@ -37,7 +36,7 @@ def test_corrupt_turns_file_treated_as_missing(tmp_path):
 def test_save_audio_tags_failure_keeps_old_file(tmp_path, monkeypatch):
     sensevoice_tags.save_audio_tags(str(tmp_path), {1: {"emotion": "happy"}})
     with monkeypatch.context() as m:
-        m.setattr(core.os, "replace", _fail_replace)
+        m.setattr(os, "replace", _fail_replace)
         with pytest.raises(OSError):
             sensevoice_tags.save_audio_tags(str(tmp_path), {2: {"emotion": "sad"}})
     assert sensevoice_tags.load_audio_tags(str(tmp_path)) == {1: {"emotion": "happy"}}
@@ -63,7 +62,7 @@ def test_cedict_write_failure_leaves_no_partial_file(tmp_path, monkeypatch):
                 yield chunk
 
     monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Resp(gzip.compress(b"# x\n")))
-    monkeypatch.setattr(core.os, "replace", _fail_replace)
+    monkeypatch.setattr(os, "replace", _fail_replace)
     with pytest.raises(OSError):
         dictionary._ensure_cedict()
     assert os.listdir(os.path.dirname(path)) == []
