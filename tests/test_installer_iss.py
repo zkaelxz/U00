@@ -583,6 +583,11 @@ class TestUninstallLibraryConfirmation:
         assert "if Result then\n      Typed := Edit.Text;" in ask
         assert "Edit.Text := '';" in ask
         assert "CancelButton.ModalResult := mrCancel;" in ask and "CancelButton.Cancel := True;" in ask
+        # What to type has its own line above the box, so a long prompt can't hide it.
+        assert "InstructionText.Caption := Instruction;" in ask
+        assert ask.index("InstructionText.Caption") < ask.index("Edit := TNewEdit.Create(Form);")
+        confirm = _func(iss, "ConfirmLibraryDelete")
+        assert "'Type DELETE in capital letters to delete it. Anything else keeps it.', Typed)" in confirm
 
     def test_silent_uninstall_is_not_prompted(self, iss):
         init = _func(iss, "InitializeUninstall")
