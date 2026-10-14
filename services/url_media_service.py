@@ -72,6 +72,7 @@ import translate_engines
 import video_export
 from services import (
     drama_service,
+    egress_proxy,
     link_details_service,
     media_upload_service,
     ownership_service,
@@ -510,12 +511,14 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
         if options.get(key) is not None:
             spec[key] = options[key]
     watch = _SpaceWatch(tmp, floor=_free_floor)
-    result, end, state = _run_child(job_id, tmp, spec, wall, watch)
-    if _retryable(result, end, state):
-        applog.get_logger().info("URL download failed with a likely temporary error; retrying once.")
-        if _cancel_aware_sleep(job_id, RETRY_BACKOFF_SECONDS):
-            background_jobs.update_progress(job_id, 0.02, "Retrying the download...")
-            result, end, state = _run_child(job_id, tmp, spec, wall, watch)
+    with egress_proxy.GuardedProxy() as proxy:
+        spec["proxy"] = proxy.url
+        result, end, state = _run_child(job_id, tmp, spec, wall, watch)
+        if _retryable(result, end, state):
+            applog.get_logger().info("URL download failed with a likely temporary error; retrying once.")
+            if _cancel_aware_sleep(job_id, RETRY_BACKOFF_SECONDS):
+                background_jobs.update_progress(job_id, 0.02, "Retrying the download...")
+                result, end, state = _run_child(job_id, tmp, spec, wall, watch)
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     if state["out_of_space"]:

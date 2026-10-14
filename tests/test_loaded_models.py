@@ -117,11 +117,26 @@ def test_gpu_falls_back_to_loaded_torch_when_smi_fails(monkeypatch):
     def boom(*a, **k):
         raise OSError("driver mismatch")
     monkeypatch.setattr(svc.subprocess, "run", boom)
-    cuda = types.SimpleNamespace(is_available=lambda: True, mem_get_info=lambda: (30, 100),
+    cuda = types.SimpleNamespace(is_available=lambda: True, current_device=lambda: 0,
+                                 mem_get_info=lambda i: (30, 100),
                                  get_device_name=lambda i: "Fake GPU")
     monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=cuda))
     assert svc._gpu_row() == {"state": "ok", "name": "Fake GPU", "total_bytes": 100,
                               "free_bytes": 30, "used_bytes": 70}
+
+
+def test_gpu_row_name_and_memory_describe_the_same_card(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("driver mismatch")
+    monkeypatch.setattr(svc.subprocess, "run", boom)
+    names, memory = {0: "Small GPU", 1: "Big GPU"}, {0: (5, 10), 1: (30, 100)}
+    cuda = types.SimpleNamespace(is_available=lambda: True, current_device=lambda: 1,
+                                 mem_get_info=lambda i: memory[i],
+                                 get_device_name=lambda i: names[i])
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=cuda))
+    row = svc._gpu_row()
+    assert (row["name"], row["total_bytes"]) == ("Big GPU", 100)
+
 
 
 def test_one_failing_source_does_not_hide_the_others(monkeypatch):
