@@ -131,3 +131,46 @@ test('a lookup comes back with its form after leaving the page, without a new se
   expect(cachedMode).toBe('deep')
   expect(searches).toBe(1)
 })
+
+test('applying a result re-shown from the cache names the lookup it was shown, not an id', async ({ page }) => {
+  const applied: unknown[] = []
+  await page.route('**/api/metadata/research/budget', (route) => route.fulfill({ json: budget }))
+  await page.route('**/api/metadata/dramas/1/research/cached**', (route) =>
+    route.fulfill({ json: { ...result, cached: true, research_id: null } }))
+  await page.route('**/api/metadata/dramas/1/research/apply', (route) => {
+    applied.push(route.request().postDataJSON())
+    return route.fulfill({ json: { drama_id: 1, replaced: [], saved_alternates: ['title_en'], confirmed: [], kept: [] } })
+  })
+  await page.goto('/#/drama/1/source')
+  await openFillIn(page, 'Research online')
+  const title = page.getByRole('group', { name: 'English title: what to do' })
+  await title.getByRole('radio', { name: 'Save both' }).check()
+  await page.getByRole('button', { name: 'Apply choices' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'kept beside the existing value' })).toBeVisible()
+  expect(applied).toEqual([{
+    lookup_mode: 'quick', lookup_model: 'gemini-flash-lite-latest', retrieved_at: '2026-09-29T10:00:00Z',
+    choices: { title_en: 'save_both' }, seen: { title_en: 'Old' },
+  }])
+})
+
+test('a remembered model the server no longer knows falls back to the default, and says so', async ({ page }) => {
+  const asked: string[] = []
+  await page.route('**/api/metadata/research/budget', (route) => route.fulfill({ json: budget }))
+  await page.route('**/api/metadata/dramas/1/research/cached**', (route) => {
+    const model = new URL(route.request().url()).searchParams.get('model') ?? ''
+    asked.push(model)
+    return model === 'gemini-retired'
+      ? route.fulfill({ status: 422, json: { error: { code: 'invalid_input', message: 'That model cannot run grounded research.' } } })
+      : route.fulfill({ json: { ...result, cached: true, research_id: null } })
+  })
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.draft.1.research', JSON.stringify({
+      v: 1, values: { mode: 'quick', model: 'gemini-retired', allowPaid: false },
+    }))
+  })
+  await page.goto('/#/drama/1/source')
+  await openFillIn(page, 'Research online')
+  await expect(page.getByText('no longer available, so the default model is selected')).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Researched metadata' })).toContainText('Researched Title')
+  expect(asked).toEqual(['gemini-retired', 'gemini-flash-lite-latest'])
+})

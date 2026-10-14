@@ -34,7 +34,6 @@ import {
   glossaryApplyErrorText,
   missingTranslationText,
   missingTranslations,
-  type Edits,
   type GlossarySource,
   type ProposalValues,
 } from './glossaryExtract'
@@ -47,6 +46,7 @@ import {
   useGlossaryCatalogues,
   useGlossaryRun,
   useRunScoped,
+  useRunSelection,
 } from './useGlossaryRun'
 import './autotuneGlossary.css'
 
@@ -80,8 +80,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
   // proposals are shown; a new run (from any panel or tab) starts them over.
   const run = status?.run_id ?? null
   // null = the default selection for the current proposals.
-  const [picked, setPicked] = useRunScoped<Set<string> | null>(run, null)
-  const [edits, setEdits] = useRunScoped<Edits>(run, {})
+  const { picked, setPicked, edits, setEdits } = useRunSelection(dramaId, source, run)
   const [overwrite, setOverwrite] = useState(false)
   // From novel only; not remembered, so a paid re-run is always a choice.
   const [fresh, setFresh] = useState(false)
