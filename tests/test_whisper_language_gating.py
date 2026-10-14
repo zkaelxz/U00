@@ -158,6 +158,14 @@ class TestSelectableSizes:
         assert wm.selectable_whisper_sizes("live") == list(wm.LIVE_WHISPER_SIZES)
         assert "medium" in wm.selectable_whisper_sizes("live")
 
+    def test_the_config_route_ignores_the_developer_flag(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="D")
+        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: False)
+        off = transcribe_service.get_transcribe_config(did)["selectable_whisper_sizes"]
+        assert "medium" not in off
+        monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: True)
+        assert transcribe_service.get_transcribe_config(did)["selectable_whisper_sizes"] == off
+
     def test_a_saved_hidden_size_is_kept_and_still_accepted(self, isolated_db, monkeypatch):
         monkeypatch.setattr("services.maintenance_assistant_service.developer_mode_enabled", lambda: False)
         did = isolated_db.create_drama(title_en="D", source_language="zh")
