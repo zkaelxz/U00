@@ -56,6 +56,7 @@ import time
 import background_jobs
 from jobs import job_launch
 import db
+import storage
 from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
@@ -572,7 +573,17 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", part_path]
     failed = _EXTRACT_FAILED
     try:
-        background_jobs.run_cancellable(job_id, cmd, cwd=ddir, timeout=EXTRACT_TIMEOUT_SECONDS)
+        # ffmpeg writes into the title's folder, so this work folder only carries
+        # the note that lets the next start stop it if the server dies first.
+        # The note is a best-effort cleanup aid: a temp folder that can't be
+        # made must not fail an extraction that never needed one.
+        with contextlib.ExitStack() as note_holder:
+            try:
+                note_holder.enter_context(storage.job_workdir(job_id))
+            except OSError:
+                pass
+            background_jobs.run_cancellable(job_id, cmd, cwd=ddir,
+                                            timeout=EXTRACT_TIMEOUT_SECONDS)
         failed = _SAVE_FAILED
         from services import transcribe_pipeline, transcribe_service
         # Probed before install_media moves the file, and only when a

@@ -386,13 +386,15 @@ def _valid_event(event) -> bool:
     return True
 
 
-def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_chars=None):
+def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_chars=None,
+                 on_start=None):
     """Parent side. Yields {"event": {...}} per event the child
     emits, then {"returncode", "timed_out", "cancelled"}.
     Stopping the iteration early kills the child tree. Events that fail the
     nonce or shape check are dropped and counted in the final item's "dropped".
     `max_output_chars`: once the child has printed more than this, its tree
-    is killed and the final item carries "too_much_output": True."""
+    is killed and the final item carries "too_much_output": True.
+    `on_start(pid)` runs once the child has started, and must not raise."""
     nonce = secrets.token_hex(16)
     prefix = f"{_PREFIX}{nonce} "
     dropped = 0
@@ -401,7 +403,7 @@ def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_ch
     with open(spec_path, "w", encoding="utf-8") as f:
         json.dump(dict(spec, tmp=tmp_dir, nonce=nonce), f)
     cmd = [sys.executable, "-m", "services.ytdlp_child", spec_path]
-    stream = proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel)
+    stream = proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel, on_start=on_start)
     try:
         for item in stream:
             line = item.get("line")

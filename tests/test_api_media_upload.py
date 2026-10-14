@@ -147,6 +147,38 @@ def test_extract_ffmpeg_opens_local_files_only(client, isolated_db, monkeypatch)
     assert cmds[0][i - 4:i] == video_export.local_input()
 
 
+def test_the_extract_ffmpeg_is_noted_for_the_next_start(client, isolated_db, monkeypatch):
+    # A server killed mid-extract leaves ffmpeg writing into the title's folder;
+    # the next start can only stop it through a note in a work folder the job holds.
+    import db
+    import storage
+    from lib import proc_kill
+    if proc_kill.process_identity(os.getpid()) is None:
+        pytest.skip("this platform can't identify a process")
+    noted = []
+
+    def noting(job_id, cmd, cwd=None, **kw):
+        noted.append(storage.record_job_child(job_id, os.getpid()))
+        _fake_ffmpeg(job_id, cmd)
+    monkeypatch.setattr(background_jobs, "run_cancellable", noting)
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4").json()["job_id"])["status"] == "done"
+    assert noted == [1]
+    assert os.listdir(storage.temp_root()) == []
+
+
+def test_the_extract_still_runs_when_no_work_folder_can_be_made(client, isolated_db, monkeypatch):
+    import db
+    import storage
+
+    def no_room(*a, **kw):
+        raise OSError("read-only temp folder")
+    monkeypatch.setattr(storage, "new_workdir", no_room)
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4").json()["job_id"])["status"] == "done"
+    assert db.get_drama(did)["audio_filename"]
+
+
 def test_video_extract_cancel_is_cancelled_and_keeps_the_upload(client, isolated_db, monkeypatch):
     import db
 

@@ -134,6 +134,13 @@ def test_run_captured_reports_the_child_pid_once_it_has_started():
     assert pids == [int(out.stdout.strip())]
 
 
+def test_stream_tree_reports_the_child_pid_once_it_has_started():
+    pids = []
+    items = list(proc_run.stream_tree([sys.executable, "-c", "import os; print(os.getpid())"],
+                                      30.0, on_start=pids.append))
+    assert pids == [int(items[0]["line"])]
+
+
 def test_run_captured_gives_the_child_no_stdin():
     out = proc_run.run_captured(
         [sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], 30.0)
