@@ -58,3 +58,20 @@ def test_error_responses_documents_each_code_with_the_error_envelope():
         409: {"model": schemas.ErrorResponse},
     }
     assert list(schemas.error_responses(422, 400)) == [422, 400]
+
+
+def test_shared_request_bases_keep_each_models_name_and_strictness():
+    import pytest
+    from pydantic import ValidationError
+
+    for model in (schemas.BrowserInstallRequest, schemas.DeleteConfirm, schemas.EngineKeyClearRequest):
+        assert issubclass(model, schemas.ConfirmRequest)
+        assert model().confirm is False
+        assert model.model_json_schema()["title"] == model.__name__
+        with pytest.raises(ValidationError):
+            model(confirm="yes")
+        with pytest.raises(ValidationError):
+            model(confirm=True, extra=1)
+    assert list(schemas.DiagnosticsUpgradeCheckRequest.model_fields) == ["confirm", "target"]
+    with pytest.raises(ValidationError):
+        schemas.DiagnosticsUpgradePlanRequest(target="not a version")

@@ -4,13 +4,17 @@ API version, plus any model used by more than one domain module.
 
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, StrictFloat, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
 __all__ = [
     "API_VERSION",
     "ErrorInfo",
     "ErrorResponse",
     "error_responses",
+    "ConfirmRequest",
+    "UpgradeRequest",
+    "JobState",
+    "JobStarted",
     "TranslateEngine",
     "LibraryPreset",
     "TimingPreferences",
@@ -34,6 +38,32 @@ class ErrorResponse(BaseModel):
 def error_responses(*codes: int) -> Dict[int, Dict[str, Any]]:
     """The `responses=` mapping that documents each status code with the error envelope."""
     return {code: {"model": ErrorResponse} for code in codes}
+
+
+class ConfirmRequest(BaseModel):
+    # Subclassed once per route so each keeps its own name in the OpenAPI schema.
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class UpgradeRequest(BaseModel):
+    """The version the user is about to confirm (the last update check's
+    target); 409 when that check no longer says so."""
+    model_config = ConfigDict(extra="forbid")
+    target: Optional[StrictStr] = Field(None, max_length=64,
+                                        pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
+
+
+class JobState(BaseModel):
+    status: Optional[str] = None
+    progress: float = 0.0
+    message: str = ""
+    error: Optional[str] = None
+
+
+class JobStarted(BaseModel):
+    job_id: str
+    started: bool
 
 
 class TranslateEngine(BaseModel):
