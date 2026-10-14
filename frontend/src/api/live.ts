@@ -60,6 +60,8 @@ export interface LiveForm {
   max_minutes: number
   use_gpu: boolean
   reply_without_thinking: boolean
+  // Plays a delayed copy recorded on this PC instead of the stream's own embed.
+  delayed_player: boolean
   // null = no title: the translation gets no glossary or packs, as before.
   glossary_drama_id: number | null
   // A series instead of a title; at most one of the two is set. Settings saved
@@ -78,6 +80,7 @@ export const DEFAULT_FORM: LiveForm = {
   max_minutes: 60,
   use_gpu: false,
   reply_without_thinking: true,
+  delayed_player: false,
   glossary_drama_id: null,
   series_id: null,
 }
@@ -159,6 +162,7 @@ export function buildStartBody(form: LiveForm): LiveSessionStart {
     max_minutes: clamp(form.max_minutes, MAX_MINUTES_RANGE, DEFAULT_FORM.max_minutes),
     use_gpu: form.use_gpu === true,
     reply_without_thinking: form.reply_without_thinking !== false,
+    ...(form.delayed_player === true ? { delayed_player: true } : {}),
     ...(isId(form.series_id) ? { series_id: form.series_id }
       : isId(form.glossary_drama_id) ? { glossary_drama_id: form.glossary_drama_id } : {}),
   }

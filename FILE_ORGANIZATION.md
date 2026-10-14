@@ -135,6 +135,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 - `live_translate.py`
 - `sentence_groups.py` (translate-by-sentence: grouping timed fragments and splitting the English back)
 - `live_whisper.py` (Live's one-at-a-time Whisper worker: per-chunk time limit, prompt Stop, warm start, backlog and skip notes, per-chunk timing log)
+- `live_player.py` (Live's delayed player: rolling video and audio HLS recorders fed through the guarded pump, and the fixed file names the player route may serve)
 - `source_change.py` (the `source_changed` review flag a translated line gets when its source text changes, the new English that clears it, and the compare-and-set save of flags a run cleared)
 - `translate_engines.py`
 - `translation_finish.py` (untranslated count, aligned -> translated, the shared end of a translation run)

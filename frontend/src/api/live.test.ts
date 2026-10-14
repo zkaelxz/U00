@@ -31,6 +31,11 @@ describe('buildStartBody', () => {
     })
   })
 
+  it('asks for the delayed player only when it is on', () => {
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', delayed_player: true }).delayed_player).toBe(true)
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('delayed_player')
+  })
+
   it('sends a chosen title and leaves the key out when none is chosen', () => {
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', glossary_drama_id: 7 }).glossary_drama_id).toBe(7)
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('glossary_drama_id')

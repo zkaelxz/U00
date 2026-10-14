@@ -72,7 +72,7 @@ interface LiveMocks {
     model: string | null
     notes: string[]
     /** Lag figures added to the status (lag_seconds, processing_seconds, ...). */
-    figures: Record<string, number>
+    figures: Record<string, number | boolean>
     /** The first Stop is taken as "finish": the session keeps running until a second one. */
     finishOnStop: boolean
   }

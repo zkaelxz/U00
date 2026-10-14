@@ -300,7 +300,7 @@ class LiveSessionStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: str = Field(min_length=1, max_length=2000)
     source_language: str = Field("zh", max_length=5)
-    whisper_size: str = Field("small", max_length=10)
+    whisper_size: str = Field("small", max_length=32)
     segment_seconds: float = 20
     overlap_seconds: float = 3
     engine: Optional[str] = Field(None, max_length=40,
@@ -310,6 +310,9 @@ class LiveSessionStart(BaseModel):
     use_gpu: StrictBool = False
     reply_without_thinking: StrictBool = Field(
         True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
+    delayed_player: StrictBool = Field(
+        False, description="Also record a rolling copy of the picture and sound for the page's "
+                           "own player, so the picture can be held back on a stream the embed cannot rewind.")
     glossary_drama_id: Optional[StrictInt] = Field(
         None, ge=1, le=2**62,
         description="A title whose glossary and language packs the translation may use (read-only).")
@@ -356,6 +359,9 @@ class LiveSessionStatus(BaseModel):
     translations_skipped: int = 0   # lines shown untranslated to keep up
     translate_queue: int = 0
     chunks_measured: int = 0
+    # Whether this session records a delayed copy, and once its playlists have segments to play.
+    delayed_player: bool = False
+    player_ready: bool = False
     cues: List[LiveCue]
     next_index: int
 
