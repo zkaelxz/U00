@@ -169,7 +169,9 @@ describe('frost wash and cards', () => {
   })
 
   it('draws a card as a top hairline inside the same 1px border box, without blur', () => {
-    const card = frost.match(/\n\.card \{([^}]*)\}/)?.[1] ?? ''
+    // .card shares the rule with the panels that sit on the page, so one block draws them all.
+    const [selectors, card] = frost.match(/\n(\.card,[^{]*)\{([^}]*)\}/)?.slice(1) ?? ['', '']
+    for (const sel of ['.panel', '.tools-stack', '.discover-panel']) expect(selectors).toContain(sel)
     expect(card).toContain('border: 1px solid transparent')
     expect(card).toContain('border-top-color: var(--border)')
     expect(card).toContain('background: none')
