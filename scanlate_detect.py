@@ -6,6 +6,7 @@ to the database. Inpainting, rendering, OCR and the page pipeline live in scanla
 """
 
 import os
+import time
 
 import numpy as np
 
@@ -330,6 +331,18 @@ class BubbleModelUnavailable(RuntimeError):
         self.fell_back_to_cv = fell_back_to_cv
 
 
+# A model that failed to load fails again the same way on the next page, after
+# another network timeout. A run forgets this on start (forget_ml_failure), and
+# it lapses by itself so a fixed connection is not blocked for long.
+_ML_FAILURE_MEMORY_SECONDS = 300
+_ml_failure = None            # (monotonic time, the BubbleModelUnavailable raised)
+
+
+def forget_ml_failure() -> None:
+    global _ml_failure
+    _ml_failure = None
+
+
 def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs):
     """Dispatcher: backend='cv' (free heuristic), 'ml' (trained model,
     better accuracy, heavier install), or 'auto' (default)
@@ -354,29 +367,32 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
     if backend != "ml":
         return detect_bubbles_cv(image_path, image=image)
 
+    global _ml_failure
+    if _ml_failure and time.monotonic() - _ml_failure[0] < _ML_FAILURE_MEMORY_SECONDS:
+        raise BubbleModelUnavailable(str(_ml_failure[1]))
     try:
         return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, image=image, **kwargs))
     except ImportError as exc:
-        raise BubbleModelUnavailable(
-            "The ML detector needs extra packages:\n"
-            "    pip install transformers huggingface_hub\n\n"
-            "Falling back to the free heuristic for this page."
-        ) from exc
+        message = ("The ML detector needs extra packages:\n"
+                   "    pip install transformers huggingface_hub\n\n"
+                   "Falling back to the free heuristic for this page.")
+        cause = exc
     except Exception as exc:
         from whisper_models import is_network_error
+        cause = exc
         if is_network_error(exc):
-            raise BubbleModelUnavailable(
-                "Couldn't download the bubble-detection model -- this is a network "
-                "problem, not a problem with your image.\n\n"
-                "If huggingface.co is blocked by a DNS blocker on your network "
-                "(Pi-hole, AdGuard), whitelist:\n"
-                "  huggingface.co\n  cdn-lfs.huggingface.co\n  cdn-lfs-us-1.hf.co\n  hf.co\n\n"
-                "Falling back to the free heuristic for this page."
-            ) from exc
-        raise BubbleModelUnavailable(
-            f"The ML detector failed: {type(exc).__name__}: {exc}\n\n"
-            "Falling back to the free heuristic for this page."
-        ) from exc
+            message = ("Couldn't download the bubble-detection model -- this is a network "
+                       "problem, not a problem with your image.\n\n"
+                       "If huggingface.co is blocked by a DNS blocker on your network "
+                       "(Pi-hole, AdGuard), whitelist:\n"
+                       "  huggingface.co\n  cdn-lfs.huggingface.co\n  cdn-lfs-us-1.hf.co\n  hf.co\n\n"
+                       "Falling back to the free heuristic for this page.")
+        else:
+            message = (f"The ML detector failed: {type(exc).__name__}: {exc}\n\n"
+                       "Falling back to the free heuristic for this page.")
+    unavailable = BubbleModelUnavailable(message)
+    _ml_failure = (time.monotonic(), unavailable)
+    raise unavailable from cause
 
 
 # ---------------------------------------------------------------------------

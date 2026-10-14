@@ -1172,3 +1172,60 @@ def test_a_headroom_refusal_in_ocr_is_not_turned_into_blank_text(monkeypatch):
     monkeypatch.setattr(scanlate, "ocr_box_region", refuse)
     with pytest.raises(HeadroomError):
         scanlate.detect_and_ocr_page("page.png", "zh")
+
+
+def test_translation_asks_the_engine_not_to_think(isolated_db, monkeypatch):
+    """One request per page: DeepSeek's hidden reasoning is most of a page's time."""
+    from engine_backends import llm_tasks
+    _job_harness(monkeypatch)
+    scopes = []
+    monkeypatch.setattr(run_svc, "_process_page", lambda *a, **k: "done")
+    real_scope = llm_tasks.bounded_llm_calls
+
+    def spy(job_id, cancel_check, **kw):
+        scopes.append(kw)
+        return real_scope(job_id, cancel_check, **kw)
+    monkeypatch.setattr(run_svc.llm_tasks, "bounded_llm_calls", spy)
+    engine = type("E", (), {"name": "deepseek", "model": "m"})()
+    run_svc._run_job("j", 1, "all", [7], "deepseek", engine, "auto")
+    assert scopes[0]["no_thinking"] is True
+
+
+def test_next_page_is_detected_while_this_one_is_translated(client, monkeypatch):
+    did = _drama()
+    p1, p2 = _page(did, 0), _page(did, 1)
+    detected, order = [], []
+
+    def detect(image_path, lang, page_id=None, **kw):
+        detected.append(page_id)
+        order.append(("detect", page_id))
+        return [_region(5, "你好")], []
+
+    def translate(keyed, engine, drama, **kw):
+        order.append(("translate", len(detected)))
+        # Page 2's detection is already running (or done) while page 1 is still translating.
+        deadline = time.monotonic() + 5
+        while p2 not in detected and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert p2 in detected
+        return {k: "hi" for k in keyed}, "ctx"
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", translate)
+    _run(client, did, mode="all", confirm=True, engine="fake")
+    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert detected == [p1, p2]
+    assert [b["translated_text"] for b in db.load_bubbles(p2)] == ["hi"]
+
+
+def test_a_page_failing_ocr_does_not_fail_the_next_one(client, monkeypatch):
+    did = _drama()
+    p1, p2 = _page(did, 0), _page(did, 1)
+
+    def detect(image_path, lang, page_id=None, **kw):
+        return [_region(5, "")] if page_id == p1 else [_region(5, "你好")], []
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id",
+                        lambda keyed, *a, **k: ({k: "hi" for k in keyed}, "ctx"))
+    _run(client, did, mode="all", confirm=True, engine="fake")
+    st = _wait(f"scanlate_{did}")
+    assert "1 failed" in st["message"] and "1 translated" in st["message"]

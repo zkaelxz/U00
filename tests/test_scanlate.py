@@ -1046,3 +1046,22 @@ class TestWebtoonSliceCap:
                                                      overlap=0)
         assert len(slices) == 200
         assert slices[-1]["y_end"] == 2000
+
+
+class TestMlLoadFailureIsRemembered:
+    def test_a_failed_load_is_not_retried_on_the_next_page_until_forgotten(self, synthetic_page, monkeypatch):
+        attempts = []
+
+        def load_fails(*a, **k):
+            attempts.append(1)
+            raise ConnectionError("getaddrinfo failed")
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", load_fails)
+        for _ in range(3):
+            with pytest.raises(scanlate_detect.BubbleModelUnavailable) as exc_info:
+                scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+            assert "network" in str(exc_info.value)
+        assert len(attempts) == 1
+        scanlate_detect.forget_ml_failure()
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert len(attempts) == 2
