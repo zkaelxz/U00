@@ -49,7 +49,7 @@ import db
 import subtitle_parse
 from lib.atomic_write import atomic_write
 from lib.safe_paths import plain_file_in
-from services import drama_service
+from services import drama_service, ownership_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
@@ -68,9 +68,7 @@ _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

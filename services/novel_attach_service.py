@@ -36,7 +36,7 @@ from jobs import job_launch
 import db
 import dub_narration
 import ocr as ocr_module
-from services import drama_service, settings_service
+from services import drama_service, ownership_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_TEXT_CHARS = 2_000_000
@@ -59,9 +59,7 @@ if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not O
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

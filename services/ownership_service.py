@@ -142,6 +142,14 @@ def _not_found(kind: str):
     return NotFoundError("Title not found." if kind == "drama" else "Series not found.")
 
 
+def require_drama(drama_id) -> dict:
+    """The title's row, or NotFoundError(404) when no such title exists."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No title with id {drama_id}.")
+    return drama
+
+
 _ADMIN_CHANGE_AT_PC = "An admin can change other people's private items only at the PC."
 
 

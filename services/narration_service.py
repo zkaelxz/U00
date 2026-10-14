@@ -31,7 +31,13 @@ import translate_engines
 from engine_backends import paid_calls
 from core import Line
 from engine_backends.run_limits import TranslateRunStopped
-from services import job_checkpoint_service, job_timing_service, paid_job_service, settings_service
+from services import (
+    job_checkpoint_service,
+    job_timing_service,
+    ownership_service,
+    paid_job_service,
+    settings_service,
+)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -46,9 +52,7 @@ MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

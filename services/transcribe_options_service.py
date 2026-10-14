@@ -17,7 +17,13 @@ import diagnostics
 import sensitivity_preset as presets
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS
-from services import asr_options_service, diarization_service, settings_service, transcribe_pipeline
+from services import (
+    asr_options_service,
+    diarization_service,
+    ownership_service,
+    settings_service,
+    transcribe_pipeline,
+)
 from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
                                                  require_vad_backend_packages)
 from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError, UnsupportedOperationError
@@ -200,9 +206,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     start_transcribe_run for everything that doesn't depend on the audio or
     video file being on disk yet; starts nothing. Keep in step with
     start_transcribe_run's checks."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(

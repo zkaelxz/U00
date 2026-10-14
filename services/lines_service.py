@@ -29,7 +29,12 @@ import source_change
 import subtitle_formats
 import timing_drift
 import translation_guide
-from services import reading_speed_dismissal_service, timing_check_service, translate_service
+from services import (
+    ownership_service,
+    reading_speed_dismissal_service,
+    timing_check_service,
+    translate_service,
+)
 from services.review_lines_service import line_dict
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -46,9 +51,7 @@ def load(drama_id: int, line_id: int):
     """(drama, all_lines, the line with this id). NotFoundError for an
     unknown drama, or a line id that isn't this drama's (merged away,
     never existed, or another drama's -- all the same 404)."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     for ln in lines:
         if ln.id == line_id:
@@ -203,8 +206,7 @@ def set_lines_lang(drama_id: int, lang, *, line_ids=None, speaker=None) -> dict:
         speaker = _text("speaker", speaker, MAX_SPEAKER_CHARS).strip()
         if not speaker:
             raise InvalidInputError("speaker must not be empty.")
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     if line_ids is not None:
         by_id = {ln.id: ln for ln in lines}
@@ -273,9 +275,7 @@ def apply_find_replace(drama_id: int, matches) -> dict:
             raise InvalidInputError("Each line id may appear only once.")
         wanted[m["id"]] = (m["old_text"], m["new_text"])
 
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
     changed, applied_ids, stale_ids, pairs = [], [], [], []
     for lid, (old_text, new_text) in wanted.items():
@@ -346,8 +346,7 @@ def add_note(drama_id: int, line_id: int, term: str, note_type: str, note: str) 
 def delete_note(drama_id: int, note_id: int) -> dict:
     """Deletes one translation note. `db.delete_translation_note` takes only
     an id, so ownership is checked here: another drama's note is a 404."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if not any(n["id"] == note_id for n in db.list_translation_notes(drama_id)):
         raise NotFoundError(f"No note with id {note_id} in this title.")
     db.delete_translation_note(note_id)

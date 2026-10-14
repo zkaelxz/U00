@@ -24,7 +24,7 @@ import db
 import source_change
 import subtitle_parse
 import subtitle_sidecar
-from services import restructure_service
+from services import ownership_service, restructure_service
 from services.lines_service import MAX_LINE_TEXT_CHARS
 from services.service_errors import InvalidInputError, NotFoundError
 
@@ -34,9 +34,7 @@ SNAPSHOT_LABEL = "before subtitle import"
 
 
 def _drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

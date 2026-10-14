@@ -70,8 +70,14 @@ import db
 import storage
 import translate_engines
 import video_export
-from services import (drama_service, link_details_service, media_upload_service,
-                      settings_service, ytdlp_child)
+from services import (
+    drama_service,
+    link_details_service,
+    media_upload_service,
+    ownership_service,
+    settings_service,
+    ytdlp_child,
+)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_url_service import check_public_url
@@ -612,9 +618,7 @@ def _check_request(drama_id, url, audio_only, confirm_replace_audio, own_job_id=
     """The per-request checks, run when the request arrives and again when the
     download starts. Returns the cleaned URL and the drama."""
     url = check_public_url(url)
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
         raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
     if media_upload_service.has_media(drama, drama_id) and not confirm_replace_audio:

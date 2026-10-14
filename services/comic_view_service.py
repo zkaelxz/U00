@@ -21,6 +21,7 @@ import stat
 
 import comic_chapters
 import db
+from services import ownership_service
 from services.service_errors import InvalidInputError, NotFoundError
 
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
@@ -34,9 +35,7 @@ _IMAGE_MISSING = "Page image not found."
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

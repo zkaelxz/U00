@@ -21,7 +21,12 @@ import whisper_transcribe
 import db
 import sensitivity_preset as presets
 from core import Line
-from services import asr_options_service, settings_service, timing_settings_service
+from services import (
+    asr_options_service,
+    ownership_service,
+    settings_service,
+    timing_settings_service,
+)
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.transcribe_options_service import _DEFAULT_TUNING, stored_whisper_size
@@ -84,9 +89,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
 
     NotFoundError, UnsupportedOperationError (no audio pipeline / no audio),
     InvalidInputError (bad candidates), ConflictError (already running)."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
     audio_path = _drama_audio_path(drama_id, drama)
@@ -134,8 +137,7 @@ def get_autotune_status(drama_id: int) -> dict:
     NotFoundError when the drama doesn't exist. No auto-tune job resident in
     this process (results live only in background_jobs memory) is the normal
     first answer: status "idle", job_id ""."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     job_id = autotune_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:
@@ -163,8 +165,7 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
     foreign value can't be applied through this path (the plain config
     update, update_transcribe_config, remains for hand-set values).
     Returns the updated transcribe config."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     job = background_jobs.get_status(autotune_job_id(drama_id))
     if not job or job.get("status") != "done":
         raise UnsupportedOperationError("No finished auto-tune results for this title.")

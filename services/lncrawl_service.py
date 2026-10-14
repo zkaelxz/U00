@@ -52,7 +52,7 @@ import background_jobs
 from jobs import job_launch
 import db
 import storage
-from services import drama_service, novel_attach_service, settings_service
+from services import drama_service, novel_attach_service, ownership_service, settings_service
 from lib import proc as proc_run, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -218,8 +218,7 @@ def job_id_for(drama_id: int) -> str:
 def start_import(drama_id: int, url, chapters: str = "all", count: Optional[int] = None,
                  mode: str = "replace") -> dict:
     """Checks everything, then starts the background job. Returns {job_id}."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if mode not in ("append", "replace"):
         raise InvalidInputError("mode must be one of append, replace.")
     chapters, count = check_range(chapters, count)

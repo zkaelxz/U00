@@ -10,15 +10,14 @@ it no longer applies. Merging goes through the existing restructure merge.
 """
 import core as core_module
 import db
+from services import ownership_service
 from services.export_service import save_flags
 from services.service_errors import NotFoundError
 from source_suspect import SUSPECT_FLAG, find_suspects
 
 
 def _load(drama_id: int):
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama, core_module.lines_from_rows(db.load_lines(drama_id))
 
 

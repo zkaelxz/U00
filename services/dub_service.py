@@ -21,6 +21,7 @@ import db
 from lib.safe_paths import plain_file_in
 import dub
 import dub_narration
+from services import ownership_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -43,9 +44,7 @@ def _drama_path(drama_id: int) -> str:
 
 
 def _get_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

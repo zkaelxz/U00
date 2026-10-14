@@ -61,7 +61,7 @@ import translate_engines
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
-from services import drama_service, settings_service, translate_service
+from services import drama_service, ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from services.service_errors import (
     DependencyUnavailableError,
@@ -104,9 +104,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
         raise InvalidInputError("page must be a positive whole number.")
 
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     rows = db.load_lines(drama_id)
     lines = core_module.lines_from_rows(rows)
@@ -167,9 +165,7 @@ def _require_drama(drama_id) -> dict:
     InvalidInputError, an unknown drama NotFoundError."""
     if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
         raise InvalidInputError("A title id is a positive whole number.")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

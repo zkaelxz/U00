@@ -14,6 +14,7 @@ import os
 
 import db
 import subtitle_formats
+from services import ownership_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from services.service_errors import NotFoundError
 
@@ -31,9 +32,7 @@ def resolve_media(drama_id: int, kind: str):
     """Return (absolute_path, content_type) or raise NotFoundError."""
     if kind not in _FIELDS:
         raise NotFoundError("Unknown media kind.")
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     field, allowed = _FIELDS[kind]
     name = drama.get(field)
     missing = NotFoundError(_NO_FILE.format(kind=kind))

@@ -24,15 +24,14 @@ import emotion
 import adaptive_style
 import translation_guide
 import translation_memory
+from services import ownership_service
 from services.service_errors import NotFoundError
 
 MAX_TM_LINES_SCANNED = 2000  # cap on lines fed to the TM scan (roughly lines x entries)
 
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

@@ -44,9 +44,7 @@ def speaker_time_summary(drama_id: int) -> Optional[dict]:
     percents add to 100) and turns, biggest first. uncovered_seconds is the
     drama's audio not inside any turn (overlaps merged), None if the audio
     length is unknown. Raises NotFoundError for an unknown drama."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     turns = diarize.load_turns(db.drama_dir(drama_id))
     if not turns:
         return None
@@ -110,9 +108,7 @@ def get_diarization_config(drama_id: int) -> dict:
     detection run (diarize.load_last_speaker_count), and whether audio is
     actually available to diarize. Raises NotFoundError for an unknown
     drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     ddir = db.drama_dir(drama_id)
     audio_path = _drama_audio_path(drama_id, drama)
@@ -185,8 +181,7 @@ def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
     unknown drama, ConflictError if no turns were saved yet or a job is running
     for the drama. The saved turns are tied to whatever audio detection last
     ran on, so this is only ever done on request, never after a transcription."""
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this title -- wait for it "
                             "to finish or cancel it before re-assigning speakers.")
@@ -296,9 +291,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     is combined with an exact expected_speakers.
     Returns {"job_id": ...} -- poll it via the existing GET /api/jobs/
     {job_id}."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     if overwrite_manual and confirm is not True:
         raise InvalidInputError("overwrite_manual=true replaces speakers you corrected by hand "

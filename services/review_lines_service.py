@@ -30,6 +30,7 @@ import raw_transcript
 import review_thresholds
 import scanlate
 import translate_engines
+from services import ownership_service
 from services.service_errors import InvalidInputError, NotFoundError
 
 MAX_PAGE_SIZE = 200
@@ -51,9 +52,7 @@ _ONLY_VALUES = ("all", "flagged", "untranslated")
 
 
 def _load_drama_and_lines(drama_id: int):
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     lines = core_module.lines_from_rows(db.load_lines(drama_id))
     return drama, lines
 

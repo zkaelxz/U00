@@ -48,7 +48,7 @@ import line_alignment
 from segment_splitting import encode_line_words, line_word_index, line_words, span_words
 import db
 import resegment
-from services import drama_service, translate_service
+from services import drama_service, ownership_service, translate_service
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot, lines_losing_notes
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -71,9 +71,7 @@ def _drama_lock(drama_id: int) -> threading.Lock:
 # ---------------------------------------------------------------------------
 
 def _require_drama(drama_id: int) -> dict:
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     return drama
 
 

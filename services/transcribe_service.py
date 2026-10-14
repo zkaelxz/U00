@@ -105,9 +105,7 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     trimmed by core.combine_initial_prompt (its 900-character cap). Shared by
     the API transcribe and auto-tune paths so they can't drift. Returns "" when there's nothing to prime with. Raises
     NotFoundError for an unknown drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
     glossary_names = core_module.build_initial_prompt(terms).rstrip("。")
     prompt = "、".join(x for x in (glossary_names, (extra_names or "").strip()) if x)
@@ -137,9 +135,7 @@ def get_transcribe_config(drama_id: int) -> dict:
     whether its Whisper model is already downloaded, and every tuning knob
     with its current per-drama value (falling back to _DEFAULT_TUNING).
     Raises NotFoundError for an unknown drama id."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
 
     source = source_service.get_source_config(drama_id)
     whisper_size = stored_whisper_size(drama)
@@ -199,9 +195,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     None) are validated and written. Raises NotFoundError for an unknown
     drama id, InvalidInputError for an out-of-range/unknown value. Returns
     the updated get_transcribe_config(drama_id)."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     updates = check_transcribe_fields(fields, drama.get("source_language") or "zh")
     if updates:
         db.update_drama(drama_id, **updates)
@@ -252,9 +246,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     "qwen3_forced_align" while transcript_mode is "whisper" (forced
     alignment needs a known transcript); ConflictError if a transcription is already running for
     this drama."""
-    drama = db.get_drama(drama_id)
-    if drama is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    drama = ownership_service.require_drama(drama_id)
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
         ownership_service.require_acting_lines_edit()

@@ -8,7 +8,7 @@ No FastAPI import: plain dicts in and out. Nothing returns line text.
 """
 import db
 import source_change
-from services import translate_run_service
+from services import ownership_service, translate_run_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_LINES = 10000
@@ -19,8 +19,7 @@ def _flagged(ln) -> bool:
 
 
 def _lines_by_id(drama_id: int) -> dict:
-    if db.get_drama(drama_id) is None:
-        raise NotFoundError(f"No title with id {drama_id}.")
+    ownership_service.require_drama(drama_id)
     return {ln.id: ln for ln in db.load_line_objects(drama_id)}
 
 
