@@ -88,7 +88,7 @@ The owner wants better transcription and translation accuracy, and evidence for 
 | Translation batch size | 30 (60 for large models) | 15, 30, 60 | Unmeasured |
 | Context lines before / after | 10 / 6 | 3/1, 6/3, 10/6, 20/10 | Unmeasured; the defaults disagree |
 | Reflect pass | on for final passes | off, on | Unmeasured |
-| Translation-memory examples in the prompt | off | off, on | New (step T3) |
+| Translation-memory examples in the prompt | off | off, on | New (step T4) |
 | Temperature | provider default | default, 0.3 | Never set (step T4) |
 
 ## Build steps
@@ -117,7 +117,8 @@ One PR each, in this order.
 
 ### A3. Line timing scores and timing settings
 
-- **Scored only for clips with reference timings.** The easiest source is a title whose timing was already fixed by hand in Review; its lines carry start and end times. Timings must be accurate, or the app is tuned toward the mistakes.
+- **Scored only for clips with reference timings.** Timings must be accurate, or the app is tuned toward the mistakes.
+- **Timing references are made in Review's waveform**, not in a second editor in the Lab. Review already shows the waveform (`frontend/src/pages/workspace/stages/review/Waveform.tsx`, peaks from `/api/dramas/{id}/peaks`) with draggable line edges and nudge keys. The owner fixes a title's timing there, then adds that title's lines, with their start and end times and audio, to a test set (the A5 path). Clips that need timing are imported as a title first, timed in Review, then added.
 - **Measures:** median start and end error (ms); share of lines whose start and end are within 0.3 s; lines wrongly merged or split; missed lines; lines placed in silence. Reuse what `tools/asr_bench.py` already measures (`count_in_silence` and the merged/missed counts).
 - **Settings the sweep can tune for timing:** min silence and VAD threshold (where lines break); Whisper's speech pad (not passed today, so the library default of about 0.4 s applies); "Refine line timing" with the forced aligner, on or off; the split limits of 8 s and 40 characters (`segment_splitting.py`).
 - **Check the timing-flag thresholds** in `timing_drift.py` (`EARLY_START_S` and `LATE_END_S`, both 0.7 s) against the reference timings, instead of leaving them as guesses.
