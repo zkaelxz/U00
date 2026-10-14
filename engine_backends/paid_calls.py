@@ -59,6 +59,17 @@ def record_call(engine, engine_name: str, operation: str, usage: dict = None, *,
     return True
 
 
+def usage_logger(drama_id, engine_name: str, engine, operation: str):
+    """A (tokens in, tokens out) callback that logs one usage row per call,
+    for the LLM helpers that report only token counts. The cache-aware
+    variants that also take cache token counts stay with their callers."""
+    def log(inp, out, *_):
+        import db
+        db.log_usage(drama_id, engine_name, getattr(engine, "model", None) or engine_name,
+                     operation, inp, out, estimate_cost_for_engine(engine, inp, out))
+    return log
+
+
 # Groq bills hosted Whisper by the hour of audio, not by token.
 GROQ_USD_PER_AUDIO_HOUR = 0.04
 

@@ -23,7 +23,7 @@ from typing import List, Optional
 import background_jobs
 import db
 import translate_engines
-from engine_backends import llm_tasks
+from engine_backends import llm_tasks, paid_calls
 from engine_backends.shared import TranslationCancelled, language_name
 from services import glossary_extract_service as extract
 from services import glossary_service
@@ -168,10 +168,8 @@ def _run_job(job_id, run_id, drama_id, engine, engine_name, term_text, aliases, 
         with extract._bounded_calls(job_id, drama_id, engine, engine_name, "glossary_spellings"):
             reply = llm_tasks.call_llm_json(
                 engine, prompt, max_tokens=REPLY_MAX_TOKENS, fallback="",
-                usage_cb=lambda inp, out: db.log_usage(
-                    drama_id, engine_name, getattr(engine, "model", engine_name),
-                    "glossary_spellings", inp, out,
-                    translate_engines.estimate_cost_for_engine(engine, inp, out)))
+                usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine,
+                                                 "glossary_spellings"))
     except (TranslationCancelled, background_jobs.JobCancelled):
         raise background_jobs.JobCancelled() from None
     except Exception as exc:

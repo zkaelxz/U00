@@ -47,6 +47,7 @@ import en_cleanup
 import sensevoice_tags
 import subtitle_formats
 import translate_engines
+from engine_backends import paid_calls
 from services import (export_service, media_playback_service, ownership_service,
                       restructure_service, settings_service, translate_run_service, translate_service,
                       workspace_audio_job_service)
@@ -339,9 +340,7 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
     scope = _scope(drama)
     existing = (db.get_style_profile(scope) or {}).get("profile") or {}
 
-    def usage(inp, out):
-        db.log_usage(None, name, getattr(engine, "model", name), "adaptive_style", inp, out,
-                     translate_engines.estimate_cost_for_engine(engine, inp, out))
+    usage = paid_calls.usage_logger(None, name, engine, "adaptive_style")
     try:
         result = adaptive_style.analyze_edit_patterns(samples, engine, existing_profile=existing,
                                                       usage_cb=usage)

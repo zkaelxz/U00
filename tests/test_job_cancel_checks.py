@@ -104,7 +104,6 @@ class TestCloudResegment:
         stored = []
         monkeypatch.setattr(resegmentation_service, "_apply_resegmented", lambda *a: stored.append(1))
         monkeypatch.setattr(resegmentation_service, "_store_llm_preview", lambda *a: stored.append(1))
-        monkeypatch.setattr(resegmentation_service, "_usage_logger", lambda *a: None)
         engine = object()
         with pytest.raises(background_jobs.JobCancelled):
             if runner == "apply":
@@ -124,7 +123,6 @@ class TestResegmentCancelDuringCall:
         def cancelling_call(*a, **k):
             raise TranslationCancelled("cancelled")
         monkeypatch.setattr(resegment, "llm_split_spans", cancelling_call)
-        monkeypatch.setattr(resegmentation_service, "_usage_logger", lambda *a: None)
         lines = [Line(idx=0, start=0, end=1, zh="长" * 200)]
         lines[0].id = 1
         job_id = "resegment_cancelmid" if runner == "apply" else "resegpreview_cancelmid"
