@@ -40,8 +40,9 @@ from jobs import job_store
 from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
                       source_link_service, vdb_names_service)
+from lib import file_manager
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
-                                     ServiceError)
+                                     ServiceError, UnsupportedOperationError)
 
 log = logging.getLogger(__name__)
 
@@ -372,6 +373,27 @@ def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     return job_store.fresh_active(
         job_ids={f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES},
         exclude=exclude_job_id)
+
+
+def open_drama_folder(drama_id: int, principal) -> dict:
+    """Opens the title's own folder in the PC's file manager, creating it
+    when nothing has been stored yet. The folder comes from the id alone; one
+    whose real path leaves the library's dramas folder (a link someone put
+    there) is refused rather than opened."""
+    ownership_service.require_visible(principal, "drama", drama_id)
+    root = os.path.realpath(db.DRAMAS_DIR)
+    folder = os.path.realpath(os.path.join(root, str(int(drama_id))))
+    if os.path.dirname(folder) != root:
+        raise InvalidInputError("This title's folder is not inside the library.")
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError as e:
+        raise ServiceError("The title's folder could not be created.") from e
+    try:
+        file_manager.open_folder(folder)
+    except OSError:
+        raise UnsupportedOperationError("This PC has no file manager the app can open.") from None
+    return {"opened": True}
 
 
 def hard_delete_drama(drama_id) -> bool:
