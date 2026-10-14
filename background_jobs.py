@@ -447,6 +447,18 @@ def later_cancel_probe(job_id: str):
     return lambda: _cancel_count(job_id) > asked
 
 
+def note_child(job_id: str, pid: int):
+    """Notes job `job_id`'s external process `pid` in the job's held work
+    folders (storage.record_job_child), so the next start can stop it if this
+    server dies without stopping it. Never raises: a missing note only costs
+    that cleanup."""
+    try:
+        import storage
+        storage.record_job_child(job_id, pid)
+    except Exception as exc:
+        _warn(f"job {job_id}: could not note process {pid} for a later cleanup", exc)
+
+
 def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,
                     kill_timeout: float = 10.0, timeout: float = None):
     """Runs an external command (ffmpeg) for a thread job and kills it when
@@ -461,19 +473,13 @@ def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: floa
     import subprocess
     from lib import proc
 
-    def note_child(pid):
-        try:
-            import storage
-            storage.record_job_child(job_id, pid)
-        except Exception as exc:
-            _warn(f"job {job_id}: could not note process {pid} for a later cleanup", exc)
-
     # ffmpeg reads no Python I/O settings, so the child keeps the caller's environment.
     run = proc.run_captured(cmd, math.inf if timeout is None else timeout,
                             drain_seconds=kill_timeout, cwd=cwd,
                             cancel=lambda: is_cancel_requested(job_id), warn=_warn,
                             utf8_env=False,
-                            on_start=note_child, poll_seconds=poll_interval)
+                            on_start=lambda pid: note_child(job_id, pid),
+                            poll_seconds=poll_interval)
     if run.cancelled:
         raise JobCancelled(job_id)
     if run.timed_out:

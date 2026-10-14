@@ -109,7 +109,7 @@ def env(isolated_db, monkeypatch):
             f.write(b"RIFFwav")
     monkeypatch.setattr(background_jobs, "run_cancellable", fake_run)
 
-    def fake_child(tmp_dir, spec, timeout, cancel):
+    def fake_child(tmp_dir, spec, timeout, cancel, on_start=None):
         """ytdlp_child.run_download without the process: the real worker runs
         in-process against FakeYDL and its events are replayed. The real
         process is covered by tests/test_ytdlp_child.py."""
@@ -304,6 +304,26 @@ def test_cancel_aborts(client, env):
     st = _run(client, did)
     assert st["status"] == "cancelled"
     assert env.writes == []
+    _no_tmp(did)
+
+
+def test_the_download_child_is_noted_in_a_held_folder_for_the_next_start(client, env, monkeypatch):
+    # A server killed mid-download leaves yt-dlp writing; the next start can
+    # only stop it (storage.stop_orphaned_job_children) through this note.
+    from lib import proc_kill
+    if proc_kill.process_identity(os.getpid()) is None:
+        pytest.skip("this platform can't identify a process")
+    fake = ytdlp_child.run_download
+    seen = []
+
+    def noting(tmp_dir, spec, timeout, cancel, on_start=None):
+        on_start(os.getpid())
+        seen.append({n for n in os.listdir(tmp_dir) if n.startswith(".baihe-")})
+        yield from fake(tmp_dir, spec, timeout, cancel)
+    monkeypatch.setattr(ytdlp_child, "run_download", noting)
+    did = _drama()
+    assert _run(client, did)["status"] == "done"
+    assert seen == [{storage.HOLD_MARKER, f"{storage.CHILD_MARKER_PREFIX}{os.getpid()}"}]
     _no_tmp(did)
 
 
@@ -1074,7 +1094,7 @@ def test_exact_cuts_is_opt_in_and_allows_the_longer_wall_clock(client, env, monk
     seen = []
     real = ytdlp_child.run_download
     monkeypatch.setattr(ytdlp_child, "run_download",
-                        lambda tmp, spec, timeout, cancel: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
+                        lambda tmp, spec, timeout, cancel, on_start=None: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
     did = _drama()
     st = _run(client, did, audio_only=False, part_start="0:10", part_end="0:40", exact_cuts=True)
     assert st["status"] == "done", st
@@ -1224,7 +1244,7 @@ def test_the_long_wall_clock_is_not_given_to_every_request(client, env, monkeypa
     seen = []
     real = ytdlp_child.run_download
     monkeypatch.setattr(ytdlp_child, "run_download",
-                        lambda tmp, spec, timeout, cancel: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
+                        lambda tmp, spec, timeout, cancel, on_start=None: (seen.append(timeout), real(tmp, spec, timeout, cancel))[1])
     did = _drama()
     FakeYDL.script = {"duration": 3600}
     assert _run(client, did, audio_only=False, **body)["status"] == "done"

@@ -129,13 +129,15 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
 
 
 def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS,
-                cwd: str = None, env: dict = None, cancel=None, warn=None):
+                cwd: str = None, env: dict = None, cancel=None, warn=None, on_start=None):
     """Yields {"line"} per line of combined stdout/stderr, then
     {"returncode", "timed_out", "cancelled"}. The tree is killed when
     `timeout` passes, when `cancel()` turns true, or when the caller stops
     iterating. `warn(what, exc)` reports a swallowed kill failure (see
-    lib.proc_kill.kill_tree)."""
-    events = _events(cmd, timeout, drain_seconds, cancel, True, cwd, env, warn)
+    lib.proc_kill.kill_tree). `on_start(pid)` runs once the child has
+    started, and must not raise."""
+    events = _events(cmd, timeout, drain_seconds, cancel, True, cwd, env, warn,
+                     on_start=on_start)
     try:
         for tag, payload in events:
             if tag == "end":
