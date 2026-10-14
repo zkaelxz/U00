@@ -1042,3 +1042,117 @@ def test_launcher_runs_the_apply_step_when_a_restore_is_owed(data, monkeypatch, 
     launcher.apply_pending_install("python.exe", {}, headless=True)
     assert calls == [(["python.exe", "-s", "-m", "pending_install"],)]
     assert "Putting back packages" in capsys.readouterr().out
+
+
+# ---- the core wheels Setup keeps beside the bundled Python ----
+
+NUMPY_WHEEL = "numpy-2.5.3-cp312-cp312-win_amd64.whl"
+BASE = ["python", "-m", "pip", "install", "--no-deps", "--no-cache-dir", "--disable-pip-version-check"]
+
+
+def _sha(data):
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
+
+
+def _kept_folder(tmp_path, files, pins=None):
+    """A kept-wheels folder holding `files` {wheel name: bytes}, and the app's
+    lock pinning `pins` {name: (version, bytes hashed)}, by default each
+    file's own hash. Returns (folder, lock path)."""
+    folder = tmp_path / "wheels"
+    folder.mkdir()
+    for name, data in files.items():
+        (folder / name).write_bytes(data)
+    if pins is None:
+        pins = {name.split("-")[0]: (name.split("-")[1], data) for name, data in files.items()}
+    lock = tmp_path / "app-wheels.lock.txt"
+    lock.write_text("".join(f"{n}=={v} \\\n    --hash=sha256:{_sha(d)}\n" for n, (v, d) in pins.items()))
+    return str(folder), str(lock)
+
+
+def test_a_kept_wheel_is_put_back_hash_checked_with_no_index_and_the_rest_from_it(data, tmp_path, monkeypatch):
+    monkeypatch.setattr(pi, "_python", lambda: ["python"])
+    folder, lock = _kept_folder(tmp_path, {NUMPY_WHEEL: b"numpy bytes"})
+    with pi.restore_commands({"numpy": "2.5.3", "pyyaml": "6.0.2"}, folder, lock) as argvs:
+        req = argvs[0][-1]
+        # By name==version from the folder, so pip records no direct_url.json and a
+        # later restore still treats numpy as an index package; pip checks the hash.
+        assert argvs == [BASE + ["--no-index", "--find-links", folder, "--require-hashes", "-r", req],
+                         BASE + ["pyyaml==6.0.2"]]
+        assert open(req, encoding="utf-8").read() == f"numpy==2.5.3 --hash=sha256:{_sha(b'numpy bytes')}\n"
+    assert not os.path.exists(req)
+
+
+@pytest.mark.parametrize("files, pins", [
+    ({NUMPY_WHEEL: b"edited"}, {"numpy": ("2.5.3", b"numpy bytes")}),       # fails its hash
+    ({NUMPY_WHEEL: b"numpy bytes"}, {"pillow": ("12.3.0", b"x")}),          # not in the lock
+    ({"numpy-2.4.0-cp312-cp312-win_amd64.whl": b"old"}, None),              # another version
+    ({NUMPY_WHEEL: b"numpy bytes", "numpy-2.5.3+local-py3-none-any.whl": b"bad"},
+     {"numpy": ("2.5.3", b"numpy bytes")}),                                 # pip could pick the other
+])
+def test_a_wheel_that_does_not_check_out_comes_from_the_index(data, tmp_path, monkeypatch, files, pins):
+    monkeypatch.setattr(pi, "_python", lambda: ["python"])
+    folder, lock = _kept_folder(tmp_path, files, pins)
+    assert pi.kept_wheels({"numpy": "2.5.3"}, folder, lock) == {}
+    with pi.restore_commands({"numpy": "2.5.3"}, folder, lock) as argvs:
+        assert argvs == [BASE + ["numpy==2.5.3"]]
+
+
+def test_the_lock_beside_the_wheels_is_never_trusted(tmp_path):
+    folder, _app_lock = _kept_folder(tmp_path, {NUMPY_WHEEL: b"planted"}, {"numpy": ("2.5.3", b"real")})
+    (tmp_path / "wheels" / "wheels.lock.txt").write_text(
+        f"numpy==2.5.3 \\\n    --hash=sha256:{_sha(b'planted')}\n")
+    assert pi.kept_wheels({"numpy": "2.5.3"}, folder, _app_lock) == {}
+
+
+@pytest.mark.parametrize("lock", [None, "numpy>=2\n"])
+def test_a_missing_or_bad_app_lock_means_the_index_only(tmp_path, lock):
+    folder = tmp_path / "wheels"
+    folder.mkdir()
+    (folder / NUMPY_WHEEL).write_bytes(b"numpy bytes")
+    lock_path = tmp_path / "lock.txt"
+    if lock is not None:
+        lock_path.write_text(lock)
+    assert pi.kept_wheels({"numpy": "2.5.3"}, str(folder), str(lock_path)) == {}
+
+
+def _layout(tmp_path, monkeypatch, *, marker=True, manifest=True, python="python"):
+    root = tmp_path / "Baihe Studio"
+    app = root / "app"
+    app.mkdir(parents=True)
+    if marker:
+        (app / "INSTALLED").write_text("x")
+    if manifest:
+        (root / "manifest.json").write_text("{}")
+    monkeypatch.setattr(pi.portable, "APP_DIR", str(app))
+    monkeypatch.setattr(pi.portable, "_INSTALLED_MARKER_PATH", str(app / "INSTALLED"))
+    monkeypatch.setattr(pi.sys, "executable", str(tmp_path / "Baihe Studio" / python / "python.exe"))
+    return root
+
+
+def test_an_installed_copy_on_its_bundled_python_finds_its_wheels(tmp_path, monkeypatch):
+    root = _layout(tmp_path, monkeypatch)
+    assert pi.kept_wheels_dir() == str(root / "wheels")
+    assert pi._app_wheel_lock() == str(root / "app" / "installer" / "wheels.lock.txt")
+
+
+@pytest.mark.parametrize("kw", [{"marker": False}, {"manifest": False}, {"python": "venv"}])
+def test_a_checkout_or_another_python_never_looks_for_kept_wheels(tmp_path, monkeypatch, kw):
+    """A checkout on a system Python (C:\\Python312 would mean C:\\wheels),
+    a venv, or a layout without Setup's marker and manifest."""
+    _layout(tmp_path, monkeypatch, **kw)
+    assert pi.kept_wheels_dir() is None
+    assert pi.kept_wheels({"numpy": "2.5.3"}) == {}
+
+
+def test_an_offline_failure_puts_numpy_back_from_the_kept_wheel(data, tmp_path, monkeypatch):
+    pi.write_pending(["paddleocr"])
+    folder, lock = _kept_folder(tmp_path, {NUMPY_WHEEL: b"numpy bytes"})
+    monkeypatch.setattr(pi, "kept_wheels_dir", lambda: folder)
+    monkeypatch.setattr(pi, "_app_wheel_lock", lambda: lock)
+    before = {"numpy": "2.5.3", "pyyaml": "6.0.2"}
+    fake = Fake(monkeypatch, [before, {"numpy": "2.3.5"}, {"numpy": "2.5.3"}], rcs=(1, 0, 1))
+    out = pi.apply()
+    assert fake.runs[1][-6:-1] == ["--no-index", "--find-links", folder, "--require-hashes", "-r"]
+    assert fake.runs[2][-1] == "pyyaml==6.0.2" and "--no-index" not in fake.runs[2]
+    assert out["restored"] == ["numpy"] and out["restore_failed"] == ["pyyaml"]
