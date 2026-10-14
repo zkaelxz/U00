@@ -13,12 +13,12 @@ import { apiUrl } from '../../api/client'
  */
 export const SEEK_TOLERANCE_S = 6
 /**
- * Seconds the recording's newest second trails the real live edge: a finished 4 s
- * segment is up to 4 s old when it is listed, plus the source's own 2 s piece and its
- * fetch. The captions are timed from real live, so the picture is this much further
- * behind than the player can see.
+ * Seconds the recording's newest second trails the real live edge (the source's own
+ * 2 s pieces and their fetch). The captions are timed from real live, so the picture
+ * is this much further behind than the player can see. Judged from a real session,
+ * where 6 s showed captions a few seconds late; not measured.
  */
-export const RECORDER_LAG_S = 6
+export const RECORDER_LAG_S = 2
 /** Seconds after a seek during which another is not started (the player is still settling). */
 export const SEEK_COOLDOWN_S = 5
 /** Seconds without playback progress before the player is nudged, then rebuilt. */
