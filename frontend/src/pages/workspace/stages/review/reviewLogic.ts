@@ -358,3 +358,10 @@ export function keptNote(n: number): string {
   return n === 1 ? ' 1 line was edited meanwhile and kept.' : ` ${n} lines were edited meanwhile and kept.`
 }
 
+
+/** A stored timestamp as local date and time. The server writes UTC without a zone mark, so one is added before parsing. */
+export function formatStamp(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}

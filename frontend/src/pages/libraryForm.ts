@@ -43,7 +43,18 @@ export const NEW_SERIES = 'new'
 export interface CreateExtras {
   series: string // '' none, NEW_SERIES, or a series id
   newSeriesName: string
-  preset: string // '' none, or a preset id
+  // '' none, a profile id, or DEFAULT_PROFILE while nothing was chosen (the default
+  // profile, if one is set, is used).
+  preset: string
+}
+
+export const DEFAULT_PROFILE = 'default'
+
+// The profile the New title select shows: the user's pick, else the default.
+export function chosenProfile(preset: string, items: { id: number; is_default?: boolean }[] | undefined): string {
+  if (preset !== DEFAULT_PROFILE) return preset
+  const def = items?.find((p) => p.is_default)
+  return def ? String(def.id) : ''
 }
 
 // The body POST /api/dramas gets: blank optional text is left out, and
@@ -57,7 +68,7 @@ export function buildCreateRequest(form: DramaCreateRequest, extras: CreateExtra
   if (form.media_type) out.media_type = form.media_type
   if (extras.series === NEW_SERIES) out.new_series_name = extras.newSeriesName
   else if (extras.series) out.series_id = Number(extras.series)
-  if (extras.preset) out.preset_id = Number(extras.preset)
+  if (extras.preset && extras.preset !== DEFAULT_PROFILE) out.preset_id = Number(extras.preset)
   return out
 }
 

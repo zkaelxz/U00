@@ -26,6 +26,7 @@ import core as core_module
 from services import (job_timing_service, language_pack_service, line_provenance_service,
                       novel_files_service, ownership_service, run_settings_service,
                       settings_service, timing_settings_service, vdb_names_service)
+from services.service_errors import ConflictError
 
 
 def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):
@@ -374,27 +375,32 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         # start_job returns False when someone else's translate_<id> run
         # started since the check above: skip it rather than adopt (and
         # possibly cancel) that run below.
-        started = job_launch.start_job(
-            per_job_id, run_translate_job,
-            per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
-            default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,
-            defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
-            cost_cap_usd=cost_cap,
-            context_window_ahead=defs["context_window_ahead"],
-            batch_size=defs["batch_size"],
-            summary_engine=summary_engine, summary_engine_choice=summary_choice,
-            summary_monthly_cap_usd=monthly_cap,
-            # Only a local Ollama model loads onto this PC's GPU; an Ollama
-            # cloud tag is remote and must not queue behind GPU jobs. The
-            # guard stops a local one running alongside another GPU job.
-            gpu_touching=translate_engines.ollama_touches_local_gpu(
-                engine_choice, getattr(engine, "model", None)),
-            description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
-            run_settings=run_settings_service.for_translate(
-                drama, include_genre_notes, default_female_pronouns, glossary_terms,
-                style_guidelines, style_note, engine=engine_choice,
-                model=getattr(engine, "model", None), locale=default_locale,
-                style_preset=style_preset, force_retranslate=False, **defs))
+        try:
+            started = job_launch.start_job(
+                per_job_id, run_translate_job,
+                per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
+                default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,
+                defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
+                cost_cap_usd=cost_cap,
+                context_window_ahead=defs["context_window_ahead"],
+                batch_size=defs["batch_size"],
+                summary_engine=summary_engine, summary_engine_choice=summary_choice,
+                summary_monthly_cap_usd=monthly_cap,
+                # Only a local Ollama model loads onto this PC's GPU; an Ollama
+                # cloud tag is remote and must not queue behind GPU jobs. The
+                # guard stops a local one running alongside another GPU job.
+                gpu_touching=translate_engines.ollama_touches_local_gpu(
+                    engine_choice, getattr(engine, "model", None)),
+                description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
+                run_settings=run_settings_service.for_translate(
+                    drama, include_genre_notes, default_female_pronouns, glossary_terms,
+                    style_guidelines, style_note, engine=engine_choice,
+                    model=getattr(engine, "model", None), locale=default_locale,
+                    style_preset=style_preset, force_retranslate=False, **defs))
+        except ConflictError:
+            # The title is being deleted or cleaned up right now: its skip,
+            # not the end of the whole run.
+            started = False
         if not started:
             results["skipped_running"].append(did)
             continue

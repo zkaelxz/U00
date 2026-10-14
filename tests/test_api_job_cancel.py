@@ -425,3 +425,15 @@ def test_a_running_jobs_record_says_cancelling_after_cancel(client):
         assert job_runner.wait_for_job_threads(5.0)
     assert client.get("/api/jobs/api_c").json()["status"] == "cancelled"
     background_jobs.clear_job("api_c")
+
+
+def test_job_probe_answers_204_where_a_plain_read_is_404(client):
+    assert client.get("/api/jobs/nope").status_code == 404
+    r = client.get("/api/jobs/nope", headers={"X-Baihe-Probe": "1"})
+    assert r.status_code == 204 and r.content == b""
+
+
+def test_job_probe_still_returns_a_known_job(client):
+    db.save_job_record("j-probe", "running")
+    r = client.get("/api/jobs/j-probe", headers={"X-Baihe-Probe": "1"})
+    assert r.status_code == 200 and r.json()["job_id"] == "j-probe"
