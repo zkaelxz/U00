@@ -38,6 +38,14 @@ test('Benchmark Lab: transcription options start at the app defaults and travel 
 })
 
 test('Benchmark Lab: a recogniser that ignores an option says so', async ({ page }) => {
+  // The runner has no Qwen3 packages, so the real API greys the recogniser out; this test is
+  // about the ignored-option note, not about what is installed.
+  await page.route('**/api/benchmark/options', async (route) => {
+    const response = await route.fetch()
+    const data = await response.json()
+    for (const b of data.transcription_backends ?? []) delete b.problem
+    await route.fulfill({ response, json: data })
+  })
   await page.goto('/#/benchmark')
   await openBenchTab(page, 'Run a benchmark')
   const card = page.getByRole('region', { name: 'Run a benchmark' })
