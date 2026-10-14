@@ -1167,3 +1167,52 @@ class TestWebtoonSliceCap:
                                                      overlap=0)
         assert len(slices) == 200
         assert slices[-1]["y_end"] == 2000
+
+
+class TestMlLoadFailureIsRemembered:
+    def test_a_failed_load_is_not_retried_on_the_next_page_until_forgotten(self, synthetic_page, monkeypatch):
+        attempts = []
+
+        def load_fails(*a, **k):
+            attempts.append(1)
+            exc = ConnectionError("getaddrinfo failed")
+            exc.ml_load_failure = True        # as detect_bubbles_ml marks a failure while loading
+            raise exc
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", load_fails)
+        for _ in range(3):
+            with pytest.raises(scanlate_detect.BubbleModelUnavailable) as exc_info:
+                scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+            assert "network" in str(exc_info.value)
+        assert len(attempts) == 1
+        scanlate_detect.forget_ml_failure()
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert len(attempts) == 2
+
+
+class TestMlFailureMemoryOnlyCoversTheModelLoad:
+    def test_a_per_page_error_does_not_make_the_next_page_fall_back(self, synthetic_page, monkeypatch):
+        attempts = []
+
+        def inference_fails(*a, **k):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise ConnectionError("timed out reading this page")   # a network-looking message
+            return []
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", inference_fails)
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert scanlate_detect.detect_bubbles(synthetic_page, backend="ml") == []
+        assert len(attempts) == 2
+
+    def test_only_the_fixed_text_is_kept_for_a_failed_load(self, synthetic_page, monkeypatch):
+        def load_fails(*a, **k):
+            exc = ConnectionError("getaddrinfo failed for /home/kae/pages/p1.png")
+            exc.ml_load_failure = True
+            raise exc
+        monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", load_fails)
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable):
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        with pytest.raises(scanlate_detect.BubbleModelUnavailable) as again:
+            scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
+        assert "/home/kae" not in str(again.value) and again.value.__cause__ is None

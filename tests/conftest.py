@@ -197,6 +197,15 @@ def _echo_engine_off_after_each_test():
 
 
 @pytest.fixture(autouse=True)
+def _ml_detector_failure_forgotten():
+    """The comic detector remembers a failed model load process-wide; a test that
+    triggers one must not make the next test's ML detection fail."""
+    yield
+    import scanlate_detect
+    scanlate_detect.forget_ml_failure()
+
+
+@pytest.fixture(autouse=True)
 def _live_whisper_not_loaded():
     """A Live job loads Whisper before it captures; no test may load a real
     model. The real function stays on `warm_up.real` for its own tests.
