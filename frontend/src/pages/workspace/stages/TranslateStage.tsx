@@ -404,6 +404,7 @@ function RunPanel({
 
   return (
     <section className="panel" aria-label="Translate run">
+      <h3>Translate</h3>
       <div className="translate-basics">
         <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
           <select className="engine-select" value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
