@@ -443,7 +443,7 @@ test('Look up words is off with an Install fix when the word splitter is missing
   await expect(page.getByRole('button', { name: 'Look up words on this page' })).toBeDisabled()
   const need = page.getByTestId('needs-word_splitter')
   await expect(need).toContainText('needs jieba')
-  await expect(need.getByRole('link', { name: 'Open Diagnostics' })).toHaveAttribute('href', /pkg=jieba/)
+  await expect(need.getByRole('link', { name: 'Open Diagnostics' })).toHaveAttribute('href', /package=jieba/)
 })
 
 test('Anki decks are off, and the word list stays, when genanki is missing', async ({ page }) => {
