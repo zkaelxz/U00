@@ -636,17 +636,7 @@ def _store_dependency_result(result: dict, status: str):
 
 
 def _non_index_dists() -> set:
-    """Installed dists pip took from git, a link or a local wheel or folder:
-    pip writes direct_url.json only for those, and `name==version` from the
-    index would not bring them back."""
-    out = set()
-    for dist in importlib.metadata.distributions():
-        try:
-            if dist.read_text("direct_url.json") is not None:
-                out.add(diagnostics.canonical_dist(dist.metadata["Name"] or ""))
-        except Exception:     # noqa: BLE001 -- unreadable metadata just isn't skipped
-            continue
-    return out
+    return pending_install.non_index_dists()
 
 
 def _restore(before: dict, skip: set, cancel):

@@ -284,6 +284,16 @@ def _apply_running() -> bool:
     return True
 
 
+def _restore_owed() -> bool:
+    # An apply killed mid-pip leaves no pending file and a dead lock, but the
+    # next start must still run the apply step to put its packages back.
+    try:
+        import pending_install
+        return pending_install.restore_owed()
+    except Exception:       # noqa: BLE001 -- the server start comes first
+        return False
+
+
 def apply_pending_install(python_exe: str, env: dict, headless: bool) -> None:
     """Runs an install queued from Diagnostics before the server starts, while
     none of its files are loaded (Windows can't replace those). It has its own
@@ -292,9 +302,12 @@ def apply_pending_install(python_exe: str, env: dict, headless: bool) -> None:
     start's apply is running it waits for that one, so the server never loads
     numpy or cv2 under a pip that is replacing them."""
     queued = pending_install_file().is_file()
-    if not queued and not _apply_running():
+    owed = _restore_owed()
+    if not queued and not _apply_running() and not owed:
         return
-    if headless and not queued:
+    if headless and owed:
+        print("Putting back packages from an install that did not finish before starting the server.")
+    elif headless and not queued:
         # No window shows the wait, and the server doesn't start until it ends.
         print("Waiting for an install from an earlier start to finish before starting the server.")
     kwargs = {"cwd": str(APP_DIR), "env": env}
