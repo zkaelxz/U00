@@ -98,6 +98,15 @@ def _mine(row) -> bool:
     return row["owner_instance"] in (None, job_store.INSTANCE_ID)
 
 
+def _connect(busy_timeout=None):
+    """db.get_conn, with sqlite's wait for another writer cut to
+    `busy_timeout` seconds (its default when None)."""
+    conn = db.get_conn()
+    if busy_timeout is not None:
+        conn.execute(f"PRAGMA busy_timeout = {max(0, int(busy_timeout * 1000))}")
+    return conn
+
+
 def _rows(conn):
     return conn.execute("SELECT id, holder, description, acquired_at, heartbeat_at, owner_pid, "
                         "owner_instance, job_id FROM gpu_lock ORDER BY id").fetchall()
@@ -112,7 +121,7 @@ def _live_rows(now=None):
 
 
 def take(holder: str, description: str = None, *, max_holders: int = 1,
-         settle_seconds: float = 0, job_id: str = None) -> bool:
+         settle_seconds: float = 0, job_id: str = None, busy_timeout: float = None) -> bool:
     """Claims a slot for `holder`, with no setting or VRAM check (acquire
     adds those). True if `holder` already holds one (refreshed), or fewer
     than `max_holders` (at most GPU_LOCK_MAX_SLOTS) other live holders exist
@@ -120,10 +129,10 @@ def take(holder: str, description: str = None, *, max_holders: int = 1,
     also refused until the newest of them has held its slot that long; it is
     checked here, inside BEGIN IMMEDIATE, so two processes reading the same
     free VRAM can't both join on it. A row that no longer counts (_alive) is
-    taken over."""
+    taken over. `busy_timeout`: see _connect."""
     now = time.time()
     max_holders = max(1, min(int(max_holders), GPU_LOCK_MAX_SLOTS))
-    with contextlib.closing(db.get_conn()) as conn:
+    with contextlib.closing(_connect(busy_timeout)) as conn:
         before = _rows(conn)
         alive_pids, running_here = _probe_owners(before), _running_here(before)
         conn.execute("BEGIN IMMEDIATE")
@@ -173,7 +182,7 @@ def _vram_room_for_another_gpu_job() -> bool:
 
 
 def acquire(holder: str, description: str = None, *, job_id: str = None,
-            check_external_load: bool = False) -> bool:
+            check_external_load: bool = False, busy_timeout: float = None) -> bool:
     """Claims a cross-process GPU slot for `holder`; True if taken. Shared by
     UI jobs and every other process so all follow the same cap.
 
@@ -195,7 +204,8 @@ def acquire(holder: str, description: str = None, *, job_id: str = None,
             if not _vram_room_for_another_gpu_job():
                 return False
             return take(holder, description, max_holders=cap,
-                        settle_seconds=GPU_PARALLEL_SETTLE_SECONDS, job_id=job_id)
+                        settle_seconds=GPU_PARALLEL_SETTLE_SECONDS, job_id=job_id,
+                        busy_timeout=busy_timeout)
     if check_external_load:
         try:
             if gpu_probe.external_gpu_is_busy():
@@ -204,18 +214,19 @@ def acquire(holder: str, description: str = None, *, job_id: str = None,
             # Fails open on purpose: this check is optional (no nvidia-smi is
             # normal and returns False without raising), the slots remain.
             job_table._warn("external GPU load check failed; ignoring it", exc)
-    return take(holder, description, job_id=job_id)
+    return take(holder, description, job_id=job_id, busy_timeout=busy_timeout)
 
 
-def release(holder: str, *, conn=None) -> None:
+def release(holder: str, *, conn=None, busy_timeout: float = None) -> None:
     """Frees `holder`'s slot. A no-op when it holds none (never took one, or
     went stale and was taken over), and never frees another process's row of
-    the same name. With `conn`, runs on it and leaves the commit to the caller."""
+    the same name. With `conn`, runs on it and leaves the commit to the caller.
+    `busy_timeout`: see _connect."""
     sql = "DELETE FROM gpu_lock WHERE holder = ? AND (owner_instance IS NULL OR owner_instance = ?)"
     if conn is not None:
         conn.execute(sql, (holder, job_store.INSTANCE_ID))
         return
-    with contextlib.closing(db.get_conn()) as own:
+    with contextlib.closing(_connect(busy_timeout)) as own:
         own.execute(sql, (holder, job_store.INSTANCE_ID))
         own.commit()
 

@@ -636,3 +636,22 @@ class TestListJobsReadsTheRecordsOnce:
         # Outside a list, each redaction reads the names afresh.
         monkeypatch.setattr(getpass, "getuser", lambda: calls.append(1) or "yuki")
         assert jobs_service.get_job("e0")["message"] == "zoya was here"
+
+
+def test_an_unchanged_job_list_is_not_swept_again_at_once(isolated_db, monkeypatch):
+    """GET /api/jobs is polled: rows unchanged since a sweep that closed
+    nothing are not probed again until they change."""
+    sweeps = []
+    monkeypatch.setattr(jobs_service, "_quiet_sweep", (None, 0.0))
+    monkeypatch.setattr(jobs_service, "sweep_stale_job_records",
+                        lambda records=None: sweeps.append(1) or 0)
+    db.save_job_record("elsewhere", status="running", owner_pid=os.getppid())
+    jobs_service.list_jobs()
+    jobs_service.list_jobs()
+    assert len(sweeps) == 1
+    db.save_job_record("elsewhere", status="running", progress=0.5, owner_pid=os.getppid())
+    jobs_service.list_jobs()
+    assert len(sweeps) == 2
+    monkeypatch.setattr(jobs_service, "_SWEEP_REPEAT_SECONDS", 0.0)
+    jobs_service.list_jobs()
+    assert len(sweeps) == 3

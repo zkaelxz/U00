@@ -31,6 +31,16 @@ from jobs.job_table import _jobs, _lock, _mirror_locked, _warn
 # costs nothing worth avoiding.
 _gpu_queue = []  # [{"job_id", "target", "args", "kwargs", "description"}, ...], FIFO -- stays
 
+# The slot row is taken and freed under _lock, which every get_status and
+# update_progress waits on, so another process holding the database's write
+# lock may stall them only this long. A slot not taken in time queues the
+# job (the API's GPU-queue poller retries it); a release not done in time is
+# retried by the heartbeat (retry_unreleased_gpu_slots).
+GPU_ROW_BUSY_SECONDS = 0.5
+# Job ids whose slot release failed; their rows would otherwise hold a slot
+# until GPU_LOCK_STALE_SECONDS.
+_unreleased = set()
+
 
 def _running_gpu_job_count_locked(exclude_job_id):
     """Caller must already hold _lock. How many other GPU-touching jobs in
@@ -170,7 +180,9 @@ def _gpu_slot_available_locked(job_id, description):
         return False
     try:
         from jobs import gpu_slots
-        if gpu_slots.acquire(f"ui:{job_id}", description, job_id=job_id, check_external_load=True):
+        if gpu_slots.acquire(f"ui:{job_id}", description, job_id=job_id, check_external_load=True,
+                             busy_timeout=GPU_ROW_BUSY_SECONDS):
+            _unreleased.discard(job_id)   # the row is this new run's now
             return True
         _note_gpu_wait_reason_locked(job_id)
         return False
@@ -206,6 +218,34 @@ def _release_gpu_slot(job_id, gpu_touching, run=None):
             if (run is not None and current is not None and current is not run
                     and current.get("status") == "running"):
                 return
-            gpu_slots.release(f"ui:{job_id}")
+            try:
+                gpu_slots.release(f"ui:{job_id}", busy_timeout=GPU_ROW_BUSY_SECONDS)
+                _unreleased.discard(job_id)
+            except Exception as exc:
+                if job_id not in _unreleased:
+                    _warn(f"job {job_id}: could not free its GPU slot; retrying", exc)
+                _unreleased.add(job_id)
     except Exception:
         pass
+
+
+def retry_unreleased_gpu_slots():
+    """Frees the slots whose release failed (heartbeat thread). A run of the
+    same id that is running again owns its row now: it is left alone. An
+    abandoned worker that is still alive may still be on the GPU, so its row
+    waits until that worker is gone."""
+    from jobs import gpu_slots
+    with _lock:
+        for job_id in list(_unreleased):
+            if job_force_stop.abandoned_alive_locked(job_id):
+                continue
+            current = _jobs.get(job_id)
+            if current is not None and current.get("status") == "running" \
+                    and current.get("gpu_touching"):
+                _unreleased.discard(job_id)
+                continue
+            try:
+                gpu_slots.release(f"ui:{job_id}", busy_timeout=GPU_ROW_BUSY_SECONDS)
+            except Exception:
+                break   # the database is still locked; the next beat tries again
+            _unreleased.discard(job_id)

@@ -640,6 +640,14 @@ def _still_active_here(job_id) -> bool:
     return (background_jobs.get_status(job_id) or {}).get("status") in job_store.ACTIVE
 
 
+# GET /api/jobs is polled while the Jobs page is open. The sweep probes each
+# active row's owner process; when the rows and this process's active jobs
+# are unchanged since a sweep that closed nothing, the answer is the same, so
+# the probes wait until something changes or this many seconds pass.
+_SWEEP_REPEAT_SECONDS = 10.0
+_quiet_sweep = (None, 0.0)      # (what that sweep saw, time.monotonic() then)
+
+
 def list_jobs(principal=None) -> list:
     """Every job_records row `principal` may see (
     ownership_service.can_see_job; None = auth off, all), newest-started
@@ -651,9 +659,16 @@ def list_jobs(principal=None) -> list:
     # queued/running row is a job still queued or running in this process:
     # any other may have been closed since the read, by this sweep or by a
     # concurrent poll's, and must not list as running.
+    global _quiet_sweep
     active = [r for r in records if r.get("status") in job_store.ACTIVE]
-    if active or background_jobs.active_job_ids():
-        sweep_stale_job_records(records)
+    here = background_jobs.active_job_ids()
+    seen = (tuple((r.get("job_id"), r.get("status"), r.get("updated_at"), r.get("owner_pid"))
+                  for r in active), tuple(here), db.DB_PATH)
+    if (active or here) and not (
+            _quiet_sweep[0] == seen
+            and time.monotonic() - _quiet_sweep[1] < _SWEEP_REPEAT_SECONDS):
+        closed = sweep_stale_job_records(records)
+        _quiet_sweep = (seen, time.monotonic()) if not closed else (None, 0.0)
         if not all(_still_active_here(r.get("job_id")) for r in active):
             records = db.list_job_records()
     rows = ownership_service.job_drama_ownership(principal, [r.get("job_id") for r in records])
