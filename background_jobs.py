@@ -355,22 +355,30 @@ def request_cancel(job_id: str, requested_at=None, owner_user_id=_ANY_OWNER) -> 
 # A cancel from another process can take up to this long to be seen; the
 # trade for not reading job_records on every call from a per-line loop.
 _DB_CANCEL_CHECK_INTERVAL = 2.0
-_last_db_cancel_check = {}
-_db_cancel_check_failed = set()   # job ids whose check failure was already logged
+# Both keyed by job id and tagged with the run's own `_jobs` dict: an ending
+# run forgets its state after its status is final, by which time a new run
+# of the same id may have started and checked.
+_last_db_cancel_check = {}       # job id -> (run, monotonic time of its last read)
+_db_cancel_check_failed = {}     # job id -> the run whose check failure was already logged
 
 
-def _forget_cancel_check(job_id: str) -> None:
+def _forget_cancel_check(job_id: str, run=None) -> None:
     """A finished run's throttle time and logged-once mark must not carry into
-    the next run of the same id, or its failures would never be logged."""
+    the next run of the same id, or its failures would never be logged.
+    `run`: the ending run's dict; a newer run's state is left alone."""
     with _lock:
-        _last_db_cancel_check.pop(job_id, None)
-        _db_cancel_check_failed.discard(job_id)
+        if run is None:
+            run = _jobs.get(job_id)
+        if (_last_db_cancel_check.get(job_id) or (None,))[0] is run:
+            _last_db_cancel_check.pop(job_id, None)
+        if _db_cancel_check_failed.get(job_id) is run:
+            _db_cancel_check_failed.pop(job_id, None)
 
 
 def _db_cancel_requested(job_id: str) -> bool:
     """A cancel requested from another process (the API host) lives in
     job_records. Checked at most once per _DB_CANCEL_CHECK_INTERVAL seconds
-    per job so a tight job loop doesn't hit SQLite every iteration; on a hit
+    per run so a tight job loop doesn't hit SQLite every iteration; on a hit
     the in-memory flag and the requester's time are set. Only for queued/
     running jobs this process owns. A DB error means "not requested"."""
     with _lock:
@@ -380,20 +388,22 @@ def _db_cancel_requested(job_id: str) -> bool:
         if job.get("cancel_requested"):
             return True
         now = time.monotonic()
-        if now - _last_db_cancel_check.get(job_id, -1e9) < _DB_CANCEL_CHECK_INTERVAL:
+        last_run, last = _last_db_cancel_check.get(job_id, (None, -1e9))
+        if last_run is job and now - last < _DB_CANCEL_CHECK_INTERVAL:
             return False
-        _last_db_cancel_check[job_id] = now
+        mark = (job, now)
+        _last_db_cancel_check[job_id] = mark
     try:
         from jobs import job_store
         requested = job_store.row_cancel_time(job_id)
     except Exception as exc:
         # Retried on the next call rather than after the interval, and
-        # logged once per job: an unseen failure hides a cross-process Cancel.
+        # logged once per run: an unseen failure hides a cross-process Cancel.
         with _lock:
-            if _last_db_cancel_check.get(job_id) == now:
+            if _last_db_cancel_check.get(job_id) is mark:
                 _last_db_cancel_check.pop(job_id, None)
-            first = job_id not in _db_cancel_check_failed
-            _db_cancel_check_failed.add(job_id)
+            first = _db_cancel_check_failed.get(job_id) is not job
+            _db_cancel_check_failed[job_id] = job
         if first:
             _warn(f"job {job_id}: could not read a cancel request from job_records", exc)
         return False

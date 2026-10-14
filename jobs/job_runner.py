@@ -152,7 +152,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
         finally:
             _timing_finish(job_id, _timing)
-            _forget_cancel_check(job_id)
+            _forget_cancel_check(job_id, run)
             _release_gpu_slot(job_id, gpu_touching, run)
             _promote_next_queued_gpu_job()
 
@@ -667,7 +667,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         except Exception:
             pass
         _timing_finish(job_id, _timing, thread_job=False)
-        _forget_cancel_check(job_id)
+        _forget_cancel_check(job_id, run)
         _release_gpu_slot(job_id, gpu_touching, run)
         try:
             _promote_next_queued_gpu_job()
