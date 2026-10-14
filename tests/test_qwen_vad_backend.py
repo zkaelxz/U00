@@ -194,6 +194,23 @@ def test_refine_through_the_backend_is_off_unless_asked(fakes, monkeypatch):
     assert len(run(vad([(1.0, 3.0)]))) == 1
 
 
+def test_after_a_mid_run_gpu_failure_the_aligner_is_not_sent_to_the_gpu(fakes, monkeypatch):
+    class GpuModel:
+        def transcribe(self, audio, language):
+            raise RuntimeError("CUDA out of memory")
+    cpu = SeqModel(["你好"])
+    monkeypatch.setattr(ab, "load_qwen3_asr",
+                        lambda use_gpu=False, model_size="1.7B", **k: GpuModel() if use_gpu else cpu)
+    aligner_gpu = []
+
+    def refine(audio_path, groups, language, use_gpu=False, **k):
+        aligner_gpu.append(use_gpu)
+        return [line for group in groups for line in group]
+    monkeypatch.setattr(forced_align, "refine_segment_timing", refine)
+    out = run(vad([(1.0, 3.0)]), use_gpu=True, refine_timing=True)
+    assert [s["text"] for s in out] == ["你好"] and aligner_gpu == [False]
+
+
 def test_backend_is_registered():
     assert isinstance(ab.get_backend("qwen3_asr_vad"), ab.Qwen3ASRVadBackend)
 
