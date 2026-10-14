@@ -125,7 +125,7 @@ test('a timing-uncertain line offers Snap to speech, Check timing and the Whispe
 })
 
 test('the opened nav dock draws above the sticky Review panel', async ({ page }) => {
-  await page.setViewportSize({ width: 640, height: 1110 })
+  await page.setViewportSize({ width: 1000, height: 1110 })
   await page.goto('/#/drama/3/review')
   await expect(page.locator('.review-toolbar').first()).toBeVisible()
   await page.locator('.app-rail').hover()
