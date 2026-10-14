@@ -46,6 +46,24 @@ def test_a_failed_write_keeps_the_old_file_and_leaves_no_temp(tmp_path, monkeypa
     assert os.listdir(tmp_path) == ["a.txt"]
 
 
+def test_prefix_and_suffix_shape_the_temp_name(tmp_path, monkeypatch):
+    seen = []
+    real = aw.os.replace
+    monkeypatch.setattr(aw.os, "replace", lambda src, dst: seen.append(os.path.basename(src)) or real(src, dst))
+    aw.atomic_write(str(tmp_path / "a.txt"), "x", prefix=".keep_", suffix=".part")
+    assert seen[0].startswith(".keep_") and seen[0].endswith(".part")
+
+
+def test_novel_files_keep_a_name_the_temp_cleanup_does_not_match(isolated_db, monkeypatch):
+    from services import novel_files_service as nf
+    drama = isolated_db.create_drama(title_en="n")
+    seen = []
+    real = os.replace
+    monkeypatch.setattr(os, "replace", lambda src, dst: seen.append(os.path.basename(src)) or real(src, dst))
+    nf._write_atomic(drama, "novel.txt", "hello")
+    assert seen and not seen[0].endswith((".tmp", ".tmp.png"))
+
+
 def test_a_bare_filename_writes_into_the_current_folder(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     aw.atomic_write("bare.txt", "x")

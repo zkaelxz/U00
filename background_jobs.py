@@ -30,6 +30,7 @@ One machine, one process owning each job: not a distributed job queue.
 """
 
 import math
+import os
 import threading
 import time
 
@@ -267,6 +268,8 @@ def owner_process_alive(pid) -> bool:
         return True
     if not 0 < pid <= pid_lib.MAX_PID:
         return True     # not a pid at all; a record we cannot judge is never closed under its owner
+    if os.name != "nt" and pid > 0x7FFFFFFF:
+        return True     # past POSIX pid_t: os.kill cannot probe it, so it cannot be judged either
     try:
         return pid_lib.pid_alive(pid)
     except Exception:

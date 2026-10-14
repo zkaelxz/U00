@@ -341,7 +341,8 @@ def _load_manifest(drama_id: int) -> dict:
 def _save_manifest(drama_id: int, manifest: dict):
     cdir = _candidates_dir(drama_id)
     os.makedirs(cdir, exist_ok=True)
-    atomic_write(os.path.join(cdir, MANIFEST_NAME), json.dumps(manifest, ensure_ascii=False))
+    atomic_write(os.path.join(cdir, MANIFEST_NAME), json.dumps(manifest, ensure_ascii=False),
+                 prefix=".manifest_", suffix=".json")
 
 
 def _speaker_segments(drama_id: int, speaker_label: str, lines: list) -> list:

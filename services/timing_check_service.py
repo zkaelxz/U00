@@ -142,7 +142,7 @@ def _write_state(drama_id: int, state: dict) -> None:
     # A temp name of its own per write: the CLI and the app are separate
     # processes that can write this sidecar at once, and _state_lock only
     # covers one of them.
-    atomic_write(path, json.dumps(state))
+    atomic_write(path, json.dumps(state), prefix=f"{_STATE_FILE}.")
 
 
 def note_dismissed(drama_id: int, line_id: int) -> None:

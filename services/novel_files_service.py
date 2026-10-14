@@ -214,7 +214,9 @@ def _with_warning(result: dict, guessed) -> dict:
 
 
 def _write_atomic(drama_id: int, filename: str, text: str):
-    atomic_write(os.path.join(db.drama_dir(drama_id), filename), text)
+    # .part, not .tmp: the "Leftover temp files" cleanup deletes any *.tmp in the title's folder.
+    atomic_write(os.path.join(db.drama_dir(drama_id), filename), text,
+                 prefix=".novelfile_", suffix=".part")
 
 
 def _file_status(path) -> dict:

@@ -85,6 +85,10 @@ class TestOwnerProcessAlive:
     def test_an_unreadable_or_non_positive_pid_reads_alive(self, value):
         assert background_jobs.owner_process_alive(value) is True
 
+    @pytest.mark.skipif(os.name == "nt", reason="a DWORD pid is real on Windows")
+    def test_a_pid_past_posix_pid_t_reads_alive(self):
+        assert background_jobs.owner_process_alive(2 ** 31 + 5) is True
+
     def test_a_numeric_string_is_probed(self, monkeypatch):
         seen = []
         monkeypatch.setattr(pid_lib, "pid_alive", lambda pid: seen.append(pid) or False)

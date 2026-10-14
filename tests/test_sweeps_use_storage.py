@@ -98,3 +98,24 @@ def test_a_linked_dramas_folder_is_still_swept(isolated_db, tmp_path):
         pytest.skip("symlinks need privileges here")
     assert drama_service.cleanup_stale_tombstones() == 1
     assert not old.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="needs POSIX links and FIFOs")
+@pytest.mark.parametrize("name, make, sweep", SWEEPS, ids=[s[0] for s in SWEEPS])
+class TestUnsafeHoldMarker:
+    def test_a_marker_that_is_a_link_to_a_live_pid_file_is_not_followed(self, isolated_db, tmp_path,
+                                                                        name, make, sweep):
+        path = make(isolated_db)
+        pidfile = tmp_path / "pid.txt"
+        pidfile.write_text(str(os.getppid()))
+        os.symlink(pidfile, os.path.join(path, storage.HOLD_MARKER))
+        _age(path, 3 * DAY)
+        sweep()
+        assert not os.path.exists(path)
+
+    def test_a_fifo_marker_does_not_block_the_sweep(self, isolated_db, name, make, sweep):
+        path = make(isolated_db)
+        os.mkfifo(os.path.join(path, storage.HOLD_MARKER))
+        _age(path, 3 * DAY)
+        sweep()                     # would hang forever if the marker were opened for reading
+        assert not os.path.exists(path)
