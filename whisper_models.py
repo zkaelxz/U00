@@ -153,6 +153,17 @@ def selectable_whisper_sizes(context: str) -> list:
                                             and k not in ("large-v3", "large-v3-turbo"))]
 
 
+def forget_gpu_model(model_size: str, local_model_path: str = None):
+    """Drops the cached GPU copy of this Whisper model after its CUDA failed
+    at inference, so the next run loads afresh instead of failing on it
+    again, and the copy's VRAM can be freed before the CPU retry loads."""
+    import gc
+    key = f"{local_model_path or model_size}_gpu"
+    _whisper_model_cache.pop(key, None)
+    _whisper_device_info.pop(key, None)
+    gc.collect()
+
+
 def release_gpu_models():
     """Call after a GPU stage (transcription, alignment, diarization)
     finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models

@@ -1118,6 +1118,18 @@ class TestGpuInferenceFailureFallback:
         assert calls["cpu_construct"] == 1    # fell back
         assert calls["cpu_transcribe"] == 1   # and actually transcribed there
 
+    def test_the_broken_gpu_model_is_not_kept_cached(self):
+        """A model whose CUDA failed at inference must not stay cached (and
+        hold VRAM) for the next run to fail on again."""
+        import whisper_transcribe
+        self._stub_faster_whisper()
+        whisper_models._whisper_model_cache.clear()
+
+        whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
+
+        assert not any(k.endswith("_gpu") for k in whisper_models._whisper_model_cache)
+        assert not any(k.endswith("_gpu") for k in whisper_models._whisper_device_info)
+
     def test_caller_is_notified_when_fallback_occurs(self):
         import whisper_transcribe
         self._stub_faster_whisper()

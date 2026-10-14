@@ -248,6 +248,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         if use_gpu and whisper_models.is_gpu_error(exc):
             if on_gpu_fallback:
                 on_gpu_fallback(exc)
+            model = None    # its last reference here, so the forget below can free it
+            whisper_models.forget_gpu_model(model_size, local_model_path)
             cpu_model = whisper_models.load_whisper_model(model_size, use_gpu=False,
                                             local_model_path=local_model_path, hf_token=hf_token)
             segments, _info = _run(cpu_model)
