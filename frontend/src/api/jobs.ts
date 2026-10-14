@@ -15,8 +15,13 @@ export const cancelJob = (id: string, f?: Fetch) =>
 export const forceStopJob = (id: string, f?: Fetch) =>
   postJson<JobForceStopResult>(`/api/jobs/${encodeURIComponent(id)}/force-stop`, undefined, f)
 // Per-stage timing and estimated spend of the job's latest runs (404 if unseen).
-export const getJobStages = (id: string, f?: Fetch) =>
-  getJson<JobStageTimings>(`/api/jobs/${encodeURIComponent(id)}/stages`, f)
+// A 200 that is not JSON reads as null (e.g. the app page answering a route the server lacks);
+// refuse it here so callers never see a body without `runs`.
+export const getJobStages = async (id: string, f?: Fetch) => {
+  const out = await getJson<JobStageTimings | null>(`/api/jobs/${encodeURIComponent(id)}/stages`, f)
+  if (!out || !Array.isArray(out.runs)) throw new Error('The job stage timing response was not understood.')
+  return out
+}
 // PC only. Permanently erases a finished job's record; 409 while it is queued or running.
 export const deleteJob = (id: string, f?: Fetch) =>
   postJson<{ job_id: string; deleted: boolean }>(`/api/jobs/${encodeURIComponent(id)}/delete`, { confirm: true }, pcOnlyFetch(f))

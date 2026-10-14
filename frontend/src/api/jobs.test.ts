@@ -27,6 +27,18 @@ describe('jobs api: stage timing', () => {
   })
 })
 
+describe('jobs api: stage timing without a usable body', () => {
+  it.each([['null', null], ['an empty object', {}]])('rejects when the 200 body is %s, so the panel shows its unavailable note', async (_name, body) => {
+    const { f } = reply(200, body)
+    await expect(getJobStages('x', f)).rejects.toThrow()
+  })
+
+  it('rejects when a 200 is not JSON at all (the app page answering an unknown route)', async () => {
+    const f = vi.fn().mockResolvedValue(new Response('<html></html>', { status: 200 })) as unknown as typeof fetch
+    await expect(getJobStages('x', f)).rejects.toThrow()
+  })
+})
+
 describe('jobs api: PC-only erasing', () => {
   afterEach(() => resetPcModeForTests())
 
