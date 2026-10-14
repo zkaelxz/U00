@@ -124,6 +124,7 @@ __all__ = [
     "UpdateSettingsRequest",
     "UpdateInstallRequest",
     "UpdateInstallResponse",
+    "AppUpdateApplyResponse",
     "PortEntry",
     "PortsOverview",
 ]
@@ -1044,6 +1045,21 @@ class UpdateStatus(BaseModel):
     signature_verified: bool = Field(description="The verified download's release signature was checked.")
     auto_check: bool
     custom_source: bool = Field(description="BAIHE_UPDATE_REPO names another repository than the default.")
+    app_update: Literal["none", "available", "needs_full_installer"] = Field(
+        "none", description="Whether the newer release can update the app layer alone "
+                            "(`available`: built against this install's Python, wheels and Caddy).")
+    app_update_here: bool = Field(False, description="This server can switch its own app folder: "
+                                                     "Windows, started by the Start-menu launcher.")
+    app_size: Optional[int] = None
+    app_download: Literal["idle", "downloading", "verified", "failed"] = "idle"
+    app_downloaded_bytes: int = 0
+    app_download_error: Optional[str] = None
+    app_verified: bool = False
+    app_verified_version: Optional[str] = None
+    can_apply_app: bool = False
+    app_last_result: Optional[str] = Field(None, description="The last app-only update's outcome, "
+                                                             "in plain words.")
+    app_last_result_at: Optional[float] = None
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -1059,6 +1075,12 @@ class UpdateInstallRequest(BaseModel):
 class UpdateInstallResponse(BaseModel):
     launched: bool
     installer_name: str
+    version: str
+
+
+class AppUpdateApplyResponse(BaseModel):
+    started: bool = Field(description="The swap helper took over: the app stops, switches and "
+                                      "starts again (or goes back to this version).")
     version: str
 
 

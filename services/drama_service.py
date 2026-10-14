@@ -14,12 +14,14 @@ accepted on update: `status`, `content_mode`, `source_language` (owned by
 source_service), any *_filename, `translation_engine`, and
 `personal_notes` (per-profile; the API has no profile header yet).
 
-Preset handling: only the preset's `translation_engine` has a per-drama
-DB home, so only it is persisted. `style_preset`, `locale`,
-`default_female_pronouns` and `include_genre_notes` are not saved by
-create_drama, so it returns them as `preset_defaults` for the client to
-hold; the owner's later choice is saved on the drama (a run's toggles, or
-update_drama_metadata) and every run reads it from there.
+Preset handling: an older preset (no options_json) persists only its
+`translation_engine`, plus the form's starting style, model and toggles in
+dramas.translate_start_json. A profile (options_json set) also writes the
+prompt toggles, translate-by-sentence and the transcribe options, minus what
+doesn't suit the title's language (services/profile_service.py). Either way
+the same values come back as `preset_defaults` (locale only from a preset that
+stored one), and the owner's later choice is saved on the drama (a run's
+toggles, or update_drama_metadata) and every run reads it from there.
 
 No FastAPI import: plain dicts in, plain dicts out.
 """
@@ -185,12 +187,15 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         # Whisper or Whisper + Qwen title comes back as minute-long lines.
         # Existing titles keep their stored value.
         fields["split_by_sentences"] = 1
-    if preset and preset.get("translation_engine"):
-        fields["translation_engine"] = preset["translation_engine"]
-    else:
-        # Settings > Defaults for new dramas (the column's own default is
-        # claude, so an unstamped drama would never see the setting).
-        fields["translation_engine"] = settings_service.get("default_engine")
+    # Settings > Defaults for new dramas (the column's own default is
+    # claude, so an unstamped drama would never see the setting); a profile's
+    # settings replace it, except what doesn't suit the title's language.
+    fields["translation_engine"] = settings_service.get("default_engine")
+    profile_plan = None
+    if preset:
+        from services import profile_service   # a top-level import would make a cycle (see library_service.list_presets)
+        profile_plan = profile_service.plan(preset, {"source_language": source_language})
+        fields.update(profile_plan["columns"])
     try:
         new_id = db.create_drama(**fields)
     except db.DramaFolderConflict as exc:
@@ -209,8 +214,9 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             db.delete_drama(new_id)
             raise
     if series_id is not None:
-        _inherit_series_defaults("inherit_new", new_id, series_id, skip=(
-            ("translation_engine",) if preset and preset.get("translation_engine") else ()))
+        # What the profile chose wins over the series' defaults.
+        _inherit_series_defaults("inherit_new", new_id, series_id, skip=tuple(
+            k for k in profile_plan["columns"] if k != "translate_start_json") if profile_plan else ())
 
     detail = library_service.get_library_drama(new_id)
     detail["preset_defaults"] = None if preset is None else {
@@ -223,6 +229,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         "engine_model": (preset.get("engine_model") or None)
         if preset.get("translation_engine") else None,
     }
+    detail["profile_skipped"] = profile_plan["skipped"] if profile_plan else []
     return detail
 
 

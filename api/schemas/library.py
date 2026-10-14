@@ -329,6 +329,8 @@ class DramaPresetDefaults(BaseModel):
 
 class DramaCreateResult(DramaDetail):
     preset_defaults: Optional[DramaPresetDefaults] = None
+    # Profile settings left out because they don't suit the title's language.
+    profile_skipped: List[str] = Field(default_factory=list)
     # With a link and no name: "link" (the link's own title) or
     # "placeholder" (the link's host, for the owner to rename).
     title_from_link: Optional[Literal["link", "placeholder"]] = None
