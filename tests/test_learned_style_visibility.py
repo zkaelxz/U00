@@ -142,7 +142,7 @@ def test_member_line_improve_leaves_out_someone_elses_profile(people, acting, mo
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
     seen = {}
 
-    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines=""):
+    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle"):
         seen["style"] = style_guidelines
         return "hi"
     monkeypatch.setattr(line_tools, "improve_line", fake)
