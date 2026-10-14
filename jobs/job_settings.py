@@ -31,7 +31,7 @@ def set_gpu_limit_enabled(enabled: bool):
 
 
 # How many GPU-touching jobs may run at once while the GPU limit is on,
-# across this process and any cli.py run. 1 (the default) is one at a time.
+# across this process and any other process using the GPU slots. 1 (the default) is one at a time.
 # The upper bound matches gpu_slots.GPU_LOCK_MAX_SLOTS (the gpu_lock table's CHECK).
 GPU_MAX_PARALLEL_LIMIT = 4
 
