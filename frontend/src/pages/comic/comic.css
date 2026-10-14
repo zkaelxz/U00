@@ -159,7 +159,7 @@
   color: var(--accent-text);
 }
 .comic-phone .comic-tools-btn { min-height: 44px; }
-.comic-scanlate { scroll-margin-top: 6rem; /* clears the sticky .comic-top bar */ max-width: 48rem; margin: var(--space-3) auto; display: grid; gap: var(--space-3); min-width: 0; }
+.comic-scanlate { scroll-margin-top: 12rem; /* clears the sticky .comic-top bar */ max-width: 48rem; margin: var(--space-3) auto; display: grid; gap: var(--space-3); min-width: 0; }
 .comic-empty > p { margin: 0; }
 .scanlate-panel input[type='file'] { max-width: 100%; min-width: 0; }
 .scanlate-panel select { max-width: 100%; }

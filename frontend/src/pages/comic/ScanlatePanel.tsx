@@ -67,6 +67,12 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
 // The form is remembered per title, so leaving the page does not reset the engine, detector and scope.
 const SCANLATE_DRAFT = { engine: '', detector: 'auto' as string, slice: true, scope: 'all' as string }
 
+// A page's first note line, short enough to scan in a list.
+function firstLine(message: string): string {
+  const line = message.split('\n')[0]
+  return line.length > 140 ? `${line.slice(0, 139)}…` : line
+}
+
 export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, onJob, onGoToPage }: Props) {
   const pc = usePcOnly()
   const { readiness } = useReadiness()
@@ -356,7 +362,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged, 
                     Page {p.ordinal}
                   </button>{' '}
                   <span className={worst?.level === 'error' ? 'error' : 'warn'}>
-                    {(worst?.message ?? '').split('\n')[0].slice(0, 140)}
+                    {firstLine(worst?.message ?? '')}
                   </span>
                 </li>
               )
