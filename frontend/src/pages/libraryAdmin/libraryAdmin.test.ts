@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
 import { CleanupBlock } from './AdminBlocks'
@@ -12,6 +12,11 @@ import {
   describeNoKeySkips, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
   pruneSelection, selectAllVisible, toggleId, translatableIds, allSelected, selectIds, visibleTitles,
 } from './libraryAdmin'
+
+// Every permission is held unless a test lists it here.
+const holds = vi.hoisted(() => ({ missing: new Set<string>() }))
+vi.mock('../../hooks/useHolds', () => ({ useHolds: (p: string) => !holds.missing.has(p) }))
+afterEach(() => holds.missing.clear())
 
 const d = (id: number, status = 'aligned', title = `T${id}`) =>
   ({ id, status, title_en: title, title_zh: null, custom_tags: [] }) as unknown as DramaSummary
@@ -150,12 +155,20 @@ describe('SelectionBar', () => {
     expect(bar('remote', [d(2, 'translated')], false, exporter)).not.toContain('Download')
   })
 
-  it('remote: no bulk Translate, Delete or Export, a muted note instead', () => {
+  it('remote: bulk Translate, but no Delete or Export, a muted note instead', () => {
     const out = bar('remote', [d(1, 'aligned')])
     expect(out).not.toContain('Delete…')
     expect(out).not.toContain('Export .zip')
-    expect(out).not.toContain('Translate 1')
-    expect(out).toContain('Bulk translate, delete and export are PC only. To translate from here, use Translate on each title.')
+    expect(out).toContain('Translate 1')
+    expect(out).toContain('Delete and export are PC only.')
+  })
+
+  it('without jobs.start: no bulk Translate and no reason for it', () => {
+    holds.missing.add('jobs.start')
+    for (const pc of ['local', 'remote'] as const) {
+      expect(bar(pc, [d(1, 'aligned')])).not.toContain('Translate 1')
+      expect(bar(pc, [d(2, 'translated')])).not.toContain(TRANSLATE_NEEDS.replace(/'/g, '&#x27;'))
+    }
   })
 
   it('phone: count, an Actions menu and Done', () => {
