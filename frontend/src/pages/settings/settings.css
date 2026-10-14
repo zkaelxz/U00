@@ -61,3 +61,9 @@
 /* Timing and splitting: each row is a field with its default and a Reset beside it. */
 .timing-row { display: grid; gap: var(--space-1); min-width: 0; }
 .timing-default { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-sm); }
+
+/* Bare <p>s in the Costs cards: without this they take the browser's 1em margins and drift 30px from their field. */
+.settings-page [data-testid='cap-effective'] { margin: var(--space-1) 0 0; }
+.settings-page .section-body > p { margin: 0; }
+.settings-page [data-testid='month-counter'] { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.settings-page [data-testid='month-counter'] > * { margin: 0; }
