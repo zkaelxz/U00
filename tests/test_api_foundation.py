@@ -861,6 +861,9 @@ class TestTranscribeConfigEndpoints:
             "whisper_repeat_guard": False, "split_by_sentences": False, "difficult_audio": False, "vocabulary_hint": False, "use_groq": False,
             "has_video_source": False, "hardsub_ocr_backend": "paddle",
             "hardsub_interval_sec": 1.0, "auto_initial_prompt": "",
+            "source_language": "zh", "chinese_script": "simplified",
+            "run_start": {"run_diarize": False, "expected_speakers": None, "min_speakers": None,
+                          "max_speakers": None, "extra_names": "", "initial_prompt": ""},
         }
 
     def test_get_config_unknown_drama_is_404(self, client, isolated_db):

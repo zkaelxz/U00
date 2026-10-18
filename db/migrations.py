@@ -190,7 +190,10 @@ def _migrate_drama_columns(conn):
                           ("release_date", "TEXT"), ("difficult_audio", "INTEGER DEFAULT 0"),
                           # JSON: the Translate form's starting options for this title
                           # (what a profile applied; services/profile_service.py).
-                          ("translate_start_json", "TEXT")]:
+                          ("translate_start_json", "TEXT"),
+                          # JSON: the Transcribe form's run choices for this title (speaker
+                          # detection, speaker counts, extra names, prompt override).
+                          ("transcribe_start_json", "TEXT")]:
         if col not in drama_cols:
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off
