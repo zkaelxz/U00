@@ -151,7 +151,7 @@ export function SelectionBar({
   const noKeyNote = translate.done ? describeNoKeySkips(translate.job?.result, name) : null
   // Reasons sit under their buttons in the phone menu, in the bar's lines on desktop.
   const reason = (show: boolean, id: string, text: string): ReactNode =>
-    show ? <p className="muted" id={id}>{text}</p> : null
+    show ? <p className="muted" id={id} title={text}>{text}</p> : null
   const translateReason = reason(canTranslate && !toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
   const exportReason = reason(local && !toExport.length && n > 0, 'export-needs', EXPORT_NEEDS)
   const editReason = reason(!canEdit, 'no-edit-note', NO_EDIT_NOTE)
@@ -228,9 +228,6 @@ export function SelectionBar({
 
   const statusLines = (
     <>
-      {!phone && translateReason}
-      {!phone && exportReason}
-      {!phone && editReason}
       <AdminJobLine job={translate} busyText="Translating…" />
       {noKeyNote && (
         <p className="muted" role="status" data-testid="translate-no-key">
@@ -296,6 +293,7 @@ export function SelectionBar({
         <strong data-testid="selected-count">{n} selected</strong>
         {actions}
         <button type="button" className="link" onClick={onClear}>Clear</button>
+        <div className="bar-hints">{translateReason}{exportReason}{editReason}</div>
       </div>
       {statusLines}
     </section>

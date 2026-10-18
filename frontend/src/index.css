@@ -536,7 +536,15 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .selection-bar.wide button, .selection-bar.wide select { min-height: 32px; padding-block: 2px; }
 /* The global select's percentage min/max width made each group measure narrower than its contents, so a button dropped under its own select and the next group sat stranded mid-bar. A fixed select width lets a group wrap as a whole. */
 .selection-bar.wide .bar-group { flex-wrap: nowrap; }
-.selection-bar.wide .bar-group select { width: 11rem; min-width: 0; max-width: none; }
+.selection-bar.wide .bar-group select { width: 7.5rem; min-width: 0; max-width: none; padding-inline: 0.4rem 1.2rem; }
+/* Why a button is off sits in the same row as the buttons, cut short with an ellipsis (the full text is the tooltip), so the bar stays one row tall. */
+.selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { flex-wrap: nowrap; }
+.selection-bar.wide .bar-actions { flex: 0 1 auto; min-width: 0; }
+.selection-bar.wide .bar-group { flex-shrink: 0; }
+.selection-bar.wide button { padding-inline: 0.55rem; white-space: nowrap; }
+.selection-bar.wide .bar-hints { display: flex; flex: 1 1 6rem; min-width: 0; gap: var(--space-2); font-size: var(--text-sm, 0.85em); }
+.selection-bar.wide .bar-hints p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.selection-bar.wide .bar-group label { white-space: nowrap; }
 html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
 .app-shell:has(.selection-bar.wide) .app-content { padding-bottom: 6rem; }
 .selection-bar p { margin: 0; }
