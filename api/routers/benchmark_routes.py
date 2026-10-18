@@ -20,7 +20,8 @@ services/benchmark_lab_service.py.
 - A run can be deleted (confirm=true) and a run or a comparison exported as CSV or JSON.
   A comparison scores only the cases every run scored on the same reference version.
 - The settings sweep tunes transcription on one set and language: its estimate is a read, starting or
-  resuming it and approving or rejecting its winner are PC only and need `confirm=true`.
+  resuming it and approving or rejecting its winner are PC only and need `confirm=true`. The
+  translation sweep (`/translate-sweep`) works the same way for one engine.
 - A translation run may ask for an LLM judge (`judge` on the run request and the
   estimate); the judge's summary and per-case scores ride on the run reads.
 """
@@ -50,6 +51,8 @@ from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCas
                          BenchmarkRunDelete, BenchmarkSetBuildRequest, BenchmarkSetBuildResult,
                          BenchmarkSweepDecisionRequest, BenchmarkSweepDecisions, BenchmarkSweepEstimate,
                          BenchmarkSweepRequest, BenchmarkSweepStarted, BenchmarkSweepState,
+                         BenchmarkTranslateSweepEstimate, BenchmarkTranslateSweepRequest,
+                         BenchmarkTranslateSweepStarted, BenchmarkTranslateSweepState,
                          error_responses)
 from lib.capped_request import read_capped_form
 from lib.errors import InvalidInputError
@@ -60,6 +63,7 @@ from services import benchmark_lab_service as svc
 from services import benchmark_reference_service as reference_svc
 from services import benchmark_set_builder_service as builder_svc
 from services import benchmark_sweep_service as sweep_svc
+from services import benchmark_translate_sweep_service as tsweep_svc
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
@@ -351,3 +355,38 @@ def post_sweep(body: BenchmarkSweepRequest):
 def post_sweep_decision(body: BenchmarkSweepDecisionRequest):
     require_confirm(body.confirm)
     return sweep_svc.decide(body.decision, body.reason)
+
+
+@router.get("/translate-sweep", dependencies=_READ, response_model=BenchmarkTranslateSweepState,
+            summary="The latest translation settings sweep, its recommendation and the decision on it")
+def get_translate_sweep():
+    return tsweep_svc.get_sweep()
+
+
+@router.get("/translate-sweep/decisions", dependencies=_READ, response_model=BenchmarkSweepDecisions,
+            summary="Earlier translation sweep decisions, newest first")
+def get_translate_sweep_decisions():
+    return tsweep_svc.list_decisions()
+
+
+@router.post("/translate-sweep/estimate", dependencies=_READ, response_model=BenchmarkTranslateSweepEstimate,
+             responses=error_responses(404, 409, 422, 503),
+             summary="What a translation sweep would run and what it would cost; spends nothing")
+def post_translate_sweep_estimate(body: BenchmarkTranslateSweepRequest):
+    return tsweep_svc.estimate(body.set_name, body.language, body.engine, body.model, body.series_id)
+
+
+@router.post("/translate-sweep", dependencies=[local_only()], response_model=BenchmarkTranslateSweepStarted,
+             responses=error_responses(404, 409, 422, 503),
+             summary="PC only: start or resume a translation settings sweep of one golden set (confirm=true)")
+def post_translate_sweep(body: BenchmarkTranslateSweepRequest):
+    require_confirm(body.confirm)
+    return tsweep_svc.start(body.set_name, body.language, body.engine, body.model, body.series_id)
+
+
+@router.post("/translate-sweep/decision", dependencies=[local_only()], response_model=BenchmarkTranslateSweepState,
+             responses=_ERRS,
+             summary="PC only: approve (saved as a setting profile) or reject the translation sweep's winner (confirm=true)")
+def post_translate_sweep_decision(body: BenchmarkSweepDecisionRequest):
+    require_confirm(body.confirm)
+    return tsweep_svc.decide(body.decision, body.reason)

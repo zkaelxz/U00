@@ -64,6 +64,7 @@ from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_
                                                    run_transcription as _run_transcription,
                                                    run_translation as _run_translation)
 from services import benchmark_runs_service
+from services import benchmark_scene_service as scene_service
 from services.benchmark_runs_service import MAX_CONFIGS, arena, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  score_output, script_normaliser)
@@ -342,6 +343,7 @@ def get_options() -> dict:
         "translation_engines": translate_service.list_engines(),
         **whisper_options(),
         "transcribe_defaults": transcribe_options_service.lab_option_defaults(),
+        "translate_choices": scene_service.option_choices(),
         "transcribe_options_ignored": {name: ignored_options(name) for name in ("whisper", *LAB_BACKENDS)},
         "ocr_backends": list(OCR_BACKENDS),
         "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
@@ -379,7 +381,7 @@ def check_config(stage: str, cfg) -> dict:
     engine, model = cfg.get("engine"), cfg.get("model")
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be text.")
-    if cfg.get("options") and stage != "transcription":
+    if cfg.get("options") and stage == "ocr":
         raise InvalidInputError("Transcription options apply to transcription runs only.")
     if stage == "translation":
         entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
@@ -395,7 +397,10 @@ def check_config(stage: str, cfg) -> dict:
                 model = None   # an engine without a model picker: its built-in model
             elif entry["models"] is None or model not in entry["models"]:
                 raise InvalidInputError("That model isn't offered for this engine.")
-        return {"engine": engine, "model": model}
+        if cfg.get("options") is None:
+            return {"engine": engine, "model": model}
+        return {"engine": engine, "model": model,
+                "options": scene_service.resolve_options(engine, model, cfg["options"])}
     if stage == "transcription":
         options = transcribe_options_service.resolve_lab_options(cfg.get("options"))
         if engine in LAB_BACKENDS:
@@ -452,6 +457,8 @@ def _estimate_config(cfg: dict, cases: list):
     probe.name = getattr(engine_cls, "name", cfg["engine"])
     probe.model = cfg["model"] or translate_engines.effective_default_model(cfg["engine"])
     probe.free_tier = False
+    if cfg.get("options") is not None:
+        return scene_service.estimate_cost(probe, cfg["options"], cases)
     # One call per case, so the fixed instructions overhead is paid per case.
     return sum(translate_engines.estimate_translation_cost(probe, [c.get("source_text") or ""])
                for c in cases)
@@ -545,6 +552,8 @@ def run_context(stage: str, cfg: dict, cases: list, use_gpu) -> dict:
         # Runs without this key were scored script-sensitively.
         context["script_normaliser"] = script_normaliser(stage)
     context.update(app_version=app_version(), model_identity=model_identity(stage, cfg))
+    if stage == "translation" and cfg.get("options") is not None:
+        context.update(scene_service.run_context(cfg))
     if stage == "transcription":
         context["transcribe_options"] = cfg["options"]
         # What the arm changed from the app's defaults: what tells two arms of one model apart in a list.
@@ -620,7 +629,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
     run_spent = 0.0     # real spend across every config in this run
     for session_id, cfg, api_key in plan:
         db.update_benchmark_session(session_id, status="running")
-        engine, cap, capped = None, None, False
+        engine, cap, capped, scenes = None, None, False, None
         if stage == "translation":
             try:
                 engine = translate_engines.get_engine(
@@ -648,6 +657,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                                                 finished_at=_now())
                     step += len(ordered)
                     continue
+        if engine is not None and cfg.get("options") is not None:
+            scenes = scene_service.SceneRunner(engine, cfg, ordered, lambda: background_jobs.is_cancel_requested(job_id), api_key)
         _reset_vram()
         spent, scores, passed, errors, durations = 0.0, [], 0, 0, []
         status = "done"
@@ -670,12 +681,14 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                 # stop at its next retry instead of sleeping out a cancelled run.
                 with llm_tasks.bounded_llm_calls(
                         job_id, lambda: background_jobs.is_cancel_requested(job_id)):
-                    r = _run_translation(engine, case, api_key)
+                    r = scenes.result(case, None if cap is None else max(cap - spent, 0.0)) if scenes \
+                        else _run_translation(engine, case, api_key)
                 stop_note = r.pop("stop_reason", "")
                 if not stop_note and streak.record(failed=bool(r.get("error")),
                                                    succeeded=not r.get("error")):
                     stop_note = paid_calls.failure_stop_reason(streak.count)
-                if r["cost_usd"] or r["usage"]:
+                logged = r.pop("usage_logged", False)
+                if (r["cost_usd"] or r["usage"]) and not logged:
                     db.log_usage(None, cfg["engine"], getattr(engine, "model", cfg["model"]) or "",
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
                                  r["usage"].get("output_tokens", 0) or 0, r["cost_usd"],

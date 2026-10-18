@@ -9,6 +9,7 @@ import { ButtonLink } from '../../components/Button'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { TranscribeOptionsFields } from './TranscribeOptionsFields'
+import { TranslateOptionsFields } from './TranslateOptionsFields'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
@@ -334,10 +335,14 @@ function ConfigRow({ stage, options, config, index, onChange }: {
     )
   }
   const engine = options.translation_engines.find((e) => e.name === config.engine)
+  // A change of engine or model keeps how the arm is run; only the options typed so far are kept, so
+  // comparing two engines at the same settings is the common case.
+  const keep = config.translate ? { translate: config.translate } : {}
   return (
+    <div className="bench-translate-config">
     <div className="bench-config-fields">
       <Field label={`Engine ${n}`}>
-        <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value })}>
+        <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value, ...keep })}>
           {options.translation_engines.map((e) => (
             <option key={e.name} value={e.name}>{engineOptionLabel(e)}</option>
           ))}
@@ -347,7 +352,7 @@ function ConfigRow({ stage, options, config, index, onChange }: {
         <Field label={`Model ${n}`}>
           <select
             value={config.model ?? ''}
-            onChange={(e) => onChange(e.target.value ? { engine: config.engine, model: e.target.value } : { engine: config.engine })}
+            onChange={(e) => onChange(e.target.value ? { engine: config.engine, model: e.target.value, ...keep } : { engine: config.engine, ...keep })}
           >
             <option value="">Default</option>
             {engine.models.map((m) => (
@@ -356,6 +361,8 @@ function ConfigRow({ stage, options, config, index, onChange }: {
           </select>
         </Field>
       )}
+    </div>
+    <TranslateOptionsFields options={options} config={config} onChange={onChange} />
     </div>
   )
 }

@@ -30,6 +30,12 @@ const options: BenchmarkOptions = {
     speech_pad_ms: 400, refine_timing: false, split_max_seconds: 8, split_max_chars: 40,
   },
   transcribe_options_ignored: { whisper: [], qwen3_asr_vad: ['beam_size'], anime_whisper: ['beam_size'] },
+  translate_choices: {
+    style_presets: [{ key: 'audio_drama', label: 'Audio drama' }, { key: 'novel', label: 'Novel' }],
+    series: [{ id: 3, name: 'Saga' }],
+    defaults: { context_window: 10, context_window_ahead: 6, batch_size: 30, reflect: false, style_preset: 'audio_drama' },
+    batch_size_defaults: { claude: { '': 60, haiku: 30 }, ollama: { '': 30 } },
+  },
   ocr_backends: ['tesseract', 'paddle'],
   pass_threshold: 0.8,
   chrf_pass_threshold: 0.5,

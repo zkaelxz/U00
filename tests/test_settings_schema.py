@@ -27,6 +27,7 @@ STATE_KEYS = {
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
     "benchmark_sweep": "the Benchmark Lab's latest settings sweep and its decision, written by benchmark_sweep_service",
+    "benchmark_translate_sweep": "the Benchmark Lab's latest translation settings sweep and its decision, written by benchmark_translate_sweep_service",
 }
 
 # Keys built at run time, matched by (file, argument as written) so a new

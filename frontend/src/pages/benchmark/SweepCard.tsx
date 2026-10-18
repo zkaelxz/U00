@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   decideSweep, estimateSweep, getSweep, getSweepDecisions, startSweep,
   type BenchmarkSet, type Sweep, type SweepDecisionRow, type SweepEstimate, type SweepLanguage, type SweepRecommendation,
+  type SweepStep,
 } from '../../api/benchmark'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -167,6 +168,18 @@ export function SweepCard({ sets, pc, job, running, onStarted, onStop, onCompare
   )
 }
 
+/** What differs between the transcription sweep and the translation sweep in the shared result views. */
+export interface SweepWording {
+  /** What a case is called: "clips" or "cases". */
+  noun: string
+  /** A score difference in the sweep's own unit. */
+  points: (delta: number | null | undefined) => string
+  step: (step: SweepStep) => string
+  decide: (decision: 'approve' | 'reject', reason: string) => Promise<{ sweep: Sweep | null }>
+}
+
+const CLIP_WORDING: SweepWording = { noun: 'clips', points: cerPoints, step: stepLabel, decide: decideSweep }
+
 function SweepEstimateBlock({ est }: { est: SweepEstimate }) {
   const left = [...est.models.filter((m) => !m.included).map((m) => ({ name: m.label, reason: m.reason })),
     ...est.knobs.filter((k) => !k.included).map((k) => ({ name: k.label, reason: k.reason }))]
@@ -229,23 +242,26 @@ function SweepEstimateBlock({ est }: { est: SweepEstimate }) {
   )
 }
 
-function LatestSweep({ sweep, remote, onCompare, onDecided }: {
+export function LatestSweep({ sweep, remote, onCompare, onDecided, wording = CLIP_WORDING, detail }: {
   sweep: Sweep
   remote: boolean
   onCompare: (runIds: number[]) => void
   onDecided: (s: Sweep | null) => void
+  wording?: SweepWording
+  /** After the language in the heading line, e.g. the engine a translation sweep ran on. */
+  detail?: ReactNode
 }) {
   const rec = sweep.recommendation
   return (
     <div className="sweep-block" role="group" aria-labelledby="sweep-latest-h" data-testid="sweep-latest">
       <h4 id="sweep-latest-h">Latest sweep</h4>
       <p className="sweep-head">
-        <strong>{sweep.set_name}</strong> <span className="muted">({sweep.language})</span>{' '}
+        <strong>{sweep.set_name}</strong> <span className="muted">({sweep.language})</span>{detail}{' '}
         <Badge tone={sweepStatusTone(sweep.status)}>{sweepStatusLabel(sweep.status)}</Badge>{' '}
         <span className="muted num">{formatWhen(sweep.started_at)} · {passesLine(sweep)}</span>
       </p>
       {sweep.note && <p className="muted">{sweep.note}</p>}
-      {rec && <Recommendation rec={rec} onCompare={onCompare} />}
+      {rec && <Recommendation rec={rec} onCompare={onCompare} wording={wording} />}
       {sweep.decision ? (
         <p role="status" data-testid="sweep-decision">
           {sweep.decision.decision === 'promoted'
@@ -254,13 +270,14 @@ function LatestSweep({ sweep, remote, onCompare, onDecided }: {
           {sweep.decision.reason ? ` Reason: ${sweep.decision.reason}` : ''}
         </p>
       ) : (
-        <DecideBlock sweep={sweep} remote={remote} onDecided={onDecided} />
+        <DecideBlock sweep={sweep} remote={remote} onDecided={onDecided} wording={wording} />
       )}
     </div>
   )
 }
 
-function Recommendation({ rec, onCompare }: { rec: SweepRecommendation; onCompare: (runIds: number[]) => void }) {
+function Recommendation({ rec, onCompare, wording }: { rec: SweepRecommendation; onCompare: (runIds: number[]) => void; wording: SweepWording }) {
+  const { noun, points } = wording
   const h = rec.holdout
   // A five-column table squeezes the tag names on a phone; a list keeps each tag on its own lines.
   const phone = useMediaQuery('(max-width: 640px)')
@@ -285,14 +302,14 @@ function Recommendation({ rec, onCompare }: { rec: SweepRecommendation; onCompar
         {h && (
           <li>
             <span>Held-out score, default → best</span>
-            <span className="num">{formatScore(h.default_score)} → {formatScore(h.winner_score)} ({cerPoints(h.delta)})</span>
+            <span className="num">{formatScore(h.default_score)} → {formatScore(h.winner_score)} ({points(h.delta)})</span>
           </li>
         )}
       </ul>
       <p className="muted">{rec.margin_rule}</p>
       {rec.small_set && (
         <p className="warn" role="note">
-          Only {rec.case_counts.tuning + rec.case_counts.holdout} clips: treat this as a first look.
+          Only {rec.case_counts.tuning + rec.case_counts.holdout} {noun}: treat this as a first look.
         </p>
       )}
       {h && (
@@ -306,9 +323,9 @@ function Recommendation({ rec, onCompare }: { rec: SweepRecommendation; onCompar
         <ul className="sweep-tags" aria-label="Held-out score by tag">
           {rec.tags.map((t) => (
             <li key={t.tag}>
-              <strong>{t.tag}</strong> <span className="muted num">{t.cases} clips</span>
+              <strong>{t.tag}</strong> <span className="muted num">{t.cases} {noun}</span>
               <span className="num">{formatScore(t.default_score)} → {formatScore(t.winner_score)}</span>
-              <span>{cerPoints(t.delta)} {t.too_small && <Badge tone="neutral">Too few clips to decide</Badge>}</span>
+              <span>{points(t.delta)} {t.too_small && <Badge tone="neutral">Too few {noun} to decide</Badge>}</span>
             </li>
           ))}
         </ul>
@@ -319,7 +336,7 @@ function Recommendation({ rec, onCompare }: { rec: SweepRecommendation; onCompar
             <thead>
               <tr>
                 <th>Tag</th>
-                <th className="num">Clips</th>
+                <th className="num">{noun.charAt(0).toUpperCase() + noun.slice(1)}</th>
                 <th className="num">Default</th>
                 <th className="num">Best</th>
                 <th>Change</th>
@@ -333,7 +350,7 @@ function Recommendation({ rec, onCompare }: { rec: SweepRecommendation; onCompar
                   <td className="num">{formatScore(t.default_score)}</td>
                   <td className="num">{formatScore(t.winner_score)}</td>
                   <td>
-                    {cerPoints(t.delta)} {t.too_small && <Badge tone="neutral">Too few clips to decide</Badge>}
+                    {points(t.delta)} {t.too_small && <Badge tone="neutral">Too few {noun} to decide</Badge>}
                   </td>
                 </tr>
               ))}
@@ -346,7 +363,7 @@ function Recommendation({ rec, onCompare }: { rec: SweepRecommendation; onCompar
         <ol className="sweep-steps">
           {rec.steps.map((s, i) => (
             <li key={i}>
-              <span>{stepLabel(s)}</span>{' '}
+              <span>{wording.step(s)}</span>{' '}
               <span className="muted">{s.half === 'holdout' ? 'held-out titles' : 'tuning titles'} · {s.setup}</span>{' '}
               <span className="num">{formatScore(s.score)}</span> {s.kept && <Badge tone="ok">Kept</Badge>}
             </li>
@@ -357,7 +374,12 @@ function Recommendation({ rec, onCompare }: { rec: SweepRecommendation; onCompar
   )
 }
 
-function DecideBlock({ sweep, remote, onDecided }: { sweep: Sweep; remote: boolean; onDecided: (s: Sweep | null) => void }) {
+function DecideBlock({ sweep, remote, onDecided, wording }: {
+  sweep: Sweep
+  remote: boolean
+  onDecided: (s: Sweep | null) => void
+  wording: SweepWording
+}) {
   const can = canDecide(sweep)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
@@ -368,7 +390,7 @@ function DecideBlock({ sweep, remote, onDecided }: { sweep: Sweep; remote: boole
     setBusy(true)
     setError(null)
     try {
-      onDecided((await decideSweep(decision, reason.trim())).sweep)
+      onDecided((await wording.decide(decision, reason.trim())).sweep)
     } catch (e) {
       setError(plainError(e, { pcOnly: true }))
     } finally {
@@ -421,7 +443,7 @@ function DecideBlock({ sweep, remote, onDecided }: { sweep: Sweep; remote: boole
   )
 }
 
-function DecisionHistory({ decisions }: { decisions: SweepDecisionRow[] }) {
+export function DecisionHistory({ decisions }: { decisions: SweepDecisionRow[] }) {
   return (
     <details className="sweep-history">
       <summary>Earlier decisions ({decisions.length})</summary>
