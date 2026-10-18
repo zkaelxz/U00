@@ -194,6 +194,14 @@ def run_start(drama: dict) -> dict:
             ok = isinstance(value, int) and not isinstance(value, bool)
         if ok:
             out[key] = value
+    # The column is copied as is from an imported backup, so what a run reads is bounded again here.
+    out["extra_names"] = out["extra_names"][:1000]
+    out["initial_prompt"] = out["initial_prompt"][:4000]
+    for key in ("expected_speakers", "min_speakers", "max_speakers"):
+        if out[key] is not None and not 0 <= out[key] <= 20:
+            out[key] = None
+    if out["expected_speakers"] and (out["min_speakers"] or out["max_speakers"]):
+        out["min_speakers"] = out["max_speakers"] = None
     return out
 
 

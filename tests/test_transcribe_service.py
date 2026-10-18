@@ -334,6 +334,24 @@ class TestTranscribeRunChoicesStayOnTheTitle:
             transcribe_service.update_transcribe_config(did, beam_size=8, run_start=bad)
         assert transcribe_service.get_transcribe_config(did)["beam_size"] == 5
 
+    def test_a_hand_edited_or_imported_column_is_bounded_when_read(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.update_drama(did, transcribe_start_json=json.dumps({
+            "run_diarize": "yes", "expected_speakers": 99, "min_speakers": 2, "max_speakers": 3,
+            "extra_names": "x" * 5000, "initial_prompt": "p" * 9000}))
+        run = transcribe_service.get_transcribe_config(did)["run_start"]
+        assert run["run_diarize"] is False and run["expected_speakers"] is None
+        assert (run["min_speakers"], run["max_speakers"]) == (2, 3)
+        assert len(run["extra_names"]) == 1000 and len(run["initial_prompt"]) == 4000
+        isolated_db.update_drama(did, transcribe_start_json="not json")
+        assert transcribe_service.get_transcribe_config(did)["run_start"]["extra_names"] == ""
+
+    def test_a_title_with_nothing_saved_runs_as_before(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert transcribe_options_service.run_start(isolated_db.get_drama(did)) == {
+            "run_diarize": False, "expected_speakers": None, "min_speakers": None,
+            "max_speakers": None, "extra_names": "", "initial_prompt": ""}
+
     def test_a_model_is_checked_against_the_language_saved_with_it(self, isolated_db):
         did = isolated_db.create_drama(title_en="D", source_language="zh")
         size = whisper_models.DEFAULT_WHISPER_SIZE
