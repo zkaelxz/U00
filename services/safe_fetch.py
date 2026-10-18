@@ -13,6 +13,7 @@ exception text, path or key is ever echoed.
 """
 from dataclasses import dataclass
 
+from engine_backends.redaction import redact_secrets
 from lib import http
 from services.service_errors import DependencyUnavailableError, InvalidInputError
 
@@ -33,11 +34,6 @@ class FetchResult:
     text: str
     needs_manual: bool
     message: str = ""
-
-
-def _redact(text: str) -> str:
-    from translate_engines import redact_secrets
-    return redact_secrets(text)
 
 
 def fetch_public_text(url: str, max_bytes: int = MAX_FETCH_BYTES) -> FetchResult:
@@ -65,5 +61,5 @@ def fetch_public_text(url: str, max_bytes: int = MAX_FETCH_BYTES) -> FetchResult
     text = "\n".join(ln.strip() for ln in soup.get_text("\n").splitlines()
                      if ln.strip())[:MAX_TEXT_CHARS]
     if len(text) < MIN_VISIBLE_CHARS:
-        return FetchResult("", True, _redact(NEEDS_MANUAL_MESSAGE))
-    return FetchResult(_redact(text), False)
+        return FetchResult("", True, redact_secrets(NEEDS_MANUAL_MESSAGE))
+    return FetchResult(redact_secrets(text), False)

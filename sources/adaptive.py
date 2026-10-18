@@ -29,6 +29,8 @@ import re
 import time
 from dataclasses import dataclass, field
 
+from engine_backends.redaction import redact_secrets
+
 from . import ai_extract as ax
 from . import ai_extract_comic as axc
 from . import ai_extract_media as axm
@@ -187,11 +189,6 @@ def _done(report, data, tier, line):
     return data
 
 
-def _redact(text: str) -> str:
-    from translate_engines import redact_secrets
-    return redact_secrets(text)
-
-
 # ---------------------------------------------------------------------------
 # The one LLM tier, behind the result cache
 # ---------------------------------------------------------------------------
@@ -218,7 +215,7 @@ def _llm_picks(kind, payload, prompt, engine, report, max_tokens, use_cache):
     try:
         picks = ax.ask_json(engine, prompt + payload, max_tokens)
     except Exception as e:
-        report.note(f"The AI engine call failed: {_redact(f'{type(e).__name__}: {e}')[:300]}")
+        report.note(f"The AI engine call failed: {redact_secrets(f'{type(e).__name__}: {e}')[:300]}")
         return None, h
     if picks is None:
         report.note("The AI engine didn't return usable JSON.")
