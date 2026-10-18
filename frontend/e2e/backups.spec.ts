@@ -52,7 +52,7 @@ test.describe('Settings card (real API)', () => {
     await expect(card(page).locator('.card-meta')).toHaveText('Weekly · database only')
 
     const folder = card(page).getByRole('textbox', { name: 'Backup folder' })
-    await expect(folder).toHaveAttribute('placeholder', 'Library backups folder (default)')
+    await expect(folder).toHaveAttribute('placeholder', 'Default: backups\\auto in your library')
     await folder.fill('relative/folder')
     await folder.blur()
     // The server's folder message carries no path, so it is shown as is.

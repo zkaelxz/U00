@@ -24,7 +24,7 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
 
 export const ROTATION_NOTE =
   'Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks. Older copies this library made are deleted after each backup.'
-export const DEFAULT_FOLDER_TEXT = 'Library backups folder (default)'
+export const DEFAULT_FOLDER_TEXT = 'Default: backups\\auto in your library'
 
 type DateOpts = { locale?: string; timeZone?: string }
 
