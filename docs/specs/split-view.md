@@ -1,5 +1,7 @@
 # Split view: two titles, or a title and any other page, side by side
 
+Status: option (a) with the slim window from (c) is built (button in the title header, slim window named by `window.name`, see `frontend/src/nav/popOut.ts`).
+
 Ask: keep two titles open at once, or watch one while clicking around another (transcribe, translate), and let
 the second view also go to Live, Settings, Logs and the other pages. So each view needs its own page, not only
 its own title.
