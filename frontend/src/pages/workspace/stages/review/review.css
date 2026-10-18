@@ -87,7 +87,11 @@
 button.review-clear { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); padding: 0 10px; border: none; background: none; font-size: var(--text-lg); line-height: 1; }
 .review-pager { display: inline-flex; gap: var(--space-1); align-items: center; font-variant-numeric: tabular-nums; }
 .review-pager button { padding-inline: 12px; }
-.review-page-label { min-width: 3.5em; text-align: center; }
+.review-page-label { min-width: 3.5em; text-align: center; display: inline-flex; align-items: baseline; justify-content: center; }
+.review-page-input, .review-gap-input { text-align: center; padding-inline: 2px; font-variant-numeric: tabular-nums; }
+.review-page-input { border-color: transparent; background: transparent; min-height: 32px; }
+.review-page-input:hover, .review-page-input:focus { border-color: var(--border); background: var(--field-bg); }
+.review-gap-input { min-height: 32px; }
 .review-goto label { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; color: var(--muted); }
 .review-goto input { width: 5.5em; }
 .review-status { margin: 0; min-height: 1.2em; font-size: var(--text-sm); color: var(--muted); }

@@ -105,6 +105,17 @@ test('the Gaps chip has Previous and Next gap buttons that step to a gap', async
   await expect(page.getByTestId('wave-range')).toContainText('0:0')
 })
 
+test('typing a gap number jumps to that gap, clamped to the last one', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await open(page)
+  const box = page.getByLabel('Go to gap number')
+  await expect(box).toHaveValue('')
+  await box.fill('7')
+  await box.press('Enter')
+  await expect(box).toHaveValue('1')
+  await expect(page.getByRole('status').filter({ hasText: /^Gap:/ })).toBeVisible()
+})
+
 test('a timing-uncertain line offers Snap to speech, Check timing and the Whisper hint', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   let runs = 0

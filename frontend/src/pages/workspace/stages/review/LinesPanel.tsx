@@ -409,8 +409,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     onTranscribe: (ids) => onRetranscribeLines?.(ids),
   })
   const [gapFocus, setGapFocus] = useState<{ gap: TranscribeGap; seq: number } | null>(null)
-  const jumpToGap = (find: typeof nextGap) => {
-    const g = find(gaps.gaps, player.current?.getTime() ?? 0)
+  const sortedGaps = [...gaps.gaps].sort((a, b) => a.start - b.start)
+  const gapIndex = gapFocus ? sortedGaps.findIndex((g) => g.start === gapFocus.gap.start) + 1 || null : null
+  const jumpToGap = (find: typeof nextGap) => focusGap(find(gaps.gaps, player.current?.getTime() ?? 0))
+  const focusGap = (g: TranscribeGap | null | undefined) => {
     if (!g) return
     setWaveOpen(true)
     player.current?.seek(g.start)
@@ -448,6 +450,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           gapCount={gaps.gaps.length}
           onNextGap={() => jumpToGap(nextGap)}
           onPrevGap={() => jumpToGap(prevGap)}
+          gapIndex={gapIndex}
+          onGoGap={(n) => focusGap(sortedGaps[n - 1])}
           suspectCount={suspects.length}
           suspectOpen={suspectOpen}
           onToggleSuspect={() => setSuspectOpen((o) => !o)}
