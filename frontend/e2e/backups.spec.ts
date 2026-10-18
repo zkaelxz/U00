@@ -4,30 +4,34 @@ import { CHOOSE_SNAPSHOT, OTHER_COPY, mockBackups } from './backupsMocks'
 import { openFold } from './foldHelpers'
 import { openSettingsGroups } from './settingsNav'
 
-// Automatic backups, desktop. The settings test runs against the
+// Automatic backups, desktop (Library tools > Backup; Settings keeps a summary and a link). The settings test runs against the
 // real seeded API (a throwaway library) and resets what it changed; the
 // Back up now and copies tests use the stateful mocks in backupsMocks.ts.
 // BACKUP_SHOTS_DIR=<dir> also saves review screenshots.
 
 const SHOTS = process.env.BACKUP_SHOTS_DIR
 
-const card = (page: Page) => page.getByRole('region', { name: 'Automatic backups', exact: true })
+const card = (page: Page) => page.locator('.auto-backup')
+
+async function openAuto(page: Page) {
+  await page.goto('/#/library-tools?tab=backup')
+  await openFold(page, 'Automatic backups')
+  return card(page)
+}
 
 async function openAdmin(page: Page) {
   await page.goto('/#/library-tools?tab=backup')
-  await openFold(page, 'Automatic backup copies')
+  await openFold(page, 'Saved automatic copies')
   return page.getByTestId('snapshot-block')
 }
 
-test.describe('Settings card (real API)', () => {
+test.describe('Automatic backups card (real API)', () => {
   test.afterAll(async ({ request }) => {
     await request.post('/api/backups/settings', { data: { enabled: false, frequency: 'daily', folder: '' } })
   })
 
   test('the toggle and frequency persist; a bad folder is refused in plain words', async ({ page }) => {
-    await page.goto('/#/settings')
-    await openSettingsGroups(page, 'Notifications and backups')
-    const c = card(page)
+    const c = await openAuto(page)
     await expect(c).toContainText('Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks')
     const auto = c.getByRole('switch', { name: 'Back up automatically' })
     await expect(auto).not.toBeChecked()
@@ -46,10 +50,9 @@ test.describe('Settings card (real API)', () => {
     expect((await freq).request().postDataJSON()).toEqual({ frequency: 'weekly' })
 
     await page.reload()
-    await openSettingsGroups(page, 'Notifications and backups')
+    await openAuto(page)
     await expect(card(page).getByRole('switch', { name: 'Back up automatically' })).toBeChecked()
     await expect(card(page).getByRole('radio', { name: 'Weekly' })).toBeChecked()
-    await expect(card(page).locator('.card-meta')).toHaveText('Weekly · database only')
 
     const folder = card(page).getByRole('textbox', { name: 'Backup folder' })
     await expect(folder).toHaveAttribute('placeholder', 'Default: backups\\auto in your library')
@@ -62,12 +65,24 @@ test.describe('Settings card (real API)', () => {
   })
 })
 
+test.describe('Settings summary card (mocked)', () => {
+  test('Manage backups lands on the Backup tab; the settings are not repeated', async ({ page }) => {
+    await mockBackups(page)
+    await page.goto('/#/settings')
+    await openSettingsGroups(page, 'Notifications and backups')
+    const summary = page.getByRole('region', { name: 'Automatic backups', exact: true })
+    await expect(summary.locator('.card-meta')).toHaveText('Off')
+    await expect(summary.getByRole('switch')).toHaveCount(0)
+    await summary.getByRole('link', { name: 'Manage backups' }).click()
+    await expect(page).toHaveURL(/#\/library-tools\?tab=backup/)
+    await expect(page.getByRole('tab', { name: 'Backup', exact: true })).toHaveAttribute('aria-selected', 'true')
+  })
+})
+
 test.describe('Back up now and the copies (mocked)', () => {
   test('lists the copies newest first; Back up now adds one at once, no replace question', async ({ page }) => {
     const state = await mockBackups(page, { jobPollsBeforeDone: 2 })
-    await page.goto('/#/settings')
-    await openSettingsGroups(page, 'Notifications and backups')
-    const c = card(page)
+    const c = await openAuto(page)
     await expect(c.getByTestId('auto-backup-snapshot')).toContainText('Database only · 12.3 MB · 3 titles')
     const copies = c.getByRole('list', { name: 'Backup copies, newest first' }).getByRole('listitem')
     await expect(copies).toHaveCount(3)
@@ -76,8 +91,8 @@ test.describe('Back up now and the copies (mocked)', () => {
     if (SHOTS) {
       await page.setViewportSize({ width: 1440, height: 900 })
       await c.scrollIntoViewIfNeeded()
-      await c.screenshot({ path: `${SHOTS}/settings-auto-backups-desktop.png` })
-      await page.screenshot({ path: `${SHOTS}/settings-page-1440.png`, fullPage: true })
+      await c.screenshot({ path: `${SHOTS}/library-auto-backups-desktop.png` })
+      await page.screenshot({ path: `${SHOTS}/library-backup-tab-1440.png`, fullPage: true })
     }
 
     await c.getByRole('button', { name: 'Back up now' }).click()
@@ -90,8 +105,7 @@ test.describe('Back up now and the copies (mocked)', () => {
 
   test('with no copies, Back up now starts at once', async ({ page }) => {
     const state = await mockBackups(page, { snapshot: { exists: false, copies: [] } })
-    await page.goto('/#/settings')
-    await openSettingsGroups(page, 'Notifications and backups')
+    await openAuto(page)
     await expect(card(page).getByTestId('auto-backup-snapshot')).toHaveText('Newest copy: No snapshot yet.')
     await expect(card(page).getByTestId('auto-backup-copies')).toHaveCount(0)
     await card(page).getByRole('button', { name: 'Back up now' }).click()
@@ -183,11 +197,9 @@ test.describe('Back up now and the copies (mocked)', () => {
 })
 
 test.describe('Copies from another library or with no clear newest (mocked)', () => {
-  test('Settings lists the unmanaged copy apart and names no newest copy', async ({ page }) => {
+  test('the card lists the unmanaged copy apart and names no newest copy', async ({ page }) => {
     await mockBackups(page, { snapshot: CHOOSE_SNAPSHOT })
-    await page.goto('/#/settings')
-    await openSettingsGroups(page, 'Notifications and backups')
-    const c = card(page)
+    const c = await openAuto(page)
     await expect(c.getByTestId('auto-backup-snapshot')).toContainText('choose a copy when restoring')
     await expect(c.getByRole('list', { name: 'Backup copies, newest first' }).getByRole('listitem')).toHaveCount(3)
     const other = c.getByRole('list', { name: 'Other or older copies (not managed)' }).getByRole('listitem')
