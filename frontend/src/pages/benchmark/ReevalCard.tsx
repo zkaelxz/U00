@@ -9,7 +9,6 @@ import {
   type ReevalSettingsSaved,
 } from '../../api/reeval'
 import { Badge } from '../../components/Badge'
-import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
@@ -19,10 +18,10 @@ import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
-import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
 import { BenchSection } from './BenchSection'
+import { EngineBlockNotes } from './EngineBlockNotes'
 import { EstimateBlock, JobProgress } from './RunCard'
 import {
   TIER_LABELS, casesInSelection, deltaTone, formatCost, formatDelta, formatLatency, formatScore, formatWhen, plainError, runStatusLabel,
@@ -446,14 +445,7 @@ function RunBlock({ overview, options, sets, remote, running, onStarted }: {
         Runs production and every open candidate on {s.set_name ? `the “${s.set_name}” set` : s.tier ? `${tierLabel(s.tier).toLowerCase()} sets` : 'every translation case'}
         {' '}(change it under Schedule and golden set). It spends like any benchmark run; the monthly cap applies if one is set in Settings.
       </p>
-      {missingKeys.length > 0 && (
-        <p className="warn bench-note">
-          {missingKeys.map((e) => engineOptionLabel(e)).join(', ')}: no key yet.{' '}
-          <ButtonLink href={routeHref({ name: 'settings' })} variant="ghost" size="sm">
-            Set a key in Settings
-          </ButtonLink>
-        </p>
-      )}
+      <EngineBlockNotes engines={missingKeys} />
       <div role="status">{shown && <EstimateBlock est={shown} stage="translation" />}</div>
       <div className="actions">
         <button type="button" className={buttonClass('secondary')} disabled={noCandidates || busy !== null} onClick={() => void runEstimate()}>
