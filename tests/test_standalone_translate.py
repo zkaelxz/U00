@@ -211,3 +211,99 @@ class TestStandaloneTranslate:
         te.standalone_translate(text, _BatchCountingEngine(), "zh", "en", batch_size=3)
         assert len(calls) > 1
         assert all(n <= 3 for n in calls)
+
+
+class _BlobMergingEngine:
+    """Translates per item like a real engine, but, handed one item holding
+    several lines, answers with the numbering stripped and two lines merged:
+    what a model did to pasted lines on a real run."""
+    name = "claude"
+
+    def __init__(self, collapse_numbered=False):
+        self.calls = []
+        self.collapse_numbered = collapse_numbered
+
+    def translate_batch(self, zh_lines, context):
+        self.calls.append(list(zh_lines))
+        out = []
+        for item in zh_lines:
+            lines = [ln for ln in item.splitlines() if ln.strip()]
+            if len(lines) > 1 and self.collapse_numbered and lines[0][:2] == "1.":
+                out.append(f"OUT:{lines[0]}")
+            elif len(lines) > 1:
+                out.append("\n".join([f"OUT:{lines[0]} {lines[1]}"] + [f"OUT:{ln}" for ln in lines[2:]]))
+            else:
+                out.append(f"OUT:{item}")
+        return out
+
+
+class TestOneTranslatedLinePerInputLine:
+    def test_twenty_plain_lines_stay_twenty_when_the_engine_merges_two(self):
+        text = "\n".join(f"line {i}" for i in range(1, 21))
+        result = te.standalone_translate(text, _BlobMergingEngine(), "ja", "en")
+        assert result.split("\n") == [f"OUT:line {i}" for i in range(1, 21)]
+
+    def test_numbered_lines_are_not_collapsed_into_one(self):
+        text = "\n".join(f"{i}. line {i}" for i in range(1, 6))
+        result = te.standalone_translate(text, _BlobMergingEngine(collapse_numbered=True), "ja", "en")
+        assert result.split("\n") == [f"OUT:{i}. line {i}" for i in range(1, 6)]
+
+    def test_blank_lines_between_paragraphs_are_kept(self):
+        result = te.standalone_translate("a\nb\n\nc\nd", _BlobMergingEngine(), "ja", "en")
+        assert result == "OUT:a\nOUT:b\n\nOUT:c\nOUT:d"
+
+    def test_bullets_and_punctuation_only_lines_keep_their_place(self):
+        engine = _BlobMergingEngine()
+        result = te.standalone_translate("- one\n...\n- two", engine, "ja", "en")
+        assert result == "OUT:- one\n...\nOUT:- two"
+        assert ["..."] not in engine.calls and all("..." not in c for c in engine.calls)
+
+    def test_a_blob_chunk_with_extra_lines_in_the_reply_is_redone_line_by_line(self):
+        class _Verbose:
+            name = "claude"
+
+            def translate_batch(self, zh_lines, context):
+                return [f"OUT:{z}" + ("\nextra" if "\n\n" in z else "") for z in zh_lines]
+
+        result = te.standalone_translate("a\n\nb", _Verbose(), "ja", "en")
+        assert result == "OUT:a\n\nOUT:b"
+
+    def test_a_line_the_engine_never_answers_is_marked_and_reported(self):
+        class _Dropping:
+            name = "claude"
+
+            def translate_batch(self, zh_lines, context):
+                return ["" if z == "b" else f"OUT:{z}" for z in zh_lines]
+
+        result, message = te.standalone_translate_partial("a\nb\nc", _Dropping(), "ja", "en")
+        assert result == "OUT:a\n[untranslated] b\nOUT:c"
+        assert message == "1 line could not be translated and is marked [untranslated]."
+
+    def test_a_reply_of_the_wrong_length_is_never_matched_by_position(self):
+        class _Short:
+            name = "claude"
+
+            def translate_batch(self, zh_lines, context):
+                return [f"OUT:{z}" for z in zh_lines][:-1]
+
+        result, message = te.standalone_translate_partial("a\nb", _Short(), "ja", "en")
+        assert result == "[untranslated] a\n[untranslated] b"
+        assert "2 lines" in message
+
+    def test_a_budget_stop_mid_run_returns_the_finished_lines(self):
+        class _StopAfterOne:
+            def __init__(self):
+                self.seen = 0
+
+            def refuse(self, batch, first, total):
+                self.seen += 1
+                return "stopped" if self.seen > 1 else None
+
+            def abandoned(self, batch):
+                pass
+
+        text = "\n".join(f"l{i}" for i in range(1, 5))
+        result, message = te.standalone_translate_partial(
+            text, _BlobMergingEngine(), "ja", "en", batch_size=2, budget=_StopAfterOne())
+        # The chunk the stop landed in is dropped whole, as before, not half merged.
+        assert (result, message) == ("", "stopped")
