@@ -1,6 +1,6 @@
 # Accuracy tuning: test the owner's own clips, pick models and settings by measurement (plan)
 
-Status: **plan; steps A1 to A5 and T1 built, T2 onward not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
+Status: **plan; steps A1 to A5, T1 and T2 built, T3 onward not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
 
 ## Why
 
@@ -38,7 +38,7 @@ The owner wants better transcription and translation accuracy, and evidence for 
 7. **Translation leftovers:**
    - The context and batch defaults disagree: 10/6/30 in `engine_backends/engine_registry.py` against 6/3/20 in `services/workspace_job_service.py` and `bulk_translate.py`.
    - Temperature is never set.
-   - Judge scores live in `app_settings` (`benchmark_judge.<run id>`), not beside the results.
+   - Judge scores lived in `app_settings` (`benchmark_judge.<run id>`), not beside the results; T2 moved them onto `benchmark_results` (`judge_scores`) and the run (`judge_meta`).
    - Translation-memory matches reach Review as suggestions and never reach the prompt.
 
 ## Method
@@ -167,7 +167,7 @@ One PR each, in this order.
 
 ## Where results are kept
 
-- **Runs and results.** Every run is saved in `library.db`: `benchmark_sessions` (the setup and totals) and `benchmark_results` (each case's output and score). Today the judge scores are the exception, in `app_settings`; T2 moves them in with the results.
+- **Runs and results.** Every run is saved in `library.db`: `benchmark_sessions` (the setup and totals) and `benchmark_results` (each case's output and score). Judge scores are in `benchmark_results.judge_scores` (the pass's settings and cost in `benchmark_sessions.judge_meta`); owner A/B picks are in `benchmark_picks`.
 - **Clips.** Clips go in `library/benchmark_cases/`, the folder transcription cases already use (`db.BENCHMARK_DIR`). No transcription case can be added today, so every run so far is translation only.
 - **Backups.** A full library backup with media copies both the database tables and the clip folder, and a restore brings `benchmark_cases/` back. A per-user backup leaves the benchmark tables empty by design (`services/library_user_backup_service.py`: "this PC's test set"). A database-only backup has the tables but not the clips.
 - **Export.** None today. Step A1 adds CSV and JSON export.

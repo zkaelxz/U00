@@ -8,7 +8,7 @@ from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeOptions, BenchmarkTranslateChoices, BenchmarkTranslateOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
+from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeOptions, BenchmarkTranslateChoices, BenchmarkTranslateOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkPickTotals
 from core import SOURCE_LANGUAGES
 
 Stage = Literal["translation", "transcription", "ocr"]
@@ -184,6 +184,7 @@ class BenchmarkRun(BaseModel):
     # Arena only: the run's score over the compared cases, and its stored total over all of them.
     stored_aggregate_score: Optional[float] = None
     judge: Optional[BenchmarkJudgeSummary] = None
+    picks: Optional[BenchmarkPickTotals] = None
     script_counts: Optional[BenchmarkScriptCounts] = None
     timing: BenchmarkTimingSummary = Field(default_factory=BenchmarkTimingSummary)
     timing_verdict: Optional[BenchmarkTimingVerdict] = None
@@ -207,6 +208,7 @@ class BenchmarkResult(BaseModel):
     cost_usd: float = 0.0
     error: Optional[str] = None
     judge: Optional[BenchmarkJudgeScore] = None
+    picks: Optional[BenchmarkPickTotals] = None
     script_counts: Optional[BenchmarkScriptCounts] = None
     ref_version: int = 1
     timing: Optional[BenchmarkCaseTiming] = None

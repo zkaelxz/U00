@@ -677,6 +677,9 @@ from db.benchmark import (  # noqa: F401
     list_benchmark_sessions,
     save_benchmark_result,
     list_benchmark_results,
+    set_benchmark_judge,
+    save_benchmark_pick,
+    list_benchmark_picks,
 )
 
 

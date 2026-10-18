@@ -21,6 +21,10 @@ __all__ = [
     "BenchmarkJudgeScore",
     "BenchmarkJudgeSummary",
     "BenchmarkJudgeEstimate",
+    "BenchmarkPickTotals",
+    "BenchmarkPairNext",
+    "BenchmarkPickRequest",
+    "BenchmarkPickSummary",
     "BenchmarkSetBuildRequest",
     "BenchmarkSetBuildResult",
     "BenchmarkTitleCorrections",
@@ -88,6 +92,45 @@ class BenchmarkJudgeSummary(BaseModel):
     scored: int = 0
     average: Dict[str, Optional[float]] = Field(default_factory=dict)
     note: Optional[str] = None
+
+
+class BenchmarkPickTotals(BaseModel):
+    won: int = 0
+    lost: int = 0
+    tie: int = 0
+
+
+class BenchmarkPairNext(BaseModel):
+    """Two outputs for one case, in random order; nothing names the run behind either."""
+    total: int
+    remaining: int
+    done: bool
+    case_id: Optional[int] = None
+    label: Optional[str] = None
+    source_text: Optional[str] = None
+    reference_text: Optional[str] = None
+    left_text: Optional[str] = None
+    right_text: Optional[str] = None
+    ticket: Optional[str] = None
+
+
+class BenchmarkPickRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ticket: str = Field(max_length=100)
+    choice: Literal["left", "right", "tie"]
+
+
+class BenchmarkPickSummary(BaseModel):
+    run_a: int
+    run_b: int
+    total: int
+    picked: int
+    a_wins: int
+    b_wins: int
+    ties: int
+    judge_agrees: int
+    judge_disagrees: int
+    judge_undecided: int
 
 
 class BenchmarkJudgeEstimate(BaseModel):

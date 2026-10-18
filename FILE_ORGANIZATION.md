@@ -258,6 +258,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_clip_service.py` (the Benchmark Lab's clip set: uploaded audio with transcripts, exclude and edit a reference)
 - `benchmark_export_service.py` (a Lab run or comparison as CSV or JSON)
 - `benchmark_judge_service.py`
+- `benchmark_picks_service.py` (the owner's blind A/B picks between two Lab runs, and how often the judge agreed)
 - `benchmark_lab_service.py`
 - `asr_timing_service.py` (where recognised lines sit against reference lines in time: matching, silence and per-case timing measures shared by the Lab and `tools/asr_bench.py`)
 - `benchmark_reference_service.py` (a title's corrected lines as Lab transcription references: raw-to-edited error rate, clipped-audio cases, the scorer auto-tune uses)

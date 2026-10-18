@@ -101,8 +101,7 @@ def get_run(run_id: int) -> dict:
 
 
 def delete_run(run_id: int) -> dict:
-    """The run and, through ON DELETE CASCADE, its results. Its judge scores
-    are kept apart (app_settings) and removed by the caller."""
+    """The run and, through ON DELETE CASCADE, its results, judge scores and picks."""
     if not db.get_benchmark_session(run_id):
         raise NotFoundError("Benchmark run not found.")
     db.delete_benchmark_sessions([run_id])

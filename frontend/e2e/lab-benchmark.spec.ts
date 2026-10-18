@@ -112,6 +112,9 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await expect(first.getByLabel('Output of Fake').first()).toContainText('[TEST] 你好')
   await expect(first.getByLabel('Output of Fake').first()).toContainText(/Pass|Fail/)
 
+  // Both runs wrote the same text, so the blind A/B has nothing to ask about.
+  await expect(arena.getByTestId('blind-pick')).toContainText('no differing outputs')
+
   // One run's own results.
   await runs.getByRole('button', { name: /^Results of run/ }).first().click()
   await expect(page.getByRole('region', { name: 'Run results' })).toContainText('[TEST]')

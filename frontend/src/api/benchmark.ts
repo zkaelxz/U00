@@ -312,9 +312,17 @@ export interface BenchmarkRun {
   /** Arena only: the run's own total over all its cases (aggregate_score covers only the compared ones). */
   stored_aggregate_score?: number | null
   judge?: BenchmarkJudgeSummary | null
+  picks?: BenchmarkPickTotals | null
   script_counts?: ScriptCounts | null
   timing?: BenchmarkTimingSummary
   timing_verdict?: BenchmarkTimingVerdict | null
+}
+
+/** How often the owner picked this output over another run's (blind A/B). */
+export interface BenchmarkPickTotals {
+  won: number
+  lost: number
+  tie: number
 }
 
 export interface BenchmarkResult {
@@ -330,6 +338,7 @@ export interface BenchmarkResult {
   cost_usd: number
   error: string | null
   judge?: BenchmarkJudgeScore | null
+  picks?: BenchmarkPickTotals | null
   script_counts?: ScriptCounts | null
   ref_version?: number
   timing?: BenchmarkCaseTiming | null
@@ -485,6 +494,48 @@ export function getBenchmarkArena(runIds: number[], f?: Fetch) {
   runIds.forEach((id) => params.append('run_ids', String(id)))
   return getJson<BenchmarkArena>(`${BASE}/arena?${params}`, f)
 }
+
+// ---- blind A/B: the owner picks the better of two runs' outputs --------------
+
+/** Two outputs for one case in random order; nothing here names the run behind either. */
+export interface BenchmarkPairNext {
+  total: number
+  remaining: number
+  done: boolean
+  case_id?: number | null
+  label?: string | null
+  source_text?: string | null
+  reference_text?: string | null
+  left_text?: string | null
+  right_text?: string | null
+  ticket?: string | null
+}
+
+export type BenchmarkPickChoice = 'left' | 'right' | 'tie'
+
+export interface BenchmarkPickSummary {
+  run_a: number
+  run_b: number
+  total: number
+  picked: number
+  a_wins: number
+  b_wins: number
+  ties: number
+  judge_agrees: number
+  judge_disagrees: number
+  judge_undecided: number
+}
+
+const pairQuery = (runA: number, runB: number) => `run_a=${runA}&run_b=${runB}`
+
+export const getBenchmarkPair = (runA: number, runB: number, f?: Fetch) =>
+  getJson<BenchmarkPairNext>(`${BASE}/ab/next?${pairQuery(runA, runB)}`, f)
+
+export const getBenchmarkPickSummary = (runA: number, runB: number, f?: Fetch) =>
+  getJson<BenchmarkPickSummary>(`${BASE}/ab/summary?${pairQuery(runA, runB)}`, f)
+
+export const saveBenchmarkPick = (ticket: string, choice: BenchmarkPickChoice, f?: Fetch) =>
+  postJson<{ saved: boolean }>(`${BASE}/ab/pick`, { ticket, choice }, pcOnlyFetch(f))
 
 // ---- the owner's clip set -------------------------------------------------
 
