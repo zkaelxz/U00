@@ -150,8 +150,13 @@ def list_series_with_dramas(principal=None, include_single: bool = False) -> lis
     # own flag on joining one stays hidden from others (one query for all).
     seen = None if visible_to is None else {
         d["id"] for d in db.list_dramas(visible_to=visible_to)}
-    for s in db.list_series(visible_to=visible_to):
-        dramas = db.list_dramas_by_series(s["id"])
+    series = db.list_series(visible_to=visible_to)
+    # Grouped queries: the cost must not grow with the number of series.
+    dramas_by_series = db.list_dramas_by_series_ids([s["id"] for s in series])
+    character_counts = db.count_series_characters_by_series()
+    term_counts = db.count_glossary_terms_by_series()
+    for s in series:
+        dramas = dramas_by_series.get(s["id"], [])
         if seen is not None:
             dramas = [d for d in dramas if d["id"] in seen]
         if len(dramas) < (1 if include_single else 2):
@@ -160,8 +165,8 @@ def list_series_with_dramas(principal=None, include_single: bool = False) -> lis
             "id": s["id"], "name": s["name"],
             "is_private": bool(s.get("is_private")),
             "owned_by_me": uid is not None and s.get("owner_user_id") == uid,
-            "character_count": len(db.list_series_characters(s["id"])),
-            "glossary_term_count": len(db.list_glossary_terms(s["id"])),
+            "character_count": character_counts.get(s["id"], 0),
+            "glossary_term_count": term_counts.get(s["id"], 0),
             "dramas": [{k: d.get(k) for k in ("id", "title_en", "title_zh", "status", "media_type")}
                        for d in dramas]})
     return out

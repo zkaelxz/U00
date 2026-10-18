@@ -439,7 +439,8 @@ from db.library_folder import (  # noqa: E402,F401
 
 from db.dramas import (  # noqa: E402,F401
     create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, get_drama,
-    get_library_stats, list_dramas, list_dramas_by_series, list_dramas_recently_active,
+    get_library_stats, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
+    list_dramas_recently_active,
     search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
     has_custom_tag, set_custom_tag)
 
@@ -466,6 +467,7 @@ from db.speakers import (  # noqa: F401
     live_speaker_merge_undo_clips,
     retire_speaker_merge_undos,
     upsert_series_character,
+    count_series_characters_by_series,
     rename_series_character,
     insert_series_character,
     update_series_character,
@@ -525,7 +527,7 @@ from db.glossary import (  # noqa: E402,F401
     bump_translation_memory_use, create_series, get_or_create_series, get_series_id_by_name,
     insert_glossary_term_if_absent, list_series, list_translation_memory,
     record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
-    upsert_glossary_term, list_glossary_terms, list_glossary_dismissals,
+    upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
     delete_glossary_term)
 
