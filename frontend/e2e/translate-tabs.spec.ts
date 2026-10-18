@@ -94,9 +94,9 @@ test('an unknown tab, or one from the Media stage, falls back to Translate', asy
   }
 })
 
-test('the Media stage keeps its own tab link', async ({ page }) => {
+test('the Media stage keeps its own tab link, and the old Credits link lands on Details', async ({ page }) => {
   await page.goto('/#/drama/1/source?tab=credits')
-  await expect(page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab', { name: 'Credits' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true')
 })
 
 test('Edit in Translate links (?focus=) open the tab that holds the panel', async ({ page }) => {

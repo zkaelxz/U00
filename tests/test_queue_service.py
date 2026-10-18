@@ -307,6 +307,41 @@ def test_validation_rejects_unknown_titles_bad_steps_and_a_full_queue(jobs):
     assert len(_items()) == q.MAX_ITEMS
 
 
+def test_all_steps_adds_three_ordered_items_each_waiting(jobs):
+    did = _drama(lines=(("你好", "Hello"),))
+    q.add_all_steps(None, did, True, at_pc=True)
+    assert [(i["step"], i["drama_id"], i["status"]) for i in _items()] == [
+        ("transcribe", did, "waiting"), ("translate", did, "waiting"), ("export", did, "waiting")]
+    assert q.get_queue(None)["state"] == "idle"
+
+
+def test_all_steps_adds_nothing_when_any_step_is_refused(jobs):
+    with pytest.raises(NotFoundError):
+        q.add_all_steps(None, 999999, True, at_pc=True)
+    paid = _drama(engine="claude")
+    with pytest.raises(ForbiddenError):
+        q.add_all_steps(None, paid, False, at_pc=True)
+    did = _drama()
+    for _ in range(q.MAX_ITEMS - 2):
+        q.add_item(None, did, "export", True, at_pc=True)
+    with pytest.raises(ConflictError):
+        q.add_all_steps(None, did, True, at_pc=True)
+    assert len(_items()) == q.MAX_ITEMS - 2
+
+
+def test_all_steps_stops_the_later_steps_after_a_failure_when_the_policy_says_so(jobs):
+    did = _drama()
+    q.set_policy(None, True)
+    q.add_all_steps(None, did, True, at_pc=True)
+    jobs.fail.add(f"transcribe_{did}")
+    q.start(None)
+    q.tick()
+    jobs.finish(f"transcribe_{did}")
+    q.tick()
+    assert _status() == [("transcribe", "failed"), ("translate", "waiting"), ("export", "waiting")]
+    assert jobs.started == [f"transcribe_{did}"]
+
+
 def test_members_queue_only_their_own_titles_and_see_only_those(jobs):
     owner = auth_service.add_user("a@example.com")
     other = auth_service.add_user("b@example.com")
@@ -585,3 +620,53 @@ def test_a_deferred_item_alone_keeps_the_queue_running(jobs):
     jobs.finish("direct_1")
     q.tick()
     assert _items()[0]["status"] == "running"
+
+
+def test_bulk_add_queues_each_title_and_skips_the_refused_with_a_reason(jobs):
+    a = _drama("A")
+    b = _drama("B")
+    paid = _drama("Paid", engine="claude")
+    out = q.add_bulk(None, [a, 999999, paid, b, a], "all", False, at_pc=True)
+    assert out["added"] == [a, b] and [s["drama_id"] for s in out["skipped"]] == [999999, paid]
+    assert all(s["reason"] for s in out["skipped"])
+    assert [(i["drama_id"], i["step"]) for i in _items()] == [
+        (d, s) for d in (a, b) for s in ("transcribe", "translate", "export")]
+    assert out["queue"]["state"] == "idle"
+
+
+def test_bulk_add_one_step_and_a_bad_step(jobs):
+    a = _drama("A")
+    q.add_bulk(None, [a], "export", True, at_pc=True)
+    assert [(i["drama_id"], i["step"]) for i in _items()] == [(a, "export")]
+    with pytest.raises(InvalidInputError):
+        q.add_bulk(None, [a], "dub", True, at_pc=True)
+
+
+def test_bulk_add_skips_the_titles_that_no_longer_fit_when_the_queue_fills(jobs):
+    did = _drama()
+    for _ in range(q.MAX_ITEMS - 2):
+        q.add_item(None, did, "export", True, at_pc=True)
+    a = _drama("A")
+    out = q.add_bulk(None, [a], "all", True, at_pc=True)
+    assert out["added"] == [] and len(out["skipped"]) == 1
+    assert len(_items()) == q.MAX_ITEMS - 2
+
+
+def test_bulk_add_stops_checking_after_the_queue_is_full(jobs):
+    did = _drama()
+    for _ in range(q.MAX_ITEMS - 2):
+        q.add_item(None, did, "export", True, at_pc=True)
+    a, b = _drama("A"), _drama("B")
+    out = q.add_bulk(None, [a, b], "all", True, at_pc=True)
+    assert out["added"] == [] and [s["drama_id"] for s in out["skipped"]] == [a, b]
+    assert out["skipped"][0]["reason"] == out["skipped"][1]["reason"]
+
+
+def test_bulk_add_body_refuses_an_oversized_id_or_too_many_titles():
+    from pydantic import ValidationError
+    from api.schemas import QueueAddBulk
+    with pytest.raises(ValidationError):
+        QueueAddBulk(drama_ids=[1, 2**63], step="export")
+    with pytest.raises(ValidationError):
+        QueueAddBulk(drama_ids=list(range(1, q.MAX_ITEMS + 2)), step="export")
+    assert QueueAddBulk(drama_ids=[1, 2], step="all").drama_ids == [1, 2]

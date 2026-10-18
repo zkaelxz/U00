@@ -11,6 +11,12 @@ export interface QueueMock {
   calls: string[]
   // "drama_id:step" of every Saved settings read.
   settingsReads: string[]
+  // Editable fields the settings read returns per step; none, like an older server.
+  fields: Record<string, unknown[]>
+  // Body of every add-item call.
+  addBodies: Record<string, unknown>[]
+  // Ids the bulk add refuses, with the reason it gives.
+  refuse: Record<number, string>
 }
 
 const SETTINGS_ROWS: Record<string, { label: string; value: string; engine?: string }[]> = {
@@ -42,7 +48,7 @@ const TITLES: Record<number, string> = { 3: 'Signal', 4: 'Kae' }
 export function queueItem(id: number, p: Partial<Item> = {}): Item {
   return {
     id, drama_id: 3, title: 'Signal', step: 'transcribe', status: 'waiting', reason: null, job_id: null,
-    engine: null, paid: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+    engine: null, paid: false, changed_settings: [], mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
   }
 }
 
@@ -54,6 +60,9 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
     },
     calls: [],
     settingsReads: [],
+    fields: {},
+    addBodies: [],
+    refuse: {},
   }
   let nextId = 100
   await page.route('**/api/translate-run/dramas/*/config', (route) => route.fulfill({
@@ -71,16 +80,36 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
       const q = new URL(r.url()).searchParams
       const step = q.get('step') ?? ''
       mock.settingsReads.push(`${q.get('drama_id')}:${step}`)
-      return route.fulfill({ json: { drama_id: Number(q.get('drama_id')), step, title: 'Signal', rows: SETTINGS_ROWS[step] ?? [] } })
+      return route.fulfill({ json: { drama_id: Number(q.get('drama_id')), step, title: 'Signal', rows: SETTINGS_ROWS[step] ?? [], fields: mock.fields[step] ?? [] } })
     }
     if (r.method() === 'POST') mock.calls.push(path.replace('/api/queue', '') || '/')
     const find = () => s.items.findIndex((i) => i.id === Number(path.split('/')[4]))
     if (r.method() === 'POST' && path === '/api/queue/items') {
       const id = Number(body.drama_id)
+      mock.addBodies.push(body)
+      const changed = Object.entries(body.settings ?? {}).map(([label, value]) => ({ label, value: String(value) }))
       s.items = [...s.items, queueItem(nextId++, {
-        drama_id: id, title: TITLES[id], step: body.step,
+        drama_id: id, title: TITLES[id], step: body.step, changed_settings: changed,
         ...(body.step === 'translate' ? { engine: 'claude', paid: true } : {}),
       })]
+    } else if (r.method() === 'POST' && path === '/api/queue/items/all-steps') {
+      const id = Number(body.drama_id)
+      mock.addBodies.push(body)
+      s.items = [...s.items, ...(['transcribe', 'translate', 'export'] as const).map((step) => queueItem(nextId++, {
+        drama_id: id, title: TITLES[id], step,
+        ...(step === 'translate' ? { engine: 'claude', paid: true } : {}),
+      }))]
+    } else if (r.method() === 'POST' && path === '/api/queue/items/bulk') {
+      mock.addBodies.push(body)
+      const steps = body.step === 'all' ? (['transcribe', 'translate', 'export'] as const) : [body.step as string]
+      const added: number[] = []
+      const skipped: { drama_id: number; reason: string }[] = []
+      for (const id of body.drama_ids as number[]) {
+        if (mock.refuse[id]) { skipped.push({ drama_id: id, reason: mock.refuse[id] }); continue }
+        added.push(id)
+        s.items = [...s.items, ...steps.map((step) => queueItem(nextId++, { drama_id: id, title: TITLES[id] ?? `Title ${id}`, step }))]
+      }
+      return route.fulfill({ json: { queue: s, added, skipped } })
     } else if (path.endsWith('/move')) {
       const n = find()
       const m = body.direction === 'up' ? n - 1 : n + 1
@@ -110,3 +139,17 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
   })
   return mock
 }
+
+// What the server returns for a Transcribe step: each setting starting at the title's saved value.
+export const TRANSCRIBE_FIELDS = [
+  {
+    key: 'whisper_size', label: 'Whisper model', kind: 'select', value: 'small', min: null, max: null, locked: null,
+    options: [{ value: 'small', label: 'small' }, { value: 'large-v3-turbo', label: 'large-v3-turbo' }],
+  },
+  { key: 'beam_size', label: 'Beam size', kind: 'number', value: 5, options: [], min: 1, max: 10, locked: null },
+  { key: 'separate_vocals_first', label: 'Separate vocals first', kind: 'toggle', value: false, options: [], min: null, max: null, locked: null },
+  {
+    key: 'use_groq', label: 'Groq (paid)', kind: 'toggle', value: false, options: [], min: null, max: null,
+    locked: 'Needs paid-engine permission.',
+  },
+]

@@ -66,7 +66,7 @@ from services import (asr_options_service, diarization_service, ownership_servic
                       transcribe_pipeline,
                       vocabulary_hint_service)
 from services.transcribe_options_service import (
-    _DEFAULT_TUNING, _check_run_request,
+    _DEFAULT_TUNING, _check_run_request, apply_run_overrides,
     check_transcribe_fields,
     check_whisper_size_for_language, selectable_whisper_sizes, stored_hallucination_silence_sec,
     stored_min_pause_sec, stored_whisper_size, whisper_size_notice)
@@ -210,13 +210,17 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                           expected_speakers: Optional[int] = None,
                           initial_prompt: str = "", tesseract_cmd: Optional[str] = None,
                           extra_names: str = "", min_speakers: Optional[int] = None,
-                          max_speakers: Optional[int] = None) -> dict:
+                          max_speakers: Optional[int] = None,
+                          overrides: Optional[dict] = None) -> dict:
     """Starts the background job that transcribes (or aligns a supplied
     transcript against) this drama's stored audio, then -- once that's
     done, inside the same job -- applies the result to the drama's lines
     and optionally chain-starts a diarization run. Poll status via the
     existing GET /api/jobs/{job_id}; once "done", the DB write has already
     happened (see this module's own docstring for why).
+
+    overrides (a queued item's own settings, transcribe_options_service.QUEUE_SETTING_KEYS)
+    are laid over the title for this run only; nothing is saved to the title.
 
     source_language / chinese_script default to this drama's own stored
     values when omitted. initial_prompt is an optional
@@ -247,7 +251,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     "qwen3_forced_align" while transcript_mode is "whisper" (forced
     alignment needs a known transcript); ConflictError if a transcription is already running for
     this drama."""
-    drama = ownership_service.require_drama(drama_id)
+    drama = apply_run_overrides(ownership_service.require_drama(drama_id), overrides)
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
         ownership_service.require_acting_lines_edit()

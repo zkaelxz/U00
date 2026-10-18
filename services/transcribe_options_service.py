@@ -169,6 +169,79 @@ def check_transcribe_fields(fields: dict, source_language) -> dict:
     return updates
 
 
+# What one queued Transcribe item may change for its own run. The title's saved options are
+# never written: the run sees the title with these laid over it (apply_run_overrides).
+QUEUE_SETTING_KEYS = ("whisper_size", "asr_backend_choice", "source_language", "transcript_mode",
+                      "alignment_method", "sensitivity_preset", "beam_size",
+                      "separate_vocals_first", "use_groq")
+# have_transcript needs pasted text, which a queued run has nowhere to take it from.
+QUEUE_TRANSCRIPT_MODES = ("whisper", "hardsub_ocr")
+_QUEUE_FLAG_KEYS = ("separate_vocals_first", "use_groq")
+
+
+def check_run_overrides(drama: dict, overrides) -> dict:
+    """The queue settings in `overrides`, checked against the title they will run on.
+    InvalidInputError for an unknown key or a value of the wrong kind or range. The
+    `engines.paid` rule for use_groq is the caller's: this has no principal."""
+    if overrides is None:
+        return {}
+    if not isinstance(overrides, dict):
+        raise InvalidInputError("Settings must be an object.")
+    unknown = sorted(set(overrides) - set(QUEUE_SETTING_KEYS))
+    if unknown:
+        raise InvalidInputError(f"Unknown setting {unknown[0]!r}.")
+    given = {k: v for k, v in overrides.items() if v is not None}
+    for key in _QUEUE_FLAG_KEYS:
+        if key in given and not isinstance(given[key], bool):
+            raise InvalidInputError(f"{key} must be true or false.")
+    # bool is an int subclass: True would otherwise pass as a beam size of 1.
+    if "beam_size" in given and (isinstance(given["beam_size"], bool) or not isinstance(given["beam_size"], int)):
+        raise InvalidInputError("beam_size must be a whole number.")
+    for key in ("whisper_size", "asr_backend_choice", "source_language", "transcript_mode",
+                "alignment_method", "sensitivity_preset"):
+        # An empty string would read as "not set" further down and fall back to Chinese.
+        if key in given and (not isinstance(given[key], str) or not given[key]):
+            raise InvalidInputError(f"{key} must be text.")
+    language = given.get("source_language") or drama.get("source_language") or "zh"
+    if language not in SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Unknown source_language {language!r}.")
+    if "transcript_mode" in given:
+        if given["transcript_mode"] not in QUEUE_TRANSCRIPT_MODES:
+            raise InvalidInputError("A queued run can use Whisper or on-screen subtitle reading; "
+                                    "it has nowhere to take a pasted transcript from.")
+        if given["transcript_mode"] == "hardsub_ocr" and not drama.get("source_video_filename"):
+            raise UnsupportedOperationError("This title has no video source; on-screen subtitle reading needs one.")
+    check_transcribe_fields({k: v for k, v in given.items() if k not in ("source_language", "transcript_mode")}, language)
+    # The language decides which model and backend fit, so a changed language re-checks the
+    # title's saved ones that stay: the run would refuse them anyway, and the page says so now.
+    if "source_language" in given:
+        if "whisper_size" not in given:
+            check_whisper_size_for_language(stored_whisper_size(drama), language)
+        if "asr_backend_choice" not in given:
+            problem = asr_options_service.asr_backend_language_problem(
+                asr_options_service.stored_asr_backend(drama), language)
+            if problem:
+                raise InvalidInputError(problem)
+    if given:
+        # The combination the run will see, so a choice the run refuses is refused now, in its words.
+        merged = {**drama, **given}
+        _check_run_choices(
+            merged.get("transcript_mode") or "have_transcript", asr_options_service.stored_asr_backend(merged),
+            merged.get("alignment_method") or "whisper_diff", language)
+    return given
+
+
+def apply_run_overrides(drama: dict, overrides) -> dict:
+    """A copy of the title as one run with `overrides` sees it."""
+    given = check_run_overrides(drama, overrides)
+    if not given:
+        return drama
+    merged = dict(drama)
+    for key, value in given.items():
+        merged[key] = (1 if value else 0) if key in _QUEUE_FLAG_KEYS else value
+    return merged
+
+
 # The per-title options a Benchmark Lab transcription run may set, as the title stores them.
 # A field a Lab run leaves out takes what a title with nothing saved uses, never
 # transcribe_for_timing's own defaults (a 2000 ms silence where titles use 300).

@@ -48,6 +48,7 @@ from engine_backends.shared import (  # noqa: F401
     _is_rate_limit_error,
     build_numbered_lines,
     call_with_backoff,
+    gemini_generate_request,
     claude_usage,
     display_url,
     extract_first_json_value,
@@ -143,6 +144,7 @@ from engine_backends.llm_tasks import (  # noqa: F401
     smart_segment_lines,
     tag_speakers_by_id,
 )
+from engine_backends.vision import VISION_ENGINES, read_image_text  # noqa: F401
 from engine_backends.engine_registry import (  # noqa: F401
     CAP_CHEAP,
     CAP_GROUNDED_SEARCH,
@@ -192,6 +194,7 @@ from engine_backends.standalone import (  # noqa: F401
     UnsupportedDirectionError,
     chunk_standalone_text,
     standalone_direction_support,
+    standalone_requests,
     standalone_translate,
     standalone_translate_partial,
 )

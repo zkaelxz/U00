@@ -1,6 +1,7 @@
 // Pure helpers for the Library admin UI (selection, result lines, sizes).
 import type { DramaSummary } from '../../api/types'
 import { TERMINAL_STATUSES, type JobRecord } from '../../types/jobs'
+import type { QueueBulkAdded } from '../../types/queue'
 import type {
   LibraryBulkDeleteResult,
   LibraryBulkItem,
@@ -79,6 +80,10 @@ export const exportableCount = (byStatus: Record<string, number> | undefined) =>
   EXPORTABLE.reduce((n, s) => n + (byStatus?.[s] ?? 0), 0)
 
 export const TRANSLATE_NEEDS = "Still needed: a selected title with status 'aligned'."
+// Originals can be many GB; the finished zip's size shows before the download link.
+export const ORIGINALS_LABEL = 'With originals'
+export const ORIGINALS_HELP = 'Also zip the original video, audio, novel text and page scans (large).'
+
 export const EXPORT_NEEDS =
   "Still needed: a selected title with status 'translated', 'dubbed' or 'exported'."
 
@@ -126,6 +131,13 @@ export function describeTranslateSkips(skips: readonly LibraryBulkTranslateSkip[
   if (!skips.length) return null
   const parts = skips.map((s) => `${reasonText(s.reason)} (${names(s.drama_id)})`)
   return `${skips.length} skipped: ${parts.join(', ')}`
+}
+
+/** "Added 2, skipped 1: Title (reason)." */
+export function describeQueueAdd(r: Pick<QueueBulkAdded, 'added' | 'skipped'>, names: Names): string {
+  if (!r.skipped.length) return `Added ${r.added.length}.`
+  const list = skippedList(r.skipped.map((x) => ({ id: x.drama_id, why: x.reason.replace(/\.$/, '') })), names)
+  return `Added ${r.added.length}, skipped ${r.skipped.length}: ${list}.`
 }
 
 /**

@@ -47,10 +47,18 @@ test.describe('selection bar (real API)', () => {
     // Clicking a checkbox does not open the drama's details.
     await expect(page.getByRole('dialog', { name: 'Admin E2E One' })).toHaveCount(0)
 
-    await bar.getByLabel('New status').selectOption('translated')
-    await bar.getByRole('button', { name: 'Set status' }).click()
+    await bar.getByRole('combobox', { name: 'Set status' }).selectOption('translated')
     await expect(page.getByTestId('bulk-result')).toContainText('Updated 2.')
     await expect(page.locator('tbody tr', { hasText: 'Admin E2E' }).filter({ hasText: 'translated' })).toHaveCount(2)
+
+    // The Lists dropdown applies a pick at once and goes back to blank.
+    const lists = bar.getByRole('combobox', { name: 'Lists' })
+    await expect(lists).toHaveValue('')
+    await lists.selectOption('add:Favorite')
+    await expect(page.getByTestId('bulk-result')).toContainText('Updated 2.')
+    await expect(lists).toHaveValue('')
+    await lists.selectOption('remove:Favorite')
+    await expect(lists).toHaveValue('')
 
     await expect(bar.getByRole('button', { name: 'Translate 0' })).toBeDisabled()
     await expect(bar).toContainText("Still needed: a selected title with status 'aligned'.")

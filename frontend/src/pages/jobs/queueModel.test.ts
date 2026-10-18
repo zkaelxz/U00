@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import type { QueueItem, QueueState } from '../../types/queue'
+import type { QueueItem, QueueSettingField, QueueState } from '../../types/queue'
 import {
-  canRemove, canRetry, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, statusLabel, statusTone,
+  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, statusLabel, statusTone,
   translateCostNote,
 } from './queueModel'
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 1, drama_id: 3, title: 'Signal', step: 'translate', status: 'waiting', reason: null, job_id: null,
-  engine: 'claude', paid: true, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: 'claude', paid: true, changed_settings: [], mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const queue = (p: Partial<QueueState> = {}): QueueState => ({
   version: 1, state: 'idle', stop_on_failure: false, schedule: null, notice: null, max_items: 200,
@@ -74,5 +74,36 @@ describe('saved settings panel', () => {
       'Uses Paid, cloud; best tone and character voice. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
     expect(translateCostNote('Claude', false, 0)).toBe('Uses Claude, which is free.')
     expect(translateCostNote('Claude.', false, 0)).toBe('Uses Claude, which is free.')
+  })
+})
+
+describe('changedEdits', () => {
+  const field = (key: string, value: QueueSettingField['value'], locked: string | null = null): QueueSettingField => ({
+    key, label: key, kind: 'number', value, options: [], min: null, max: null, locked,
+  })
+  const fields = [field('beam_size', 5), field('separate_vocals_first', false), field('use_groq', false, 'Needs paid-engine permission.')]
+
+  it('sends only what differs from the title, so the rest keep following it', () => {
+    expect(changedEdits(fields, { beam_size: 8, separate_vocals_first: false })).toEqual({ beam_size: 8 })
+  })
+
+  it('sends nothing when every edit matches the title', () => {
+    expect(changedEdits(fields, { beam_size: 5 })).toBeUndefined()
+    expect(changedEdits(fields, {})).toBeUndefined()
+  })
+
+  it('never sends a locked setting', () => {
+    expect(changedEdits(fields, { use_groq: true })).toBeUndefined()
+  })
+})
+
+describe('the Step choice', () => {
+  it('offers All steps first, then the three single steps, each with help text', () => {
+    expect(Object.keys(ADD_STEP_LABELS)).toEqual(['all', 'transcribe', 'translate', 'export'])
+    for (const key of Object.keys(ADD_STEP_LABELS)) expect(STEP_HELP[key as keyof typeof STEP_HELP]).toBeTruthy()
+  })
+
+  it('tells the person All steps does not start anything', () => {
+    expect(STEP_HELP.all).toContain('Nothing starts until you press Start queue.')
   })
 })

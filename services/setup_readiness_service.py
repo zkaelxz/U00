@@ -55,6 +55,10 @@ _PACKAGES = {
     # paddleocr 3.x does not pull in the paddlepaddle wheel (module `paddle`), so the
     # first alone would report an OCR backend that fails on first use.
     "paddle_ocr": ("paddleocr", "paddle"),
+    "manga_ocr": ("manga_ocr",),
+    "plyer": ("plyer",),
+    "trafilatura": ("trafilatura",),
+    "playwright": ("playwright",),
 }
 _KEYS = ("claude", "deepseek", "gemini", "openai", "groq")
 
@@ -119,6 +123,8 @@ def _compute() -> dict:
     out["ffmpeg_libass"] = out["ffmpeg"] and ffmpeg.get("libass") is True
     out["js_runtime"] = _safe(lambda: diagnostics.check_js_runtime().get("found"))
     out["tesseract_program"] = _safe(_tesseract_program_found)
+    # The browser for JavaScript-only sites: Playwright's own Chromium, a system Chrome/Edge or an explicit path.
+    out["browser_found"] = _safe(lambda: diagnostics.check_browser().get("found"))
     for size in whisper_models.LIVE_WHISPER_SIZES:
         out[whisper_cached_flag(size)] = _safe(lambda s=size: whisper_models.is_whisper_model_cached(s))
     out["gpu_found"] = _safe(lambda: diagnostics_torch.nvidia_driver_info() is not None)

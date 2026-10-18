@@ -11,7 +11,7 @@ descriptions are kept in `docs/archive/file-organization-full.md` (history: it p
 | Path | What it is | Entry point |
 |---|---|---|
 | `api/` | FastAPI app: routers (`api/routers/*_routes.py`), Pydantic models (`api/schemas/`, plus `api/*_schemas.py`), auth (`api/auth.py`) | `python -m api` (`api/__main__.py`, `api/server.py`) |
-| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `pid.py`, `atomic_write.py`, `link_new.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
+| `lib/` | shared helpers with no domain knowledge (`errors.py`, `url_guard.py`, `capped_body.py`, `release_signature.py`, `http.py`, `proc.py`, `proc_kill.py`, `pid.py`, `atomic_write.py`, `link_new.py`, `sqlite_check.py`, `cancellable_lock.py`, `settings_schema.py`, `gzip_text.py`, `ct2_repo.py`, `model_offline.py`); imports nothing of the app's own code | imported by every layer |
 | `services/` | UI-free application logic used by `api/`; raises the errors in `lib/errors.py` | called by routers |
 | `jobs/` | the job machinery behind `background_jobs.py`: `jobs/job_table.py` holds the in-memory job table and its lock; `jobs/job_launch.py` starts jobs (`start_job`, `start_process_job`) and holds the exclusive/maintenance/stopping refusals; `jobs/job_runner.py` runs them and handles how they end; `jobs/gpu_queue.py` is the in-process GPU wait line; `jobs/job_settings.py` the job settings; `jobs/process_worker.py` what a process-job worker calls in its child; `jobs/job_store.py` writes and closes every `job_records` row (transition writes with retry, heartbeat, dead-owner sweep, exit flush); `jobs/gpu_slots.py` is the one path to the cross-process `gpu_lock` slots (acquire, release, heartbeat, reap, status); `jobs/user_caps.py` caps one user's running and queued jobs | `job_table._mirror_locked`, `jobs_service.sweep_stale_job_records`; `gpu_slots` from `background_jobs`, `live_whisper.py`, `api/server.py` startup |
 | `engine_backends/` | translation engines by provider, retry helpers (`shared.py`), redaction (`redaction.py`); `echo.py` is the key-free Echo (testing) engine, Developer Mode only | `translate_engines.py` re-exports it |
@@ -231,6 +231,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `release_signature.py` (the Ed25519 release signature format: the signed message, key and `.sig` texts, sign and verify; used by `services/update_service.py`, `services/app_update_service.py` and `tools/release_signing.py`)
 - `link_new.py` (`link_new`: gives a finished file its final name without replacing an existing one)
+- `sqlite_check.py` (`damaged`: a read-only quick_check of a SQLite file; the startup check of `sources.db` and the automatic backup's check of its copy)
 - `model_offline.py` (offline model loads for a run started away from the PC: the per-run mark jobs carry into their thread or child process, and the Hugging Face / ModelScope cache folders)
 - `settings_schema.py` (the declared settings: one row per `app_settings` or `.env` key with its saved name, type, default and limits; `coerce` turns a stored value into a typed one; read through `settings_service.get`)
 
@@ -256,8 +257,10 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `backup_space_check.py` (the automatic backup's free-space check before it writes a copy)
 - `benchmark_case_service.py`
 - `benchmark_clip_service.py` (the Benchmark Lab's clip set: uploaded audio with transcripts, exclude and edit a reference)
+- `benchmark_end_to_end_service.py` (a Lab translation arm with a recogniser: each clip is recognised, what was heard is translated and scored against the reference translation)
 - `benchmark_export_service.py` (a Lab run or comparison as CSV or JSON)
 - `benchmark_judge_service.py`
+- `benchmark_picks_service.py` (the owner's blind A/B picks between two Lab runs, and how often the judge agreed)
 - `benchmark_lab_service.py`
 - `asr_timing_service.py` (where recognised lines sit against reference lines in time: matching, silence and per-case timing measures shared by the Lab and `tools/asr_bench.py`)
 - `benchmark_reference_service.py` (a title's corrected lines as Lab transcription references: raw-to-edited error rate, clipped-audio cases, the scorer auto-tune uses)
@@ -265,6 +268,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
 - `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
 - `benchmark_set_builder_service.py`
+- `benchmark_scene_service.py` (a Lab translation arm run the way a title is translated: a title's cases in order as batches with context, style and an optional series glossary)
+- `benchmark_translate_sweep_service.py` (the Lab's settings sweep for translation: model, batch size, context, Reflect and style preset of one engine, with the cap, a held-out check and approval saved as a profile)
 - `benchmark_sweep_service.py` (the Lab's settings sweep: coordinate descent over the transcription settings on one set and language, a held-out check, approval saved as a profile)
 - `blocked_retry_service.py`
 - `browser_install_service.py`
@@ -373,6 +378,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `ownership_service.py`
 - `page_import_limits.py`
 - `queue_service.py` (the Jobs page queue: items, run controls, the one-at-a-time runner thread)
+- `queue_transcribe_settings.py` (the queue card's Transcribe settings: saved rows, the fields one queued item may change, words for its changes)
+- `queue_translate_settings.py` (the queue card's Translate money rows: the model and batch size a queued run repeats, its cost line, the monthly cap left)
 - `qwen3_requirements_service.py`
 - `reader_service.py`
 - `real_model_check_service.py`
@@ -436,6 +443,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `profile_service.py` (translation setting profiles: the options a profile may hold, checked with the series-defaults rules, and what applying one writes to a title)
 - `translate_run_service.py`
 - `translate_service.py`
+- `image_text_service.py` (Quick translate's "Read from a screenshot": checks and sizes one picture, prices it, applies the monthly cap and sends it to a vision engine)
 - `translate_thinking_service.py`
 - `translation_version_service.py`
 - `update_service.py`
@@ -638,6 +646,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `pricing.py` (Model lists, per-million-token prices and cost estimation)
 - `prompts.py` (Prompt builders shared by the LLM engines)
 - `reflect_pass.py` (Reflect mode: three passes over one batch)
+- `vision.py` (one request that sends a picture to Claude, Gemini, OpenAI or Ollama and returns the text in it)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
 - `medium_prompts.py` (Per-medium prompt wording: subtitle, novel and stream kinds for the base prompt, Reflect and Improve)
 - `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)

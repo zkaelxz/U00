@@ -51,6 +51,12 @@ def _serve():
         except OSError:
             pass   # the console line below has it
         raise SystemExit(f"ERROR: {e.message}")
+    # A warning, not a refusal: the library itself is fine and the rest of
+    # the app works without sources.db.
+    from sources import store as src_store
+    sources_problem = src_store.integrity_problem()
+    if sources_problem:
+        _warn(sources_problem)
     cuda_runtime_path.ensure_cuda_runtime_on_path()
     from api.api_config import (check_bind_safety, check_household_bind_safety, is_loopback_host,
                                load_settings)

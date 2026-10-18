@@ -22,6 +22,7 @@ import { buildLinesNavigation } from './linesNavigation'
 import { createLinesController, type Pending, type Target } from './linesController'
 import { PhoneEditBar } from './PhoneEditBar'
 import { Player, type PlayerHandle } from './Player'
+import { ReadFromVideo } from './ReadFromVideo'
 import { ReviewWaveform } from './ReviewWaveform'
 import { gapLabel } from './retranscribeLinesLogic'
 import { nextGap, prevGap } from './gapModel'
@@ -419,6 +420,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     setGapFocus((f) => ({ gap: g, seq: (f?.seq ?? 0) + 1 }))
     setStatus(`Gap: ${gapLabel(g)}`)
   }
+  // The read goes in as an unsaved edit of the source text, so the usual Save,
+  // Undo and conflict check still apply.
+  const readIntoLine = async (text: string) => {
+    if (!active) {
+      setStatus('Select a line first; the characters go into its source text.')
+      return
+    }
+    if (edit?.lineId !== active.id && !(await ctl.openEdit(active.id, true))) return
+    actions.setDraft({ zh: text })
+  }
   const waveform =
     mediaKind && !emptyDrama ? (
       <ReviewWaveform
@@ -671,6 +682,12 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         <aside className="card review-watch" aria-label="Video with subtitles">
           <h3 className="card-title">Video with subtitles</h3>
           <div className="review-watch-dock" ref={setSideDock} />
+          <ReadFromVideo
+            player={player}
+            sourceLanguage={sourceLanguage ?? ''}
+            lineStart={active ? active.start : null}
+            onText={(text) => void readIntoLine(text)}
+          />
         </aside>
       )}
     </section>

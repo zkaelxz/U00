@@ -173,3 +173,10 @@ class TestJudgeOverHttp:
     def test_judge_has_no_extra_fields(self, isolated_db, engines):
         r = _local().post(f"{BASE}/estimate", json=self._body({"engine": "deepseek", "api_key": "x"}))
         assert r.status_code == 422
+
+
+class TestBlindPickOverHttp:
+    def test_run_ids_too_big_for_sqlite_are_a_422_not_a_500(self, isolated_db):
+        res = _local().get(f"/api/benchmark/ab/next?run_a=1&run_b={2 ** 63}")
+        assert res.status_code == 422
+        assert _local().get("/api/benchmark/ab/summary?run_a=1&run_b=2").status_code == 404
