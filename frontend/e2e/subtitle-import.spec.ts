@@ -30,6 +30,7 @@ test('picking a file shows the encoding, cue count and problems; importing as so
   await panel.getByLabel('Replace the 5 current lines (saved to history first)').check()
   await importButton.click()
   await expect(panel.getByRole('status').filter({ hasText: 'Imported 42 lines.' })).toBeVisible()
+  await expect(panel.getByRole('link', { name: 'Go to Review' })).toHaveAttribute('href', /#\/drama\/\d+\/review$/)
   expect(seen.applies).toHaveLength(1)
   expect(seen.applies[0]).toContain('confirm_replace_lines')
   expect(seen.retimes).toHaveLength(0) // re-alignment is off by default

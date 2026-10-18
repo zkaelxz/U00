@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from 'react'
 import { getAssText, getSubtitleText, type SubtitleFile, type TimingTidyReport } from '../../../api/export'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { buttonClass } from '../../../components/uiClasses'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { downloadText } from '../../../components/downloadText'
 import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
-import { buildAssRequest, exportFilename, MAX_BASE_NAME, parseWrap, type AssForm } from '../exportForm'
+import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
@@ -47,7 +48,7 @@ interface Props {
 // The one primary panel: Format, Language and a single Export (download) button.
 // Notes and line wrapping live in Advanced; the shared form also feeds ASS and burned-in video.
 export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLines }: Props) {
-  const { dramaId } = useStage()
+  const { dramaId, drama } = useStage()
   const blocked = exportBlocked(totalLines)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -130,12 +131,12 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         </Field>
         <button
           type="button"
-          className="primary"
+          className={buttonClass('primary')}
           disabled={blocked || pending}
           aria-describedby={blocked ? 'export-blocker' : undefined}
           onClick={exportFile}
         >
-          {pending ? 'Exporting...' : 'Export'}
+          {pending ? 'Exporting...' : `Download ${fmt.toUpperCase()}`}
         </button>
       </div>
       {blocked && (
@@ -157,11 +158,11 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           <Field label="Wrap source" unit="chars" help="Break source-language lines longer than this. Blank means no wrapping.">
             <input inputMode="numeric" value={form.wrapSource} placeholder="Off" onChange={(e) => set('wrapSource', e.target.value)} />
           </Field>
-          <Field label="File name" help="Name of the downloaded file, without the extension. Blank uses drama_<id>_<language>.">
+          <Field label="File name" help="Name of the downloaded file, without the extension. Blank names it after the title.">
             <input
               value={form.baseName}
               maxLength={MAX_BASE_NAME}
-              placeholder={`drama_${dramaId}_${form.field}`}
+              placeholder={fileNameHint(drama.title_en ?? drama.title_zh, form.field)}
               onChange={(e) => set('baseName', e.target.value)}
             />
           </Field>

@@ -79,6 +79,8 @@ describe('labels', () => {
     expect(humanize('engine', 'claude')).toBe('Claude')
     expect(humanize('engine', 'hf_token')).toBe('Hugging Face token')
     expect(humanize('status', 'not started')).toBe('Not started')
+    expect(humanize('status', 'running')).toBe('Running')
+    expect(humanize('status', 'error')).toBe('Failed')
   })
 
   it('falls back to a tidy label and handles empty values', () => {

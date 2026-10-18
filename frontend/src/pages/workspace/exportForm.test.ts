@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { AssStyleOptions } from '../../types/export'
 import {
+  fileNameHint,
   buildAssRequest,
   emptyAssForm,
   formatBytes,
@@ -85,5 +86,12 @@ describe('saved Export style', () => {
     const form = { ...emptyAssForm('Bold'), size: '40' }
     expect(assFormFromDraft({ fmt: 'ass', form: JSON.parse(JSON.stringify(form)) })).toEqual(form)
     expect(assFormFromDraft({ form: { size: 7, preset: 'X', perSpeakerColors: 'yes' } })).toMatchObject({ preset: 'X', size: '', perSpeakerColors: true })
+  })
+})
+
+describe('fileNameHint', () => {
+  it('names the file after the title and language, with a stand-in for a title-less drama', () => {
+    expect(fileNameHint('Moon Palace', 'en')).toBe('Moon Palace - subtitles (en)')
+    expect(fileNameHint(null, 'bilingual')).toBe('Title - subtitles (bilingual)')
   })
 })
