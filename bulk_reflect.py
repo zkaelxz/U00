@@ -4,7 +4,7 @@ applying each stage's results and submitting the next stage.
 """
 import uuid
 
-from bulk_apply import (_log_generic_usage, _parse_strict, _save_applied_english, _save_flags,
+from bulk_apply import (_load_apply_context, _log_generic_usage, _parse_strict, _save_applied_english, _save_flags,
                         _stale_line)
 from bulk_providers import make_provider
 from bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
@@ -180,13 +180,7 @@ def apply_reflect_stage_results(bulk_job_id: int, results) -> dict:
 
 
 def _apply_reflect_faithful(job: dict, results) -> dict:
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(job["id"], job["drama_id"])
     counts = {"drafted": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "failed_requests": 0, "unknown_requests": 0}
     result_texts = {}
@@ -279,13 +273,7 @@ def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_
 
 
 def _apply_reflect_reflection(job: dict, results) -> dict:
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(job["id"], job["drama_id"])
     counts = {"critiqued": 0, "no_critique_needed": 0, "dropped_deleted": 0,
               "flagged_source_changed": 0, "failed_requests": 0, "unknown_requests": 0}
     result_texts = {}
@@ -451,11 +439,7 @@ def _apply_reflect_drafts(job: dict, only_ids=None) -> int:
 def _apply_reflect_expressive(job: dict, results) -> dict:
     """The only Reflect stage that writes to a line (en_at_submit dates from
     the faithful submission) and saves the critique as a note."""
-    job_lines = db.list_bulk_job_lines(job["id"])
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    row_by_id, ids_by_key, _, _ = _load_apply_context(job["id"], job["drama_id"], with_current=False)
     critique_by_id = {lid: t for lid, t in _stage_texts(
         sibling_stage_job(job["pipeline_id"], "reflect")).items() if t}
     draft_by_id = _stage_texts(sibling_stage_job(job["pipeline_id"], "faithful"))

@@ -5,6 +5,7 @@ id. Reflect's stages are in bulk_reflect.py; which applier runs for a job is
 decided in bulk_poll.py.
 """
 import json
+from typing import NamedTuple
 
 from bulk_translate import BATCH_PRICE_FACTOR, zh_hash
 import db
@@ -13,6 +14,25 @@ import source_change
 import translate_engines
 import translation_guide as tguide
 from translation_finish import mark_translated_if_complete, untranslated_line_count
+
+
+class _ApplyContext(NamedTuple):
+    row_by_id: dict
+    ids_by_key: dict
+    current: list
+    cur_by_id: dict
+
+
+def _load_apply_context(bulk_job_id: int, drama_id: int, with_current: bool = True) -> _ApplyContext:
+    """The bulk job's submitted rows indexed by line id and request key,
+    and (unless the stage reads lines itself) the drama's CURRENT lines --
+    the state every applier compares the submission against."""
+    row_by_id, ids_by_key = {}, {}
+    for r in db.list_bulk_job_lines(bulk_job_id):
+        row_by_id[r["line_id"]] = r
+        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    current = db.load_line_objects(drama_id) if with_current else []
+    return _ApplyContext(row_by_id, ids_by_key, current, {ln.id: ln for ln in current})
 
 
 def _log_generic_usage(job: dict, usage: dict, usage_kind: str):
@@ -75,13 +95,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
     """Applies (request_key, text, usage, error) results to the drama's
     CURRENT lines, by line id. Returns counts of what happened."""
     job = db.get_bulk_job(bulk_job_id)
-    job_lines = db.list_bulk_job_lines(bulk_job_id)
-    ids_by_key, row_by_id = {}, {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-        row_by_id[r["line_id"]] = r
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
     substitute_terms = tguide.build_hard_term_substituter(enforced)
@@ -152,13 +166,7 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
     user already changed since submission (state_at_submit) is left
     alone rather than overwritten."""
     job = db.get_bulk_job(bulk_job_id)
-    job_lines = db.list_bulk_job_lines(bulk_job_id)
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0,
               "unparsable_entries": 0}
@@ -220,12 +228,7 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
     window's results were actually usable, so a bulk job that turned out
     entirely stale doesn't wipe out a still-valid earlier check."""
     job = db.get_bulk_job(bulk_job_id)
-    job_lines = db.list_bulk_job_lines(bulk_job_id)
-    ids_by_key, hash_by_id = {}, {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-        hash_by_id[r["line_id"]] = r["zh_hash"]
-    cur_by_id = {ln.id: ln for ln in db.load_line_objects(job["drama_id"])}
+    row_by_id, ids_by_key, _, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"issues_found": 0, "dropped_windows": 0, "failed_requests": 0, "unknown_requests": 0}
     issues = []
     usable_windows = 0
@@ -239,7 +242,7 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
             counts["failed_requests"] += 1
             continue
         window_ids = ids_by_key[key]
-        if any(_stale_line(cur_by_id.get(lid), hash_by_id[lid]) for lid in window_ids):
+        if any(_stale_line(cur_by_id.get(lid), row_by_id[lid]["zh_hash"]) for lid in window_ids):
             counts["dropped_windows"] += 1
             continue
         usable_windows += 1
@@ -261,13 +264,7 @@ def apply_emotion_results(bulk_job_id: int, results) -> dict:
     upsert, so applying this incrementally never disturbs any OTHER
     line's tag, live-set or from a different bulk job)."""
     job = db.get_bulk_job(bulk_job_id)
-    job_lines = db.list_bulk_job_lines(bulk_job_id)
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    current = db.load_line_objects(job["drama_id"])
-    cur_by_id = {ln.id: ln for ln in current}
+    row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     existing = db.load_emotions(job["drama_id"])
     existing_by_id = {ln.id: existing.get(ln.idx) for ln in current}
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
@@ -329,12 +326,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
     as every other kind, since a note about since-changed text would be
     about the wrong thing."""
     job = db.get_bulk_job(bulk_job_id)
-    job_lines = db.list_bulk_job_lines(bulk_job_id)
-    row_by_id = {r["line_id"]: r for r in job_lines}
-    ids_by_key = {}
-    for r in job_lines:
-        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
-    cur_by_id = {ln.id: ln for ln in db.load_line_objects(job["drama_id"])}
+    row_by_id, ids_by_key, _, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "failed_requests": 0, "unknown_requests": 0}
     notes = []

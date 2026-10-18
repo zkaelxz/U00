@@ -2404,3 +2404,21 @@ def test_engines_without_a_batch_api_get_the_exact_message():
     assert str(exc.value) == "ollama has no batch API -- use the off-peak schedule instead."
     provider = object()
     assert bulk_translate._require_batch_engine(provider, "claude") is provider
+
+
+def test_load_apply_context_indexes_rows_by_line_and_request_key(isolated_db, monkeypatch):
+    import bulk_apply
+
+    rows = [{"line_id": 1, "request_key": "a"}, {"line_id": 2, "request_key": "a"},
+            {"line_id": 3, "request_key": "b"}]
+    lines = [NS(id=1), NS(id=3)]
+    monkeypatch.setattr(bulk_apply.db, "list_bulk_job_lines", lambda job_id: rows)
+    monkeypatch.setattr(bulk_apply.db, "load_line_objects", lambda drama_id: lines)
+
+    ctx = bulk_apply._load_apply_context(7, 9)
+    assert ctx.ids_by_key == {"a": [1, 2], "b": [3]}
+    assert ctx.row_by_id[3] is rows[2]
+    assert ctx.current is lines and set(ctx.cur_by_id) == {1, 3}
+
+    lazy = bulk_apply._load_apply_context(7, 9, with_current=False)
+    assert lazy.current == [] and lazy.cur_by_id == {}
