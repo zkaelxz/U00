@@ -3,7 +3,7 @@ import { ApiError } from '../../api/client'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import type { GithubStatus } from '../../types/assistant'
 import { PC_ONLY_TEXT } from './assistantFormat'
-import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
+import { keyWritesRefused } from '../../components/errorMessages'
 
 /** Ready to deliver: on, with a token and a repo. */
 export function githubReady(s: GithubStatus | null): boolean {
@@ -28,7 +28,7 @@ export function defaultPrTitle(question: string): string {
 
 export function githubErrorText(e: unknown, tokenWrite = false): string {
   const err = e as Partial<ApiError> | null
-  if (err?.status === 403) return tokenWrite ? KEY_WRITES_REFUSED : PC_ONLY_TEXT
+  if (err?.status === 403) return tokenWrite ? keyWritesRefused() : PC_ONLY_TEXT
   if (err?.status === 409 || err?.status === 422 || err?.status === 503 || err?.status === 500) {
     const detail = err?.message ? safeDetail(err.message) : null
     if (detail) return detail
