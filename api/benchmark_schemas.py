@@ -97,9 +97,17 @@ class BenchmarkRegressionResult(BaseModel):
     replaced: bool
 
 
+class BenchmarkTranscribeArm(_Strict):
+    engine: str = Field(max_length=40)
+    model: Optional[str] = Field(default=None, max_length=100)
+    options: Optional[BenchmarkTranscribeOptions] = None
+
+
 class BenchmarkConfig(_Strict):
     engine: str = Field(max_length=40)
     model: Optional[str] = Field(default=None, max_length=100)
+    # Translation arms only: translate what this recogniser hears in each clip, not the reference transcript.
+    transcribe: Optional[BenchmarkTranscribeArm] = None
     # The per-title options this arm runs with: transcription's, or a translation arm's batch,
     # context, Reflect and style settings (which make it translate cases as batches in order).
     options: Optional[Union[BenchmarkTranscribeOptions, BenchmarkTranslateOptions]] = None
@@ -212,6 +220,8 @@ class BenchmarkResult(BaseModel):
     script_counts: Optional[BenchmarkScriptCounts] = None
     ref_version: int = 1
     timing: Optional[BenchmarkCaseTiming] = None
+    # What the recogniser heard, on an end-to-end result; output_text is its translation.
+    recognised_text: Optional[str] = None
 
 
 class BenchmarkRunDetail(BaseModel):

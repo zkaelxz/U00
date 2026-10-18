@@ -257,6 +257,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `backup_space_check.py` (the automatic backup's free-space check before it writes a copy)
 - `benchmark_case_service.py`
 - `benchmark_clip_service.py` (the Benchmark Lab's clip set: uploaded audio with transcripts, exclude and edit a reference)
+- `benchmark_end_to_end_service.py` (a Lab translation arm with a recogniser: each clip is recognised, what was heard is translated and scored against the reference translation)
 - `benchmark_export_service.py` (a Lab run or comparison as CSV or JSON)
 - `benchmark_judge_service.py`
 - `benchmark_picks_service.py` (the owner's blind A/B picks between two Lab runs, and how often the judge agreed)
