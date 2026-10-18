@@ -42,3 +42,6 @@ a.palette-option[aria-selected='true'] { background: var(--surface); border-colo
   dialog.palette[open], dialog.palette[open]::backdrop { animation: palette-in var(--dur-3) var(--ease); }
   @keyframes palette-in { from { opacity: 0; } }
 }
+
+.shortcuts-list > div { grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr); }
+.shortcuts-list kbd { font: inherit; font-size: var(--text-sm); padding: 1px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { AuthMe } from '../api/auth'
 import type { SessionState } from '../hooks/useSession'
-import { filterEntries, isPaletteShortcut, paletteEntries, type PaletteEntry } from './palette'
+import type { DramaSummary } from '../api/types'
+import { filterEntries, isPaletteShortcut, paletteEntries, settingsEntries, titleEntries, type PaletteEntry } from './palette'
 import type { NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
@@ -95,5 +96,65 @@ describe('isPaletteShortcut', () => {
   })
   it('ignores an IME composition', () => {
     expect(isPaletteShortcut(key({ ctrlKey: true, isComposing: true }))).toBe(false)
+  })
+})
+
+const owner_: NavContext = {
+  session: sessionOf(['library.read', 'admin.library', 'admin.settings', 'admin.diagnostics']),
+  pcMode: 'local',
+  developerMode: false,
+}
+
+describe('page keywords', () => {
+  it('finds Make subtitles by what people type', () => {
+    const entries = paletteEntries(owner_, { name: 'library' })
+    expect(labels(filterEntries(entries, 'srt'))).toContain('Make subtitles')
+    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Make subtitles')
+  })
+
+  it('finds Benchmark Lab by its keywords only where the page is listed', () => {
+    expect(labels(filterEntries(paletteEntries(owner_, { name: 'library' }), 'arena'))).toContain('Benchmark Lab')
+    expect(labels(filterEntries(paletteEntries(member, { name: 'library' }), 'arena'))).not.toContain('Benchmark Lab')
+  })
+})
+
+describe('settingsEntries', () => {
+  const settingsHits = (ctx: NavContext, q: string) =>
+    filterEntries(settingsEntries(ctx), q).map((e) => e.href)
+
+  it('opens the card on the main PC', () => {
+    expect(settingsHits(owner_, 'backup')).toContain('#/settings?card=auto-backup')
+    expect(paletteEntries(owner_, { name: 'library' }).filter((e) => e.hint === 'Settings').length).toBeGreaterThan(10)
+  })
+
+  it('leaves out PC-only cards away from the PC and while the mode is unknown', () => {
+    expect(settingsHits({ ...owner_, pcMode: 'remote' }, 'backup')).toEqual([])
+    expect(settingsHits({ ...owner_, pcMode: 'unknown' }, 'backup')).toEqual([])
+    expect(settingsHits({ ...owner_, pcMode: 'remote' }, 'sharing')).toContain('#/settings?card=sharing')
+  })
+
+  it('offers someone who cannot read settings only the Sharing tab\'s cards', () => {
+    const cards = settingsEntries(member).map((e) => e.href.split('card=')[1])
+    expect(new Set(cards)).toEqual(new Set(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices']))
+  })
+})
+
+describe('titleEntries', () => {
+  const drama = (id: number, title_zh: string | null, title_en: string | null): DramaSummary =>
+    ({ id, title_zh, title_en } as DramaSummary)
+  const items = [drama(1, '月光', 'Moonlight'), drama(2, null, 'Moon Road'), drama(3, '太阳', 'Sun (mentions moon in its summary)')]
+
+  it('keeps title matches in either language, opening the workspace', () => {
+    const hits = titleEntries(items, 'moon')
+    expect(labels(hits)).toEqual(['Moonlight', 'Moon Road', 'Sun (mentions moon in its summary)'])
+    expect(titleEntries(items, 'moonl').map((e) => e.href)).toEqual(['#/drama/1'])
+    expect(titleEntries(items, '月光')[0].label).toBe('Moonlight')
+    expect(filterEntries(titleEntries(items, '月光'), '月光')).toHaveLength(1)
+  })
+
+  it('drops rows that matched only the summary, and caps at eight', () => {
+    expect(titleEntries([drama(9, null, 'Other')], 'moon')).toEqual([])
+    const many = Array.from({ length: 12 }, (_, i) => drama(i + 1, null, `Moon ${i}`))
+    expect(titleEntries(many, 'moon')).toHaveLength(8)
   })
 })
