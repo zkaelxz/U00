@@ -6,6 +6,7 @@ import { humanizeValue } from '../../../../components/labels'
 import type { ReviewLine } from '../../../../types/review'
 import { AddLineForm, type NewLine } from './AddLineForm'
 import { MergeConfirm } from './MergeConfirm'
+import { HardSubCaseButton } from './HardSubCaseButton'
 import { RegressionTestButton } from './RegressionTestButton'
 import { Field } from '../../../../components/Field'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -299,6 +300,9 @@ export function LineActionsSheet(p: Props) {
               <li><button type="button" onClick={() => p.onView('language')}>Set language…</button></li>
               {p.dramaId !== undefined && (
                 <li><RegressionTestButton key={line.id} dramaId={p.dramaId} line={line} /></li>
+              )}
+              {p.dramaId !== undefined && (
+                <li><HardSubCaseButton key={line.id} dramaId={p.dramaId} line={line} /></li>
               )}
             </ul>
           )}

@@ -46,7 +46,6 @@ the auto-derived Translation Profile and a COMET scorer.
 import whisper_models
 import json
 import os
-import re
 import uuid
 
 import background_jobs
@@ -64,12 +63,13 @@ from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_
                                                    run_transcription as _run_transcription,
                                                    run_translation as _run_translation)
 from services import benchmark_end_to_end_service as end_to_end
+from services import benchmark_hardsub_read_service as hardsub
 from services import benchmark_runs_service
 from services import benchmark_vision_service as vision
 from services import benchmark_scene_service as scene_service
 from services.benchmark_runs_service import MAX_CONFIGS, arena, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
-                                                 score_output, script_normaliser)
+                                                 script_normaliser)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -127,7 +127,7 @@ def _case_out(c: dict) -> dict:
         "source_language": c.get("source_language") or "zh",
         "source_text": c.get("source_text"), "reference_text": c.get("reference_text"),
         "has_reference": bool(c.get("reference_text")),
-        "has_input_file": bool(c.get("input_filename")),
+        "has_input_file": bool(c.get("input_filename")), "hard_sub": hardsub.load(c) is not None,
         "origin_drama_id": c.get("origin_drama_id"), "origin_line_id": c.get("origin_line_id"),
         "title": c.get("title") or "", "tags": _tags(c.get("tags")),
         "scene_order": c.get("scene_order"), "excluded": bool(c.get("excluded")),
@@ -219,26 +219,8 @@ def delete_case(case_id: int) -> dict:
     if not case:
         raise NotFoundError("Benchmark case not found.")
     db.delete_benchmark_case(case_id)
-    _remove_orphaned_clip(case)
+    hardsub.remove_case_files(case)
     return {"deleted": True, "id": case_id}
-
-
-_GENERATED_CLIP = re.compile(r"^clip_[0-9a-f]{16}\.(mp3|wav|m4a|flac|ogg)$")
-
-
-def _remove_orphaned_clip(case: dict):
-    """An uploaded clip's audio goes with its last case. Older cases may point
-    at files this app didn't generate (an OCR image, a hand-placed file), so
-    only a clip-imported case or a generated clip name is ever removed."""
-    name = case.get("input_filename")
-    if not name or name != os.path.basename(name) or db.count_benchmark_cases_with_file(name):
-        return
-    if not (case.get("clip_key") or _GENERATED_CLIP.match(name)):
-        return
-    try:
-        os.remove(os.path.join(db.BENCHMARK_DIR, name))
-    except OSError:
-        pass
 
 
 def _parse_import(fmt: str, text: str) -> list:
@@ -386,6 +368,8 @@ def check_config(stage: str, cfg) -> dict:
         raise InvalidInputError("Transcription options apply to transcription runs only.")
     if cfg.get("transcribe") is not None and stage != "translation":
         raise InvalidInputError("Only a translation run can translate a recogniser's output.")
+    if cfg.get("translate") is not None and not vision.is_vision_arm(stage, cfg):
+        raise InvalidInputError("Only a vision arm can translate what it reads.")
     if stage == "translation":
         entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
         if entry is None:
@@ -411,7 +395,7 @@ def check_config(stage: str, cfg) -> dict:
             raise InvalidInputError("Unknown Whisper size.")
         return {"engine": "whisper", "model": size, "options": options}
     if engine in vision.VISION_ENGINES:
-        return vision.checked_vision_config(engine, model)
+        return vision.checked_vision_config(engine, model, cfg.get("translate"))
     if engine not in OCR_BACKENDS:
         raise InvalidInputError("Unknown OCR backend.")
     return {"engine": engine, "model": None}
@@ -431,7 +415,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
     # An option the recogniser does not read cannot make two arms different.
     keys = [(c["engine"], c["model"], json.dumps(
         {k: v for k, v in (c.get("options") or {}).items() if k not in ignored_options(c["engine"])}, sort_keys=True),
-        end_to_end.arm_key(c.get("transcribe"))) for c in checked]
+        end_to_end.arm_key(c.get("transcribe")), json.dumps(c.get("translate"))) for c in checked]
     if len(set(keys)) != len(keys):
         raise InvalidInputError("The same engine and model is picked twice.")
     cases = _select_cases(stage, tier, set_name, case_ids, scorable_only=True)
@@ -441,6 +425,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
         for cfg in checked:
             end_to_end.require_recogniser_fits(cfg, cases)
     end_to_end.require_audio_for([c["transcribe"] for c in checked if c.get("transcribe")], cases)
+    vision.require_translation_references(stage, checked, cases)
     return checked, cases
 
 
@@ -469,6 +454,8 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     per_config = []
     for cfg in checked:
         cost = _estimate_config(cfg, cases) if stage == "translation" else vision.estimate_cost(stage, cfg, cases)
+        if stage == "ocr" and cfg.get("translate"):
+            cost += _estimate_config(cfg["translate"], [{"source_text": c.get("reference_text")} for c in cases])
         per_config.append({**cfg, "estimated_cost_usd": round(cost, 6),
                            "cap_applies": vision.paid_arm(stage, cfg) and _cap_applies(cfg["engine"])})
     total = sum(p["estimated_cost_usd"] for p in per_config)
@@ -546,6 +533,8 @@ def run_context(stage: str, cfg: dict, cases: list, use_gpu) -> dict:
         context.update(scene_service.run_context(cfg))
     if cfg.get("transcribe"):
         context.update(end_to_end.run_context(cfg["transcribe"], use_gpu))
+    if cfg.get("translate"):
+        context["translate_model_identity"] = model_identity("translation", cfg["translate"])
     if stage == "transcription":
         context["transcribe_options"] = cfg["options"]
         # What the arm changed from the app's defaults: what tells two arms of one model apart in a list.
@@ -653,7 +642,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
         if engine is not None and cfg.get("options") is not None:
             scenes = scene_service.SceneRunner(engine, cfg, ordered, lambda: background_jobs.is_cancel_requested(job_id), api_key)
         _reset_vram()
-        spent, scores, passed, errors, durations = 0.0, [], 0, 0, []
+        spent, scores, passed, errors, durations, unreadable = 0.0, [], 0, 0, [], 0
         status = "done"
         streak, stop_note = FailureStreak(), None
         # Per engine: one engine's waits must not use up the next one's budget.
@@ -702,7 +691,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                     status = "cancelled"
                     break
             elif vision.is_vision_arm(stage, cfg):
-                r = vision.run_case(engine, cfg, case, api_key, None if cap is None else max(cap - spent, 0.0), job_id)
+                r = vision.run_case(engine, cfg, case, api_key, None if cap is None else max(cap - spent, 0.0),
+                                    job_id, _estimate_config)
                 spent += r["cost_usd"]
                 if background_jobs.is_cancel_requested(job_id):
                     status = "cancelled"
@@ -710,7 +700,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                 if r.pop("over_budget", False):
                     status, capped = "stopped_cap", True
                     break
-                if streak.record(failed=bool(r.get("error")), succeeded=not r.get("error")):
+                if streak.record(failed=bool(r.get("error")) and not r.get("unreadable"), succeeded=not r.get("error")):
                     stop_note = paid_calls.failure_stop_reason(streak.count)
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu, folder)
@@ -718,9 +708,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                     # The interrupted case would be saved as an engine error.
                     status = "cancelled"
                     break
-            score, metric, scorer = score_output(stage, r.get("output_text") or "",
-                                                 case.get("reference_text"),
-                                                 case.get("source_language"))
+            score, metric, scorer = vision.score(stage, cfg, r, case)
             if r.get("error") and score is not None:
                 # A referenced case that errored is a fail scored 0, so an
                 # engine that errors on most cases can't rank above one that
@@ -729,8 +717,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
             r["score"], r["metric"], r["scorer"] = score, metric, scorer
             r["passed"] = None if score is None else score >= pass_threshold(metric)
             db.save_benchmark_result(session_id, case, r)
-            if r.get("error"):
-                errors += 1
+            unreadable += bool(r.get("unreadable"))
+            errors += bool(r.get("error")) and not r.get("unreadable")
             if score is not None:
                 scores.append(score)
                 passed += 1 if r["passed"] else 0
@@ -749,7 +737,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
             aggregate_score=(sum(scores) / len(scores)) if scores else None,
             avg_latency_seconds=(sum(durations) / len(durations)) if durations else None,
             total_cost_usd=round(spent, 6), peak_vram_mb=_peak_vram_mb(),
-            note="Stopped at the spending cap." if capped else stop_note or None, finished_at=_now())
+            note="Stopped at the spending cap." if capped else stop_note or vision.unreadable_note(unreadable),
+            finished_at=_now())
         if status == "cancelled":
             for sid, _cfg, _k in plan[plan.index((session_id, cfg, api_key)) + 1:]:
                 db.update_benchmark_session(sid, status="cancelled", finished_at=_now())

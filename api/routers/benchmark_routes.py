@@ -46,6 +46,7 @@ from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseC
 from api.routers.settings_routes import require_confirm
 from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCaseReference,
                          BenchmarkCorrectionsAddRequest, BenchmarkCorrectionsAddResult,
+                         BenchmarkHardSubAddRequest, BenchmarkHardSubAddResult,
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
                          BenchmarkPairNext, BenchmarkPickRequest, BenchmarkPickSummary,
@@ -59,6 +60,7 @@ from lib.capped_request import read_capped_form
 from lib.errors import InvalidInputError
 from services import benchmark_clip_service as clip_svc
 from services import benchmark_export_service as export_svc
+from services import benchmark_hardsub_service as hardsub_svc
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
 from services import benchmark_picks_service as picks_svc
@@ -169,6 +171,14 @@ def get_corrections(request: Request, drama_id: int = Path(ge=1)):
 def post_add_corrections(body: BenchmarkCorrectionsAddRequest, request: Request,
                          drama_id: int = Path(ge=1)):
     return reference_svc.add_title_lines(request.state.principal, drama_id, body.set_name, body.dry_run, body.include_all)
+
+
+@router.post("/dramas/{drama_id}/hard-sub-cases", dependencies=[local_only()],
+             response_model=BenchmarkHardSubAddResult, responses=_ERRS,
+             summary="PC only: add hard-sub test cases (pictures of the subtitle band) for chosen lines of a title")
+def post_add_hard_sub_cases(body: BenchmarkHardSubAddRequest, request: Request, drama_id: int = Path(ge=1)):
+    return hardsub_svc.add_lines(request.state.principal, drama_id, body.line_ids, body.set_name,
+                                 body.band_top, body.band_bottom)
 
 
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,
