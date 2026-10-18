@@ -261,35 +261,12 @@ export default function TranslatePage() {
                 <label htmlFor="translate-text" className="translate-pane-title">
                   Text to translate <span className="muted">· {sourceLabel}</span>
                 </label>
-                <div className="translate-head-tools">
-                  {/* A picture upload is PC-only (docs/remote-access-decision.md); typed text still works anywhere. */}
-                  {pc !== 'remote' && (
-                    <button
-                      type="button"
-                      className={buttonClass('secondary', 'sm')}
-                      aria-expanded={readOpen}
-                      onClick={() => setReadOpen(!readOpen)}
-                    >
-                      Read from a screenshot…
-                    </button>
-                  )}
-                  <OpenFileField
-                    sourceName={sourceName}
-                    message={fileMessage}
-                    target={{ setText, setSourceName, setFileMessage }}
-                  />
-                </div>
-              </div>
-              {readOpen && pc !== 'remote' && (
-                <TranslateReadImage
-                  engines={engines}
-                  pageEngine={engine}
-                  language={direction === 'to_english' ? pair.source_language : ''}
-                  allowed={canTranslate}
-                  onText={(read) => setText((current) => appendRead(current, read))}
-                  onClose={() => setReadOpen(false)}
+                <OpenFileField
+                  sourceName={sourceName}
+                  message={fileMessage}
+                  target={{ setText, setSourceName, setFileMessage }}
                 />
-              )}
+              </div>
               <textarea
                 id="translate-text"
                 rows={8}
@@ -313,7 +290,28 @@ export default function TranslatePage() {
                 >
                   Clear
                 </button>
+                {/* A picture upload is PC-only (docs/remote-access-decision.md); typed text still works anywhere. */}
+                {pc !== 'remote' && (
+                  <button
+                    type="button"
+                    className={buttonClass('secondary')}
+                    aria-expanded={readOpen}
+                    onClick={() => setReadOpen(!readOpen)}
+                  >
+                    Read from a screenshot…
+                  </button>
+                )}
               </div>
+              {readOpen && pc !== 'remote' && (
+                <TranslateReadImage
+                  engines={engines}
+                  pageEngine={engine}
+                  language={direction === 'to_english' ? pair.source_language : ''}
+                  allowed={canTranslate}
+                  onText={(read) => setText((current) => appendRead(current, read))}
+                  onClose={() => setReadOpen(false)}
+                />
+              )}
               {estimate && estimate.estimated_usd > 0 && (
                 <p
                   data-testid="translate-estimate"
