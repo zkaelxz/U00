@@ -53,3 +53,17 @@ def test_signed_url_and_bare_signature_params_are_stripped_for_support():
     for leaked in ("abc", "xyz", "deadbeef", "tok1", "s2", "?"):
         assert leaked not in text
     assert "https://cdn.example.com/a/b failed" in text
+
+
+@pytest.mark.parametrize("text", [
+    "GET https://api.example.com/v1?key=AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q failed",
+    "Authorization: Bearer abcdefghij0123456789 rejected",
+    "sk-" + "Ab12Cd34Ef56Gh78Ij90Kl12" + " in the body",
+])
+def test_fetch_and_adaptive_modules_use_the_shared_redactor(text):
+    from services import safe_fetch
+    from sources import adaptive
+    expected = translate_engines.redact_secrets(text)
+    assert expected != text
+    assert safe_fetch.redact_secrets(text) == expected
+    assert adaptive.redact_secrets(text) == expected
