@@ -1,112 +1,68 @@
 # Baihe Audio Drama Subtitler — Library Edition
 
-A local tool for translating, subtitling, and optionally AI-dubbing
-Chinese/Japanese/Korean audio dramas, novels, comics, and streamer VODs
-at scale. Inspired by
-[pyvideotrans](https://github.com/jianchang512/pyvideotrans)'s workflow
-(ASR → translate → TTS dub / clone), scoped to this genre space, with a
-persistent filterable library for managing dozens of titles.
+A local app for transcribing, translating, reviewing and exporting English subtitles for Chinese, Japanese and Korean audio dramas, video dramas, novels, comics and streamer VODs, with a library to keep dozens of titles organised.
 
-It is a Python app with a FastAPI server and a React frontend, started with
-`start.bat` (or `python -m api`). The older
-Streamlit UI has been removed (`legacy/streamlit` and the
-`pre-streamlit-removal` tag hold the last version).
+It runs on your own Windows PC: a Python (FastAPI) server with a React interface in your browser at `http://127.0.0.1:8600/`. Transcription runs locally with Whisper; translation uses the engine you choose, paid (Claude, Gemini, DeepSeek, OpenAI) or free and local (Ollama).
 
-**Important:** this tool works on files you already have legal access
-to (audio/video you've downloaded or been given, novel text you own or
-have licensed). It does not scrape, download, or extract content from
-paid apps or streaming platforms — point it at local files, or a public
-URL you have the right to download from, only.
+**Use it only on content you have the right to use:** files you own or were given, text you have licensed, or public pages and URLs you may download from. It does not unlock paid apps or streaming platforms.
 
-## What it does
+## Features
 
-- **Library** of titles, filterable by title, author, studio, director, voice actor, status, source language (zh/ja/ko) and content type (audio drama, video drama, novel, manhwa, manga, manhua, ASMR, streamer VOD); series share glossaries, styles and characters.
-- **Transcription** with Whisper (optional Qwen3-ASR), speaker diarization, OCR for page scans and burned-in captions, and **Live** near-live stream translation.
-- **Multi-engine translation**: Claude, DeepSeek, Gemini, OpenAI or Ollama, with glossaries, term policies, style presets, emotion tags, a review queue and a consistency checker.
-- **Review and polish**: line merging, pacing checks with one-click LLM shortening, translation versions, undo, locale variants (American/British/Australian English).
-- **AI dubbing** with the local OmniVoice voice engine (voice cloning and voice design); audiobook (.m4b) export.
-- **Export**: SRT/VTT/ASS, burned-in (hardsub) or toggleable (softsub) video, dub track mixing, EPUB, bulk zip.
-- **Interactive Reader** with pinyin/furigana, click-to-define, in-app Q&A, in-app playback and Anki vocabulary export.
-- **Scanlate** (manga/comic typesetting): detect bubbles, clean, translate, place text, adjust, render.
-- **Sources and Discover**: site adapters for importing chapters, metadata auto-fill from public listing pages, a known-titles catalog (its Discover tab is currently hidden), and a site navigation helper.
-- **Video input**: upload `.mp4`/`.mov`/`.mkv`/`.webm` or download from a URL via yt-dlp.
+- **Library**: titles with series, filters, lists, profiles, backups and a restorable Trash.
+- **Make subtitles**: drop in an audio or video file and get an SRT in one screen.
+- **Transcribe**: Whisper (optional Qwen3-ASR), speaker detection, OCR for page scans and burned-in captions.
+- **Translate**: glossaries, style presets, per-series terms, cost tracking and an optional monthly spending cap.
+- **Review**: line editor with flags, checks, history and undo, keyboard-first on desktop and a thumb bar on phones.
+- **Export**: SRT, VTT, ASS and LRC, burned-in or soft-sub video, EPUB, audiobook and bulk zip.
+- **More**: Quick translate, an interactive Reader (pinyin and furigana), comic translation (Scanlate), Sources for importing chapters, Live stream captions, local AI dubbing, a Job queue, and Benchmark Lab for comparing models.
+- **Other devices**: optional household access with Google sign-in (off by default; the app listens on this PC only).
 
-How each feature works, with options and limits: [`docs/user-guide.md`](docs/user-guide.md).
+## Install
 
-## Install and start
+### Windows installer (recommended)
 
-### Windows installer
+Download `BaiheStudio-Setup-<version>.exe` from the project's releases and run it. It installs for your user without admin rights, bundles Python and the interface, and keeps your library in a separate data folder that upgrades never touch. Start it from the Start menu entry **Baihe Studio**.
 
-Run `BaiheStudio-Setup-<version>.exe` (built by the "Windows Installer" workflow; see [`docs/RELEASE.md`](docs/RELEASE.md)). It installs per user with no admin rights, bundles Python and the frontend, keeps your library in a separate data folder that upgrades never touch, and by default also offers a Windows service that starts the app at boot. Details: [`docs/windows-installer-design.md`](docs/windows-installer-design.md). The Start menu entry "Baihe Studio" opens the app at `http://127.0.0.1:8600/`; "Stop Baihe Studio" stops it.
+### From source (Windows)
 
-### From a source checkout
+You need Git. In PowerShell, from a folder you own:
 
-#### Set up a new Windows PC, step by step
+```
+git clone https://github.com/zkaelxz/U00 Baihe
+cd Baihe
+.\setup.bat                    # checks Python 3.12, ffmpeg and Node.js 22 and installs what is missing
+.\start.bat --build-frontend   # first run: creates the environment and builds the interface (several minutes)
+```
 
-1. **Open PowerShell as a normal user** (not "Run as administrator"). Don't open it from the root of a drive or from `C:\WINDOWS\System32`: Windows starts the window in the wrong folder. Go to a folder you own first, for example `cd $HOME` or `cd L:\`.
-2. **Get the code.** Install [Git](https://git-scm.com/download/win) if `git --version` fails, then clone it. A clone matters: only a clone updates itself (see Automatic updates below); a downloaded zip never does.
-   ```
-   git clone https://github.com/zkaelxz/U00 Baihe
-   cd Baihe
-   ```
-   The project is on the `baihe-subtitler` branch.
-3. **Run the setup check.** In PowerShell a program in the current folder needs `.\` in front of its name:
-   ```
-   .\setup.bat
-   ```
-   It checks for Git, Python 3.12, ffmpeg (with the subtitles filter) and, only if the app's screens still have to be built, Node.js 22 or newer, and installs what is missing with `winget` (it may ask for permission; the script needs no admin rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if you want GPU features.
-4. **Open a new window after any install.** Windows doesn't find newly installed programs in the window that installed them. Close it, open a new PowerShell, `cd` back into the Baihe folder and run `.\setup.bat` again. It is safe to run twice: anything `winget` already lists is reported as "already installed" and skipped. Stop when it ends with **Ready** or with "Everything is installed. Open a NEW window so PATH updates, then run start.bat."
-5. **Build the screens and start.** The first run creates the Python environment, installs dependencies, builds the app's screens and checks ffmpeg and CUDA. It takes several minutes:
-   ```
-   .\start.bat --build-frontend
-   ```
-   After that, double-click **`start.bat`** (or run `.\start.bat`). The app opens in its own window at `http://127.0.0.1:8600/`.
-6. **First run.** Add your API keys in Settings, or copy your `.env` next to `start.bat`. To bring over your titles, copy the old PC's `library` folder into the Baihe folder before the first start. Models such as Whisper download the first time they are used.
+After that, double-click `start.bat`. Open a new PowerShell window after `setup.bat` installs anything, so Windows finds it. A git clone updates itself on each start; a downloaded zip does not.
 
-Using Command Prompt (`cmd`) instead of PowerShell? The same commands work without the `.\`.
+### Manual install (any OS)
 
-#### Starting an existing checkout
-
-Double-click **`start.bat`**. On first run it creates the virtual environment and installs dependencies, checks ffmpeg, a JS runtime and CUDA and says plainly what is missing, starts `python -m api` on `http://127.0.0.1:8600/` (loopback only), and opens it in its own window (Edge app mode, else Chrome, else your default browser). Running it again just reopens the window. `make_shortcut.bat` makes a desktop shortcut; `uninstall.bat` removes the shortcut and virtual environment, asks (default no) before touching your user PATH entries for ffmpeg/Tesseract, and deletes your library (backups included) only if you type `DELETE` in capitals; anything else keeps it. It ends by listing, never deleting, what it leaves behind (Hugging Face, torch, pip and Ollama caches, winget-installed Python/Git/ffmpeg/Node), and prints the real library location if `BAIHE_DATA_DIR` is set.
-
-- **`setup.bat`.** Optional and never run by `start.bat`; it only points to it when something is missing. Run it again at any time to re-check the prerequisites.
-- **The app's screens.** A source checkout needs `frontend\dist\index.html`. Download `baihe-frontend-<version>.zip` from the project's GitHub Releases and extract it into the Baihe folder, or with Node.js 22 run `start.bat --build-frontend` (how the zip is made: [`docs/RELEASE.md`](docs/RELEASE.md)). If it is missing, `start.bat` stops and says so.
-- **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`, and `--python-version 3.12` (or a `PYTHON_VERSION` marker file). `start.ps1` is the PowerShell equivalent (`-Portable`, `-PythonVersion`, `-BuildFrontend`; it does not update). `constraints.lock.txt` (from `make_lock.bat`) is used instead of `constraints.txt` when present.
-- **Automatic updates.** A git clone on the `baihe-subtitler` branch is fast-forwarded to `origin/baihe-subtitler` before launch; it never discards or overwrites your changes. It skips the update and starts what is on disk when the copy is on another branch, has edited tracked files, or Baihe is already running (restart to pick up an update). Turn it off for one run with `--no-update`, or for good with an empty file named `NOUPDATE` next to `start.bat`. `--ci` and `--server-only` never update.
-
-### Prerequisites and manual install
-
-Python 3.10+ (CI and the installer use 3.12) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself.
+Python 3.10+ (3.12 recommended) and `ffmpeg` with libass:
 
 ```bash
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements-core.txt -c constraints.txt
+python -m api                                      # then open http://127.0.0.1:8600/
 ```
 
-That is the minimum to launch and translate text. Add what you use:
+Add `requirements-media.txt` for audio and video, and lines from `requirements-optional.txt` for the features you use (the Diagnostics page can install these for you). The interface must be built once with Node.js 22 (`cd frontend && npm ci && npm run build`) or unzipped from a release.
 
-```bash
-pip install -r requirements-media.txt -c constraints.txt      # audio/video: align, dub, burn subtitles
-pip install -r requirements-optional.txt -c constraints.txt   # per feature; install only the lines you need
-```
+## First run
 
-`requirements.txt` is those three files combined. The Diagnostics page's Install buttons do the same picking without typing. `-c constraints.txt` caps packages at major versions known not to break the app (it installs nothing itself). Then `python -m api` and open `http://127.0.0.1:8600/`.
+1. Open **Settings** and add a key for your translation engine, or point it at a local Ollama.
+2. Open **Diagnostics** and install transcription if you want to transcribe audio. Models download the first time they are used.
+3. Click **Make subtitles** and choose a file.
 
-### First run
+If something does not work, Diagnostics checks your setup and says what is missing.
 
-Open **Settings** and add the API key for your translation engine, or use a free local one (Ollama). Keys are read from `.env` next to `start.bat` (copy `.env.example`; it is not versioned) or from environment variables. Models such as Whisper download on first use. If something isn't working, run the **Diagnostics** page first. To change the port (default 8600), see [`docs/user-guide.md`](docs/user-guide.md#developer-setup-ports-and-the-windows-service).
+## Documentation
 
-### Portable mode
+- [User guide](docs/user-guide.md): every feature, install and start options (flags, portable mode, updates, uninstall), ports and troubleshooting.
+- [Household access](docs/household-access.md): using the app from other devices.
+- [Status](docs/STATUS.md): what works today and what is next.
+- [Docs index](docs/README.md): architecture, database, jobs, engines, testing and release notes for contributors. Contributor rules: [`CLAUDE.md`](CLAUDE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-`library/` is saved inside the app folder, so copying the folder carries your data. Portable mode also redirects the model caches (Whisper, pyannote, OmniVoice, the audio separator) into a `model_cache/` folder there. Turn it on with `start.bat --portable` or an empty file named `PORTABLE` next to `start.bat`. The other PC still needs its own Python and `ffmpeg`.
+## Licence
 
-### Access from other devices
-
-The app is **loopback-only** (`127.0.0.1`) by default. Household members can reach it through opt-in remote access: the installed background service plus Caddy (HTTPS) in front of a separate household listener with Google sign-in always on. Nothing opens a router port or firewall rule for you. Guide, including ports: [`docs/household-access.md`](docs/household-access.md); design: [`docs/remote-access-decision.md`](docs/remote-access-decision.md).
-
-## Docs
-
-- [`docs/user-guide.md`](docs/user-guide.md): dev setup, translation, transcription, dubbing, Reader, Library, troubleshooting, Diagnostics, Benchmark Lab.
-- [`docs/README.md`](docs/README.md): the docs index. [`docs/STATUS.md`](docs/STATUS.md): current status and what's next. [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md): file map. [`docs/archive/`](docs/archive/): history.
-- [`docs/technical-notes.md`](docs/technical-notes.md): bugs found and fixed. [`CLAUDE.md`](CLAUDE.md): repo layout, tests and rules for contributors.
+All rights reserved. See [`COPYRIGHT.md`](COPYRIGHT.md).
