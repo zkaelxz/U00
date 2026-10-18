@@ -1,6 +1,6 @@
 # Accuracy tuning: test the owner's own clips, pick models and settings by measurement (plan)
 
-Status: **plan; steps A1 to A5, T1 and T2 built, T3 onward not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
+Status: **plan; steps A1 to A5 and T1 to T3 built, T4 not started** (owner decision 2026-10-14). Scope: transcription first, then translation. The main input is a clip set the owner prepares (audio, transcript, translation); corrections made in Review top it up. "Training" here means tuning settings and feeding corrections back into prompts; no model weights change. Drafted against `baihe-subtitler` at 5caf079; re-check each line reference before building.
 
 ## Why
 
@@ -159,6 +159,7 @@ One PR each, in this order.
 ### T3. End-to-end score
 
 - Translate each clip's own transcription output (not the reference transcript) and score it against the reference translation, so a transcription setting is judged by what reaches the viewer.
+- **Built.** A translation arm may carry `transcribe: {engine, model, options}` (the same arm a transcription run takes). For each translation case the arm finds the audio case of the same clip (same `clip_key`, not excluded), recognises it at those settings, translates what was heard and scores that against the case's reference translation with chrF, like any translation result. The heard text is kept in `benchmark_results.recognised_text`; the recogniser, its changes from the defaults and its model identity are in the session's `context_settings.end_to_end`. A run is refused before it starts when a selected case has no usable clip (typed cases, or an excluded audio case). A plain arm in the same run translates the reference transcript, so it is the ceiling to read the end-to-end arm against on the same cases. A clip the recogniser fails on is that case's error, scored 0, and does not count toward the engine's failure streak; an empty transcript costs no translation call. Not in this step: batch and context options on an end-to-end arm (refused), a judge pass on one (refused), and a sweep over the recogniser's settings by end-to-end score.
 
 ### T4. Translation-memory examples and temperature
 
