@@ -13,19 +13,24 @@ import {
   ADMIN_JOB_IDS, STORAGE_PRESETS, type LibraryStorageScan, type StoragePreset,
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
-import { anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
+import { ORIGINALS_HELP, ORIGINALS_LABEL, anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 const JOB_POLL_MS = 3000
 
 export function ExportBlock({ exportable, job }: { exportable: number; job: AdminJob }) {
+  const [withOriginals, setWithOriginals] = useState(false)
   return (
     <div className="admin-block">
       <div className="actions">
-        <button type="button" disabled={!exportable || job.active} onClick={() => void job.start(() => startExport())}>
+        <button type="button" disabled={!exportable || job.active} onClick={() => void job.start(() => startExport(undefined, undefined, withOriginals))}>
           Export all translated ({exportable})
         </button>
+        <label className="muted" title={ORIGINALS_HELP}>
+          <input type="checkbox" checked={withOriginals} onChange={(e) => setWithOriginals(e.target.checked)} />{' '}
+          {ORIGINALS_LABEL}
+        </label>
       </div>
       {!exportable && (
         <p className="muted">Still needed: a translated title. <a href="#/library">Pick one in the Library</a> and translate it.</p>

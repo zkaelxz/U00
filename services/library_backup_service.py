@@ -67,7 +67,7 @@ def _write_artifact(kind: str, suffix: str, fail_message: str, write) -> tuple:
         raise RuntimeError(fail_message) from None
 
 
-def _export_job(job_id, drama_ids):
+def _export_job(job_id, drama_ids, include_originals=False):
     exported = 0
     used_folders = set()
 
@@ -102,7 +102,8 @@ def _export_job(job_id, drama_ids):
                 keep_original_service.export_title_files(
                     zf, did, d, folder,
                     has_room=lambda need: has_disk_room(os.path.dirname(tmp), need),
-                    should_cancel=lambda: background_jobs.is_cancel_requested(job_id))
+                    should_cancel=lambda: background_jobs.is_cancel_requested(job_id),
+                    include_originals=include_originals)
                 exported += 1
 
     name, _ = _write_artifact("export", ".zip", "The export could not be written.", write)
@@ -110,9 +111,10 @@ def _export_job(job_id, drama_ids):
     background_jobs.update_progress(job_id, 1.0, "Export ready.")
 
 
-def start_export_zip(drama_ids=None) -> dict:
+def start_export_zip(drama_ids=None, include_originals=False) -> dict:
     """Job: zips english/chinese/bilingual SRT (+ dub track, + a pinned
-    title's originals: keep_original_service) for each
+    title's originals: keep_original_service; include_originals adds
+    every title's) for each
     translated/dubbed/exported drama -- the picked ones, or all of them.
     Returns {job_id, drama_ids}; with explicit ids also `results`, one per
     requested id ({drama_id, ok, error: not_found|not_translated|no_translated_lines})."""
@@ -122,7 +124,7 @@ def start_export_zip(drama_ids=None) -> dict:
                                 details={"results": results} if results is not None else None)
     refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
-    if not job_launch.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
+    if not job_launch.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids, include_originals,
                                      description="Library export"):
         raise ConflictError("A library export is already running.")
     out = {"job_id": EXPORT_JOB_ID, "drama_ids": ids}

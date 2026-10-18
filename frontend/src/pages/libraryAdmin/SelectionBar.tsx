@@ -14,7 +14,7 @@ import {
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
 import {
-  EXPORT_NEEDS, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
+  EXPORT_NEEDS, ORIGINALS_HELP, ORIGINALS_LABEL, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
   exportableIds, titleOf, translatableIds,
 } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
@@ -55,8 +55,6 @@ const PC_ONLY_ERR = { pcOnly: true, serverText: true } as const
 export function SelectionBar({
   selected, items, pc, phone, exporter, onClear, onDone, onChanged, onDeleted, onResult, result,
 }: Props) {
-  const [status, setStatus] = useState<LibraryStatus>('translated')
-  const [tag, setTag] = useState<LibraryListTag>('Favorite')
   const [busy, setBusy] = useState(false)
   // admin.library calls (status, lists): default error copy.
   const [adminError, setAdminError] = useState<unknown>(null)
@@ -65,6 +63,7 @@ export function SelectionBar({
   const [deleting, setDeleting] = useState(false)
   const [skips, setSkips] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [withOriginals, setWithOriginals] = useState(false)
   const menuRef = useRef<HTMLDetailsElement>(null)
   const summaryRef = useRef<HTMLElement>(null)
   const translate = useAdminJob(ADMIN_JOB_IDS.translate)
@@ -150,7 +149,7 @@ export function SelectionBar({
   const noKeyNote = translate.done ? describeNoKeySkips(translate.job?.result, name) : null
   // Reasons sit under their buttons in the phone menu, in the bar's lines on desktop.
   const reason = (show: boolean, id: string, text: string): ReactNode =>
-    show ? <p className="muted" id={id}>{text}</p> : null
+    show ? <p className="muted" id={id} title={text}>{text}</p> : null
   const translateReason = reason(canTranslate && !toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
   const exportReason = reason(local && !toExport.length && n > 0, 'export-needs', EXPORT_NEEDS)
   const editReason = reason(!canEdit, 'no-edit-note', NO_EDIT_NOTE)
@@ -159,23 +158,36 @@ export function SelectionBar({
     <div className="bar-actions">
       {canEdit && <>
       <div className="bar-group">
-        <select aria-label="New status" value={status} onChange={(e) => setStatus(e.target.value as LibraryStatus)}>
+        <select
+          aria-label="Set status"
+          value=""
+          disabled={busy || !n}
+          onChange={(e) => {
+            if (e.target.value) run(() => bulkSetStatus(ids, e.target.value as LibraryStatus), describeBulkResult)
+          }}
+        >
+          <option value="">Status…</option>
           {LIBRARY_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
         </select>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetStatus(ids, status), describeBulkResult)}>
-          Set status
-        </button>
       </div>
       <div className="bar-group">
-        <select aria-label="List" value={tag} onChange={(e) => setTag(e.target.value as LibraryListTag)}>
-          {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={t}>{tagLabel(t)}</option>)}
+        <select
+          aria-label="Lists"
+          value=""
+          disabled={busy || !n}
+          onChange={(e) => {
+            const [action, t] = e.target.value.split(':')
+            if (t) run(() => bulkSetTag(ids, t as LibraryListTag, action === 'add'), describeBulkResult)
+          }}
+        >
+          <option value="">Lists…</option>
+          <optgroup label="Add to list">
+            {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={`add:${t}`}>Add to {tagLabel(t)}</option>)}
+          </optgroup>
+          <optgroup label="Remove from list">
+            {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={`remove:${t}`}>Remove from {tagLabel(t)}</option>)}
+          </optgroup>
         </select>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, true), describeBulkResult)}>
-          Add to list
-        </button>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, false), describeBulkResult)}>
-          Remove from list
-        </button>
       </div>
       </>}
       {phone && editReason}
@@ -196,10 +208,16 @@ export function SelectionBar({
             type="button"
             disabled={!toExport.length || exporter.active}
             aria-describedby={!toExport.length ? 'export-needs' : undefined}
-            onClick={() => void exporter.start(() => startExport(toExport))}
+            onClick={() => void exporter.start(() => startExport(toExport, undefined, withOriginals))}
           >
             Export .zip ({toExport.length})
           </button>
+        )}
+        {local && (
+          <label className="muted" title={ORIGINALS_HELP}>
+            <input type="checkbox" checked={withOriginals} onChange={(e) => setWithOriginals(e.target.checked)} />{' '}
+            {ORIGINALS_LABEL}
+          </label>
         )}
         {phone && exportReason}
         {local && (
@@ -221,9 +239,6 @@ export function SelectionBar({
 
   const statusLines = (
     <>
-      {!phone && translateReason}
-      {!phone && exportReason}
-      {!phone && editReason}
       <AdminJobLine job={translate} busyText="Translating…" />
       {noKeyNote && (
         <p className="muted" role="status" data-testid="translate-no-key">
@@ -289,6 +304,7 @@ export function SelectionBar({
         <strong data-testid="selected-count">{n} selected</strong>
         {actions}
         <button type="button" className="link" onClick={onClear}>Clear</button>
+        <div className="bar-hints">{translateReason}{exportReason}{editReason}</div>
       </div>
       {statusLines}
     </section>
