@@ -78,7 +78,7 @@ test.describe('member without admin.library', () => {
       usage: { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, estimated_cost_usd: 0, call_count: 0 },
     } }))
     await page.goto('/')
-    await page.getByRole('button', { name: 'Dismiss' }).first().click()
+    await page.getByRole('button', { name: 'Hide' }).first().click()
     await expect(page.getByTestId('member-empty-note').getByRole('link', { name: 'Sources' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'New title' })).toHaveCount(0)
     // Said once: the list's own empty card would repeat the page's note.

@@ -358,6 +358,9 @@ export default function LibraryPage() {
       actions={canCreate && (
         <>
           {!getStarted && <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
+          {startedDismissed && stats.data?.total_dramas === 0 && (
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
+          )}
           <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New title</button>
         </>
       )}
@@ -375,7 +378,7 @@ export default function LibraryPage() {
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCreatedNote(null)}>Dismiss</button>
         </p>
       )}
-      {getStarted && <GetStarted canCreate={canCreate} onDismiss={() => setStartedDismissed(true)} />}
+      {getStarted && <GetStarted canCreate={canCreate} onHide={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
         <p className="muted" data-testid="member-empty-note">

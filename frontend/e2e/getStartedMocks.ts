@@ -7,7 +7,10 @@ export const STATS = (total: number) => ({
 const ENGINE = (name: string, key_configured: boolean, free: boolean) =>
   ({ name, label: `${name}.`, free, models: null, key_configured })
 
+const NO_ENGINE = { faster_whisper: false, ollama_reachable: false, key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false }
+
 export async function mockFirstRun(page: Page, total = 0) {
+  await page.route('**/api/setup/readiness', (r) => r.fulfill({ json: NO_ENGINE }))
   await page.route('**/api/library/stats', (r) => r.fulfill({ json: STATS(total) }))
   await page.route('**/api/translate/engines', (r) => r.fulfill({
     json: {

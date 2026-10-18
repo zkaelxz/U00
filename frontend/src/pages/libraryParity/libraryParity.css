@@ -7,7 +7,9 @@
 .series-drama-text { display: grid; gap: 2px; min-width: 0; font-size: var(--text-sm); }
 .series-drama-text > span:first-child { overflow-wrap: anywhere; }
 .series-drama-meta { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-.get-started { display: grid; gap: var(--space-3); }
+.get-started { display: grid; gap: var(--space-2); }
+.get-started-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 14px var(--space-3); }
+.get-started-step { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 @media (pointer: coarse), (max-width: 640px) {
   .cost-link { display: inline-flex; align-items: center; min-height: 44px; }
 }
