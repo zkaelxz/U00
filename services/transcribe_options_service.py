@@ -15,6 +15,7 @@ import segment_splitting
 import db
 import diagnostics
 import sensitivity_preset as presets
+from lib import settings_schema
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS
 from services import (
@@ -22,6 +23,7 @@ from services import (
     diarization_service,
     ownership_service,
     settings_service,
+    timing_settings_service,
     transcribe_pipeline,
 )
 from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
@@ -147,6 +149,17 @@ LAB_OPTION_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "sensitivit
                      "hallucination_silence_sec", "whisper_repeat_guard", "difficult_audio",
                      "separate_vocals_first")
 LAB_MAX_INITIAL_PROMPT_CHARS = 1000
+# Timing settings only the Lab varies. A title has no saved column for them: the speech pad is
+# faster-whisper's own default, the refine switch is the app-wide Settings value, and the split
+# limits are the Settings rows (Settings > Timing and splitting), so a title is unaffected by
+# anything the Lab does here. The split ranges are those rows' own, so the Lab cannot report a
+# gain at a value no title can use.
+WHISPER_DEFAULT_SPEECH_PAD_MS = 400
+_SPLIT_ROWS = {"split_max_seconds": "split_max_seconds", "split_max_chars": "split_max_cjk_chars"}
+LAB_TIMING_RANGES = {
+    "speech_pad_ms": (0, 2000),
+    **{key: (settings_schema.BY_KEY[row].min, settings_schema.BY_KEY[row].max) for key, row in _SPLIT_ROWS.items()}}
+LAB_TIMING_FIELDS = (*LAB_TIMING_RANGES, "refine_timing")
 _LAB_NUMBER_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "hallucination_silence_sec")
 _LAB_FLAG_FIELDS = ("whisper_repeat_guard", "difficult_audio", "separate_vocals_first")
 
@@ -163,7 +176,30 @@ def lab_option_defaults() -> dict:
         "difficult_audio": False,
         "separate_vocals_first": _DEFAULT_TUNING["separate_vocals_first"],
         "initial_prompt": "",
+        "speech_pad_ms": WHISPER_DEFAULT_SPEECH_PAD_MS,
+        "refine_timing": asr_options_service.get_vad_refine_timing(),
+        # What a title's run splits at today, Settings included.
+        **{key: timing_settings_service.value(row) for key, row in _SPLIT_ROWS.items()},
     }
+
+
+def _check_lab_timing(given: dict) -> dict:
+    """The Lab-only timing fields of `given`, removed from it and checked."""
+    out = {}
+    for key in LAB_TIMING_FIELDS:
+        if key not in given:
+            continue
+        value = given.pop(key)
+        if key == "refine_timing":
+            if not isinstance(value, bool):
+                raise InvalidInputError("refine_timing must be true or false.")
+        else:
+            low, high = LAB_TIMING_RANGES[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+                raise InvalidInputError(f"{key} must be a number between {low:g} and {high:g}.")
+            value = float(value) if key == "split_max_seconds" else int(value)
+        out[key] = value
+    return out
 
 
 def resolve_lab_options(options) -> dict:
@@ -175,10 +211,11 @@ def resolve_lab_options(options) -> dict:
         options = {}
     if not isinstance(options, dict):
         raise InvalidInputError("Transcription options must be an object.")
-    unknown = sorted(set(options) - set(LAB_OPTION_FIELDS) - {"initial_prompt"})
+    unknown = sorted(set(options) - set(LAB_OPTION_FIELDS) - set(LAB_TIMING_FIELDS) - {"initial_prompt"})
     if unknown:
         raise InvalidInputError(f"Unknown transcription option {unknown[0]!r}.")
     given = {k: v for k, v in options.items() if v is not None}
+    timing = _check_lab_timing(given)
     for key in _LAB_NUMBER_FIELDS:
         if key in given and (isinstance(given[key], bool) or not isinstance(given[key], (int, float))):
             raise InvalidInputError(f"{key} must be a number.")
@@ -193,6 +230,7 @@ def resolve_lab_options(options) -> dict:
     resolved = lab_option_defaults()
     resolved.update({k: bool(v) if k in _LAB_FLAG_FIELDS else v for k, v in checked.items()})
     resolved["initial_prompt"] = prompt.strip()
+    resolved.update(timing)
     return resolved
 
 

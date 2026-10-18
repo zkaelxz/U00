@@ -45,4 +45,18 @@ describe('corrections form', () => {
       'Added 13 clips to “moon”. 1 line already in the set was skipped. 1 unedited line skipped.',
     )
   })
+
+  it('with all lines included needs no raw transcript and no corrections', () => {
+    const none = { drama_id: 1, raw_available: false, lines_compared: 0, lines_corrected: 0, raw_to_edited_cer: null }
+    expect(correctionProblems(1, 'moon', none, false)).toHaveLength(1)
+    expect(correctionProblems(1, 'moon', none, true)).toEqual([])
+    expect(correctionProblems(null, 'moon', none, true)).toEqual(['Pick a title.'])
+    expect(correctionProblems(1, '', none, true)).toEqual(['Choose a set or give a new one a name.'])
+  })
+
+  it('says the current text counts as the reference when all lines were included', () => {
+    expect(describeAdd(added({ dry_run: true, include_all: true, unedited_skipped: 0 }))).toBe(
+      'This would add 14 clips to “moon”. Current text counts as the reference.',
+    )
+  })
 })

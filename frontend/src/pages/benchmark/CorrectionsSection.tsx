@@ -4,11 +4,12 @@ import { addTitleCorrections, getTitleCorrections, type BenchmarkSet, type Title
 import { api } from '../../api/client'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
+import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { plainError } from './benchmarkForm'
-import { CORRECTIONS_HELP } from './benchmarkHelp'
+import { CORRECTIONS_HELP, INCLUDE_ALL_HELP } from './benchmarkHelp'
 import {
   MAX_SET_NAME, NEW_SET, chosenSetName, correctionProblems, describeAdd, describeStats, transcriptionSetNames,
 } from './correctionsForm'
@@ -22,6 +23,7 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
   const [dramaId, setDramaId] = useState<number | null>(null)
   const [choice, setChoice] = useState<string>(NEW_SET)
   const [typed, setTyped] = useState('')
+  const [includeAll, setIncludeAll] = useState(false)
   const [loaded, setLoaded] = useState<{ id: number; stats: TitleCorrections } | null>(null)
   const [busy, setBusy] = useState<'preview' | 'add' | null>(null)
   const [result, setResult] = useState<string | null>(null)
@@ -62,7 +64,7 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
 
   const names = transcriptionSetNames(sets)
   const setName = chosenSetName(names.includes(choice) ? choice : NEW_SET, typed)
-  const problems = correctionProblems(title, setName, stats)
+  const problems = correctionProblems(title, setName, stats, includeAll)
 
   const run = async (dryRun: boolean) => {
     if (title == null) return
@@ -70,7 +72,7 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
     setError(null)
     setResult(null)
     try {
-      const r = await addTitleCorrections(title, { set_name: setName, dry_run: dryRun })
+      const r = await addTitleCorrections(title, { set_name: setName, dry_run: dryRun, ...(includeAll ? { include_all: true } : {}) })
       setResult(describeAdd(r))
       if (!dryRun) onDone()
     } catch (e) {
@@ -115,7 +117,15 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
           </Field>
         )}
       </div>
+      <Field label="Include all lines of this title" help={INCLUDE_ALL_HELP}>
+        <Toggle checked={includeAll} onChange={(v) => { setIncludeAll(v); setResult(null) }} />
+      </Field>
       {stats && <p data-testid="corrections-stats">{describeStats(stats)}</p>}
+      {includeAll && (
+        <p className="muted" data-testid="corrections-include-all-note">
+          Every spoken line is added, and its current text is the reference, not the raw transcript. Use it for reviewed titles only.
+        </p>
+      )}
       <div className="actions">
         <button type="button" className={buttonClass('secondary')} disabled={problems.length > 0 || busy !== null} onClick={() => void run(true)}>
           {busy === 'preview' ? 'Counting…' : 'Preview'}

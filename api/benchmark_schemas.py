@@ -8,7 +8,7 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkTranscribeOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
+from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
 from core import SOURCE_LANGUAGES
 
 Stage = Literal["translation", "transcription", "ocr"]
@@ -38,6 +38,7 @@ class BenchmarkCase(BaseModel):
     scene_order: Optional[int] = None
     excluded: bool = False
     ref_version: int = 1
+    has_ref_times: bool = False
     created_at: Optional[str] = None
 
 
@@ -183,6 +184,8 @@ class BenchmarkRun(BaseModel):
     stored_aggregate_score: Optional[float] = None
     judge: Optional[BenchmarkJudgeSummary] = None
     script_counts: Optional[BenchmarkScriptCounts] = None
+    timing: BenchmarkTimingSummary = Field(default_factory=BenchmarkTimingSummary)
+    timing_verdict: Optional[BenchmarkTimingVerdict] = None
 
 
 class BenchmarkRunList(BaseModel):
@@ -205,6 +208,7 @@ class BenchmarkResult(BaseModel):
     judge: Optional[BenchmarkJudgeScore] = None
     script_counts: Optional[BenchmarkScriptCounts] = None
     ref_version: int = 1
+    timing: Optional[BenchmarkCaseTiming] = None
 
 
 class BenchmarkRunDetail(BaseModel):
