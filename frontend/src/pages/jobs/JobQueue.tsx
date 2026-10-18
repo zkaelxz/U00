@@ -23,9 +23,11 @@ import { humanize } from '../../components/labels'
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
-import type { QueueItem, QueueState, QueueStep, QueueStepSettings } from '../../types/queue'
+import type {
+  QueueItem, QueueSettingEdits, QueueSettingField, QueueSettingValue, QueueState, QueueStep, QueueStepSettings,
+} from '../../types/queue'
 import {
-  HHMM, STEP_HELP, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText,
+  HHMM, STEP_HELP, changedEdits, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText,
   savedSettingValue, settingsStage, statusLabel, statusTone, translateCostNote,
 } from './queueModel'
 
@@ -43,6 +45,9 @@ export function JobQueue({ titles }: Props) {
   const [dramaId, setDramaId] = useState('')
   const [step, setStep] = useState<QueueStep>('transcribe')
   const [costNote, setCostNote] = useState<string | null>(null)
+  // This queued step's own changes to the title's saved settings; the title itself is never changed.
+  const [edits, setEdits] = useState<QueueSettingEdits>({})
+  const [fields, setFields] = useState<QueueSettingField[]>([])
   const [time, setTime] = useState('')
   const refocus = useRef<string | null>(null)
 
@@ -112,7 +117,7 @@ export function JobQueue({ titles }: Props) {
 
   const add = () => {
     const id = Number(dramaId)
-    if (id) void act(() => addQueueItem(id, step))
+    if (id) void act(() => addQueueItem(id, step, step === 'transcribe' ? changedEdits(fields, edits) : undefined)).then(() => setEdits({}))
   }
   const move = (item: QueueItem, dir: 'up' | 'down') => {
     refocus.current = `${item.id}:${dir}`
@@ -161,13 +166,13 @@ export function JobQueue({ titles }: Props) {
 
       <div className="queue-add" role="group" aria-label="Add to queue">
         <Field label="Title">
-          <select value={dramaId} onChange={(e) => setDramaId(e.target.value)}>
+          <select value={dramaId} onChange={(e) => { setDramaId(e.target.value); setEdits({}) }}>
             <option value="">Pick a title</option>
             {titleOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
         </Field>
         <Field label="Step">
-          <select value={step} onChange={(e) => setStep(e.target.value as QueueStep)}>
+          <select value={step} onChange={(e) => { setStep(e.target.value as QueueStep); setEdits({}) }}>
             {(Object.keys(STEP_LABELS) as QueueStep[]).map((s) => <option key={s} value={s}>{STEP_LABELS[s]}</option>)}
           </select>
         </Field>
@@ -178,7 +183,21 @@ export function JobQueue({ titles }: Props) {
       <p className="muted queue-help" data-testid="queue-step-help">
         {STEP_HELP[step]}{step === 'translate' && costNote ? ` ${costNote}` : ''}
       </p>
-      {Number(dramaId) > 0 && <SavedSettings dramaId={Number(dramaId)} step={step} />}
+      {Number(dramaId) > 0 && (
+        <SavedSettings
+          dramaId={Number(dramaId)}
+          step={step}
+          edits={edits}
+          onFields={setFields}
+          onEdit={(key, value) => setEdits((cur) => {
+            const next = { ...cur }
+            if (value === undefined) delete next[key]
+            else next[key] = value
+            return next
+          })}
+          onReset={() => setEdits({})}
+        />
+      )}
       {full && <p className="muted">The queue holds at most {queue.max_items} items. Clear finished items first.</p>}
 
       {queue.can_control ? (
@@ -235,8 +254,20 @@ export function JobQueue({ titles }: Props) {
   )
 }
 
-/** What the queued step will use for the chosen title, read from the server's own resolver. Collapsed and read-only. */
-function SavedSettings({ dramaId, step }: { dramaId: number; step: QueueStep }) {
+type SavedProps = {
+  dramaId: number
+  step: QueueStep
+  edits: QueueSettingEdits
+  onFields: (fields: QueueSettingField[]) => void
+  onEdit: (key: string, value: QueueSettingValue | undefined) => void
+  onReset: () => void
+}
+
+/**
+ * What the queued step will use for the chosen title, read from the server's own resolver. A Transcribe
+ * step's settings can be changed here for that queued step only; the title's saved settings stay as they are.
+ */
+function SavedSettings({ dramaId, step, edits, onFields, onEdit, onReset }: SavedProps) {
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<QueueStepSettings | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -244,20 +275,43 @@ function SavedSettings({ dramaId, step }: { dramaId: number; step: QueueStep }) 
   useEffect(() => {
     setData(null)
     setError(null)
+    onFields([])
     if (!open) return
     let live = true
     getQueueStepSettings(dramaId, step).then(
-      (d) => { if (live) setData(d) },
+      (d) => { if (live) { setData(d); onFields(d.fields ?? []) } },
       (e) => { if (live) setError(e) },
     )
     return () => { live = false }
-  }, [open, dramaId, step])
+  }, [open, dramaId, step, onFields])
 
   const where = settingsStage(step)
+  const fieldList = data?.fields ?? []
+  const editable = fieldList.length > 0
+  const changes = Object.keys(changedEdits(fieldList, edits) ?? {}).length
   return (
     <Section title="Saved settings for this step" onToggle={setOpen}>
       <ErrorBanner error={error} />
-      {data && (
+      {data && editable && (
+        <div className="queue-settings-edit" data-testid="queue-edit-settings" role="group" aria-label="Settings for this queued step">
+          <p className="muted">
+            Starts at the title's saved settings. Changes here apply to this queued step only; the title keeps its own.
+          </p>
+          <div className="queue-settings-grid">
+            {fieldList.map((f) => (
+              <SettingControl key={f.key} field={f} value={f.key in edits ? edits[f.key] : f.value}
+                onChange={(v) => onEdit(f.key, v === f.value ? undefined : v)} />
+            ))}
+          </div>
+          {changes > 0 && (
+            <div className="queue-row">
+              <span className="muted" role="status">{changes === 1 ? '1 change' : `${changes} changes`} for this step</span>
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={onReset}>Use saved settings</button>
+            </div>
+          )}
+        </div>
+      )}
+      {data && !editable && (
         <dl className="queue-settings" data-testid="queue-saved-settings">
           {data.rows.map((r) => (
             <div key={r.label} className="queue-setting"><dt>{r.label}</dt><dd>{savedSettingValue(r)}</dd></div>
@@ -268,6 +322,39 @@ function SavedSettings({ dramaId, step }: { dramaId: number; step: QueueStep }) 
         Change in the title's {where.label} stage
       </ButtonLink>
     </Section>
+  )
+}
+
+function SettingControl({ field, value, onChange }: {
+  field: QueueSettingField
+  value: QueueSettingValue
+  onChange: (v: QueueSettingValue) => void
+}) {
+  const help = field.locked ?? undefined
+  if (field.kind === 'toggle') {
+    return (
+      <Field label={field.label} help={help}>
+        <Toggle checked={value === true} disabled={!!field.locked} onChange={onChange} />
+      </Field>
+    )
+  }
+  if (field.kind === 'number') {
+    return (
+      <Field label={field.label} help={field.locked ?? (field.min !== null && field.max !== null ? `${field.min} to ${field.max}` : undefined)}>
+        <input
+          type="number" disabled={!!field.locked} inputMode="numeric" step={1} min={field.min ?? undefined} max={field.max ?? undefined}
+          value={String(value)}
+          onChange={(e) => { if (e.target.value !== '' && Number.isInteger(Number(e.target.value))) onChange(Number(e.target.value)) }}
+        />
+      </Field>
+    )
+  }
+  return (
+    <Field label={field.label} help={help}>
+      <select value={String(value)} disabled={!!field.locked} onChange={(e) => onChange(e.target.value)}>
+        {field.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </Field>
   )
 }
 
@@ -292,6 +379,11 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
         <Badge tone={statusTone(item.status)}>{statusLabel(item.status)}</Badge>
       </div>
       {item.reason && <p className={item.status === 'failed' ? 'error' : 'muted'}>{item.reason}</p>}
+      {item.changed_settings.length > 0 && (
+        <p className="muted" data-testid={`queue-item-changes-${item.id}`}>
+          Changed for this step: {item.changed_settings.map((r) => `${r.label} ${r.value}`).join(', ')}
+        </p>
+      )}
       {item.step === 'translate' && item.engine && item.status === 'waiting' && (
         <p className="muted">{translateCostNote(humanize('engine', item.engine), item.paid, monthlyCap)}</p>
       )}

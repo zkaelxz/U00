@@ -1,6 +1,9 @@
 // Pure helpers for the Queue card on the Jobs page (JobQueue.tsx).
 import { humanize, type BadgeTone } from '../../components/labels'
-import type { QueueItem, QueueItemStatus, QueueSchedule, QueueSettingRow, QueueState, QueueStep } from '../../types/queue'
+import type {
+  QueueItem, QueueItemStatus, QueueSchedule, QueueSettingEdits, QueueSettingField, QueueSettingRow, QueueState,
+  QueueStep,
+} from '../../types/queue'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 
 export const STEP_LABELS: Record<QueueStep, string> = {
@@ -82,4 +85,13 @@ export function savedSettingValue(row: QueueSettingRow): string {
   if (!row.engine) return row.value
   const engine = humanize('engine', row.engine)
   return row.value ? `${engine}, ${row.value}` : engine
+}
+
+/** The edits that differ from the title's saved values: only these are sent, so the rest keep following the title. */
+export function changedEdits(fields: QueueSettingField[], edits: QueueSettingEdits): QueueSettingEdits | undefined {
+  const out: QueueSettingEdits = {}
+  for (const f of fields) {
+    if (f.key in edits && edits[f.key] !== f.value && !f.locked) out[f.key] = edits[f.key]
+  }
+  return Object.keys(out).length ? out : undefined
 }

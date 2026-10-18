@@ -268,9 +268,11 @@ def for_compare(drama_id: int, whisper_size=None, backend=None) -> list:
     return needs
 
 
-def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=None) -> list:
+def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=None,
+                   overrides=None) -> list:
     """What transcribe_pipeline loads for the run start_transcribe_run would
-    start for this title, plus the diarization run it chains to."""
+    start for this title (with a queued item's `overrides`), plus the
+    diarization run it chains to."""
     import db
     import qwen3_native
     from ocr import default_hardsub_backend
@@ -278,6 +280,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
     drama = db.get_drama(drama_id)
     if drama is None:
         return []
+    drama = transcribe_options_service.apply_run_overrides(drama, overrides)
     language = source_language or drama.get("source_language") or "zh"
     mode = drama.get("transcript_mode") or "have_transcript"
     needs = []

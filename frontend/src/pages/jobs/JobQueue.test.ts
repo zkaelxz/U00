@@ -7,7 +7,7 @@ import { QueueRow } from './JobQueue'
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 7, drama_id: 3, title: 'Signal', step: 'transcribe', status: 'waiting', reason: null, job_id: null,
-  engine: null, paid: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: null, paid: false, changed_settings: [], mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const noop = () => undefined
 const row = (p: Partial<QueueItem>, first = false, last = false) => renderToStaticMarkup(
@@ -15,6 +15,15 @@ const row = (p: Partial<QueueItem>, first = false, last = false) => renderToStat
 )
 
 describe('QueueRow', () => {
+  it('says what a queued transcribe step changes from the title', () => {
+    const html = row({ changed_settings: [{ label: 'Beam size', value: '8' }, { label: 'Groq (paid)', value: 'On' }] })
+    expect(html).toContain('Changed for this step: Beam size 8, Groq (paid) On')
+  })
+
+  it('says nothing when the step uses the title as saved', () => {
+    expect(row({})).not.toContain('Changed for this step')
+  })
+
   it('shows a skipped item with its reason and a Retry', () => {
     const html = row({ status: 'skipped', reason: 'Skipped: The title was deleted.' })
     expect(html).toContain('Skipped</span>')

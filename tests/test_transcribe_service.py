@@ -380,6 +380,26 @@ class TestStartTranscribeRun:
         assert callable(k["on_done"]) and callable(k["on_finish"])
         assert captured["drama_id"] == did
 
+    def test_overrides_are_this_runs_settings_and_never_saved_to_the_title(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", beam_size=5,
+                                   whisper_size="large-v3", separate_vocals_first=0)
+        captured = _capture_worker_start(monkeypatch)
+
+        transcribe_service.start_transcribe_run(
+            did, overrides={"beam_size": 9, "whisper_size": "large-v3-turbo", "separate_vocals_first": True})
+
+        assert (captured["beam_size"], captured["whisper_size"]) == (9, "large-v3-turbo")
+        assert captured["separate_vocals_first"] is True
+        saved = isolated_db.get_drama(did)
+        assert (saved["beam_size"], saved["whisper_size"], saved["separate_vocals_first"]) == (5, "large-v3", 0)
+
+    def test_overrides_are_checked_like_the_title_options(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        captured = _capture_worker_start(monkeypatch)
+        with pytest.raises(InvalidInputError):
+            transcribe_service.start_transcribe_run(did, overrides={"beam_size": 99})
+        assert "job_id" not in captured
+
     def test_on_finish_removes_the_scratch_folder_and_a_leftover_part_file(self, isolated_db,
                                                                          monkeypatch):
         """A worker killed during the cross-volume move of vocals.wav leaves

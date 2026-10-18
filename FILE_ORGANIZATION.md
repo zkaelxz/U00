@@ -376,6 +376,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `ownership_service.py`
 - `page_import_limits.py`
 - `queue_service.py` (the Jobs page queue: items, run controls, the one-at-a-time runner thread)
+- `queue_transcribe_settings.py` (the queue card's Transcribe settings: saved rows, the fields one queued item may change, words for its changes)
 - `qwen3_requirements_service.py`
 - `reader_service.py`
 - `real_model_check_service.py`

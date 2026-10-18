@@ -135,3 +135,168 @@ def test_unknown_title_or_step_is_refused(isolated_db):
         q.step_settings(None, 999, "translate")
     with pytest.raises(InvalidInputError):
         q.step_settings(None, _drama(), "dub")
+
+
+# --- editing the settings of one queued item ------------------------------------
+
+def _fields(preview):
+    return {f["key"]: f for f in preview["fields"]}
+
+
+@pytest.fixture
+def started(monkeypatch):
+    """What the queue hands start_transcribe_run, with the model check passing."""
+    from services import model_readiness_service, transcribe_service
+    seen = {}
+    monkeypatch.setattr(model_readiness_service, "for_transcribe", lambda *a, **kw: [])
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run",
+                        lambda drama_id, **kw: seen.update(kw) or {"job_id": f"transcribe_{drama_id}"})
+    return seen
+
+
+def test_transcribe_fields_start_at_the_titles_saved_values(isolated_db):
+    did = _drama(whisper_size="small", beam_size=7, source_language="ja", separate_vocals_first=1)
+    fields = _fields(q.step_settings(None, did, "transcribe", holds_paid=True))
+    assert fields["beam_size"]["value"] == 7 and (fields["beam_size"]["min"], fields["beam_size"]["max"]) == (1, 10)
+    assert fields["whisper_size"]["value"] == "small"
+    assert fields["source_language"]["value"] == "ja"
+    assert fields["separate_vocals_first"]["value"] is True
+    assert fields["use_groq"]["locked"] is None
+    assert [o["value"] for o in fields["transcript_mode"]["options"]][:2] == ["whisper", "hardsub_ocr"]
+
+
+def test_groq_is_locked_without_paid_permission_and_other_steps_have_no_fields(isolated_db):
+    did = _drama()
+    assert _fields(q.step_settings(None, did, "transcribe", holds_paid=False))["use_groq"]["locked"]
+    assert q.step_settings(None, did, "translate")["fields"] == []
+    assert q.step_settings(None, did, "export")["fields"] == []
+
+
+def test_item_settings_reach_the_run_and_leave_the_title_alone(isolated_db, started):
+    did = _drama(whisper_size="small", beam_size=5)
+    before = db.get_drama(did)
+    q.add_item(None, did, "transcribe", True, at_pc=True,
+               settings={"beam_size": 8, "separate_vocals_first": True})
+    q.start(None)
+    q.tick()
+    assert started == {"overrides": {"beam_size": 8, "separate_vocals_first": True}}
+    assert db.get_drama(did) == before
+    item = q.get_queue(None)["items"][0]
+    assert {r["label"]: r["value"] for r in item["changed_settings"]} == {
+        "Beam size": "8", "Separate vocals first": "On"}
+
+
+def test_an_item_without_settings_starts_as_before(isolated_db, started):
+    did = _drama()
+    q.add_item(None, did, "transcribe", True, at_pc=True)
+    q.start(None)
+    q.tick()
+    assert started == {}
+
+
+@pytest.mark.parametrize("settings", [
+    {"beam_size": 0}, {"beam_size": 11}, {"beam_size": True}, {"beam_size": "5"},
+    {"whisper_size": "../../evil"}, {"asr_backend_choice": "nope"}, {"sensitivity_preset": "loud"},
+    {"alignment_method": "x"}, {"source_language": "fr"}, {"transcript_mode": "have_transcript"},
+    {"use_groq": "yes"}, {"source_language": ""}, {"whisper_size": ""}, {"initial_prompt": "hi"}, {"drama_id": 2},
+])
+def test_bad_item_settings_are_refused_before_anything_is_queued(isolated_db, started, settings):
+    did = _drama()
+    with pytest.raises(InvalidInputError):
+        q.add_item(None, did, "transcribe", True, at_pc=True, settings=settings)
+    assert q.get_queue(None)["items"] == []
+
+
+def test_item_settings_must_fit_the_language(isolated_db, started, monkeypatch):
+    did = _drama(source_language="zh")
+    with pytest.raises(InvalidInputError):
+        q.add_item(None, did, "transcribe", True, at_pc=True, settings={"asr_backend_choice": "anime_whisper"})
+    from services import transcribe_options_service as opts
+    monkeypatch.setattr(opts, "_require_vad_packages", lambda: None)
+    monkeypatch.setattr(opts, "anime_whisper_package_problem", lambda: None)
+    q.add_item(None, did, "transcribe", True, at_pc=True,
+               settings={"asr_backend_choice": "anime_whisper", "source_language": "ja"})
+
+
+def test_screen_subtitle_reading_needs_a_video(isolated_db, started):
+    from lib.errors import UnsupportedOperationError
+    did = _drama()
+    with pytest.raises(UnsupportedOperationError):
+        q.add_item(None, did, "transcribe", True, at_pc=True, settings={"transcript_mode": "hardsub_ocr"})
+
+
+def test_settings_only_belong_to_a_transcribe_item(isolated_db):
+    with pytest.raises(InvalidInputError):
+        q.add_item(None, _drama(), "translate", True, at_pc=True, settings={"beam_size": 3})
+
+
+def test_groq_on_an_item_needs_paid_permission_at_add_and_at_start(isolated_db, started):
+    from lib.errors import ForbiddenError
+    did = _drama()
+    with pytest.raises(ForbiddenError):
+        q.add_item(None, did, "transcribe", False, at_pc=True, settings={"use_groq": True})
+    q.add_item(None, did, "transcribe", True, at_pc=True, settings={"use_groq": True})
+    # The adder lost the permission before the item's turn.
+    principal = {"user_id": 1, "permissions": ["jobs.start", "lines.edit"]}
+    with pytest.raises(ForbiddenError):
+        q._start_transcribe(principal, db.get_drama(did), {"use_groq": True})
+    assert started == {}
+
+
+def test_a_title_with_groq_saved_still_needs_permission_but_an_item_can_switch_it_off(isolated_db, started):
+    from lib.errors import ForbiddenError
+    did = _drama(use_groq=1)
+    principal = {"user_id": 1, "permissions": ["jobs.start", "lines.edit"]}
+    with pytest.raises(ForbiddenError):
+        q._start_transcribe(principal, db.get_drama(did), {})
+    q._start_transcribe(principal, db.get_drama(did), {"use_groq": False})
+    assert started == {"overrides": {"use_groq": False}}
+
+
+def test_a_hand_edited_queue_document_cannot_smuggle_settings(isolated_db, started):
+    did = _drama()
+    q.add_item(None, did, "transcribe", True, at_pc=True, settings={"beam_size": 8})
+    doc = db.get_app_setting(q.QUEUE_KEY, None)
+    doc["items"][0]["settings"] = {"beam_size": 8, "initial_prompt": "x", "api_key": "k", "use_groq": [1]}
+    db.set_app_setting(q.QUEUE_KEY, doc)
+    with q._lock:
+        assert q._load()["items"][0]["settings"] == {"beam_size": 8}
+
+
+def test_the_overlay_is_what_the_run_and_the_model_check_see(isolated_db):
+    from services import transcribe_options_service as opts
+    did = _drama(whisper_size="small", beam_size=5, source_language="zh")
+    drama = db.get_drama(did)
+    merged = opts.apply_run_overrides(drama, {"whisper_size": "medium", "use_groq": True,
+                                              "separate_vocals_first": False})
+    assert (merged["whisper_size"], merged["use_groq"], merged["separate_vocals_first"]) == ("medium", 1, 0)
+    assert merged["beam_size"] == 5 and drama["whisper_size"] == "small"
+
+
+def test_settings_need_lines_edit_as_saving_them_on_the_title_does(isolated_db, started):
+    from lib.errors import ForbiddenError
+    did = _drama()
+    with pytest.raises(ForbiddenError):
+        q.add_item(None, did, "transcribe", True, at_pc=True, settings={"beam_size": 8}, holds_edit=False)
+    q.add_item(None, did, "transcribe", True, at_pc=True, holds_edit=False)
+    assert len(q.get_queue(None)["items"]) == 1
+    fields = _fields(q.step_settings(None, did, "transcribe", holds_paid=True, holds_edit=False))
+    assert all(f["locked"] for f in fields.values())
+    fields = _fields(q.step_settings(None, did, "transcribe", holds_paid=True, holds_edit=True))
+    assert not any(f["locked"] for f in fields.values())
+
+
+def test_an_item_with_settings_stops_if_the_adder_loses_lines_edit(isolated_db, started):
+    from lib.errors import ForbiddenError
+    did = _drama()
+    principal = {"user_id": 1, "permissions": ["jobs.start", "engines.paid"]}
+    with pytest.raises(ForbiddenError):
+        q._start_transcribe(principal, db.get_drama(did), {"beam_size": 8})
+    assert started == {}
+
+
+def test_a_combination_the_run_refuses_is_refused_when_added(isolated_db, started):
+    did = _drama(transcript_mode="have_transcript", alignment_method="qwen3_forced_align")
+    with pytest.raises(InvalidInputError, match="Qwen3 forced alignment needs a transcript"):
+        q.add_item(None, did, "transcribe", True, at_pc=True, settings={"transcript_mode": "whisper"})
+    assert q.get_queue(None)["items"] == []
