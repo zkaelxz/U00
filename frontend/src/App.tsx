@@ -34,6 +34,7 @@ import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
 import { CommandPalette } from './nav/CommandPalette'
+import { GlobalShortcuts } from './nav/GlobalShortcuts'
 import { useDocumentTitle } from './nav/documentTitle'
 import { useHiddenNav } from './nav/hiddenNav'
 import { BackButton } from './nav/BackButton'
@@ -310,6 +311,7 @@ export default function App() {
           <main id="main-content" ref={mainRef} tabIndex={-1} className="app-content">{content}</main>
         </div>
         {!wide && !popOut && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} />}
+        <GlobalShortcuts route={route} />
         {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
       </div>
     </JobsProvider>
