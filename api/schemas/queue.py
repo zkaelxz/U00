@@ -8,7 +8,7 @@ from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueMove",
+__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove",
            "QueueScheduleSet", "QueuePolicy", "QueueSettingRow", "QueueSettingOption",
            "QueueSettingField", "QueueStepSettings"]
 
@@ -63,6 +63,22 @@ class QueueAddItem(BaseModel):
 
 class QueueAddAllSteps(BaseModel):
     drama_id: int = Field(ge=1, lt=2**63)
+
+
+class QueueAddBulk(BaseModel):
+    drama_ids: List[int] = Field(min_length=1, max_length=500)
+    step: Literal["transcribe", "translate", "export", "all"]
+
+
+class QueueBulkSkip(BaseModel):
+    drama_id: int
+    reason: str
+
+
+class QueueBulkAdded(BaseModel):
+    queue: "QueueState"
+    added: List[int]
+    skipped: List[QueueBulkSkip]
 
 
 class QueueMove(BaseModel):

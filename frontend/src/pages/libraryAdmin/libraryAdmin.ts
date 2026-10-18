@@ -1,6 +1,7 @@
 // Pure helpers for the Library admin UI (selection, result lines, sizes).
 import type { DramaSummary } from '../../api/types'
 import { TERMINAL_STATUSES, type JobRecord } from '../../types/jobs'
+import type { QueueBulkAdded } from '../../types/queue'
 import type {
   LibraryBulkDeleteResult,
   LibraryBulkItem,
@@ -130,6 +131,13 @@ export function describeTranslateSkips(skips: readonly LibraryBulkTranslateSkip[
   if (!skips.length) return null
   const parts = skips.map((s) => `${reasonText(s.reason)} (${names(s.drama_id)})`)
   return `${skips.length} skipped: ${parts.join(', ')}`
+}
+
+/** "Added 2 titles to the queue. Skipped: Title (reason)." Nothing has started. */
+export function describeQueueAdd(r: Pick<QueueBulkAdded, 'added' | 'skipped'>, names: Names): string {
+  const added = r.added.length ? `Added ${r.added.length} title${r.added.length === 1 ? '' : 's'} to the queue.` : 'Nothing was added to the queue.'
+  if (!r.skipped.length) return added
+  return `${added} Skipped: ${skippedList(r.skipped.map((x) => ({ id: x.drama_id, why: x.reason.replace(/\.$/, '') })), names)}.`
 }
 
 /**
