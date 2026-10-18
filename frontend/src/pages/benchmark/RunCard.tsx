@@ -477,7 +477,7 @@ export function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: B
       <p>
         <strong>Estimate for {est.case_count} {est.case_count === 1 ? 'case' : 'cases'}:</strong>{' '}
         <span className="num">{formatCost(est.estimated_cost_usd)}</span>
-        {stage !== 'translation' && <span className="muted"> (runs on this PC; nothing is spent)</span>}
+        {stage !== 'translation' && est.estimated_cost_usd === 0 && <span className="muted"> (runs on this PC; nothing is spent)</span>}
       </p>
       <ul className="bench-estimate-list">
         {est.configs.map((c, i) => (
