@@ -70,6 +70,8 @@ const PAIRS: [string, string][] = [
   ['--muted', '--surface'],
   ['--on-accent', '--accent'],
   ['--text', '--highlight'],
+  ['--muted', '--highlight'],
+  ['--muted', '--surface-2'],
   ['--accent', '--bg'],
   ['--accent', '--surface'],
   ['--warn', '--bg'],
@@ -96,6 +98,78 @@ describe('theme colour contrast (WCAG AA, 4.5:1)', () => {
     const body = media.slice(media.indexOf('{', media.indexOf(':root:not(')) + 1, media.indexOf('\n  }'))
     for (const m of body.matchAll(/(--[\w-]+):\s*([^;]+);/g)) expect(DARK[m[1]], m[1]).toBe(m[2].trim())
   })
+})
+
+// Field edges and the focus ring are UI components, not text: WCAG 1.4.11 and 2.4.7 ask 3:1.
+describe('field edge and focus ring (3:1)', () => {
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const base of ['--bg', '--surface', '--field-bg']) {
+      it(`${name}: --field-edge on ${base}`, () => {
+        expect(contrast(resolve(theme, '--field-edge'), resolve(theme, base))).toBeGreaterThanOrEqual(3)
+      })
+    }
+    for (const base of ['--bg', '--surface', '--surface-2']) {
+      it(`${name}: the focus ring (--accent) on ${base}`, () => {
+        expect(contrast(resolve(theme, '--accent'), resolve(theme, base))).toBeGreaterThanOrEqual(3)
+      })
+    }
+  }
+
+  it('draws focus as a solid accent outline, not only the translucent halo', () => {
+    expect(css).toMatch(/\n:focus-visible \{[^}]*outline: 2px solid var\(--accent\);/)
+    expect(css).toMatch(/\ninput:focus, select:focus, textarea:focus \{[^}]*outline: 2px solid var\(--accent\);/)
+    expect(css).toMatch(/\.drama-card:has\(a\.drama-card-title:focus-visible\) \{[^}]*outline: 2px solid var\(--accent\);/)
+    expect(css).toMatch(/@media \(forced-colors: active\) \{\s*:focus-visible \{ outline: 2px solid CanvasText !important; \}/)
+  })
+})
+
+// Glass panels are translucent, so the colour under the text is the glass blended over the wash blob over the page.
+// A blob is drawn at 60% (frost.css body rule); the worse of the two blobs is the one that counts.
+describe('text on frost glass over the wash', () => {
+  const frost = readFileSync(new URL('./frost.css', import.meta.url), 'utf8')
+  const frostBlock = (selector: string) => {
+    const open = frost.indexOf('{', frost.indexOf(`\n${selector} {`))
+    expect(open, selector).toBeGreaterThan(0)
+    const body = frost.slice(open + 1, frost.indexOf('\n}', open))
+    return Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]))
+  }
+  const light = frostBlock(':root')
+  const dark = frostBlock(':root:is([data-theme="dark"], [data-theme="oled"])')
+  const FROST: Record<string, Record<string, string>> = {
+    light,
+    dark,
+    oled: { ...dark, ...frostBlock(':root[data-theme="oled"]') },
+    sepia: { ...light, ...frostBlock(':root[data-theme="sepia"]') },
+  }
+
+  function blend(top: string, base: string): string {
+    const m = top.match(/^rgba\(\s*(\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\s*\)$/)
+    expect(m, top).toBeTruthy()
+    const alpha = +m![4]
+    const mixed = rgb(base).map((b, i) => Math.round(+m![i + 1] * alpha + b * (1 - alpha)))
+    return `#${mixed.map((c) => c.toString(16).padStart(2, '0')).join('')}`
+  }
+
+  for (const [name, theme] of Object.entries(THEMES)) {
+    // --active only ever carries the checked segment's --accent-text label (frost.css), so --muted is not asked of it.
+    const FILLS: Record<string, string[]> = {
+      '--glass': ['--text', '--muted', '--accent-text'],
+      '--btn': ['--text', '--muted', '--accent-text'],
+      '--active': ['--text', '--accent-text'],
+    }
+    for (const [fill, fgs] of Object.entries(FILLS)) {
+      for (const fg of fgs) {
+        it(`${name}: ${fg} on ${fill} over the wash`, () => {
+          const value = FROST[name][fill]
+          for (const wash of ['--wash-1', '--wash-2']) {
+            const page = over(FROST[name][wash], 60, resolve(theme, '--bg'))
+            const under = value.startsWith('rgba') ? blend(value, page) : value
+            expect(contrast(resolve(theme, fg), under), `${wash} ${value}`).toBeGreaterThanOrEqual(4.5)
+          }
+        })
+      }
+    }
+  }
 })
 
 // The split dialog shades the two pieces with a translucent token over the
