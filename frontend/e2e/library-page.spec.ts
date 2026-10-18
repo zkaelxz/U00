@@ -39,6 +39,22 @@ test('create form validates client-side', async ({ page }) => {
   await expect(sheet.getByLabel('Source language').locator('option:checked')).toHaveText('Chinese')
 })
 
+test('create form puts focus on the invalid field and hides credits that do not fit the type', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'New title' }).click()
+  const sheet = page.getByRole('dialog', { name: 'New title' })
+  await sheet.getByLabel('Source language').focus()
+  await sheet.getByRole('button', { name: 'Create title' }).click()
+  const title = sheet.getByLabel('English title')
+  await expect(title).toHaveAttribute('aria-invalid', 'true')
+  await expect(title).toBeFocused()
+  await sheet.getByText('Credits, summary and series').click()
+  await expect(sheet.getByLabel('Voice actors', { exact: true })).toBeVisible()
+  await sheet.getByLabel('Media type').selectOption('novel')
+  await expect(sheet.getByLabel('Voice actors', { exact: true })).toHaveCount(0)
+  await expect(sheet.getByLabel('Studio')).toHaveCount(0)
+})
+
 test('New title keeps what was typed when the sheet closes; Cancel discards it', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'New title' }).click()
@@ -56,7 +72,7 @@ test('New title keeps what was typed when the sheet closes; Cancel discards it',
   await page.getByRole('button', { name: 'New title' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
 
-  await sheet.getByRole('button', { name: 'Cancel' }).click()
+  await sheet.getByRole('button', { name: 'Discard draft' }).click()
   await expect(sheet).toBeHidden()
   await page.getByRole('button', { name: 'New title' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('')

@@ -36,7 +36,8 @@ import { closeReportDialog, isReportDialogOpen, openReportDialog, subscribeRepor
 import './reportProblem.css'
 import { buttonClass } from '../components/uiClasses'
 
-export function ReportProblemButton() {
+// `hidden` keeps the dialog mounted while another control (the phone menu) opens it.
+export function ReportProblemButton({ hidden = false }: { hidden?: boolean }) {
   const open = useSyncExternalStore(subscribeReportDialog, isReportDialogOpen, isReportDialogOpen)
   const buttonRef = useRef<HTMLButtonElement>(null)
   // The dialog unmounts on close, so focus is handed back here explicitly —
@@ -47,7 +48,7 @@ export function ReportProblemButton() {
   }
   return (
     <>
-      <button ref={buttonRef} type="button" className="report-btn" aria-haspopup="dialog" onClick={openReportDialog}>
+      <button ref={buttonRef} type="button" className="report-btn" aria-haspopup="dialog" onClick={openReportDialog} style={hidden ? { display: 'none' } : undefined}>
         <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false">
           <path fill="currentColor" d="M5 3h2v18H5zM8 4h10l-2 4 2 4H8z" />
         </svg>

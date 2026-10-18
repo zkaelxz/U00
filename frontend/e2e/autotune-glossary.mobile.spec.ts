@@ -155,7 +155,8 @@ test('PC-only delete buttons are 44px and on their own line', async ({ page }) =
       json: [{ id: 9, drama_id: 1, label: 'Claude pass 1', engine: 'claude', model: 'm', is_active: true, created_at: '2026-09-01' }],
     }),
   )
-  await page.goto('/#/drama/1/review')
+  // No lines on this title, so the tools panel only shows when a link asks for it.
+  await page.goto('/#/drama/1/review?tools=history')
   await openSection(page, 'Records')
   const list = page.getByTestId('versions-list')
   await expectTall(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }))

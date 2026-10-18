@@ -12,13 +12,16 @@
  * Add titles: from a URL or by hand (DI09/DI10), then folded Bulk import (DI07).
  * One column at every width, capped at 860px.
  */
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useEffect, useState } from 'react'
 
 import { translateApi, engineOffReason, engineShortName } from '../api/translate'
 import { PageShell } from '../components/PageShell'
 import { Field } from '../components/Field'
 import { RetryBanner } from '../components/RetryBanner'
 import { Section } from '../components/Section'
+import { Tabs } from '../components/Tabs'
+import { tabButtonId, tabPanelId } from '../components/tabIds'
+import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import type { TranslateEngine } from '../types/translate'
@@ -40,14 +43,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'add', label: 'Add titles' },
 ]
 const DEFAULT_TAB: TabId = TABS[0].id
-const TAB_KEY = 'baihe.discover.tab'
+// The tab used to be stored raw under this key; read it once when the new preference is empty.
+const LEGACY_TAB_KEY = 'baihe.discover.tab'
 
-function savedTab(): TabId {
+function legacyTab(): string {
   try {
-    const v = window.localStorage.getItem(TAB_KEY)
-    return TABS.some((t) => t.id === v) ? (v as TabId) : DEFAULT_TAB
+    return window.localStorage.getItem(LEGACY_TAB_KEY) ?? ''
   } catch {
-    return DEFAULT_TAB
+    return ''
   }
 }
 
@@ -59,33 +62,17 @@ export default function DiscoverPage() {
   const [enginesTick, setEnginesTick] = useState(0)
   const [engine, setEngine] = useState('')
   const [catalogKey, setCatalogKey] = useState(0)
-  const [tab, setTab] = useState<TabId>(savedTab)
-
-  const pickTab = (id: TabId) => {
-    setTab(id)
-    try {
-      window.localStorage.setItem(TAB_KEY, id)
-    } catch {
-      /* private window: the choice just isn't remembered */
-    }
-  }
-  const onTabKey = (e: KeyboardEvent, id: TabId) => {
-    const i = TABS.findIndex((t) => t.id === id)
-    const next = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : null
-    if (next === null) return
-    e.preventDefault()
-    const to = TABS[(next + TABS.length) % TABS.length].id
-    pickTab(to)
-    document.getElementById(`discover-tab-${to}`)?.focus()
-  }
+  const [savedTab, setTab] = usePersistedState('discover.tab', '')
+  const remembered = savedTab || legacyTab()
+  const tab: TabId = TABS.find((t) => t.id === remembered)?.id ?? DEFAULT_TAB
 
   useEffect(() => {
-    translateApi.engines().then(
-      (all) => {
-        const usable = discoverEngines(all)
+    translateApi.engineList().then(
+      ({ items, default_engine }) => {
+        const usable = discoverEngines(items)
         setEngines(usable)
-        setEnginesOff(discoverEnginesOff(all))
-        setEngine((cur) => cur || (usable.find((e) => e.name === 'claude') ?? usable[0])?.name || '')
+        setEnginesOff(discoverEnginesOff(items))
+        setEngine((cur) => cur || (usable.find((e) => e.name === default_engine) ?? usable[0])?.name || '')
       },
       (e: unknown) => {
         setEngines([])
@@ -144,33 +131,16 @@ export default function DiscoverPage() {
         </>
       )}
       tabs={(
-        <div className="discover-tabs" role="tablist" aria-label="Discover tasks">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              id={`discover-tab-${t.id}`}
-              aria-selected={tab === t.id}
-              aria-controls={`discover-panel-${t.id}`}
-              tabIndex={tab === t.id ? 0 : -1}
-              className="discover-tab"
-              onClick={() => pickTab(t.id)}
-              onKeyDown={(e) => onTabKey(e, t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <Tabs label="Discover tasks" idPrefix="discover" tabs={TABS} active={tab} onSelect={setTab} />
       )}
     >
       {CATALOGUE_TAB_ENABLED && (
-        <div role="tabpanel" id="discover-panel-catalogue" aria-labelledby="discover-tab-catalogue" hidden={tab !== 'catalogue'} className="discover-panel">
+        <div role="tabpanel" id={tabPanelId('discover', 'catalogue')} aria-labelledby={tabButtonId('discover', 'catalogue')} hidden={tab !== 'catalogue'} className="discover-panel">
           <CatalogPanel pc={pc} reloadKey={catalogKey} />
         </div>
       )}
 
-      <div role="tabpanel" id="discover-panel-find" aria-labelledby="discover-tab-find" hidden={tab !== 'find'} className="discover-panel">
+      <div role="tabpanel" id={tabPanelId('discover', 'find')} aria-labelledby={tabButtonId('discover', 'find')} hidden={tab !== 'find'} className="discover-panel">
         <section aria-label="Find on official platforms" className="discover-group">
           <h3>Find on official platforms</h3>
           <FindPanel engine={engine} canTranslate={aiReady} />
@@ -183,7 +153,7 @@ export default function DiscoverPage() {
         </Section>
       </div>
 
-      <div role="tabpanel" id="discover-panel-add" aria-labelledby="discover-tab-add" hidden={tab !== 'add'} className="discover-panel">
+      <div role="tabpanel" id={tabPanelId('discover', 'add')} aria-labelledby={tabButtonId('discover', 'add')} hidden={tab !== 'add'} className="discover-panel">
         <section aria-label="Add a title" className="discover-group">
           <h3>Add a title</h3>
           <AddTitle engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />

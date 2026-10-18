@@ -1,7 +1,7 @@
 import { Sheet } from '../../../../components/Sheet'
 
 // Every shortcut also has a visible control; this sheet is the list.
-const LIST: [string, string][] = [
+export const REVIEW_KEYS: [string, string][] = [
   ['↓ or J / ↑ or K', 'Next / previous line (crosses pages)'],
   ['Alt+↓ / Alt+↑', 'Next / previous flagged line'],
   ['] / [', 'Next / previous page'],
@@ -25,7 +25,7 @@ const LIST: [string, string][] = [
   ['?', 'This list'],
 ]
 
-const EDITING: [string, string][] = [
+export const REVIEW_EDITING_KEYS: [string, string][] = [
   ['Enter', 'Save and edit the next line'],
   ['Ctrl/⌘+S', 'Save and keep editing'],
   ['Shift+Enter', 'New line in the text'],
@@ -37,7 +37,7 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
   return (
     <Sheet open={open} title="Keyboard shortcuts" onClose={onClose}>
       <dl className="review-keys-list">
-        {LIST.map(([k, v]) => (
+        {REVIEW_KEYS.map(([k, v]) => (
           <div key={k}>
             <dt><kbd>{k}</kbd></dt>
             <dd>{v}</dd>
@@ -46,7 +46,7 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
       </dl>
       <h4>While editing</h4>
       <dl className="review-keys-list">
-        {EDITING.map(([k, v]) => (
+        {REVIEW_EDITING_KEYS.map(([k, v]) => (
           <div key={k}>
             <dt><kbd>{k}</kbd></dt>
             <dd>{v}</dd>

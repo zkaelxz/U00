@@ -96,18 +96,18 @@ export default function SettingsPage() {
   const [uploadsSignal, setUploadsSignal] = useState(0)
   const [jumpTo, setJumpTo] = useState<{ id: string; n: number } | null>(null)
   const route = useRoute()
-  const wantsDeveloperMode = route.name === 'settings' && route.section === 'developer-mode'
   const wantsUploads = route.name === 'settings' && route.section === 'uploads'
+  // The older section links name a card too: uploads lives inside Advanced.
+  const wantedCard = route.name !== 'settings' ? undefined : (route.card ?? (wantsUploads ? 'advanced' : route.section))
   const loaded = settings !== null
-  // Both targets are cards of the System tab, which only exists once the settings load.
+  // Every target is a card of a tab that only exists once the settings load.
   useEffect(() => {
-    if (!loaded || (!wantsDeveloperMode && !wantsUploads)) return
-    const id = wantsUploads ? 'advanced' : 'developer-mode'
-    setStoredTab(tabOfCard(id)!)
+    if (!loaded || !wantedCard) return
+    setStoredTab(tabOfCard(wantedCard)!)
     if (wantsUploads) setUploadsSignal((n) => n + 1)
-    setOpens((cur) => ({ ...cur, [id]: (cur[id] ?? 0) + 1 }))
-    setJumpTo((cur) => ({ id, n: (cur?.n ?? 0) + 1 }))
-  }, [wantsDeveloperMode, wantsUploads, loaded, setStoredTab])
+    setOpens((cur) => ({ ...cur, [wantedCard]: (cur[wantedCard] ?? 0) + 1 }))
+    setJumpTo((cur) => ({ id: wantedCard, n: (cur?.n ?? 0) + 1 }))
+  }, [wantedCard, wantsUploads, loaded, setStoredTab])
   useEffect(() => {
     if (!jumpTo) return
     const el = document.getElementById(`settings-card-${jumpTo.id}`)
