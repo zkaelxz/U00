@@ -193,7 +193,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       )}
       </div>
       </div>
-      <Sheet open={phone && moreOpen} title="Title actions" onClose={() => setMoreOpen(false)}>
+      <Sheet open={phone && moreOpen} title="Title actions" hideTitle onClose={() => setMoreOpen(false)}>
         <div onClick={() => setMoreOpen(false)}>{actions}</div>
       </Sheet>
       <ErrorBanner error={error} />
