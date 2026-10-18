@@ -7,6 +7,9 @@ export const GAP_PLAIN_TEXT = 'No line here'
 // null when it has not run, so a gap is never claimed to be silent.
 export const gapText = (g: Pick<TranscribeGap, 'speech'>): string => (g.speech ? GAP_SPEECH_TEXT : GAP_PLAIN_TEXT)
 
+// Spoken name of the chip: which gap you are on (# before the first jump) out of how many.
+export const gapChipLabel = (index: number | null, count: number): string => `Gaps ${index ?? '#'} /${count}`
+
 // The first gap that starts after `time`, else the first of all (so the chip
 // keeps cycling). The playhead sitting at a gap's start counts as being there.
 export function nextGap(gaps: TranscribeGap[], time: number): TranscribeGap | null {

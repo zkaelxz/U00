@@ -2,6 +2,7 @@ import { useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import type { LineFilter } from '../../../../types/review'
+import { gapChipLabel } from './gapModel'
 import { chipLabel, parseJump } from './reviewLogic'
 
 interface FilterCounts {
@@ -220,7 +221,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
         {p.gapCount > 0 && (
           <span className="review-gap-step" role="group" aria-label="Gaps: stretches with no line">
             <button type="button" className="review-gap-arrow" aria-label="Previous gap" title="Previous stretch with no line" onClick={p.onPrevGap}>‹</button>
-            <span className="review-gaps-chip">
+            <span className="review-gaps-chip" role="group" aria-label={gapChipLabel(p.gapIndex, p.gapCount)}>
               <span>Gaps</span>
               <JumpInput className="review-gap-input" label="Go to gap number" placeholder="#" value={p.gapIndex === null ? '' : String(p.gapIndex)} max={p.gapCount} onJump={p.onGoGap} />
               <span aria-hidden="true">/{p.gapCount}</span>
