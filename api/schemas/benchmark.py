@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, Stri
 
 __all__ = [
     "BenchmarkTranscribeOptions",
+    "BenchmarkTranslateOptions",
+    "BenchmarkTranslateChoices",
     "BenchmarkTimingSummary",
     "BenchmarkCaseTiming",
     "BenchmarkTimingVerdict",
@@ -52,6 +54,12 @@ __all__ = [
     "BenchmarkSweepStarted",
     "BenchmarkSweepDecisionRow",
     "BenchmarkSweepDecisions",
+    "BenchmarkTranslateSweepRequest",
+    "BenchmarkTranslateSweepKnob",
+    "BenchmarkTranslateSweepEstimate",
+    "BenchmarkTranslateSweep",
+    "BenchmarkTranslateSweepState",
+    "BenchmarkTranslateSweepStarted",
 ]
 
 
@@ -243,6 +251,28 @@ class BenchmarkTranscribeOptions(BaseModel):
     refine_timing: Optional[StrictBool] = None
     split_max_seconds: Optional[Union[StrictInt, StrictFloat]] = None
     split_max_chars: Optional[StrictInt] = None
+
+
+class BenchmarkTranslateOptions(BaseModel):
+    """A Lab translation arm's options: its cases run as batches in order, the way a title's
+    Translate runs them (services/benchmark_scene_service.py checks the values); a field left out
+    takes the app's default."""
+    model_config = ConfigDict(extra="forbid")
+
+    batch_size: Optional[StrictInt] = None
+    context_window: Optional[StrictInt] = None
+    context_window_ahead: Optional[StrictInt] = None
+    reflect: Optional[StrictBool] = None
+    style_preset: Optional[str] = Field(default=None, max_length=40)
+    # A series whose glossary, learned style and character hints the arm translates with.
+    series_id: Optional[StrictInt] = None
+
+
+class BenchmarkTranslateChoices(BaseModel):
+    style_presets: List[Dict[str, str]]
+    series: List[Dict[str, Union[int, str]]]
+    defaults: Dict[str, Union[StrictBool, StrictInt, str]]
+    batch_size_defaults: Dict[str, Dict[str, int]]
 
 
 class BenchmarkTimingSummary(BaseModel):
@@ -455,3 +485,82 @@ class BenchmarkSweepDecisionRow(BaseModel):
 
 class BenchmarkSweepDecisions(BaseModel):
     decisions: List[BenchmarkSweepDecisionRow]
+
+
+# --- The translation settings sweep (services/benchmark_translate_sweep_service.py) ---
+
+_TranslateSweepValue = Union[StrictBool, StrictInt, str]
+
+
+class BenchmarkTranslateSweepRequest(BaseModel):
+    """One golden set, one language and one engine; model None is the engine's default, series_id
+    None translates without a glossary."""
+    model_config = ConfigDict(extra="forbid")
+    set_name: str = Field(min_length=1, max_length=60)
+    language: Literal["zh", "ja", "ko"]
+    engine: str = Field(min_length=1, max_length=40)
+    model: Optional[str] = Field(default=None, max_length=100)
+    series_id: Optional[StrictInt] = Field(default=None, ge=1)
+    confirm: bool = False
+
+
+class BenchmarkTranslateSweepKnob(BaseModel):
+    key: str
+    label: str
+    values: List[_TranslateSweepValue]
+    included: bool
+    reason: Optional[str] = None
+
+
+class BenchmarkTranslateSweepEstimate(BaseModel):
+    set_name: str
+    language: str
+    engine: str
+    model: Optional[str] = None
+    series_id: Optional[int] = None
+    tuning_cases: int
+    holdout_cases: int
+    tuning_titles: int
+    holdout_titles: int
+    small_set: bool
+    min_set_cases: int
+    models: List[BenchmarkSweepModel]
+    knobs: List[BenchmarkTranslateSweepKnob]
+    not_swept: List[str]
+    passes_done: int
+    passes_to_run: int
+    estimated_cost_usd: float
+    cap_applies: bool
+    monthly_cap_usd: float = 0.0
+    month_spend_usd: float = 0.0
+    remaining_usd: Optional[float] = None
+    monthly_refusal: Optional[str] = None
+    estimate_above_cap: bool
+
+
+class _TranslateSweepSetup(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    changes: Dict[str, _TranslateSweepValue] = {}
+    label: str
+
+
+class _TranslateSweepRecommendation(BenchmarkSweepRecommendation):
+    default: _TranslateSweepSetup
+    winner: _TranslateSweepSetup
+
+
+class BenchmarkTranslateSweep(BenchmarkSweep):
+    engine: str
+    model: Optional[str] = None
+    series_id: Optional[int] = None
+    recommendation: Optional[_TranslateSweepRecommendation] = None
+
+
+class BenchmarkTranslateSweepState(BaseModel):
+    sweep: Optional[BenchmarkTranslateSweep] = None
+
+
+class BenchmarkTranslateSweepStarted(BaseModel):
+    job_id: str
+    sweep: BenchmarkTranslateSweep

@@ -30,11 +30,6 @@ from services.service_errors import NotFoundError
 MAX_TM_LINES_SCANNED = 2000  # cap on lines fed to the TM scan (roughly lines x entries)
 
 
-def _require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
-
 def _newest_first(rows: list) -> list:
     return sorted(rows, key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
 
@@ -47,7 +42,7 @@ def list_line_history(drama_id: int) -> list:
     """Snapshot metadata (id, label, created_at), newest first in the order
     written (db.list_line_history), not by created_at, which a clock set
     back reorders. No lines payload -- use get_line_history_snapshot for that."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     return [{"id": h["id"], "drama_id": h["drama_id"], "label": h["label"],
              "created_at": h["created_at"]}
             for h in db.list_line_history(drama_id)]
@@ -57,7 +52,7 @@ def get_line_history_snapshot(drama_id: int, history_id: int) -> dict:
     """One snapshot's lines. NotFoundError if the snapshot doesn't exist OR
     belongs to another drama (db.get_line_history_snapshot has no ownership
     check, so it is enforced via this drama's own history list)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     meta = next((h for h in db.list_line_history(drama_id) if h["id"] == history_id), None)
     if meta is None:
         raise NotFoundError(f"No history snapshot {history_id} for title {drama_id}.")
@@ -93,7 +88,7 @@ def lines_losing_notes(drama_id: int, rows, current) -> set:
 
 def list_translation_versions(drama_id: int) -> list:
     """Version metadata, newest first (no lines payload)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     return [{"id": v["id"], "drama_id": v["drama_id"], "label": v["label"],
              "engine": v["engine"] or "", "model": v["model"] or "",
              "is_active": bool(v["is_active"]), "created_at": v["created_at"]}
@@ -111,7 +106,7 @@ def compare_versions(drama_id: int, left_id: int, right_id: int) -> dict:
     """The "Show differences" view: lines of the left version
     whose English differs from the right version's line at the same idx.
     Both versions must belong to this drama."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     left = _owned_version(drama_id, left_id)
     right = _owned_version(drama_id, right_id)
     rmap = {r["idx"]: r.get("en") or "" for r in right["lines"] if r.get("idx") is not None}
@@ -134,7 +129,7 @@ def compare_versions(drama_id: int, left_id: int, right_id: int) -> dict:
 def list_translation_notes(drama_id: int) -> list:
     """Notes ordered by the line's current position; line_idx follows the
     line through merges/splits (see db.list_translation_notes)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     return [{"id": n["id"], "drama_id": n["drama_id"], "line_id": n["line_id"],
              "line_idx": n["line_idx"], "term": n["term"], "note_type": n["note_type"],
              "note": n["note"], "created_at": n["created_at"]}
@@ -143,7 +138,7 @@ def list_translation_notes(drama_id: int) -> list:
 
 def get_notes_markdown(drama_id: int) -> str:
     """The text of "Download notes as Markdown"."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     notes = db.list_translation_notes(drama_id)
     # db's COALESCE can yield a NULL line_idx, which the formatter's sort
     # can't compare; pass copies with None -> 0 (rows themselves untouched).
@@ -159,7 +154,7 @@ def get_notes_markdown(drama_id: int) -> str:
 
 def get_consistency_issues(drama_id: int) -> list:
     """Stored results of the last consistency check (not re-run here)."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     return [{"id": i["id"], "term": i.get("term") or "",
              "variants": list(i.get("variants") or []), "note": i.get("note") or "",
              "created_at": i.get("created_at")}
@@ -168,7 +163,7 @@ def get_consistency_issues(drama_id: int) -> list:
 
 def get_emotion_summary(drama_id: int) -> dict:
     """Local counts over stored emotion tags plus the per-line tags."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     emap = db.load_emotions(drama_id)
     summary = emotion.emotion_summary(emap)
     tags = [{"line_idx": int(idx), "emotion": t["emotion"], "intensity": t["intensity"],
@@ -184,7 +179,7 @@ def get_edit_tendencies(drama_id: int, principal=None) -> dict:
     profile (None when nothing has been learned, or when the principal may
     not see it: ownership_service.sees_learned_style). Never runs the LLM
     analysis."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     tend = adaptive_style.summarize_edit_tendencies(db.list_edit_samples(drama_id))
     scope = f"series:{drama['series_id']}" if drama.get("series_id") else "global"
     stored = db.get_style_profile(scope)
@@ -213,7 +208,7 @@ def list_tm_suggestions(drama_id: int, line_ids: Optional[list] = None) -> list:
     has no series. line_ids limits the lines considered (permanent ids).
     At most MAX_TM_LINES_SCANNED lines (the first ones, in line order) are
     scanned, since the TM match costs roughly lines x entries."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     series_id = drama.get("series_id")
     if not series_id:
         return []

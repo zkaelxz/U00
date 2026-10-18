@@ -211,7 +211,7 @@ def arena(run_ids: list) -> dict:
 
 def setup_key(session: dict) -> str:
     ctx = session_out(session)["context_settings"]
-    options = ctx["transcribe_options"] if "transcribe_options" in ctx else None
+    options = ctx.get("transcribe_options", ctx.get("translate_options"))
     gpu = ctx["use_gpu"] if "use_gpu" in ctx else None
     return json.dumps([session["engine"], session["model"], options, gpu], sort_keys=True)
 

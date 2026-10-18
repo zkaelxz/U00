@@ -220,7 +220,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `pid.py` (`pid_alive`: whether a pid is a running process, Windows and POSIX; standard library only so the launcher and `pending_install` can use it; `background_jobs.owner_process_alive` wraps it)
 - `atomic_write.py` (`atomic_write`: unique temp file in the target's folder, then `os.replace`; removed again on failure; `core.atomic_write` re-exports it)
 - `gzip_text.py` (`pack`/`unpack`: gzip for stored text that readers must take in both plain and compressed form, with a capped inflate)
-- `safe_paths.py` (`plain_file_in`: a database-stored filename joined onto a title's folder only if it is a plain name whose real path stays inside it)
+- `device_label.py` (the coarse "Chrome on Android" label stored for a sign-in; in lib/ so the db migration can use it)
+- `safe_paths.py` (`plain_file_in`, `contained`: a database-stored filename joined onto a title's folder only if it is a plain name whose real path stays inside it)
 - `ct2_repo.py` (which files of a Hugging Face CTranslate2 Whisper repo may be downloaded; refuses a listing holding code-bearing files; shared by `whisper_models` and `tools/ja_whisper_models.py`)
 - `ort_telemetry.py` (`disable`: switches off ONNX Runtime's usage reporting in this process before a session is made; called by the Whisper loader and the ASMR voice detector)
 - `file_manager.py` (`open_folder`: opens a folder the server resolved in the PC's file manager, without a shell)
@@ -264,6 +265,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
 - `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
 - `benchmark_set_builder_service.py`
+- `benchmark_scene_service.py` (a Lab translation arm run the way a title is translated: a title's cases in order as batches with context, style and an optional series glossary)
+- `benchmark_translate_sweep_service.py` (the Lab's settings sweep for translation: model, batch size, context, Reflect and style preset of one engine, with the cap, a held-out check and approval saved as a profile)
 - `benchmark_sweep_service.py` (the Lab's settings sweep: coordinate descent over the transcription settings on one set and language, a held-out check, approval saved as a profile)
 - `blocked_retry_service.py`
 - `browser_install_service.py`

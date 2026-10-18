@@ -58,11 +58,6 @@ if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not O
     _BAD_ENTRY_ERRORS += (lzma.LZMAError,)
 
 
-def _require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
-
 def _check_idle(drama_id: int):
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError("A job is running for this title. Wait for it to finish or cancel it.")
@@ -112,7 +107,7 @@ def _check_mode(mode):
 
 
 def attach_text(drama_id: int, text: str, mode: str = "replace") -> dict:
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _check_mode(mode)
     text = _clean(text)
     if not text:
@@ -257,7 +252,7 @@ def attach_epub(drama_id: int, fileobj, mode: str = "replace",
     """Attaches the EPUB's text, or only chapters chapter_from..chapter_to
     (1-based, inclusive). Returns {char_count, epub_chapters,
     chapter_from, chapter_to}."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _check_mode(mode)
     _check_idle(drama_id)
     return _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
@@ -267,7 +262,7 @@ def attach_epub_from_job(drama_id: int, fileobj, mode: str = "replace") -> dict:
     """attach_epub for a job that already holds this drama (the
     lightnovel-crawler import, services/lncrawl_service.py): the same EPUB
     limits, without the "a job is running" refusal its own job would hit."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _check_mode(mode)
     return _attach_epub_data(drama_id, fileobj, mode, None, None)
 
@@ -300,7 +295,7 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     """Uses the chapters imported in Sources (or saved as the original novel),
     `raw_novel_context.txt`, as the narration text. 404
     when there is none."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _check_mode(mode)
     path = os.path.join(db.DRAMAS_DIR, str(drama_id), RAW_NOVEL_FILENAME)
     if not os.path.isfile(path):
@@ -321,7 +316,7 @@ def _job_id(drama_id: int) -> str:
 
 
 def get_status(drama_id: int) -> dict:
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     text = _read_novel(drama_id)
     job = background_jobs.get_status(_job_id(drama_id))
     return {"drama_id": drama_id, "has_novel_text": bool(text.strip()),
@@ -337,7 +332,7 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
     generated names, then starts the job that OCRs them in order and writes
     the text. Returns {"job_id"}. tesseract_cmd None: the Settings
     Tesseract path."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     _check_mode(mode)
     language = drama.get("source_language") or "zh"
     tesseract_cmd = tesseract_cmd or settings_service.get("tesseract_cmd") or None

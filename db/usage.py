@@ -13,6 +13,15 @@ import db
 # Usage/cost logging
 # ---------------------------------------------------------------------------
 
+# Called with each logged cost. A higher layer registers here because db
+# cannot import it (job_timing_service counts spend toward a job's stage).
+_spend_listeners = []
+
+
+def on_spend(listener):
+    _spend_listeners.append(listener)
+
+
 def log_usage(drama_id: int, engine: str, model: str, operation: str,
               input_tokens: int = 0, output_tokens: int = 0, estimated_cost_usd: float = 0.0,
               cache_read_tokens: int = 0):
@@ -26,13 +35,11 @@ def log_usage(drama_id: int, engine: str, model: str, operation: str,
         """, (drama_id, engine, model, operation, input_tokens, output_tokens,
               estimated_cost_usd, datetime.datetime.utcnow().isoformat(), cache_read_tokens or 0))
         conn.commit()
-    try:
-        # Count the spend toward the running job's stage
-        # (a no-op outside a background job's own thread).
-        from services import job_timing_service
-        job_timing_service.add_cost(estimated_cost_usd)
-    except Exception:
-        pass
+    for listener in _spend_listeners:
+        try:
+            listener(estimated_cost_usd)
+        except Exception:
+            pass
 
 
 MONTHLY_SPEND_RESET_KEY = "monthly_spend_reset_at"
