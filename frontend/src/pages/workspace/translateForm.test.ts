@@ -669,6 +669,12 @@ describe('a profile left on the title (applyStartToForm)', () => {
     expect(applyStartToForm(base, {}, c).locale).toBe('en-GB')
   })
 
+  it('starts from the English variant the last run used, when this server still offers it', () => {
+    const base = { ...initialForm(c), locale: 'en-US' }
+    expect(applyStartToForm(base, { locale: 'en-GB' }, c).locale).toBe('en-GB')
+    expect(applyStartToForm(base, { locale: 'xx-XX' }, c).locale).toBe('en-US')
+  })
+
   it('skips what this server or engine does not offer', () => {
     const f = applyStartToForm(initialForm(c), {
       style_preset: 'gone', engine_model: 'claude-z', batch_size: 999, fallback_engines: ['nope', 'claude'],

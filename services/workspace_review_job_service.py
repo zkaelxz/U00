@@ -17,7 +17,7 @@ from engine_backends import paid_calls
 import translation_guide as tguide
 import emotion
 import whisper_models
-from services import fixflag_transcribe, fixflag_translate, paid_job_service
+from services import fixflag_transcribe, fixflag_translate, paid_job_service, transcribe_options_service
 from services.workspace_job_service import _raise_if_cancelled, build_run_style_context
 
 
@@ -198,7 +198,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     heard_entries, cancelled, hearing_error = [], False, None
     if flagged and audio_path and os.path.exists(audio_path):
         heard_entries, cancelled, hearing_error = fixflag_transcribe.hear_flagged(
-            job_id, flagged, audio_path, fixflag_transcribe.hearing_settings(
+            job_id, flagged, transcribe_options_service.rehear_audio_path(drama, audio_path),
+            fixflag_transcribe.hearing_settings(
                 drama_id, drama, whisper_size, source_language, use_gpu))
         if hearing_error:
             errors.append(hearing_error)

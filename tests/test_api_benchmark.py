@@ -477,8 +477,10 @@ class TestNoKeyInResponses:
         engines = {e["name"]: e for e in r.json()["translation_engines"]}
         assert set(engines) == set(translate_engines.ENGINES)
         for e in engines.values():
-            assert set(e) == {"name", "label", "free", "models", "model_labels", "key_configured"}
+            assert set(e) == {"name", "label", "free", "models", "model_labels", "key_configured",
+                              "package_installed"}
             assert isinstance(e["key_configured"], bool)
+            assert isinstance(e["package_installed"], bool)
         assert engines["claude"]["key_configured"] is True
         assert engines["deepseek"]["key_configured"] is False
         assert engines["fake"]["key_configured"] is True

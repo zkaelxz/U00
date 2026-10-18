@@ -5,15 +5,14 @@ import {
   type BenchmarkOptions, type BenchmarkRunStarted, type BenchmarkSet, type BenchmarkStage, type BenchmarkTier,
 } from '../../api/benchmark'
 import { modelOptionLabel } from '../../api/translate'
-import { ButtonLink } from '../../components/Button'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { TranscribeOptionsFields } from './TranscribeOptionsFields'
 import { TranslateOptionsFields } from './TranslateOptionsFields'
 import { usePersistedState } from '../../hooks/usePersistedState'
-import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
+import { EngineBlockNotes } from './EngineBlockNotes'
 import { BenchSection } from './BenchSection'
 import { NO_CASES_HINT } from './benchmarkHelp'
 import {
@@ -228,14 +227,7 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
         </Field>
       </div>
 
-      {missingKeys.length > 0 && (
-        <p className="warn bench-note">
-          {missingKeys.map((e) => engineOptionLabel(e)).join(', ')}: no key yet.{' '}
-          <ButtonLink href={routeHref({ name: 'settings' })} variant="ghost" size="sm">
-            Set a key in Settings
-          </ButtonLink>
-        </p>
-      )}
+      <EngineBlockNotes engines={missingKeys} />
 
       {/* The region stays mounted so a screen reader announces the result when it arrives. */}
       <div role="status">{shown && <EstimateBlock est={shown} stage={st} />}</div>

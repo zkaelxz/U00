@@ -37,4 +37,13 @@ describe('source changed', () => {
     expect(retranslateBody(config({ default_locale: undefined, default_style_note: undefined }), [1]))
       .toMatchObject({ locale: 'en-US', style_note: '' })
   })
+
+  it('repeats the title’s last run instead of the Settings defaults', () => {
+    const body = retranslateBody(config({
+      translate_start: { style_preset: 'novel', style_note: 'Formal.', locale: 'en-AU', batch_size: 9, context_window: 3, context_window_ahead: 2 },
+    }), [4])
+    expect(body).toMatchObject({
+      style_preset: 'novel', style_note: 'Formal.', locale: 'en-AU', batch_size: 9, context_window: 3, context_window_ahead: 2,
+    })
+  })
 })
