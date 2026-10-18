@@ -17,13 +17,14 @@ import zipfile
 
 import background_jobs
 from jobs import job_launch
+from lib import ids as lib_ids
 import db
 import storage
-from services import auth_service, drama_service
+from services import auth_service
 from services.library_admin_service import (USER_BACKUP_JOB_ID, _artifact_dir, _refuse_duplicate,
                                             refuse_during_maintenance)
 from services.library_backup_service import _sanitized_snapshot, _write_artifact
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services.service_errors import ConflictError, NotFoundError
 
 log = logging.getLogger(__name__)
 
@@ -291,9 +292,7 @@ def start_user_backup(user_id=None) -> dict:
     the PC (no owner). Unknown user: NotFoundError. Fetch the file with
     admin_artifact_path("user_backup")."""
     if user_id is not None:
-        if (isinstance(user_id, bool) or not isinstance(user_id, int)
-                or not 1 <= user_id <= drama_service.MAX_ID):
-            raise InvalidInputError("A user id is a positive whole number.")
+        lib_ids.check_id(user_id, "A user id is a positive whole number.")
         if db.auth_get_user(user_id) is None:
             raise NotFoundError("No such user.")
     refuse_during_maintenance("backup")

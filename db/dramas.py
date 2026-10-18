@@ -233,10 +233,31 @@ def list_dramas_by_series(series_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute(
             f"{_DRAMA_SELECT} WHERE series_id = ? ORDER BY created_at DESC", (series_id,)).fetchall()
-    dramas = [dict(r) for r in rows]
+    return _order_series_dramas([dict(r) for r in rows])
+
+
+def _order_series_dramas(dramas: list) -> list:
     if any(d.get("episode_number") is not None for d in dramas):
         dramas.sort(key=lambda d: (d.get("episode_number") is None, d.get("episode_number")))
     return dramas
+
+
+def list_dramas_by_series_ids(series_ids) -> dict:
+    """`list_dramas_by_series` for many series in one query (and the same
+    per-series order): {series_id: [drama, ...]}. A series with no dramas has
+    no key."""
+    series_ids = list(dict.fromkeys(series_ids))
+    grouped = {}
+    # Chunked to stay under SQLite's bound-variable limit.
+    with contextlib.closing(db.get_conn()) as conn:
+        for i in range(0, len(series_ids), 500):
+            chunk = series_ids[i:i + 500]
+            rows = conn.execute(
+                f"{_DRAMA_SELECT} WHERE series_id IN ({','.join('?' * len(chunk))}) "
+                "ORDER BY created_at DESC", chunk).fetchall()
+            for r in rows:
+                grouped.setdefault(r["series_id"], []).append(dict(r))
+    return {sid: _order_series_dramas(ds) for sid, ds in grouped.items()}
 
 
 def get_library_stats(visible_to: int = None):
