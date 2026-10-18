@@ -26,22 +26,29 @@ function memoryStorage(initial: Record<string, string> = {}) {
 }
 
 describe('mediaTabsFor', () => {
-  it.each<TitleKind>(['video', 'audio', 'subtitle'])('%s titles get all five sub-tabs', (kind) => {
-    expect(ids(kind)).toEqual(['add', 'transcribe', 'tools', 'details', 'credits'])
+  it.each<TitleKind>(['video', 'audio', 'subtitle'])('%s titles get all three sub-tabs', (kind) => {
+    expect(ids(kind)).toEqual(['add', 'transcribe', 'details'])
   })
 
-  it.each<TitleKind>(['novel', 'comic'])('%s titles hide Transcribe and Tools', (kind) => {
-    expect(ids(kind)).toEqual(['add', 'details', 'credits'])
+  it.each<TitleKind>(['novel', 'comic'])('%s titles hide Transcribe', (kind) => {
+    expect(ids(kind)).toEqual(['add', 'details'])
   })
 
   it('labels the tabs as the owner named them', () => {
-    expect(mediaTabsFor('video').map((t) => t.label)).toEqual(['Add media', 'Transcribe', 'Tools', 'Details', 'Credits'])
+    expect(mediaTabsFor('video').map((t) => t.label)).toEqual(['Add media', 'Transcribe', 'Details'])
   })
 })
 
 describe('resolveMediaTab', () => {
   it('uses the wanted tab when this kind has it', () => {
-    expect(resolveMediaTab('tools', 'video')).toBe('tools')
+    expect(resolveMediaTab('transcribe', 'video')).toBe('transcribe')
+  })
+
+  it('sends the retired Tools and Credits names to the tab that now holds them', () => {
+    expect(resolveMediaTab('tools', 'video')).toBe('transcribe')
+    expect(resolveMediaTab('credits', 'video')).toBe('details')
+    expect(resolveMediaTab('credits', 'novel')).toBe('details')
+    expect(resolveMediaTab('tools', 'novel')).toBe('add')
   })
 
   it('falls back to Add media for a tab the kind hides, or one that does not exist', () => {
@@ -52,18 +59,17 @@ describe('resolveMediaTab', () => {
     expect(resolveMediaTab(undefined, 'audio')).toBe('add')
   })
 
-  it('keeps Details and Credits for a novel', () => {
+  it('keeps Details for a novel', () => {
     expect(resolveMediaTab('details', 'novel')).toBe('details')
-    expect(resolveMediaTab('credits', 'novel')).toBe('credits')
   })
 })
 
 describe('remembered tab', () => {
   it('remembers the last tab per title', () => {
     const s = memoryStorage()
-    writeMediaTab(s, 4, 'tools')
+    writeMediaTab(s, 4, 'transcribe')
     writeMediaTab(s, 5, 'details')
-    expect(readMediaTab(s, 4)).toBe('tools')
+    expect(readMediaTab(s, 4)).toBe('transcribe')
     expect(readMediaTab(s, 5)).toBe('details')
     expect(readMediaTab(s, 6)).toBeNull()
   })
@@ -74,9 +80,17 @@ describe('remembered tab', () => {
     expect(readMediaTab(s, 4)).toBeNull()
   })
 
+  it('reads a tab remembered before Tools and Credits were merged as the tab that holds it', () => {
+    const s = memoryStorage()
+    s.setItem('baihe.pref.source.tab.4', JSON.stringify('tools'))
+    s.setItem('baihe.pref.source.tab.5', JSON.stringify('credits'))
+    expect(readMediaTab(s, 4)).toBe('transcribe')
+    expect(readMediaTab(s, 5)).toBe('details')
+  })
+
   it('works without storage', () => {
     expect(readMediaTab(null, 4)).toBeNull()
-    expect(writeMediaTab(null, 4, 'tools')).toBe(false)
+    expect(writeMediaTab(null, 4, 'transcribe')).toBe(false)
   })
 
   it('survives storage that throws', () => {
@@ -89,20 +103,25 @@ describe('remembered tab', () => {
       },
     }
     expect(readMediaTab(broken, 4)).toBeNull()
-    expect(writeMediaTab(broken, 4, 'tools')).toBe(false)
+    expect(writeMediaTab(broken, 4, 'transcribe')).toBe(false)
   })
 })
 
 describe('isMediaTab', () => {
-  it('accepts exactly the five ids', () => {
-    for (const id of ['add', 'transcribe', 'tools', 'details', 'credits']) expect(isMediaTab(id)).toBe(true)
-    for (const id of ['source', '', null, 3]) expect(isMediaTab(id)).toBe(false)
+  it('accepts exactly the three ids', () => {
+    for (const id of ['add', 'transcribe', 'details']) expect(isMediaTab(id)).toBe(true)
+    for (const id of ['source', 'tools', 'credits', '', null, 3]) expect(isMediaTab(id)).toBe(false)
   })
 })
 
 describe('deep link', () => {
   it('parses ?tab= on a workspace route', () => {
     expect(parseRoute('#/drama/7/source?tab=transcribe')).toEqual({ name: 'drama', id: 7, stage: 'source', tab: 'transcribe' })
+  })
+
+  it('lands the old Tools and Credits links on the merged tabs', () => {
+    expect(parseRoute('#/drama/7/source?tab=tools')).toEqual({ name: 'drama', id: 7, stage: 'source', tab: 'transcribe' })
+    expect(parseRoute('#/drama/7/source?tab=credits')).toEqual({ name: 'drama', id: 7, stage: 'source', tab: 'details' })
   })
 
   it('drops an unknown tab', () => {
@@ -120,7 +139,7 @@ describe('deep link', () => {
 
 describe('hashWithTab', () => {
   it('adds the tab to a bare stage hash', () => {
-    expect(hashWithTab('#/drama/7/source', 'tools')).toBe('#/drama/7/source?tab=tools')
+    expect(hashWithTab('#/drama/7/source', 'transcribe')).toBe('#/drama/7/source?tab=transcribe')
   })
 
   it('replaces a tab already there', () => {
