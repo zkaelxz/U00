@@ -27,9 +27,8 @@ export default function LoginPage({ configured }: { configured: boolean }) {
   const [stillOut, setStillOut] = useState(false)
 
   const recheck = async () => {
-    await recheckSession()
-    // Success swaps this page for the app, so only a failed recheck is still here to report.
-    setStillOut(true)
+    // A signed-in answer swaps this page for the app; a failed request says nothing about sign-in.
+    setStillOut((await recheckSession()) === 'signed_out')
   }
 
   // Drop ?login_error from the address bar so a reload doesn't repeat the message.
@@ -45,7 +44,7 @@ export default function LoginPage({ configured }: { configured: boolean }) {
     )
   }, [errorCode])
 
-  // Sign-in finishes in another tab, so this one must notice when the person comes back.
+  // Coming back from Google (or another tab where sign-in finished) must not leave the Login page showing.
   useEffect(() => {
     const onFocus = () => void recheckSession()
     window.addEventListener('focus', onFocus)
