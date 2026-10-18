@@ -346,6 +346,15 @@ class TestTranscribeRunChoicesStayOnTheTitle:
         isolated_db.update_drama(did, transcribe_start_json="not json")
         assert transcribe_service.get_transcribe_config(did)["run_start"]["extra_names"] == ""
 
+    @pytest.mark.parametrize("counts", [{"min_speakers": 5, "max_speakers": 2},
+                                        {"expected_speakers": 3, "min_speakers": 2}])
+    def test_counts_the_run_would_refuse_read_as_no_counts(self, isolated_db, counts):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.update_drama(did, transcribe_start_json=json.dumps({"run_diarize": True, **counts}))
+        run = transcribe_options_service.run_start(isolated_db.get_drama(did))
+        assert run["run_diarize"] is True
+        assert (run["expected_speakers"], run["min_speakers"], run["max_speakers"]) == (None, None, None)
+
     def test_a_title_with_nothing_saved_runs_as_before(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         assert transcribe_options_service.run_start(isolated_db.get_drama(did)) == {

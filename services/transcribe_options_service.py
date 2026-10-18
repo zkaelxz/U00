@@ -175,9 +175,9 @@ _RUN_START_DEFAULTS = {"run_diarize": False, "expected_speakers": None, "min_spe
 
 
 def run_start(drama: dict) -> dict:
-    """The Transcribe form's run choices saved on this title, every key present. The
-    Queue and any run handed none start from these, so a title behaves the same from
-    every browser instead of from whatever one browser last held."""
+    """The Transcribe form's run choices saved on this title, every key present. The form
+    starts from them and the Queue runs with them (a run from the form sends its own), so a
+    title behaves the same from every browser instead of from whatever one browser last held."""
     try:
         raw = json.loads(drama.get("transcribe_start_json") or "{}")
     except ValueError:
@@ -200,8 +200,12 @@ def run_start(drama: dict) -> dict:
     for key in ("expected_speakers", "min_speakers", "max_speakers"):
         if out[key] is not None and not 0 <= out[key] <= 20:
             out[key] = None
-    if out["expected_speakers"] and (out["min_speakers"] or out["max_speakers"]):
-        out["min_speakers"] = out["max_speakers"] = None
+    # The run refuses a bad combination (a range with an exact count, min above max), which would
+    # skip every queued Transcribe of the title, so a hand-edited or imported one reads as no counts.
+    try:
+        diarization_service.speaker_range(out["expected_speakers"], out["min_speakers"], out["max_speakers"])
+    except InvalidInputError:
+        out["expected_speakers"] = out["min_speakers"] = out["max_speakers"] = None
     return out
 
 
