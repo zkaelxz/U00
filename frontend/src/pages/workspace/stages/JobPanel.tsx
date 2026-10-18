@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../api/jobs'
 import { Badge } from '../../../components/Badge'
+import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { buttonClass } from '../../../components/uiClasses'
@@ -15,7 +16,7 @@ import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample 
 import { formatElapsed } from './autotuneGlossary'
 import { stripStallNote, stuckText, watchStuck, type StuckInfo } from './jobStuck'
 import { lastRunCounts, lastRunFor } from './lastRun'
-import { TERMINAL_STATUSES, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
+import { TERMINAL_STATUSES, cancelNeedsConfirm, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
 import './jobPanel.css'
 
 export interface LastRunProps {
@@ -177,19 +178,19 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
                   {stuckText(stuck, job.job_id)} <a href="#/jobs">All jobs</a>
                 </p>
               )}
-              {canCancel && (
-                <button
-                  type="button"
-                  className={buttonClass('secondary', 'sm', 'job-panel-cancel')}
-                  aria-label={`Cancel ${jobName(job)}`}
-                  onClick={() => cancelJob(job.job_id).then(() => {
-                    setCancelError(null)
-                    onCancelled?.()
-                  }, setCancelError)}
-                >
-                  Cancel
-                </button>
-              )}
+              {canCancel && (() => {
+                const cancel = () => void cancelJob(job.job_id).then(() => {
+                  setCancelError(null)
+                  onCancelled?.()
+                }, setCancelError)
+                return cancelNeedsConfirm(job) ? (
+                  <ConfirmButton name={jobName(job)} label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" size="sm" onConfirm={cancel} />
+                ) : (
+                  <button type="button" className={buttonClass('secondary', 'sm', 'job-panel-cancel')} aria-label={`Cancel ${jobName(job)}`} onClick={cancel}>
+                    Cancel
+                  </button>
+                )
+              })()}
             </div>
           )}
           <ErrorBanner error={cancelError} onDismiss={() => setCancelError(null)} />

@@ -6,7 +6,7 @@
  * First press: "Delete…" becomes "Confirm delete ‹name›" (danger) plus a
  * Cancel link, and "Press again to delete ‹name›" is announced (aria-live).
  * Second press runs onConfirm (the caller sends {confirm: true}). It reverts
- * after 5 s idle, on blur (leaving the pair), on Esc, on Cancel, and whenever
+ * after 10 s idle, on blur (leaving the pair), on Esc, on Cancel, and whenever
  * it becomes busy or disabled (re-enabling starts again from the first step).
  * After Cancel/Esc or a finished action (e.g. one that failed), focus goes
  * back to the first-step button.
@@ -27,6 +27,7 @@
  *   ariaLabel     first-step accessible name when "‹label› ‹name›" would repeat
  *                 itself (e.g. label "Show token…", name "extension token")
  *   describedBy   id of the line that says why it is disabled
+ *   title         tooltip on the first-step button
  *
  * Layout: inline on desktop; on phones (.confirm-button, index.css) it takes
  * its own line, right-aligned, with 44 px targets. Hide it entirely in
@@ -49,9 +50,10 @@ type Props = {
   ariaLabel?: string
   describedBy?: string
   size?: 'sm'
+  title?: string
 }
 
-export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger', ariaLabel, describedBy, size }: Props) {
+export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger', ariaLabel, describedBy, size, title }: Props) {
   const blocked = !!(busy || disabled)
   const [armed, setArmed] = useState(false)
   // Becoming busy/disabled disarms (state adjusted during render, no effect).
@@ -116,6 +118,7 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
           disabled={blocked}
           aria-label={ariaLabel ?? `${label.replace(/…$/, '')} ${name}`}
           aria-describedby={describedBy}
+          title={title}
           onClick={() => on('press')}
         >
           {busy ? 'Working…' : label}

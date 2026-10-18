@@ -58,6 +58,9 @@ test('Esc cancels, details are lazy, Alt+Down jumps to flagged lines', async ({ 
   const row = rows(page).nth(0)
   await row.getByTestId('line-en').click()
   await row.getByLabel('Translation').fill('discard me')
+  // The first Esc on typed text only warns; the second discards it.
+  await row.getByLabel('Translation').press('Escape')
+  await expect(row.getByLabel('Translation')).toHaveValue('discard me')
   await row.getByLabel('Translation').press('Escape')
   await expect(row.getByTestId('line-en')).toContainText('Hello there')
 

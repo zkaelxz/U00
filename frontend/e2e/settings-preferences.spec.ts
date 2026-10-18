@@ -204,6 +204,7 @@ test('server addresses: a URL with a password is refused client-side; save and c
   await ollama.getByRole('button', { name: 'Save' }).click()
   await expect(ollama.getByRole('status')).toHaveText('Saved.')
   await ollama.getByRole('button', { name: 'Clear' }).click()
+  await ollama.getByRole('button', { name: 'Confirm clear' }).click()
   await expect(ollama.getByRole('status')).toHaveText('Cleared.')
   await expect(ollama.getByLabel('Ollama URL', { exact: true })).toHaveValue('')
   expect(posts).toEqual([
