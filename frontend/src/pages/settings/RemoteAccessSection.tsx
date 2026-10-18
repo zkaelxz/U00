@@ -16,7 +16,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
+import { usePcOnly } from '../../hooks/usePcOnly'
 import type { RemoteIpCheckTestResult } from '../../types/diagnostics'
 import { SAVED_ON_PC_NOTE } from './preferences'
 import { IP_CHECK_PLACEHOLDER, draftProblem, ipCheckErrorMessage, testBadge } from './remoteIpCheck'
@@ -24,14 +24,7 @@ import { IP_CHECK_PLACEHOLDER, draftProblem, ipCheckErrorMessage, testBadge } fr
 const TITLE = 'Public address check'
 
 export function RemoteAccessSection() {
-  const pc = usePcOnly()
-  if (pc === 'remote') {
-    return (
-      <Section title={TITLE} storageKey="admin.address" summary={PC_ONLY_SUMMARY}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (usePcOnly() === 'remote') return null
   return <IpCheckControls />
 }
 

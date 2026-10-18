@@ -6,7 +6,7 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { plainError } from './benchmarkForm'
 import { CORRECTIONS_HELP, INCLUDE_ALL_HELP } from './benchmarkHelp'
@@ -54,13 +54,7 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
 
   const stats = loaded?.id === title ? loaded.stats : null
 
-  if (pc === 'remote') {
-    return (
-      <Section title="Add a title's corrections to a test set" summary={PC_ONLY_SUMMARY} storageKey="benchmark.corrections" defaultOpen>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
 
   const names = transcriptionSetNames(sets)
   const setName = chosenSetName(names.includes(choice) ? choice : NEW_SET, typed)

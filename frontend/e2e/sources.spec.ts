@@ -219,17 +219,13 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('remote: search and Manage sources are PC only, no settings request', async ({ page }) => {
+test('remote: search is PC only and Manage sources is left out, no settings request', async ({ page }) => {
   const s = await mockSources(page, { local: false })
   await page.goto('/#/sources')
   await expect(page.getByText('Searching sources is PC only for now.')).toBeVisible()
   await expect(page.getByRole('search')).toHaveCount(0)
-  await page.getByRole('tab', { name: 'Manage sources' }).click()
-  const manage = page.locator('.sources-manage-panel')
-  await expect(manage.getByText('PC only. Run this on the main PC.')).toBeVisible()
-  // Members see that one line: no inner tabs, no site list.
-  await expect(manage.getByRole('tablist')).toHaveCount(0)
-  await expect(manage.locator('table, ul.source-cards')).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Manage sources' })).toHaveCount(0)
+  await expect(page.locator('.sources-manage-panel')).toHaveCount(0)
   // The page's own mount reads are issued in the same commit as a settings read would be.
   await expect.poll(() => s.calls.some((c) => c.path === '/api/sources/notifications')).toBe(true)
   expect(s.calls.filter((c) => c.path.startsWith('/api/sources/settings'))).toEqual([])

@@ -236,9 +236,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
     >
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      {pc === 'remote' ? (
-        <p className="muted">Uploading pages is PC only.</p>
-      ) : (
+      {pc === 'remote' ? null : (
         <div className="stack scanlate-upload">
           <div className="actions">
             <input

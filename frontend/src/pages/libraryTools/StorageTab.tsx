@@ -1,4 +1,4 @@
-import { PC_ONLY_BODY, usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
+import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { storageSummary } from '../diskUsage/diskUsageModel'
 import { PreviousLibraryCard } from '../diskUsage/PreviousLibrary'
 import { TempCleanup } from '../diskUsage/TempCleanup'
@@ -12,7 +12,7 @@ import { TabCard } from './TabCard'
 export function StorageTab({ pc, usage }: { pc: PcMode; usage: DiskUsage }) {
   const pending = usePcPendingNote(pc)
   // Every card here reads the PC's disk on mount: nothing is asked until this is known to be the PC.
-  if (pc !== 'local') return <p className="muted">{pending ?? PC_ONLY_BODY}</p>
+  if (pc !== 'local') return <p className="muted">{pending}</p>
   const { scan, rootBytes, trash, clips, loading, done, changed, rescan } = usage
   const summary = storageSummary(rootBytes, scan)
   return (

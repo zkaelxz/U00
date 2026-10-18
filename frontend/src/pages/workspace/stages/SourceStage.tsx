@@ -22,7 +22,7 @@ import { appliesTo } from '../mediaTypeSettings'
 import { MEDIA_TAB_PREFIX, hashWithTab, isMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
   checkUploadFile,
@@ -288,7 +288,6 @@ export default function SourceStage() {
           {busy && <span className="muted">Wait for the running job to finish.</span>}
         </div>
       )}
-      {hasMedia && pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
       {(mustConfirm || hasMedia) && keptMediaNote(media) && (
         <p className="muted" data-testid="kept-media">{keptMediaNote(media)}</p>
       )}
@@ -331,13 +330,13 @@ export default function SourceStage() {
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
-  const subtitles = appliesTo(kindOfTitle, 'subtitle_import') && (
+  const subtitles = appliesTo(kindOfTitle, 'subtitle_import') && pc !== 'remote' && (
     <Section
       key="subtitles"
       storageKey="source.group.subtitles"
       defaultOpen={kind === 'audio'}
       title="Import subtitle file"
-      summary={pc === 'remote' ? PC_ONLY_SUMMARY : 'SRT, VTT, ASS or LRC'}
+      summary="SRT, VTT, ASS or LRC"
     >
       <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
     </Section>

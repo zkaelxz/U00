@@ -15,7 +15,6 @@ import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { SettingsOverview, SettingsPreferences, SettingsSchemaRow } from '../../types/settings'
 import { useDeveloperMode } from '../assistant/developerMode'
 import { toSavedValue } from './SchemaCard'
@@ -107,7 +106,6 @@ export function TimingSettingsCard({ schema, settings, onSettings }: {
   onSettings: (s: SettingsOverview) => void
 }) {
   const developerMode = useDeveloperMode()
-  const remote = usePcOnly() === 'remote'
   const groups = timingGroups(schema, developerMode)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -115,13 +113,6 @@ export function TimingSettingsCard({ schema, settings, onSettings }: {
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
 
-  if (remote) {
-    return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Card>
-    )
-  }
   if (groups.length === 0) return null
 
   const saved: Record<string, number> = {}

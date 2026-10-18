@@ -126,12 +126,12 @@ test('From a URL: the note says when it also leaves reading burned-in subtitles'
   expect(s.unmocked).toEqual([])
 })
 
-test('From a URL on a remote viewer: PC only note, no form', async ({ page }) => {
+test('From a URL on a remote viewer: no form', async ({ page }) => {
   const s = await mockUrlDownload(page, { local: false })
   await page.goto('/#/drama/1/source')
   await expect(page.getByTestId('media-status')).toBeVisible()
   await page.getByRole('radio', { name: 'From a URL' }).check()
-  await expect(page.getByText('Downloading from a link is PC only for now.')).toBeVisible()
+  await expect(page.getByText('Downloading from a link is PC only for now.')).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: 'Video or audio link' })).toHaveCount(0)
   expect(s.bodies).toEqual([])
   expect(s.unmocked).toEqual([])
