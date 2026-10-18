@@ -374,3 +374,8 @@ class TestPasteKeepsEveryLine:
         assert result["translated_text"] == "OUT:1. a\n[untranslated] 2. b\nOUT:3. c"
         assert result["message"] == "1 line could not be translated and is marked [untranslated]."
         assert db.list_translate_history()[0]["translated_text"] == result["translated_text"]
+
+    def test_estimate_counts_the_line_by_line_requests_the_run_makes(self, isolated_db):
+        text = "\n".join(f"line {i}" for i in range(1, 21))
+        result = translate_service.estimate(text, "fake", "zh", "en")
+        assert result["requests"] == len(translate_engines.standalone_requests(text, 8)) == 3

@@ -106,6 +106,26 @@ def _paragraph_lines(chunk: str) -> list:
             for p in re.split(r"\n\s*\n", chunk.strip()) if p.strip()]
 
 
+def standalone_requests(text: str, batch_size: int = 8) -> list:
+    """The requests (lists of items) standalone_translate_partial sends on a
+    first pass, so a price estimate counts the same requests the run makes.
+    A redo of a blob chunk whose reply came back with the wrong line count is
+    not counted."""
+    requests = []
+    chunks = chunk_standalone_text(text)
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start:start + batch_size]
+        blob = [c for c in batch if all(len(p) == 1 for p in _paragraph_lines(c))]
+        if blob:
+            requests.append(blob)
+        for chunk in batch:
+            if chunk in blob:
+                continue
+            lines = [ln for p in _paragraph_lines(chunk) for ln in p if re.search(r"\w", ln)]
+            requests.extend(lines[i:i + batch_size] for i in range(0, len(lines), batch_size))
+    return requests
+
+
 def standalone_translate_partial(text: str, engine, source_language: str, target_language: str,
                                  batch_size: int = 8, budget=None) -> tuple:
     """(translated text, message or None): standalone_translate, plus why the
