@@ -29,7 +29,7 @@ import type {
   ScanlatePageNotes,
   ScanlateRunMode,
 } from '../../types/scanlate'
-import { scanlateNeed } from '../readiness/needs'
+import { mlDetectorNeed, scanlateNeed } from '../readiness/needs'
 import { NeedsInstall } from '../readiness/NeedsInstall'
 import { JobPanel } from '../workspace/stages/JobPanel'
 import {
@@ -153,6 +153,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
 
   // A missing package or program blocks every run button; the server would refuse the run anyway.
   const need = config ? scanlateNeed(readiness, config.ocr_backend, config.ocr_backend_installed) : null
+  const detectorNeed = config ? mlDetectorNeed(readiness, detector, config.ml_weights_cached) : null
   const blocked = runBlockedReason(config, engine) ?? need?.reason ?? null
   const usable = usableEngines(config)
   const selectedEngine = usable.find((e) => e.name === engine)
@@ -419,6 +420,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
               ))}
             </select>
           </Field>
+          {detectorNeed && <NeedsInstall need={detectorNeed} />}
           <div className="actions">
             <ConfirmButton
               name={chapterScope ? 'every page of this chapter' : 'every page'}
