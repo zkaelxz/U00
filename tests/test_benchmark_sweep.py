@@ -25,6 +25,7 @@ REF = "你好世界今天天气很好"
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     background_jobs.clear_all_jobs()
+    sweep._active["id"] = None
     monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
     monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: True)
     yield
@@ -173,7 +174,46 @@ class TestSweep:
         assert released
 
 
+    def test_the_gpu_is_freed_before_each_different_model_loads(self, isolated_db, recogniser, monkeypatch):
+        events = []
+        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: events.append("release"))
+        real = whisper_transcribe.transcribe_for_timing
+
+        def tracked(path, model_size=None, **kw):
+            events.append(model_size)
+            return real(path, model_size=model_size, **kw)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", tracked)
+        _cases()
+        _sweep()
+        models = [e for e in events if e != "release"]
+        assert {"large-v3", "large-v3-turbo"} <= set(models)
+        last = None
+        for i, e in enumerate(events):
+            if e == "release":
+                last = None
+                continue
+            assert last in (None, e), f"{e} loaded while {last} was still held (event {i})"
+            last = e
+
+    def test_a_failed_pass_is_a_failure_not_a_stop(self, isolated_db, recogniser, monkeypatch):
+        _cases()
+
+        def broken(job_id, stage, plan, *a, **k):
+            for sid, _cfg, _x in plan:
+                db.update_benchmark_session(sid, status="failed", note="CUDA out of memory")
+        monkeypatch.setattr(lab, "_run_plan", broken)
+        out = _sweep()
+        assert out["status"] == "failed"
+        assert "did not finish: CUDA out of memory" in out["note"] and "Stopped" not in out["note"]
+
+
 class TestStopAndResume:
+    @pytest.fixture(autouse=True)
+    def _clean_passes(self, monkeypatch):
+        # The fake fails every clip of the vocal-separation pass, and a pass with failed clips is
+        # always run again, so these resume tests leave separation out to make every pass reusable.
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: False)
+
     def test_starting_again_reuses_every_finished_pass(self, isolated_db, recogniser):
         _cases()
         first = _sweep()
@@ -194,6 +234,37 @@ class TestStopAndResume:
         monkeypatch.setattr(background_jobs, "is_cancel_requested", real)
         resumed = _sweep()
         assert resumed["status"] == "done" and resumed["passes_reused"] == 2
+
+    def test_a_pass_with_failed_clips_is_run_again(self, isolated_db, recogniser):
+        _cases()
+        first = _sweep()
+        i, step = next((i, st) for i, st in enumerate(first["recommendation"]["steps"])
+                       if st["step"] not in ("noise", "holdout") and st["kept"] is False)
+        db.update_benchmark_session(step["run_id"], error_count=3)
+        assert sweep.estimate("s", "zh", use_gpu=False)["passes_to_run"] == 1
+        again = _sweep()
+        assert again["passes_run"] == 1 and again["recommendation"]["steps"][i]["run_id"] != step["run_id"]
+
+    def test_a_different_model_build_or_app_version_is_run_again(self, isolated_db, recogniser, monkeypatch):
+        _cases()
+        _sweep()
+        assert sweep.estimate("s", "zh", use_gpu=False)["passes_to_run"] == 0
+        real_identity = sweep.model_identity
+        monkeypatch.setattr(sweep, "model_identity", lambda stage, cfg: {**real_identity(stage, cfg), "revision": "new"})
+        assert sweep.estimate("s", "zh", use_gpu=False)["passes_done"] == 0
+        monkeypatch.setattr(sweep, "model_identity", real_identity)
+        monkeypatch.setattr(lab, "app_version", lambda: "9.9.9")
+        assert sweep.estimate("s", "zh", use_gpu=False)["passes_done"] == 0
+
+    def test_a_refused_start_leaves_the_waiting_recommendation_alone(self, isolated_db, recogniser, monkeypatch):
+        _cases()
+        done = _sweep()
+        _cases(titles=("E", "F"), set_name="other")
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
+        with pytest.raises(ConflictError):
+            sweep.start("other", "zh", use_gpu=False)
+        assert sweep.get_sweep()["sweep"]["set_name"] == "s"
+        assert sweep._record()["recommendation"] == done["recommendation"]
 
     def test_an_edited_reference_is_not_skipped(self, isolated_db, recogniser):
         ids = _cases()
@@ -303,3 +374,27 @@ class TestDecision:
 def test_a_sweep_the_app_stopped_during_reads_interrupted(isolated_db):
     sweep._save_record({"status": "running", "set_name": "s", "language": "zh"})
     assert sweep.get_sweep()["sweep"]["status"] == "interrupted"
+
+
+def test_a_plain_lab_run_after_a_restart_does_not_make_an_old_sweep_look_live(isolated_db, monkeypatch):
+    sweep._save_record({"id": "x", "status": "running", "set_name": "s", "language": "zh"})
+    monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "running"})
+    out = sweep.get_sweep()["sweep"]
+    assert out["status"] == "interrupted" and "app stopped" in out["note"]
+
+
+def test_a_sweep_cancelled_while_queued_reads_cancelled(isolated_db, monkeypatch):
+    sweep._save_record({"id": "x", "status": "queued", "set_name": "s", "language": "zh"})
+    sweep._active["id"] = "x"
+    monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "cancelled"})
+    out = sweep.get_sweep()["sweep"]
+    assert out["status"] == "cancelled" and "app stopped" not in out["note"]
+
+
+def test_a_stored_winner_the_profile_rules_no_longer_accept_shows_no_list(isolated_db, recogniser):
+    _cases()
+    _sweep()
+    record = sweep._record()
+    record["recommendation"]["winner"]["changes"]["gone_setting"] = 1
+    sweep._save_record(record)
+    assert sweep.get_sweep()["sweep"]["applies"] is None

@@ -18,8 +18,9 @@ docs/specs/accuracy-tuning-plan.md:
 Every pass is an ordinary Lab run (benchmark_sessions), made by benchmark_lab_service's own run
 loop under its job id, so the Lab's refusals while a run is going, its cancel and its GPU queue
 cover a sweep too. Stopping and resuming need no state of their own: a pass is skipped when a
-finished run of the same setup already scored exactly the same clips at the same reference
-versions under the same scoring rules, so starting the sweep again redoes only what is missing.
+finished run of the same setup, model build and app version already scored exactly the same clips
+at the same reference versions under the same scoring rules with no failed clip, so starting the
+sweep again redoes only what is missing.
 The sweep's own record (set, language, status, recommendation, decision) is one app setting.
 
 Transcription runs on this PC's own models, so a sweep costs nothing and the monthly cap never
@@ -41,7 +42,7 @@ from jobs import job_launch
 from services import benchmark_lab_service as lab
 from services import (model_readiness_service, profile_service, series_defaults_service, settings_service,
                       transcribe_options_service, transcribe_speed_service, translate_preset_service)
-from services.benchmark_case_service import backend_problem, ignored_options, redact
+from services.benchmark_case_service import backend_problem, ignored_options, model_identity, redact
 from services.benchmark_runs_service import session_out, setup_key
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      UnsupportedOperationError)
@@ -90,10 +91,17 @@ _UNKNOWN_CLIP_SECONDS = 10.0
 
 _lock = threading.Lock()
 _durations = {}
+# The id of the sweep this process started and has not seen end. The Lab's job id is shared with
+# plain Lab runs, so the job table alone can't tell whether a stored queued/running sweep is live.
+_active = {"id": None}
 
 
 class _Stopped(Exception):
     """A pass was cancelled: the sweep stops and can be resumed."""
+
+
+class _PassFailed(Exception):
+    """A pass ended without finishing (failed or stopped by a cap): the sweep stops on it."""
 
 
 def _now() -> str:
@@ -128,15 +136,31 @@ def get_sweep() -> dict:
     record = _record()
     if not record:
         return {"sweep": None}
-    status = (background_jobs.get_status(JOB_ID) or {}).get("status")
-    if record.get("status") in ("queued", "running") and status not in ("queued", "running"):
-        record = dict(record, status="interrupted",
-                      note="The app stopped during the sweep. Start it again to resume.")
+    if record.get("status") in ("queued", "running"):
+        job = background_jobs.get_status(JOB_ID) or {}
+        if _active["id"] != record.get("id"):
+            record = dict(record, status="interrupted",
+                          note="The app stopped during the sweep. Start it again to resume.")
+        elif job.get("status") == "cancelled" and record.get("status") == "queued":
+            # Cancelled while it waited in the GPU queue: the job never ran, so nothing updated the record.
+            record = dict(record, status="cancelled", note="Stopped before the first pass started.")
+        elif job.get("status") not in ("queued", "running"):
+            record = dict(record, status="interrupted",
+                          note="The sweep's job ended without finishing. Start it again to resume.")
     rec = record.get("recommendation") or {}
     if record.get("status") == "done" and rec.get("state") == "adopt" and not record.get("decision"):
-        # Read now, not at the sweep's end: the profile takes the Settings default engine as it is when approved.
-        record = dict(record, applies=_applies(record["language"], rec["winner"]))
+        record = dict(record, applies=_pending_applies(record["language"], rec["winner"]))
     return {"sweep": record}
+
+
+def _pending_applies(language: str, winner: dict):
+    # Read now, not at the sweep's end: the profile takes the Settings default engine as it is when approved.
+    # A stored winner the profile rules no longer accept (a setting removed since) shows no list
+    # rather than breaking the page; approving it is refused with the reason.
+    try:
+        return _applies(language, winner)
+    except InvalidInputError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -237,8 +261,9 @@ class _Plan:
         self.default = {"engine": "whisper", "model": default_model, "changes": {}}
         cfg = self.config(self.default)
         context = lab.run_context(STAGE, cfg, cases, self.use_gpu)
-        # The scoring rules a reused run must share (benchmark_runs_service._check_same_scoring).
-        self.markers = {k: context.get(k) for k in ("text_normaliser", "script_normaliser")}
+        # The scoring rules a reused run must share (benchmark_runs_service._check_same_scoring), and
+        # the app version, since a fix to transcription can change what the same setup produces.
+        self.markers = {k: context.get(k) for k in ("text_normaliser", "script_normaliser", "app_version")}
 
     def config(self, setup: dict) -> dict:
         return lab.check_config(STAGE, {"engine": setup["engine"], "model": setup["model"],
@@ -345,6 +370,7 @@ def _finished_runs(plan: _Plan, setup: dict, half: str, sessions: list) -> list:
     """Finished runs of this setup that scored exactly these clips at their current reference
     versions under today's scoring rules, oldest first: the passes a sweep can skip."""
     key = plan.key(setup)
+    identity = model_identity(STAGE, plan.config(setup))
     want = {c["id"]: c.get("ref_version") or 1 for c in plan.cases(half)}
     out = []
     for s in sorted(sessions, key=lambda r: r["id"]):
@@ -352,6 +378,12 @@ def _finished_runs(plan: _Plan, setup: dict, half: str, sessions: list) -> list:
             continue
         ctx = session_out(s)["context_settings"]
         if any(ctx.get(k) != v for k, v in plan.markers.items()):
+            continue
+        # A re-pinned model or a replaced model folder is a different model under the same name.
+        if ctx.get("model_identity") != identity:
+            continue
+        # A pass with failed clips (a model that ran out of memory, say) is not a measurement.
+        if s.get("error_count"):
             continue
         results = db.list_benchmark_results(s["id"])
         if len(results) == len(want) and {r["case_id"]: r.get("ref_version") or 1 for r in results} == want:
@@ -455,13 +487,15 @@ def start(set_name: str, language: str, use_gpu: bool = None) -> dict:
               "passes_run": 0, "passes_reused": 0, "recommendation": None, "decision": None,
               "estimate": {k: est[k] for k in ("tuning_cases", "holdout_cases", "passes_to_run",
                                                  "estimated_seconds")}}
+    # Held across the start so the job's first record update waits for this record, and a start
+    # that loses the race leaves the stored sweep (and any recommendation waiting on a decision) alone.
     with _lock:
+        started = job_launch.start_job(JOB_ID, _run_job, JOB_ID, est["set_name"], language, est["use_gpu"],
+                                       est["passes_to_run"], gpu_touching=True, description="Benchmark sweep")
+        if not started:
+            raise ConflictError("A benchmark run is already going.")
+        _active["id"] = record["id"]
         _save_record(record)
-    started = job_launch.start_job(JOB_ID, _run_job, JOB_ID, est["set_name"], language, est["use_gpu"],
-                                   est["passes_to_run"], gpu_touching=True, description="Benchmark sweep")
-    if not started:
-        _update_record(status="failed", note="Another benchmark run started first.", finished_at=_now())
-        raise ConflictError("A benchmark run is already going.")
     return {"job_id": JOB_ID, "sweep": record}
 
 
@@ -472,6 +506,7 @@ def _run_job(job_id, set_name, language, use_gpu, planned):
         plan = _Plan(set_name, language, use_gpu)
         sessions = db.list_benchmark_sessions(10_000, STAGE)
         counts = {"run": 0, "reused": 0}
+        loaded = {"model": None}
 
         def measure(setup, half, repeat, step):
             found = _finished_runs(plan, setup, half, sessions)
@@ -480,10 +515,18 @@ def _run_job(job_id, set_name, language, use_gpu, planned):
                 return found[repeat]
             if background_jobs.is_cancel_requested(job_id):
                 raise _Stopped()
+            model = (setup["engine"], setup["model"])
+            if loaded["model"] not in (None, model):
+                # The model cache never evicts: on a small card the next model would run out of memory.
+                whisper_models.release_gpu_models()
+            loaded["model"] = model
             sid = _run_pass(job_id, plan, setup, half, step, created, counts["run"], max(planned, 1))
-            run = db.get_benchmark_session(sid)
-            if not run or run.get("status") != "done":
+            run = db.get_benchmark_session(sid) or {}
+            if run.get("status") == "cancelled" or background_jobs.is_cancel_requested(job_id):
                 raise _Stopped()
+            if run.get("status") != "done":
+                raise _PassFailed(f"The pass {_describe(setup, plan.defaults)} ({half}) did not finish"
+                                  + (f": {run['note']}" if run.get("note") else "."))
             counts["run"] += 1
             sessions.append(run)
             _update_record(passes_run=counts["run"], passes_reused=counts["reused"])
@@ -495,12 +538,17 @@ def _run_job(job_id, set_name, language, use_gpu, planned):
     except _Stopped:
         _update_record(status="cancelled", finished_at=_now(),
                        note="Stopped. Start the sweep again to resume: finished passes are kept.")
+    except _PassFailed as exc:
+        _update_record(status="failed", finished_at=_now(),
+                       note=redact(f"{exc} Finished passes are kept; fix the cause, then start the sweep again "
+                                   "to retry it.")[:300])
     except Exception as exc:
         _update_record(status="failed", finished_at=_now(), note=redact(str(exc))[:300])
         raise
     finally:
         # The job runs in the API process: models it loaded would otherwise stay on the GPU.
         whisper_models.release_gpu_models()
+        _active["id"] = None
         for sid in created:
             s = db.get_benchmark_session(sid)
             if s and s.get("status") in ("queued", "running"):
