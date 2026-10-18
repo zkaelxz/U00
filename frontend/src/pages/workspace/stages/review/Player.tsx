@@ -25,6 +25,9 @@ export interface PlayerHandle {
   getTime: () => number
   getDuration: () => number
   seek: (seconds: number) => void
+  // The picture on screen as a PNG, after seeking to `at` when given; null when
+  // there is no decoded picture (audio, not loaded yet, or a browser that blocks reading it).
+  captureFrame: (at?: number) => Promise<Blob | null>
 }
 
 type Segment = Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>
@@ -339,6 +342,28 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       getTime: () => media.current?.currentTime ?? 0,
       getDuration: () => media.current?.duration ?? NaN,
       seek: seekTo,
+      captureFrame: async (at) => {
+        const el = media.current
+        if (!(el instanceof HTMLVideoElement)) return null
+        if (at !== undefined && Math.abs(el.currentTime - at) > 0.02) {
+          // A seek to where it already is fires no event, so the wait is bounded.
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 3000)
+            el.addEventListener('seeked', () => { clearTimeout(timer); resolve() }, { once: true })
+            seekTo(at)
+          })
+        }
+        if (el.readyState < 2 || !el.videoWidth) return null
+        const canvas = document.createElement('canvas')
+        canvas.width = el.videoWidth
+        canvas.height = el.videoHeight
+        try {
+          canvas.getContext('2d')?.drawImage(el, 0, 0)
+          return await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+        } catch {
+          return null
+        }
+      },
     }),
     // seekTo reads duration, which only changes with the loaded media.
     // eslint-disable-next-line react-hooks/exhaustive-deps
