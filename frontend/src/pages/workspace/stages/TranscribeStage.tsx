@@ -173,7 +173,7 @@ export default function TranscribeStage({
         const start = mergeRunChoices(runChoicesFromConfig(c, defaultLanguage), restored, rawDraft?.base)
         setLanguage(start.language)
         setRunDiarize(start.runDiarize)
-        setSpeakers(start.speakers)
+        setSpeakers((cur) => start.speakers || cur) // the last speaker-detection run may have filled it first
         setMinSpeakers(start.minSpeakers)
         setMaxSpeakers(start.maxSpeakers)
         setExtraNames(start.extraNames)
