@@ -616,9 +616,12 @@ class Qwen3ASRVadBackend:
         import mixed_language
         run = _QwenRun(self.model_size, use_gpu, on_device, on_gpu_fallback)
         extra = {"prompt": prompt} if prompt else {}
+        # Keyed by identity: equal spans can have different windows, and
+        # spans.index() would hand the second one the first one's window.
+        window_of = {id(span): window for span, window in zip(spans, windows)}
         with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
             def transcribe(span, language_name):
-                window = windows[spans.index(span)]
+                window = window_of[id(span)]
                 path = os.path.join(tmp_dir, "span.wav")
                 extract_audio_slice(audio_path, window.start_s, window.end_s, path)
                 try:

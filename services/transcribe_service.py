@@ -66,7 +66,8 @@ from services import (asr_options_service, diarization_service, ownership_servic
                       transcribe_pipeline,
                       vocabulary_hint_service)
 from services.transcribe_options_service import (
-    _CHINESE_SCRIPTS, _DEFAULT_TUNING, _check_run_choices, check_transcribe_fields,
+    _DEFAULT_TUNING, _check_run_request,
+    check_transcribe_fields,
     check_whisper_size_for_language, selectable_whisper_sizes, stored_hallucination_silence_sec,
     stored_min_pause_sec, stored_whisper_size, whisper_size_notice)
 from services.transcribe_speed_service import (
@@ -250,22 +251,6 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
         ownership_service.require_acting_lines_edit()
-    min_speakers, max_speakers = diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
-
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(
-            f"Drama {drama_id} has no audio pipeline (content mode "
-            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
-
-    source_language = source_language or drama.get("source_language") or "zh"
-    chinese_script = chinese_script or drama.get("chinese_script") or "simplified"
-    if source_language not in SOURCE_LANGUAGES:
-        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
-    if chinese_script not in _CHINESE_SCRIPTS:
-        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
-
-    transcript_mode = drama.get("transcript_mode") or "have_transcript"
-
     # Resolved independently of transcript_mode: a hardsub_ocr drama
     # commonly also has real audio on disk (the video upload extracts one
     # alongside saving the video), and diarization always needs actual audio
@@ -273,31 +258,28 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     # diarizes off this drama-level audio for every transcript_mode,
     # hardsub_ocr included.
     diarize_audio_path = _drama_audio_path(drama_id, drama)
+    media = {}
 
-    audio_path = None
-    video_path = None
-    if transcript_mode == "hardsub_ocr":
-        video_path = _drama_video_path(drama_id, drama)
-        if video_path is None:
-            raise UnsupportedOperationError(f"No video source available for title {drama_id}.")
-    else:
-        audio_path = _drama_audio_path(drama_id, drama)
-        if audio_path is None:
-            raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
-        if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
-            raise UnsupportedOperationError(
-                "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
+    def require_media(transcript_mode):
+        if transcript_mode == "hardsub_ocr":
+            media["video"] = _drama_video_path(drama_id, drama)
+            if media["video"] is None:
+                raise UnsupportedOperationError(f"No video source available for title {drama_id}.")
+        else:
+            media["audio"] = _drama_audio_path(drama_id, drama)
+            if media["audio"] is None:
+                raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
 
-    asr_backend_choice = asr_options_service.stored_asr_backend(drama)
-    alignment_method = drama.get("alignment_method") or "whisper_diff"
-    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, source_language)
+    (min_speakers, max_speakers, source_language, chinese_script, transcript_mode,
+     asr_backend_choice, alignment_method) = _check_run_request(
+        drama, source_language, chinese_script, transcript_text,
+        expected_speakers, min_speakers, max_speakers, require_media)
+    audio_path = media.get("audio")
+    video_path = media.get("video")
     voice_detector = asr_options_service.resolve_voice_detector(drama, source_language)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
-    if drama.get("use_groq") and not groq_api_key:
-        raise DependencyUnavailableError(
-            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
 
     job_id = f"transcribe_{drama_id}"
     description = f"Transcription (title #{drama_id})"

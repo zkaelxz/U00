@@ -35,7 +35,7 @@ from services import (
 )
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from services.transcribe_options_service import _DEFAULT_TUNING, stored_whisper_size
+from services.transcribe_options_service import _DEFAULT_TUNING, require_audio_pipeline, stored_whisper_size
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt, get_transcribe_config
 from translate_engines import redact_secrets
 
@@ -119,8 +119,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     NotFoundError, UnsupportedOperationError (no audio pipeline / no audio),
     InvalidInputError (bad candidates), ConflictError (already running)."""
     drama = ownership_service.require_drama(drama_id)
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    require_audio_pipeline(drama_id, drama)
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")

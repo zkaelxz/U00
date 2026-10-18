@@ -79,7 +79,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
     audio_only=False: downloads the best available muxed video instead,
     as downloaded_video.<ext> -- the CALLER is responsible for running it
     through the same video->audio extraction step already used for
-    uploaded video files (core.extract_audio_from_video), exactly as if
+    uploaded video files (audio_extract.extract_audio_from_video), exactly as if
     it had been picked with the file uploader.
 
     progress_cb: optional callable(fraction: float, message: str), same

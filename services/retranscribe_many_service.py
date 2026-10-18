@@ -34,6 +34,7 @@ from services import (compare_transcription_service as compare, settings_service
                       transcribe_options_service)
 from services.retranscribe_worker import (apply_retranscribe_many_outcome,
                                           retranscribe_many_worker, retranscribe_timeout_s)
+from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
@@ -58,8 +59,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
     (one line or many), a full transcription, fix-flagged, a re-segment or a
     narration run is running or queued for this drama."""
     drama = compare._drama_or_404(drama_id)
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    require_audio_pipeline(drama_id, drama)
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
@@ -74,11 +74,8 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
     if any(not float(ln.end) > float(ln.start) for ln in picked):
         raise UnsupportedOperationError("A chosen line has no timing window to re-transcribe.")
     prompt = transcribe_service._resolve_initial_prompt(drama_id, initial_prompt, extra_names)
-    for prefix in retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES:
-        other = background_jobs.get_status(f"{prefix}{drama_id}")
-        if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this title's lines. "
-                                "Try again when it finishes.")
+    ensure_no_active_jobs(drama_id, retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES,
+                          "Another job is changing this title's lines. Try again when it finishes.")
     job_id = _job_id(drama_id)
     default_language = drama.get("source_language") or "zh"
     windows = [(ln.id, float(ln.start), float(ln.end), ln.lang or default_language)

@@ -371,6 +371,29 @@ def test_the_mixed_language_path_sends_the_hint_and_keeps_the_heard_language(mon
     assert seen == [(None, "Vocabulary: x")] and out[0]["text"] == "こんにちは"
 
 
+def test_the_mixed_language_path_gives_equal_spans_their_own_windows(monkeypatch):
+    import mixed_language
+    sliced = []
+
+    class MixedModel:
+        def transcribe(self, audio, language, prompt=None):
+            return [types.SimpleNamespace(text="x", language="Chinese")]
+    monkeypatch.setattr(ab, "load_qwen3_asr", lambda **k: MixedModel())
+    monkeypatch.setattr(ab, "extract_audio_slice",
+                        lambda a, s, e, out: (sliced.append((s, e)), open(out, "wb").close()))
+    import vad_segments
+    # Equal in value, so the old spans.index(span) found the first one for both.
+    first, second = vad_segments.Span(1.0, 2.0), vad_segments.Span(1.0, 2.0)
+    assert first == second
+    windows = [types.SimpleNamespace(start_s=0.0, end_s=3.0),
+               types.SimpleNamespace(start_s=10.0, end_s=13.0)]
+    monkeypatch.setattr(mixed_language, "transcribe_spans",
+                        lambda spans, language, run_span, rerun, **k: [run_span(s) for s in spans])
+    ab.Qwen3ASRVadBackend()._transcribe_mixed(
+        "/a.wav", "zh", [first, second], windows, False, None, None)
+    assert sliced == [(0.0, 3.0), (10.0, 13.0)]
+
+
 # ---------------------------------------------------------------------------
 # Forced aligner
 # ---------------------------------------------------------------------------

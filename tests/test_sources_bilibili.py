@@ -271,7 +271,7 @@ class TestStandardizedOutput:
         assert result["source"] == "bilibili"
         assert result["bvid"] == "BV1xx411c7abcd"
         # what the existing video pipeline actually needs: a real local file it
-        # can feed to core.extract_audio_from_video, exactly like an uploaded file.
+        # can feed to audio_extract.extract_audio_from_video, exactly like an uploaded file.
         assert os.path.exists(result["path"])
         assert result["path"].endswith(".mp4")
 

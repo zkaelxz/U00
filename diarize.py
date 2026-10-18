@@ -22,7 +22,7 @@ a {"waveform", "sample_rate"} dict rather than a bare file path -- a
 bare path makes pyannote.audio 4.x decode it through torchcodec, which
 this app never installs. soundfile (libsndfile-based) reads it instead:
 every audio_path reaching diarize() is always this app's own normalized
-audio.wav (see core.extract_audio_from_video/extract_audio_slice, both
+audio.wav (see audio_extract.extract_audio_from_video/extract_audio_slice, both
 plain 16kHz mono PCM WAV), which soundfile handles directly with no
 compiled-per-FFmpeg-version binary of its own -- unlike torchcodec, and
 more robust on Windows than pinning torchaudio to an older release would
