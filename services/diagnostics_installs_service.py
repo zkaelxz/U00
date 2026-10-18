@@ -442,7 +442,9 @@ def _unpack_binary(zip_path: str):
 # Q06: package install and GPU PyTorch setup
 # ---------------------------------------------------------------------------
 
-_READ_ONLY_HINT = "Stop the service and start Baihe from the Start menu to install packages."
+_READ_ONLY_HINT = ("Stop the service first: turn off both Baihe services (\"Baihe Studio\" and "
+                   "\"Baihe Studio remote access (Caddy)\"), then start Baihe from the Start menu "
+                   "to install packages.")
 
 
 def get_dependency_install() -> dict:
