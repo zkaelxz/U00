@@ -13,6 +13,7 @@ import type {
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
 import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
+import { engineGate, type EngineGate } from '../workspace/stages/engineReady'
 import type { JobRecord } from '../../types/jobs'
 import { BENCH_DEFAULT_OPEN, type BenchSectionId } from './benchmarkHelp'
 
@@ -412,6 +413,20 @@ export function enginesMissingKey(sel: RunSelection, engines: BenchmarkEngineOpt
   return engines.filter((e) => picked.has(e.name) && !e.key_configured)
 }
 
+/**
+ * Why an engine that cannot run cannot: its key, its SDK or Ollama. The list reports one flag
+ * (key_configured, which for Ollama means "answers"), so the cause comes from the same gate the Translate buttons use.
+ */
+export function engineBlock(e: BenchmarkEngineOption): EngineGate | null {
+  return engineGate([e], e.name, e.name === 'ollama' ? e.key_configured : null)
+}
+
+/** The reason Start is off for an engine that cannot run. */
+export function engineBlockReason(e: BenchmarkEngineOption): string {
+  const gate = engineBlock(e)
+  return gate && gate.id !== 'engine_key' ? gate.reason : `${humanize('engine', e.name)} has no key. Set one in Settings.`
+}
+
 export const JUDGE_SAME_MODEL_REASON = 'Tick the box to judge with a model you are also testing, or pick another judge.'
 
 export const JUDGE_SAME_MODEL_WARNING =
@@ -457,7 +472,7 @@ export function startState(args: {
   const reasons = [...selectionProblems(sel, args.maxConfigs)]
   if (pcRemote) reasons.push('Starting a run is PC only.')
   if (running) reasons.push('A benchmark run is already going.')
-  for (const e of missingKeys) reasons.push(`${humanize('engine', e.name)} has no key. Set one in Settings.`)
+  for (const e of missingKeys) reasons.push(engineBlockReason(e))
   if (judgeOverlap(sel).length && !sel.allowSameJudge) reasons.push(JUDGE_SAME_MODEL_REASON)
   if (!estimate || estimateFor !== estimateKey(sel, args.caseCount)) reasons.push('Estimate the cost of this selection first.')
   else {
