@@ -16,9 +16,16 @@ export function useAiEngines(enabled: boolean) {
   const [engines, setEngines] = useState<AiEngines | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [state, setState] = useState<TranslateEngine[] | null>(null)
+  const [asked, setAsked] = useState(false)
   const { readiness } = useReadiness()
   useEffect(() => {
-    if (!enabled || engines) return
+    if (enabled) setAsked(true)
+  }, [enabled])
+  // Keyed on `asked` alone: when it was keyed on `engines`, the names list
+  // answering first re-ran the effect, whose cleanup dropped the engine list
+  // still on its way, so no engine ever showed why it cannot run.
+  useEffect(() => {
+    if (!asked) return
     let live = true
     getAiEngines().then(
       (r) => live && setEngines(r),
@@ -31,7 +38,7 @@ export function useAiEngines(enabled: boolean) {
     return () => {
       live = false
     }
-  }, [enabled, engines])
+  }, [asked])
   const gateFor = (name: string | null): EngineGate | null =>
     name ? engineGate(state, name, name === 'ollama' ? ollamaAnswer(readiness) : null) : null
   return { engines, error, gateFor }

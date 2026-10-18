@@ -117,6 +117,18 @@ export async function mockExtraction(page: Page, s: MockState, m: ImportMockStat
     record(route)
     return json(route, { engines: ['claude', 'gemini', 'ollama'], default: 'claude', free: ['ollama'] })
   })
+  // Every engine ready, so these specs don't depend on the e2e server's own
+  // key state (no keys), which marks Claude and Gemini as unable to run. The
+  // gate specs register their own key status after this, which wins.
+  await page.route('**/api/translate/engines', (route) =>
+    json(route, {
+      items: [
+        { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
+        { name: 'gemini', label: 'Gemini', free: true, models: null, key_configured: true },
+        { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: true },
+      ],
+    }),
+  )
   const start = (route: Route) => {
     record(route)
     const body = route.request().postDataJSON() as { drama_id?: number }
