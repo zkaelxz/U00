@@ -3,6 +3,7 @@ result cache, app settings), sign-in and sessions, and the Benchmark Lab with mo
 re-evaluation. init_db in db/__init__.py runs them in a fixed order."""
 
 import contextlib
+import json
 
 import db
 
@@ -220,6 +221,19 @@ def _init_benchmark_lab_schema():
             FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_benchmark_results_session ON benchmark_results(session_id);
+        -- The owner's blind A/B choice between two runs' outputs for one case.
+        CREATE TABLE IF NOT EXISTS benchmark_picks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            session_a INTEGER NOT NULL,
+            session_b INTEGER NOT NULL,
+            winner TEXT NOT NULL,    -- 'a', 'b' or 'tie'
+            created_at TEXT,
+            UNIQUE (case_id, session_a, session_b),
+            FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_a) REFERENCES benchmark_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_b) REFERENCES benchmark_sessions(id) ON DELETE CASCADE
+        );
         -- Every change to a case's reference text, so a score from before a
         -- fix can be told apart from one after it (version = the case's
         -- ref_version once the change was applied).
@@ -273,4 +287,43 @@ def _init_benchmark_lab_schema():
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN ref_version INTEGER")
         if "timing" not in result_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN timing TEXT")
+        if "judge_scores" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN judge_scores TEXT")
+        session_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_sessions)").fetchall()}
+        if "judge_meta" not in session_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_sessions ADD COLUMN judge_meta TEXT")
         conn.commit()
+        _move_judge_settings_into_results(conn)
+
+
+_JUDGE_SETTING_PREFIX = "benchmark_judge."
+
+
+def _move_judge_settings_into_results(conn):
+    """Older builds kept a run's judge scores in app_settings. A setting is
+    removed only once every score in it sits on a result row, so an interrupted
+    or partial move loses nothing and the next start finishes it."""
+    rows = conn.execute("SELECT key, value FROM app_settings WHERE key LIKE ?",
+                        (_JUDGE_SETTING_PREFIX + "%",)).fetchall()
+    for key, raw in rows:
+        try:
+            session_id = int(key[len(_JUDGE_SETTING_PREFIX):])
+            state = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(state, dict) or not conn.execute(
+                "SELECT 1 FROM benchmark_sessions WHERE id = ?", (session_id,)).fetchone():
+            continue
+        scores = state.get("scores") if isinstance(state.get("scores"), dict) else {}
+        placed = 0
+        for case_id, entry in scores.items():
+            cur = conn.execute(
+                "UPDATE benchmark_results SET judge_scores = ? WHERE session_id = ? AND case_id = ?",
+                (json.dumps(entry), session_id, int(case_id) if str(case_id).isdigit() else -1))
+            placed += 1 if cur.rowcount else 0
+        meta = {k: v for k, v in state.items() if k != "scores"}
+        conn.execute("UPDATE benchmark_sessions SET judge_meta = ? WHERE id = ?",
+                     (json.dumps(meta), session_id))
+        if placed == len(scores):
+            conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+    conn.commit()

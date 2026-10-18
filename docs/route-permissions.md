@@ -54,6 +54,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/snapshot/delete` | local_only() |
 | `GET /api/backups/snapshot/dramas` | local_only() |
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
+| `GET /api/benchmark/ab/next` | admin.diagnostics |
+| `POST /api/benchmark/ab/pick` | local_only() |
+| `GET /api/benchmark/ab/summary` | admin.diagnostics |
 | `GET /api/benchmark/arena` | admin.diagnostics |
 | `GET /api/benchmark/arena/export` | admin.diagnostics |
 | `GET /api/benchmark/cases` | admin.diagnostics |

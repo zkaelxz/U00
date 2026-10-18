@@ -7,6 +7,8 @@ import {
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
+import { BlindPick } from './BlindPick'
+import { pickTotalsLine } from './blindPickText'
 import {
   arenaRunNames, deltaTone, leftOutLine, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
   mixedMetricNote, mixedScorerNote, plainError, timingLine, caseTimingLine,
@@ -30,6 +32,7 @@ function singleRunArena(run: BenchmarkRun, results: BenchmarkResult[]): Benchmar
 export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; phone: boolean; onClose: () => void }) {
   const [data, setData] = useState<{ key: string; arena: BenchmarkArena } | null>(null)
   const [failure, setFailure] = useState<{ key: string; text: string } | null>(null)
+  const [reloads, setReloads] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
   const key = target.kind === 'arena' ? `a:${target.runIds.join(',')}` : `r:${target.runId}`
 
@@ -45,7 +48,7 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
     return () => {
       live = false
     }
-  }, [target, key])
+  }, [target, key, reloads])
 
   useEffect(() => {
     ref.current?.scrollIntoView?.({ block: 'start' })
@@ -136,11 +139,19 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                       {judgeRunLine(r.judge)}
                     </span>
                   )}
+                  {r.picks && (
+                    <span className="muted num" data-testid="arena-picks">
+                      {pickTotalsLine(r.picks)}
+                    </span>
+                  )}
                   {r.judge?.same_as_tested && <span className="warn">Judged by a model that was also tested; its scores here are biased.</span>}
                   {r.note && <span className="muted">{r.note}</span>}
                 </li>
               ))}
             </ol>
+            {many && arena.runs.length === 2 && arena.runs[0].stage !== 'ocr' && (
+              <BlindPick runA={arena.runs[0].id} runB={arena.runs[1].id} onSaved={() => setReloads((n) => n + 1)} />
+            )}
             {arena.rows.length === 0 ? (
               <p className="muted">No results recorded yet.</p>
             ) : (
@@ -209,6 +220,7 @@ function ResultCell({ res, name, showRun }: { res: BenchmarkResult | null; name:
           )}
           {res.timing && <span className="muted num" data-testid="result-timing">{caseTimingLine(res.timing)}</span>}
           {res.judge && <span className="muted num" data-testid="result-judge">Judge {formatJudgeScore(res.judge)}</span>}
+          {res.picks && <span className="muted num" data-testid="result-picks">{pickTotalsLine(res.picks)}</span>}
         </>
       )}
     </div>
