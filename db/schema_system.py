@@ -306,24 +306,44 @@ def _move_judge_settings_into_results(conn):
     rows = conn.execute("SELECT key, value FROM app_settings WHERE key LIKE ?",
                         (_JUDGE_SETTING_PREFIX + "%",)).fetchall()
     for key, raw in rows:
+        # One bad old value must never stop init_db; its key stays for a later start.
         try:
-            session_id = int(key[len(_JUDGE_SETTING_PREFIX):])
-            state = json.loads(raw)
-        except (ValueError, TypeError):
+            _move_one_judge_setting(conn, key, raw)
+        except (ValueError, OverflowError):
             continue
-        if not isinstance(state, dict) or not conn.execute(
-                "SELECT 1 FROM benchmark_sessions WHERE id = ?", (session_id,)).fetchone():
-            continue
-        scores = state.get("scores") if isinstance(state.get("scores"), dict) else {}
-        placed = 0
-        for case_id, entry in scores.items():
-            cur = conn.execute(
-                "UPDATE benchmark_results SET judge_scores = ? WHERE session_id = ? AND case_id = ?",
-                (json.dumps(entry), session_id, int(case_id) if str(case_id).isdigit() else -1))
-            placed += 1 if cur.rowcount else 0
-        meta = {k: v for k, v in state.items() if k != "scores"}
-        conn.execute("UPDATE benchmark_sessions SET judge_meta = ? WHERE id = ?",
-                     (json.dumps(meta), session_id))
-        if placed == len(scores):
-            conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
     conn.commit()
+
+
+_MAX_ROW_ID = 2 ** 63 - 1
+
+
+def _row_id(text):
+    """An SQLite row id from text, or None. isdecimal() keeps out digits that
+    int() would refuse ("²"); the range check keeps out ids SQLite can't bind."""
+    text = str(text)
+    if not text.isdecimal() or len(text) > 19 or int(text) > _MAX_ROW_ID:
+        return None
+    return int(text)
+
+
+def _move_one_judge_setting(conn, key, raw):
+    session_id = _row_id(key[len(_JUDGE_SETTING_PREFIX):])
+    state = json.loads(raw)
+    if session_id is None or not isinstance(state, dict) or not conn.execute(
+            "SELECT 1 FROM benchmark_sessions WHERE id = ?", (session_id,)).fetchone():
+        return
+    scores = state.get("scores") if isinstance(state.get("scores"), dict) else {}
+    placed = 0
+    for case_id, entry in scores.items():
+        row_id = _row_id(case_id)
+        if row_id is None:
+            continue
+        cur = conn.execute(
+            "UPDATE benchmark_results SET judge_scores = ? WHERE session_id = ? AND case_id = ?",
+            (json.dumps(entry), session_id, row_id))
+        placed += 1 if cur.rowcount else 0
+    meta = {k: v for k, v in state.items() if k != "scores"}
+    conn.execute("UPDATE benchmark_sessions SET judge_meta = ? WHERE id = ?",
+                 (json.dumps(meta), session_id))
+    if placed == len(scores):
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))

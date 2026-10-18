@@ -17,6 +17,7 @@ import db
 from services.service_errors import InvalidInputError, NotFoundError
 
 CHOICES = ("left", "right", "tie")
+MAX_ROW_ID = 2 ** 63 - 1   # what SQLite can bind as an id
 
 
 def _ticket(case_id: int, left: int, right: int) -> str:
@@ -27,6 +28,8 @@ def _read_ticket(ticket: str) -> tuple:
     try:
         case_id, left, right = (int(p) for p in base64.urlsafe_b64decode(ticket.encode()).decode().split(":"))
     except (ValueError, UnicodeError):
+        raise InvalidInputError("This pick does not match a pair that was shown.")
+    if max(case_id, left, right) > MAX_ROW_ID or min(case_id, left, right) < 1:
         raise InvalidInputError("This pick does not match a pair that was shown.")
     return case_id, left, right
 

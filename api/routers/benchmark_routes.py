@@ -90,11 +90,11 @@ def _with_judge(runs: list, rows: list = None) -> None:
     rows, the scores and picks to each cell (cell i belongs to run i)."""
     judge_svc.annotate_runs(runs)
     picks_svc.annotate_runs(runs)
-    for row in rows or []:
-        for run, cell in zip(runs, row["results"]):
-            if cell is not None:
-                judge_svc.annotate_results(run, [cell])
-                picks_svc.annotate_results(run, [cell])
+    for i, run in enumerate(runs):
+        cells = [row["results"][i] for row in rows or [] if row["results"][i] is not None]
+        if cells:
+            judge_svc.annotate_results(run, cells)
+            picks_svc.annotate_results(run, cells)
 
 
 @router.get("/options", dependencies=_READ, response_model=BenchmarkOptions,
@@ -218,7 +218,7 @@ def get_arena(run_ids: List[int] = Query(min_length=2, max_length=4)):
 
 @router.get("/ab/next", dependencies=_READ, response_model=BenchmarkPairNext, responses=_ERRS,
             summary="Blind A/B: the next case two runs have no pick for, outputs unlabelled")
-def get_ab_next(run_a: int = Query(ge=1), run_b: int = Query(ge=1)):
+def get_ab_next(run_a: int = Query(ge=1, le=picks_svc.MAX_ROW_ID), run_b: int = Query(ge=1, le=picks_svc.MAX_ROW_ID)):
     return picks_svc.next_pair(run_a, run_b)
 
 
@@ -230,7 +230,7 @@ def post_ab_pick(body: BenchmarkPickRequest):
 
 @router.get("/ab/summary", dependencies=_READ, response_model=BenchmarkPickSummary, responses=_ERRS,
             summary="Blind A/B totals for two runs and how often the judge agreed with the owner")
-def get_ab_summary(run_a: int = Query(ge=1), run_b: int = Query(ge=1)):
+def get_ab_summary(run_a: int = Query(ge=1, le=picks_svc.MAX_ROW_ID), run_b: int = Query(ge=1, le=picks_svc.MAX_ROW_ID)):
     return picks_svc.summary(run_a, run_b)
 
 

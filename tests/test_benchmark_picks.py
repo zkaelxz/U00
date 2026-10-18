@@ -86,6 +86,21 @@ class TestOldJudgeSettingsMove:
         isolated_db.init_db()
         assert db.get_app_setting(f"benchmark_judge.{a}") == state
 
+    def test_bad_old_values_never_stop_init_db_and_keep_their_keys(self, isolated_db):
+        ids, (a, _b) = _setup(["x"], ["y"])
+        good = {"scores": {str(ids[0]): {"overall": 0.5}, "²": {"overall": 0.1},
+                           "9" * 30: {"overall": 0.1}}}
+        db.set_app_setting(f"benchmark_judge.{a}", good)
+        db.set_app_setting("benchmark_judge.²", {"scores": {}})
+        db.set_app_setting(f"benchmark_judge.{'9' * 30}", {"scores": {}})
+        with db.get_conn() as conn:
+            conn.execute("INSERT INTO app_settings (key, value) VALUES ('benchmark_judge.77', 'not json')")
+        isolated_db.init_db()
+        for key in (f"benchmark_judge.{a}", "benchmark_judge.²", f"benchmark_judge.{'9' * 30}"):
+            assert db.get_app_setting(key) is not None
+        with db.get_conn() as conn:
+            assert conn.execute("SELECT 1 FROM app_settings WHERE key = 'benchmark_judge.77'").fetchone()
+
     def test_a_setting_for_a_deleted_run_is_left_alone(self, isolated_db):
         db.set_app_setting("benchmark_judge.404", {"scores": {}})
         isolated_db.init_db()
@@ -132,6 +147,13 @@ class TestBlindPairs:
             picks.record_pick("not-a-ticket", "left")
         with pytest.raises(InvalidInputError):
             picks.record_pick(picks.next_pair(a, b)["ticket"], "middle")
+
+    def test_ids_too_big_for_sqlite_are_refused_not_a_500(self, isolated_db):
+        import base64
+        big = 2 ** 63
+        ticket = base64.urlsafe_b64encode(f"{big}:1:2".encode()).decode()
+        with pytest.raises(InvalidInputError):
+            picks.record_pick(ticket, "left")
 
     def test_picks_go_with_a_deleted_run(self, isolated_db):
         _ids, (a, b) = _setup(["alpha"], ["beta"])
