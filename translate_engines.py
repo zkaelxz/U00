@@ -48,6 +48,7 @@ from engine_backends.shared import (  # noqa: F401
     _is_rate_limit_error,
     build_numbered_lines,
     call_with_backoff,
+    gemini_generate_request,
     claude_usage,
     display_url,
     extract_first_json_value,

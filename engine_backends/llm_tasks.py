@@ -24,6 +24,7 @@ from .shared import (
     call_with_backoff,
     claude_usage,
     extract_first_json_value,
+    gemini_generate_request,
     language_name,
     parse_flag_entries,
     parse_json_array,
@@ -435,13 +436,11 @@ def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None,
 
     if isinstance(engine, GeminiEngine):
         engine._throttle_for_free_tier()
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{engine.model}:generateContent")
+        url, headers = gemini_generate_request(engine.model, engine.api_key)
         data, _ = call_with_backoff(lambda: post_json(
             url, {"contents": [{"parts": [{"text": prompt}]}],
                   **({"systemInstruction": {"parts": [{"text": system}]}} if system else {})},
-            timeout=120,
-            headers={"x-goog-api-key": engine.api_key}, label="Gemini"))
+            timeout=120, headers=headers, label="Gemini"))
         usage = data.get("usageMetadata") or {}
         if usage_cb:
             usage_cb(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))
