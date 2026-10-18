@@ -85,7 +85,7 @@ test('on another device the default is not offered: it is changed on the main PC
   await inSeriesSeven(page)
   const seen = await mockLanguagePacks(page)
   await openPacks(page)
-  await expect(page.getByText('The default for Japanese titles is changed on the main PC.')).toBeVisible()
+  await expect(page.getByText('changed on the main PC')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Use this choice for Japanese titles' })).toHaveCount(0)
   expect(seen.defaults).toEqual([])
 })

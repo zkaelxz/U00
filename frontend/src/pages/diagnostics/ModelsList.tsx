@@ -6,7 +6,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { CardLink } from './CardLink'
 import type { DiagnosticsCard } from './diagnosticsTabs'
-import { PC_ONLY_DELETE_NOTE, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import type { DiagnosticsHfCacheEntry, DiagnosticsModelCache, ModelEngineVersion } from '../../types/diagnostics'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 import { MODEL_FOLDER_LABELS, engineRow, hasModelCache, modelCacheSummary, reconcileModels } from './diagnosticsAdmin'
@@ -106,12 +106,8 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
           {del(`file:${m.folder}:${m.name}`, m.name, () => deleteModelFile(m.folder, m.name))}
         </li>
       )))}
-      {hasCache && (
-        <p className="muted">
-          {canDelete
-            ? 'A deleted model downloads again when a feature needs it. Deleting waits for running jobs.'
-            : PC_ONLY_DELETE_NOTE}
-        </p>
+      {hasCache && canDelete && (
+        <p className="muted">A deleted model downloads again when a feature needs it. Deleting waits for running jobs.</p>
       )}
       {notice && <p role="status">{notice}</p>}
       <ErrorBanner error={error} describe={{ pcOnly: true, serverText: true }} onDismiss={() => setError(null)} />

@@ -28,7 +28,7 @@ import { capFirst } from '../../../../labels'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { buttonClass } from '../../../../components/uiClasses'
 import { SnapshotPreview } from './SnapshotPreview'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../../hooks/usePcOnly'
+import { usePcOnly } from '../../../../hooks/usePcOnly'
 
 interface Records {
   notes: ReviewNote[]
@@ -317,7 +317,6 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
           {activated && <p role="status" data-testid="activate-status">{activated}</p>}
           <ErrorBanner error={activateError} onDismiss={() => setActivateError(null)} />
           {jobRunning && <p className="muted">Wait for the running job to finish.</p>}
-          {pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
           <ErrorBanner error={versionError} describe={{ pcOnly: true }} onDismiss={() => setVersionError(null)} />
         </>
       )}

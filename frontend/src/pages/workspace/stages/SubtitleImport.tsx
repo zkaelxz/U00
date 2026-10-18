@@ -15,7 +15,7 @@ import { startRetime } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
-import { PC_ONLY_BODY, usePcOnly } from '../../../hooks/usePcOnly'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import type { SubtitleImportMode, SubtitleImportOptions, SubtitleImportPreview } from '../../../types/subtitleImport'
 import {
   checkSubtitleFile,
@@ -132,7 +132,7 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
     )
   }
 
-  if (pc === 'remote') return <p className="muted" data-testid="subtitle-import-pc-only">{PC_ONLY_BODY}</p>
+  if (pc === 'remote') return null
 
   return (
     <div className="subtitle-import" data-testid="subtitle-import">

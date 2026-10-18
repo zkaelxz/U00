@@ -4,7 +4,7 @@ import { getRealModelCheck, startRealModelCheck } from '../../api/realModelCheck
 import { Badge } from '../../components/Badge'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import type { RealModelCheckResult, RealModelCheckStatus } from '../../types/realModelCheck'
 import { adminErrorText } from './diagnosticsAdmin'
 import { jobProgressLine } from './jobPoll'
@@ -31,13 +31,7 @@ export function RealModelCheckResults({ checks }: { checks: RealModelCheckResult
 
 /** "Test my models": one transcription, OCR read and Ollama translation with the models you have. Complements "Test first", which only runs mocked tests. PC only. */
 export function RealModelCheck({ pc, jobsActive, openSignal }: { pc: PcMode; jobsActive: boolean; openSignal?: number }) {
-  if (pc === 'remote') {
-    return (
-      <Section title="Test my models" storageKey="diagnostics.realModel" summary={PC_ONLY_SUMMARY} openSignal={openSignal}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
   return <RealModelCheckBody local={pc === 'local'} jobsActive={jobsActive} openSignal={openSignal} />
 }
 

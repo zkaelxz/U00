@@ -13,7 +13,7 @@ import { ExternalLink } from './ExternalLink'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_DELETE_NOTE, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { workspaceHref } from '../../components/libraryView'
 import type { KnownTitle, KnownTitleList } from '../../types/discover'
 import { LANGUAGES, TITLE_MEDIA_TYPES, catalogCount, existingDramaId, mediaLabel, sourceLabel, titleMeta } from './discoverFormat'
@@ -204,9 +204,7 @@ function TitleCard({ t, pc, dramaId, busy, onAdd, onRemove }: {
             {adding ? 'Adding…' : 'Add to Library'}
           </button>
         )}
-        {pc === 'remote' ? (
-          <span className="muted">{PC_ONLY_DELETE_NOTE}</span>
-        ) : (
+        {pc !== 'remote' && (
           <ConfirmButton name={name} label="Remove…" verb="remove" busy={busy === `delete-${t.id}`} onConfirm={onRemove} />
         )}
       </div>

@@ -504,7 +504,7 @@ test.describe('PC-only stage deletes', () => {
     await openSection(page, 'Records')
     await expect(page.getByTestId('versions-list')).toBeVisible()
     await expect(page.getByRole('button', { name: /Delete Claude pass 1/ })).toHaveCount(0)
-    await expect(page.getByText('Deleting is PC only.')).toBeVisible()
+    await expect(page.getByText('Deleting is PC only.')).toHaveCount(0)
     await page.goto('/#/drama/1/source')
     await expect(page.getByTestId('media-status')).toContainText('Audio attached')
     await expect(page.getByRole('button', { name: /Remove audio\/video/ })).toHaveCount(0)

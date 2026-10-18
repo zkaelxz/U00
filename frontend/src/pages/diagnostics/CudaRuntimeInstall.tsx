@@ -65,7 +65,6 @@ export function CudaRuntimeInstall({ pc, jobsActive, busy, onStarted, onFinished
           </p>
         )}
         {error && <p className="error" role="alert">{error}</p>}
-        {pc === 'remote' && status.missing && <p className="muted">Installing is PC only.</p>}
         {pending && status.missing && <p className="muted">{pending}</p>}
         {pc === 'local' && status.missing && !running && (
           <div className="actions">

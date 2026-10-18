@@ -95,7 +95,7 @@ test('Reading history on a remote device: no Clear button', async ({ page }) => 
   ] } }))
   await page.goto('/#/library-tools?tab=activity')
   const section = tools(page).getByRole('region', { name: 'Reading history' })
-  await expect(section).toContainText('Clearing history is PC only.')
+  await expect(section).not.toContainText('PC only')
   await expect(section.getByRole('button', { name: 'Clear reading history' })).toHaveCount(0)
 })
 
