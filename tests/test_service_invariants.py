@@ -419,8 +419,10 @@ class TestRetryOnDifferentEngineInvariants:
         # path, which opens its own session; route it to the patched post.
         import requests
         from engine_backends import local
-        monkeypatch.setattr(local, "_ollama_chat_abortable", lambda base_url, payload, check:
-                            local._ollama_chat_request(requests.post, base_url, payload))
+        monkeypatch.setattr(local, "_ollama_chat_abortable",
+                            lambda base_url, payload, check, cloud_key=None:
+                            local._ollama_chat_request(requests.post, base_url, payload,
+                                                       cloud_key=cloud_key))
         out = translate_run_service.start_translate_run(did, engine_name="ollama",
                                                         line_ids=[lines[0].id])
         job = _wait(out["job_id"])

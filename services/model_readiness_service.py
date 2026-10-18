@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 
+import model_pins
 import whisper_models
 from lib import model_offline
 from lib.model_offline import NOT_DOWNLOADED_MESSAGE
@@ -56,7 +57,9 @@ def require_ready(at_pc: bool, build, *args, **kwargs) -> None:
 
 # --- Cache checks ----------------------------------------------------------
 
-_hf_snapshot = model_offline.hf_snapshot
+def _hf_snapshot(repo_id: str):
+    # A pinned repo loads at its pin only, so another revision on disk is not ready.
+    return model_offline.hf_snapshot(repo_id, model_pins.REVISIONS.get(repo_id))
 
 
 def _weights_complete(folder: str) -> bool:

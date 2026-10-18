@@ -10,6 +10,7 @@ import {
 } from '../../../api/translateStage'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { RetryBanner } from '../../../components/RetryBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { ModelSelect } from '../../../components/ModelSelect'
@@ -757,7 +758,11 @@ export default function TranslateStage() {
 
   return (
     <div className="stage-translate">
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {config ? (
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      ) : (
+        <RetryBanner error={error} what="the translate settings" onRetry={() => { setError(null); setReloads((n) => n + 1) }} />
+      )}
       <SourceChangedWarning dramaId={dramaId} reloadKey={reloads} />
       {showJob && (
         <JobPanel

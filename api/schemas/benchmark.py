@@ -5,15 +5,25 @@ api/benchmark_schemas.py. No key, path or URL field exists on any model.
 
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Union
+
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt
 
 __all__ = [
+    "BenchmarkTranscribeOptions",
+    "BenchmarkTimingSummary",
+    "BenchmarkCaseTiming",
+    "BenchmarkTimingVerdict",
+    "BenchmarkBackendOption",
     "BenchmarkJudgeConfig",
     "BenchmarkJudgeScore",
     "BenchmarkJudgeSummary",
     "BenchmarkJudgeEstimate",
     "BenchmarkSetBuildRequest",
     "BenchmarkSetBuildResult",
+    "BenchmarkTitleCorrections",
+    "BenchmarkCorrectionsAddRequest",
+    "BenchmarkCorrectionsAddResult",
     "BenchmarkClipRow",
     "BenchmarkClipCheckRequest",
     "BenchmarkClipNote",
@@ -91,6 +101,39 @@ class BenchmarkSetBuildResult(BaseModel):
     dry_run: bool
 
 
+class BenchmarkTitleCorrections(BaseModel):
+    """How far a title's raw transcript is from the owner's corrections. The
+    rate is None until at least one line has been corrected."""
+    drama_id: int
+    raw_available: bool
+    lines_compared: int
+    lines_corrected: int
+    raw_to_edited_cer: Optional[float] = None
+
+
+class BenchmarkCorrectionsAddRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    set_name: str = Field(min_length=1, max_length=60)
+    dry_run: bool = False
+    # Also add lines whose text was never changed, taking their current text as the reference.
+    include_all: bool = False
+
+
+class BenchmarkCorrectionsAddResult(BaseModel):
+    set_name: str
+    lines_compared: int
+    lines_corrected: int
+    unedited_skipped: int
+    unclippable_skipped: int
+    include_all: bool = False
+    case_count: int
+    # Lines left for another add: one call adds at most 100.
+    remaining: int = 0
+    added: int
+    skipped: int
+    dry_run: bool
+
+
 class BenchmarkClipRow(BaseModel):
     """One clip as typed in the table (no audio: that is a file part)."""
     model_config = ConfigDict(extra="forbid")
@@ -161,3 +204,65 @@ class BenchmarkLeftOut(BaseModel):
 class BenchmarkRunDelete(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: bool = False
+
+
+class BenchmarkTranscribeOptions(BaseModel):
+    """A Lab transcription arm's per-title options (services/transcribe_options_service.py
+    checks the values); a field left out takes the app's default."""
+    model_config = ConfigDict(extra="forbid")
+
+    # Strict: "5" or "yes" is refused, not coerced.
+    beam_size: Optional[StrictInt] = None
+    min_silence_ms: Optional[StrictInt] = None
+    vad_threshold: Optional[Union[StrictInt, StrictFloat]] = None
+    sensitivity_preset: Optional[str] = Field(default=None, max_length=20)
+    hallucination_silence_sec: Optional[Union[StrictInt, StrictFloat]] = None
+    whisper_repeat_guard: Optional[StrictBool] = None
+    difficult_audio: Optional[StrictBool] = None
+    separate_vocals_first: Optional[StrictBool] = None
+    initial_prompt: Optional[str] = Field(default=None, max_length=1000)
+    # Timing settings only the Lab varies.
+    speech_pad_ms: Optional[StrictInt] = None
+    refine_timing: Optional[StrictBool] = None
+    split_max_seconds: Optional[Union[StrictInt, StrictFloat]] = None
+    split_max_chars: Optional[StrictInt] = None
+
+
+class BenchmarkTimingSummary(BaseModel):
+    """A run's line timing over the cases that have reference times; only `cases` when none do."""
+    cases: int = 0
+    start_median_ms: Optional[int] = None
+    end_median_ms: Optional[int] = None
+    within: Optional[float] = None
+    merged: Optional[int] = None
+    split: Optional[int] = None
+    missed: Optional[int] = None
+    silence: Optional[int] = None
+
+
+class BenchmarkCaseTiming(BaseModel):
+    lines: int
+    missed: bool
+    split: bool
+    merged: bool
+    start_error_s: Optional[float] = None
+    end_error_s: Optional[float] = None
+    silence: Optional[int] = None
+
+
+class BenchmarkTimingVerdict(BaseModel):
+    """Arena only: whether a run's timing beat the first run's by more than the measured noise
+    without a worse text score. state: baseline, repeat, untimed, no_margin, no_gain, cer_worse, gain."""
+    state: str
+    text: str
+    margin_within: Optional[float] = None
+    margin_score: Optional[float] = None
+    gain: Optional[float] = None
+    score_change: Optional[float] = None
+
+
+class BenchmarkBackendOption(BaseModel):
+    name: str
+    label: str
+    # What it still needs on this PC; None when it can run.
+    problem: Optional[str] = None

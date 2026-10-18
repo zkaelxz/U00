@@ -11,7 +11,12 @@ itself; apply_autotune_candidate writes only the drama's own min_silence_ms
 column (db.update_drama, one field), and only for a candidate the finished job
 actually measured. No paid engine is used (PAID_ENGINE_FUNCTIONS is empty):
 the run is local ASR.
+
+A candidate is scored by how many lines are long/merged. A title with lines the
+owner corrected (benchmark_reference_service) is scored by CER against those
+lines instead, since few long lines says nothing about whether the words are right.
 """
+import functools
 from typing import Optional
 
 import background_jobs
@@ -23,6 +28,7 @@ import sensitivity_preset as presets
 from core import Line
 from services import (
     asr_options_service,
+    benchmark_reference_service,
     ownership_service,
     settings_service,
     timing_settings_service,
@@ -33,6 +39,10 @@ from services.transcribe_options_service import _DEFAULT_TUNING, stored_whisper_
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt, get_transcribe_config
 from translate_engines import redact_secrets
 
+# Fewer corrected lines than this is too small a sample to rank candidates by:
+# one odd line could pick the winner, so the long-line count is used instead.
+MIN_REFERENCE_LINES = 5
+
 # Auto-tune functions that may spend on a paid engine: none (local ASR only).
 PAID_ENGINE_FUNCTIONS = ()
 
@@ -41,18 +51,34 @@ def autotune_job_id(drama_id: int) -> str:
     return f"autotune_{drama_id}"
 
 
-def score_autotune_segments(candidate_ms, segments) -> dict:
+def score_autotune_segments(candidate_ms, segments, references=None) -> dict:
     """One candidate's score: the number of long/merged lines
-    (core.diagnose_line_coverage) and total non-empty lines."""
+    (core.diagnose_line_coverage) and total non-empty lines, plus its CER
+    against `references` (benchmark_reference_service.reference_lines) when
+    the title has any."""
     cand_lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
                   for i, s in enumerate(segments or []) if (s.get("text") or "").strip()]
     coverage = line_alignment.diagnose_line_coverage(cand_lines)
-    return {"candidate_ms": candidate_ms, "long_lines": len(coverage["long_lines"]),
-            "total_lines": len(cand_lines)}
+    score = {"candidate_ms": candidate_ms, "long_lines": len(coverage["long_lines"]),
+             "total_lines": len(cand_lines)}
+    if references:
+        score["cer"] = benchmark_reference_service.score_against_references(segments, references)["cer"]
+    return score
+
+
+def best_candidate(results: list):
+    """The winning candidate_ms: lowest CER when every candidate has one,
+    else fewest long lines. Ties go to the earlier (shorter) candidate."""
+    if not results:
+        return None
+    if all(r.get("cer") is not None for r in results):
+        return min(results, key=lambda r: r["cer"])["candidate_ms"]
+    return min(results, key=lambda r: r["long_lines"])["candidate_ms"]
 
 
 def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, initial_prompt,
-                         beam_size, candidates, vad_threshold, fast_mode, preset, repeat_guard, result_queue):
+                         beam_size, candidates, vad_threshold, fast_mode, preset, repeat_guard, result_queue,
+                         references=None, corrected_lines=0):
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
@@ -69,9 +95,11 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
                 min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
                 fast_mode=fast_mode, repeat_guard=repeat_guard,
                 sensitivity_preset=preset)
-            results.append(score_autotune_segments(candidate_ms, segments))
-        best = min(results, key=lambda r: r["long_lines"])["candidate_ms"] if results else None
-        result_queue.put(("ok", {"results": results, "best_candidate_ms": best}))
+            results.append(score_autotune_segments(candidate_ms, segments, references))
+        result_queue.put(("ok", {"results": results, "best_candidate_ms": best_candidate(results),
+                                 "scored_by": "cer" if results and all(r.get("cer") is not None for r in results) else "long_lines",
+                                 "reference_lines": corrected_lines,
+                                 "reference_minimum": MIN_REFERENCE_LINES}))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
 
@@ -85,7 +113,8 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     an int in 300..3000 (the slider's range), at most 6, no duplicates.
     Poll get_autotune_status(drama_id) (GET /api/transcribe/dramas/{id}/
     autotune); its "done" result is
-    {"results": [{candidate_ms, long_lines, total_lines}], "best_candidate_ms"}.
+    {"results": [{candidate_ms, long_lines, total_lines, cer}], "best_candidate_ms",
+    "scored_by" ("cer" when the title has corrected lines, else "long_lines"), "reference_lines"}.
 
     NotFoundError, UnsupportedOperationError (no audio pipeline / no audio),
     InvalidInputError (bad candidates), ConflictError (already running)."""
@@ -112,9 +141,13 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
             "Auto-tune is unavailable while 'Split lines by sentences' is on: that mode "
             "ignores the minimum silence setting.")
     initial_prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
+    corrected = benchmark_reference_service.reference_lines(drama_id, drama)["lines"]
+    references = corrected if len(corrected) >= MIN_REFERENCE_LINES else []
     job_id = autotune_job_id(drama_id)
     started = job_launch.start_process_job(
-        job_id, _autotune_all_worker,
+        # A keyword, because the launcher appends the result queue as the last positional argument.
+        job_id, functools.partial(_autotune_all_worker, references=references,
+                                          corrected_lines=len(corrected)),
         args=(audio_path, stored_whisper_size(drama),
               drama.get("source_language") or "zh", settings_service.get("use_gpu"),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
@@ -148,9 +181,12 @@ def get_autotune_status(drama_id: int) -> dict:
         raw = job.get("result") or {}
         result = {
             "results": [{"candidate_ms": r.get("candidate_ms"), "long_lines": r.get("long_lines"),
-                         "total_lines": r.get("total_lines")}
+                         "total_lines": r.get("total_lines"), "cer": r.get("cer")}
                         for r in raw.get("results") or [] if isinstance(r, dict)],
             "best_candidate_ms": raw.get("best_candidate_ms"),
+            "scored_by": raw.get("scored_by") or "long_lines",
+            "reference_lines": raw.get("reference_lines") or 0,
+            "reference_minimum": raw.get("reference_minimum") or MIN_REFERENCE_LINES,
         }
     message = job.get("error") if status == "error" else job.get("message")
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),

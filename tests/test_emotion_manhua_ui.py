@@ -340,13 +340,13 @@ class TestHfTokenInScanlateMlDetector:
 
         class FakeAutoImageProcessor:
             @staticmethod
-            def from_pretrained(repo_id, token=None):
+            def from_pretrained(repo_id, revision=None, token=None):
                 calls["processor_token"] = token
                 return FakeProcessor()
 
         class FakeAutoModelForObjectDetection:
             @staticmethod
-            def from_pretrained(repo_id, token=None):
+            def from_pretrained(repo_id, revision=None, token=None):
                 calls["model_token"] = token
                 return FakeModel()
 

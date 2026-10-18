@@ -4,6 +4,7 @@ import type { MediaKind } from '../../../../api/media'
 import { listAllLines } from '../../../../api/restructure'
 import { listLines, searchLines } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { RetryBanner } from '../../../../components/RetryBanner'
 import { readSectionOpen, writeSectionOpen } from '../../../../components/sectionStorage'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
@@ -124,6 +125,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [found, setFound] = useState<ReviewLine[] | null>(null)
   const [allTotal, setAllTotal] = useState<number | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [retries, setRetries] = useState(0)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
   const [issue, setIssue] = useState<RowIssue | null>(null)
@@ -244,7 +246,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     return () => {
       cancelled = true
     }
-  }, [dramaId, page, filter, term, reloads])
+  }, [dramaId, page, filter, term, reloads, retries])
 
   // Keyboard moves bring the active row into view and give it focus; the
   // first load only scrolls. Rows keep clear of the sticky toolbar through
@@ -487,7 +489,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {isPhone && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
-            {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
+            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated
           </p>
         )}
         {suspectOpen && suspects.length > 0 && (
@@ -508,7 +510,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           {status}
         </p>
         {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} />}
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {data === null && found === null ? (
+          <RetryBanner error={error} what="the lines" onRetry={() => { setError(null); setRetries((n) => n + 1) }} />
+        ) : (
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        )}
         {hiddenEdit && (
           <HiddenEditBanner
             edit={hiddenEdit}

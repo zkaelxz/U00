@@ -90,15 +90,18 @@ def hf_hub_dir() -> str:
     return os.path.join(hub, "hub")
 
 
-def hf_snapshot(repo_id: str):
-    """The folder `from_pretrained(repo_id)` resolves offline: the snapshot
-    refs/main points at, or None."""
+def hf_snapshot(repo_id: str, revision: str = None):
+    """The folder `from_pretrained(repo_id, revision=revision)` resolves
+    offline, or None. Without a revision, the snapshot refs/main points at; a
+    download at a commit hash writes no ref, so a pinned one is looked up by
+    its own folder."""
     base = os.path.join(hf_hub_dir(), "models--" + repo_id.replace("/", "--"))
-    try:
-        with open(os.path.join(base, "refs", "main"), encoding="utf-8") as f:
-            revision = f.read().strip()
-    except OSError:
-        return None
+    if revision is None:
+        try:
+            with open(os.path.join(base, "refs", "main"), encoding="utf-8") as f:
+                revision = f.read().strip()
+        except OSError:
+            return None
     folder = os.path.join(base, "snapshots", revision)
     return folder if revision and os.path.isdir(folder) else None
 

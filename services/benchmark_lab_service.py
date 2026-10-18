@@ -57,8 +57,11 @@ import translate_engines
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
-from services import settings_service, translate_service
-from services.benchmark_case_service import (redact, require_whisper_fits_cases, whisper_options, run_file_case as _run_case_file,
+from services import settings_service, transcribe_options_service, translate_service
+from services.benchmark_case_service import (LAB_BACKENDS, app_version, ignored_options, require_separation_ready, model_identity, redact, require_backend_fits_cases,
+                                                   require_backend_ready, require_whisper_fits_cases, whisper_options,
+                                                   run_ocr as _run_ocr,
+                                                   run_transcription as _run_transcription,
                                                    run_translation as _run_translation)
 from services import benchmark_runs_service
 from services.benchmark_runs_service import MAX_CONFIGS, arena, get_run, session_out as _session_out  # noqa: F401
@@ -127,6 +130,7 @@ def _case_out(c: dict) -> dict:
         "title": c.get("title") or "", "tags": _tags(c.get("tags")),
         "scene_order": c.get("scene_order"), "excluded": bool(c.get("excluded")),
         "ref_version": c.get("ref_version") or 1,
+        "has_ref_times": c.get("ref_start") is not None and c.get("ref_end") is not None,
         "created_at": c.get("created_at"),
     }
 
@@ -337,6 +341,8 @@ def get_options() -> dict:
         "stages": list(STAGES), "tiers": list(TIERS), "source_languages": list(SOURCE_LANGUAGES),
         "translation_engines": translate_service.list_engines(),
         **whisper_options(),
+        "transcribe_defaults": transcribe_options_service.lab_option_defaults(),
+        "transcribe_options_ignored": {name: ignored_options(name) for name in ("whisper", *LAB_BACKENDS)},
         "ocr_backends": list(OCR_BACKENDS),
         "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
         "max_configs": MAX_CONFIGS,
@@ -360,17 +366,11 @@ def _offline_model_folder():
 
 
 def _run_file_case(stage, cfg, case, use_gpu, folder=None):
-    if stage != "transcription" or cfg.get("model") != benchmark.LOCAL_FOLDER_MODEL:
-        return _run_case_file(stage, cfg, case, use_gpu)
-    if not folder:
+    if stage != "transcription":
+        return _run_ocr(cfg, case)
+    if cfg.get("model") == benchmark.LOCAL_FOLDER_MODEL and not folder:
         return {"output_text": "", "error": _NO_MODEL_FOLDER, "duration_seconds": 0.0}
-    if not case.get("input_filename"):
-        return {"output_text": "", "error": "This case has no input file.", "duration_seconds": 0.0}
-    prepared = dict(case, input_path=os.path.join(db.BENCHMARK_DIR, case["input_filename"]))
-    r = benchmark.run_transcription_case(prepared, whisper_size=benchmark.LOCAL_FOLDER_MODEL,
-                                         use_gpu=use_gpu, local_model_path=folder)
-    r["error"] = redact(r.get("error"))
-    return r
+    return _run_transcription(cfg, case, use_gpu, folder, lambda: background_jobs.is_cancel_requested(JOB_ID))
 
 
 def check_config(stage: str, cfg) -> dict:
@@ -379,6 +379,8 @@ def check_config(stage: str, cfg) -> dict:
     engine, model = cfg.get("engine"), cfg.get("model")
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be text.")
+    if cfg.get("options") and stage != "transcription":
+        raise InvalidInputError("Transcription options apply to transcription runs only.")
     if stage == "translation":
         entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
         if entry is None:
@@ -395,14 +397,16 @@ def check_config(stage: str, cfg) -> dict:
                 raise InvalidInputError("That model isn't offered for this engine.")
         return {"engine": engine, "model": model}
     if stage == "transcription":
-        import core
+        options = transcribe_options_service.resolve_lab_options(cfg.get("options"))
+        if engine in LAB_BACKENDS:
+            return {"engine": engine, "model": None, "options": options}
         size = model or engine
         if size == benchmark.LOCAL_FOLDER_MODEL:
             if not _offline_model_folder():
                 raise InvalidInputError(_NO_MODEL_FOLDER)
         elif size not in whisper_models.WHISPER_MODELS:
             raise InvalidInputError("Unknown Whisper size.")
-        return {"engine": "whisper", "model": size}
+        return {"engine": "whisper", "model": size, "options": options}
     if engine not in OCR_BACKENDS:
         raise InvalidInputError("Unknown OCR backend.")
     return {"engine": engine, "model": None}
@@ -418,13 +422,23 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
     if len(configs) > MAX_CONFIGS:
         raise InvalidInputError(f"At most {MAX_CONFIGS} engines at once.")
     checked = [check_config(stage, c) for c in configs]
-    keys = [(c["engine"], c["model"]) for c in checked]
+    # Two arms of one model are a real comparison when their options differ.
+    # An option the recogniser does not read cannot make two arms different.
+    keys = [(c["engine"], c["model"], json.dumps(
+        {k: v for k, v in (c.get("options") or {}).items() if k not in ignored_options(c["engine"])}, sort_keys=True))
+        for c in checked]
     if len(set(keys)) != len(keys):
         raise InvalidInputError("The same engine and model is picked twice.")
     cases = _select_cases(stage, tier, set_name, case_ids, scorable_only=True)
     if not cases:
         raise UnsupportedOperationError("No benchmark cases match that selection.")
-    require_whisper_fits_cases(stage, checked, cases)
+    if stage == "transcription":
+        for cfg in checked:
+            if cfg["engine"] in LAB_BACKENDS:
+                require_backend_fits_cases(cfg["engine"], cases)
+                require_backend_ready(cfg["engine"], cases, cfg["options"]["refine_timing"])
+            else:
+                require_whisper_fits_cases(stage, [cfg], cases)
     return checked, cases
 
 
@@ -499,18 +513,28 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     if job_launch.exclusive_active() or job_launch.maintenance_active():
         raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
     use_gpu = settings_service.get("use_gpu") if use_gpu is None else bool(use_gpu)
+    if stage == "transcription":
+        require_separation_ready(checked, use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
     case_filter = json.dumps({"tier": tier, "set_name": set_name,
                               "case_ids": sorted(case_ids) if case_ids else None})
-    context = {"use_gpu": use_gpu} if stage != "translation" else {}
+    base_context = {"use_gpu": use_gpu} if stage != "translation" else {}
     if stage == "transcription":
         # Runs without this key were scored on punctuation and width.
-        context["text_normaliser"] = 2
+        base_context["text_normaliser"] = 2
     if stage != "translation" and any(c.get("source_language") == "zh" for c in cases):
         # Runs without this key were scored script-sensitively.
-        context["script_normaliser"] = script_normaliser(stage)
+        base_context["script_normaliser"] = script_normaliser(stage)
+    version = app_version()
     session_ids = []
     for cfg in checked:
+        context = {**base_context, "app_version": version, "model_identity": model_identity(stage, cfg)}
+        if stage == "transcription":
+            context["transcribe_options"] = cfg["options"]
+            # What the arm changed from the app's defaults: what tells two arms of one model apart in a list.
+            defaults = transcribe_options_service.lab_option_defaults()
+            context["transcribe_changes"] = {k: v for k, v in cfg["options"].items() if v != defaults[k]}
+            context["transcribe_options_ignored"] = ignored_options(cfg["engine"])
         session_ids.append(db.create_benchmark_session({
             "label": label, "stage": stage, "engine": cfg["engine"], "model": (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL
                       else cfg["model"])
@@ -562,6 +586,10 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
             from services import benchmark_judge_service
             benchmark_judge_service.run_pass(job_id, plan, judge)
     finally:
+        if stage == "transcription":
+            # This job runs in the API process: Qwen3-ASR, anime-whisper and the aligner would
+            # otherwise stay on the GPU and break the next title's run.
+            whisper_models.release_gpu_models()
         # A crash mid-run must not leave a run looking "running" forever.
         for sid, _cfg, _key in plan:
             s = db.get_benchmark_session(sid)
@@ -649,6 +677,10 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                     break
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu, folder)
+                if background_jobs.is_cancel_requested(job_id):
+                    # The interrupted case would be saved as an engine error.
+                    status = "cancelled"
+                    break
             score, metric, scorer = score_output(stage, r.get("output_text") or "",
                                                  case.get("reference_text"),
                                                  case.get("source_language"))

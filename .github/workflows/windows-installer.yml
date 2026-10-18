@@ -156,6 +156,8 @@ jobs:
             if (Test-Path (Join-Path $app $bad)) { Write-Error "$bad must not be installed"; exit 1 }
           }
           if (-not (Test-Path (Join-Path $app "app\frontend\dist\index.html"))) { Write-Error "frontend\dist missing"; exit 1 }
+          # Kept for an offline restore after a failed Diagnostics install.
+          if (-not (Test-Path (Join-Path $app "wheels\wheels.lock.txt"))) { Write-Error "the core wheels weren't kept"; exit 1 }
 
       - name: Smoke test -- start the installed app
         shell: pwsh
@@ -224,7 +226,7 @@ jobs:
           if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
           # unins000.exe hands off to a temp copy and returns at once; wait for it.
           for ($i = 0; $i -lt 120 -and (Test-Path "$env:APP_DIR\unins000.exe"); $i++) { Start-Sleep -Seconds 1 }
-          foreach ($gone in @("unins000.exe", "python", "app")) {
+          foreach ($gone in @("unins000.exe", "python", "app", "wheels")) {
             if (Test-Path (Join-Path $env:APP_DIR $gone)) { Write-Error "$gone is still there after uninstall"; exit 1 }
           }
           if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "uninstall removed the library"; exit 1 }
@@ -260,6 +262,21 @@ jobs:
           New-Item -ItemType Directory -Force -Path $ownTemp, $otherTemp | Out-Null
           $sentinel = Join-Path $env:RUNNER_TEMP "sentinel.txt"
           Set-Content -Path $sentinel -Value "keep"
+          # Links into a folder outside everything Baihe deletes: nested in the
+          # library, in the bundled Python and in its temp folder, and as a whole
+          # folder it deletes by name (app-update). Each goes as a link only.
+          $outside = Join-Path $env:RUNNER_TEMP "link-target"
+          New-Item -ItemType Directory -Force -Path $outside | Out-Null
+          foreach ($f in @("keep.txt", "sub\keep.txt")) {
+            New-Item -ItemType Directory -Force -Path (Split-Path (Join-Path $outside $f)) | Out-Null
+            Set-Content -Path (Join-Path $outside $f) -Value "keep"
+          }
+          New-Item -ItemType Directory -Force -Path "$data2\library\nested" | Out-Null
+          $links = @{ Junction = @("$data2\library\nested\junction", "$app2\python\Lib\site-packages\junction", "$ownTemp\junction", "$app2\app-update");
+                      SymbolicLink = @("$data2\library\symlink") }
+          foreach ($type in $links.Keys) {
+            foreach ($link in $links[$type]) { New-Item -ItemType $type -Path $link -Target $outside | Out-Null }
+          }
           $p = Start-Process -FilePath "$app2\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLEAN" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
           # The uninstaller runs from a temp copy after unins000.exe returns:
@@ -270,6 +287,9 @@ jobs:
           if (Test-Path $ownTemp) { Write-Error "Baihe's temp folder is still there"; exit 1 }
           if (-not (Test-Path $otherTemp)) { Write-Error "clean uninstall removed a temp folder that isn't Baihe's"; exit 1 }
           if (-not (Test-Path $sentinel)) { Write-Error "clean uninstall removed a file outside its folders"; exit 1 }
+          foreach ($f in @("keep.txt", "sub\keep.txt")) {
+            if (-not (Test-Path (Join-Path $outside $f))) { Write-Error "clean uninstall followed a link and deleted $f"; exit 1 }
+          }
           if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "clean uninstall touched the first install's data folder"; exit 1 }
           Write-Host "Clean uninstall removed everything Baihe made and nothing else."
 

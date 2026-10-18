@@ -152,6 +152,22 @@ def test_connect_to_a_private_address_is_refused(proxy, target):
     assert b"200" not in resp.split(b"\r\n")[0]
 
 
+def test_a_host_that_resolves_public_then_private_is_refused_at_connect(proxy, private_server, monkeypatch):
+    # DNS rebinding: the URL check sees a public answer, yt-dlp's own lookup
+    # through the proxy gets loopback. The proxy validates at connect time.
+    lookups = []
+
+    def rebinding(host, port, *a, **kw):
+        lookups.append(host)
+        ip = "93.184.216.34" if len(lookups) == 1 else "127.0.0.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port))]
+    monkeypatch.setattr(url_guard.socket, "getaddrinfo", rebinding)
+    assert url_guard.resolve_public("http://rebind.test/") == "93.184.216.34"
+    resp = _raw(proxy, f"CONNECT rebind.test:{private_server.port} HTTP/1.1\r\n\r\n".encode())
+    assert resp.split(b"\r\n")[0] in (b"HTTP/1.1 403 Forbidden", b"HTTP/1.1 502 Bad Gateway")
+    assert private_server.hits == []
+
+
 def test_connect_to_a_public_host_tunnels_to_the_validated_address(proxy):
     origin = _Server({"/t": (200, {}, b"tunnelled")})
     try:

@@ -41,7 +41,7 @@ Known limits and open decisions:
 
 ## Next
 - Owner checks owed for Qwen3-ASR on transformers 5.15+ (`qwen3_native.py`; anyone with `qwen-asr` installed must `pip uninstall qwen-asr`): a real-audio parity run and a run from a non-ASCII Windows data folder; see `docs/asr-experiments.md`.
-- Accuracy tuning: plan only (`docs/specs/accuracy-tuning-plan.md`). Owner clip-set import first (A1), then transcription A2-A5 and translation T1-T4.
+- Accuracy tuning (`docs/specs/accuracy-tuning-plan.md`): A1 (clip import), A2 (Lab transcription at real settings, Qwen3-ASR and anime-whisper as Lab models), A3 (line timing scores, Lab timing settings, timing verdict) and A5 (references from corrections) are built; A4 and translation T1-T4 are not started.
 - Jobs rewrite Phase 1: the parts after PR A (#1058, merged); `docs/background-jobs.md` describes today's behaviour.
 - Remote access, steps 133-140: left is the owner's LAN test with a real certificate and the router port last (140); WP5 network steps (port 443, DDNS, the firewall rule `enable-remote` prints, Google client values and `BAIHE_PUBLIC_URL` in `.env`).
 - Step 141: spec only (`docs/specs/step-141-pc-shell-and-connect.md`) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.

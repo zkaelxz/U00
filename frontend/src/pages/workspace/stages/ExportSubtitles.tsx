@@ -148,7 +148,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       )}
       <Section
         title="Advanced"
-        summary={`${form.includeNotes ? 'with notes' : 'no notes'} · ${wrapSummary(form.wrapEn, form.wrapSource)} · ${exportFilename(form.baseName, dramaId, form.field, fmt)}`}
+        summary={`${form.includeNotes ? 'with notes' : 'no notes'} · ${wrapSummary(form.wrapEn, form.wrapSource)} · ${form.baseName.trim() ? exportFilename(form.baseName, dramaId, form.field, fmt) : `named from title and episode.${fmt}`}`}
       >
         <div className="export-form">
           <Field label="Wrap English" unit="chars" help="Break English lines longer than this. Blank means no wrapping.">

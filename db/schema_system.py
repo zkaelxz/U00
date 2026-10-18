@@ -209,6 +209,7 @@ def _init_benchmark_lab_schema():
             output_text TEXT,
             score REAL,
             metric TEXT,             -- 'similarity', 'cer', 'wer'
+            timing TEXT,             -- JSON of asr_timing_service.case_timing; NULL without reference times
             scorer TEXT,             -- 'jiwer', 'builtin'; NULL on rows from before it was recorded
             passed INTEGER,
             duration_seconds REAL,
@@ -261,7 +262,8 @@ def _init_benchmark_lab_schema():
                              ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER"),
                              ("title", "TEXT"), ("tags", "TEXT"), ("scene_order", "INTEGER"),
                              ("clip_key", "TEXT"), ("excluded", "INTEGER DEFAULT 0"),
-                             ("ref_version", "INTEGER DEFAULT 1")):
+                             ("ref_version", "INTEGER DEFAULT 1"),
+                             ("ref_start", "REAL"), ("ref_end", "REAL")):
             if col not in cols:
                 db._safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
         result_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_results)").fetchall()}
@@ -269,4 +271,6 @@ def _init_benchmark_lab_schema():
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN scorer TEXT")
         if "ref_version" not in result_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN ref_version INTEGER")
+        if "timing" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN timing TEXT")
         conn.commit()

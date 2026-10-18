@@ -432,6 +432,8 @@ dd { margin: 0; }
   background: var(--surface);
 }
 .error-banner { border-color: var(--bad); color: var(--bad); }
+/* A long message must not squeeze Dismiss into a one-letter column. */
+.error-banner > button.link { flex-shrink: 0; white-space: nowrap; align-self: flex-start; }
 .remote-health-banner { margin: var(--space-3) var(--space-4) 0; align-items: center; flex-wrap: wrap; }
 .remote-health-banner.warn { border-color: var(--warn); background: var(--warn-soft); }
 .remote-health-banner.critical { border-color: var(--bad); background: var(--bad-soft); }

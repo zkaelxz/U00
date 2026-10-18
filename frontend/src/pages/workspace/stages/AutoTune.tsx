@@ -38,6 +38,8 @@ interface Props {
 }
 
 const BEST = 'Fewest long lines'
+const BEST_BY_CER = 'Fewest wrong'
+const percent = (rate: number) => `${(rate * 100).toFixed(1)}%`
 
 // Transcribe → Advanced → "Auto-tune min silence": transcribes the audio once
 // per candidate and scores how many long lines each gives (local ASR only).
@@ -71,6 +73,7 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
   const blocker = active ? null : autotuneBlocker(hasAudio, busy)
   const results = status?.status === 'done' ? status.results ?? [] : []
   const best = status?.best_candidate_ms ?? null
+  const byCer = status?.scored_by === 'cer'
 
   const start = () => {
     setStarting(true)
@@ -163,14 +166,25 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
           </p>
         )}
         {status?.status === 'cancelled' && <p className="muted">Auto-tune was cancelled.</p>}
+        {results.length > 0 && byCer && (
+          <p className="muted" data-testid="autotune-scored-by">
+            Best is the fewest wrong characters against the {status?.reference_lines} {status?.reference_lines === 1 ? 'line' : 'lines'} you corrected.
+          </p>
+        )}
+        {results.length > 0 && !byCer && !!status?.reference_lines && (
+          <p className="muted" data-testid="autotune-too-few">
+            {status.reference_lines} corrected {status.reference_lines === 1 ? 'line' : 'lines'}, need {status.reference_minimum}.
+          </p>
+        )}
         {results.length > 0 &&
           (isPhone ? (
             <ul className="autotune-cards" data-testid="autotune-results">
               {results.map((r) => (
                 <li key={r.candidate_ms}>
                   <strong>{r.candidate_ms} ms</strong>
-                  {r.candidate_ms === best && <>{' '}<span className="badge ok">{BEST}</span></>}
+                  {r.candidate_ms === best && <>{' '}<span className="badge ok">{byCer ? BEST_BY_CER : BEST}</span></>}
                   <div className="muted">
+                    {byCer && r.cer != null && <>{percent(r.cer)} wrong · </>}
                     {r.long_lines} long lines · {r.total_lines} lines
                   </div>
                   <div className="autotune-card-action">{applyButton(r)}</div>
@@ -183,6 +197,7 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
                 <thead>
                   <tr>
                     <th>Min silence</th>
+                    {byCer && <th>Wrong text</th>}
                     <th>Long lines</th>
                     <th>Total lines</th>
                     <th />
@@ -193,8 +208,9 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
                     <tr key={r.candidate_ms}>
                       <td>
                         {r.candidate_ms} ms
-                        {r.candidate_ms === best && <>{' '}<span className="badge ok">{BEST}</span></>}
+                        {r.candidate_ms === best && <>{' '}<span className="badge ok">{byCer ? BEST_BY_CER : BEST}</span></>}
                       </td>
+                      {byCer && <td className="num">{r.cer == null ? '' : percent(r.cer)}</td>}
                       <td>{r.long_lines}</td>
                       <td>{r.total_lines}</td>
                       <td>{applyButton(r)}</td>
