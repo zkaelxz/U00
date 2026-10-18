@@ -59,7 +59,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
   },
   {
     id: 'system',
-    label: 'System',
+    label: 'Performance and advanced',
     cards: [
       { id: 'performance' },
       { id: 'advanced' },

@@ -36,7 +36,7 @@ describe('settings tabs', () => {
       'Notifications and backups',
       'Sharing and devices',
       'Integrations',
-      'System',
+      'Performance and advanced',
     ])
     expect(tabOfCard('notifications')).toBe('notifications')
     expect(tabOfCard('spend-history')).toBe('costs')

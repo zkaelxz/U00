@@ -7,7 +7,7 @@ export type SettingsTabName =
   | 'Notifications and backups'
   | 'Sharing and devices'
   | 'Integrations'
-  | 'System'
+  | 'Performance and advanced'
 
 // Settings shows one tab at a time (the choice is remembered per browser); a spec for a card opens the tab that holds it.
 // It also presses Expand all, so a spec can use any card of the tab however the tab starts; the starting

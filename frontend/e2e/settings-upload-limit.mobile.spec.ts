@@ -7,7 +7,7 @@ import { openSettingsGroups } from './settingsNav'
 test('upload limit block fits a phone', async ({ page }) => {
   const { unmocked } = await mockUploadSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const s = page.locator('details.section:has(> summary > .section-title:text-is("Uploads"))')
   await s.locator('summary').click()
   await expect(s).toHaveAttribute('open', '')

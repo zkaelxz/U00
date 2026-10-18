@@ -7,7 +7,7 @@ import { mockTimingSettings } from './timingSettingsMocks'
 test('the timing card fits a phone', async ({ page }) => {
   const { unmocked } = await mockTimingSettings(page, { developerMode: true })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const card = page.getByRole('region', { name: 'Timing and splitting' })
   await expect(card).toBeVisible()
   const longest = card.getByLabel('Longest line (time)', { exact: true })

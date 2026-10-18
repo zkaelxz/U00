@@ -7,7 +7,7 @@ import { mockTimingSettings } from './timingSettingsMocks'
 
 async function openCard(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'System')
+  await openSettingsGroups(page, 'Performance and advanced')
   const card = page.getByRole('region', { name: 'Timing and splitting' })
   await expect(card).toBeVisible()
   return card
