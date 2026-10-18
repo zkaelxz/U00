@@ -198,8 +198,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
         </a>
       )}
       </div>
-      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
       </div>
+      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
       {phone && active !== 'review' && actions}
       {drama ? (
         <ErrorBanner error={error} />

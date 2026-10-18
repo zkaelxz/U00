@@ -154,7 +154,7 @@ export function FollowedChannels({ liveOptions }: Props) {
           <div className="actions">
             <button type="submit" className={buttonClass('secondary')} disabled={!!addReason}
               aria-describedby={addReasonShown ? 'live-follow-add-reason' : undefined}
-              title={addReason ? undefined : 'Follow this channel for live streams.'}>
+              title={addReasonShown ? undefined : addReason ?? 'Follow this channel for live streams.'}>
               {busy === 'add' ? 'Following…' : 'Follow'}
             </button>
             <button type="button" className={buttonClass('ghost')} disabled={!!checkAllReason}
