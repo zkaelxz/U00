@@ -333,8 +333,8 @@ def _require_offered_model(engine_name: str, model) -> None:
 
 
 def start_translate_run(drama_id: int, engine_name: str = None, model: str = None,
-                        style_preset: str = None, style_note: str = "",
-                        locale: str = "en-US", force_retranslate: bool = False,
+                        style_preset: str = None, style_note: str = None,
+                        locale: str = None, force_retranslate: bool = False,
                         context_window: int = None, context_window_ahead: int = None,
                         batch_size: int = None, line_ids: list = None,
                         gemini_free_tier: bool = None, job_cost_cap_usd: float = None,
@@ -394,12 +394,25 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     is_novel = drama.get("content_mode") == "novel_narration"
-    style_preset = style_preset or ("novel" if is_novel else "audio_drama")
+    title_engine = (drama.get("translation_engine")
+                    or engine_routing_service.resolve_capability("translation.cheap"))
+    # A value the caller left out is the title's last run's, then the default.
+    last = profile_service.title_run_defaults(drama, engine_name, title_engine)
+    style_preset = style_preset or last.get("style_preset") or ("novel" if is_novel else "audio_drama")
+    style_note = last.get("style_note", "") if style_note is None else style_note
+    locale = locale or last.get("locale") or "en-US"
+    chosen_batch_size = batch_size if batch_size is not None else last.get("batch_size")
+    if model is None and "model" in last:
+        try:
+            _require_offered_model(engine_name, last["model"])
+            model = last["model"]
+        except InvalidInputError:
+            pass    # no longer offered: the engine's default
     defaults = get_translate_config_defaults(is_novel, engine_name, model)
-    context_window = defaults["context_window"] if context_window is None else context_window
-    context_window_ahead = (defaults["context_window_ahead"]
+    context_window = last.get("context_window", defaults["context_window"]) if context_window is None else context_window
+    context_window_ahead = (last.get("context_window_ahead", defaults["context_window_ahead"])
                             if context_window_ahead is None else context_window_ahead)
-    batch_size = defaults["batch_size"] if batch_size is None else batch_size
+    batch_size = defaults["batch_size"] if chosen_batch_size is None else chosen_batch_size
     validate_run_options(
         engine_name, model, locale=locale, style_preset=style_preset,
         context_window=context_window, context_window_ahead=context_window_ahead,
@@ -514,6 +527,13 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         style_note, resp, locale=locale, style_preset=style_preset, context_window=context_window,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         force_retranslate=force_retranslate, thinking=thinking, own_lines_only=own_lines_only)
+    def remember_run():
+        profile_service.remember_run(
+            drama_id, drama, on_title_engine=engine_name == title_engine, model=model,
+            style_preset=style_preset, style_note=style_note, locale=locale,
+            batch_size=chosen_batch_size, context_window=context_window,
+            context_window_ahead=context_window_ahead)
+
     if bulk:
         submit = bulk_submit_service.bulk_submitter(drama_id, drama, engines[0], engine_name, reflect,
                                  novel_reference, glossary_terms, style_guidelines,
@@ -528,6 +548,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         if not started:
             raise ConflictError("A translation is already running for this title.")
         save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
+        remember_run()
         return {**resp, "fallback_engines": []}
 
     # Imported here: it needs this module for the drama lookup and Ollama probe.
@@ -553,6 +574,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     if not started:
         raise ConflictError("A translation is already running for this title.")
     save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
+    remember_run()
     if target_ids is not None:
         # expected_en may have dropped some of the caller's ids.
         resp["line_ids"] = sorted(ln.id for ln in eligible)

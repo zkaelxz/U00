@@ -127,6 +127,8 @@ export interface ProfileField {
 // preset columns (services/profile_service.py). Never a language, locale or glossary.
 export interface ProfileOptions {
   style_note?: string
+  // Left by a run, never by a profile.
+  locale?: string
   batch_size?: number
   context_window?: number
   context_window_ahead?: number

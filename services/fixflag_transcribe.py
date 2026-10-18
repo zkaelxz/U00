@@ -19,7 +19,7 @@ import whisper_transcribe
 import db
 import sensitivity_preset as presets
 import source_change
-from services import gpu_process_job, retranscribe_worker, timing_settings_service
+from services import gpu_process_job, retranscribe_worker, timing_settings_service, transcribe_options_service
 from services import transcribe_service as ts
 from translate_engines import redact_secrets
 
@@ -41,17 +41,18 @@ def save_fixed(drama_id, lines) -> dict:
 
 
 def hearing_settings(drama_id, drama, whisper_size, source_language, use_gpu) -> dict:
+    row = transcribe_options_service.rehear_row(drama)
     return {
         "model_size": whisper_size, "language": source_language, "use_gpu": use_gpu,
         "initial_prompt": ts._resolve_initial_prompt(drama_id, "", ""),
         "beam_size": drama.get("beam_size") or ts._DEFAULT_TUNING["beam_size"],
         "min_silence_duration_ms": drama.get("min_silence_ms")
         or ts._DEFAULT_TUNING["min_silence_ms"],
-        "vad_threshold": timing_settings_service.vad_threshold_for(drama),
+        "vad_threshold": timing_settings_service.vad_threshold_for(row),
         "fast_mode": bool(drama.get("whisper_fast_mode")),
         "hallucination_silence_sec": ts.stored_hallucination_silence_sec(drama),
         "repeat_guard": bool(drama.get("whisper_repeat_guard")),
-        "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset"))}
+        "sensitivity_preset": presets.normalize(row.get("sensitivity_preset"))}
 
 
 def hear_flagged_worker(audio_path, windows, settings, scratch_dir, result_queue):

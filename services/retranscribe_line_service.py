@@ -21,7 +21,8 @@ from services import (
     transcribe_pipeline,
 )
 from services.transcribe_options_service import (
-    _DEFAULT_TUNING, ensure_no_active_jobs, require_audio_pipeline, stored_hallucination_silence_sec,
+    _DEFAULT_TUNING, ensure_no_active_jobs, rehear_audio_path, rehear_row, require_audio_pipeline,
+    stored_hallucination_silence_sec,
     stored_whisper_size)
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt
 from services.retranscribe_worker import (
@@ -84,6 +85,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     if not float(line.end) > float(line.start):
         raise UnsupportedOperationError("This line has no timing window to re-transcribe.")
     prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
+    heard_row = rehear_row(drama)
     ensure_no_active_jobs(drama_id, _RETRANSCRIBE_BLOCKING_PREFIXES,
                           "Another job is changing this title's lines. Try again when it finishes.")
     job_id = retranscribe_line_job_id(drama_id)
@@ -94,15 +96,15 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     try:
         started = job_launch.start_process_job(
             job_id, _retranscribe_worker,
-            args=(audio_path, float(line.start), float(line.end),
+            args=(rehear_audio_path(drama, audio_path), float(line.start), float(line.end),
                   line.lang or drama.get("source_language") or "zh",
                   stored_whisper_size(drama),
                   drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
                   drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-                  timing_settings_service.vad_threshold_for(drama), settings_service.get("use_gpu"), prompt,
+                  timing_settings_service.vad_threshold_for(heard_row), settings_service.get("use_gpu"), prompt,
                   stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
-                  presets.normalize(drama.get("sensitivity_preset")),
+                  presets.normalize(heard_row.get("sensitivity_preset")),
                   transcribe_pipeline._model_loading_message(stored_whisper_size(drama), whisper_models.is_whisper_model_cached(
                       stored_whisper_size(drama))),
                   _retranscribe_timeout_s(window), scratch_dir),

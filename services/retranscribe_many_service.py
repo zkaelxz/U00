@@ -83,18 +83,19 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
     bases = {ln.id: {"zh": ln.zh or "", "en": ln.en or "", "start": float(ln.start),
                      "end": float(ln.end), "number": ln.idx + 1} for ln in picked}
     size = transcribe_options_service.stored_whisper_size(drama)
+    heard_row = transcribe_options_service.rehear_row(drama)
     tuning = transcribe_options_service._DEFAULT_TUNING
     scratch_dir = storage.new_workdir(job_id)
     try:
         started = job_launch.start_process_job(
             job_id, retranscribe_many_worker,
-            args=(audio_path, windows, size,
+            args=(transcribe_options_service.rehear_audio_path(drama, audio_path), windows, size,
                   drama.get("beam_size") or tuning["beam_size"],
                   drama.get("min_silence_ms") or tuning["min_silence_ms"],
-                  timing_settings_service.vad_threshold_for(drama), settings_service.get("use_gpu"), prompt,
+                  timing_settings_service.vad_threshold_for(heard_row), settings_service.get("use_gpu"), prompt,
                   transcribe_options_service.stored_hallucination_silence_sec(drama),
                   bool(drama.get("whisper_repeat_guard")),
-                  presets.normalize(drama.get("sensitivity_preset")),
+                  presets.normalize(heard_row.get("sensitivity_preset")),
                   transcribe_pipeline._model_loading_message(
                       size, whisper_models.is_whisper_model_cached(size)),
                   retranscribe_timeout_s(sum(w[2] - w[1] for w in windows), len(windows)), scratch_dir),

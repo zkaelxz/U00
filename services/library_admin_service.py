@@ -308,6 +308,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     False (no engines.paid) likewise skips a cloud episode-summary engine.
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     ids = _check_ids(drama_ids)
+    locale_is_explicit = default_locale is not None
     if default_locale is None:
         default_locale = settings_service.get("default_locale")
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
@@ -340,7 +341,8 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         models={}, monthly_cap=cap, expected_engines=expected_engines,
         allow_paid_summary=allow_paid_summary,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns, principal=principal)
+        default_female_pronouns=default_female_pronouns, principal=principal,
+        locale_is_explicit=locale_is_explicit)
     if not started:
         raise ConflictError("A bulk translation is already running.")
     for did in queued:
