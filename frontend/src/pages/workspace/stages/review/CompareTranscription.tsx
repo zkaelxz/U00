@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { EngineGateNote } from '../EngineGateNote'
+import { useEngineGate, useTitleEngines } from '../useEngineGate'
 import { ApiError } from '../../../../api/client'
 import { cancelJob, probeJob } from '../../../../api/jobs'
 import { useCancelsAnyJob } from '../../../../hooks/useSession'
@@ -110,6 +112,9 @@ export function CompareTranscription({
   const [size, setSize] = useState('')
   const [backend, setBackend] = useState('')
   const [translate, setTranslate] = useState(draft.translate ?? false)
+  const titleEngines = useTitleEngines(dramaId)
+  // Only matters while "Also translate" is on: the heard text is then sent to the title's translation engine.
+  const translateGate = useEngineGate(titleEngines.engines, options?.translation_engine ?? titleEngines.translationEngine)
   const [retranslate, setRetranslate] = useState(draft.retranslate ?? false)
   const [extraNames, setExtraNames] = useState(() => draft.extraNames ?? transcribeExtraNames(dramaId))
   const [hint, setHint] = useState(draft.hint ?? '')
@@ -417,6 +422,7 @@ export function CompareTranscription({
         <Field label="Also translate" help={`Translates the heard text with this title’s translation settings (${options.translation_engine}) so you can compare the English. It counts toward the monthly and job spending caps.`}>
           <Toggle checked={translate} onChange={setTranslate} disabled={busy} />
         </Field>
+        {translate && <EngineGateNote gate={translateGate} />}
         {translate && (
           <Field label="Retranslate current text" help="Lines that already have English keep it unless this is on.">
             <Toggle checked={retranslate} onChange={setRetranslate} disabled={busy} />
@@ -431,7 +437,7 @@ export function CompareTranscription({
           </p>
         )}
         <div className="review-actions">
-          <button type="button" onClick={start} disabled={busy || applying || !!blockedMessage || !chosenBackend?.available}>
+          <button type="button" onClick={start} disabled={busy || applying || !!blockedMessage || !chosenBackend?.available || (translate && translateGate !== null)}>
             {busy ? 'Comparing…' : 'Compare'}
           </button>
           {active && job && offersCancel(job, anyJob) && (

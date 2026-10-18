@@ -124,6 +124,24 @@ def raw_to_edited_cer(references: list) -> float:
     return round(edits / total, 4) if total else None
 
 
+def spoken_lines(drama_id: int, drama: dict) -> list:
+    """Every spoken, unflagged line of a title as a reference whose text is the line as it now
+    reads, edited or not. For a title whose timing was fixed in Review without the text changing:
+    its lines are references because the owner checked them, not because the text differs from
+    the raw transcript. A line nobody reviewed still holds the recogniser's own output, so a
+    recogniser is then partly graded against its past self: use this for reviewed titles."""
+    drama_lang = _drama_language(drama)
+    out = []
+    for row in db.load_lines(drama_id):
+        text = (row.get("zh") or "").strip()
+        if row.get("sfx") or row.get("flag") or not text:
+            continue
+        lang = row.get("lang") if row.get("lang") in SOURCE_LANGUAGES else drama_lang
+        out.append({"id": row["id"], "idx": row["idx"], "start": row["start"], "end": row["end"],
+                    "language": lang, "raw": None, "edited": text})
+    return out
+
+
 def title_stats(principal, drama_id: int) -> dict:
     """What the Lab shows for a title: how many lines were corrected and how far
     the raw transcript was from them."""
@@ -187,44 +205,51 @@ def _cut_clip(source: str, start: float, end: float, what: str = "a line") -> st
     return name
 
 
-def add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool = False) -> dict:
+def add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool = False,
+                    include_all: bool = False) -> dict:
     """See _add_title_lines. One add per set at a time, so a double click cannot
     read "not yet in the set" twice and duplicate the cases."""
     if dry_run:
-        return _add_title_lines(principal, drama_id, set_name, dry_run)
+        return _add_title_lines(principal, drama_id, set_name, dry_run, include_all)
     with _adding_lock:
         if set_name in _adding_sets:
             raise ConflictError(f"Lines are already being added to '{set_name}'. Wait for that to finish.")
         _adding_sets.add(set_name)
     try:
-        return _add_title_lines(principal, drama_id, set_name, dry_run)
+        return _add_title_lines(principal, drama_id, set_name, dry_run, include_all)
     finally:
         with _adding_lock:
             _adding_sets.discard(set_name)
 
 
-def _add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool) -> dict:
+def _add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool, include_all: bool) -> dict:
     """Adds a transcription case for each corrected line of a title to a set:
     the line's audio, clipped, scored against the edited text. ref_start and
-    ref_end are the line's edges in seconds from the clip's start, for scoring
-    line timing later; they are the title's current timing, so time the title in
+    ref_end are the line's edges in seconds from the clip's start, for the Lab's
+    line timing scores; they are the title's current timing, so time the title in
     Review first. A line already in the set is skipped, so adding twice adds
-    nothing; unedited lines are never added."""
+    nothing. Unedited lines are skipped unless `include_all`: then every spoken line of the
+    title is added with its current text as the reference."""
     set_name = lab._clean_text(set_name, "set_name", max_len=lab.MAX_SET_NAME_CHARS)
     ownership_service.require_visible(principal, "drama", drama_id)
     drama = db.get_drama(drama_id)
     if not drama:
         raise NotFoundError(f"Drama {drama_id} not found.")
-    found = reference_lines(drama_id, drama)
-    if not found["raw_available"]:
-        raise InvalidInputError("This title has no original transcription to compare with.")
-    candidates = [r for r in found["lines"]
-                  if MIN_LINE_SECONDS <= r["end"] - r["start"] <= MAX_LINE_SECONDS]
-    too_long = len(found["lines"]) - len(candidates)
+    if include_all:
+        wanted = spoken_lines(drama_id, drama)
+        found = {"lines": wanted, "usable_lines": len(wanted)}
+    else:
+        found = reference_lines(drama_id, drama)
+        if not found["raw_available"]:
+            raise InvalidInputError("This title has no original transcription to compare with.")
+        wanted = found["lines"]
+    candidates = [r for r in wanted if MIN_LINE_SECONDS <= r["end"] - r["start"] <= MAX_LINE_SECONDS]
+    too_long = len(wanted) - len(candidates)
     if not candidates:
         raise InvalidInputError(
+            "This title has no spoken lines to add." if include_all else
             "No corrected lines to add. Edit a line's text in Review first."
-            if not found["lines"] else "The corrected lines are too short or too long for a clip.")
+            if not wanted else "The corrected lines are too short or too long for a clip.")
     existing = [c for c in db.list_benchmark_cases("transcription") if c.get("set_name") == set_name]
     already = {c.get("origin_line_id") for c in existing
                if c.get("origin_drama_id") == drama_id and c.get("origin_line_id") is not None}
@@ -235,7 +260,8 @@ def _add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool) -> 
             f"Set '{set_name}' has {len(existing)} cases and this adds {len(fresh)}; a set holds "
             f"at most {lab.MAX_IMPORT_CASES} cases in total. Use a new set name or delete cases.")
     result = {"set_name": set_name, "lines_compared": found["usable_lines"],
-              "lines_corrected": len(found["lines"]), "unedited_skipped": found["usable_lines"] - len(found["lines"]),
+              "lines_corrected": len(wanted), "include_all": include_all,
+              "unedited_skipped": 0 if include_all else found["usable_lines"] - len(found["lines"]),
               "unclippable_skipped": too_long, "case_count": len(fresh),
               "remaining": len(pending) - len(fresh), "added": 0, "skipped": len(candidates) - len(pending), "dry_run": dry_run}
     if dry_run or not fresh:

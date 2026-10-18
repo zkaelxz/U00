@@ -28,10 +28,10 @@ export async function mockRetime(page: Page, { hold = false } = {}): Promise<Ret
   let held = hold
   const seen: RetimeSeen = { runs: [], applies: [], release: () => { held = false } }
   const base = '**/api/transcribe/dramas/3/retime'
-  // The aligner's package is not installed on the e2e machine; the panel reads this to enable Start.
+  // The aligner's package is not installed and the seeded title has no audio on the e2e machine; the panel reads both to enable Start.
   await page.route('**/api/transcribe/dramas/3/compare-transcription/options', async (r) => {
     const resp = await r.fetch()
-    await r.fulfill({ response: resp, json: { ...(await resp.json()), aligner_reason: null } })
+    await r.fulfill({ response: resp, json: { ...(await resp.json()), aligner_reason: null, has_audio: true, no_audio_reason: null } })
   })
   // Like the server, no job and no result exist until a run has been started.
   let started = false

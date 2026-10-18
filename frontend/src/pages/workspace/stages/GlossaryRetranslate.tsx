@@ -8,6 +8,8 @@ import { buttonClass } from '../../../components/uiClasses'
 import { lineNumber } from '../../../lineNumber'
 import type { GlossaryAffectedPreview } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
+import { EngineGateNote } from './EngineGateNote'
+import { useEngineGate, useTitleEngines } from './useEngineGate'
 import type { RunForm } from '../translateForm'
 import {
   affectedParams,
@@ -31,6 +33,8 @@ function isStalePreview(e: unknown): boolean {
 export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunForm; busy: boolean; onStarted: (jobId: string) => void; onClose: () => void }) {
   const { dramaId } = useStage()
   const ids = useId()
+  const titleEngines = useTitleEngines(dramaId)
+  const gate = useEngineGate(titleEngines.engines, f.engine || titleEngines.translationEngine)
   const [termIds, setTermIds] = useState<number[]>([])
   const [preview, setPreview] = useState<GlossaryAffectedPreview | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -212,9 +216,10 @@ export function GlossaryRetranslate({ f, busy, onStarted, onClose }: { f: RunFor
           {f.bulk && <p className="muted">Runs as a normal translation: Bulk can't take a list of lines.</p>}
         </>
       )}
+      <EngineGateNote gate={gate} />
       <div className="check-row">
         {preview && preview.lines.length > 0 && (
-          <button type="button" className="primary" disabled={busy || pending || loading || !chosen.length} onClick={start}>
+          <button type="button" className="primary" disabled={busy || pending || loading || !chosen.length || gate !== null} onClick={start}>
             Re-translate {chosen.length} line{chosen.length === 1 ? '' : 's'}
           </button>
         )}

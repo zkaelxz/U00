@@ -17,7 +17,7 @@ import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
-import { useSession } from '../hooks/useSession'
+import { canReadSettings, useSession } from '../hooks/useSession'
 import { useRoute } from '../router'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
@@ -126,15 +126,21 @@ export default function SettingsPage() {
     }
   }, [jumpTo])
 
+  const session = useSession()
+  const sessionPending = session.status === 'loading'
+  const readsSettings = canReadSettings(session)
   useEffect(() => {
-    // 403: not an admin. The admin cards stay hidden; Sharing below still shows.
+    // Not an admin here (a member, or an admin on the household address, which has no admin
+    // settings): the admin cards stay hidden and Sharing below still shows, so ask for nothing.
+    if (sessionPending || !readsSettings) return
+    // A 403 from an older server means the same.
     getSettings().then(setSettings, (e: unknown) => {
       if (!(e instanceof ApiError && e.status === 403)) setError(e)
     })
     fetchSettingsSchema().then(setSchema, (e: unknown) => {
       if (!(e instanceof ApiError && e.status === 403)) setError(e)
     })
-  }, [])
+  }, [sessionPending, readsSettings])
 
   async function toggle(key: SettingsToggleKey, value: boolean) {
     if (!settings) return

@@ -167,7 +167,7 @@ class TestRunRecordsWhatItRan:
         assert ctx["app_version"] == "0.1.0-test"
         assert ctx["model_identity"] == {"model": "large-v3"}
         assert ctx["text_normaliser"] == 2
-        assert ctx["transcribe_options_ignored"] == []
+        assert ctx["transcribe_options_ignored"] == ["refine_timing"]
         assert ctx["transcribe_changes"] == {"beam_size": 2}
 
     def test_each_arm_records_its_own_options(self, isolated_db, whisper_calls):
