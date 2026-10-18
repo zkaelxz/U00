@@ -1,4 +1,4 @@
-# Baihe Audio Drama Subtitler — Library Edition
+# Baihe Studio
 
 A local app for transcribing, translating, reviewing and exporting English subtitles for Chinese, Japanese and Korean audio dramas, video dramas, novels, comics and streamer VODs, with a library to keep dozens of titles organised.
 
