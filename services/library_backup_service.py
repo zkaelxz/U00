@@ -22,6 +22,7 @@ from jobs import job_launch
 import db
 import storage
 import subtitle_formats
+from lib import sqlite_check
 from core import Line, lines_to_bilingual_srt, lines_to_srt
 from services import export_service, keep_original_service, vdb_names_service
 from services import library_translated_guard
@@ -188,8 +189,28 @@ _BACKUP_FILES_SHARE = 0.95
 _BACKUP_PROGRESS_INTERVAL = 0.25
 
 
+def _sources_snapshot(dest: str, left_out):
+    """src_store.backup_snapshot, except that with a `left_out` list a
+    damaged sources.db gives None (noted in the list) instead of a copy:
+    one the snapshot copied page for page, or one that made the snapshot
+    itself fail (a damaged header, a damaged settings page). Any other
+    failure, a busy file included, still raises."""
+    if left_out is None:
+        return src_store.backup_snapshot(dest)
+    try:
+        snap = src_store.backup_snapshot(dest)
+    except OSError:
+        if not sqlite_check.damaged(src_store.db_path()):
+            raise
+    else:
+        if snap is None or not sqlite_check.damaged(snap):
+            return snap   # None: there is no sources.db yet
+    left_out.append("sources.db")
+    return None
+
+
 def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
-                     progress=None, should_cancel=None):
+                     progress=None, should_cancel=None, left_out=None):
     """Writes a backup zip to `dest`: sanitized library.db and sources.db snapshots and,
     with include_media, every other library file except the excluded
     top-level entries (backups/, sign-ins, source profiles, extension
@@ -201,7 +222,10 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
     between files; when true this raises background_jobs.JobCancelled (the
     caller removes the partial file). Returns the archive names of listed
     files that were gone by the time they were copied: one deleted mid-backup
-    (a job's temp files, a cleanup) is skipped, never a failed backup."""
+    (a job's temp files, a cleanup) is skipped, never a failed backup.
+    `left_out`, if given, is a list: a damaged sources.db snapshot is then
+    left out of the zip and "sources.db" appended to it, so the library.db
+    backup is still written (a restore refuses a damaged sources.db)."""
     library_dir = db.LIBRARY_DIR
     skip = {p + x for p in (db.DB_PATH, src_store.db_path()) for x in ("", "-wal", "-shm")}
     excluded = _backup_excluded_top_level()
@@ -215,7 +239,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
         _sanitized_snapshot(snap)
-        src_snap = src_store.backup_snapshot(os.path.join(snapdir, "sources.db"))
+        src_snap = _sources_snapshot(os.path.join(snapdir, "sources.db"), left_out)
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             if include_media:
                 if progress is not None:

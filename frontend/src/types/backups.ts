@@ -22,6 +22,8 @@ export interface AutoBackupSettings {
   last_run_at: string | null
   last_attempt_at: string | null
   last_error: string | null
+  // A note on the last successful run (a damaged sources.db left out).
+  last_note?: string | null
   next_run_at: string | null
   running: boolean
   // Every copy, newest first.
@@ -45,7 +47,8 @@ export interface SnapshotCopy {
   drama_count: number | null
   readable: boolean
   // Which rotation slot keeps it; null for a copy that can't be read.
-  kept_as: 'daily' | 'weekly' | null
+  // 'sources': kept because later copies left a damaged sources.db out.
+  kept_as: 'daily' | 'weekly' | 'sources' | null
   // Made by this library (or, in its own default folder, before copies were
   // tagged). Only managed copies are rotated or removed by "delete all";
   // the others (another library's in a shared folder, unreadable ones) stay
@@ -53,6 +56,8 @@ export interface SnapshotCopy {
   managed?: boolean
   // This library's copy number; the highest is the newest.
   sequence?: number | null
+  // sources.db was damaged when it was made, so the copy has none.
+  sources_left_out?: boolean
 }
 
 // One copy offered by a 409 "choose_copy" answer (details.candidates).
