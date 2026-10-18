@@ -2,13 +2,14 @@ import { expect, type Locator, type Page } from '@playwright/test'
 
 import { expectPickedTab, pickTab } from './tabPicker'
 
+// Tools shares the Transcribe tab and Credits the Details tab; each keeps its own panel, so a spec can still say which.
 export type MediaTabName = 'add' | 'transcribe' | 'tools' | 'details' | 'credits'
-export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Transcribe', tools: 'Tools', details: 'Details', credits: 'Credits' }
+export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Transcribe', tools: 'Transcribe', details: 'Details', credits: 'Details' }
 
 /** Opens a title's Media stage on one sub-tab through the deep link. */
 export async function gotoMedia(page: Page, tab: MediaTabName, id = 1) {
   await page.goto(`/#/drama/${id}/source?tab=${tab}`)
-  // A phone shows the five sections as a picker, not a tab row.
+  // A phone shows the sections as a picker, not a tab row.
   await expectPickedTab(page, 'Media sections', new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`))
 }
 
@@ -21,8 +22,7 @@ export const selectMediaTab = (page: Page, tab: MediaTabName) =>
   pickTab(page, new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`), 'Media sections')
 
 /** The visible body of one sub-tab. */
-export const mediaPanel = (page: Page, tab: MediaTabName) =>
-  page.getByRole('tabpanel', { name: new RegExp(`^${TAB_LABEL[tab]}( \\(unsaved changes\\))?$`) })
+export const mediaPanel = (page: Page, tab: MediaTabName) => page.locator(`#media-panel-${tab}`)
 
 /** Opens every fold in a sub-tab: their state is remembered, so a plain click could as well close one. */
 export async function openAllFolds(scope: Locator) {
