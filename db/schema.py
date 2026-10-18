@@ -441,9 +441,12 @@ def _create_reading_tables(conn):
     """)
 
 
-def _create_review_tables(conn):
-    conn.executescript("""
-
+# Nothing writes bug_reports any more (reports are files, see
+# services/bug_report_service.py), so new databases don't get the table. A
+# library that already has it keeps it: restore and copy code calls
+# ensure_legacy_bug_reports before carrying its rows into a database that
+# was built without it.
+LEGACY_BUG_REPORTS_DDL = """
         CREATE TABLE IF NOT EXISTS bug_reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             drama_id INTEGER NOT NULL,
@@ -460,7 +463,15 @@ def _create_review_tables(conn):
             reproduced INTEGER,       -- NULL until replayed; 1/0 after
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
-        );
+        )"""
+
+
+def ensure_legacy_bug_reports(conn):
+    conn.execute(LEGACY_BUG_REPORTS_DDL)
+
+
+def _create_review_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS wiki_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

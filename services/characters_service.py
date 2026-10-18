@@ -38,6 +38,7 @@ import secrets
 import time
 import unicodedata
 
+from lib import ids as lib_ids
 import db
 import dub
 import translation_guide as tguide
@@ -54,7 +55,7 @@ MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
 MAX_VOICE_DESIGN_LEN = 1000
 MAX_REF_TEXT_LEN = 5000
-MAX_ID = 2**31 - 1  # sqlite ints are 64-bit; anything larger is an OverflowError (500)
+MAX_ID = lib_ids.MAX_ID  # sqlite ints are 64-bit; anything larger is an OverflowError (500)
 MAX_SPEAKER_LABEL_LEN = 100  # only enforced where the label becomes a filename
 # C04: the first line and the middle one; each clipped so
 # the list payload stays bounded however long a line is.
@@ -63,10 +64,8 @@ MAX_SAMPLE_CHARS = 160
 
 
 def check_id(name: str, value):
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise InvalidInputError(f"{name} must be a whole number.")
-    if value < 1 or value > MAX_ID:
-        raise InvalidInputError(f"{name} is out of range.")
+    lib_ids.check_id(value, f"{name} must be a whole number.",
+                     range_message=f"{name} is out of range.")
 
 
 def require_drama(drama_id: int) -> dict:

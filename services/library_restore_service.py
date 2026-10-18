@@ -168,6 +168,8 @@ def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
             conn.execute("BEGIN")
             up_tables = set(_table_names(conn, "up"))
             cur_tables = set(_table_names(conn, "cur")) if live_path else set()
+            if "bug_reports" in up_tables:
+                db.ensure_legacy_bug_reports(conn)
             for t in _table_names(conn, "main"):
                 if t in live_tables:
                     if t in cur_tables:

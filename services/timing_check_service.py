@@ -275,12 +275,12 @@ def start_timing_check(drama_id: int, after_transcription: bool = False) -> dict
         # Any job that rewrites this title's lines or times; imported late
         # because these modules import this one.
         from services import retime_service, retranscribe_line_service
-        for prefix in (retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES
-                       + retime_service._BLOCKING_PREFIXES + ("retranscribe_", "retime_")):
-            other = background_jobs.get_status(f"{prefix}{drama_id}")
-            if other and other.get("status") in ("running", "queued"):
-                raise ConflictError("Another job is changing this title's lines. "
-                                    "Check the timing when it finishes.")
+        from services.transcribe_options_service import ensure_no_active_jobs
+        ensure_no_active_jobs(
+            drama_id,
+            retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES
+            + retime_service._BLOCKING_PREFIXES + ("retranscribe_", "retime_"),
+            "Another job is changing this title's lines. Check the timing when it finishes.")
     job_id = job_id_for(drama_id)
     conservative = (drama.get("content_mode") or "") == "streamer_vod"
     with _state_lock:

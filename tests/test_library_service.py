@@ -107,3 +107,45 @@ class TestCacheHitShare:
 
     def test_no_usage_is_zero_not_a_division_error(self):
         assert library_service.cache_hit_share({"input_tokens": 0, "cache_read_tokens": 0}) == 0.0
+
+
+class TestListSeriesWithDramas:
+    def _build(self, db, n_series):
+        for i in range(n_series):
+            sid = db.create_series(f"S{i}")
+            for j in range(2):
+                db.create_drama(title_en=f"S{i}-{j}", series_id=sid, episode_number=2 - j)
+            db.insert_series_character(sid, f"C{i}")
+            db.upsert_glossary_term(sid, f"term{i}", "T")
+            db.upsert_glossary_term(sid, f"other{i}", "T")
+
+    def _count_queries(self, db, monkeypatch):
+        seen = []
+        real = db.get_conn
+
+        def traced():
+            conn = real()
+            conn.set_trace_callback(seen.append)
+            return conn
+        monkeypatch.setattr(db, "get_conn", traced)
+        library_service.list_series_with_dramas()
+        return len([q for q in seen if q.lstrip().upper().startswith("SELECT")])
+
+    def test_output_has_counts_and_episode_order(self, isolated_db):
+        self._build(isolated_db, 2)
+        out = library_service.list_series_with_dramas()
+        assert [s["name"] for s in out] == [s["name"] for s in isolated_db.list_series()]
+        for s in out:
+            assert s["character_count"] == 1 and s["glossary_term_count"] == 2
+            assert [d["title_en"] for d in s["dramas"]] == [
+                f"{s['name']}-1", f"{s['name']}-0"]
+
+    def test_query_count_does_not_grow_with_series(self, isolated_db, monkeypatch):
+        self._build(isolated_db, 2)
+        few = self._count_queries(isolated_db, monkeypatch)
+        for i in range(2, 8):
+            sid = isolated_db.create_series(f"S{i}")
+            isolated_db.create_drama(title_en=f"S{i}-0", series_id=sid)
+            isolated_db.create_drama(title_en=f"S{i}-1", series_id=sid)
+        many = self._count_queries(isolated_db, monkeypatch)
+        assert few > 0 and many == few

@@ -21,7 +21,8 @@ from services import (
     transcribe_pipeline,
 )
 from services.transcribe_options_service import (
-    _DEFAULT_TUNING, rehear_audio_path, rehear_row, stored_hallucination_silence_sec,
+    _DEFAULT_TUNING, ensure_no_active_jobs, rehear_audio_path, rehear_row, require_audio_pipeline,
+    stored_hallucination_silence_sec,
     stored_whisper_size)
 from services.transcribe_service import _drama_audio_path, _resolve_initial_prompt
 from services.retranscribe_worker import (
@@ -77,8 +78,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     line = _find_line(drama_id, line_id)
     if line is None:
         raise NotFoundError(f"No line with id {line_id} in title {drama_id}.")
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    require_audio_pipeline(drama_id, drama)
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
@@ -86,11 +86,8 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
         raise UnsupportedOperationError("This line has no timing window to re-transcribe.")
     prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     heard_row = rehear_row(drama)
-    for prefix in _RETRANSCRIBE_BLOCKING_PREFIXES:
-        other = background_jobs.get_status(f"{prefix}{drama_id}")
-        if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this title's lines. "
-                                "Try again when it finishes.")
+    ensure_no_active_jobs(drama_id, _RETRANSCRIBE_BLOCKING_PREFIXES,
+                          "Another job is changing this title's lines. Try again when it finishes.")
     job_id = retranscribe_line_job_id(drama_id)
     # The worker's slice and temp files go here; removed by on_finish however
     # the run ends, since a killed worker cannot clean up after itself.

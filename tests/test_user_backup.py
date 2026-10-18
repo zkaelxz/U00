@@ -56,7 +56,8 @@ def test_every_table_is_classified(isolated_db):
         tables = set(_tables(conn))
         assert tables - set(lub.USER_BACKUP_TABLES) == set(), \
             "classify the new table in library_admin_service.USER_BACKUP_TABLES"
-        assert set(lub.USER_BACKUP_TABLES) - tables == set(), "stale entry"
+        # bug_reports is only in libraries made before it left the schema.
+        assert set(lub.USER_BACKUP_TABLES) - tables - {"bug_reports"} == set(), "stale entry"
         for t in tables:
             rule = lub.USER_BACKUP_TABLES[t][0]
             cols = set(_cols(conn, t))

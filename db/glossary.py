@@ -180,6 +180,13 @@ def list_glossary_terms(series_id: int):
     return [dict(r) for r in rows]
 
 
+def count_glossary_terms_by_series() -> dict:
+    """{series_id: term count} for every series that has terms."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute("SELECT series_id, COUNT(*) FROM glossary_terms GROUP BY series_id").fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
 def list_glossary_dismissals(series_id: int) -> list:
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute("SELECT term_original, created_at FROM glossary_dismissals "
