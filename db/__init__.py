@@ -493,18 +493,13 @@ from db.comic_pages import (  # noqa: F401
     update_page,
     list_pages,
     get_page,
-    next_page_idx,
     move_pages,
     BUBBLE_EDIT_FIELDS,
     update_bubble_fields,
-    insert_bubble,
-    delete_bubble,
-    reorder_bubbles,
     replace_bubbles_if_unchanged,
     save_bubbles,
     load_bubbles,
     list_bubbles_for_drama,
-    update_bubble_text,
 )
 
 
@@ -548,7 +543,7 @@ from db.line_annotations import (  # noqa: E402,F401
 
 from db.reading import (  # noqa: E402,F401
     clear_reading_history, create_profile, delete_profile, get_personal_notes, get_profile,
-    get_progress, list_continue_reading, list_profiles, list_reading_history, rename_profile,
+    get_progress, list_continue_reading, list_profiles, list_reading_history,
     save_personal_notes, save_progress)
 
 
@@ -664,7 +659,6 @@ from db.benchmark import (  # noqa: F401
     delete_benchmark_case,
     save_benchmark_run,
     list_benchmark_runs,
-    latest_benchmark_run_per_case,
     create_benchmark_lab_case,
     update_benchmark_case_texts,
     list_benchmark_case_edits,

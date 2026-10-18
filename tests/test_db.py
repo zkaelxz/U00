@@ -976,42 +976,6 @@ class TestPagesAndBubbles:
         bubbles = isolated_db.list_bubbles_for_drama(did_b)
         assert bubbles == []
 
-    def test_update_bubble_text_only_changes_translated_text(self, isolated_db):
-        did = isolated_db.create_drama(title_en="Test")
-        pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
-        isolated_db.save_bubbles(pid, [
-            {"x": 10, "y": 20, "w": 100, "h": 50, "source_text": "orig", "translated_text": "old",
-             "font_size": 24, "skip": True, "font_category": "bold"}])
-        bubble_id = isolated_db.load_bubbles(pid)[0]["id"]
-
-        isolated_db.update_bubble_text(bubble_id, "new")
-
-        updated = isolated_db.load_bubbles(pid)[0]
-        assert updated["translated_text"] == "new"
-        # Everything else about the bubble stays exactly as it was.
-        assert updated["x"] == 10 and updated["y"] == 20
-        assert updated["w"] == 100 and updated["h"] == 50
-        assert updated["source_text"] == "orig"
-        assert updated["font_size"] == 24
-        assert updated["skip"] == 1
-        assert updated["font_category"] == "bold"
-
-    def test_update_bubble_text_does_not_touch_other_bubbles(self, isolated_db):
-        did = isolated_db.create_drama(title_en="Test")
-        pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
-        isolated_db.save_bubbles(pid, [
-            {"x": 1, "y": 1, "w": 10, "h": 10, "source_text": "a", "translated_text": "keep me",
-             "font_size": 18, "skip": False},
-            {"x": 2, "y": 2, "w": 10, "h": 10, "source_text": "b", "translated_text": "change me",
-             "font_size": 18, "skip": False},
-        ])
-        bubbles = isolated_db.load_bubbles(pid)
-        target = next(b for b in bubbles if b["translated_text"] == "change me")
-
-        isolated_db.update_bubble_text(target["id"], "changed")
-
-        reloaded = {b["translated_text"] for b in isolated_db.load_bubbles(pid)}
-        assert reloaded == {"keep me", "changed"}
 
     def test_font_category_round_trips(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
@@ -1082,24 +1046,6 @@ class TestBenchmarkCasesAndRuns:
         isolated_db.delete_benchmark_case(case_id)
         assert isolated_db.list_benchmark_runs(case_id) == []
 
-    def test_latest_run_per_case_returns_only_the_most_recent(self, isolated_db):
-        case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
-        isolated_db.save_benchmark_run(case_id, {"output_text": "old", "score": 0.5,
-                                                  "duration_seconds": 1.0, "error": None})
-        isolated_db.save_benchmark_run(case_id, {"output_text": "new", "score": 0.9,
-                                                  "duration_seconds": 1.0, "error": None})
-        latest = isolated_db.latest_benchmark_run_per_case()
-        assert latest[case_id]["output_text"] == "new"
-
-    def test_latest_run_per_case_filters_by_stage(self, isolated_db):
-        transcription_case = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
-        translation_case = isolated_db.create_benchmark_case("b", "translation", "novel")
-        isolated_db.save_benchmark_run(transcription_case, {"output_text": "x", "score": 0.5,
-                                                              "duration_seconds": 1.0, "error": None})
-        isolated_db.save_benchmark_run(translation_case, {"output_text": "y", "score": 0.5,
-                                                            "duration_seconds": 1.0, "error": None})
-        latest = isolated_db.latest_benchmark_run_per_case(stage="transcription")
-        assert set(latest.keys()) == {transcription_case}
 
     def test_cost_defaults_to_zero_when_omitted(self, isolated_db):
         case_id = isolated_db.create_benchmark_case("a", "translation", "novel")
