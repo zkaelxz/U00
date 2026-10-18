@@ -35,7 +35,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
-from api.auth import local_only, require_permission
+from api.auth import local_only, require_engines_allowed, require_permission
 from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseCreate,
                                    BenchmarkCaseDelete, BenchmarkCaseList, BenchmarkDeleted,
                                    BenchmarkEstimate, BenchmarkImportRequest,
@@ -372,7 +372,10 @@ def get_translate_sweep_decisions():
 @router.post("/translate-sweep/estimate", dependencies=_READ, response_model=BenchmarkTranslateSweepEstimate,
              responses=error_responses(404, 409, 422, 503),
              summary="What a translation sweep would run and what it would cost; spends nothing")
-def post_translate_sweep_estimate(body: BenchmarkTranslateSweepRequest):
+def post_translate_sweep_estimate(request: Request, body: BenchmarkTranslateSweepRequest):
+    # A paid engine or an Ollama cloud tag is held to engines.paid even for an estimate, so the
+    # sweep's cost and model list are not a way around the rule the run itself applies.
+    require_engines_allowed(request, body.engine, model=body.model)
     return tsweep_svc.estimate(body.set_name, body.language, body.engine, body.model, body.series_id)
 
 
