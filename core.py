@@ -296,8 +296,7 @@ _MOVED_NAMES = {
         "combine_initial_prompt", "load_novel_text_for_context",
     ),
     "audio_extract": (
-        "EXTRACT_AUDIO_TIMEOUT_SECONDS", "extract_audio_from_video", "SLICE_TIMEOUT_SECONDS",
-        "extract_audio_slice",
+        "EXTRACT_AUDIO_TIMEOUT_SECONDS", "SLICE_TIMEOUT_SECONDS", "extract_audio_slice",
     ),
     "line_alignment": (
         "merge_adjacent_short_lines", "split_user_transcript", "lines_from_char_times",

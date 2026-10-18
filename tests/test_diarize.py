@@ -186,7 +186,7 @@ class TestDiarizePreloadsAudioWithSoundfile:
     older version is a losing long-term position, and pinning it forever
     is not sustainable either. Every audio_path reaching diarize() is
     always this app's own normalized audio.wav (see
-    core.extract_audio_from_video/extract_audio_slice, both plain 16kHz
+    audio_extract.extract_audio_from_video/extract_audio_slice, both plain 16kHz
     mono PCM WAV), which soundfile (libsndfile-based, no compiled-per-
     FFmpeg-version binary of its own, much less fragile than torchcodec
     on Windows) reads directly. word_align.py's own separate, legitimate
