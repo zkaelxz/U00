@@ -199,7 +199,8 @@ def check_run_overrides(drama: dict, overrides) -> dict:
         raise InvalidInputError("beam_size must be a whole number.")
     for key in ("whisper_size", "asr_backend_choice", "source_language", "transcript_mode",
                 "alignment_method", "sensitivity_preset"):
-        if key in given and not isinstance(given[key], str):
+        # An empty string would read as "not set" further down and fall back to Chinese.
+        if key in given and (not isinstance(given[key], str) or not given[key]):
             raise InvalidInputError(f"{key} must be text.")
     language = given.get("source_language") or drama.get("source_language") or "zh"
     if language not in SOURCE_LANGUAGES:

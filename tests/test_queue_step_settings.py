@@ -198,7 +198,7 @@ def test_an_item_without_settings_starts_as_before(isolated_db, started):
     {"beam_size": 0}, {"beam_size": 11}, {"beam_size": True}, {"beam_size": "5"},
     {"whisper_size": "../../evil"}, {"asr_backend_choice": "nope"}, {"sensitivity_preset": "loud"},
     {"alignment_method": "x"}, {"source_language": "fr"}, {"transcript_mode": "have_transcript"},
-    {"use_groq": "yes"}, {"initial_prompt": "hi"}, {"drama_id": 2},
+    {"use_groq": "yes"}, {"source_language": ""}, {"whisper_size": ""}, {"initial_prompt": "hi"}, {"drama_id": 2},
 ])
 def test_bad_item_settings_are_refused_before_anything_is_queued(isolated_db, started, settings):
     did = _drama()
