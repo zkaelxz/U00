@@ -194,6 +194,7 @@ from engine_backends.standalone import (  # noqa: F401
     UnsupportedDirectionError,
     chunk_standalone_text,
     standalone_direction_support,
+    standalone_requests,
     standalone_translate,
     standalone_translate_partial,
 )

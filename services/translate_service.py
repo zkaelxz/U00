@@ -317,7 +317,7 @@ def estimate(text: str, engine_name: str, source_language: str, target_language:
         model=model or translate_engines.effective_default_model(engine_name) or "",
         free_tier=use_free_tier)
     chunks = translate_engines.chunk_standalone_text(text)
-    requests = [chunks[i:i + REQUEST_CHUNKS] for i in range(0, len(chunks), REQUEST_CHUNKS)]
+    requests = translate_engines.standalone_requests(text, REQUEST_CHUNKS)
     estimated = sum(translate_engines.estimate_translation_cost(priced, r) for r in requests)
     cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
     monthly = translate_run_service.month_cap_usd() if cap_applies else 0
