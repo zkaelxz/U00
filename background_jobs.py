@@ -298,7 +298,7 @@ def owner_process_alive(pid) -> bool:
     try:
         return pid_lib.pid_alive(pid)
     except Exception:
-        return True
+        return True     # a failed probe (OSError, a Windows API error) errs towards alive
 
 
 def _note_cancel_locked(job, requested_at=None) -> None:
@@ -597,6 +597,8 @@ def clear_finished_job(job_id: str, started_at=_ANY_RUN) -> bool:
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
                                     exc_info=True)
+        # The in-memory run, the authority, is already gone; the row is a
+        # best-effort mirror, so a failed delete is not a kept run.
         removed = True
     _emit_change(job_id)
     _run_finish_hooks(hooks)
@@ -618,6 +620,8 @@ def _delete_job_record(job_id):
         import db
         db.delete_job_record(job_id)
     except Exception:
+        # Broad on purpose: the in-memory clear already happened, and the
+        # best-effort mirror must not turn it into an error for the caller.
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
                                     exc_info=True)
@@ -635,6 +639,7 @@ def clear_all_jobs():
         import db
         db.clear_all_job_records()
     except Exception:
+        # As in _delete_job_record: the in-memory wipe already happened.
         import applog
         applog.get_logger().warning("failed to clear job_records", exc_info=True)
     _emit_change(None)
