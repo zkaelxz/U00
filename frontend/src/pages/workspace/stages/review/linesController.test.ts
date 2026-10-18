@@ -156,3 +156,32 @@ describe('the Records route to the open edit', () => {
     expect(await beforeLinesWrite(7, 'all')).toBeNull()
   })
 })
+
+describe('cancelEdit on an open edit', () => {
+  it('closes a clean draft at once', () => {
+    const a = line(1)
+    const { ctl, st } = setup([a], editing(a, a.en))
+    ctl.actions.cancelEdit()
+    expect(st.current.edit).toBeNull()
+  })
+
+  it('keeps a dirty draft open with a warning, and discards on the second press', () => {
+    const a = line(1)
+    const { ctl, st } = setup([a], editing(a, 'typed'))
+    ctl.actions.cancelEdit()
+    expect(st.current.edit?.draft.en).toBe('typed')
+    expect(st.current.edit?.discardWarning).toBe(true)
+    ctl.actions.cancelEdit()
+    expect(st.current.edit).toBeNull()
+  })
+
+  it('drops the warning when typing continues', () => {
+    const a = line(1)
+    const { ctl, st } = setup([a], editing(a, 'typed'))
+    ctl.actions.cancelEdit()
+    ctl.actions.setDraft({ en: 'typed more' })
+    expect(st.current.edit?.discardWarning).toBe(false)
+    ctl.actions.cancelEdit()
+    expect(st.current.edit?.discardWarning).toBe(true)
+  })
+})

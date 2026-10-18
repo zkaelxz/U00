@@ -10,6 +10,7 @@ import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
 import { uploadAndTranscribe } from '../../api/workspace'
 import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { downloadText } from '../../components/downloadText'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
@@ -23,7 +24,7 @@ import { useReattachJob } from '../../hooks/useReattachJob'
 import { routeHref } from '../../router'
 import { buttonClass } from '../../components/uiClasses'
 import { engineLabel, languageLabel } from '../../labels'
-import type { JobRecord } from '../../types/jobs'
+import { cancelNeedsConfirm, type JobRecord } from '../../types/jobs'
 import { PreflightCard } from '../preflight/PreflightCard'
 import type { PreflightRow } from '../preflight/preflightModel'
 import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
@@ -312,7 +313,13 @@ export function MakeSubtitles() {
           </div>
           <ErrorBanner error={cancelError ?? downloadError} />
           {busy ? (
-            (jobId || stepNow === 'upload') && <div className="actions"><button type="button" className={buttonClass('secondary')} onClick={cancel}>Cancel</button></div>
+            (jobId || stepNow === 'upload') && <div className="actions">
+              {job && (stepNow === 'transcribe' || cancelNeedsConfirm(job)) ? (
+                <ConfirmButton name="this run" label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" onConfirm={cancel} />
+              ) : (
+                <button type="button" className={buttonClass('secondary')} onClick={cancel}>Cancel</button>
+              )}
+            </div>
           ) : (
             <div className="make-subtitles-go">
               <button type="button" className={buttonClass('primary')} onClick={() => void download()}>Download SRT</button>

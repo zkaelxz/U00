@@ -287,6 +287,46 @@ def test_stop_if_same_keeps_a_matching_child_without_pidfd(child, monkeypatch):
 
 
 @linux_pidfd
+def test_identity_waits_for_the_command_line_of_a_child_still_in_exec(child, monkeypatch):
+    import builtins
+    import io
+    from lib import proc_kill
+    settled = proc_kill.process_identity(child.pid)
+    reads = []
+
+    def mid_exec_open(path, *a, **kw):
+        if str(path).endswith("/cmdline") and not reads:
+            reads.append(path)
+            return io.BytesIO(b"")
+        return builtins.open(path, *a, **kw)
+    monkeypatch.setattr(proc_kill, "open", mid_exec_open, raising=False)
+    assert proc_kill.process_identity(child.pid) == settled
+    assert reads
+
+
+@linux_pidfd
+def test_identity_stops_waiting_when_the_child_exits_mid_exec(child, monkeypatch):
+    import builtins
+    import io
+    from lib import proc_kill
+    cmdline_reads = []
+
+    def exits_mid_exec_open(path, *a, **kw):
+        if str(path).endswith("/cmdline"):
+            cmdline_reads.append(path)
+            return io.BytesIO(b"")
+        if str(path).endswith("/stat") and cmdline_reads:
+            with builtins.open(path, "rb") as fh:
+                real = fh.read()
+            cut = real.rindex(b")") + 2
+            return io.BytesIO(real[:cut] + b"Z" + real[cut + 1:])
+        return builtins.open(path, *a, **kw)
+    monkeypatch.setattr(proc_kill, "open", exits_mid_exec_open, raising=False)
+    assert proc_kill.process_identity(child.pid) is None
+    assert len(cmdline_reads) == 1
+
+
+@linux_pidfd
 def test_stop_if_same_keeps_a_child_it_may_not_signal(child, monkeypatch):
     from lib import proc_kill
     ident = proc_kill.process_identity(child.pid)

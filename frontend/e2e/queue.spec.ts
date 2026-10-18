@@ -63,6 +63,7 @@ test('reorder with the keyboard keeps focus on the moved item, then remove', asy
   await expect(items(page).nth(1)).toContainText('Kae')
   await expect(page.getByRole('button', { name: 'Move up Export subtitles Kae' })).toBeFocused()
   await page.getByRole('button', { name: 'Remove Transcribe Signal' }).click()
+  await page.getByRole('button', { name: 'Confirm remove' }).click()
   await expect(items(page)).toHaveCount(1)
 })
 

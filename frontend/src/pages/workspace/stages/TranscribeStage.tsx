@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 
+import { useResetUndo } from '../../../hooks/useResetUndo'
 import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
@@ -28,7 +29,11 @@ import type {
 import {
   advancedSummary,
   parseExpectedSpeakers,
+  mergeRunChoices,
   parseSpeakerHints,
+  runChoicesFromConfig,
+  runChoicesUnsaved,
+  runChoicesUpdate,
   runOptionProblem,
   runProblemFromError,
   TRANSCRIBE_DRAFT_SHAPE,
@@ -37,6 +42,7 @@ import {
   DEFAULT_WHISPER_SIZE,
   whisperExclusionReason,
   whisperSizeChoices,
+  type RunChoices,
   type RunField,
   type RunFieldProblem,
   whisperModelWarning,
@@ -63,7 +69,7 @@ import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBloc
 import { withoutUntouchedBackend } from './transcribeBackendField'
 import { measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
-import { replacementModel, runLine, whisperOnlyControlReason } from './transcribeRun'
+import { replacementModel, runLine, runSettingsLine, whisperOnlyControlReason } from './transcribeRun'
 import './source.css'
 
 // The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
@@ -164,13 +170,23 @@ export default function TranscribeStage({
         const saved = formFromConfig(c)
         const advanced = rawDraft?.advanced
         setCf({ ...saved, ...pickDraft(isRecord(advanced) ? advanced : null, saved) })
+        // Language, speaker detection, names and prompt are kept on the title; only an edit made here and not run or saved stays on top.
+        const start = mergeRunChoices(runChoicesFromConfig(c, defaultLanguage), restored, rawDraft?.base)
+        setLanguage(start.language)
+        setRunDiarize(start.runDiarize)
+        setSpeakers((cur) => start.speakers || cur) // the last speaker-detection run may have filled it first
+        setMinSpeakers(start.minSpeakers)
+        setMaxSpeakers(start.maxSpeakers)
+        setExtraNames(start.extraNames)
+        setOverride(start.override)
+        if (start.speakers) seedSpeakers.current = false
       },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
-  }, [dramaId, rawDraft])
+  }, [dramaId, rawDraft, restored, defaultLanguage])
 
   useEffect(() => {
     let cancelled = false
@@ -201,24 +217,41 @@ export default function TranscribeStage({
   useEffect(() => {
     // Until the saved options arrive the stored Advanced changes are kept as they are.
     const advanced = cf && config ? changedKeys(cf, formFromConfig(config)) : rawDraft?.advanced
-    saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced })
-  }, [saveDraft, rawDraft, cf, config, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
+    // `base` is the saved choices written beside the form's, so a later visit can tell an edit from a stale copy.
+    const base = config ? runChoicesFromConfig(config, defaultLanguage) : rawDraft?.base
+    saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced, base })
+  }, [saveDraft, rawDraft, cf, config, defaultLanguage, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
 
   // Back to the drama's language and the saved options; the draft for this title is dropped.
+  const resetUndo = useResetUndo()
   const resetToDefaults = () => {
-    clearDraft()
-    setLanguage(defaultLanguage)
-    setScript('')
-    setTranscriptText('')
-    setRunDiarize(false)
-    setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
-    setMinSpeakers('')
-    setMaxSpeakers('')
-    setExtraNames('')
-    setOverride('')
-    setProblem(null)
-    setFieldProblem(null)
-    if (config) setCf(formFromConfig(config))
+    const prev = { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, cf }
+    resetUndo.reset(() => {
+      clearDraft()
+      setLanguage(defaultLanguage)
+      setScript('')
+      setTranscriptText('')
+      setRunDiarize(false)
+      setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
+      setMinSpeakers('')
+      setMaxSpeakers('')
+      setExtraNames('')
+      setOverride('')
+      setProblem(null)
+      setFieldProblem(null)
+      if (config) setCf(formFromConfig(config))
+    }, () => {
+      setLanguage(prev.language)
+      setScript(prev.script)
+      setTranscriptText(prev.transcriptText)
+      setRunDiarize(prev.runDiarize)
+      setSpeakers(prev.speakers)
+      setMinSpeakers(prev.minSpeakers)
+      setMaxSpeakers(prev.maxSpeakers)
+      setExtraNames(prev.extraNames)
+      setOverride(prev.override)
+      setCf(prev.cf)
+    })
   }
 
   useEffect(() => {
@@ -356,15 +389,33 @@ export default function TranscribeStage({
     return bad ? null : update
   }
 
+  const runChoices = (): RunChoices => ({ language, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override })
+  // The form's language and run choices go to the title with its options, so the Queue and other browsers repeat them.
+  const withRunChoices = (update: TranscribeConfigUpdate): TranscribeConfigUpdate => ({ ...update, ...runChoicesUpdate(runChoices(), script) })
+  const afterSave = (c: TranscribeConfig) => {
+    setSaved(true)
+    setSavedBefore(true)
+    setConfig(c)
+    // The title's own language may have changed with this save.
+    refetchDrama()
+  }
+
+  const runSettingsUnsaved = !!config && !!cf && (
+    runChoicesUnsaved(runChoices(), script, config, defaultLanguage)
+    || (() => {
+      const update = withoutUntouchedBackend(toUpdate(cf), config.asr_backend_choice)
+      const savedOptions = toUpdate(formFromConfig(config))
+      return (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== savedOptions[k])
+    })()
+  )
+
   const saveOptions = () => {
     const update = checkConfig()
     if (!update) return
-    updateTranscribeConfig(dramaId, update).then(
+    updateTranscribeConfig(dramaId, withRunChoices(update)).then(
       (c) => {
         setError(null)
-        setSaved(true)
-        setSavedBefore(true)
-        setConfig(c)
+        afterSave(c)
       },
       fail,
     )
@@ -425,13 +476,8 @@ export default function TranscribeStage({
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
     const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])
-    const saveFirst = changed
-      ? updateTranscribeConfig(dramaId, update).then((c) => {
-          setConfig(c)
-          setSaved(true)
-          setSavedBefore(true)
-        })
-      : Promise.resolve()
+      || runChoicesUnsaved(runChoices(), script, config, defaultLanguage)
+    const saveFirst = changed ? updateTranscribeConfig(dramaId, withRunChoices(update)).then(afterSave) : Promise.resolve()
     // Held until the server answers: `busy` only follows once the job id arrives, so a second click would start a second run.
     startingRef.current = true
     setStarting(true)
@@ -661,6 +707,17 @@ export default function TranscribeStage({
             })}
           </p>
         )}
+        {cf && config && (
+          <p className="muted" data-testid="run-settings">
+            {'Also: '}
+            {runSettingsLine({
+              language, script, titleScript: config.chinese_script, voiceDetection: cf.sensitivity_preset, beamSize: Number(cf.beam_size),
+              separateVocals: cf.separate_vocals_first, useGroq: cf.use_groq, runDiarize, speakers, extraNames, promptOverride: override,
+            })}
+            {' · '}
+            <span data-testid="run-settings-saved">{runSettingsUnsaved ? 'not saved yet (Transcribe saves it)' : 'saved with this title'}</span>
+          </p>
+        )}
         <div className="actions">
           <button
             type="button"
@@ -749,6 +806,8 @@ export default function TranscribeStage({
             duration={duration}
             onSave={saveOptions}
             onReset={resetToDefaults}
+            resetOffered={resetUndo.offered}
+            onUndoReset={resetUndo.undo}
             saved={saved}
             problem={null}
             error={null}

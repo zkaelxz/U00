@@ -14,8 +14,9 @@ describe('gap model', () => {
     expect(gapText(gap(0, 5, null))).toBe(GAP_PLAIN_TEXT)
   })
 
-  it('labels the chip with the count', () => {
-    expect(gapChipLabel(3)).toBe('Gaps 3')
+  it('labels the chip with the gap you are on and the count', () => {
+    expect(gapChipLabel(2, 3)).toBe('Gaps 2 /3')
+    expect(gapChipLabel(null, 3)).toBe('Gaps # /3')
   })
 
   it('jumps to the first gap after the playhead, in time order', () => {
