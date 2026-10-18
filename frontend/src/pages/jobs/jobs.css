@@ -74,6 +74,7 @@
 .queue-controls > :is(.queue-row, .setting-list) + p { margin-top: calc(var(--space-1) - var(--space-3)); }
 .queue-add .field-item { flex: 1 1 12rem; min-width: 0; }
 .queue-add select { width: 100%; }
+.queue-settings-edit { display: grid; gap: var(--space-3); margin: 0 0 var(--space-3); }
 .queue-settings { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); }
 .queue-setting { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr; gap: var(--space-3); min-width: 0; }
 .queue-setting dt { color: var(--muted); }
