@@ -25,6 +25,8 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useStoredState } from '../hooks/useStoredRun'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
+import { appendRead } from './readImage'
+import { TranslateReadImage } from './TranslateReadImage'
 import {
   HISTORY_LIMIT,
   HISTORY_PREVIEW,
@@ -69,6 +71,7 @@ export default function TranslatePage() {
   const [estimate, setEstimate] = useState<TranslateEstimate | null>(null)
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [readOpen, setReadOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [clearError, setClearError] = useState<unknown>(null)
   const pc = usePcOnly()
@@ -287,7 +290,28 @@ export default function TranslatePage() {
                 >
                   Clear
                 </button>
+                {/* A picture upload is PC-only (docs/remote-access-decision.md); typed text still works anywhere. */}
+                {pc !== 'remote' && (
+                  <button
+                    type="button"
+                    className={buttonClass('secondary')}
+                    aria-expanded={readOpen}
+                    onClick={() => setReadOpen(!readOpen)}
+                  >
+                    Read from a screenshot…
+                  </button>
+                )}
               </div>
+              {readOpen && pc !== 'remote' && (
+                <TranslateReadImage
+                  engines={engines}
+                  pageEngine={engine}
+                  language={direction === 'to_english' ? pair.source_language : ''}
+                  allowed={canTranslate}
+                  onText={(read) => setText((current) => appendRead(current, read))}
+                  onClose={() => setReadOpen(false)}
+                />
+              )}
               {estimate && estimate.estimated_usd > 0 && (
                 <p
                   data-testid="translate-estimate"

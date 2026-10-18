@@ -45,8 +45,11 @@ export const bulkDelete = (drama_ids: number[], f?: Fetch) =>
   )
 
 // No ids: every translated/dubbed/exported drama.
-export const startExport = (drama_ids?: number[], f?: Fetch) =>
-  postJson<LibraryExportStarted>(`${BASE}/export`, drama_ids ? { drama_ids } : {}, pcOnlyFetch(f))
+export const startExport = (drama_ids?: number[], f?: Fetch, include_originals = false) =>
+  postJson<LibraryExportStarted>(
+    `${BASE}/export`, { ...(drama_ids ? { drama_ids } : {}), ...(include_originals ? { include_originals } : {}) },
+    pcOnlyFetch(f),
+  )
 
 export const startBackup = (database_only: boolean, f?: Fetch) =>
   postJson<LibraryJobStarted>(`${BASE}/backup`, { database_only }, pcOnlyFetch(f))

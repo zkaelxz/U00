@@ -234,7 +234,10 @@ export function AutoBackupBlock() {
           )}
 
           <div className="backup-status" data-testid="auto-backup-status">
-            <p>{lastRun ? `Last backup: ${lastRun}.` : 'No backup has run yet.'}</p>
+            <p>
+              {lastRun ? `Last backup: ${lastRun}.` : 'No backup has run yet.'}
+              {lastRun && settings.last_note ? ` ${settings.last_note}` : ''}
+            </p>
             {next && <p>{next}</p>}
             {settings.last_error && (
               <p className="error">
