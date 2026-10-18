@@ -10,6 +10,7 @@ from .shared import (
     _add_usage,
     _cancellable_sleep,
     _empty_usage,
+    gemini_generate_request,
     gemini_usage,
     post_json,
     request_translations_with_retry,
@@ -176,14 +177,13 @@ class GeminiEngine:
         }
 
     def translate_batch(self, zh_lines, context: dict):
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{self.model}:generateContent")
+        url, headers = gemini_generate_request(self.model, self.api_key)
         self.last_usage = _empty_usage()
 
         def call_model(numbered):
             self._throttle_for_free_tier()
             data, resp_headers = post_json(url, self.build_request_body(context, numbered),
-                                           timeout=120, headers={"x-goog-api-key": self.api_key},
+                                           timeout=120, headers=headers,
                                            label="Gemini")
             usage = gemini_usage(data.get("usageMetadata"))
             _add_usage(self.last_usage, usage)

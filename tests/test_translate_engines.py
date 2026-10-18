@@ -3266,3 +3266,12 @@ class TestLoadJsonReply:
         from engine_backends.shared import load_json_reply
         default = {"kept": True}
         assert load_json_reply(reply, default) is default
+
+
+def test_gemini_generate_request_keeps_key_in_header_not_url():
+    from translate_engines import gemini_generate_request
+    url, headers = gemini_generate_request("gemini-x", "SECRET-KEY")
+    assert url == ("https://generativelanguage.googleapis.com/v1beta/models/"
+                   "gemini-x:generateContent")
+    assert "SECRET-KEY" not in url and "key=" not in url
+    assert headers == {"x-goog-api-key": "SECRET-KEY"}

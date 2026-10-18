@@ -190,8 +190,8 @@ def _prompt(entity: dict, mode: str) -> str:
 
 
 def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    resp = http.post(url, headers={"x-goog-api-key": api_key},
+    url, headers = translate_engines.gemini_generate_request(model, api_key)
+    resp = http.post(url, headers=headers,
                      json={"contents": [{"parts": [{"text": prompt}]}],
                            "tools": [{"google_search": {}}]},
                      timeout=REQUEST_TIMEOUT, max_bytes=MAX_RESPONSE_BYTES, guard=None)
