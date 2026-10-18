@@ -531,3 +531,12 @@ describe('caseTimingLine', () => {
     )
   })
 })
+
+describe('timing options', () => {
+  it('are kept when changed and dropped when set back to the default', () => {
+    const base = { engine: 'whisper', model: 'large-v3' }
+    const changed = withOption(base, options.transcribe_defaults, 'speech_pad_ms', 150)
+    expect(changed.options).toEqual({ speech_pad_ms: 150 })
+    expect(withOption(changed, options.transcribe_defaults, 'speech_pad_ms', 400).options).toBeUndefined()
+  })
+})

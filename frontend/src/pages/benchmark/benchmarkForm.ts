@@ -283,6 +283,7 @@ export function cleanOptions(options: unknown): BenchmarkTranscribeOptions | und
 export const TRANSCRIBE_OPTION_KEYS = [
   'beam_size', 'min_silence_ms', 'vad_threshold', 'sensitivity_preset', 'hallucination_silence_sec',
   'whisper_repeat_guard', 'difficult_audio', 'separate_vocals_first', 'initial_prompt',
+  'speech_pad_ms', 'refine_timing', 'split_max_seconds', 'split_max_chars',
 ] as const
 
 /** An option as the form shows it: its changed value, else the app's default. */

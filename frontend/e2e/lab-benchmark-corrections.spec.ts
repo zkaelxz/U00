@@ -46,7 +46,9 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
   })
 }
 
-test('Benchmark Lab: include all lines of a title adds unedited lines with their current text as the reference', async ({ page }) => {
+for (const theme of ['light', 'dark', 'sepia', 'oled']) {
+test(`Benchmark Lab: include all lines of a title adds unedited lines with their current text as the reference (${theme})`, async ({ page }) => {
+  await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
   const none = { drama_id: 1, raw_available: false, lines_compared: 0, lines_corrected: 0, raw_to_edited_cer: null }
   await page.route('**/api/benchmark/dramas/*/corrections', (r) => r.fulfill({ json: none }))
   const bodies: unknown[] = []
@@ -72,4 +74,8 @@ test('Benchmark Lab: include all lines of a title adds unedited lines with their
   await section.getByRole('button', { name: 'Preview' }).click()
   await expect(section.getByTestId('corrections-result')).toContainText('Current text counts as the reference.')
   expect(bodies).toEqual([{ set_name: 'timed', dry_run: true, include_all: true }])
+
+  const dir = process.env.CORRECTIONS_SHOTS_DIR
+  if (dir) await section.screenshot({ path: `${dir}/after-include-all-${theme}-desktop.png` })
 })
+}
