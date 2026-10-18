@@ -119,7 +119,7 @@ export function NewTitleLink({ form, onChange, onSeries }: {
         </div>
       )}
       {probe?.kind === 'page' && (
-        <p className="muted">{probe.note} "Create and auto-fill" can read it with AI after the title is made.</p>
+        <p className="muted">{probe.note} "Create and fill details with AI" can read it with AI after the title is made.</p>
       )}
       {probe && probe.kind !== 'page' && !rows.length && !suggestedSeries && <p role="status">The link gave nothing to fill.</p>}
       {rows.length > 0 && (

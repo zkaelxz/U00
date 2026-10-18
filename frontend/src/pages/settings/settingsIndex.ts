@@ -38,7 +38,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
   },
   {
     id: 'sharing',
-    label: 'Sharing and devices',
+    label: 'Account and display',
     cards: [
       { id: 'sharing' },
       { id: 'display' },

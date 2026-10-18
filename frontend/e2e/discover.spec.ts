@@ -263,3 +263,18 @@ test('a saved Catalogue tab choice falls back to the first visible tab', async (
   await expect(page.getByRole('tab', { name: 'Find a title' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
 })
+
+test('the chosen Discover tab is remembered, and an old saved choice is still read', async ({ page }) => {
+  await mockDiscover(page)
+  await page.goto('/#/discover')
+  await page.getByRole('tab', { name: 'Add titles' }).click()
+  await page.reload()
+  await expect(page.getByRole('tab', { name: 'Add titles' })).toHaveAttribute('aria-selected', 'true')
+
+  await page.evaluate(() => {
+    window.localStorage.removeItem('baihe.pref.discover.tab')
+    window.localStorage.setItem('baihe.discover.tab', 'find')
+  })
+  await page.reload()
+  await expect(page.getByRole('tab', { name: 'Find a title' })).toHaveAttribute('aria-selected', 'true')
+})

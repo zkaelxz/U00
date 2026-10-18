@@ -37,11 +37,11 @@ test('a horizontal nav keeps every item reachable and the page clear of it', asy
 
 test('Settings > Display moves the nav and remembers it', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Sharing and devices')
+  await openSettingsGroups(page, 'Account and display')
   await page.getByLabel('Nav position').selectOption('bottom')
   const box = (await rail(page).boundingBox())!
   expect(box.y + box.height).toBeGreaterThan(page.viewportSize()!.height - 40)
   await page.reload()
-  await openSettingsGroups(page, 'Sharing and devices')
+  await openSettingsGroups(page, 'Account and display')
   await expect(page.getByLabel('Nav position')).toHaveValue('bottom')
 })
