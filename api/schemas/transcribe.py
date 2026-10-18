@@ -18,6 +18,7 @@ __all__ = [
     "TranscribeConfigUpdate",
     "TranscribeRunRequest",
     "TranscribeRunResult",
+    "TranscribeRunStart",
     "AsrAdvice",
     "AsrAdviceNote",
     "AsrAdviceRequest",
