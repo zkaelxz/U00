@@ -151,12 +151,32 @@ class TestSweep:
             assert ctx["translate_options"]["series_id"] == series_id
         assert "series_id" not in rec["recommendation"]["winner"]["changes"]
 
-    def test_the_job_is_the_labs_and_frees_models_when_it_ends(self, monkeypatch):
+    def test_a_translation_sweep_never_clears_models_another_job_loaded(self, monkeypatch):
         released = []
-        monkeypatch.setattr(tsweep.whisper_models, "release_gpu_models", lambda: released.append(1))
+        monkeypatch.setattr("whisper_models.release_gpu_models", lambda: released.append(1))
         _cases()
         _sweep()
-        assert released
+        assert not released
+
+    def test_every_pass_is_held_to_a_job_cap_above_the_estimate(self, monkeypatch):
+        caps = []
+        real = lab._run_plan
+        monkeypatch.setattr(lab, "_run_plan", lambda *a, **k: caps.append(a[5]) or real(*a, **k))
+        _cases()
+        est = tsweep.estimate("s", "zh", ENGINE)
+        _sweep()
+        assert caps and all(c is not None and c > 0 for c in caps)
+        assert caps[0] == pytest.approx(est["estimated_cost_usd"] * tsweep.COST_MARGIN + tsweep.COST_MARGIN_FLOOR_USD)
+        assert caps == sorted(caps, reverse=True)
+
+    def test_a_pass_with_failed_cases_stops_the_sweep_instead_of_being_scored(self, monkeypatch):
+        def flaky(self, zh, ctx):
+            return ["" if z == "A1" else f"EN {z}" for z in zh]
+        monkeypatch.setattr(FakeEngine, "translate_batch", flaky)
+        _cases()
+        rec = _sweep()
+        assert rec["status"] == "failed" and "failed cases" in rec["note"]
+        assert rec["recommendation"] is None
 
     def test_one_title_cannot_be_split(self):
         _cases(titles=("A",))

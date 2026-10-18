@@ -681,7 +681,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                 # stop at its next retry instead of sleeping out a cancelled run.
                 with llm_tasks.bounded_llm_calls(
                         job_id, lambda: background_jobs.is_cancel_requested(job_id)):
-                    r = scenes.result(case, None if cap is None else max(cap - spent, 0.0)) if scenes \
+                    r = scenes.result(case, None if cap is None else max(cap - scenes.total, 0.0)) if scenes \
                         else _run_translation(engine, case, api_key)
                 stop_note = r.pop("stop_reason", "")
                 if not stop_note and streak.record(failed=bool(r.get("error")),
@@ -693,7 +693,9 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
                                  r["usage"].get("output_tokens", 0) or 0, r["cost_usd"],
                                  r["usage"].get("cache_read_tokens", 0) or 0)
-                spent += r["cost_usd"]
+                # A scene is paid for when it is translated, so its real total, not the shares of the
+                # cases consumed so far, is what the cap (and the next config's budget) sees.
+                spent = scenes.total if scenes else spent + r["cost_usd"]
                 # After the usage log: a request that finished and was billed
                 # while a cancel was pending still counts toward the cap.
                 if background_jobs.is_cancel_requested(job_id):

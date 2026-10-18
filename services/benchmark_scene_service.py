@@ -130,6 +130,9 @@ class SceneRunner:
         self.engine, self.cfg, self.is_cancelled, self.api_key = engine, cfg, is_cancelled, api_key
         self.scene_of = {c["id"]: scene for scene in scenes(cases) for c in scene}
         self.results = {}
+        # Real spend of every scene translated so far: a scene is paid for when it is translated, not
+        # when its cases are consumed, so the run's cap has to be measured against this.
+        self.total = 0.0
         self.glossary, self.guidelines = style_context(cfg["options"])
 
     def result(self, case: dict, remaining_usd=None) -> dict:
@@ -168,6 +171,7 @@ class SceneRunner:
         capped = remaining_usd is not None and spent[0] >= remaining_usd
         weight = {ln.id: max(len(ln.zh), 1) for ln in lines}
         elapsed = time.monotonic() - started
+        self.total += spent[0]
         out = {}
         for ln in lines:
             share = weight[ln.id] / sum(weight.values())

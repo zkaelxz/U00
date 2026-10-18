@@ -18,7 +18,6 @@ import background_jobs
 import db
 import translate_engines
 import translation_guide
-import whisper_models
 from core import SOURCE_LANGUAGES
 from engine_backends.engine_registry import CAP_INSTRUCTIONS, engine_capabilities
 from jobs import job_launch
@@ -36,6 +35,8 @@ JOB_ID = lab.JOB_ID
 _RECORD_KEY = "benchmark_translate_sweep"
 # The plan's adoption rule for translation: 1.5 chrF points, and (as for transcription) twice the noise.
 MIN_SCORE_MARGIN = 0.015
+COST_MARGIN = 2.0
+COST_MARGIN_FLOOR_USD = 0.05
 # Not "translation": that capability is model re-evaluation's list of candidate models.
 DECISION_CAPABILITY = "translation_settings"
 
@@ -389,13 +390,16 @@ def start(set_name: str, language: str, engine: str, model: str = None, series_i
               "series_id": series_id, "status": "queued", "started_at": _now(), "finished_at": None,
               "note": None, "passes_run": 0, "passes_reused": 0, "recommendation": None, "decision": None,
               "estimate": {k: est[k] for k in ("tuning_cases", "holdout_cases", "passes_to_run")}}
+    # The estimate leaves out re-asks and retries and counts Reflect as a flat three, so the sweep as
+    # a whole may spend a margin above it, and no more.
+    job_cap = round(est["estimated_cost_usd"] * COST_MARGIN + COST_MARGIN_FLOOR_USD, 6) if est["cap_applies"] else None
     gpu = any(translate_engines.ollama_touches_local_gpu(engine, m["model"]) for m in
               [{"model": est["model"]}, *est["models"]])
     # Held across the start so the job's first record update waits for this record, and a start
     # that loses the race leaves the stored sweep (and any recommendation waiting on a decision) alone.
     with _lock:
         started = job_launch.start_job(JOB_ID, _run_job, JOB_ID, est["set_name"], language, engine, model,
-                                       series_id, est["passes_to_run"], gpu_touching=gpu,
+                                       series_id, est["passes_to_run"], job_cap, gpu_touching=gpu,
                                        description="Translation sweep")
         if not started:
             raise ConflictError("A benchmark run is already going.")
@@ -404,7 +408,7 @@ def start(set_name: str, language: str, engine: str, model: str = None, series_i
     return {"job_id": JOB_ID, "sweep": record}
 
 
-def _run_job(job_id, set_name, language, engine, model, series_id, planned):
+def _run_job(job_id, set_name, language, engine, model, series_id, planned, job_cap=None):
     created = []
     _update_record(status="running")
     try:
@@ -422,13 +426,19 @@ def _run_job(job_id, set_name, language, engine, model, series_id, planned):
                 return found[repeat]
             if background_jobs.is_cancel_requested(job_id):
                 raise _Stopped()
-            sid = _run_pass(job_id, plan, setup, half, step, created, counts["run"], max(planned, 1), api_key)
+            left = None if job_cap is None else max(job_cap - sum(
+                (db.get_benchmark_session(c) or {}).get("total_cost_usd") or 0.0 for c in created), 0.0)
+            sid = _run_pass(job_id, plan, setup, half, step, created, counts["run"], max(planned, 1), api_key, left)
             run = db.get_benchmark_session(sid) or {}
             if run.get("status") == "cancelled" or background_jobs.is_cancel_requested(job_id):
                 raise _Stopped()
             if run.get("status") != "done":
                 raise _PassFailed(f"The pass {_describe(plan, setup)} ({half}) did not finish"
                                   + (f": {run['note']}" if run.get("note") else "."))
+            if run.get("error_count"):
+                # The same rule as _finished_runs, so a winner is never picked from a pass a resume
+                # would not accept (and pay for again).
+                raise _PassFailed(f"The pass {_describe(plan, setup)} ({half}) had {run['error_count']} failed cases.")
             counts["run"] += 1
             sessions.append(run)
             _update_record(passes_run=counts["run"], passes_reused=counts["reused"])
@@ -448,8 +458,6 @@ def _run_job(job_id, set_name, language, engine, model, series_id, planned):
         _update_record(status="failed", finished_at=_now(), note=redact(str(exc))[:300])
         raise
     finally:
-        # The job runs in the API process, like every Lab job: nothing it loaded stays on the GPU.
-        whisper_models.release_gpu_models()
         _active["id"] = None
         for sid in created:
             s = db.get_benchmark_session(sid)
@@ -460,7 +468,7 @@ def _run_job(job_id, set_name, language, engine, model, series_id, planned):
     background_jobs.update_progress(job_id, 1.0, "Sweep finished.")
 
 
-def _run_pass(job_id, plan, setup, half, step, created, done, planned, api_key) -> int:
+def _run_pass(job_id, plan, setup, half, step, created, done, planned, api_key, job_cap=None) -> int:
     cfg = plan.config(setup)
     cases = plan.cases(half)
     what = _describe(plan, setup)
@@ -475,7 +483,7 @@ def _run_pass(job_id, plan, setup, half, step, created, done, planned, api_key) 
             job_id, min(0.99, (done + frac) / planned),
             f"Sweep pass {done + 1} of about {planned} ({what}, {half}): {message}")
 
-    lab._run_plan(job_id, STAGE, [(sid, cfg, api_key)], [c["id"] for c in cases], False, progress=progress)
+    lab._run_plan(job_id, STAGE, [(sid, cfg, api_key)], [c["id"] for c in cases], False, job_cap, progress=progress)
     return sid
 
 

@@ -198,3 +198,22 @@ class TestSceneRun:
         run = lab.get_run(started["session_ids"][0])["run"]
         assert run["status"] == "stopped_cap"
         assert len(engine.batches) < 6
+
+    def test_the_cap_counts_a_scene_when_it_is_translated_not_as_its_cases_are_read(self, isolated_db, engine, monkeypatch):
+        # Cases of three titles interleaved by id: reading A1 pays for all of A, so the cap must already be
+        # used up by B1 even though only one of A's cases has been read.
+        rows = [{"label": f"{t}{i}", "stage": "translation", "content_type": "audio_drama", "source_language": "zh",
+                 "source_text": f"{t}{i}", "reference_text": f"EN {t}{i}", "tier": "application", "set_name": "s",
+                 "title": t, "scene_order": i} for i in (1, 2) for t in "ABC"]
+        db.create_benchmark_clip_cases(rows)
+        batch = translate_engines.estimate_cost_for_engine(SceneEngine(), 1000, 1000)
+        monkeypatch.setattr(lab.settings_service, "get_monthly_cap_usd", lambda: 100.0)
+        monkeypatch.setattr(lab, "estimate", lambda *a, **k: {"monthly_refusal": None, "estimate_above_cap": False,
+                                                              "estimated_cost_usd": 0})
+        before = db.get_month_spend()
+        started = lab.start_run("translation", [{"engine": "claude", "options": {"batch_size": 6}}],
+                                max_cost_usd=batch * 0.8)
+        _wait()
+        run = lab.get_run(started["session_ids"][0])["run"]
+        assert run["status"] == "stopped_cap" and len(engine.batches) == 1
+        assert run["total_cost_usd"] == pytest.approx(db.get_month_spend() - before)
