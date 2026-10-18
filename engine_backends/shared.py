@@ -40,6 +40,13 @@ def claude_usage(usage) -> dict:
             "cache_read_tokens": read, "cache_write_tokens": write}
 
 
+def gemini_generate_request(model: str, api_key: str) -> tuple[str, dict]:
+    """URL and headers for one generateContent call. The key goes in a header:
+    a ``?key=`` query string would land in proxy logs and error messages."""
+    return (f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            {"x-goog-api-key": api_key})
+
+
 def gemini_usage(usage_metadata) -> dict:
     """Gemini's usageMetadata in this app's shape. cachedContentTokenCount
     (implicit or explicit cache hits) is already part of promptTokenCount."""
