@@ -26,7 +26,7 @@ import { AiFallback } from './AiFallback'
 import { DramaPicker } from './DramaPicker'
 import { ExtractionReview } from './ExtractionReview'
 import {
-  AI_OFF, DEFAULT_FOLLOW_PAGES, FOLLOW_HELP, MAX_FOLLOW_PAGES, REVIEW_FIRST_HELP, aiReason, aiRequestFields, clampFollowPages,
+  AI_OFF, DEFAULT_FOLLOW_PAGES, FOLLOW_HELP, MAX_FOLLOW_PAGES, REVIEW_FIRST_HELP, aiBlockReason, aiRequestFields, clampFollowPages,
   followRequestFields,
 } from './extractionFormat'
 import { describeSourceError, percent } from './sourcesFormat'
@@ -53,7 +53,7 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
   // The drama whose review is shown (closed: null).
   const [reviewing, setReviewing] = useState<number | null>(null)
   const ai = useAiEngines(aiChoice.on)
-  const aiBlocked = html ? null : aiReason(aiChoice, ai.engines)
+  const aiBlocked = html ? null : aiBlockReason(aiChoice, ai.engines, ai.gateFor)
 
   const start = () => {
     if (!dramaId || running || aiBlocked) return
@@ -85,7 +85,7 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
       <ErrorBanner error={dramas.error} />
       {!html && (
         <>
-          <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} />
+          <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} gateFor={ai.gateFor} />
           <div className="toggle-list">
             <Field label="Check before importing" help={REVIEW_FIRST_HELP}>
               <Toggle checked={reviewFirst} disabled={running} onChange={setReviewFirst} />

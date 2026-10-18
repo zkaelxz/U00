@@ -138,6 +138,17 @@ export function speakerNeeds(r: SetupReadiness | null): Need[] {
   return out
 }
 
+/** Under the "Transcribe on the GPU" switch: why it changes nothing, or the way to make it faster. */
+export function gpuSettingNote(r: SetupReadiness | null): Need | null {
+  if (r && !r.gpu_found) {
+    return {
+      id: 'no_gpu', label: 'GPU', action: 'external', packages: [], recommended: true,
+      reason: 'No NVIDIA GPU was found on this PC, so transcription runs on the CPU whatever this is set to.',
+    }
+  }
+  return gpuTorchNeed(r)
+}
+
 /** Recommended, never required: an NVIDIA GPU is there but PyTorch cannot use it. */
 export function gpuTorchNeed(r: SetupReadiness | null): Need | null {
   if (!r || !r.gpu_found || r.torch_cuda) return null

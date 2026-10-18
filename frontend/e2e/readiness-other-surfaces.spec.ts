@@ -1,6 +1,8 @@
 import type { Page } from '@playwright/test'
 
+import { openBenchTab } from './benchSections'
 import { expect, test } from './fixtures'
+import { openSettingsGroups } from './settingsNav'
 
 // Source-stage URL download, Narration chunk-and-tag, Export > Send to Jellyfin and the Reader say what is
 // missing before the click. Readiness, the media status and the narration config are faked; no job starts.
@@ -92,4 +94,25 @@ test('Send to Jellyfin says when the video to copy is missing', async ({ page })
   await expect(card.getByRole('button', { name: 'Send to Jellyfin' })).toBeDisabled()
   await card.getByLabel('Video', { exact: true }).selectOption('none')
   await expect(card.getByRole('button', { name: 'Send to Jellyfin' })).toBeEnabled()
+})
+
+test('Benchmark Start names a missing package, not a key', async ({ page }) => {
+  await page.route('**/api/benchmark/options', async (route) => {
+    const response = await route.fetch()
+    const data = await response.json()
+    for (const e of data.translation_engines) Object.assign(e, { key_configured: false, package_installed: e.name !== 'claude' })
+    await route.fulfill({ response, json: data })
+  })
+  await page.goto('/#/benchmark')
+  await openBenchTab(page, 'Run a benchmark')
+  const card = page.getByRole('region', { name: 'Run a benchmark' })
+  await card.getByLabel('Engine 1', { exact: true }).selectOption('claude')
+  await expect(card.getByTestId('engine-block')).toContainText('anthropic package')
+})
+
+test('Settings says why the GPU switch changes nothing when no GPU is found', async ({ page }) => {
+  await readiness(page, { gpu_found: false })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'System')
+  await expect(page.getByRole('region', { name: 'Jobs and GPU' })).toContainText('No NVIDIA GPU was found')
 })

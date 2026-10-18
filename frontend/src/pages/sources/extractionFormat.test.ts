@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ExtractionFollow, ExtractionImage, ExtractionNovel, ExtractionReview } from '../../types/sourcesExtraction'
 import {
+  aiBlockReason,
   AI_OFF, MAX_FOLLOW_PAGES, aiReason, aiRequestFields, canImport, changedImages, clampFollowPages, comicImportText,
   duplicatePages, effectiveEngine, engineLabel, exclusionsFor, followPageLabel, followRequestFields, followStopText,
   importLabel, importPages, nextPageNumber, novelForm, pickedChars, pickedPages, profileSavedText, reviewImportText,
@@ -224,5 +225,18 @@ describe('AI recovery confirm', () => {
     expect(recoverSummary('claude', e)).toBe('Claude · 1 AI call · may use paid credits')
     expect(recoverSummary('ollama', e)).toBe('Ollama (on this PC) · 1 AI call · free engine')
     expect(reviewWhy('recovery')).toContain('AI read it once')
+  })
+})
+
+describe('aiBlockReason', () => {
+  const engines = { engines: ['claude', 'gemini'], default: 'claude' }
+  const on = { on: true, engine: null }
+  it('is empty when the fallback is off or the engine can run', () => {
+    expect(aiBlockReason({ on: false, engine: null }, engines, () => ({ reason: 'x' }))).toBeNull()
+    expect(aiBlockReason(on, engines, () => null)).toBeNull()
+  })
+  it('gives the engine reason after the list problems', () => {
+    expect(aiBlockReason(on, engines, (n) => (n === 'claude' ? { reason: 'Claude has no API key.' } : null))).toBe('Claude has no API key.')
+    expect(aiBlockReason(on, null, () => ({ reason: 'x' }))).toBe('Loading the AI engines…')
   })
 })

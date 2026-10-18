@@ -14,6 +14,7 @@ import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { ImportRetryRow } from '../../types/sourcesImport'
 import { engineLabel, recoverSummary } from './extractionFormat'
+import { EngineGateNote } from '../workspace/stages/EngineGateNote'
 import { useAiEngines } from './useAiEngines'
 import { AI_ENGINE_LABEL } from '../../helpText'
 
@@ -29,6 +30,7 @@ export function AiRecover({ rows, disabled, onConfirm }: Props) {
   const [picked, setPicked] = useState<string | null>(null)
   if (rows.length === 0) return null
   const engine = picked && ai.engines?.engines.includes(picked) ? picked : (ai.engines?.default ?? null)
+  const gate = ai.gateFor(engine)
   return (
     <div className="sources-ai-recover" role="group" aria-label="Needs AI help" data-testid="ai-recover">
       <ErrorBanner error={ai.error} />
@@ -50,16 +52,18 @@ export function AiRecover({ rows, disabled, onConfirm }: Props) {
                     {(ai.engines?.engines ?? []).map((n) => (
                       <option key={n} value={n}>
                         {engineLabel(n)}
+                        {ai.gateFor(n) ? ' (can\'t run)' : ''}
                       </option>
                     ))}
                   </select>
                 </Field>
                 {engine && <p data-testid="ai-recover-summary">{recoverSummary(engine, ai.engines)}</p>}
+                <EngineGateNote gate={gate} />
                 <div className="actions">
                   <button
                     type="button"
                     className={buttonClass('primary')}
-                    disabled={disabled || !engine}
+                    disabled={disabled || !engine || !!gate}
                     onClick={() => {
                       if (!engine) return
                       setAsking(null)

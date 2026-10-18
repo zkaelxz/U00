@@ -36,6 +36,16 @@ export function aiReason(choice: AiChoice, engines: AiEngines | null): string | 
   return null
 }
 
+/** `aiReason`, plus the chosen engine being unable to run (no key, package missing, Ollama stopped): the import would be refused. */
+export function aiBlockReason(
+  choice: AiChoice,
+  engines: AiEngines | null,
+  gateFor: (name: string | null) => { reason: string } | null,
+): string | null {
+  const engine = effectiveEngine(choice, engines)
+  return aiReason(choice, engines) ?? (engine ? gateFor(engine)?.reason : null) ?? null
+}
+
 /** The fields to add to the import request (nothing when the fallback is off). */
 export function aiRequestFields(choice: AiChoice, engines: AiEngines | null): AiRequestFields {
   const engine = effectiveEngine(choice, engines)

@@ -22,6 +22,8 @@ export interface BenchmarkEngineOption {
   models: string[] | null
   model_labels?: Record<string, string>
   key_configured: boolean
+  // Older servers omit it: treated as installed.
+  package_installed?: boolean
 }
 
 /** A transcription arm's per-title options; a field left out takes the app's default (BenchmarkOptions.transcribe_defaults). */

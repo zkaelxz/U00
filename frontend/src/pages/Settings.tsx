@@ -17,8 +17,11 @@ import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { refreshReadiness, useReadiness } from '../hooks/useReadiness'
 import { canReadSettings, useSession } from '../hooks/useSession'
 import { useRoute } from '../router'
+import { NeedsInstall } from './readiness/NeedsInstall'
+import { gpuSettingNote } from './readiness/needs'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
@@ -68,6 +71,8 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
 export default function SettingsPage() {
   useState(() => seedPageTabFolds('settings', Object.fromEntries(SETTINGS_TABS.map((t) => [t.id, tabFoldKeys(t.id)]))))
   const [settings, setSettings] = useState<SettingsOverview | null>(null)
+  const { readiness } = useReadiness()
+  const gpuNote = gpuSettingNote(readiness)
   const [schema, setSchema] = useState<SettingsSchemaRow[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   // The routing card reloads after any key, endpoint or preference save here
@@ -320,6 +325,7 @@ export default function SettingsPage() {
                 <Card title="Jobs and GPU" aria-label="Jobs and GPU">
                   <div className="setting-list">
                     {toggleField('use_gpu')}
+                    {gpuNote && <NeedsInstall need={gpuNote} onInstalled={() => void refreshReadiness()} />}
                     {toggleField('gpu_limit_enabled')}
                     <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
                       <input

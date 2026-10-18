@@ -240,6 +240,8 @@ class BenchmarkEngineOption(BaseModel):
     # Label for an offered model that has no built-in entry (id -> text).
     model_labels: Dict[str, str] = Field(default_factory=dict)
     key_configured: bool
+    # False when the engine's SDK is missing: the run then fails for a reason a key cannot fix.
+    package_installed: bool = True
 
 
 class BenchmarkOptions(BaseModel):

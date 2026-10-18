@@ -185,3 +185,28 @@ test('comic: import pages with the left-out list, then review roles and order', 
   await expect(review.getByTestId('review-import-result')).toContainText('Added 2 pages to the title.')
   expect(s.unmocked).toEqual([])
 })
+
+test('novel: the AI fallback names why the chosen engine cannot run and holds Import', async ({ page }) => {
+  const s = await mockSources(page)
+  const m = await mockImports(page, s, { previewBody: NOVEL_PREVIEW, urlImportBody: { kind: 'url_import', char_count: 1 } })
+  await mockExtraction(page, s, m, { review: novelReview() })
+  await page.route('**/api/translate/engines', (r) =>
+    r.fulfill({
+      json: {
+        items: [
+          { name: 'claude', label: 'Claude', free: false, models: null, key_configured: false },
+          { name: 'gemini', label: 'Gemini', free: true, models: null, key_configured: true },
+          { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: true },
+        ],
+      },
+    }),
+  )
+  const card = await paste(page, 'https://novels.example/book/5')
+  await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Heaven Novel' })
+  await card.getByRole('switch', { name: 'Let AI help if the page is unclear' }).click()
+  await expect(card.getByRole('combobox', { name: 'AI engine' })).toHaveValue('claude')
+  await expect(card.getByTestId('engine-gate')).toContainText('Claude has no API key')
+  await expect(card.getByRole('button', { name: 'Import text' })).toBeDisabled()
+  await card.getByRole('combobox', { name: 'AI engine' }).selectOption('gemini')
+  await expect(card.getByTestId('engine-gate')).toHaveCount(0)
+})

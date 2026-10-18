@@ -11,6 +11,8 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import type { AiEngines } from '../../types/sourcesExtraction'
+import type { EngineGate } from '../workspace/stages/engineReady'
+import { EngineGateNote } from '../workspace/stages/EngineGateNote'
 import { AI_HELP, type AiChoice, aiReason, effectiveEngine, engineLabel } from './extractionFormat'
 import './extraction.css'
 import { AI_ENGINE_LABEL } from '../../helpText'
@@ -21,9 +23,11 @@ type Props = {
   engines: AiEngines | null
   error?: unknown
   disabled?: boolean
+  /** Why an engine cannot run (useAiEngines); the picker marks and explains it. */
+  gateFor?: (name: string | null) => EngineGate | null
 }
 
-export function AiFallback({ value, onChange, engines, error, disabled }: Props) {
+export function AiFallback({ value, onChange, engines, error, disabled, gateFor }: Props) {
   const current = effectiveEngine(value, engines)
   const reason = aiReason(value, engines)
   return (
@@ -45,11 +49,13 @@ export function AiFallback({ value, onChange, engines, error, disabled }: Props)
               <option key={n} value={n}>
                 {engineLabel(n)}
                 {n === engines.default ? ' (default)' : ''}
+                {gateFor?.(n) ? ' (can\'t run)' : ''}
               </option>
             ))}
           </select>
         </Field>
       )}
+      {value.on && <EngineGateNote gate={gateFor?.(current) ?? null} />}
       {reason && <p className="muted">{reason}</p>}
       {value.on && <ErrorBanner error={error} />}
     </div>

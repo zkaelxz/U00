@@ -9,7 +9,7 @@ import type {
   ReevalSettings, ReevalSettingsRequest,
 } from '../../api/reeval'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
-import { configLabel, formatCost, formatScore, formatWhen, isRunActive } from './benchmarkForm'
+import { configLabel, engineBlockReason, formatCost, formatScore, formatWhen, isRunActive } from './benchmarkForm'
 
 const DEFAULT_INTERVAL_DAYS = 30
 const MAX_INTERVAL_DAYS = 365
@@ -143,7 +143,7 @@ export function runNowState(args: {
   if (pcRemote) reasons.push('Starting a run is PC only.')
   if (!runCandidates(overview).length) reasons.push('Add a candidate model first.')
   if (running) reasons.push('A benchmark run is already going.')
-  for (const e of missingKeys) reasons.push(`${humanize('engine', e.name)} has no key. Set one in Settings.`)
+  for (const e of missingKeys) reasons.push(engineBlockReason(e))
   if (!estimate || estimateFor !== reevalEstimateKey(overview, args.caseCount)) reasons.push('Estimate the cost first.')
   else if (estimate.monthly_refusal) reasons.push(estimate.monthly_refusal)
   else if (estimate.estimate_above_cap) reasons.push("The estimate is more than what's left of this month's cap.")

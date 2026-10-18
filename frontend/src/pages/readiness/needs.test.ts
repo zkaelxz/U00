@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SetupReadiness } from '../../types/setup'
 import {
-  ankiNeed, cardAudioNeed, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
   scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
@@ -268,5 +268,14 @@ describe('cardAudioNeed', () => {
     const n = cardAudioNeed({ ffmpeg: false } as SetupReadiness)
     expect(n?.recommended).toBe(true)
     expect(n?.reason).toContain('no audio clips')
+  })
+})
+
+describe('gpuSettingNote', () => {
+  it('says the switch changes nothing without a GPU, and offers GPU PyTorch when only that is missing', () => {
+    expect(gpuSettingNote(null)).toBeNull()
+    expect(gpuSettingNote({ gpu_found: false } as SetupReadiness)?.reason).toContain('runs on the CPU')
+    expect(gpuSettingNote({ gpu_found: true, torch_cuda: false, torch: true } as SetupReadiness)?.id).toBe('gpu_torch')
+    expect(gpuSettingNote({ gpu_found: true, torch_cuda: true } as SetupReadiness)).toBeNull()
   })
 })

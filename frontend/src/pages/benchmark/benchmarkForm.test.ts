@@ -5,7 +5,7 @@ import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } 
 import { sectionStorageKey, writeSectionOpen } from '../../components/sectionStorage'
 import type { JobRecord } from '../../types/jobs'
 import {
-  arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
+  arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, engineBlockReason, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   formatJudgeScore, leftOutLine, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
   caseTimingLine, optionValue, runConfigLabel, runExtraLabel, scriptCountsLine, timingLine, toggleCompare, whisperChoiceGroups, withOption, type RunSelection,
@@ -199,6 +199,20 @@ describe('whether Start is enabled', () => {
     expect(startState({ ...base, missingKeys: [options.translation_engines[0]], sel: s, estimate: estimate(), estimateFor: k }).reasons).toEqual([
       'Claude has no key. Set one in Settings.',
     ])
+  })
+})
+
+describe('engines that cannot run', () => {
+  const claude = options.translation_engines[0]
+  it('names a missing package instead of a key', () => {
+    expect(engineBlockReason({ ...claude, key_configured: false, package_installed: false })).toContain('anthropic package')
+  })
+  it('names Ollama when it is not answering', () => {
+    const ollama = { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: false }
+    expect(engineBlockReason(ollama)).toContain("Ollama isn't answering")
+  })
+  it('keeps the key wording when only the key is missing', () => {
+    expect(engineBlockReason({ ...claude, key_configured: false })).toBe('Claude has no key. Set one in Settings.')
   })
 })
 
