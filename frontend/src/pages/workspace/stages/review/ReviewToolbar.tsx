@@ -50,11 +50,12 @@ const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated']
 const FULL: Record<LineFilter, string> = { all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated' }
 
 // A number you can type into: Enter or leaving the box jumps (clamped to 1..max), Escape puts the old value back.
-function JumpInput({ value, max, label, describedBy, className, onJump }: {
+function JumpInput({ value, max, label, describedBy, placeholder, className, onJump }: {
   value: string
   max: number
   label: string
   describedBy?: string
+  placeholder?: string
   className: string
   onJump: (n: number) => void
 }) {
@@ -81,6 +82,7 @@ function JumpInput({ value, max, label, describedBy, className, onJump }: {
       enterKeyHint="go"
       aria-label={label}
       aria-describedby={describedBy}
+      placeholder={placeholder}
       value={shown}
       style={{ width: `${Math.max(String(max).length, 1) + 1.5}ch` }}
       onFocus={(e) => e.currentTarget.select()}
@@ -222,7 +224,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
             <button type="button" className="review-chip review-gaps-chip" title="Jump to the next stretch with no line" onClick={p.onNextGap}>
               {gapChipLabel(p.gapCount)}
             </button>
-            <JumpInput className="review-gap-input" label="Go to gap number" value={p.gapIndex === null ? '' : String(p.gapIndex)} max={p.gapCount} onJump={p.onGoGap} />
+            <JumpInput className="review-gap-input" label="Go to gap number" placeholder="#" value={p.gapIndex === null ? '' : String(p.gapIndex)} max={p.gapCount} onJump={p.onGoGap} />
             <button type="button" className="review-gap-arrow" aria-label="Next gap" title="Next stretch with no line" onClick={p.onNextGap}>›</button>
           </span>
         )}
