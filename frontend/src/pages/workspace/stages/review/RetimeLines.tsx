@@ -14,6 +14,8 @@ import { formatTime } from './reviewLogic'
 import { retimeJobId, retimeOutcome, retimeSelectedProblem, startShift } from './retimeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
 
+const NO_AUDIO_TO_RETIME = 'This title has no audio to fit the lines to. Add the audio on the Media tab first.'
+
 // Lets the Qwen3 forced aligner propose new start/end times for the ticked
 // lines, keeping their words. Nothing is written until "Use this" / "Use all
 // shown"; the server then writes only the times, for lines unchanged since
@@ -56,7 +58,7 @@ export function RetimeLines({
   useEffect(() => {
     let cancelled = false
     getCompareOptions(dramaId).then(
-      (o) => !cancelled && setAlignerReason(o.aligner_reason ?? null),
+      (o) => !cancelled && setAlignerReason(o.has_audio ? (o.aligner_reason ?? null) : (o.no_audio_reason ?? NO_AUDIO_TO_RETIME)),
       () => undefined,
     )
     return () => {
