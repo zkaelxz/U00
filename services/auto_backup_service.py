@@ -68,6 +68,9 @@ _UNMANAGED = ("That copy isn't managed by this library (another library's, one m
 
 
 _FAILED = "The backup could not be written; the existing copies were kept."
+# Shown with a copy written without sources.db (write_backup_zip's left_out).
+SOURCES_LEFT_OUT = ("sources.db was damaged and is not in this copy; older copies were kept, "
+                    "so the newest good one still has it.")
 
 
 _CHECK_FAILED = "The automatic backup check failed, so no backup was started."
@@ -169,11 +172,13 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
             foreign_above = floor > ident["sequence"]
             owner = _identity(bump_from=floor)
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
+        left_out = []
         skipped = lbs.write_backup_zip(tmp, include_media=include_media,
                                        manifest=lambda snap: _manifest_bytes(snap, include_media,
                                                                              owner),
                                        should_cancel=lambda: background_jobs.is_cancel_requested(
-                                           job_id))
+                                           job_id),
+                                       left_out=left_out)
         background_jobs.update_progress(job_id, 0.8, "Checking the backup...")
         _verify_snapshot(tmp)
         # On disk before any old copy is deleted: a power cut must not
@@ -190,7 +195,12 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
                 _record_copy(owner[1], os.path.basename(final),
                              {c["name"] for c in _list_copies(target)})
                 _fsync_dir(target)
-                if foreign_above:
+                if left_out:
+                    # The older copies may be the only ones holding a sound
+                    # sources.db, so this run deletes none of them.
+                    log.warning("Automatic backup: sources.db is damaged and was left out of "
+                                "the copy; no old copies were deleted this time")
+                elif foreign_above:
                     log.warning("Automatic backup: the backup folder has a copy with this "
                                 "library's id (%s) numbered above its own counter (another "
                                 "PC using a copy of this library, or a library.db restored "
@@ -218,11 +228,15 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
             with contextlib.suppress(OSError):
                 os.remove(tmp)
     kind = space.copy_kind(include_media)
+    sources_left_out = bool(left_out)
     _update_state(last_success_at=started, last_error=None, last_copy_size=size,
-                  last_copy_kind=kind)
+                  last_copy_kind=kind, last_sources_left_out=sources_left_out)
     background_jobs.set_result(job_id, {"size": size, "kind": kind,
-                                        "skipped_count": len(skipped)})
-    background_jobs.update_progress(job_id, 1.0, lbs.skipped_note("Backup ready.", len(skipped)))
+                                        "skipped_count": len(skipped),
+                                        "sources_left_out": sources_left_out})
+    done = lbs.skipped_note("Backup ready.", len(skipped))
+    background_jobs.update_progress(job_id, 1.0,
+                                    f"{done} {SOURCES_LEFT_OUT}" if sources_left_out else done)
 
 
 def _start(include_media: bool, scheduled: bool = False) -> bool:
