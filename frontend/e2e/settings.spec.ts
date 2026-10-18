@@ -137,7 +137,7 @@ test('no two cards across the settings tabs share a title', async ({ page }) => 
   await page.goto('/#/settings')
   const titles: string[] = []
   for (const tab of [
-    'Translation and keys', 'Costs', 'Notifications and backups', 'Sharing and devices', 'Integrations', 'System',
+    'Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'System',
   ] as const) {
     await openSettingsGroups(page, tab)
     titles.push(...(await page.locator('.settings-panel:not([hidden]) .card-fold > details > summary > .section-title').allTextContents()))

@@ -48,8 +48,9 @@ test('dashboard: API calls, cache-hit share, header stats line (L01)', async ({ 
 test('dashboard from the real API shows the line and a usage fold only when usage was logged', async ({ page }) => {
   const reply = page.waitForResponse((r) => r.url().endsWith('/api/library/stats'))
   await page.goto('/')
-  const { usage } = await (await reply).json()
-  await expect(page.getByTestId('stats')).toContainText(/\d+ titles? · [\d,]+ of [\d,]+ lines/)
+  const { usage, total_lines } = await (await reply).json()
+  // The line count is left out while there are no lines to count.
+  await expect(page.getByTestId('stats')).toContainText(total_lines ? /\d+ titles? · [\d,]+ of [\d,]+ lines/ : /^\d+ titles?$/)
   await expect(page.locator('.stats-usage')).toHaveCount(usage.call_count || usage.estimated_cost_usd ? 1 : 0)
 })
 
@@ -117,13 +118,13 @@ test('Series fold is hidden when no series has 2+ titles (L05)', async ({ page }
   await expect(tools.locator('summary', { hasText: /^Series/ })).toHaveCount(0)
 })
 
-test('Create and auto-fill lands on the Source stage with Auto-fill open (P03)', async ({ page, request }) => {
+test('Create and fill details with AI lands on the Source stage with Auto-fill open (P03)', async ({ page, request }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'New title' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('E2E Autofill Title')
   const created = page.waitForResponse((r) => r.url().endsWith('/api/dramas') && r.request().method() === 'POST')
-  await sheet.getByRole('button', { name: 'Create and auto-fill' }).click()
+  await sheet.getByRole('button', { name: 'Create and fill details with AI' }).click()
   const { id } = (await (await created).json()) as { id: number }
   try {
     // The flag is read, then dropped from the address.
