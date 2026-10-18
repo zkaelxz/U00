@@ -26,7 +26,10 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
+import { useReadiness } from '../../hooks/useReadiness'
 import { buttonClass } from '../../components/uiClasses'
+import { NeedsInstall } from '../readiness/NeedsInstall'
+import { notifyNeed } from '../readiness/needs'
 import type { NotificationChannel, NotificationStatus } from '../../types/notifications'
 import { SAVED_ON_PC_NOTE } from './preferences'
 import {
@@ -55,6 +58,8 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
   const [testNote, setTestNote] = useState<string | null>(null)
   const [open, setOpen] = useState<NotificationChannel | null>(null)
   const [savingCategory, setSavingCategory] = useState(false)
+  const { readiness } = useReadiness()
+  const popupNeed = notifyNeed(readiness)
 
   // Wait for /api/meta first, so a viewer away from the PC makes no calls here.
   useEffect(() => {
@@ -122,6 +127,7 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
       }
     >
       {notifyToggle}
+      {popupNeed && <NeedsInstall need={popupNeed} />}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
         Sends a short message (job type, title name) when a job finishes or fails, or when tracked
