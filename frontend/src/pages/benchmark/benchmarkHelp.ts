@@ -23,6 +23,11 @@ export const BUILD_SET_HELP =
   'Reviewed means you edited and saved the line, or approved it into translation memory (series titles). ' +
   'A line you read and left alone has no mark, so choose All lines to use those too.'
 
+// Shown at the top of "Add a title's corrections to a test set".
+export const CORRECTIONS_HELP =
+  'Turns each line whose text you changed since transcription into a clip with its audio, scored against your text. ' +
+  'Lines you left alone are skipped. Time the title in Review first: the clips also keep each line\'s start and end.'
+
 export type BenchSectionId = 'sets' | 'run' | 'reeval' | 'runs'
 
 type SectionCopy = {

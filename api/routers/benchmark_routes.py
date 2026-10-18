@@ -42,6 +42,8 @@ from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseC
                                    BenchmarkRunStarted, BenchmarkSetList)
 from api.routers.settings_routes import require_confirm
 from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCaseReference,
+                         BenchmarkCorrectionsAddRequest, BenchmarkCorrectionsAddResult,
+                         BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
                          BenchmarkRunDelete, BenchmarkSetBuildRequest, BenchmarkSetBuildResult,
                          error_responses)
@@ -51,6 +53,7 @@ from services import benchmark_clip_service as clip_svc
 from services import benchmark_export_service as export_svc
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
+from services import benchmark_reference_service as reference_svc
 from services import benchmark_set_builder_service as builder_svc
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
@@ -138,6 +141,21 @@ def post_build_set(body: BenchmarkSetBuildRequest, request: Request):
     return builder_svc.build_set(
         request.state.principal, body.drama_id, body.set_name, body.include, body.line_start,
         body.line_end, body.scene_count, body.lines_per_case, body.dry_run)
+
+
+@router.get("/dramas/{drama_id}/corrections", dependencies=_READ,
+            response_model=BenchmarkTitleCorrections, responses=_ERRS,
+            summary="How many of a title's lines were corrected and the raw-to-edited error rate")
+def get_corrections(request: Request, drama_id: int = Path(ge=1)):
+    return reference_svc.title_stats(request.state.principal, drama_id)
+
+
+@router.post("/dramas/{drama_id}/corrections/add", dependencies=[local_only()],
+             response_model=BenchmarkCorrectionsAddResult, responses=_ERRS,
+             summary="PC only: add a title's corrected lines, with their audio, to a test set (dry_run counts only)")
+def post_add_corrections(body: BenchmarkCorrectionsAddRequest, request: Request,
+                         drama_id: int = Path(ge=1)):
+    return reference_svc.add_title_lines(request.state.principal, drama_id, body.set_name, body.dry_run)
 
 
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,

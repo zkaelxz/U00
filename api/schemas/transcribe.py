@@ -483,6 +483,8 @@ class AutotuneCandidateScore(BaseModel):
     candidate_ms: int
     long_lines: int
     total_lines: int
+    # Error rate against the title's corrected lines; None when it has none.
+    cer: Optional[float] = None
 
 
 class AutotuneStatus(BaseModel):
@@ -494,6 +496,10 @@ class AutotuneStatus(BaseModel):
     message: str = ""
     results: Optional[List[AutotuneCandidateScore]] = None
     best_candidate_ms: Optional[int] = None
+    scored_by: Literal["cer", "long_lines"] = "long_lines"
+    # Corrected lines on the title, and how many it takes before CER is used.
+    reference_lines: int = 0
+    reference_minimum: int = 0
 
 
 class AutotuneApplyRequest(BaseModel):
