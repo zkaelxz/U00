@@ -26,6 +26,7 @@ import re
 import threading
 import zipfile
 
+from lib.safe_paths import contained as _inside
 from services import sources_save_service as saves
 from services.service_errors import InvalidInputError, NotFoundError
 
@@ -50,14 +51,6 @@ def _component(value, what: str) -> str:
             or any(c in text for c in "/\\:\0") or any(ord(c) < 32 for c in text)):
         raise InvalidInputError(f"{what} is not a saved {what}.")
     return text
-
-
-def _inside(root: str, path: str) -> bool:
-    real_root = os.path.realpath(root)
-    try:
-        return os.path.commonpath([real_root, os.path.realpath(path)]) == real_root
-    except ValueError:
-        return False
 
 
 def _sees_every_series(principal) -> bool:

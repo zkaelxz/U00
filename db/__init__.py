@@ -607,6 +607,7 @@ from db.vocab import (  # noqa: E402,F401
 
 from db.usage import (  # noqa: F401
     log_usage,
+    on_spend,
     MONTHLY_SPEND_RESET_KEY,
     get_month_spend_reset_at,
     get_month_spend,

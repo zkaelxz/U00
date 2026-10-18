@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from lib.safe_paths import plain_file_in
+from lib.safe_paths import contained, plain_file_in
 
 
 @pytest.fixture
@@ -52,3 +52,33 @@ def test_allows_symlink_that_stays_inside_the_folder(folder):
     except (OSError, NotImplementedError):
         pytest.skip("symlinks unavailable")
     assert plain_file_in(folder, "alias.wav") == link
+
+
+class TestContained:
+    def test_inside_the_root_or_the_root_itself(self, tmp_path):
+        (tmp_path / "a").mkdir()
+        assert contained(str(tmp_path), str(tmp_path / "a" / "x.txt"))
+        assert contained(str(tmp_path), str(tmp_path))
+
+    def test_dotdot_and_sibling_prefix_escape(self, tmp_path):
+        (tmp_path / "root").mkdir()
+        (tmp_path / "root-evil").mkdir()
+        assert not contained(str(tmp_path / "root"), str(tmp_path / "root" / ".." / "x"))
+        assert not contained(str(tmp_path / "root"), str(tmp_path / "root-evil" / "x"))
+
+    @pytest.mark.skipif(not hasattr(os, "symlink") or os.name == "nt", reason="needs POSIX symlinks")
+    def test_symlink_pointing_out_is_not_contained(self, tmp_path):
+        root = tmp_path / "root"
+        root.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (root / "link").symlink_to(outside)
+        assert not contained(str(root), str(root / "link" / "x"))
+
+    def test_windows_case_and_other_drive(self, monkeypatch):
+        import ntpath
+        import lib.safe_paths as sp
+        monkeypatch.setattr(sp.os, "path", ntpath)
+        # realpath of a path that does not exist keeps the text as given.
+        assert sp.contained("C:\\Titles\\One", "c:\\TITLES\\one\\x.srt")
+        assert not sp.contained("C:\\Titles\\One", "D:\\Titles\\One\\x.srt")

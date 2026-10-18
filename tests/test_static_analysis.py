@@ -635,6 +635,12 @@ class TestLayering:
             "lib/ holds helpers with no domain knowledge; move the dependency "
             f"out or keep the module in services/: {offenders}")
 
+    def test_lower_layers_do_not_import_upward(self):
+        """db/ sits below services/ and api/. Retire this when an
+        import-linter contract in CI enforces the same order."""
+        offenders = _imports_of("db", "services") + _imports_of("db", "api")
+        assert offenders == [], f"db/ imports a higher layer: {offenders}"
+
     def test_routers_do_not_import_db(self):
         assert _imports_of(os.path.join("api", "routers"), "db") == []
 

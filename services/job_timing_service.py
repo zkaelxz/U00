@@ -73,6 +73,9 @@ def add_cost(usd, job_id=None):
         pass
 
 
+db.on_spend(add_cost)
+
+
 def _close_stage_locked(job_id, now, final=False):
     run = _open.get(job_id)
     if run is None:

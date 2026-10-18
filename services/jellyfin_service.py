@@ -45,6 +45,7 @@ from urllib.parse import urlsplit
 
 import db
 from lib import http
+from lib.safe_paths import contained as _inside
 from services import (artifact_service, drama_service, export_service,
                       settings_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -230,14 +231,6 @@ def test_connection() -> dict:
 
 
 # --- scan ------------------------------------------------------------------------
-
-def _inside(base: str, path: str) -> bool:
-    try:
-        return os.path.commonpath([os.path.realpath(base), os.path.realpath(path)]) \
-            == os.path.realpath(base)
-    except ValueError:  # different drives on Windows
-        return False
-
 
 def _has_language(item: dict, language: str) -> bool:
     wanted = _LANG_ALIASES[language]

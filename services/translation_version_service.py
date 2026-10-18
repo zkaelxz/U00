@@ -33,11 +33,6 @@ from services.service_errors import ConflictError, InvalidInputError, NotFoundEr
 SNAPSHOT_LABEL = "before switching version"
 
 
-def _require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
-
 def _owned_version(drama_id: int, version_id: int) -> dict:
     v = db.get_translation_version(version_id)
     if v is None or v.get("drama_id") != drama_id:
@@ -51,7 +46,7 @@ def activate_version(drama_id: int, version_id: int, confirm: bool = False) -> d
     {drama_id, version_id, label, activated, lines_changed, conflicts}:
     `conflicts` lists the ids of lines edited after this call read them;
     those keep their newer English and are not counted in lines_changed."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     version = _owned_version(drama_id, version_id)
     if confirm is not True:
         raise InvalidInputError("Using a saved version replaces the current English; "
