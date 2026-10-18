@@ -161,3 +161,4 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 @media (max-width: 640px) {
   .workspace-header .btn.ws-back::after { content: none; }
 }
+.ws-stage-state { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
