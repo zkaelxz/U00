@@ -65,6 +65,7 @@ from jobs import job_store
 import dub
 import video_export
 from lib.atomic_write import atomic_write
+from lib.safe_paths import contained as _inside
 from services import characters_service
 from services.media_upload_service import AUDIO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
@@ -146,14 +147,6 @@ def _require_speaker(drama_id: int, speaker_label) -> str:
 
 def _drama_path(drama_id: int) -> str:
     return os.path.join(db.DRAMAS_DIR, str(drama_id))
-
-
-def _inside(root: str, path: str) -> bool:
-    real_root = os.path.realpath(root)
-    try:
-        return os.path.commonpath([real_root, os.path.realpath(path)]) == real_root
-    except ValueError:
-        return False
 
 
 def _safe_file(root: str, rel: str):

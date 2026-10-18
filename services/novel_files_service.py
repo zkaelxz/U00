@@ -67,11 +67,6 @@ _BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"),
 _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 
 
-def _require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
-
 def _require_idle(drama_id: int):
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError(_BUSY)
@@ -231,14 +226,14 @@ def _reference_path(drama_id: int, drama: dict):
 # --- the English novel translation reference (T01) --------------------------
 
 def get_reference_status(drama_id: int) -> dict:
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     return {"drama_id": drama_id, **_file_status(_reference_path(drama_id, drama))}
 
 
 def upload_reference(drama_id: int, client_filename, fileobj) -> dict:
     """Sets or replaces the reference. Returns the new status plus
     `replaced` (a reference was already present)."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     ext = _extension(client_filename, REFERENCE_EXTENSIONS)
     _require_idle(drama_id)
     text, guessed = _read_text(fileobj, ext, "en", "")
@@ -248,7 +243,7 @@ def upload_reference(drama_id: int, client_filename, fileobj) -> dict:
 def save_reference_text(drama_id: int, text) -> dict:
     """The paste box: sets or replaces the reference from pasted text, with
     the same caps, 409 and atomic write as the upload."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     _require_idle(drama_id)
     return _store_reference(drama_id, drama, _pasted_text(text))
 
@@ -265,7 +260,7 @@ def _store_reference(drama_id: int, drama: dict, text: str) -> dict:
 def remove_reference(drama_id: int, confirm=False) -> dict:
     """Deletes the reference file and clears novel_reference_filename. 404
     when there is none; confirm must be True; 409 while a job runs."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     path = _reference_path(drama_id, drama)
     has_file = bool(path and os.path.isfile(path))
     if not has_file and not drama.get("novel_reference_filename"):
@@ -287,14 +282,14 @@ def remove_reference(drama_id: int, confirm=False) -> dict:
 # --- the raw original-language novel ----------------------------------
 
 def get_raw_novel_status(drama_id: int) -> dict:
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     return {"drama_id": drama_id,
             **_file_status(os.path.join(_folder(drama_id), RAW_NOVEL_FILENAME))}
 
 
 def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
     """Sets or replaces raw_novel_context.txt (.txt/.md/.epub)."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     ext = _extension(client_filename, RAW_NOVEL_EXTENSIONS)
     _require_idle(drama_id)
     text, guessed = _read_text(fileobj, ext, drama.get("source_language") or "zh",
@@ -304,7 +299,7 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
 
 def save_raw_novel_text(drama_id: int, text) -> dict:
     """Pasted raw novel text; same rules as the upload."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     _require_idle(drama_id)
     return _store_raw_novel(drama_id, _pasted_text(text))
 
