@@ -516,6 +516,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-suspect-line { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
 
 /* Gaps: step back and forward through the stretches with no line; the label still jumps to the next one. */
+.review-gaps-chip { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 40px; padding-inline: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--field-bg); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .review-gap-step { display: inline-flex; align-items: center; gap: 2px; }
 .review-gap-arrow { min-width: 32px; min-height: 32px; padding: 0 var(--space-2); font-size: var(--text-lg); line-height: 1; }
 

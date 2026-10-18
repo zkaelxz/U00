@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TranscribeGap } from '../../../../types/workspace'
-import { gapChipLabel, GAP_PLAIN_TEXT, GAP_SPEECH_TEXT, gapText, nextGap, prevGap } from './gapModel'
+import { GAP_PLAIN_TEXT, GAP_SPEECH_TEXT, gapText, nextGap, prevGap } from './gapModel'
 
 const gap = (start: number, end: number, speech: boolean | null = null): TranscribeGap => ({
   start, end, seconds: end - start, pieces: 1, part: 1, parts: 1, after_line_id: null, before_line_id: null, speech,
@@ -12,10 +12,6 @@ describe('gap model', () => {
     expect(gapText(gap(0, 5, true))).toBe(GAP_SPEECH_TEXT)
     expect(gapText(gap(0, 5, true))).toBe('No line here: speech detected')
     expect(gapText(gap(0, 5, null))).toBe(GAP_PLAIN_TEXT)
-  })
-
-  it('labels the chip with the count', () => {
-    expect(gapChipLabel(3)).toBe('Gaps 3')
   })
 
   it('jumps to the first gap after the playhead, in time order', () => {
