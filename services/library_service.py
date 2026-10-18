@@ -14,6 +14,7 @@ it takes plain values and returns plain dicts, so any caller can use it.
 import os
 import sqlite3
 
+from lib import ids as lib_ids
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 from services import ownership_service
@@ -95,13 +96,9 @@ def get_library_drama(drama_id: int) -> dict:
 # voice-bank rename. Plain dicts; no file paths or clip filenames leave here.
 # ---------------------------------------------------------------------------
 
-_MAX_ID = 2**31 - 1
-
 
 def _check_id(value, what: str) -> int:
-    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= _MAX_ID:
-        raise InvalidInputError(f"A {what} id is a positive whole number.")
-    return value
+    return lib_ids.check_id(value, f"A {what} id is a positive whole number.")
 
 
 def _clean_name(name) -> str:

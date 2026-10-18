@@ -52,6 +52,7 @@ import os
 import re
 
 import core as core_module
+from lib import ids as lib_ids
 import db
 import reader
 import storage
@@ -61,7 +62,7 @@ import translate_engines
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
-from services import drama_service, ownership_service, settings_service, translate_service
+from services import ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from services.service_errors import (
     DependencyUnavailableError,
@@ -97,8 +98,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     InvalidInputError for a bad drama id/page/chapter_size and
     NotFoundError for an unknown drama or one with no lines yet, the
     same vocabulary every other service in this app's migration uses."""
-    if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
-        raise InvalidInputError("A title id is a positive whole number.")
+    lib_ids.check_id(drama_id, "A title id is a positive whole number.")
     if not isinstance(chapter_size, int) or isinstance(chapter_size, bool) or not (10 <= chapter_size <= 200):
         raise InvalidInputError("chapter_size must be a whole number from 10 to 200.")
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
@@ -163,8 +163,7 @@ _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
 def _require_drama(drama_id) -> dict:
     """The ownership check every function below starts with: a bad id is
     InvalidInputError, an unknown drama NotFoundError."""
-    if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
-        raise InvalidInputError("A title id is a positive whole number.")
+    lib_ids.check_id(drama_id, "A title id is a positive whole number.")
     drama = ownership_service.require_drama(drama_id)
     return drama
 

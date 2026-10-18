@@ -36,6 +36,7 @@ import time
 import uuid
 
 import background_jobs
+from lib import ids as lib_ids
 import db
 import storage
 from jobs import job_store
@@ -64,7 +65,7 @@ _BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes", "keep_original
 # Hardening H1: sqlite ints are 64-bit and a Python int above that raises
 # OverflowError (a 500), so every id/count the client sends is capped well
 # below it; text fields get length caps so a client can't store megabytes.
-MAX_ID = 2**31 - 1
+MAX_ID = lib_ids.MAX_ID
 MAX_NAME_LEN = 300
 MAX_LONG_TEXT_LEN = 5000
 MAX_URL_LEN = 2000
@@ -113,10 +114,8 @@ def _is_real_date(value):
 
 
 def _check_id(name, value):
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise InvalidInputError(f"{name} must be a whole number.")
-    if value < 1 or value > MAX_ID:
-        raise InvalidInputError(f"{name} is out of range.")
+    lib_ids.check_id(value, f"{name} must be a whole number.",
+                     range_message=f"{name} is out of range.")
 
 
 def _check_media_type(value):

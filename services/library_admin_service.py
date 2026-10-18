@@ -35,6 +35,7 @@ from typing import Optional
 
 import background_jobs
 from jobs import job_launch
+from lib import ids as lib_ids
 import db
 from jobs import job_store
 import storage
@@ -85,9 +86,7 @@ def _check_ids(drama_ids) -> list:
         raise InvalidInputError(f"At most {MAX_BULK_IDS} titles per request.")
     out = []
     for did in drama_ids:
-        if (isinstance(did, bool) or not isinstance(did, int)
-                or not 1 <= did <= drama_service.MAX_ID):
-            raise InvalidInputError("A title id is a positive whole number.")
+        lib_ids.check_id(did, "A title id is a positive whole number.")
         if did not in out:
             out.append(did)
     return out
