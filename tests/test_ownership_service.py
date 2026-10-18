@@ -127,7 +127,10 @@ def test_admin_without_override_sees_everything_but_changes_as_a_member(people):
         assert own.can_see_drama(remote, did)
     assert own.visible_to_filter(remote) is None
     assert own.can_edit_drama(remote, mine) and own.can_edit_drama(remote, shared)
-    assert not own.can_edit_drama(remote, theirs) and not own.can_edit_drama(remote, pc_private)
+    assert not own.can_edit_drama(remote, theirs)
+    # A title made at the PC has no account owner and counts as the admin's
+    # own work from away (owner decision 2026-10-18), private or not.
+    assert own.can_edit_drama(remote, pc_private)
     with pytest.raises(ForbiddenError):
         own.require_editable(remote, "drama", theirs)
     own.require_editable(remote, "drama", shared)
@@ -157,6 +160,27 @@ def test_admin_without_override_sees_everything_but_changes_as_a_member(people):
     # Default-deny: an admin principal without the flag acts as a member.
     bare = {"user_id": remote["user_id"], "is_admin": True, "is_local_owner": False}
     assert own.can_see_drama(bare, theirs) and not own.can_edit_drama(bare, theirs)
+
+
+def test_remote_admin_changes_pc_made_items_as_their_own(people):
+    """Items made at the PC have no account owner; from away an admin
+    changes them as their own work, a member still cannot."""
+    remote = _p(db.auth_get_user_by_email("admin@example.com")["id"], admin=True,
+                override=False)
+    pc_series = db.get_or_create_series("PC", is_private=1)
+    in_pc_series = db.create_drama(title_zh="e", series_id=pc_series)
+    a_series = db.get_or_create_series("A", owner_user_id=people["a_id"], is_private=1)
+    pc_in_a_series = db.create_drama(title_zh="f", series_id=a_series)
+    assert own.can_edit(remote, "series", pc_series)
+    assert own.can_edit_drama(remote, in_pc_series)
+    # Another member's private series governs a PC drama inside it.
+    assert not own.can_edit_drama(remote, pc_in_a_series)
+    assert not own.can_edit(remote, "series", a_series)
+    with pytest.raises(NotFoundError):
+        own.require_editable(people["a"], "series", pc_series)
+    # The private flag itself stays an admin-at-the-PC change.
+    with pytest.raises(ForbiddenError):
+        own.set_private(remote, "series", pc_series, False)
 
 
 def test_set_private_refused_for_drama_in_series(people):

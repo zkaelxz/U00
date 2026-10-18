@@ -428,6 +428,32 @@ class TestAdminOverrideIsPcOnly:
         r = _household_client().post(f"/api/export/dramas/{private}/flag-overlaps", headers=_h(s))
         assert r.status_code == 403
 
+    def test_starts_jobs_on_a_title_made_at_the_pc(self, isolated_db, monkeypatch):
+        # Titles made in the PC window have no account owner and start
+        # private; from away they are the admin's own work (owner decision
+        # 2026-10-18). Another member's private title stays PC-only.
+        from services import (model_readiness_service, transcribe_service,
+                              translate_run_service)
+        s, theirs = self._world()
+        pc_made = db.create_drama(title_zh="mine", owner_user_id=None, is_private=1)
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+        monkeypatch.setattr(transcribe_service, "start_transcribe_run",
+                            lambda drama_id, **k: {"job_id": f"transcribe_{drama_id}"})
+        monkeypatch.setattr(translate_run_service, "start_translate_run",
+                            lambda drama_id, **k: {"job_id": f"translate_{drama_id}",
+                                                   "drama_id": drama_id, "engine": "ollama",
+                                                   "target_line_count": 1})
+        h = _household_client()
+        assert h.post(f"/api/transcribe/dramas/{pc_made}/run", headers=_h(s),
+                      json={}).json() == {"job_id": f"transcribe_{pc_made}"}
+        r = h.post(f"/api/translate-run/dramas/{pc_made}/run", headers=_h(s),
+                   json={"engine": "ollama"})
+        assert r.status_code == 200 and r.json()["job_id"] == f"translate_{pc_made}"
+        assert h.post(f"/api/transcribe/dramas/{theirs}/run", headers=_h(s),
+                      json={}).status_code == 403
+        assert h.post(f"/api/translate-run/dramas/{theirs}/run", headers=_h(s),
+                      json={"engine": "ollama"}).status_code == 403
+
     @pytest.mark.parametrize("where", ["admin", "single_port"])
     def test_pc_and_single_port_unchanged(self, isolated_db, where):
         s, private = self._world()
