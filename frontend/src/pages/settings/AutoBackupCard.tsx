@@ -213,7 +213,7 @@ function AutoBackupControls() {
           >
             <Field
               label="Backup folder"
-              help="Empty uses the library's backups folder. Otherwise a full path to an existing folder outside the library."
+              help="Empty keeps automatic copies in backups\auto inside your library. Manual backups and exports are in backups\. Otherwise a full path to an existing folder outside the library."
               error={folderError}
             >
               <input

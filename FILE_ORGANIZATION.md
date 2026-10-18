@@ -266,6 +266,8 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
 - `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
 - `benchmark_set_builder_service.py`
+- `benchmark_scene_service.py` (a Lab translation arm run the way a title is translated: a title's cases in order as batches with context, style and an optional series glossary)
+- `benchmark_translate_sweep_service.py` (the Lab's settings sweep for translation: model, batch size, context, Reflect and style preset of one engine, with the cap, a held-out check and approval saved as a profile)
 - `benchmark_sweep_service.py` (the Lab's settings sweep: coordinate descent over the transcription settings on one set and language, a held-out check, approval saved as a profile)
 - `blocked_retry_service.py`
 - `browser_install_service.py`

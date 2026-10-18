@@ -34,6 +34,7 @@ import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
 import { RunsCard } from './benchmark/RunsCard'
 import { SweepCard } from './benchmark/SweepCard'
+import { TranslateSweepCard } from './benchmark/TranslateSweepCard'
 import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
 import { BENCHMARK_TABS, isBenchmarkTab, type BenchmarkTab } from './benchmark/benchmarkTabs'
@@ -213,6 +214,21 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
       )}
       {sets && (
         <SweepCard
+          sets={sets}
+          pc={pc}
+          job={job}
+          running={running}
+          onStarted={(id) => {
+            setStarted(null)
+            setJobId(id)
+          }}
+          onStop={stop}
+          onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
+        />
+      )}
+      {options && sets && (
+        <TranslateSweepCard
+          options={options}
           sets={sets}
           pc={pc}
           job={job}

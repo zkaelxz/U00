@@ -23,12 +23,17 @@ export interface SetupReadiness {
   soynlp: boolean
   pytesseract: boolean
   paddle_ocr: boolean
+  manga_ocr: boolean
+  plyer: boolean
+  trafilatura: boolean
+  playwright: boolean
   transformers_ok: boolean
   qwen3_asr: boolean
   ffmpeg: boolean
   ffmpeg_libass: boolean
   js_runtime: boolean
   tesseract_program: boolean
+  browser_found: boolean
   // Live's Whisper sizes: the model is already on the PC.
   whisper_cached_tiny: boolean
   whisper_cached_base: boolean

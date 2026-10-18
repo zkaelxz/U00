@@ -540,3 +540,18 @@ for (const scheme of ['light', 'dark'] as const) {
     if (process.env.JOBS_SCREENS_DIR) await page.screenshot({ path: `${process.env.JOBS_SCREENS_DIR}/jobs-desktop-${scheme}.png`, fullPage: true })
   })
 }
+
+test('a long job name wraps inside the Job column and never runs into Title', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const t = Math.floor(Date.now() / 1000)
+  const long = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, page: null, kind: 'transcribe', drama_id: 3, job_id: 'transcribe_compare_3', status: 'done', description: 'Comparing transcription of 183 line(s) (title #3)', started_at: t - 120, finished_at: t - 50, outcome: 'ok', outcome_message: 'Finished.' }
+  await mockJobsApi(page, [...pageJobs(), long], true)
+  await page.goto('/#/jobs')
+  await chip(page, 'All').click()
+  const row = page.getByTestId('job-row-transcribe_compare_3')
+  const name = await row.locator('td.jobs-name strong').evaluate((el) => el.getBoundingClientRect().right)
+  const title = await row.locator('td.jobs-title').evaluate((el) => el.getBoundingClientRect().left)
+  expect(name, 'job name reaches into the Title column').toBeLessThanOrEqual(title)
+  const cellRight = await row.locator('td.jobs-name').evaluate((el) => el.getBoundingClientRect().right)
+  expect(name).toBeLessThanOrEqual(cellRight)
+})

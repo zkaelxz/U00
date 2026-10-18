@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import type { SetupReadiness } from '../../types/setup'
 import type { CapabilityRoute, EngineRouteStatus, EngineRouting } from '../../types/engineRouting'
 import {
   choiceFromSelect,
@@ -10,6 +11,7 @@ import {
   selectValue,
   statusBadge,
   tagsText,
+  taskEngineNeed,
   testBlockedReason,
   testedText,
   unsetBadge,
@@ -140,5 +142,42 @@ describe('merged engines and keys list', () => {
 
   it('counts only engines that take a key', () => {
     expect(keysSetCount(engineRows(routing, keys))).toEqual({ set: 1, total: 3 })
+  })
+})
+
+describe('taskEngineNeed: why a task cannot run before it is run', () => {
+  const rowFor = (engine: string, keyState: 'set' | 'missing' | 'none') => ({
+    engine, label: engine === 'claude' ? 'Claude' : engine === 'ollama' ? 'Ollama' : engine, status: null, keyState, writable: true, cost: '',
+  })
+  const ready = { anthropic: true, openai: true, ollama_reachable: true } as unknown as SetupReadiness
+
+  it('says nothing for an unknown readiness, an unknown engine or a working engine', () => {
+    expect(taskEngineNeed(cap({ engine: 'claude', is_default: false }), [rowFor('claude', 'set')], null)).toBeNull()
+    expect(taskEngineNeed(cap({ engine: 'claude', is_default: false }), [], ready)).toBeNull()
+    expect(taskEngineNeed(cap({ engine: 'claude', is_default: false }), [rowFor('claude', 'set')], ready)).toBeNull()
+  })
+
+  it('names the missing key, pointing at the list on the same page', () => {
+    const n = taskEngineNeed(cap({ engine: 'claude', is_default: false }), [rowFor('claude', 'missing')], ready)!
+    expect(n.id).toBe('task_key')
+    expect(n.reason).toContain('Add one under Engines and keys below')
+  })
+
+  it('puts a missing package before a missing key', () => {
+    const n = taskEngineNeed(cap({ engine: 'claude', is_default: false }), [rowFor('claude', 'missing')], { ...ready, anthropic: false })!
+    expect(n.id).toBe('task_package')
+    expect(n.packages).toEqual(['anthropic'])
+  })
+
+  it('checks Ollama through the reachability answer, never a key', () => {
+    const n = taskEngineNeed(cap({ engine: 'ollama', is_default: false }), [rowFor('ollama', 'none')], { ...ready, ollama_reachable: false })!
+    expect(n.id).toBe('task_ollama')
+    expect(n.action).toBe('recheck')
+    expect(taskEngineNeed(cap({ engine: 'ollama', is_default: false }), [rowFor('ollama', 'none')], ready)).toBeNull()
+  })
+
+  it('skips a task that is switched off', () => {
+    const off = cap({ engine: 'claude', is_default: true, unset_label: 'Off' })
+    expect(taskEngineNeed(off, [rowFor('claude', 'missing')], ready)).toBeNull()
   })
 })
