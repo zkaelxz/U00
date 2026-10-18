@@ -45,7 +45,7 @@ test('phone: signed-in header keeps the menu on the title row, 44 px targets, Si
   const s = await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
   const summary = page.locator('details.user-menu > summary')
-  await expect(summary).toContainText(USER.email!)
+  await expect(summary).toHaveAttribute('aria-label', `Account: ${USER.display_name ?? USER.email}`)
   await tall(page, 'details.user-menu > summary')
   const title = await page.locator('.app-brand').boundingBox()
   const menuBox = await summary.boundingBox()

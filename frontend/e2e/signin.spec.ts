@@ -111,13 +111,14 @@ test("sign-in not set up on the PC: says so, no button", async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('signed in: header menu shows the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
+test('signed in: header avatar shows the initial and the menu the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-token-123', url: baseURL! }])
   const s = await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   const menu = page.locator('details.user-menu')
-  await expect(menu.locator('summary')).toContainText(USER.email!)
+  await expect(menu.locator('summary')).toHaveAttribute('aria-label', `Account: ${USER.display_name}`)
+  await expect(menu.locator('summary')).toHaveText('K')
   await menu.locator('summary').click()
   await expect(page.getByTestId('user-email')).toHaveText(USER.email!)
   await maybeScreenshot(page, 'desktop-signed-in-menu')
@@ -190,7 +191,7 @@ test('/me failing (502) then answering: the app at once, then the signed-in user
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   // The retry lands about a second later and the account appears.
-  await expect(page.locator('details.user-menu summary')).toContainText(USER.email!, { timeout: 10_000 })
+  await expect(page.locator('details.user-menu summary')).toHaveAttribute('aria-label', `Account: ${USER.display_name ?? USER.email}`, { timeout: 10_000 })
   expect(meCalls).toBe(2)
   expect(s.unmocked).toEqual([])
 })
@@ -205,7 +206,7 @@ test('/me unavailable: no People and access, and Sign out is still offered', asy
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'People and access' })).toHaveCount(0)
   const menu = page.locator('details.user-menu')
-  await expect(menu.locator('summary')).toContainText('Account')
+  await expect(menu.locator('summary')).toHaveAttribute('aria-label', 'Account: Account')
   await menu.locator('summary').click()
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toBeVisible()
