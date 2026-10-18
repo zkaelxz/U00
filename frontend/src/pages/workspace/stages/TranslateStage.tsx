@@ -13,6 +13,7 @@ import {
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { RetryBanner } from '../../../components/RetryBanner'
+import { HelpTip } from '../../../components/HelpTip'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { ModelSelect } from '../../../components/ModelSelect'
@@ -589,14 +590,15 @@ function RunPanel({
           >
             <div className="field-label-row">
               <strong id={`${fallbackIds}-title`}>Fallback engines</strong>
+              <HelpTip label="Fallback engines" id={`${fallbackIds}-help`}>
+                Up to {MAX_FALLBACKS}, tried in order only after the main engine keeps failing (it retries first). Same kind
+                as the main engine: AI with AI, translation-only with translation-only. Not with Check and revise or Bulk.
+              </HelpTip>
             </div>
-            <p className="muted fallback-rule" id={`${fallbackIds}-rule`}>
-              Up to {MAX_FALLBACKS}, tried in order only after the main engine keeps failing (it retries first). Same kind
-              as the main engine: AI with AI, translation-only with translation-only. Not with Reflect or Bulk.
-            </p>
+            <p className="muted fallback-rule" id={`${fallbackIds}-rule`}>Used if the first engine fails</p>
             {fallbackOff && (
               <p className="muted fallback-rule" role="status">
-                Off while {f.reflect ? 'Reflect' : 'Bulk'} is on{f.fallbacks.length ? '; remove these to run' : ''}.
+                Off while {f.reflect ? 'Check and revise' : 'Bulk'} is on{f.fallbacks.length ? '; remove these to run' : ''}.
               </p>
             )}
             {f.fallbacks.map((fb, i) => {
@@ -640,13 +642,13 @@ function RunPanel({
             )}
             {reflectAvailable(effEngine) && (
               <Field
-                label="Reflect"
+                label="Check and revise (3 passes)"
                 help={`Three passes: translate, critique, then revise. Slower and costs more; not available for translation-only engines.${!canReflect && !f.reflect ? ' Not with Bulk on this engine.' : ''}`}
               >
                 <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
               </Field>
             )}
-            <Field label="Think harder on tricky text (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)}>
+            <Field label="Think harder (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)}>
               <Toggle checked={f.thinking && thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} disabled={!thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} onChange={(v) => set('thinking', v)} />
             </Field>
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
@@ -665,7 +667,7 @@ function RunPanel({
             </Field>
             <Field
               label="Default ambiguous pronouns to she/her"
-              help={`Mandarin 他/她 sound the same, so the translator is told to write she/her where a pronoun is ambiguous, and lines that still come out he/him for a speaker with no he/him set are asked again once, then flagged in Review. It applies to lines translated after you save it: turn on Re-translate existing to redo lines that already have English. It does not override characters set to he/him, nor an honorific or context that says male.${savedNote}`}
+              help={`Writes she/her where Mandarin 他/她 is ambiguous, for lines translated after you save it (turn on Re-translate existing to redo lines that already have English).${savedNote}`}
             >
               <Toggle checked={f.female_pronouns} onChange={(v) => saveToggle('female_pronouns', v)} />
             </Field>

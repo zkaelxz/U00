@@ -56,7 +56,7 @@ test('folded settings on the phone', async ({ page }) => {
   await expect(page.getByTestId('settings-summary')).toBeVisible()
   const card = transcribeCard(page)
   await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
-  await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Expected speakers', { exact: true })).toHaveCount(0)
   const tools = await openAdvanced(page)
   await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeVisible()

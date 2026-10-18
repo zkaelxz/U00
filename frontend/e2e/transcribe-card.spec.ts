@@ -116,7 +116,7 @@ test('the language and Whisper model are on Transcribe; the options are on Tools
   const card = transcribeCard(page)
   await expect(page.getByTestId('settings-summary')).toBeVisible()
   await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
-  await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Expected speakers', { exact: true })).toHaveCount(0)
   await expect(card.getByLabel('Beam size', { exact: true })).toHaveCount(0)
   await expect(card.getByRole('heading', { name: 'Transcribe' })).toHaveCount(0)

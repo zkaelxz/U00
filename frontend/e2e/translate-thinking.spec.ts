@@ -7,7 +7,7 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-const LABEL = 'Think harder on tricky text (slower, costs more)'
+const LABEL = 'Think harder (slower, costs more)'
 
 async function mockStage(page: Page, state: { engine: string; saved: boolean; run: unknown[] }) {
   await page.route('**/api/translate-run/dramas/1/config', async (route) => {
