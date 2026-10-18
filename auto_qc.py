@@ -391,6 +391,13 @@ def _name_carried(target_forms, tgt_lower: str, tgt_words: set) -> bool:
 
 # ------------------------------------------------------------------ check
 
+def _longest_names_first(names):
+    """Names ordered for masking: longest source form first, each name's
+    forms longest first. Done once per run, not once per line."""
+    ordered = [(sorted(src_forms, key=len, reverse=True), tgt_forms) for src_forms, tgt_forms in names]
+    return sorted(ordered, key=lambda n: -len(n[0][0]) if n[0] else 0)
+
+
 def check_line(src: str, tgt: str, names=(), banned_terms=()) -> list:
     """Every factual-detail mismatch between one source line and its
     translation: [{"direction": "missing"|"extra"|"banned", "kind": ...,
@@ -402,6 +409,10 @@ def check_line(src: str, tgt: str, names=(), banned_terms=()) -> list:
     whose translation in `tgt` matches one of its recorded
     banned_translations is flagged with direction "banned" -- never
     rewritten, only reported, same as every other Auto QC issue."""
+    return _check_line(src, tgt, _longest_names_first(names), banned_terms)
+
+
+def _check_line(src: str, tgt: str, ordered_names, banned_terms) -> list:
     if not (src or "").strip() or not (tgt or "").strip():
         return []
     issues = []
@@ -439,13 +450,13 @@ def check_line(src: str, tgt: str, names=(), banned_terms=()) -> list:
         seen_extra.add(value)
         issues.append({"direction": "extra", "kind": "number", "text": text})
 
-    if names:
+    if ordered_names:
         src_norm, tgt_lower = normalize(src), normalize(tgt).lower()
         masked = src_norm
         # Longest forms first, masking each hit, so a full name isn't also
         # re-checked as the shorter name inside it.
-        for src_forms, tgt_forms in sorted(names, key=lambda n: -max(len(f) for f in n[0])):
-            hit = next((f for f in sorted(src_forms, key=len, reverse=True) if f in masked), None)
+        for src_forms, tgt_forms in ordered_names:
+            hit = next((f for f in src_forms if f in masked), None)
             if hit is None:
                 continue
             masked = masked.replace(hit, "\0" * len(hit))
@@ -490,8 +501,9 @@ def find_issues(lines, names=(), banned_terms=()) -> list:
     """[(line, issues)] for every line with a mismatch -- read-only, for
     showing what Auto QC would flag without writing anything."""
     out = []
+    ordered_names = _longest_names_first(names)
     for ln in lines:
-        issues = check_line(ln.zh, ln.en, names, banned_terms)
+        issues = _check_line(ln.zh, ln.en, ordered_names, banned_terms)
         if issues:
             out.append((ln, issues))
     return out
@@ -506,6 +518,7 @@ def run_auto_qc(lines, names=(), banned_terms=()) -> dict:
         replaces another check's flag -- and counted in already_flagged.
     Returns {"flagged", "cleared", "already_flagged", "checked"}."""
     flagged = cleared = already = checked = 0
+    ordered_names = _longest_names_first(names)
     for ln in lines:
         if not (ln.zh or "").strip() or not (ln.en or "").strip():
             if ln.flag == AUTO_QC_FLAG:
@@ -513,7 +526,7 @@ def run_auto_qc(lines, names=(), banned_terms=()) -> dict:
                 cleared += 1
             continue
         checked += 1
-        issues = check_line(ln.zh, ln.en, names, banned_terms)
+        issues = _check_line(ln.zh, ln.en, ordered_names, banned_terms)
         if issues:
             if ln.flag in (None, "", AUTO_QC_FLAG):
                 ln.flag, ln.flag_note = AUTO_QC_FLAG, issue_note(issues)

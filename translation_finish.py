@@ -128,6 +128,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # which the compare-and-set on this run's English would then refuse.
     source_change.save_cleared_flags(drama_id, lines)
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
+    substitute_terms = tguide.build_hard_term_substituter(enforced)
     # One load only: the substitution's compare-and-set guards against
     # edits after this read, so deciding which lines are still the run's
     # from a second, earlier read would let an edit in between through.
@@ -146,7 +147,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         for ln in own_fresh:
             if ln.en:
                 before = ln.en
-                ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
+                ln.en = substitute_terms(ln.en)
                 if ln.en != before:
                     substituted[ln.id] = (before, ln.en)
         # Compare-and-set: an edit saved since the load above is kept too.

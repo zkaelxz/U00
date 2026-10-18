@@ -119,6 +119,15 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
     return requests_, line_rows
 
 
+def _require_batch_engine(provider, engine_choice: str,
+                          hint: str = "bulk mode needs Claude or Gemini"):
+    """The batch provider, or the one error every bulk submit raises for an
+    engine without a batch API (make_provider returns None for those)."""
+    if provider is None:
+        raise ValueError(f"{engine_choice} has no batch API -- {hint}.")
+    return provider
+
+
 def submit_bulk_translation(drama_id: int, lines, engine, engine_choice: str, context: dict,
                             provider=None, translate_args: dict = None, **build_kwargs) -> int:
     """Submits every batch in one provider batch and records it. Returns
@@ -126,9 +135,8 @@ def submit_bulk_translation(drama_id: int, lines, engine, engine_choice: str, co
     failed if submission raises, so a crash mid-submit never leaves a
     batch the app doesn't know about -- except the narrow window between
     the provider accepting it and the id being saved."""
-    provider = provider or make_provider(engine_choice, engine)
-    if provider is None:
-        raise ValueError(f"{engine_choice} has no batch API -- use the off-peak schedule instead.")
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice,
+                                     "use the off-peak schedule instead")
     _copy_english_lines(drama_id, _target_lines(lines, build_kwargs.get("force_retranslate", False)))
     requests_, line_rows = build_bulk_requests(drama_id, lines, provider, context, **build_kwargs)
     if not requests_:
@@ -233,9 +241,7 @@ def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, pro
     bulk. state_fn captures each line's own current .flag/.flag_note, so
     a flag the user set or cleared by hand while the batch was pending is
     kept rather than silently overwritten once results arrive."""
-    provider = provider or make_provider(engine_choice, engine)
-    if provider is None:
-        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
     eligible = translate_engines.flaggable_lines(lines)
     batches = []
     for start in range(0, len(eligible), batch_size):
@@ -254,9 +260,7 @@ def submit_bulk_consistency(drama_id: int, lines: list, engine, engine_choice: s
     per-line "did the user already change this" to guard against; the
     whole-window drop-if-stale check in apply_consistency_results is
     this kind's only staleness guard."""
-    provider = provider or make_provider(engine_choice, engine)
-    if provider is None:
-        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
     eligible = [ln for ln in lines if (ln.en or "").strip()]
     batches = []
     for start in range(0, len(eligible), batch_size):
@@ -272,9 +276,7 @@ def submit_bulk_emotion(drama_id: int, lines: list, engine, engine_choice: str, 
     """Emotion tagging (emotion.detect_emotions), bulk. state_fn captures
     each line's own current tag (if any), same reasoning as
     submit_bulk_flag's."""
-    provider = provider or make_provider(engine_choice, engine)
-    if provider is None:
-        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
     eligible = [ln for ln in lines if (ln.zh or "").strip()]
     existing = db.load_emotions(drama_id)  # keyed by CURRENT idx, same as detect_emotions' own return
     existing_by_id = {ln.id: existing.get(ln.idx) for ln in lines}
@@ -297,9 +299,7 @@ def submit_bulk_translation_notes(drama_id: int, lines: list, engine, engine_cho
     flag/emotion do, so there's no "did the user already change this"
     check to make; a stale line is still dropped in
     apply_notes_results, same as every other kind."""
-    provider = provider or make_provider(engine_choice, engine)
-    if provider is None:
-        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
     eligible = [ln for ln in lines if (ln.en or "").strip()]
     batches = []
     for start in range(0, len(eligible), batch_size):

@@ -258,3 +258,16 @@ def test_flagged_line_restores_from_version_history_like_any_other(isolated_db):
     assert isolated_db.load_lines(did)[0]["flag"] is None
 
 
+
+
+def test_run_auto_qc_orders_names_once_and_matches_check_line():
+    # The short name sits inside the full name: longest-first masking must
+    # still hold when the ordering is hoisted out of the per-line loop.
+    names = [(["阿瑶"], ["Ah Yao"]), (["林阿瑶", "阿瑶小姐"], ["Lin Ayao"])]
+    lines = [Line(idx=0, start=0, end=1, zh="林阿瑶来了", en="She came."),
+             Line(idx=1, start=1, end=2, zh="阿瑶来了", en="She came."),
+             Line(idx=2, start=2, end=3, zh="林阿瑶来了", en="Lin Ayao came.")]
+    expected = [auto_qc.check_line(ln.zh, ln.en, names) for ln in lines]
+    assert [bool(e) for e in expected] == [True, True, False]
+    assert [i for _, i in auto_qc.find_issues(lines, names)] == [e for e in expected if e]
+    assert auto_qc.run_auto_qc(lines, names)["flagged"] == 2
