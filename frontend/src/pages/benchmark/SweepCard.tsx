@@ -14,7 +14,7 @@ import { usePersistedState } from '../../hooks/usePersistedState'
 import type { JobRecord } from '../../types/jobs'
 import { BenchSection } from './BenchSection'
 import { JobProgress } from './RunCard'
-import { formatScore, formatWhen, plainError, runningStatus } from './benchmarkForm'
+import { formatCost, formatScore, formatWhen, plainError, runningStatus } from './benchmarkForm'
 import {
   SWEEP_LANGUAGES, canDecide, cerPoints, formatSweepTime, passesLine, recommendationLabel, recommendationTone, startLabel,
   startProblem, stepLabel, sweepKey, sweepSets, sweepStatusLabel, sweepStatusTone,
@@ -174,7 +174,11 @@ function SweepEstimateBlock({ est }: { est: SweepEstimate }) {
     <div className="bench-estimate" data-testid="sweep-estimate">
       <p>
         <strong>{est.passes_to_run} {est.passes_to_run === 1 ? 'pass' : 'passes'} to run, {formatSweepTime(est.estimated_seconds)}</strong>
-        <span className="muted"> ({est.use_gpu ? 'GPU' : 'CPU'}, runs on this PC; nothing is spent)</span>
+        <span className="muted"> ({est.use_gpu ? 'GPU' : 'CPU'}, runs on this PC)</span>
+      </p>
+      <p className="muted" data-testid="sweep-cost">
+        Cost {formatCost(est.estimated_cost_usd)}: transcription runs on this PC, so{' '}
+        {est.monthly_cap_usd > 0 ? `the ${formatCost(est.monthly_cap_usd)} monthly cap for paid engines` : 'the monthly cap for paid engines'} doesn&apos;t apply.
       </p>
       {est.passes_done > 0 && (
         <p className="muted">{est.passes_done} {est.passes_done === 1 ? 'pass has' : 'passes have'} already run on these clips and will be skipped.</p>
@@ -373,6 +377,21 @@ function DecideBlock({ sweep, remote, onDecided }: { sweep: Sweep; remote: boole
   }
   return (
     <div className="sweep-decide">
+      {can.approve && sweep.applies && sweep.applies.length > 0 && (
+        <div data-testid="sweep-applies">
+          <p>
+            Approving saves a setting profile and changes no title. A title gets these settings only when you apply the profile to it:
+          </p>
+          <ul className="bench-estimate-list" aria-label="What applying the profile sets on a title">
+            {sweep.applies.map((a) => (
+              <li key={a.key}>
+                <span>{a.label}</span>
+                <span className="num">{a.value}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <Field label="Why?" help="Kept with the decision.">
         <input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="Optional" />
       </Field>

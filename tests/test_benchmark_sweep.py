@@ -16,7 +16,7 @@ import whisper_transcribe
 from jobs import job_launch
 from services import benchmark_lab_service as lab
 from services import benchmark_sweep_service as sweep
-from services import model_readiness_service
+from services import model_readiness_service, translate_preset_service
 from services.service_errors import ConflictError, DependencyUnavailableError, UnsupportedOperationError
 
 REF = "你好世界今天天气很好"
@@ -253,6 +253,29 @@ class TestDecision:
         # Model re-evaluation's own list stays its own.
         assert db.list_model_decisions("translation") == []
         assert sweep.list_decisions()["decisions"][0]["setup"] == "large-v3-turbo, Beam size 3"
+
+    def test_the_card_is_told_exactly_what_applying_writes_and_approving_touches_no_title(
+            self, isolated_db, recogniser):
+        _cases()
+        _sweep()
+        did = db.create_drama(title_zh="D", source_language="zh", translation_engine="ollama")
+        before = db.get_drama(did)
+        applies = sweep.get_sweep()["sweep"]["applies"]
+        by_key = {a["key"]: a["value"] for a in applies}
+        assert by_key["whisper_size"] == "large-v3-turbo" and by_key["beam_size"] == "3"
+        assert by_key["include_genre_notes"] == "on" and by_key["default_female_pronouns"] == "off"
+        decided = sweep.decide("approve")["sweep"]
+        assert decided["decision"]["applies"] == applies and "applies" not in sweep.get_sweep()["sweep"]
+        assert db.get_drama(did) == before
+        (d,) = db.list_model_decisions(sweep.DECISION_CAPABILITY)
+        scores = json.loads(d["scores"])
+        assert scores["decided_by"] == "owner at this PC" and scores["sweep_id"] == decided["id"]
+        assert scores["holdout"]["winner_run_id"] and scores["applies"] == applies
+        # Applying the saved profile writes those settings and no others.
+        translate_preset_service.apply_translate_preset(did, decided["decision"]["profile"]["id"])
+        after = db.get_drama(did)
+        changed = {k for k in after if after[k] != before[k]} - {"translate_start_json", "updated_at"}
+        assert changed <= set(by_key)
 
     def test_a_decision_is_made_once(self, isolated_db, recogniser):
         _cases()

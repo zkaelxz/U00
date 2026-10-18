@@ -21,7 +21,7 @@ export const estimate = {
       reason: "The vocal separation model isn't downloaded yet. Run Separate vocals first once on a title; the sweep does not download it." },
   ],
   not_swept: ['Initial prompt: a title builds it from its glossary, and the Lab has no glossary to build it from.'],
-  passes_done: 3, passes_to_run: 9, estimated_seconds: 2700, estimated_cost_usd: 0, monthly_refusal: null,
+  passes_done: 3, passes_to_run: 9, estimated_seconds: 2700, estimated_cost_usd: 0, monthly_cap_usd: 20, monthly_refusal: null,
 }
 const step = (s: string, value: unknown, half: string, setup: string, score: number, kept: boolean | null, run_id: number) =>
   ({ step: s, value, half, setup, run_id, score, errors: 0, kept })
@@ -29,6 +29,15 @@ export const finished: Record<string, unknown> = {
   id: 'abc', set_name: 'My drama clips', language: 'zh', use_gpu: true, status: 'done',
   started_at: '2026-10-18T01:00:00', finished_at: '2026-10-18T02:00:00', note: null, passes_run: 9, passes_reused: 3,
   estimate: null, decision: null,
+  applies: [
+    { key: 'translation_engine', label: 'Translation engine', value: 'claude' },
+    { key: 'asr_backend_choice', label: 'Speech recognizer', value: 'whisper' },
+    { key: 'whisper_size', label: 'Whisper model', value: 'large-v3' },
+    { key: 'min_silence_ms', label: 'Minimum silence (ms)', value: '500' },
+    { key: 'include_genre_notes', label: 'Genre notes in the prompt', value: 'on' },
+    { key: 'default_female_pronouns', label: 'Default to she/her', value: 'off' },
+    { key: 'translate_start', label: 'Translate form starting style and model', value: "back to the engine's defaults" },
+  ],
   recommendation: {
     state: 'adopt', noise: 0.004, margin: 0.02,
     text: 'The winner also beats the default on the held-out titles by the margin. Approve to save it as a setting profile.',

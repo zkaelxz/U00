@@ -8,7 +8,7 @@ const set = (over: Partial<BenchmarkSet>): BenchmarkSet => ({ stage: 'transcript
 const est = (over: Partial<SweepEstimate> = {}): SweepEstimate => ({
   set_name: 's', language: 'zh', use_gpu: true, tuning_cases: 7, holdout_cases: 3, tuning_titles: 3, holdout_titles: 1,
   audio_seconds: 120, durations_guessed: false, small_set: true, min_set_cases: 50, models: [], knobs: [], not_swept: [],
-  passes_done: 0, passes_to_run: 18, estimated_seconds: 600, estimated_cost_usd: 0, monthly_refusal: null, ...over,
+  passes_done: 0, passes_to_run: 18, estimated_seconds: 600, estimated_cost_usd: 0, monthly_cap_usd: 0, monthly_refusal: null, ...over,
 })
 
 const rec = (state: SweepRecommendation['state']): SweepRecommendation => ({

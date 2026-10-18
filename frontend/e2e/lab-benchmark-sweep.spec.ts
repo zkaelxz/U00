@@ -27,6 +27,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     await expect(est).toContainText('9 passes to run, about 45 min')
     await expect(est).toContainText('3 passes have already run on these clips and will be skipped.')
     await expect(est).toContainText('Held out to confirm: 2 titles')
+    await expect(card.getByTestId('sweep-cost')).toHaveText("Cost $0.00: transcription runs on this PC, so the $20.00 monthly cap for paid engines doesn't apply.")
     await expect(est.getByRole('list', { name: 'Left out of this sweep' })).toContainText("large-v3-turbo left out: large-v3-turbo isn't downloaded")
     if (SHOTS) await card.screenshot({ path: `${SHOTS}/sweep-estimate-${theme}-desktop.png`, style: NO_HEADER })
 
@@ -61,6 +62,11 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     const tags = rec.getByRole('table', { name: 'Held-out score by tag' })
     await expect(tags.getByRole('row', { name: /music/ })).toContainText('Too few clips to decide')
     await expect(tags.getByRole('row', { name: /quiet/ })).not.toContainText('Too few')
+    const applies = card.getByRole('list', { name: 'What applying the profile sets on a title' })
+    await expect(card.getByTestId('sweep-applies')).toContainText('changes no title')
+    await expect(applies.getByRole('listitem')).toHaveCount(7)
+    await expect(applies).toContainText('Translation engineclaude')
+    await expect(applies).toContainText('Default to she/heroff')
     if (SHOTS) await card.screenshot({ path: `${SHOTS}/sweep-recommendation-${theme}-desktop.png`, style: NO_HEADER })
 
     await card.getByLabel('Why?', { exact: true }).fill('fewer split lines')
@@ -68,6 +74,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     expect(decided).toBeNull()
     await card.getByRole('button', { name: 'Save as a setting profile' }).click()
     await expect(card.getByTestId('sweep-decision')).toContainText('Saved as the profile “Sweep My drama clips (zh) 2026-10-18 02:05”')
+    await expect(card.getByTestId('sweep-applies')).toHaveCount(0)
     expect(decided).toEqual({ decision: 'approve', reason: 'fewer split lines', confirm: true })
     if (SHOTS) await card.screenshot({ path: `${SHOTS}/sweep-approved-${theme}-desktop.png`, style: NO_HEADER })
   })

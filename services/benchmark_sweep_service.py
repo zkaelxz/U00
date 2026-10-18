@@ -39,8 +39,8 @@ import whisper_models
 from core import SOURCE_LANGUAGES
 from jobs import job_launch
 from services import benchmark_lab_service as lab
-from services import (model_readiness_service, settings_service, transcribe_options_service,
-                      transcribe_speed_service, translate_preset_service)
+from services import (model_readiness_service, profile_service, series_defaults_service, settings_service,
+                      transcribe_options_service, transcribe_speed_service, translate_preset_service)
 from services.benchmark_case_service import backend_problem, ignored_options, redact
 from services.benchmark_runs_service import session_out, setup_key
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
@@ -132,6 +132,10 @@ def get_sweep() -> dict:
     if record.get("status") in ("queued", "running") and status not in ("queued", "running"):
         record = dict(record, status="interrupted",
                       note="The app stopped during the sweep. Start it again to resume.")
+    rec = record.get("recommendation") or {}
+    if record.get("status") == "done" and rec.get("state") == "adopt" and not record.get("decision"):
+        # Read now, not at the sweep's end: the profile takes the Settings default engine as it is when approved.
+        record = dict(record, applies=_applies(record["language"], rec["winner"]))
     return {"sweep": record}
 
 
@@ -426,7 +430,8 @@ def estimate(set_name: str, language: str, use_gpu: bool = None) -> dict:
         "small_set": len(plan.tuning) + len(plan.holdout) < MIN_SET_CASES, "min_set_cases": MIN_SET_CASES,
         "models": plan.models, "knobs": plan.knobs, "not_swept": list(NOT_SWEPT),
         "passes_done": done, "passes_to_run": len(todo), "estimated_seconds": round(seconds),
-        "estimated_cost_usd": lab_cost["estimated_cost_usd"], "monthly_refusal": lab_cost["monthly_refusal"],
+        "estimated_cost_usd": lab_cost["estimated_cost_usd"], "monthly_cap_usd": lab_cost["monthly_cap_usd"],
+        "monthly_refusal": lab_cost["monthly_refusal"],
     }
 
 
@@ -590,6 +595,33 @@ def _profile_options(winner: dict) -> dict:
     return options
 
 
+# What save_translate_preset stores besides the options: the column defaults of a new profile.
+_PROFILE_TOGGLES = {"include_genre_notes": True, "default_female_pronouns": False}
+
+
+def _applies(language: str, winner: dict) -> list:
+    """Exactly what applying the approved profile writes on a title of this language, in the
+    words of the title's settings, so the owner sees it before approving. Worked out by the
+    same plan the apply route runs, from the profile as it would be saved."""
+    engine = settings_service.get("default_engine")
+    options = profile_service.validate_options(_profile_options(winner))
+    preset = {"translation_engine": engine, "engine_model": None, "style_preset": None,
+              "options_json": profile_service.dump_options(options),
+              **{k: int(v) for k, v in _PROFILE_TOGGLES.items()}}
+    columns = profile_service.plan(preset, {"source_language": language})["columns"]
+    out = []
+    for key, value in columns.items():
+        if key == "translate_start_json":
+            continue
+        spec = series_defaults_service.SETTINGS.get(key, {})
+        if spec.get("type") == "bool":
+            value = bool(value)
+        out.append({"key": key, "label": spec.get("label", key), "value": _value_text(value)})
+    out.append({"key": "translate_start", "label": "Translate form starting style and model",
+                "value": "back to the engine's defaults"})
+    return out
+
+
 def decide(decision: str, reason: str = "") -> dict:
     """The owner's call on the finished sweep's recommendation. "approve" (only for a
     recommendation that held up on the hold-out) saves the winner as a setting profile, which a
@@ -611,21 +643,27 @@ def decide(decision: str, reason: str = "") -> dict:
             raise UnsupportedOperationError("The winner did not hold up on the held-out titles, so it can't be approved.")
         winner = rec["winner"]
         profile = None
+        applies = _applies(record["language"], winner) if decision == "approve" else None
         if decision == "approve":
             name = f"Sweep {record['set_name']} ({record['language']}) {_now()[:16].replace('T', ' ')}"[:100]
             try:
                 saved = translate_preset_service.save_translate_preset(
-                    name, settings_service.get("default_engine"), options=_profile_options(winner))
+                    name, settings_service.get("default_engine"), options=_profile_options(winner),
+                    **_PROFILE_TOGGLES)
             except ConflictError:
                 raise ConflictError("A profile with this name already exists; try again in a minute.") from None
             profile = {"id": saved["preset"]["id"], "name": name}
         candidate_id = _decision_candidate(record["language"], winner)
         verdict = "promoted" if decision == "approve" else "rejected"
         scores = {k: rec.get(k) for k in ("noise", "margin", "tuning", "holdout", "tags", "case_counts")}
-        db.record_model_decision(candidate_id, verdict, reason,
-                                 json.dumps({**scores, "set_name": record["set_name"], "profile": profile}))
+        # The decision route is PC only, so whoever decided is the owner sitting at this PC.
+        decided_by = "owner at this PC"
+        db.record_model_decision(candidate_id, verdict, reason, json.dumps({
+            **scores, "sweep_id": record.get("id"), "set_name": record["set_name"],
+            "language": record["language"], "decided_by": decided_by, "profile": profile, "applies": applies}))
         db.set_model_candidate_status(candidate_id, verdict)
-        record["decision"] = {"decision": verdict, "reason": reason, "decided_at": _now(), "profile": profile}
+        record["decision"] = {"decision": verdict, "reason": reason, "decided_at": _now(),
+                              "decided_by": decided_by, "profile": profile, "applies": applies}
         _save_record(record)
     return {"sweep": record}
 

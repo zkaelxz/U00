@@ -46,7 +46,7 @@ __all__ = [
     "BenchmarkSweepHoldout",
     "BenchmarkSweepRecommendation",
     "BenchmarkSweepProfile",
-    "BenchmarkSweepDecision",
+    "BenchmarkSweepApplies", "BenchmarkSweepDecision",
     "BenchmarkSweep",
     "BenchmarkSweepState",
     "BenchmarkSweepStarted",
@@ -341,6 +341,7 @@ class BenchmarkSweepEstimate(BaseModel):
     passes_to_run: int
     estimated_seconds: int
     estimated_cost_usd: float
+    monthly_cap_usd: float = 0.0
     monthly_refusal: Optional[str] = None
 
 
@@ -402,11 +403,20 @@ class BenchmarkSweepProfile(BaseModel):
     name: str
 
 
+class BenchmarkSweepApplies(BaseModel):
+    """One title setting the approved profile writes when it is applied to a title."""
+    key: str
+    label: str
+    value: str
+
+
 class BenchmarkSweepDecision(BaseModel):
     decision: Literal["promoted", "rejected"]
     reason: str = ""
     decided_at: Optional[str] = None
+    decided_by: Optional[str] = None
     profile: Optional[BenchmarkSweepProfile] = None
+    applies: Optional[List[BenchmarkSweepApplies]] = None
 
 
 class BenchmarkSweep(BaseModel):
@@ -422,6 +432,7 @@ class BenchmarkSweep(BaseModel):
     passes_reused: int = 0
     recommendation: Optional[BenchmarkSweepRecommendation] = None
     decision: Optional[BenchmarkSweepDecision] = None
+    applies: Optional[List[BenchmarkSweepApplies]] = None
     estimate: Optional[Dict[str, int]] = None
 
 

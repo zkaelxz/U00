@@ -569,6 +569,7 @@ export interface SweepEstimate {
   passes_to_run: number
   estimated_seconds: number
   estimated_cost_usd: number
+  monthly_cap_usd: number
   monthly_refusal: string | null
 }
 
@@ -627,11 +628,20 @@ export interface SweepRecommendation {
   small_set: boolean
 }
 
+/** One title setting the approved profile writes when it is applied to a title. */
+export interface SweepApplies {
+  key: string
+  label: string
+  value: string
+}
+
 export interface SweepDecision {
   decision: 'promoted' | 'rejected'
   reason: string
   decided_at: string | null
+  decided_by?: string | null
   profile: { id: number; name: string } | null
+  applies?: SweepApplies[] | null
 }
 
 export type SweepStatus = 'queued' | 'running' | 'done' | 'cancelled' | 'failed' | 'interrupted'
@@ -649,6 +659,8 @@ export interface Sweep {
   passes_reused: number
   recommendation: SweepRecommendation | null
   decision: SweepDecision | null
+  /** While the winner waits for a decision: what approving it would let a title get. */
+  applies?: SweepApplies[] | null
   estimate: Record<string, number> | null
 }
 
