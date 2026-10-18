@@ -1,22 +1,31 @@
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { useHolds } from '../../hooks/useHolds'
-import { routeHref } from '../../router'
+import { useReadiness } from '../../hooks/useReadiness'
+import { firstRunSteps } from './getStartedLogic'
 
-// The first-run view of an empty Library: the way to make subtitles from a
-// file, and the ways to find a title instead of bringing one.
-export function GetStarted({ canCreate, onDismiss }: { canCreate: boolean; onDismiss: () => void }) {
+// The first-run view of an empty Library: the few things to do before the first title.
+export function GetStarted({ canCreate, onHide }: { canCreate: boolean; onHide: () => void }) {
   // Installing is the admin's job; a member would only land on a page that says so.
   const canSetUp = useHolds('admin.diagnostics')
+  const { readiness } = useReadiness()
+  const steps = firstRunSteps({ canSetUp, canCreate, readiness, totalDramas: 0 })
   return (
     <section className="get-started" aria-label="Get started">
-      <p className="muted">No titles yet. Bring an audio or video file, or find one.</p>
+      <p className="muted">No titles yet.</p>
+      <ol className="get-started-steps">
+        {steps.map((s) => (
+          <li key={s.id} className="get-started-step">
+            {!s.done && s.href
+              ? <ButtonLink variant={s.id === 'subtitles' ? 'primary' : 'secondary'} href={s.href}>{s.label}</ButtonLink>
+              : <span>{s.label}</span>}
+            {s.done && <span className="muted">Done</span>}
+            {!s.done && !s.href && <span className="muted">Ask the person who runs Baihe</span>}
+          </li>
+        ))}
+      </ol>
       <div className="actions">
-        {canCreate && <ButtonLink variant="primary" href={routeHref({ name: 'make-subtitles' })}>Make subtitles</ButtonLink>}
-        <ButtonLink variant="secondary" href="#/discover">Discover</ButtonLink>
-        <ButtonLink variant="secondary" href="#/sources">Sources</ButtonLink>
-        {canSetUp && <ButtonLink variant="secondary" href={routeHref({ name: 'diagnostics', card: 'recommended' })}>Recommended installs</ButtonLink>}
-        <button type="button" className={buttonClass('ghost')} onClick={onDismiss}>Dismiss</button>
+        <button type="button" className={buttonClass('ghost')} onClick={onHide}>Hide</button>
       </div>
     </section>
   )
