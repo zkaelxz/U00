@@ -321,17 +321,39 @@ function ConfigRow({ stage, options, config, index, onChange }: {
     )
   }
   if (stage === 'ocr') {
+    const visionEngines = options.translation_engines.filter((e) => options.vision_engines.includes(e.name))
+    const vision = visionEngines.find((e) => e.name === config.engine)
     return (
-      <>
+      <div className="bench-config-fields">
         <Field label={`OCR backend ${n}`}>
           <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value })}>
             {options.ocr_backends.map((b) => (
               <option key={b} value={b}>{OCR_LABELS[b] ?? b}{ocrBackendNeed(readiness, b) ? ' (not installed)' : ''}</option>
             ))}
+            {visionEngines.length > 0 && (
+              <optgroup label="Vision models">
+                {visionEngines.map((e) => (
+                  <option key={e.name} value={e.name}>{engineOptionLabel(e)}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </Field>
+        {vision?.models && (
+          <Field label={`Model ${n}`}>
+            <select
+              value={config.model ?? ''}
+              onChange={(e) => onChange(e.target.value ? { engine: config.engine, model: e.target.value } : { engine: config.engine })}
+            >
+              <option value="">Default</option>
+              {vision.models.map((m) => (
+                <option key={m} value={m}>{modelOptionLabel(vision, m)}</option>
+              ))}
+            </select>
+          </Field>
+        )}
         {ocrNeed && <NeedsInstall need={ocrNeed} />}
-      </>
+      </div>
     )
   }
   const engine = options.translation_engines.find((e) => e.name === config.engine)
@@ -455,7 +477,7 @@ export function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: B
       <p>
         <strong>Estimate for {est.case_count} {est.case_count === 1 ? 'case' : 'cases'}:</strong>{' '}
         <span className="num">{formatCost(est.estimated_cost_usd)}</span>
-        {stage !== 'translation' && <span className="muted"> (runs on this PC; nothing is spent)</span>}
+        {stage !== 'translation' && est.estimated_cost_usd === 0 && <span className="muted"> (runs on this PC; nothing is spent)</span>}
       </p>
       <ul className="bench-estimate-list">
         {est.configs.map((c, i) => (

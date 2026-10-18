@@ -169,6 +169,13 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
         base_url=((settings_service.resolve_key("ollama_url") or None)
                   if engine_name == "ollama" else None))
 
+    text, _usage = _send(engine, engine_name, use_free_tier, data, mime, width, height, language)
+    return {"text": text} if text else {"text": "", "message": NO_TEXT_MESSAGE}
+
+
+def _send(engine, engine_name: str, use_free_tier: bool, data: bytes, mime: str,
+          width: int, height: int, language: str) -> tuple:
+    """(text, usage) for one prepared picture, logging exactly one usage row."""
     metered = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
     lock = threading.Lock()
     logged = []
@@ -185,7 +192,7 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
         paid_calls.record_call(engine, engine_name, "read_image_text", usage, metered=metered)
 
     try:
-        text, _usage = translate_engines.read_image_text(engine, data, mime, language, on_done=log)
+        return translate_engines.read_image_text(engine, data, mime, language, on_done=log)
     except translate_engines.OllamaUnavailableError as exc:
         raise DependencyUnavailableError(
             translate_engines.redact_secrets(exc.message), details={"reason": exc.reason}) from None
@@ -193,4 +200,24 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
         tokens_in, tokens_out = _tokens(engine_name, width, height)
         log({"input_tokens": tokens_in, "output_tokens": tokens_out})
         raise
-    return {"text": text} if text else {"text": "", "message": NO_TEXT_MESSAGE}
+
+
+def read_stored_image(engine, engine_name: str, model: Optional[str], content: bytes,
+                      language: str, use_free_tier: bool, budget: Optional[float] = None) -> dict:
+    """One read of a picture the app already holds (a Lab case), with an engine the
+    caller built. {"text", "cost_usd"}, or {"over_budget": True} without sending when
+    the worst-case price is more than `budget`. Raises like read_image; a failed
+    request still costs its worst-case price (exc.cost_usd), since a paid provider
+    may have billed it."""
+    data, mime, width, height = _prepared(content)
+    worst = _estimate(engine_name, model, use_free_tier, width, height)["estimated_usd"]
+    if budget is not None and worst > budget:
+        return {"over_budget": True}
+    try:
+        text, usage = _send(engine, engine_name, use_free_tier, data, mime, width, height, language)
+    except BaseException as exc:
+        exc.cost_usd = worst
+        raise
+    cost = translate_engines.estimate_cost_for_engine(
+        engine, usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0)
+    return {"text": text, "cost_usd": cost}
