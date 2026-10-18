@@ -5,6 +5,7 @@ import {
   advancedSummary,
   checkOcrImages,
   isDirectAudioUrl,
+  isDirectMediaUrl,
   isVideoFile,
   ocrBackendOptions,
   runOptionProblem,
@@ -125,5 +126,14 @@ describe('isDirectAudioUrl', () => {
     expect(isDirectAudioUrl('https://a.example/watch?v=x.mp3')).toBe(false)
     expect(isDirectAudioUrl('https://a.example/.mp3')).toBe(false)
     expect(isDirectAudioUrl('not a url')).toBe(false)
+  })
+})
+
+describe('isDirectMediaUrl', () => {
+  it('accepts audio and video file links, not video pages', () => {
+    expect(isDirectMediaUrl('https://a.example/x/ep.mp4?t=1')).toBe(true)
+    expect(isDirectMediaUrl('https://a.example/x/ep.mp3')).toBe(true)
+    expect(isDirectMediaUrl('https://www.youtube.com/watch?v=abc')).toBe(false)
+    expect(isDirectMediaUrl('not a url')).toBe(false)
   })
 })

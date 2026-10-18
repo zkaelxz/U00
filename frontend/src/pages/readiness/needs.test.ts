@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { SetupReadiness } from '../../types/setup'
 import {
-  ankiNeed, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
-  scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
+  ankiNeed, cardAudioNeed, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
 // A fresh GPU server: almost nothing optional is installed.
@@ -240,5 +240,33 @@ describe('Export, Live, Reader and Review needs', () => {
     expect(ankiNeed(READY)).toBeNull()
     expect(senseVoiceNeed(false)).toMatchObject({ packages: ['funasr'], action: 'diagnostics' })
     expect(senseVoiceNeed(true)).toBeNull()
+  })
+})
+
+describe('urlDownloadNeeds', () => {
+  const ready = { ffmpeg: true, yt_dlp: true } as SetupReadiness
+  it('needs nothing when unknown or installed', () => {
+    expect(urlDownloadNeeds(null, false)).toEqual([])
+    expect(urlDownloadNeeds(ready, false)).toEqual([])
+  })
+  it('names yt-dlp for a video page but not for a plain file link', () => {
+    const r = { ...ready, yt_dlp: false }
+    expect(urlDownloadNeeds(r, false).map((n) => n.id)).toEqual(['yt_dlp'])
+    expect(urlDownloadNeeds(r, true)).toEqual([])
+  })
+  it('names ffmpeg for either kind of link', () => {
+    const r = { ...ready, ffmpeg: false }
+    expect(urlDownloadNeeds(r, true).map((n) => n.id)).toEqual(['ffmpeg'])
+    expect(urlDownloadNeeds(r, false).map((n) => n.id)).toEqual(['ffmpeg'])
+  })
+})
+
+describe('cardAudioNeed', () => {
+  it('is a suggestion when FFmpeg is missing and silent when unknown or present', () => {
+    expect(cardAudioNeed(null)).toBeNull()
+    expect(cardAudioNeed({ ffmpeg: true } as SetupReadiness)).toBeNull()
+    const n = cardAudioNeed({ ffmpeg: false } as SetupReadiness)
+    expect(n?.recommended).toBe(true)
+    expect(n?.reason).toContain('no audio clips')
   })
 })

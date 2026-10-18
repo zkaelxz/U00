@@ -17,12 +17,15 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { useJob } from '../../../hooks/useJob'
+import { refreshReadiness, useReadiness } from '../../../hooks/useReadiness'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
+import { NeedsInstall } from '../../readiness/NeedsInstall'
+import { urlDownloadNeeds } from '../../readiness/needs'
 import {
   EXACT_CUTS_HELP, MAX_URL_LEN, PART_CLIP_NOTE, QUEUE_NOTE, downloadReason, partProblem,
 } from '../../sources/urlImportFormat'
-import { SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl } from '../sourceForm'
+import { SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl, isDirectMediaUrl } from '../sourceForm'
 import './urlDownload.css'
 
 export const URL_PC_ONLY = 'Downloading from a link is PC only for now.'
@@ -43,6 +46,7 @@ const needsConfirm = (e: unknown) =>
 
 export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSubtitles, url: fixedUrl, busy, onStarted }: Props) {
   const pc = usePcOnly()
+  const { readiness } = useReadiness()
   // The link and Audio only as last left for this title; Replace is never kept.
   const { draft, save: saveDraft } = useStageDraft(dramaId, URL_DRAFT_STAGE, URL_DRAFT_SHAPE)
   const [typed, setTyped] = useState(draft.url ?? '')
@@ -70,7 +74,9 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
   const url = fixedUrl ?? typed
   const audioThere = hasAudio || serverHasAudio
   const partReason = partProblem(partStart, partEnd)
-  const reason = downloadReason(url, audioThere, replace) ?? partReason
+  // Unknown readiness needs nothing: the server still refuses what cannot run.
+  const needs = urlDownloadNeeds(readiness, isDirectMediaUrl(url))
+  const reason = downloadReason(url, audioThere, replace) ?? partReason ?? (needs.length ? 'Still needed: set up what is listed below.' : null)
   const hasPart = partStart.trim() !== '' || partEnd.trim() !== ''
   // The server's own words for why it refused (services/url_media_service.py failed_reason).
   const refusedFor = job?.status === 'error' ? (job.result as { failed_reason?: string } | null | undefined)?.failed_reason : undefined
@@ -201,6 +207,9 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
         )}
         {busy && <span className="muted">Wait for the running job to finish.</span>}
       </div>
+      {needs.map((n) => (
+        <NeedsInstall key={n.id} need={n} onInstalled={() => void refreshReadiness()} />
+      ))}
       <p className="muted">{QUEUE_NOTE}</p>
       {refusedFor === 'too_long' && !busy && (
         <div className="url-download-long" data-testid="url-download-long">

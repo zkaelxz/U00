@@ -13,10 +13,11 @@ import type { ReaderVocabList } from '../../types/reader'
 import type { GlossaryTerm } from '../../types/translateStage'
 import type { TranslateEngine } from '../../types/translate'
 import { NeedsInstall } from '../readiness/NeedsInstall'
-import { ankiNeed, wordSplitterNeed } from '../readiness/needs'
+import { ankiNeed, cardAudioNeed, wordSplitterNeed } from '../readiness/needs'
 import { ActionError, EditInTranslate } from './ReaderAction'
 import { useAction } from './useReaderAction'
 import { EnginePicker } from './ReaderEngine'
+import { lookupSummary } from './lookupSummary'
 
 const isText = (v: unknown): v is string | null => typeof v === 'string'
 
@@ -46,7 +47,7 @@ export function WordsSection({ dramaId, page, chapterSize, language, engines, en
       use_llm: useLlm,
       ...(useLlm && engine ? { engine } : {}),
     })
-    setResult(r.saved === 1 ? 'Saved 1 definition.' : `Saved ${r.saved} definitions.`)
+    setResult(lookupSummary(r.saved, language, useLlm))
     onLookedUp()
   })
   return (
@@ -88,6 +89,7 @@ export function VocabSection({ dramaId, vocab, onChanged }: {
   const [notes, setNotes] = useState<string[]>([])
   const { readiness } = useReadiness()
   const anki = ankiNeed(readiness)
+  const noClips = cardAudioNeed(readiness)
   const queued = vocab.words.filter((w) => w.export_rich)
   const open = vocab.words.filter((w) => !w.export_rich)
 
@@ -165,6 +167,7 @@ export function VocabSection({ dramaId, vocab, onChanged }: {
         </button>
       </div>
       {anki && <NeedsInstall need={anki} />}
+      {!anki && noClips && <NeedsInstall need={noClips} />}
       {queued.length === 0 && <p className="muted">Still needed for sentence cards: at least one queued word.</p>}
       {notes.length > 0 && <p className="muted" role="status">{notes.join(' ')}</p>}
       <ActionError action={deck} />

@@ -174,7 +174,7 @@ export default function ExportStage() {
         <MarkExported />
       </section>
       {exportBlockOrder(kind).map((id) => blocks[id])}
-      <ExportJellyfin field={form.field} />
+      <ExportJellyfin field={form.field} inputs={inputs} />
     </div>
   )
 }
