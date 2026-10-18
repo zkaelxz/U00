@@ -46,6 +46,12 @@ export function TranslateReadImage({
   allowed,
   onText,
   onClose,
+  frame,
+  heading = 'Read from a screenshot',
+  hint = 'Paste a picture (Ctrl+V), drop one here, or choose a file. An AI model reads the characters in it and adds them to the text box. The picture is not kept.',
+  readLabel = 'Read the text',
+  keepBox = false,
+  addedNotice = 'Added to the text box.',
 }: {
   engines: TranslateEngine[]
   pageEngine: string
@@ -55,6 +61,14 @@ export function TranslateReadImage({
   allowed: boolean
   onText: (read: string) => void
   onClose: () => void
+  /** A picture handed in by the page (a video frame); a new `seq` loads it again. */
+  frame?: { blob: Blob; seq: number } | null
+  heading?: string
+  hint?: string
+  readLabel?: string
+  /** Keep the dragged box when a new picture arrives, for frames of one video. */
+  keepBox?: boolean
+  addedNotice?: string
 }) {
   const id = useId()
   const [enginePref, setEnginePref] = usePersistedState('translate.vision.engine', '')
@@ -89,7 +103,7 @@ export function TranslateReadImage({
     const url = URL.createObjectURL(file)
     const probe = new Image()
     probe.onload = () => {
-      setRect(null)
+      if (!keepBox) setRect(null)
       setSource({ url, width: probe.naturalWidth, height: probe.naturalHeight })
     }
     probe.onerror = () => {
@@ -98,6 +112,11 @@ export function TranslateReadImage({
     }
     probe.src = url
   }
+
+  useEffect(() => {
+    if (frame) load(new File([frame.blob], 'frame.png', { type: frame.blob.type || 'image/png' }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new frame is a new seq
+  }, [frame?.seq])
 
   // Ctrl+V anywhere on the page while the panel is shown, so a screenshot can be pasted without focusing anything.
   useEffect(() => {
@@ -144,7 +163,7 @@ export function TranslateReadImage({
       const blob = await croppedPng(img, plan)
       const done = await translateApi.readImage(blob, { engine, model: model || null, language })
       if (done.text) onText(done.text)
-      setNotice(done.text ? 'Added to the text box.' : (done.message ?? 'No text was found in the picture.'))
+      setNotice(done.text ? addedNotice : (done.message ?? 'No text was found in the picture.'))
     } catch (err) {
       setError(err)
     } finally {
@@ -153,16 +172,15 @@ export function TranslateReadImage({
   }
 
   return (
-    <div className="translate-read translate-read-open" id={id} role="group" aria-label="Read from a screenshot">
+    <div className="translate-read translate-read-open" id={id} role="group" aria-label={heading}>
       <div className="translate-read-head">
-        <strong>Read from a screenshot</strong>
+        <strong>{heading}</strong>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>
           Close
         </button>
       </div>
       <p className="muted translate-read-hint">
-        Paste a picture (Ctrl+V), drop one here, or choose a file. An AI model reads the characters in it and adds
-        them to the text box. The picture is not kept.
+        {hint}
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <div
@@ -266,7 +284,7 @@ export function TranslateReadImage({
       </div>
       <div className="actions">
         <button type="button" className={buttonClass('primary')} disabled={!source || busy || noKey || !allowed || !engine} onClick={() => void read()}>
-          {busy ? 'Reading…' : 'Read the text'}
+          {busy ? 'Reading…' : readLabel}
         </button>
         {plan && <span className="muted">Sends {plan.outW}×{plan.outH} px</span>}
       </div>
