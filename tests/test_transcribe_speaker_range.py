@@ -118,3 +118,20 @@ def test_run_route_refuses_bad_ranges(client, isolated_db, captured, body, statu
     r = client.post(f"/api/transcribe/dramas/{did}/run", json=body)
     assert r.status_code == status, r.text
     assert captured == {}
+
+
+@pytest.mark.parametrize("fields,kw,error", [
+    ({"content_mode": "novel_narration"}, {}, "no audio pipeline"),
+    ({}, {"source_language": "xx"}, "Unknown source_language"),
+    ({}, {"chinese_script": "klingon"}, "Unknown chinese_script"),
+    ({"transcript_mode": "have_transcript"}, {}, "no transcript_text was supplied"),
+])
+def test_the_start_and_the_pre_check_refuse_the_same_request_alike(isolated_db, captured, fields, kw, error):
+    did, _ = _drama(isolated_db)
+    isolated_db.update_drama(did, **fields)
+    with pytest.raises(Exception, match=error) as started:
+        transcribe_service.start_transcribe_run(did, **kw)
+    with pytest.raises(Exception, match=error) as checked:
+        transcribe_options_service.validate_transcribe_options(did, **kw)
+    assert type(started.value) is type(checked.value) and str(started.value) == str(checked.value)
+    assert captured == {}

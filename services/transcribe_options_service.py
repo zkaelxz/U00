@@ -289,6 +289,45 @@ def _require_vad_packages() -> None:
 _CHINESE_SCRIPTS = ("simplified", "traditional")
 
 
+def _check_run_request(drama: dict, source_language, chinese_script, transcript_text,
+                       expected_speakers, min_speakers, max_speakers, require_media=None):
+    """The checks a transcription run's request must pass, shared by
+    start_transcribe_run and validate_transcribe_options so a pre-check can
+    never accept what the real run refuses. Returns (min_speakers,
+    max_speakers, source_language, chinese_script, transcript_mode,
+    asr_backend_choice, alignment_method).
+
+    require_media(transcript_mode), when given, runs after the language
+    checks and before the transcript check, because the run reports a missing
+    audio or video file ahead of a missing transcript."""
+    min_speakers, max_speakers = diarization_service.speaker_range(
+        expected_speakers, min_speakers, max_speakers)
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(
+            f"Drama {drama['id']} has no audio pipeline (content mode "
+            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
+    source_language = source_language or drama.get("source_language") or "zh"
+    chinese_script = chinese_script or drama.get("chinese_script") or "simplified"
+    if source_language not in SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
+    if chinese_script not in _CHINESE_SCRIPTS:
+        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
+    transcript_mode = drama.get("transcript_mode") or "have_transcript"
+    if require_media:
+        require_media(transcript_mode)
+    if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
+        raise UnsupportedOperationError(
+            "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
+    asr_backend_choice = asr_options_service.stored_asr_backend(drama)
+    alignment_method = drama.get("alignment_method") or "whisper_diff"
+    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, source_language)
+    if drama.get("use_groq") and not settings_service.resolve_key("groq"):
+        raise DependencyUnavailableError(
+            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
+    return (min_speakers, max_speakers, source_language, chinese_script, transcript_mode,
+            asr_backend_choice, alignment_method)
+
+
 def validate_transcribe_options(drama_id: int, source_language: Optional[str] = None,
                                 chinese_script: Optional[str] = None,
                                 transcript_text: Optional[str] = None,
@@ -298,29 +337,10 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     """Validate-only pre-check for a run that starts after the audio exists
     (upload-and-transcribe with a video). Raises the same errors as
     start_transcribe_run for everything that doesn't depend on the audio or
-    video file being on disk yet; starts nothing. Keep in step with
-    start_transcribe_run's checks."""
+    video file being on disk yet; starts nothing."""
     drama = ownership_service.require_drama(drama_id)
-    diarization_service.speaker_range(expected_speakers, min_speakers, max_speakers)
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(
-            f"Drama {drama_id} has no audio pipeline (content mode "
-            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
-    language = source_language or drama.get("source_language") or "zh"
-    if language not in SOURCE_LANGUAGES:
-        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
-    if (chinese_script or drama.get("chinese_script") or "simplified") not in _CHINESE_SCRIPTS:
-        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
-    transcript_mode = drama.get("transcript_mode") or "have_transcript"
-    if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
-        raise UnsupportedOperationError(
-            "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
-    asr_backend_choice = asr_options_service.stored_asr_backend(drama)
-    alignment_method = drama.get("alignment_method") or "whisper_diff"
-    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language)
-    if drama.get("use_groq") and not settings_service.resolve_key("groq"):
-        raise DependencyUnavailableError(
-            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
+    _check_run_request(drama, source_language, chinese_script, transcript_text,
+                       expected_speakers, min_speakers, max_speakers)
 
 
 def _allowed_whisper_sizes() -> frozenset:
