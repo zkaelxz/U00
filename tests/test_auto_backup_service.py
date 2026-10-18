@@ -162,6 +162,15 @@ def _insert(c, table, **row):
     return c.execute(f'INSERT INTO "{table}" ({cols}) VALUES ({marks})', list(row.values())).lastrowid
 
 
+# The table a library made before it left the schema still has; the backup and
+# restore code must keep carrying its rows.
+_LEGACY_BUG_REPORTS = """CREATE TABLE IF NOT EXISTS bug_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL, line_id INTEGER,
+    label TEXT, input_json TEXT, engine TEXT, model TEXT, produced_output TEXT, flag TEXT,
+    flag_note TEXT, replay_output TEXT, replayed INTEGER DEFAULT 0, reproduced INTEGER,
+    created_at TEXT, FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE)"""
+
+
 def _seed_series(c, name="Saga"):
     sid = _insert(c, "series", name=name, created_at="2026-01-01T00:00:00",
                   instructions="series instructions")
@@ -215,6 +224,7 @@ def _seed_drama(c, title, series_id=None, sc=None, profiles=(), tag="A"):
             snapshot_json=json.dumps(snap_items), created_at="x")
     _insert(c, "translation_versions", drama_id=did, label="v1", engine="claude", model="m",
             is_active=1, lines_json=json.dumps(snap_items), created_at="x")
+    c.execute(_LEGACY_BUG_REPORTS)
     _insert(c, "bug_reports", drama_id=did, line_id=lines[3], label="bad", input_json="{}",
             engine="claude", model="m", produced_output="o", created_at="x")
     _insert(c, "wiki_entries", drama_id=did, entry_type="character", name="Lin",
@@ -1685,6 +1695,7 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
     """Guard: every live table with a foreign key to dramas(id) is either
     restored (_CHILD_TABLES) or deliberately skipped (_SKIPPED_TABLES)."""
     with contextlib.closing(_conn()) as c:
+        c.execute(_LEGACY_BUG_REPORTS)
         fk_tables = {t for t in _tables(c)
                      for fk in c.execute(f'PRAGMA foreign_key_list("{t}")')
                      if fk["table"] == "dramas"}

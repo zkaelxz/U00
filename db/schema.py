@@ -442,25 +442,10 @@ def _create_reading_tables(conn):
 
 
 def _create_review_tables(conn):
+    # No bug_reports table: nothing writes it any more (reports are files, see
+    # services/bug_report_service.py). Existing libraries keep theirs, and the
+    # backup and restore code reads it only where it exists.
     conn.executescript("""
-
-        CREATE TABLE IF NOT EXISTS bug_reports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            drama_id INTEGER NOT NULL,
-            line_id INTEGER,          -- lines.id this bundle was saved for, if any
-            label TEXT,
-            input_json TEXT,          -- frozen input: source text, context, glossary, settings
-            engine TEXT,
-            model TEXT,
-            produced_output TEXT,     -- the (bad/flagged) output at save time
-            flag TEXT,
-            flag_note TEXT,
-            replay_output TEXT,       -- filled in after replay_bug_bundle() runs
-            replayed INTEGER DEFAULT 0,
-            reproduced INTEGER,       -- NULL until replayed; 1/0 after
-            created_at TEXT,
-            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
-        );
 
         CREATE TABLE IF NOT EXISTS wiki_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

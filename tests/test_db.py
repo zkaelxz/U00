@@ -2271,6 +2271,21 @@ class TestInitDbSchema:
         isolated_db.init_db()
         assert _exact_snapshot(isolated_db.DB_PATH) == upgraded_exact
 
+    def test_a_new_database_has_no_bug_reports_table(self, isolated_db):
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'bug_reports'").fetchone() is None
+
+    def test_an_old_database_keeps_its_bug_reports_table_and_rows(self, isolated_db):
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            conn.execute("CREATE TABLE bug_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                         "drama_id INTEGER NOT NULL, label TEXT)")
+            conn.execute("INSERT INTO dramas (id, title_en) VALUES (1, 'Old')")
+            conn.execute("INSERT INTO bug_reports (drama_id, label) VALUES (1, 'kept')")
+            conn.commit()
+        isolated_db.init_db()
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            assert conn.execute("SELECT label FROM bug_reports").fetchall()[0][0] == "kept"
+
     def test_an_upgrade_interrupted_inside_a_column_group_finishes_on_the_next_start(
             self, isolated_db):
         # A crash between two ALTERs of one migration leaves the first column
@@ -2380,7 +2395,10 @@ def test_every_line_id_table_is_followed_or_listed(isolated_db):
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
         with_line_id = {t for t in tables
                         if "line_id" in {c[1] for c in conn.execute(f'PRAGMA table_info("{t}")')}}
-    assert with_line_id == set(db.lines._LINE_REF_TABLES) | set(_LINE_ID_TABLES_NOT_FOLLOWED)
+    # bug_reports exists only in libraries made before it was dropped from the schema.
+    legacy = {"bug_reports"}
+    assert with_line_id - legacy == (set(db.lines._LINE_REF_TABLES)
+                                     | set(_LINE_ID_TABLES_NOT_FOLLOWED)) - legacy
     assert set(db.lines._LINE_REF_TABLES.values()) <= {"delete", "unlink"}
 
 
