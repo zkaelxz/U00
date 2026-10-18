@@ -52,7 +52,7 @@ test('folding a section by keyboard, and the choice survives a reload', async ({
   await expect(runs).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('region', { name: 'Recent runs' }).locator('.bench-section-body')).toBeHidden()
   await page.reload()
-  await expect(page.locator('.bench-section-toggle')).toHaveCount(5)
+  await expect(page.locator('.bench-section-toggle')).toHaveCount(6)
   await expectExpanded(page, { ...DEFAULT_OPEN, 'Recent runs': false })
   await toggle(page, 'Recent runs').focus()
   await page.keyboard.press('Space')
@@ -72,4 +72,8 @@ test('each heading has a purpose line and a help that lists the steps', async ({
   const help = page.getByRole('button', { name: 'Help: Settings sweep' })
   await help.click()
   await expect(page.getByRole('tooltip').filter({ hasText: /4\. Stop any time/ })).toBeVisible()
+  // The translation sweep follows it.
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Help: Translation sweep' }).click()
+  await expect(page.getByRole('tooltip').filter({ hasText: /5\. Stop any time/ })).toBeVisible()
 })
