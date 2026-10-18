@@ -355,3 +355,22 @@ class TestOllamaUnavailable:
         assert err["code"] == "dependency_unavailable"
         assert err["details"] == {"reason": "ollama_unreachable"}
         assert "192.168" not in resp.text and "11434" not in resp.text
+
+
+class TestPasteKeepsEveryLine:
+    def test_history_saves_all_lines_and_the_message_counts_missing_ones(self, isolated_db, monkeypatch):
+        import db
+
+        class _Drops:
+            name = "fake"
+            free_tier = True
+
+            def translate_batch(self, texts, context):
+                return ["" if t == "2. b" else f"OUT:{t}" for t in texts]
+
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a, **k: "k")
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Drops())
+        result = translate_service.translate("1. a\n2. b\n3. c", "fake", "zh", "en")
+        assert result["translated_text"] == "OUT:1. a\n[untranslated] 2. b\nOUT:3. c"
+        assert result["message"] == "1 line could not be translated and is marked [untranslated]."
+        assert db.list_translate_history()[0]["translated_text"] == result["translated_text"]

@@ -97,10 +97,27 @@ def standalone_translate(text: str, engine, source_language: str, target_languag
                                         batch_size, budget)[0]
 
 
+def _line_count(text: str) -> int:
+    return sum(1 for line in text.splitlines() if line.strip())
+
+
+def _paragraph_lines(chunk: str) -> list:
+    return [[line.strip() for line in p.splitlines() if line.strip()]
+            for p in re.split(r"\n\s*\n", chunk.strip()) if p.strip()]
+
+
 def standalone_translate_partial(text: str, engine, source_language: str, target_language: str,
                                  batch_size: int = 8, budget=None) -> tuple:
-    """(translated text, stop message or None): standalone_translate, plus why
-    the run ended early when the budget stopped it."""
+    """(translated text, message or None): standalone_translate, plus why the
+    run ended early when the budget stopped it, or how many lines could not be
+    translated.
+
+    A chunk with single-newline lines inside a paragraph is sent one line per
+    item: sent as one blob, a model merges lines or reads the text's own
+    "1." numbers as its numbering, and the output stops lining up with the
+    input. A blob chunk whose reply has a different line count is redone line
+    by line for the same reason. A line the engine still does not answer is
+    kept in place as "[untranslated] <source line>", never merged."""
     ok, message = standalone_direction_support(engine.name, source_language, target_language)
     if not ok:
         raise UnsupportedDirectionError(message)
@@ -112,20 +129,72 @@ def standalone_translate_partial(text: str, engine, source_language: str, target
         "target_language": target_language,
         "standalone": True,
     }
-    translated_chunks = []
     stopped = None
-    for start in range(0, len(chunks), batch_size):
-        batch = chunks[start:start + batch_size]
+    missing = 0
+
+    def send(batch, position):
+        nonlocal stopped
         if budget is not None:
-            stopped = budget.refuse(batch, start, len(chunks))
+            stopped = budget.refuse(batch, position, len(chunks))
             if stopped:
-                break
+                return None
         try:
-            translated_chunks.extend(call_batch_bounded(
-                engine, lambda: engine.translate_batch(batch, context)))
+            reply = call_batch_bounded(engine, lambda: engine.translate_batch(batch, context))
         except LLMTaskTimeout:
             # The request may still be running and billed; nothing else will log it.
             if budget is not None:
                 budget.abandoned(batch)
             raise
+        # A reply of the wrong length can't be matched to its items by position.
+        return reply if len(reply) == len(batch) else [None] * len(batch)
+
+    def translate_by_line(chunk, position):
+        """The chunk rebuilt from per-line translations, or None when the
+        budget stopped the run."""
+        nonlocal missing
+        paragraphs = _paragraph_lines(chunk)
+        lines = [line for p in paragraphs for line in p]
+        # No letters or digits: nothing to translate, and an engine may answer "".
+        sendable = [i for i, line in enumerate(lines) if re.search(r"\w", line)]
+        out = {i: line for i, line in enumerate(lines) if i not in sendable}
+        for start in range(0, len(sendable), batch_size):
+            ids = sendable[start:start + batch_size]
+            reply = send([lines[i] for i in ids], position)
+            if reply is None:
+                return None
+            for i, value in zip(ids, reply):
+                if value and value.strip():
+                    out[i] = value
+                else:
+                    out[i] = f"[untranslated] {lines[i]}"
+                    missing += 1
+        rebuilt, n = [], 0
+        for p in paragraphs:
+            rebuilt.append("\n".join(out[n + k] for k in range(len(p))))
+            n += len(p)
+        return "\n\n".join(rebuilt)
+
+    translated_chunks = []
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start:start + batch_size]
+        results = {}
+        blob = [k for k, c in enumerate(batch) if all(len(p) == 1 for p in _paragraph_lines(c))]
+        if blob:
+            reply = send([batch[k] for k in blob], start)
+            if reply is None:
+                break
+            for k, value in zip(blob, reply):
+                if value is not None and _line_count(value) == _line_count(batch[k]):
+                    results[k] = value
+        for k, chunk in enumerate(batch):
+            if k not in results:
+                results[k] = translate_by_line(chunk, start)
+                if results[k] is None:
+                    break
+        if stopped:
+            break
+        translated_chunks.extend(results[k] for k in range(len(batch)))
+    if missing and not stopped:
+        stopped = (f"{missing} lines could not be translated and are marked [untranslated]."
+                   if missing != 1 else "1 line could not be translated and is marked [untranslated].")
     return "\n\n".join(t or "" for t in translated_chunks), stopped
