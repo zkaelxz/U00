@@ -93,7 +93,8 @@ def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
 @router.post("/export", dependencies=[local_only()], response_model=LibraryExportStarted,
              responses=_ERR_409, summary="Start the export-all zip job")
 def post_export(body: LibraryExportRequest = None):
-    return lbs.start_export_zip(body.drama_ids if body else None)
+    return lbs.start_export_zip(body.drama_ids if body else None,
+                                include_originals=bool(body and body.include_originals))
 
 
 @router.post("/backup", dependencies=[local_only()], response_model=LibraryJobStarted,

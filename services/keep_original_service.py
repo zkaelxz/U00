@@ -99,9 +99,10 @@ def trashed_from_pinned_title(parts) -> bool:
 
 
 def export_title_files(zf: zipfile.ZipFile, drama_id: int, drama: dict, folder: str,
-                       has_room=None, should_cancel=None) -> None:
+                       has_room=None, should_cancel=None, include_originals=False) -> None:
     """A title's files in the library export beyond its subtitles: the
-    mixed dub track, and for a pinned title its originals under
+    mixed dub track, and for a pinned title (or any title when
+    `include_originals`) its originals under
     `originals/` (stored uncompressed: media is already compressed and
     deflating a long video only costs time). `has_room(bytes)` is asked
     before the originals are written and `should_cancel()` between them;
@@ -110,7 +111,7 @@ def export_title_files(zf: zipfile.ZipFile, drama_id: int, drama: dict, folder: 
     dub_path = os.path.join(db.DRAMAS_DIR, str(drama_id), "dub_track.wav")
     if os.path.isfile(dub_path) and not os.path.islink(dub_path):
         zf.write(dub_path, f"{folder}/dub_track.wav")
-    if not is_pinned(drama):
+    if not (include_originals or is_pinned(drama)):
         return
     files = original_files(drama_id, drama)
     if has_room is not None:
