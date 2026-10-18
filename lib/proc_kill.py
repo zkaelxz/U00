@@ -51,21 +51,22 @@ def _digest(data: bytes) -> str:
 def _linux_identity(pid: int) -> dict | None:
     """Raises FileNotFoundError / ProcessLookupError when no such process.
     None for a zombie, or a process whose command line stays empty."""
-    with open(f"/proc/{pid}/stat", "rb") as fh:
-        stat_line = fh.read()
-    # The command name in parentheses may itself contain spaces or ")".
-    fields = stat_line[stat_line.rindex(b")") + 2:].split()
-    if fields[0] == b"Z":
-        return None
-    start_ticks = fields[19].decode()          # field 22, starttime since boot
     with open("/proc/sys/kernel/random/boot_id", "rb") as fh:
         boot = fh.read().strip().decode()
     # Popen returns once exec closes its close-on-exec pipe, but the kernel
     # maps the new command line only after that, so a child read straight
     # after Popen briefly shows an empty one. Noting that would never match
     # the running process again, and its later cleanup would leave it alone.
+    # The state is re-read each round so a child that exits mid-wait (a
+    # zombie, whose command line stays empty) answers at once.
     deadline = time.monotonic() + _EXEC_SETTLE_SECONDS
     while True:
+        with open(f"/proc/{pid}/stat", "rb") as fh:
+            stat_line = fh.read()
+        # The command name in parentheses may itself contain spaces or ")".
+        fields = stat_line[stat_line.rindex(b")") + 2:].split()
+        if fields[0] == b"Z":
+            return None
         with open(f"/proc/{pid}/cmdline", "rb") as fh:
             cmdline = fh.read()
         if cmdline:
@@ -73,6 +74,7 @@ def _linux_identity(pid: int) -> dict | None:
         if time.monotonic() >= deadline:
             return None
         time.sleep(0.002)
+    start_ticks = fields[19].decode()          # field 22, starttime since boot
     return {"start": f"{boot}:{start_ticks}", "cmd": _digest(cmdline)}
 
 
