@@ -4,7 +4,7 @@
 import { ApiError } from '../../api/client'
 import type { BadgeTone } from '../../components/labels'
 import type { RemoteIpCheckTestResult } from '../../types/diagnostics'
-import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
+import { couldNotReachBaihe, keyWritesRefused } from '../../components/errorMessages'
 
 export const IP_CHECK_PLACEHOLDER = 'https://api.ipify.org'
 const IP_CHECK_MAX = 512
@@ -35,8 +35,8 @@ export function testBadge(r: Pick<RemoteIpCheckTestResult, 'state'>): { tone: Ba
 // echoes the address, so it is safe to show.
 export function ipCheckErrorMessage(err: unknown, writing = true): string {
   if (err instanceof ApiError) {
-    if (err.status === 403) return writing ? KEY_WRITES_REFUSED : 'This only works on the main PC.'
-    if (err.status === 0) return 'Could not reach the Baihe API. Is it running?'
+    if (err.status === 403) return writing ? keyWritesRefused() : 'This only works on the main PC.'
+    if (err.status === 0) return couldNotReachBaihe()
     if (err.status === 409) return 'A test is already running.'
     if (err.status === 429) return 'Wait a few seconds before testing again.'
     if (err.status === 422 && err.message) return err.message

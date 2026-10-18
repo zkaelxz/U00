@@ -6,6 +6,8 @@ import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { RetryBanner } from '../../components/RetryBanner'
+import { ApiError } from '../../api/client'
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
@@ -53,6 +55,14 @@ const COUNTED_STAGES: readonly string[] = ['translate', 'review']
 
 function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const { drama, error, refetch } = useDrama(id)
+  // A load that never answers must end in Retry, not an endless skeleton.
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    setSlow(false)
+    if (drama || error) return
+    const t = setTimeout(() => setSlow(true), SLOW_LOAD_MS)
+    return () => clearTimeout(t)
+  }, [id, drama, error])
   const { progress, opened } = useProgress(id, drama)
   const active = stage !== null ? startStage(stage, null, false) : opened
   const states = stageStates(progress?.stages)
@@ -184,7 +194,11 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       </div>
       </div>
       {phone && active !== 'review' && actions}
-      <ErrorBanner error={error} />
+      {drama ? (
+        <ErrorBanner error={error} />
+      ) : (
+        <RetryBanner error={error ?? (slow ? new ApiError(0, { code: 'timeout', message: 'No answer.' }, 'GET') : null)} onRetry={refetch} />
+      )}
       {comicNotice ? (
         <ComicStageNotice id={id} />
       ) : ctx && Stage ? (
@@ -192,7 +206,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           <Stage />
         </StageContext.Provider>
       ) : (
-        !error && (
+        !error && !slow && (
           <div className="skeleton-block ws-skeleton" role="status" aria-busy="true">
             <span className="visually-hidden">Loading…</span>
           </div>
@@ -211,6 +225,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
 
 // Keyed by drama id: switching dramas remounts everything below, so no
 // stage state (selected file, running job, form values) leaks across dramas.
+const SLOW_LOAD_MS = 10_000
+
 export default function WorkspaceShell({ id, stage }: { id: number; stage: string | null }) {
   return <Workspace key={id} id={id} stage={stage} />
 }

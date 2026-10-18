@@ -1,8 +1,9 @@
 /*
  * Login: the only screen when sign-in is on and nobody is signed in.
- * "Sign in with Google" is a plain link that opens in a new tab (like the
- * sign-in overlay); the server redirects to Google and back, then to
- * `return_to`. This tab rechecks /me when it regains focus or on "I've signed in". A failed
+ * "Sign in with Google" is a plain same-tab link: a first login page has no
+ * drafts to protect (the sign-in overlay keeps its new tab for that reason).
+ * The server redirects to Google and back, then to `return_to`. The page
+ * rechecks /me when it regains focus or on "I've signed in". A failed
  * sign-in comes back as /?login_error=<code>, shown here in plain words.
  */
 import { useEffect, useState } from 'react'
@@ -23,6 +24,12 @@ function currentReturnTo(): string {
 
 export default function LoginPage({ configured }: { configured: boolean }) {
   const [errorCode] = useState(() => readLoginError(currentSearch()))
+  const [stillOut, setStillOut] = useState(false)
+
+  const recheck = async () => {
+    // A signed-in answer swaps this page for the app; a failed request says nothing about sign-in.
+    setStillOut((await recheckSession()) === 'signed_out')
+  }
 
   // Drop ?login_error from the address bar so a reload doesn't repeat the message.
   useEffect(() => {
@@ -37,7 +44,7 @@ export default function LoginPage({ configured }: { configured: boolean }) {
     )
   }, [errorCode])
 
-  // Sign-in finishes in another tab, so this one must notice when the person comes back.
+  // Coming back from Google (or another tab where sign-in finished) must not leave the Login page showing.
   useEffect(() => {
     const onFocus = () => void recheckSession()
     window.addEventListener('focus', onFocus)
@@ -56,12 +63,17 @@ export default function LoginPage({ configured }: { configured: boolean }) {
         {configured ? (
           <>
             <p className="muted">Sign in with the Google account the PC owner added to this household.</p>
-            <a className="login-button" href={loginHref(currentReturnTo())} target="_blank" rel="noopener noreferrer">
-              Sign in with Google (new tab)
+            <a className="login-button" href={loginHref(currentReturnTo())}>
+              Sign in with Google
             </a>
-            <button type="button" onClick={() => void recheckSession()}>
+            <button type="button" onClick={() => void recheck()}>
               I've signed in
             </button>
+            {stillOut && (
+              <p className="muted" role="status">
+                Still not signed in
+              </p>
+            )}
           </>
         ) : (
           <div className="login-unset" data-testid="login-not-configured">

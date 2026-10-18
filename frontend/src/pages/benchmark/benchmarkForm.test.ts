@@ -37,6 +37,7 @@ const options: BenchmarkOptions = {
     batch_size_defaults: { claude: { '': 60, haiku: 30 }, ollama: { '': 30 } },
   },
   ocr_backends: ['tesseract', 'paddle'],
+  vision_engines: ['claude', 'ollama'],
   pass_threshold: 0.8,
   chrf_pass_threshold: 0.5,
   max_configs: 4,
@@ -170,7 +171,8 @@ describe('run request', () => {
 
   it('lists picked translation engines with no key', () => {
     expect(enginesMissingKey(sel({ configs: [{ engine: 'claude' }, { engine: 'ollama' }] }), options.translation_engines).map((e) => e.name)).toEqual(['claude'])
-    expect(enginesMissingKey(sel({ stage: 'ocr', configs: [{ engine: 'claude' }] }), options.translation_engines)).toEqual([])
+    expect(enginesMissingKey(sel({ stage: 'ocr', configs: [{ engine: 'tesseract' }] }), options.translation_engines)).toEqual([])
+    expect(enginesMissingKey(sel({ stage: 'ocr', configs: [{ engine: 'claude' }] }), options.translation_engines).map((e) => e.name)).toEqual(['claude'])
   })
 })
 
