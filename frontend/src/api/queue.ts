@@ -9,6 +9,9 @@ export const getQueueStepSettings = (dramaId: number, step: QueueStep, f?: Fetch
 // settings: this item's own changes to the title's saved Transcribe options; the title is not changed.
 export const addQueueItem = (dramaId: number, step: QueueStep, settings?: QueueSettingEdits, f?: Fetch) =>
   postJson<QueueState>('/api/queue/items', { drama_id: dramaId, step, ...(settings ? { settings } : {}) }, f)
+// Transcribe, Translate and Export for one title, added together in that order.
+export const addQueueAllSteps = (dramaId: number, f?: Fetch) =>
+  postJson<QueueState>('/api/queue/items/all-steps', { drama_id: dramaId }, f)
 export const moveQueueItem = (id: number, direction: 'up' | 'down', f?: Fetch) =>
   postJson<QueueState>(`/api/queue/items/${id}/move`, { direction }, f)
 export const removeQueueItem = (id: number, f?: Fetch) =>

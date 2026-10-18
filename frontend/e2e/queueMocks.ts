@@ -89,6 +89,13 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
         drama_id: id, title: TITLES[id], step: body.step, changed_settings: changed,
         ...(body.step === 'translate' ? { engine: 'claude', paid: true } : {}),
       })]
+    } else if (r.method() === 'POST' && path === '/api/queue/items/all-steps') {
+      const id = Number(body.drama_id)
+      mock.addBodies.push(body)
+      s.items = [...s.items, ...(['transcribe', 'translate', 'export'] as const).map((step) => queueItem(nextId++, {
+        drama_id: id, title: TITLES[id], step,
+        ...(step === 'translate' ? { engine: 'claude', paid: true } : {}),
+      }))]
     } else if (path.endsWith('/move')) {
       const n = find()
       const m = body.direction === 'up' ? n - 1 : n + 1
