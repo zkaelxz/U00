@@ -7,6 +7,7 @@ benchmark_lab_service, which re-exports get_run and arena.
 import json
 
 import db
+from services import asr_timing_service
 from services.benchmark_case_service import redact
 from services.benchmark_script_service import add_counts, count_scripts, empty_counts
 from services.service_errors import InvalidInputError, NotFoundError
@@ -45,7 +46,15 @@ def _result_out(r: dict, stage=None, language=None) -> dict:
             "metric": r.get("metric"), "scorer": r.get("scorer"),
             "passed": None if r.get("passed") is None else bool(r["passed"]),
             "duration_seconds": r.get("duration_seconds"), "cost_usd": r.get("cost_usd") or 0.0,
-            "error": redact(r.get("error")), "ref_version": _version(r.get("ref_version"))}
+            "error": redact(r.get("error")), "ref_version": _version(r.get("ref_version")),
+            "timing": _loads(r.get("timing"))}
+
+
+def _loads(raw):
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return None
 
 
 def _text_at(case: dict, edits: list, field: str, version: int):
@@ -79,7 +88,8 @@ def _run_with_scripts(run: dict, results: list) -> dict:
     for r in results:
         if r and r["script_counts"]:
             total, any_counts = add_counts(total, r["script_counts"]), True
-    return dict(run, script_counts=total if any_counts else None)
+    return dict(run, script_counts=total if any_counts else None,
+                timing=asr_timing_service.summarise([r["timing"] for r in results if r]))
 
 
 def get_run(run_id: int) -> dict:
@@ -192,5 +202,64 @@ def arena(run_ids: list) -> dict:
     for out in summary:
         agg = out["aggregate_score"]
         out["delta_vs_first"] = (agg - base) if agg is not None and base is not None else None
+    verdicts = timing_verdicts(runs, summary)
+    for out, verdict in zip(summary, verdicts):
+        out["timing_verdict"] = verdict
     return {"runs": summary, "rows": rows,
             "left_out": {"total": sum(why.values()), **why}}
+
+
+def _setup_key(session: dict) -> str:
+    ctx = session_out(session)["context_settings"]
+    options = ctx["transcribe_options"] if "transcribe_options" in ctx else None
+    return json.dumps([session["engine"], session["model"], options], sort_keys=True)
+
+
+def timing_verdicts(runs: list, summary: list) -> list:
+    """One verdict per compared run on its line timing against the first run (the default),
+    or None for a comparison with no timed cases. A timing gain counts only when the share of
+    lines within 0.3 s rises by more than the noise, and never when the text score is worse
+    than the first run's by more than its noise. The noise is how far apart two runs of the
+    first run's own setup are, so it is measured only when the comparison holds such a repeat;
+    without one there is no margin, and the verdict says to repeat the default."""
+    if not summary[0]["timing"].get("cases"):
+        return [None] * len(summary)
+    first = summary[0]
+    repeat = next((s for s, r in zip(summary[1:], runs[1:]) if _setup_key(r) == _setup_key(runs[0])), None)
+    margin_within = margin_score = None
+    if repeat and repeat["timing"].get("cases") and None not in (first["aggregate_score"], repeat["aggregate_score"]):
+        margin_within = abs(first["timing"]["within"] - repeat["timing"]["within"])
+        margin_score = abs(first["aggregate_score"] - repeat["aggregate_score"])
+    out = [{"state": "baseline", "margin_within": margin_within, "margin_score": margin_score,
+            "text": "The default these are compared with."
+            if margin_within is not None else
+            "No repeat of this setup is in the comparison, so there is no noise margin yet. Run the "
+            "default again and compare all three."}]
+    for s, r in zip(summary[1:], runs[1:]):
+        out.append(_timing_verdict(first, s, repeat is s, margin_within, margin_score))
+    return out
+
+
+def _timing_verdict(first: dict, run: dict, is_repeat: bool, margin_within, margin_score) -> dict:
+    base = {"margin_within": margin_within, "margin_score": margin_score}
+    if is_repeat:
+        return {**base, "state": "repeat", "text": "A repeat of the default: its difference sets the noise margin."}
+    if not run["timing"].get("cases"):
+        return {**base, "state": "untimed", "text": "No timed line in this run."}
+    gain = run["timing"]["within"] - first["timing"]["within"]
+    score_change = None if None in (run["aggregate_score"], first["aggregate_score"]) \
+        else run["aggregate_score"] - first["aggregate_score"]
+    worse = score_change is not None and score_change < -(margin_score or 0.0)
+    if margin_within is None:
+        return {**base, "state": "no_margin", "gain": gain, "score_change": score_change,
+                "text": "No repeat of the default to measure noise against, so this timing change can't be "
+                        "called a gain or a loss yet."}
+    if gain <= margin_within:
+        return {**base, "state": "no_gain", "gain": gain, "score_change": score_change,
+                "text": "Timing is not better than the default by more than the noise."}
+    if worse:
+        return {**base, "state": "cer_worse", "gain": gain, "score_change": score_change,
+                "text": "Timing is better but the text score is worse, so this is not accepted: a timing gain "
+                        "is never traded for worse accuracy."}
+    return {**base, "state": "gain", "gain": gain, "score_change": score_change,
+            "text": "Timing is better than the default by more than the noise and the text score is not worse."}

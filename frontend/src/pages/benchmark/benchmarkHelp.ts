@@ -26,7 +26,11 @@ export const BUILD_SET_HELP =
 // Shown at the top of "Add a title's corrections to a test set".
 export const CORRECTIONS_HELP =
   'Turns each line whose text you changed since transcription into a clip with its audio, scored against your text. ' +
-  'Lines you left alone are skipped. Time the title in Review first: the clips also keep each line\'s start and end.'
+  'Lines you left alone are skipped unless you include all lines. Time the title in Review first: the clips also keep each line\'s start and end.'
+
+export const INCLUDE_ALL_HELP =
+  'Adds every spoken line of this title, edited or not. The line\'s current text counts as the reference, so use it only ' +
+  'for a title whose text you have checked, for example one whose timing you fixed in Review.'
 
 export type BenchSectionId = 'sets' | 'run' | 'reeval' | 'runs'
 

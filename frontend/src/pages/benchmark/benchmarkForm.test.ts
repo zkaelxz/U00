@@ -8,7 +8,7 @@ import {
   arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   formatJudgeScore, leftOutLine, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
-  optionValue, runConfigLabel, runExtraLabel, scriptCountsLine, toggleCompare, whisperChoiceGroups, withOption, type RunSelection,
+  caseTimingLine, optionValue, runConfigLabel, runExtraLabel, scriptCountsLine, timingLine, toggleCompare, whisperChoiceGroups, withOption, type RunSelection,
 } from './benchmarkForm'
 import { BENCH_INTRO, BENCH_PAGE_HELP, BENCH_SECTIONS } from './benchmarkHelp'
 
@@ -27,6 +27,7 @@ const options: BenchmarkOptions = {
   transcribe_defaults: {
     beam_size: 5, min_silence_ms: 300, vad_threshold: 0.5, sensitivity_preset: 'normal', hallucination_silence_sec: 0,
     whisper_repeat_guard: false, difficult_audio: false, separate_vocals_first: false, initial_prompt: '',
+    speech_pad_ms: 400, refine_timing: false, split_max_seconds: 8, split_max_chars: 40,
   },
   transcribe_options_ignored: { whisper: [], qwen3_asr_vad: ['beam_size'], anime_whisper: ['beam_size'] },
   ocr_backends: ['tesseract', 'paddle'],
@@ -499,5 +500,34 @@ describe('transcription arms at real settings', () => {
     expect(runConfigLabel(run())).toBe('Whisper large-v3')
     expect(runConfigLabel(run({ beam_size: 1, min_silence_ms: 600 }))).toBe('Whisper large-v3 (beam 1, min silence 600 ms)')
     expect(runExtraLabel({ ...run({ beam_size: 1 }), label: 'Whisper large-v3 (beam 1)' })).toBeNull()
+  })
+})
+
+describe('timingLine', () => {
+  it('is empty without timed cases', () => {
+    expect(timingLine(undefined)).toBe('')
+    expect(timingLine({ cases: 0 })).toBe('')
+  })
+
+  it('names the medians, the share within 0.3 s and the counts', () => {
+    expect(timingLine({ cases: 4, start_median_ms: 120, end_median_ms: 180, within: 0.75, merged: 1, split: 0, missed: 2, silence: 3 })).toBe(
+      'Timing on 4 lines: start 120 ms, end 180 ms off (median) · 75% within 0.3 s · 1 merged · 0 split · 2 missed · 3 in silence',
+    )
+  })
+
+  it('leaves out the silence count when the detector was not available', () => {
+    expect(timingLine({ cases: 1, start_median_ms: 10, end_median_ms: 20, within: 1, merged: 0, split: 0, missed: 0, silence: null })).not.toContain('silence')
+  })
+})
+
+describe('caseTimingLine', () => {
+  it('says a missed line was missed', () => {
+    expect(caseTimingLine({ lines: 0, missed: true, split: false, merged: false, start_error_s: null, end_error_s: null, silence: null })).toBe('Timing: line missed')
+  })
+
+  it('shows the edge errors in ms with merged and split flags', () => {
+    expect(caseTimingLine({ lines: 2, missed: false, split: true, merged: false, start_error_s: 0.12, end_error_s: 0.4, silence: 0 })).toBe(
+      'Timing: start 120 ms, end 400 ms off · split',
+    )
   })
 })

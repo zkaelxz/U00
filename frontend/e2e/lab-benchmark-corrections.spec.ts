@@ -45,3 +45,31 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     if (dir) await section.screenshot({ path: `${dir}/after-corrections-${theme}-desktop.png` })
   })
 }
+
+test('Benchmark Lab: include all lines of a title adds unedited lines with their current text as the reference', async ({ page }) => {
+  const none = { drama_id: 1, raw_available: false, lines_compared: 0, lines_corrected: 0, raw_to_edited_cer: null }
+  await page.route('**/api/benchmark/dramas/*/corrections', (r) => r.fulfill({ json: none }))
+  const bodies: unknown[] = []
+  await page.route('**/api/benchmark/dramas/*/corrections/add', (r) => {
+    const body = r.request().postDataJSON()
+    bodies.push(body)
+    return r.fulfill({
+      json: {
+        set_name: 'timed', lines_compared: 120, lines_corrected: 120, include_all: true, unedited_skipped: 0,
+        unclippable_skipped: 0, case_count: 100, remaining: 20, added: body.dry_run ? 0 : 100, skipped: 0, dry_run: body.dry_run,
+      },
+    })
+  })
+  await page.goto('/#/benchmark')
+  await openBenchTab(page, 'Golden sets')
+  const section = page.locator('details', { hasText: "Add a title's corrections to a test set" })
+  await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
+  await section.getByLabel('New set name').fill('timed')
+  await expect(section.getByTestId('corrections-reason')).toHaveText('This title has no original transcription to compare with.')
+  await section.getByRole('switch', { name: 'Include all lines of this title' }).click()
+  await expect(section.getByTestId('corrections-include-all-note')).toBeVisible()
+  await expect(section.getByRole('button', { name: 'Add lines' })).toBeEnabled()
+  await section.getByRole('button', { name: 'Preview' }).click()
+  await expect(section.getByTestId('corrections-result')).toContainText('Current text counts as the reference.')
+  expect(bodies).toEqual([{ set_name: 'timed', dry_run: true, include_all: true }])
+})

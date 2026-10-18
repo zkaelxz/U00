@@ -117,13 +117,14 @@ def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bo
         output_text = "".join(s["text"] for s in segments)
         error = None
     except Exception as exc:
-        output_text = ""
+        output_text, segments = "", []
         error = str(exc)
     duration = time.monotonic() - started
 
     reference = case.get("reference_text")
     score = score_text_similarity(output_text, reference) if reference else None
-    return {"output_text": output_text, "score": score, "duration_seconds": duration, "error": error}
+    return {"output_text": output_text, "score": score, "duration_seconds": duration, "error": error,
+            "segments": segments}
 
 
 def run_translation_case(case: dict, engine):

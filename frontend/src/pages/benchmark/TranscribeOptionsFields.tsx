@@ -8,17 +8,24 @@ import { rangeHint } from '../workspace/formatRange'
 import { RANGES } from '../workspace/sourceForm'
 import { optionValue, recogniserLabel, withOption } from './benchmarkForm'
 
-type NumberKey = 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hallucination_silence_sec'
-type ToggleKey = 'whisper_repeat_guard' | 'difficult_audio' | 'separate_vocals_first'
+type NumberKey = 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hallucination_silence_sec' | TimingKey
+type TimingKey = 'speech_pad_ms' | 'split_max_seconds' | 'split_max_chars'
+type ToggleKey = 'whisper_repeat_guard' | 'difficult_audio' | 'separate_vocals_first' | 'refine_timing'
 
 const HALLUCINATION_RANGE = { min: 0.5, max: 10 }
+/** Lab-only timing settings; the server checks the same ranges. */
+const TIMING_RANGES: Record<TimingKey, { min: number; max: number; integer: boolean }> = {
+  speech_pad_ms: { min: 0, max: 2000, integer: true },
+  split_max_seconds: { min: 2, max: 30, integer: false },
+  split_max_chars: { min: 10, max: 120, integer: true },
+}
 
 /** The error for a typed number, or null when it is acceptable (the server checks again). */
 function numberProblem(key: NumberKey, value: number): string | null {
   if (key === 'hallucination_silence_sec') {
     return value === 0 || (value >= HALLUCINATION_RANGE.min && value <= HALLUCINATION_RANGE.max) ? null : 'Use 0 (off) or 0.5 to 10.'
   }
-  const r = RANGES[key]
+  const r = key in TIMING_RANGES ? TIMING_RANGES[key as TimingKey] : RANGES[key as keyof typeof RANGES]
   if (value < r.min || value > r.max) return `Use ${r.min} to ${r.max}.`
   return 'integer' in r && r.integer && !Number.isInteger(value) ? 'Use a whole number.' : null
 }
@@ -107,6 +114,16 @@ export function TranscribeOptionsFields({ options, config, onChange }: Props) {
         {toggle('whisper_repeat_guard', 'Repeat guard', 'Penalises a phrase the model keeps repeating.')}
         {toggle('difficult_audio', 'Difficult audio', 'For screaming, whispering or talk over each other; slower and may add a few false lines.')}
         {toggle('separate_vocals_first', 'Separate vocals first', 'Runs vocal separation before transcribing; can drop quiet speech.')}
+      </div>
+      <h4 className="bench-timing-heading">Line timing</h4>
+      <p className="muted">Where lines start and end. Scored on test-set clips that have reference times.</p>
+      <div className="bench-config-fields">
+        {number('speech_pad_ms', 'Speech pad', 50, `${rangeHint(0, 2000, { unit: 'ms', default: defaults.speech_pad_ms })} Audio kept around each stretch of speech.`, 'ms')}
+        {number('split_max_seconds', 'Longest line', 1, `${rangeHint(2, 30, { unit: 's', default: defaults.split_max_seconds })} Longer lines are split.`, 's')}
+        {number('split_max_chars', 'Longest line, characters', 5, `${rangeHint(10, 120, { default: defaults.split_max_chars })} Longer lines are split.`)}
+      </div>
+      <div className="setting-list">
+        {toggle('refine_timing', 'Refine line timing', 'Re-times each line with the Qwen3 forced aligner. Only the speech-detection Qwen3-ASR recogniser uses it.')}
       </div>
       <Field label="Initial prompt" help={[promptReason, 'Names and terms to prime Whisper with. A title builds this from its glossary; here you type it.'].filter(Boolean).join(' ')}>
         <input

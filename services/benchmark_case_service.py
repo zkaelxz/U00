@@ -14,6 +14,7 @@ import audio_preprocess
 import background_jobs
 import benchmark
 import db
+import long_line_split
 import sensitivity_preset as presets
 import translate_engines
 import whisper_models
@@ -21,7 +22,8 @@ from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from lib import http
 from lib.errors import DependencyUnavailableError, InvalidInputError
-from services import asr_options_service, difficult_audio_service as difficult, timing_settings_service
+from services import (asr_options_service, asr_timing_service, difficult_audio_service as difficult,
+                      timing_settings_service)
 
 
 def redact(text, key=None):
@@ -45,11 +47,11 @@ _BACKEND_NAMES = {"qwen3_asr_vad": "Qwen3-ASR", "anime_whisper": "anime-whisper"
 _LAB_NEVER_DOWNLOADS = " Run it once from a title's Transcribe page to download it; the Lab does not download it for you."
 # Options a recogniser does not read, so a result is never taken to have been tuned by them.
 _IGNORED_OPTIONS = {
-    "whisper": (),
+    "whisper": ("refine_timing",),
     "qwen3_asr_vad": ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
-                      "hallucination_silence_sec", "whisper_repeat_guard", "initial_prompt"),
+                      "hallucination_silence_sec", "whisper_repeat_guard", "initial_prompt", "speech_pad_ms"),
     "anime_whisper": ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
-                      "hallucination_silence_sec", "initial_prompt"),
+                      "hallucination_silence_sec", "initial_prompt", "speech_pad_ms", "refine_timing"),
 }
 
 
@@ -65,10 +67,11 @@ def ignored_options(backend: str) -> list:
     return list(_IGNORED_OPTIONS.get(backend, ()))
 
 
-def backend_problem(backend: str, language: str = None):
+def backend_problem(backend: str, language: str = None, refine: bool = None):
     """The plain sentence naming what a recogniser still needs on this PC, or None when it can
     run. Everything a real run would load counts, the forced aligner of timing refinement
-    included, because the loaders download whatever is missing and the Lab must not."""
+    included (when `refine` is None, as Settings has it), because the loaders download whatever
+    is missing and the Lab must not."""
     from services import model_readiness_service as ready
     from services.qwen3_requirements_service import require_qwen3_packages, require_vad_backend_packages
     from services.transcribe_options_service import _require_vad_packages, anime_whisper_package_problem
@@ -90,7 +93,8 @@ def backend_problem(backend: str, language: str = None):
         # find_spec raises for a module already in sys.modules without a __spec__ (a stub): it is
         # importable, so this is no reason to grey the recogniser out.
         pass
-    refine = asr_options_service.get_vad_refine_timing()
+    if refine is None:
+        refine = asr_options_service.get_vad_refine_timing()
     for need in ready._backend_needs(backend, refine, asr_options_service.get_mixed_languages()):
         if not need():
             what = "The Qwen3 forced aligner (used by timing refinement)" if need is ready.aligner_ready else name
@@ -98,11 +102,11 @@ def backend_problem(backend: str, language: str = None):
     return None
 
 
-def require_backend_ready(backend: str, cases) -> None:
+def require_backend_ready(backend: str, cases, refine: bool = None) -> None:
     """A recogniser other than Whisper runs only when its packages and models are already on
     this PC: refused with the app's plain sentence otherwise, never downloaded from here."""
     for language in sorted({c.get("source_language") or "zh" for c in cases}):
-        problem = backend_problem(backend, language)
+        problem = backend_problem(backend, language, refine)
         if problem:
             raise DependencyUnavailableError(problem)
 
@@ -206,6 +210,7 @@ def _whisper_kwargs(options: dict, timing: dict, tuning, progress_cb) -> dict:
         "min_silence_duration_ms": options["min_silence_ms"],
         "vad_threshold": timing_settings_service.vad_threshold_for(run_row),
         "hallucination_silence_sec": options["hallucination_silence_sec"],
+        "speech_pad_ms": options["speech_pad_ms"],
         "repeat_guard": options["whisper_repeat_guard"],
         "sensitivity_preset": presets.normalize(run_row.get("sensitivity_preset")),
         "filter_hallucination_repeats": tuning.repeat_min_repeats,
@@ -220,7 +225,7 @@ def _backend_kwargs(backend: str, options: dict, tuning, language: str, cancel_c
     if backend == "anime_whisper":
         return {"detector": detector, "repeat_guard": options["whisper_repeat_guard"], "cancel_check": cancel_check}
     return {"batch_size": asr_options_service.get_qwen_asr_batch_size(),
-            "refine_timing": asr_options_service.get_vad_refine_timing(),
+            "refine_timing": options["refine_timing"],
             "mixed_languages": asr_options_service.get_mixed_languages(),
             "detector": detector, "tuning": tuning, "cancel_check": cancel_check}
 
@@ -230,8 +235,10 @@ def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str = None, 
     "whisper" or a LAB_BACKENDS name, "options" the complete set from
     transcribe_options_service.resolve_lab_options). Mirrors what a title's run does to
     the audio first (levelling, vocal separation) and which values it hands the
-    recogniser, so the score is the one a real title would get. Scores the text only:
-    line timing, realigning and mixed-language splitting are not part of it.
+    recogniser, so the score is the one a real title would get. The text score ignores
+    line timing; a case with reference times (`ref_start`, `ref_end`) also carries a
+    "timing" measure of where the recognised lines sit against them. Realigning and
+    mixed-language splitting are not part of a Lab run.
 
     Anything that goes wrong for this case, preparing its audio included, is its own
     error: one unreadable clip must not end the run for every arm. `cancelled()` is
@@ -266,11 +273,24 @@ def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str = None, 
                 dict(case, input_path=audio), whisper_size=cfg["model"], use_gpu=use_gpu,
                 local_model_path=folder if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else None,
                 options=kwargs, backend=backend)
+            result["timing"] = _timing_of(result.pop("segments", None), case, options, audio)
     except Exception as exc:
         result = {"output_text": "", "error": str(exc) or type(exc).__name__}
     result["duration_seconds"] = time.monotonic() - started
     result["error"] = redact(result.get("error"))
     return result
+
+
+def _timing_of(segments, case: dict, options: dict, audio: str):
+    """The case's timing measure, or None without reference times or a result. The recognised
+    lines are cut at the arm's split limits first, the way a title's lines are."""
+    ref_start, ref_end = case.get("ref_start"), case.get("ref_end")
+    if segments is None or ref_start is None or ref_end is None:
+        return None
+    lines = long_line_split.split_long_segments(
+        [s for s in segments if (s.get("text") or "").strip()],
+        max_seconds=options["split_max_seconds"], max_cjk_chars=options["split_max_chars"])
+    return asr_timing_service.case_timing(lines, ref_start, ref_end, asr_timing_service.speech_spans(audio))
 
 
 def app_version() -> str:
