@@ -74,6 +74,13 @@ export function isRemoteAdmin(s: SessionState): boolean {
   return s.status === 'ready' && !!u && u.is_admin && !u.is_local_owner && !s.me.permissions.includes('admin.library')
 }
 
+/** Does the server let this session read the admin settings? True when /me is unavailable or
+ * auth is off, so a blip never hides them; the server still decides. */
+export function canReadSettings(s: SessionState): boolean {
+  if (s.status !== 'ready' || !s.me.auth_enabled || !s.me.signed_in) return true
+  return s.me.permissions.includes('admin.settings')
+}
+
 /** Offer Sign out? With a signed-in user, and while /me is unavailable: the
  * session cookie may still be good, and the person must be able to end it. */
 export function canSignOut(s: SessionState): boolean {
