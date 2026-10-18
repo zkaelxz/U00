@@ -73,3 +73,11 @@ export function exportBlockReason(id: ExportBlockId, i: ExportInputs): string | 
       return null
   }
 }
+
+/** Why "Send to Jellyfin" cannot copy the chosen video along, or null. A dubbed video only exists once a dub does. */
+export function jellyfinMediaReason(media: 'none' | 'source' | 'dubbed', i: ExportInputs): string | null {
+  if (media === 'none') return null
+  if (i.hasSourceVideo === false) return NO_SOURCE_VIDEO
+  if (media === 'dubbed' && i.hasDub === false) return NO_DUB
+  return null
+}
