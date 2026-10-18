@@ -17,16 +17,16 @@ export function GetStarted({ canCreate, onHide }: { canCreate: boolean; onHide: 
         {steps.map((s) => (
           <li key={s.id} className="get-started-step">
             {!s.done && s.href
-              ? <ButtonLink variant={s.id === 'subtitles' ? 'primary' : 'secondary'} href={s.href}>{s.label}</ButtonLink>
+              ? <ButtonLink size="sm" variant={s.id === 'subtitles' ? 'primary' : 'secondary'} href={s.href}>{s.label}</ButtonLink>
               : <span>{s.label}</span>}
             {s.done && <span className="muted">Done</span>}
             {!s.done && !s.href && <span className="muted">Ask the person who runs Baihe</span>}
           </li>
         ))}
+        <li className="get-started-step">
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={onHide}>Hide</button>
+        </li>
       </ol>
-      <div className="actions">
-        <button type="button" className={buttonClass('ghost')} onClick={onHide}>Hide</button>
-      </div>
     </section>
   )
 }
