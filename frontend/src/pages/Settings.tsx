@@ -255,6 +255,7 @@ export default function SettingsPage() {
         </>
       )}
     >
+      {remote && <p className="muted">Engines, costs, backups and other settings can only be changed on the main PC.</p>}
       <FoldControls onExpand={() => foldAll('expand')} onCollapse={() => foldAll('collapse')} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {searching && match.total === 0 && <p className="settings-note">No settings match “{query.trim()}”.</p>}

@@ -9,7 +9,8 @@ import {
   type KeyFormAction,
   type KeyFormState,
 } from './settingsKeys'
-import { KEY_WRITES_REFUSED } from '../components/errorMessages'
+import { resetPcModeForTests } from '../api/pcOnly'
+import { keyWritesRefused } from '../components/errorMessages'
 
 const run = (actions: KeyFormAction[], s: KeyFormState = initialKeyForm) =>
   actions.reduce(keyFormReducer, s)
@@ -25,7 +26,7 @@ describe('key form reducer', () => {
       error: new ApiError(403, { code: 'forbidden', message: SECRET }),
     })
     for (const st of [sent, ok, bad]) expect(JSON.stringify(st)).not.toContain(SECRET)
-    expect(bad.error).toBe(KEY_WRITES_REFUSED)
+    expect(bad.error).toBe(keyWritesRefused())
   })
 
   it('needs an explicit confirm before save, never for an empty draft', () => {
@@ -45,12 +46,15 @@ describe('key form reducer', () => {
 })
 
 describe('refusal message mapping', () => {
-  it('403 gives the one plain line naming the env var', () => {
+  it('403 gives the one plain line, naming the env var only at the PC', () => {
+    resetPcModeForTests('local')
     const m = keyErrorMessage(
       new ApiError(403, { code: 'forbidden', message: 'Not allowed from this connection.' }),
     )
-    expect(m).toBe(KEY_WRITES_REFUSED)
+    expect(m).toBe(keyWritesRefused())
     expect(m).toContain('BAIHE_API_ALLOW_KEY_WRITES=1')
+    resetPcModeForTests()
+    expect(keyErrorMessage(new ApiError(403, { code: 'forbidden', message: 'x' }))).not.toContain('BAIHE_API')
   })
 
   it('other errors are plain and never echo the server message', () => {
