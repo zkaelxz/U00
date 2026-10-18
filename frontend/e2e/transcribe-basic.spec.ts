@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { untilTestEnds } from './stageLineMocks'
 import { enableDeveloperMode, openAdvanced, openTranscribeOptions, transcribeCard } from './sourceHelpers'
 
 // Basic Transcribe: the everyday controls on the Transcribe tab, the Advanced options folds on Tools, and the seven
@@ -57,14 +58,14 @@ test('a Whisper model not recommended for the language is disabled with its reas
   const card = transcribeCard(page)
   await expect(card.getByTestId('whisper-size-notice')).toContainText('saved with medium')
   await card.getByLabel('Source language').selectOption('ja')
-  const medium = card.getByLabel('Whisper model', { exact: true }).locator('option', { hasText: /^medium/ })
+  const medium = card.getByLabel('Accuracy and speed', { exact: true }).locator('option', { hasText: /^medium/ })
   await expect(medium).toBeDisabled()
   await expect(medium).toHaveText(/not for Japanese/)
   // The reason lives on the option; only the selected model gets a note.
   await expect(medium).toHaveAttribute('title', reason)
   await expect(card.getByTestId('whisper-exclusion-reason')).toHaveCount(0)
   await card.getByLabel('Source language').selectOption('ko')
-  await expect(card.getByLabel('Whisper model', { exact: true }).locator('option', { hasText: /^medium/ })).toBeEnabled()
+  await expect(card.getByLabel('Accuracy and speed', { exact: true }).locator('option', { hasText: /^medium/ })).toBeEnabled()
 })
 
 // The config a title's Transcribe form is built from, with the fields the form reads overridden.
@@ -92,9 +93,9 @@ test('with Whisper the model is pickable, only large-v3 and turbo are listed, an
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   const card = transcribeCard(page)
-  const model = card.getByLabel('Whisper model', { exact: true })
+  const model = card.getByLabel('Accuracy and speed', { exact: true })
   await expect(model).toBeEnabled()
-  await expect(model.locator('option')).toHaveText(['large-v3 (default)', 'large-v3-turbo (faster)'])
+  await expect(model.locator('option')).toHaveText(['Most accurate (recommended)', 'Faster'])
   await expect(card.getByTestId('run-line')).toContainText('This run will use: Whisper · Whisper large-v3 · GPU')
   await expect(card.getByTestId('transcribe-advisor')).toContainText('Whisper large-v3 with Separate vocals first off')
   await expect(card.getByTestId('transcribe-advisor').getByRole('button')).toHaveCount(0)
@@ -108,6 +109,7 @@ test('Use recommended in the advisor line switches the backend to Whisper', asyn
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   const card = transcribeCard(page)
+  await card.getByTestId('before-you-run').locator('summary').click()
   await card.getByTestId('transcribe-advisor').getByRole('button', { name: 'Use recommended' }).click()
   await expect(card.getByTestId('run-line')).toContainText('Whisper · Whisper large-v3')
   await expect(card.getByTestId('transcribe-advisor')).toContainText('Recommended: Whisper large-v3')
@@ -121,10 +123,11 @@ test('a saved hidden size is shown as an older choice with a one-click switch, a
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   const card = transcribeCard(page)
-  await expect(card.getByLabel('Whisper model', { exact: true })).toHaveValue('medium')
-  await expect(card.getByLabel('Whisper model', { exact: true }).locator('option:checked')).toHaveText('medium (older choice, hidden)')
+  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toHaveValue('medium')
+  await expect(card.getByLabel('Accuracy and speed', { exact: true }).locator('option:checked')).toHaveText('medium (older choice, hidden)')
+  await card.getByTestId('before-you-run').locator('summary').click()
   await card.getByRole('button', { name: 'Switch to large-v3' }).click()
-  await expect(card.getByLabel('Whisper model', { exact: true })).toHaveValue('large-v3')
+  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toHaveValue('large-v3')
   await expect(card.getByTestId('whisper-hidden-size')).toHaveCount(0)
 })
 
@@ -139,7 +142,7 @@ test('with Qwen3 ASR on long audio the Whisper model and Whisper-only switches a
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   const card = transcribeCard(page)
-  await expect(card.getByLabel('Whisper model', { exact: true })).toBeDisabled()
+  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toBeDisabled()
   await expect(card.getByTestId('whisper-not-used')).toContainText('Not used with Qwen3 ASR')
   await expect(card.getByTestId('whisper-not-used')).toContainText('Qwen3-ASR 1.7B')
   await expect(card.getByTestId('run-line')).toContainText('Qwen3 ASR on long windows · Qwen3-ASR 1.7B')
@@ -162,11 +165,11 @@ test('with Whisper and the CUDA runtime missing the run line says it runs on the
     transcript_mode: 'whisper', asr_backend_choice: 'whisper', use_groq: false, selectable_whisper_sizes: ['large-v3', 'large-v3-turbo'],
     gpu_runtime: { status: 'missing', reason: 'cublas64_12.dll is missing' },
   })
-  await page.route('**/api/settings', async (route) => {
+  await page.route('**/api/settings', (route) => untilTestEnds(async () => {
     const resp = await route.fetch()
     const body = await resp.json()
     return route.fulfill({ response: resp, json: { ...body, use_gpu: true } })
-  })
+  }))
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   await expect(transcribeCard(page).getByTestId('run-line')).toContainText('CUDA libraries missing, runs on CPU')
@@ -178,4 +181,30 @@ test('Whisper fast mode explains that it is off by default and what it costs', a
   const advanced = await openAdvanced(page)
   await page.getByRole('button', { name: 'Help: Whisper fast mode' }).focus()
   await expect(page.getByText('Off by default. Decodes several chunks of speech at once')).toBeVisible()
+})
+
+test('the notes above Transcribe are one closed "Before you run" line with the detail inside, and the GPU note is plain words', async ({ page }) => {
+  const reason = 'Whisper medium isn’t recommended for Japanese: in our tests it made about 1.9 points more errors than large-v3-turbo and was slower.'
+  await mockConfig(page, {
+    transcript_mode: 'whisper', asr_backend_choice: 'whisper', whisper_size: 'large-v3', use_groq: false,
+    selectable_whisper_sizes: ['large-v3', 'large-v3-turbo', 'medium'], whisper_exclusions: { medium: { ja: reason } },
+    gpu_runtime: { status: 'missing', reason: 'cublas64_12.dll is missing' },
+  })
+  await page.route('**/api/settings', (route) => untilTestEnds(async () => {
+    const resp = await route.fetch()
+    return route.fulfill({ response: resp, json: { ...(await resp.json()), use_gpu: true } })
+  }))
+  await page.goto('/#/drama/1/source')
+  await openTranscribeOptions(page)
+  const card = transcribeCard(page)
+  await card.getByLabel('Source language').selectOption('ja')
+  const details = card.getByTestId('before-you-run')
+  await expect(details).toHaveCount(1)
+  await expect(details.locator('summary')).toHaveText('Before you run')
+  await expect(card.getByTestId('run-line')).toBeHidden()
+  await expect(card.getByTestId('gpu-note')).toContainText("Your graphics card isn't set up for Baihe, so this will be slow. Fix it in Diagnostics.")
+  await expect(card.getByTestId('gpu-note')).not.toContainText('CUDA')
+  await details.locator('summary').click()
+  await expect(card.getByTestId('run-line')).toBeVisible()
+  await expect(card.getByTestId('gpu-unavailable-reason')).toContainText('cublas64_12.dll is missing')
 })
