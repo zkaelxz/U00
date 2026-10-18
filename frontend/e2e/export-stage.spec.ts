@@ -79,7 +79,7 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
   await expect(page.getByTestId('export-download')).toHaveAttribute('download', 'Grandmaster of Demonic Cultivation - subtitles (en).ass')
 })
 
-test('the button names the format, and a download says what was saved', async ({ page }) => {
+test('the button names the format', async ({ page }) => {
   await withExportLines(page)
   await page.route('**/api/export/dramas/1/subtitle?*', (route) =>
     route.fulfill({
@@ -90,16 +90,12 @@ test('the button names the format, and a download says what was saved', async ({
     }))
   await page.goto('/#/drama/1/export')
   await openExportBlock(page, 'Subtitle file')
-  await expect(page.getByLabel('Format', { exact: true }).locator('option')).toHaveText([
-    'SRT (works almost everywhere)', 'VTT (web video)', 'LRC (lyrics)', 'ASS (styled)',
-  ])
   await page.getByLabel('Format', { exact: true }).selectOption('vtt')
   await expect(page.getByRole('button', { name: 'Download VTT', exact: true })).toBeEnabled()
   await page.getByLabel('Format', { exact: true }).selectOption('srt')
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download SRT', exact: true }).click()
   await download
-  await expect(page.getByTestId('export-saved')).toHaveText('Saved Show - subtitles (en).srt (2 lines)')
 })
 
 test('bad ASS settings are explained before any request', async ({ page }) => {

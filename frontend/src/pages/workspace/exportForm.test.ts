@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import type { AssStyleOptions } from '../../types/export'
 import {
-  countCues,
   fileNameHint,
   buildAssRequest,
   emptyAssForm,
@@ -87,15 +86,6 @@ describe('saved Export style', () => {
     const form = { ...emptyAssForm('Bold'), size: '40' }
     expect(assFormFromDraft({ fmt: 'ass', form: JSON.parse(JSON.stringify(form)) })).toEqual(form)
     expect(assFormFromDraft({ form: { size: 7, preset: 'X', perSpeakerColors: 'yes' } })).toMatchObject({ preset: 'X', size: '', perSpeakerColors: true })
-  })
-})
-
-describe('countCues', () => {
-  it('counts a cue per format marker, not per line of text', () => {
-    expect(countCues('1\n00:00:01,000 --> 00:00:02,000\nHi\nthere\n\n2\n00:00:03,000 --> 00:00:04,000\nYo\n', 'srt')).toBe(2)
-    expect(countCues('WEBVTT\n\n00:01.000 --> 00:02.000\nHi\n', 'vtt')).toBe(1)
-    expect(countCues('[00:01.00]Hi\n[00:03.50]Yo\n[ar:someone]\n', 'lrc')).toBe(2)
-    expect(countCues('[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hi\r\nDialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Yo', 'ass')).toBe(2)
   })
 })
 

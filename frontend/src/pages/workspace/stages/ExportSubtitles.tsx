@@ -10,7 +10,7 @@ import { downloadText } from '../../../components/downloadText'
 import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
-import { buildAssRequest, countCues, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, type AssForm } from '../exportForm'
+import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
@@ -116,10 +116,10 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       <div className="export-primary">
         <Field label="Format">
           <select value={fmt} onChange={(e) => setFmt(e.target.value as ExportFormat)}>
-            <option value="srt">SRT (works almost everywhere)</option>
-            <option value="vtt">VTT (web video)</option>
+            <option value="srt">SRT</option>
+            <option value="vtt">VTT</option>
             <option value="lrc">LRC (lyrics)</option>
-            <option value="ass">ASS (styled)</option>
+            <option value="ass">ASS</option>
           </select>
         </Field>
         <Field label="Language">
@@ -182,11 +182,6 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {result && timing && <p role="status" data-testid="export-timing">{timingSummary(timing)}</p>}
-      {result && result.text.trim() && (
-        <p role="status" data-testid="export-saved">
-          Saved {result.filename} ({countCues(result.text, result.fmt)} lines)
-        </p>
-      )}
       {result && <ExportTextResult text={result.text} filename={result.filename} mime={MIME[result.fmt]} />}
     </>
   )

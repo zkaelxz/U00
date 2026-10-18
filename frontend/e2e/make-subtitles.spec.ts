@@ -146,12 +146,6 @@ test('Choose a file opens the file chooser', async ({ page }) => {
   await chooser
 })
 
-test('says up front that a title is added to the Library', async ({ page }) => {
-  await mockMakeSubtitles(page)
-  await page.goto('/#/make-subtitles')
-  await expect(card(page).getByText('This also adds a title to your Library.')).toBeVisible()
-})
-
 test('the translator list says it is loading, then fills in', async ({ page }) => {
   await mockMakeSubtitles(page)
   let release = () => {}

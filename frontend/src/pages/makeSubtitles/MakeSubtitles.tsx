@@ -258,7 +258,6 @@ export function MakeSubtitles() {
                 <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
               </Field>
-              <p className="muted make-subtitles-adds">Or drop a file here.</p>
             </div>
           </div>
           <RetryBanner error={engines.error} what="the translators" onRetry={() => setEnginesTry((n) => n + 1)} />
@@ -284,7 +283,6 @@ export function MakeSubtitles() {
             <button type="submit" className={buttonClass('primary')} disabled={!!blocker} aria-describedby="make-subtitles-blocker">
               Make subtitles
             </button>
-            <p className="muted make-subtitles-adds">This also adds a title to your Library.</p>
             {blocker && (
               <p className="stage-blocker" id="make-subtitles-blocker">
                 <span>{blocker}</span>

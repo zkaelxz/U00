@@ -163,13 +163,6 @@ export function buildAssRequest(
 
 export const MAX_BASE_NAME = 100
 
-// Cues in generated text, for the "Saved ... (N lines)" confirmation. Each
-// format marks a cue differently, and a count must not depend on the text's wording.
-export function countCues(text: string, fmt: string): number {
-  const marker = fmt === 'lrc' ? /^\[\d/ : fmt === 'ass' ? /^Dialogue:/ : /-->/
-  return text.split(/\r?\n/).filter((line) => marker.test(line)).length
-}
-
 // What the File name field shows when blank: the title the server names the download after.
 export function fileNameHint(title: string | null, field: SubtitleField): string {
   return `${title?.trim() || 'Title'} - subtitles (${field})`
