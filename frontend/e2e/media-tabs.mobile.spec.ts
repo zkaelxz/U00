@@ -7,16 +7,12 @@ import { pickTab } from './tabPicker'
 
 // Phone (390x844): the tab row, the segmented controls and every sub-tab stay inside the screen.
 
-test('the five sub-tabs are a picker that fits the screen with every section reachable', async ({ page }) => {
+test('the three sub-tabs are one row that fits the screen with every section reachable', async ({ page }) => {
   await page.goto('/#/drama/1/source')
-  await expect(page.getByRole('tablist', { name: 'Media sections' })).toHaveCount(0)
-  const picker = page.getByRole('button', { name: /^Media sections: / })
-  await expect(picker).toBeVisible()
-  expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-  await picker.click()
-  const options = page.locator('.ui-tab-picker-list').getByRole('option')
-  await expect(options).toHaveText(['Add media', 'Transcribe', 'Tools', 'Details', 'Credits'])
-  for (const option of await options.all()) expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  await expect(page.getByRole('button', { name: /^Media sections: / })).toHaveCount(0)
+  const tabs = page.getByRole('tablist', { name: 'Media sections' }).getByRole('tab')
+  await expect(tabs).toHaveText(['Add media', 'Transcribe', 'Details'])
+  for (const tab of await tabs.all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   await expectNoSidewaysScroll(page, 'Media tab')
 })
 

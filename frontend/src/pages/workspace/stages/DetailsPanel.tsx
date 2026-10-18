@@ -11,7 +11,6 @@ import { Section } from '../../../components/Section'
 import { SOURCE_LANGUAGES } from '../../libraryForm'
 import {
   buildDetailsPayload,
-  CREDITS_FIELDS,
   FIELD_LABELS,
   formFromDrama,
   isEmptyPayload,
@@ -39,15 +38,14 @@ import { SERIES_HELP } from '../../../helpText'
 
 interface Props {
   tab: MediaTab
-  goTab: (tab: MediaTab) => void
-  // Which sub-tabs hold unsaved edits, for the dot on the tab.
+  // Which forms hold unsaved edits, for the dot on the Details tab.
   onUnsaved: (u: { details: boolean; credits: boolean }) => void
-  // The lookup that fills credits (Fill in details), shown on the Credits tab.
+  // The lookup that fills credits (Fill in details), shown under Credits.
   fillIn: ReactNode
 }
 
 // One draft for the Details and Credits sub-tabs: a Save on either saves the whole form, and switching tabs keeps it.
-export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
+export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [initial, setInitial] = useState<DetailsForm>(() => formFromDrama(drama))
   const [form, setForm] = useState<DetailsForm>(initial)
@@ -98,11 +96,8 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
   const save = () => {
     const bad = validateDetails(form, initial)
     setErrors(bad)
-    // An error on a field inside "More details" must not stay hidden, nor one on the other sub-tab.
+    // An error on a field inside "More details" must not stay hidden.
     if (bad.custom_tags || bad.episode_summary) setMoreSignal((n) => n + 1)
-    const badKeys = Object.keys(bad) as (keyof DetailsForm)[]
-    const onCredits = (k: keyof DetailsForm) => CREDITS_FIELDS.includes(k)
-    if (badKeys.length && !badKeys.some((k) => onCredits(k) === (tab === 'credits'))) goTab(tab === 'credits' ? 'details' : 'credits')
     if (Object.keys(bad).length || !dirty) return
     const sent = form
     setBusy(true)
@@ -156,8 +151,8 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
     setTimeout(() => document.querySelector<HTMLElement>('[aria-label="Credits"] input[name="author"]')?.focus(), 50)
   }
 
-  // Both tabs end their form with the same Save; the notice and error show on the tab in front only.
-  const saveBar = (label: string) => (
+  // Both forms start with the same Save; the notice and error show under the first only, so they are not said twice.
+  const saveBar = (label: string, feedback: boolean) => (
     <>
       <div className="actions">
         <button type="submit" className="primary" disabled={!dirty || busy}>
@@ -165,8 +160,12 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
         </button>
         {reason && <span className="muted">{reason}</span>}
       </div>
-      <p role="status" hidden={!notice}>{notice}</p>
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {feedback && (
+        <>
+          <p role="status" hidden={!notice}>{notice}</p>
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        </>
+      )}
     </>
   )
   const formProps = {
@@ -185,7 +184,7 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
         <section className="panel" aria-label="Edit details">
           <Section storageKey="source.details" defaultOpen openSignal={moreSignal} title="Edit details" summary={`${title} · ${modeLabel(form.media_type)} · ${humanize('language', form.source_language)}`}>
             <form {...formProps}>
-              {tab === 'details' && saveBar('Save details')}
+              {saveBar('Save details', true)}
               <div className="source-grid">
                 {text('title_en')}
                 {text('title_zh')}
@@ -274,11 +273,11 @@ export function DetailsPanel({ tab, goTab, onUnsaved, fillIn }: Props) {
         </section>
         {mediaKind(drama.media_type) !== 'audio' && <TitleRestructurePanel />}
       </MediaTabPanel>
-      <MediaTabPanel id="credits" active={tab}>
+      <MediaTabPanel id="credits" shownOn="details" active={tab}>
         <section className="panel" aria-label="Credits">
           <Section storageKey="source.credits" defaultOpen openSignal={creditsSignal} title="Credits" summary={creditsSummary}>
             <form {...formProps}>
-              {tab === 'credits' && saveBar('Save credits')}
+              {saveBar('Save credits', false)}
               <div className="source-grid">
                 {text('author')}
                 {kind !== 'novel' && text('studio')}

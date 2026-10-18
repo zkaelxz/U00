@@ -47,11 +47,11 @@ describe('what the table drives', () => {
     expect(shown('audio')).toEqual(expect.arrayContaining(['separate_vocals_first', 'min_silence_ms', 'vad_threshold', 'beam_size']))
   })
 
-  it('has Transcribe and Tools tabs exactly for the kinds with those settings', () => {
+  it('has the Transcribe tab (its Tools part included) exactly for the kinds with those settings', () => {
     for (const kind of KINDS) {
       const ids = mediaTabsFor(kind).map((t) => t.id)
       expect(ids.includes('transcribe')).toBe(appliesTo(kind, 'transcribe'))
-      expect(ids.includes('tools')).toBe(appliesTo(kind, 'speech_tuning'))
+      expect(ids.includes('transcribe')).toBe(appliesTo(kind, 'speech_tuning'))
     }
   })
 })

@@ -42,7 +42,7 @@ test('novel: leads with translating the text, and has no transcription or audio-
   await enableDeveloperMode(page)
   await page.goto('/#/drama/2/source')
   await expect(page.getByRole('tablist', { name: 'Media sections' })).toBeVisible()
-  expect(await tabNames(page)).toEqual(['Add media', 'Details', 'Credits'])
+  expect(await tabNames(page)).toEqual(['Add media', 'Details'])
   const panel = mediaPanel(page, 'add')
   await expect(panel.getByRole('region', { name: 'Translate the novel' })).toBeVisible()
   await expect(panel.getByRole('region', { name: 'Novel text' })).toBeVisible()
@@ -70,7 +70,7 @@ test('a novel not yet in narration mode offers one button that sets it up for tr
 test('comic: only the page-image text settings remain', async ({ page }) => {
   await enableDeveloperMode(page)
   await openAsComic(page)
-  expect(await tabNames(page)).toEqual(['Add media', 'Details', 'Credits'])
+  expect(await tabNames(page)).toEqual(['Add media', 'Details'])
   const panel = mediaPanel(page, 'add')
   await expect(panel.getByText('Chapter images (OCR)')).toBeVisible()
   await expect(panel.getByRole('radiogroup', { name: 'Where the lines come from' })).toHaveCount(0)

@@ -97,7 +97,7 @@ describe('deep link', () => {
   })
 
   it('still parses the Media stage tab', () => {
-    expect(parseRoute('#/drama/7/source?tab=credits')).toEqual({ name: 'drama', id: 7, stage: 'source', tab: 'credits' })
+    expect(parseRoute('#/drama/7/source?tab=credits')).toEqual({ name: 'drama', id: 7, stage: 'source', tab: 'details' })
   })
 
   it('writes the tab back, next to a focus', () => {

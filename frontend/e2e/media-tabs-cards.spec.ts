@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { gotoMedia, mediaPanel, mediaTab, topCards, selectMediaTab } from './mediaTabs'
+import { expectFitsScreens, gotoMedia, mediaPanel, mediaTab, topCards, selectMediaTab } from './mediaTabs'
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 
 // The cards inside each Media sub-tab: the one-open-card fold rule, the Switches card, the prompt fold, and
@@ -247,24 +247,21 @@ test.describe('Details and Credits share one draft', () => {
     await gotoMedia(page, 'details')
     await mediaPanel(page, 'details').getByLabel('Summary', { exact: true }).fill('A new summary')
     await expect(page.getByTestId('tab-unsaved-details')).toBeVisible()
-    await expect(page.getByTestId('tab-unsaved-credits')).toHaveCount(0)
 
-    await selectMediaTab(page, 'credits')
+    // Credits sits under Details on the same tab, and the draft is one form.
     await mediaPanel(page, 'credits').getByLabel('Genre', { exact: true }).fill('xianxia')
-    await expect(page.getByTestId('tab-unsaved-credits')).toBeVisible()
     await expect(page.getByTestId('tab-unsaved-details')).toBeVisible()
 
-    // Back on Details the draft is still there, with no discard prompt.
+    // Away and back, the draft is still there, with no discard prompt.
+    await selectMediaTab(page, 'add')
     await selectMediaTab(page, 'details')
     await expect(mediaPanel(page, 'details').getByLabel('Summary', { exact: true })).toHaveValue('A new summary')
-    await selectMediaTab(page, 'credits')
     await expect(mediaPanel(page, 'credits').getByLabel('Genre', { exact: true })).toHaveValue('xianxia')
 
     // Saving from Credits saves the whole form.
     await mediaPanel(page, 'credits').getByRole('button', { name: 'Save credits' }).click()
     await expect.poll(() => sent.length).toBe(1)
     expect(sent[0]).toMatchObject({ summary: 'A new summary', genre: 'xianxia' })
-    await expect(page.getByTestId('tab-unsaved-credits')).toHaveCount(0)
     await expect(page.getByTestId('tab-unsaved-details')).toHaveCount(0)
   })
 
@@ -277,28 +274,22 @@ test.describe('Details and Credits share one draft', () => {
     })
     await gotoMedia(page, 'credits')
     await mediaPanel(page, 'credits').getByLabel('Studio', { exact: true }).fill('A studio')
-    await selectMediaTab(page, 'details')
     await mediaPanel(page, 'details').getByRole('button', { name: 'Save details' }).click()
     await expect.poll(() => sent.length).toBe(1)
     expect(sent[0]).toMatchObject({ studio: 'A studio' })
   })
 
-  test('an error on the other tab brings that tab forward', async ({ page }) => {
+  test('an error in the details shows when saving from Credits', async ({ page }) => {
     await gotoMedia(page, 'details')
     await mediaPanel(page, 'details').getByLabel('Episode number', { exact: true }).fill('abc')
-    await selectMediaTab(page, 'credits')
     await mediaPanel(page, 'credits').getByLabel('Genre', { exact: true }).fill('x')
     await mediaPanel(page, 'credits').getByRole('button', { name: 'Save credits' }).click()
-    await expect(mediaTab(page, 'details')).toHaveAttribute('aria-selected', 'true')
     await expect(mediaPanel(page, 'details').getByRole('alert').filter({ hasText: /whole number/i })).toBeVisible()
   })
 
-  test('Details and Credits each fit about one desktop screen', async ({ page }) => {
+  test('Details and Credits, now one tab, each still fit about one desktop screen', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 })
-    for (const tab of ['details', 'credits'] as const) {
-      await gotoMedia(page, tab)
-      const height = await page.evaluate(() => document.documentElement.scrollHeight)
-      expect(height, `${tab}: page height`).toBeLessThanOrEqual(800 * 1.25)
-    }
+    await gotoMedia(page, 'details')
+    await expectFitsScreens(page, 'details', ['details', 'credits'])
   })
 })
