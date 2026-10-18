@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { QueueItem, QueueSettingField, QueueState } from '../../types/queue'
 import {
-  canRemove, canRetry, changedEdits, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, statusLabel, statusTone,
+  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, statusLabel, statusTone,
   translateCostNote,
 } from './queueModel'
 
@@ -94,5 +94,16 @@ describe('changedEdits', () => {
 
   it('never sends a locked setting', () => {
     expect(changedEdits(fields, { use_groq: true })).toBeUndefined()
+  })
+})
+
+describe('the Step choice', () => {
+  it('offers All steps first, then the three single steps, each with help text', () => {
+    expect(Object.keys(ADD_STEP_LABELS)).toEqual(['all', 'transcribe', 'translate', 'export'])
+    for (const key of Object.keys(ADD_STEP_LABELS)) expect(STEP_HELP[key as keyof typeof STEP_HELP]).toBeTruthy()
+  })
+
+  it('tells the person All steps does not start anything', () => {
+    expect(STEP_HELP.all).toContain('Nothing starts until you press Start queue.')
   })
 })

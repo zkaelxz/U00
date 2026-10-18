@@ -381,13 +381,9 @@ def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False,
 
 # --- changing items ----------------------------------------------------------
 
-def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool,
-             settings: Optional[dict] = None, holds_edit: bool = True) -> dict:
-    """Validates and appends one item. `settings` (Transcribe only) are this item's own
-    changes to the title's saved options; the title is not changed. The title must exist and be the
-    caller's; a Translate item on a paid engine needs `engines.paid`, as the
-    Translate stage's run does; a Transcribe item added away from the PC
-    needs its models on disk (model_readiness_service)."""
+def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc: bool,
+                   settings: Optional[dict], holds_edit: bool) -> dict:
+    """The checks every add shares; returns the validated per-item settings."""
     if step not in STEPS:
         raise InvalidInputError("Step must be transcribe, translate or export.")
     drama = db.get_drama(drama_id)
@@ -408,24 +404,51 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bo
     if step == "transcribe":
         model_readiness_service.require_ready(
             at_pc, model_readiness_service.for_transcribe, drama_id, overrides=settings)
+    return settings
+
+
+def _append_items(principal, drama_id: int, entries: list, at_pc: bool) -> None:
+    """Appends `entries` (step, settings) in order, all or none, under one lock."""
     with _lock:
         doc = _load()
-        if len(doc["items"]) >= MAX_ITEMS:
+        if len(doc["items"]) + len(entries) > MAX_ITEMS:
             raise ConflictError(f"The queue holds at most {MAX_ITEMS} items. "
                                 "Clear finished items first.")
         uid = ownership_service.user_id(principal)
         if not _overrides(principal) and sum(
-                1 for i in doc["items"] if i["user_id"] == uid) >= MAX_ITEMS_PER_MEMBER:
+                1 for i in doc["items"] if i["user_id"] == uid) + len(entries) > MAX_ITEMS_PER_MEMBER:
             raise ConflictError(f"You can have at most {MAX_ITEMS_PER_MEMBER} items in the "
                                 "queue. Clear your finished items first.")
-        item = {"id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
-                "reason": "", "job_id": None, "user_id": ownership_service.user_id(principal),
+        for step, settings in entries:
+            doc["items"].append({
+                "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
+                "reason": "", "job_id": None, "user_id": uid,
                 "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
-                "settings": settings, "started_at": None, "finished_at": None}
-        doc["next_id"] += 1
-        doc["items"].append(item)
+                "settings": settings, "started_at": None, "finished_at": None})
+            doc["next_id"] += 1
         _save(doc)
     _wake.set()
+
+
+def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool,
+             settings: Optional[dict] = None, holds_edit: bool = True) -> dict:
+    """Validates and appends one item. `settings` (Transcribe only) are this item's own
+    changes to the title's saved options; the title is not changed. The title must exist and be the
+    caller's; a Translate item on a paid engine needs `engines.paid`, as the
+    Translate stage's run does; a Transcribe item added away from the PC
+    needs its models on disk (model_readiness_service)."""
+    settings = _check_addable(principal, drama_id, step, holds_paid, at_pc, settings, holds_edit)
+    _append_items(principal, drama_id, [(step, settings)], at_pc)
+    return get_queue(principal)
+
+
+def add_all_steps(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) -> dict:
+    """Appends Transcribe, Translate and Export for one title, in that order, each
+    with the title's saved options. Every step passes the single-step checks first,
+    so a title the caller can't run all of adds nothing. Nothing starts here."""
+    for step in STEPS:
+        _check_addable(principal, drama_id, step, holds_paid, at_pc, None, True)
+    _append_items(principal, drama_id, [(step, {}) for step in STEPS], at_pc)
     return get_queue(principal)
 
 

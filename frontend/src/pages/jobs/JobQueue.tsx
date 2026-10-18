@@ -9,7 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 
 import { ApiError } from '../../api/client'
 import {
-  addQueueItem, clearFinishedQueueItems, getQueue, moveQueueItem, pauseQueue, removeQueueItem, retryQueueItem,
+  addQueueAllSteps, addQueueItem, clearFinishedQueueItems, getQueue, moveQueueItem, pauseQueue, removeQueueItem, retryQueueItem,
   getQueueStepSettings, setQueuePolicy, setQueueSchedule, startQueue,
 } from '../../api/queue'
 import { getTranslateConfig } from '../../api/translateStage'
@@ -27,8 +27,8 @@ import type {
   QueueItem, QueueSettingEdits, QueueSettingField, QueueSettingValue, QueueState, QueueStep, QueueStepSettings,
 } from '../../types/queue'
 import {
-  HHMM, STEP_HELP, changedEdits, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText,
-  savedSettingValue, settingsStage, statusLabel, statusTone, translateCostNote,
+  ADD_STEP_LABELS, HHMM, STEP_HELP, changedEdits, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText,
+  type AddStep, savedSettingValue, settingsStage, statusLabel, statusTone, translateCostNote,
 } from './queueModel'
 
 // Fast while something runs, so a finished item shows up without a reload.
@@ -43,7 +43,7 @@ export function JobQueue({ titles }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [dramaId, setDramaId] = useState('')
-  const [step, setStep] = useState<QueueStep>('transcribe')
+  const [step, setStep] = useState<AddStep>('transcribe')
   const [costNote, setCostNote] = useState<string | null>(null)
   // This queued step's own changes to the title's saved settings; the title itself is never changed.
   const [edits, setEdits] = useState<QueueSettingEdits>({})
@@ -72,7 +72,7 @@ export function JobQueue({ titles }: Props) {
   useEffect(() => {
     setCostNote(null)
     const id = Number(dramaId)
-    if (step !== 'translate' || !id) return
+    if ((step !== 'translate' && step !== 'all') || !id) return
     let live = true
     getTranslateConfig(id).then(
       (c) => {
@@ -117,7 +117,11 @@ export function JobQueue({ titles }: Props) {
 
   const add = () => {
     const id = Number(dramaId)
-    if (id) void act(() => addQueueItem(id, step, step === 'transcribe' ? changedEdits(fields, edits) : undefined)).then(() => setEdits({}))
+    if (!id) return
+    const request = step === 'all'
+      ? () => addQueueAllSteps(id)
+      : () => addQueueItem(id, step, step === 'transcribe' ? changedEdits(fields, edits) : undefined)
+    void act(request).then(() => setEdits({}))
   }
   const move = (item: QueueItem, dir: 'up' | 'down') => {
     refocus.current = `${item.id}:${dir}`
@@ -172,8 +176,8 @@ export function JobQueue({ titles }: Props) {
           </select>
         </Field>
         <Field label="Step">
-          <select value={step} onChange={(e) => { setStep(e.target.value as QueueStep); setEdits({}) }}>
-            {(Object.keys(STEP_LABELS) as QueueStep[]).map((s) => <option key={s} value={s}>{STEP_LABELS[s]}</option>)}
+          <select value={step} onChange={(e) => { setStep(e.target.value as AddStep); setEdits({}) }}>
+            {(Object.keys(ADD_STEP_LABELS) as AddStep[]).map((s) => <option key={s} value={s}>{ADD_STEP_LABELS[s]}</option>)}
           </select>
         </Field>
         <button type="button" className={buttonClass('secondary')} disabled={busy || !dramaId || full} onClick={add}>
@@ -181,9 +185,9 @@ export function JobQueue({ titles }: Props) {
         </button>
       </div>
       <p className="muted queue-help" data-testid="queue-step-help">
-        {STEP_HELP[step]}{step === 'translate' && costNote ? ` ${costNote}` : ''}
+        {STEP_HELP[step]}{(step === 'translate' || step === 'all') && costNote ? ` ${costNote}` : ''}
       </p>
-      {Number(dramaId) > 0 && (
+      {Number(dramaId) > 0 && step !== 'all' && (
         <SavedSettings
           dramaId={Number(dramaId)}
           step={step}

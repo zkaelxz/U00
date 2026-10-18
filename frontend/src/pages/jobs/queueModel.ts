@@ -12,7 +12,13 @@ export const STEP_LABELS: Record<QueueStep, string> = {
   export: 'Export subtitles',
 }
 
-export const STEP_HELP: Record<QueueStep, string> = {
+// What the Step choice offers: one step, or the whole chain for the title.
+export type AddStep = QueueStep | 'all'
+
+export const ADD_STEP_LABELS: Record<AddStep, string> = { all: 'All steps', ...STEP_LABELS }
+
+export const STEP_HELP: Record<AddStep, string> = {
+  all: "Adds Transcribe, Translate and Export subtitles for the title, in that order, with its saved options. Nothing starts until you press Start queue.",
   transcribe: "Uses the title's saved Transcribe options. Replaces its current lines; the old ones stay in line History.",
   translate: "Uses the title's saved Translate options and engine.",
   export: 'Saves English subtitles (SRT) as the title\'s subtitle download.',

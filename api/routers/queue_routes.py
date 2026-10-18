@@ -13,7 +13,7 @@ from typing import Literal
 from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import holds, holds_paid_engines, is_at_pc, require_permission
-from api.schemas import (QueueAddItem, QueueMove, QueuePolicy,
+from api.schemas import (QueueAddAllSteps, QueueAddItem, QueueMove, QueuePolicy,
                          QueueScheduleSet, QueueState, QueueStepSettings, error_responses)
 from services import queue_service
 
@@ -43,6 +43,13 @@ def add_item(body: QueueAddItem, request: Request):
     return queue_service.add_item(request.state.principal, body.drama_id, body.step,
                                   holds_paid_engines(request), at_pc=is_at_pc(request),
                                   settings=body.settings, holds_edit=holds(request, "lines.edit"))
+
+
+@router.post("/items/all-steps", dependencies=[require_permission("jobs.start")], response_model=QueueState,
+             summary="Add Transcribe, Translate and Export for a title, in that order", responses=_ERRORS)
+def add_all_steps(body: QueueAddAllSteps, request: Request):
+    return queue_service.add_all_steps(request.state.principal, body.drama_id,
+                                       holds_paid_engines(request), at_pc=is_at_pc(request))
 
 
 @router.post("/items/{item_id}/move", dependencies=[require_permission("jobs.start")],

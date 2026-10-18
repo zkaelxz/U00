@@ -28,6 +28,24 @@ test('add items, with the engine and cost shown for a paid Translate', async ({ 
   expect(mock.calls).toEqual(['/items', '/items'])
 })
 
+test('All steps adds Transcribe, Translate and Export in one call and starts nothing', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  const mock = await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await card.getByLabel('Title').selectOption({ label: 'Signal' })
+  await card.getByLabel('Step').selectOption('all')
+  await expect(card.getByTestId('queue-step-help')).toContainText('Nothing starts until you press Start queue.')
+  await expect(card.getByTestId('queue-step-help')).toContainText('Uses Claude. Uses your API key and costs money.')
+  await card.getByRole('button', { name: 'Add to queue' }).click()
+  await expect(items(page)).toHaveCount(3)
+  await expect(items(page).nth(0)).toContainText('Transcribe')
+  await expect(items(page).nth(1)).toContainText('Translate')
+  await expect(items(page).nth(2)).toContainText('Export subtitles')
+  await expect(items(page).nth(0)).toContainText('Waiting')
+  expect(mock.calls).toEqual(['/items/all-steps'])
+})
+
 test('reorder with the keyboard keeps focus on the moved item, then remove', async ({ page }) => {
   await mockJobsApi(page, [], true)
   await mockQueueApi(page, [
