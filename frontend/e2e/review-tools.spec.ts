@@ -65,7 +65,8 @@ test('Coverage carries a count when there is something to look at', async ({ pag
 
 test('a tab with nothing in it says so once', async ({ page }) => {
   clearDrama3Lines()
-  await page.goto('/#/drama/3/review')
+  // No lines, so the tools panel only shows when a link asks for it.
+  await page.goto('/#/drama/3/review?tools=restructure')
   await openTab(page, 'Restructure')
   await expect(page.getByTestId('review-tab-empty')).toBeVisible()
   await expect(page.getByTestId('review-tab-empty')).toHaveCount(1)

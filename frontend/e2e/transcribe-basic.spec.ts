@@ -60,7 +60,9 @@ test('a Whisper model not recommended for the language is disabled with its reas
   const medium = card.getByLabel('Whisper model', { exact: true }).locator('option', { hasText: /^medium/ })
   await expect(medium).toBeDisabled()
   await expect(medium).toHaveText(/not for Japanese/)
-  await expect(card.getByText(reason)).toBeVisible()
+  // The reason lives on the option; only the selected model gets a note.
+  await expect(medium).toHaveAttribute('title', reason)
+  await expect(card.getByTestId('whisper-exclusion-reason')).toHaveCount(0)
   await card.getByLabel('Source language').selectOption('ko')
   await expect(card.getByLabel('Whisper model', { exact: true }).locator('option', { hasText: /^medium/ })).toBeEnabled()
 })
