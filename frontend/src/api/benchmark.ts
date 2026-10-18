@@ -353,6 +353,36 @@ export interface BuildSetResult {
 export const buildBenchmarkSet = (body: BuildSetRequest, f?: Fetch) =>
   postJson<BuildSetResult>(`${BASE}/sets/from-title`, body, pcOnlyFetch(f))
 
+export interface TitleCorrections {
+  drama_id: number
+  raw_available: boolean
+  lines_compared: number
+  lines_corrected: number
+  /** Share of the corrected text that differs from the raw transcript (0.1 = 10%); null with no corrections. */
+  raw_to_edited_cer: number | null
+}
+
+export interface AddCorrectionsResult {
+  set_name: string
+  lines_compared: number
+  lines_corrected: number
+  unedited_skipped: number
+  unclippable_skipped: number
+  case_count: number
+  /** Lines left for another add: one call adds at most 100. */
+  remaining: number
+  added: number
+  skipped: number
+  dry_run: boolean
+}
+
+export const getTitleCorrections = (dramaId: number, f?: Fetch) =>
+  getJson<TitleCorrections>(`${BASE}/dramas/${dramaId}/corrections`, f)
+
+// Transcription cases from a title's corrected lines, each with its audio clipped. dry_run only counts. PC only.
+export const addTitleCorrections = (dramaId: number, body: { set_name: string; dry_run: boolean }, f?: Fetch) =>
+  postJson<AddCorrectionsResult>(`${BASE}/dramas/${dramaId}/corrections/add`, body, pcOnlyFetch(f))
+
 // Spends nothing: what a run would cost and whether the monthly cap allows it.
 export const estimateBenchmark = (body: BenchmarkRunRequest, f?: Fetch) =>
   postJson<BenchmarkEstimate>(`${BASE}/estimate`, body, f)

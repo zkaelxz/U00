@@ -257,6 +257,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `benchmark_export_service.py` (a Lab run or comparison as CSV or JSON)
 - `benchmark_judge_service.py`
 - `benchmark_lab_service.py`
+- `benchmark_reference_service.py` (a title's corrected lines as Lab transcription references: raw-to-edited error rate, clipped-audio cases, the scorer auto-tune uses)
 - `benchmark_runs_service.py` (reading Lab runs back: results, the Arena on shared cases, deleting a run)
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
 - `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
