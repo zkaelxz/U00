@@ -258,3 +258,40 @@ def list_benchmark_results(session_id: int):
         rows = conn.execute("SELECT * FROM benchmark_results WHERE session_id = ? ORDER BY id",
                             (session_id,)).fetchall()
     return [dict(r) for r in rows]
+
+
+def set_benchmark_judge(session_id: int, meta: dict, scores_by_case: dict):
+    """Records a run's judge pass: its settings, cost and status on the
+    session, each case's scores on that case's result row."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE benchmark_sessions SET judge_meta = ? WHERE id = ?",
+                     (json.dumps(meta), session_id))
+        for case_id, entry in scores_by_case.items():
+            conn.execute("UPDATE benchmark_results SET judge_scores = ? "
+                         "WHERE session_id = ? AND case_id = ?",
+                         (json.dumps(entry), session_id, int(case_id)))
+        conn.commit()
+
+
+def save_benchmark_pick(case_id: int, session_a: int, session_b: int, winner: str):
+    """One pick per case and pair; picking again replaces the earlier choice."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute(
+            "INSERT INTO benchmark_picks (case_id, session_a, session_b, winner, created_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(case_id, session_a, session_b) DO UPDATE SET "
+            "winner = excluded.winner, created_at = excluded.created_at",
+            (case_id, session_a, session_b, winner, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+
+
+def list_benchmark_picks(session_ids=None):
+    """Picks that involve any of these runs (all when None)."""
+    with contextlib.closing(db.get_conn()) as conn:
+        if session_ids is None:
+            rows = conn.execute("SELECT * FROM benchmark_picks ORDER BY id").fetchall()
+        else:
+            marks = ", ".join("?" for _ in session_ids)
+            rows = conn.execute(
+                f"SELECT * FROM benchmark_picks WHERE session_a IN ({marks}) OR session_b IN ({marks}) "
+                "ORDER BY id", tuple(session_ids) * 2).fetchall()
+    return [dict(r) for r in rows]
