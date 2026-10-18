@@ -21,6 +21,9 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
+import { useReadiness } from '../../hooks/useReadiness'
+import { NeedsInstall } from '../readiness/NeedsInstall'
+import { trafilaturaNeed } from '../readiness/needs'
 import type { UrlImportResult } from '../../types/sourcesImport'
 import { AiFallback } from './AiFallback'
 import { DramaPicker } from './DramaPicker'
@@ -53,6 +56,8 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
   // The drama whose review is shown (closed: null).
   const [reviewing, setReviewing] = useState<number | null>(null)
   const ai = useAiEngines(aiChoice.on)
+  const { readiness } = useReadiness()
+  const readerNeed = trafilaturaNeed(readiness)
   const aiBlocked = html ? null : aiBlockReason(aiChoice, ai.engines, ai.gateFor)
 
   const start = () => {
@@ -85,6 +90,7 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
       <ErrorBanner error={dramas.error} />
       {!html && (
         <>
+          {readerNeed && <NeedsInstall need={readerNeed} />}
           <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} gateFor={ai.gateFor} />
           <div className="toggle-list">
             <Field label="Check before importing" help={REVIEW_FIRST_HELP}>

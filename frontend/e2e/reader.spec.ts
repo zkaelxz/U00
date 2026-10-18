@@ -266,6 +266,7 @@ test('sentence cards without media permission say audio was left out', async ({ 
         'Content-Type': 'application/octet-stream',
         'Content-Disposition': 'attachment; filename="drama_2_vocab_sentence.apkg"',
         'X-Audio-Omitted': 'true',
+        'X-Clips-Missing': 'true',
       },
     }),
   )
@@ -279,6 +280,7 @@ test('sentence cards without media permission say audio was left out', async ({ 
   await page.getByRole('button', { name: 'Sentence cards (.apkg)' }).click()
   expect((await download).suggestedFilename()).toBe('drama_2_vocab_sentence.apkg')
   await expect(page.getByText('Audio left out (needs media playback permission).')).toBeVisible()
+  await expect(page.getByText('Some cards have no audio clip: it could not be cut from the recording.')).toBeVisible()
 })
 
 // ---- "Edit in Translate" links (the Reader's glossary and characters are read-only) ----

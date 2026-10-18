@@ -71,7 +71,7 @@ def export_vocab_apkg(vocab_rows, deck_name: str, out_path: str):
 
 def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
                                 audio_path: str = None, clip_timeout: float = None,
-                                audio_budget_seconds: float = None):
+                                audio_budget_seconds: float = None, report: dict = None):
     """Requires `pip install genanki`. Richer companion to
     export_vocab_apkg(): one card per vocab row, front = the full source
     sentence the word was looked up in (plus an embedded audio clip of
@@ -93,6 +93,10 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
     `clip_timeout`: per-clip ffmpeg timeout in seconds (None = none).
     `audio_budget_seconds`: once this much time has gone on clips, the
     remaining cards come out sentence-only (None = no budget).
+
+    `report`: when given, gets `clips_missing` = how many cards with a timed
+    line came out without their clip (ffmpeg failed, or the budget ran out),
+    so the caller can say so instead of handing over a deck that looks complete.
     """
     import genanki
     import random
@@ -116,6 +120,7 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
     media_files = []
     audio_deadline = (time.monotonic() + audio_budget_seconds
                       if audio_budget_seconds is not None else None)
+    clips_missing = 0
 
     for row in vocab_rows:
         line = by_idx.get(row.get("first_seen_line_idx"))
@@ -128,8 +133,11 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
         back = f"{translation}<br><br><b>{word_label}</b>: {definitions}"
 
         sentence = line.zh or ""
-        if (has_audio and line.end and line.end > (line.start or 0)
-                and (audio_deadline is None or time.monotonic() < audio_deadline)):
+        timed = bool(has_audio and line.end and line.end > (line.start or 0))
+        in_budget = audio_deadline is None or time.monotonic() < audio_deadline
+        if timed and not in_budget:
+            clips_missing += 1
+        if timed and in_budget:
             clip_name = f"clip_{row.get('id')}.wav"
             clip_path = os.path.join(tmp_dir, clip_name)
             try:
@@ -138,10 +146,12 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
                 media_files.append(clip_path)
                 sentence = f"{sentence}[sound:{clip_name}]"
             except Exception:
-                pass  # this one card just comes out without an audio clip
+                clips_missing += 1  # this one card just comes out without an audio clip
 
         deck.add_note(genanki.Note(model=model, fields=[sentence, back]))
 
+    if report is not None:
+        report["clips_missing"] = clips_missing
     package = genanki.Package(deck)
     if media_files:
         package.media_files = media_files

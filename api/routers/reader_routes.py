@@ -30,7 +30,8 @@ shared with the Review blocked-line retry). The service bounds the work
 inside one request (recap input, wiki chunks per call, rich cards and
 ffmpeg time). The rich .apkg only embeds audio clips for a caller holding
 `media.stream` (media bytes need it); otherwise the deck is text-only and
-the response carries `X-Audio-Omitted: true`. Downloads are named like the Export UI's (`<Title> - vocabulary.csv`) through
+the response carries `X-Audio-Omitted: true`. `X-Clips-Missing: true` means some
+cards lost their clip (ffmpeg failed or the time budget ran out); only the flag is sent. Downloads are named like the Export UI's (`<Title> - vocabulary.csv`) through
 `export_service.content_disposition`, never a path. Media files themselves are played through
 /api/media and /api/dub; `media_file_path` is not exposed here, nor is
 the series glossary (the glossary routes cover it).
@@ -208,6 +209,8 @@ def get_vocab_apkg(request: Request, drama_id: int = Path(ge=1), rich: bool = Qu
     resp = _download(out["content"], "application/octet-stream", disposition)
     if out.get("audio_omitted"):
         resp.headers["X-Audio-Omitted"] = "true"
+    if out.get("clips_missing"):
+        resp.headers["X-Clips-Missing"] = "true"
     if out.get("cards_capped"):
         resp.headers["X-Cards-Capped"] = str(reader_service.MAX_RICH_CARDS)
     return resp

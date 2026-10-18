@@ -9,6 +9,9 @@ import { Field } from '../../../components/Field'
 import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
+import { useReadiness } from '../../../hooks/useReadiness'
+import { NeedsInstall } from '../../readiness/NeedsInstall'
+import { ocrBackendNeed } from '../../readiness/needs'
 import type { NovelAttachResult, NovelMode, NovelStatus } from '../../../types/workspace'
 import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
@@ -60,6 +63,8 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   const [tessCmd, setTessCmd] = useState('')
   const imageProblem = checkOcrImages(images.map((f) => f.name))
   const ocrBackend = backends.includes(backend) ? backend : backends[0]
+  const { readiness } = useReadiness()
+  const ocrNeed = ocrBackendNeed(readiness, ocrBackend)
 
   useEffect(() => {
     let cancelled = false
@@ -141,6 +146,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
               ))}
             </select>
           </Field>
+          {ocrNeed && <NeedsInstall need={ocrNeed} />}
           {ocrBackend === 'tesseract' && (
             <Field label="Tesseract path" help="Only needed if Tesseract is installed but not on PATH. Leave blank otherwise.">
               <input type="text" value={tessCmd} onChange={(e) => setTessCmd(e.target.value)} />
@@ -148,7 +154,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
           )}
           <button
             type="button"
-            disabled={!images.length || !!imageProblem || busy || !!status?.ocr_running}
+            disabled={!images.length || !!imageProblem || busy || !!status?.ocr_running || !!ocrNeed}
             onClick={() =>
               startNovelOcr(dramaId, images, ocrBackend, mode, ocrBackend === 'tesseract' ? tessCmd : undefined).then(
                 (r) => {
