@@ -39,6 +39,7 @@ class FakeJobs:
         self.lock = threading.Lock()
         self.any_started = threading.Event()
         self.gpu = False
+        self.transcribe_kwargs = []
         monkeypatch.setattr(transcribe_service, "start_transcribe_run", self._transcribe)
         monkeypatch.setattr(translate_run_service, "start_translate_run", self._translate)
         monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
@@ -63,6 +64,7 @@ class FakeJobs:
         return {"job_id": job_id}
 
     def _transcribe(self, drama_id, **kw):
+        self.transcribe_kwargs.append(kw)
         return self._start(f"transcribe_{drama_id}")
 
     def _translate(self, drama_id, **kw):
@@ -585,3 +587,16 @@ def test_a_deferred_item_alone_keeps_the_queue_running(jobs):
     jobs.finish("direct_1")
     q.tick()
     assert _items()[0]["status"] == "running"
+
+
+def test_a_queued_transcribe_repeats_the_run_choices_saved_on_the_title(jobs):
+    did = _drama()
+    transcribe_service.update_transcribe_config(
+        did, run_start={"run_diarize": True, "expected_speakers": 3, "extra_names": "白鹤"})
+    q.add_item(None, did, "transcribe", True, at_pc=True)
+    q.start(None)
+    q.tick()
+    assert jobs.transcribe_kwargs == [{
+        "run_diarize": True, "expected_speakers": 3, "min_speakers": None, "max_speakers": None,
+        "extra_names": "白鹤", "initial_prompt": ""}]
+    jobs.finish(f"transcribe_{did}")

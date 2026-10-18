@@ -8,6 +8,7 @@ Shared by transcribe_service (config and run start) and
 retranscribe_line_service, which resolve the same saved values.
 """
 import importlib.util
+import json
 import os
 from typing import Optional
 import background_jobs
@@ -167,6 +168,54 @@ def check_transcribe_fields(fields: dict, source_language) -> dict:
         if bf in fields and fields[bf] is not None:
             updates[bf] = 1 if fields[bf] else 0
     return updates
+
+
+_RUN_START_DEFAULTS = {"run_diarize": False, "expected_speakers": None, "min_speakers": None,
+                       "max_speakers": None, "extra_names": "", "initial_prompt": ""}
+
+
+def run_start(drama: dict) -> dict:
+    """The Transcribe form's run choices saved on this title, every key present. The
+    Queue and any run handed none start from these, so a title behaves the same from
+    every browser instead of from whatever one browser last held."""
+    try:
+        raw = json.loads(drama.get("transcribe_start_json") or "{}")
+    except ValueError:
+        raw = {}
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(_RUN_START_DEFAULTS)
+    for key, default in _RUN_START_DEFAULTS.items():
+        value = raw.get(key)
+        if isinstance(default, bool):
+            ok = isinstance(value, bool)
+        elif isinstance(default, str):
+            ok = isinstance(value, str)
+        else:
+            ok = isinstance(value, int) and not isinstance(value, bool)
+        if ok:
+            out[key] = value
+    return out
+
+
+def check_run_start(raw: dict) -> str:
+    """The JSON to store for a run_start update, checked like the run request is. The
+    whole object replaces the old one, so a cleared speaker count really clears."""
+    values = {**_RUN_START_DEFAULTS, **{k: v for k, v in raw.items() if k in _RUN_START_DEFAULTS}}
+    if not isinstance(values["run_diarize"], bool):
+        raise InvalidInputError("run_diarize must be true or false.")
+    for key in ("extra_names", "initial_prompt"):
+        if not isinstance(values[key], str):
+            raise InvalidInputError(f"{key} must be text.")
+    if len(values["extra_names"]) > 1000:
+        raise InvalidInputError("extra_names must be at most 1000 characters.")
+    if len(values["initial_prompt"]) > 4000:
+        raise InvalidInputError("initial_prompt must be at most 4000 characters.")
+    counts = [values[k] for k in ("expected_speakers", "min_speakers", "max_speakers")]
+    for count in counts:
+        if count is not None and (isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= 20):
+            raise InvalidInputError("Speaker counts must be whole numbers from 0 to 20.")
+    diarization_service.speaker_range(*counts)
+    return json.dumps(values, sort_keys=True)
 
 
 # The per-title options a Benchmark Lab transcription run may set, as the title stores them.

@@ -37,7 +37,8 @@ from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
 from services import (auth_service, artifact_service, export_service, jobs_service,
-                      model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
+                      model_readiness_service, ownership_service, profile_service, settings_service,
+                      transcribe_options_service, transcribe_service,
                       translate_run_service, translate_thinking_service)
 
 QUEUE_KEY = "job_queue"
@@ -411,7 +412,9 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bo
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
     if step == "transcribe":
-        model_readiness_service.require_ready(at_pc, model_readiness_service.for_transcribe, drama_id)
+        model_readiness_service.require_ready(
+            at_pc, model_readiness_service.for_transcribe, drama_id,
+            run_diarize=transcribe_options_service.run_start(drama)["run_diarize"])
     with _lock:
         doc = _load()
         if len(doc["items"]) >= MAX_ITEMS:
@@ -599,7 +602,9 @@ def _start_transcribe(principal, drama: dict) -> str:
     if config.get("transcript_mode") == "have_transcript":
         raise UnsupportedOperationError("This title transcribes from a transcript you paste, "
                                         "so it can't run from the queue.")
-    return transcribe_service.start_transcribe_run(drama["id"])["job_id"]
+    # The form's saved run choices (speaker detection, names, prompt), as pressing Transcribe there sends them.
+    return transcribe_service.start_transcribe_run(
+        drama["id"], **transcribe_options_service.run_start(drama))["job_id"]
 
 
 def _translate_run_args(drama: dict) -> dict:
@@ -674,7 +679,8 @@ def _start_item(item: dict) -> Optional[str]:
         if item["step"] == "transcribe":
             # Again at start: the title's model choice may have changed since it was added.
             model_readiness_service.require_ready(
-                item["at_pc"], model_readiness_service.for_transcribe, drama["id"])
+                item["at_pc"], model_readiness_service.for_transcribe, drama["id"],
+                run_diarize=transcribe_options_service.run_start(drama)["run_diarize"])
             return _start_transcribe(principal, drama)
         if item["step"] == "translate":
             return _start_translate(principal, drama)

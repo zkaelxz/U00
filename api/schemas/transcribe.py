@@ -143,6 +143,17 @@ class GpuRuntimeStatus(BaseModel):
     reason: Optional[str] = None
 
 
+class TranscribeRunStart(BaseModel):
+    """The Transcribe form's run choices saved on a title (not the transcript text, which
+    is never kept)."""
+    run_diarize: bool = False
+    expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    min_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    max_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    extra_names: str = Field("", max_length=1000)
+    initial_prompt: str = Field("", max_length=4000)
+
+
 class TranscribeConfig(BaseModel):
     """Read-only Transcript-stage summary for one drama -- which action the
     transcribe button would run (from the source config's transcript_mode)
@@ -207,6 +218,9 @@ class TranscribeConfig(BaseModel):
     # Whisper prompt built from the series glossary and raw-novel excerpt;
     # a run with an empty initial_prompt uses this.
     auto_initial_prompt: str = ""
+    source_language: str = "zh"
+    chinese_script: str = "simplified"
+    run_start: TranscribeRunStart = TranscribeRunStart()
 
 
 class TranscribeConfigUpdate(BaseModel):
@@ -232,6 +246,10 @@ class TranscribeConfigUpdate(BaseModel):
     use_groq: Optional[bool] = None
     hardsub_ocr_backend: Optional[str] = None
     hardsub_interval_sec: Optional[float] = None
+    # The language and script the form shows, and its run choices (replaced as a whole).
+    source_language: Optional[str] = None
+    chinese_script: Optional[str] = None
+    run_start: Optional[TranscribeRunStart] = None
 
 
 class TranscribeRunRequest(BaseModel):
