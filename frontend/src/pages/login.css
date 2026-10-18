@@ -96,6 +96,10 @@ details.user-menu > summary:focus-visible { outline: 2px solid var(--accent, cur
   details.user-menu > summary { width: 44px; height: 44px; }
 }
 @media (max-width: 640px) {
+  /* min-width: 0 on the details would squeeze it below the avatar and push it past the screen edge. */
+  details.user-menu { flex-shrink: 0; min-width: 44px; }
+}
+@media (max-width: 640px) {
   /* Basis 0: sits beside the title, takes the rest of the row, and the email truncates. */
   .header-end { flex: 1 1 0; justify-content: flex-end; }
   /* Icon buttons keep their 44px; only the user menu's email gives way. */
