@@ -317,7 +317,7 @@ describe('page sections', () => {
 
   it('opens every section on a first visit: each is the first card of its tab', () => {
     const s = store()
-    for (const id of ['sets', 'run', 'reeval', 'runs'] as const) expect(benchSectionOpen(s, id)).toBe(true)
+    for (const id of ['sets', 'run', 'sweep', 'reeval', 'runs'] as const) expect(benchSectionOpen(s, id)).toBe(true)
   })
 
   it('remembers a choice over the default, per section', () => {

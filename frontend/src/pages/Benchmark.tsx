@@ -5,7 +5,7 @@
  * Diagnostics; importing, adding and deleting cases and starting a run are
  * PC only (the server enforces; the page hides them in remote mode). The
  * Model re-evaluation card runs production against candidate
- * models through the same benchmark_lab job.
+ * models, and the Settings sweep runs its passes, through the same benchmark_lab job.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
@@ -33,6 +33,7 @@ import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
 import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
 import { RunsCard } from './benchmark/RunsCard'
+import { SweepCard } from './benchmark/SweepCard'
 import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
 import { BENCHMARK_TABS, isBenchmarkTab, type BenchmarkTab } from './benchmark/benchmarkTabs'
@@ -208,6 +209,20 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           onStarted={onStarted}
           onStop={stop}
           compare={compare}
+        />
+      )}
+      {sets && (
+        <SweepCard
+          sets={sets}
+          pc={pc}
+          job={job}
+          running={running}
+          onStarted={(id) => {
+            setStarted(null)
+            setJobId(id)
+          }}
+          onStop={stop}
+          onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
         />
       )}
         </>
