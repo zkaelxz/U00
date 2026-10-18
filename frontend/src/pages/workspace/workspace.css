@@ -108,13 +108,14 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header .ws-back-text,
   .workspace-header .ws-media,
   .workspace-header .ws-lines { display: none; }
-  .ws-actions { margin: var(--space-2) 0; justify-content: flex-end; }
+  .workspace-header .ws-more { min-width: 44px; padding-inline: 0; font-size: var(--text-xl); line-height: 1; }
+  .sheet-body .ws-actions { flex-direction: column; align-items: stretch; margin: 0; }
   /* The back arrow and the title say what the crumbs say, so the row goes. */
   .workspace > .crumbs { display: none; }
   /* Margin, not padding: the strip's height is --bar-h, which the Review toolbar's scroll-collapse thresholds depend on. */
   .ws-strip { margin-bottom: var(--space-3); }
   /* Kept to their own width: stretched full width, Read outranked each stage's own primary action. */
-  .workspace .ws-actions a.btn, .workspace .ws-actions a.ws-source-add { flex: 0 1 auto; justify-content: center; min-height: 44px; }
+  .sheet-body .ws-actions a.btn, .sheet-body .ws-actions a.ws-source-add, .sheet-body .ws-actions .btn { justify-content: center; min-height: 44px; }
   .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }

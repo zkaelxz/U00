@@ -504,6 +504,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   label:has(> input[type='checkbox']), label:has(> input[type='radio']),
   .toggle-list .field-item { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
   .toggle-list .field-item { display: flex; }
+  .field-help-btn { width: 24px; height: 24px; }
   .field-help-btn::after, .review-hint::after { inset: -12px; }
 }
 /* Narrower than a wide desktop the header buttons (theme button included) would wrap: "Report a problem" shows its icon only. */
@@ -985,3 +986,12 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 .title-group-toggle { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .title-group-name { font-weight: 600; }
 .title-group-link { margin-left: auto; white-space: nowrap; }
+
+/* Phone Library: the filters live in a Sheet, one control per row. */
+.filter-sheet { display: grid; gap: var(--space-3); }
+.filter-sheet .toolbar-filters { flex-direction: column; }
+.filter-sheet select, .filter-sheet .toolbar-filters select { width: 100%; }
+@media (max-width: 640px) {
+  /* The sheet scrolls, so Create and Cancel stay in reach however long the form is. */
+  .create-form .sheet-actions { position: sticky; bottom: 0; z-index: 1; padding-block: var(--space-2); background: var(--bg); border-top: 1px solid var(--border); }
+}

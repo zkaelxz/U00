@@ -26,6 +26,7 @@ import {
 } from './libraryFilters'
 import { countDramas, dramaName, readHref, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
+import { Sheet } from './Sheet'
 import { buttonClass } from './uiClasses'
 
 // Status and quick-filter choices; '' means no filter.
@@ -109,6 +110,7 @@ export function LibraryList({
   const [hits, setHits] = useState<LibrarySearchHit[] | null>(null)
   const [hitsError, setHitsError] = useState<unknown>(null)
   const phone = useMediaQuery('(max-width: 640px)')
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const onItemsRef = useRef(onItems)
   const onVisibleRef = useRef(onVisible)
   useEffect(() => {
@@ -268,6 +270,45 @@ export function LibraryList({
                 </div>
   )
 
+  const activeFilters = (status ? 1 : 0) + (quickFilter ? 1 : 0) + moreFilterCount(more)
+  const statusSelects = (
+    <div className="toolbar-filters">
+      <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+        {STATUSES.map((s) => (
+          <option key={s} value={s}>{s ? statusLabel(s) : 'Any status'}</option>
+        ))}
+      </select>
+      <select aria-label="Quick filter" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
+        {QUICK_FILTERS.map((q) => (
+          <option key={q} value={q}>{q ? tagLabel(q) : 'All lists'}</option>
+        ))}
+      </select>
+    </div>
+  )
+  const moreFilters = <MoreFiltersFold value={more} onChange={setMore} reloadKey={reloadKey} />
+  const scopeControl = (
+    <Segmented<Scope>
+      label="Search in" name="library-scope" value={scope} onChange={setScope}
+      options={[['titles', 'Titles'], ['lines', 'Lines']]}
+    />
+  )
+  const sortSelects = (
+    <>
+      <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
+        {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+      </select>
+      <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
+        {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
+      </select>
+    </>
+  )
+  const viewControl = (
+    <Segmented<View>
+      label="View" name="library-view" value={view} onChange={setView}
+      options={[['grid', 'Grid'], ['list', 'List']]}
+    />
+  )
+
   return (
     <section className="library-list" aria-labelledby="library-heading">
       <h3 id="library-heading" className="visually-hidden">Titles</h3>
@@ -283,43 +324,42 @@ export function LibraryList({
           />
           {scope === 'lines' && <button type="submit" className={buttonClass('secondary')}>Search</button>}
         </div>
-        {scope === 'titles' && <div className="toolbar-filters">
-          <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>{s ? statusLabel(s) : 'Any status'}</option>
-            ))}
-          </select>
-          <select aria-label="Quick filter" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
-            {QUICK_FILTERS.map((q) => (
-              <option key={q} value={q}>{q ? tagLabel(q) : 'All lists'}</option>
-            ))}
-          </select>
-        </div>}
-        {scope === 'titles' && <MoreFiltersFold value={more} onChange={setMore} reloadKey={reloadKey} />}
-        <div className="toolbar-row">
-          <Segmented<Scope>
-            label="Search in" name="library-scope" value={scope} onChange={setScope}
-            options={[['titles', 'Titles'], ['lines', 'Lines']]}
-          />
+        {phone ? (
+          <div className="toolbar-row">
+            <button type="button" className={buttonClass('secondary')} onClick={() => setFiltersOpen(true)}>
+              Filters{activeFilters > 0 && ` (${activeFilters})`}
+            </button>
+            <div className="toolbar-end">{selectControls}</div>
+          </div>
+        ) : (
+          <>
+            {scope === 'titles' && statusSelects}
+            {scope === 'titles' && moreFilters}
+            <div className="toolbar-row">
+              {scopeControl}
+              {scope === 'titles' && (
+                <>
+                  {sortSelects}
+                  {viewControl}
+                </>
+              )}
+              <div className="toolbar-end">{selectControls}</div>
+            </div>
+          </>
+        )}
+      </form>
+      <Sheet open={phone && filtersOpen} title="Filters" onClose={() => setFiltersOpen(false)}>
+        <div className="filter-sheet">
+          {scopeControl}
           {scope === 'titles' && (
             <>
-              <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
-                {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-              </select>
-              <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
-                {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
-              </select>
+              {statusSelects}
+              {sortSelects}
+              {moreFilters}
             </>
           )}
-          {!phone && scope === 'titles' && (
-            <Segmented<View>
-              label="View" name="library-view" value={view} onChange={setView}
-              options={[['grid', 'Grid'], ['list', 'List']]}
-            />
-          )}
-          <div className="toolbar-end">{selectControls}</div>
         </div>
-      </form>
+      </Sheet>
 
       {scope === 'lines' ? (
         <LineHits hits={hits} error={hitsError} />
