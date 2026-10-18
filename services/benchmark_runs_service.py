@@ -212,14 +212,16 @@ def arena(run_ids: list) -> dict:
 def _setup_key(session: dict) -> str:
     ctx = session_out(session)["context_settings"]
     options = ctx["transcribe_options"] if "transcribe_options" in ctx else None
-    return json.dumps([session["engine"], session["model"], options], sort_keys=True)
+    gpu = ctx["use_gpu"] if "use_gpu" in ctx else None
+    return json.dumps([session["engine"], session["model"], options, gpu], sort_keys=True)
 
 
 def timing_verdicts(runs: list, summary: list) -> list:
     """One verdict per compared run on its line timing against the first run (the default),
     or None for a comparison with no timed cases. A timing gain counts only when the share of
-    lines within 0.3 s rises by more than the noise, and never when the text score is worse
-    than the first run's by more than its noise. The noise is how far apart two runs of the
+    lines within 0.3 s rises by more than the noise, and never when the text score is below the
+    first run's at all (a drop inside the noise is still not accepted) or the run has more
+    errored cases than the first. The noise is how far apart two runs of the
     first run's own setup are, so it is measured only when the comparison holds such a repeat;
     without one there is no margin, and the verdict says to repeat the default."""
     if not summary[0]["timing"].get("cases"):
@@ -249,7 +251,8 @@ def _timing_verdict(first: dict, run: dict, is_repeat: bool, margin_within, marg
     gain = run["timing"]["within"] - first["timing"]["within"]
     score_change = None if None in (run["aggregate_score"], first["aggregate_score"]) \
         else run["aggregate_score"] - first["aggregate_score"]
-    worse = score_change is not None and score_change < -(margin_score or 0.0)
+    worse = score_change is not None and score_change < 0
+    more_errors = run["error_count"] > first["error_count"]
     if margin_within is None:
         return {**base, "state": "no_margin", "gain": gain, "score_change": score_change,
                 "text": "No repeat of the default to measure noise against, so this timing change can't be "
@@ -258,8 +261,13 @@ def _timing_verdict(first: dict, run: dict, is_repeat: bool, margin_within, marg
         return {**base, "state": "no_gain", "gain": gain, "score_change": score_change,
                 "text": "Timing is not better than the default by more than the noise."}
     if worse:
+        within_noise = margin_score is not None and -score_change <= margin_score
         return {**base, "state": "cer_worse", "gain": gain, "score_change": score_change,
-                "text": "Timing is better but the text score is worse, so this is not accepted: a timing gain "
-                        "is never traded for worse accuracy."}
+                "text": ("Timing is better, text slightly worse (within noise). " if within_noise else
+                         "Timing is better but the text score is worse. ")
+                        + "Not accepted: a timing gain is never traded for worse accuracy."}
+    if more_errors:
+        return {**base, "state": "cer_worse", "gain": gain, "score_change": score_change,
+                "text": "Timing is better but more cases failed than with the default. Not accepted."}
     return {**base, "state": "gain", "gain": gain, "score_change": score_change,
             "text": "Timing is better than the default by more than the noise and the text score is not worse."}

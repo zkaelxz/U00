@@ -287,10 +287,15 @@ def _timing_of(segments, case: dict, options: dict, audio: str):
     ref_start, ref_end = case.get("ref_start"), case.get("ref_end")
     if segments is None or ref_start is None or ref_end is None:
         return None
-    lines = long_line_split.split_long_segments(
-        [s for s in segments if (s.get("text") or "").strip()],
-        max_seconds=options["split_max_seconds"], max_cjk_chars=options["split_max_chars"])
-    return asr_timing_service.case_timing(lines, ref_start, ref_end, asr_timing_service.speech_spans(audio))
+    # Its own guard: a timing failure (a segment without an end, a splitter bug) must not turn a
+    # good transcript into an errored case.
+    try:
+        lines = long_line_split.split_long_segments(
+            [s for s in segments if (s.get("text") or "").strip()],
+            max_seconds=options["split_max_seconds"], max_cjk_chars=options["split_max_chars"])
+        return asr_timing_service.case_timing(lines, ref_start, ref_end, asr_timing_service.speech_spans(audio))
+    except Exception:
+        return None
 
 
 def app_version() -> str:

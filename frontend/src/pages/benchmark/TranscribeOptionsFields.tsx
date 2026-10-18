@@ -16,8 +16,8 @@ const HALLUCINATION_RANGE = { min: 0.5, max: 10 }
 /** Lab-only timing settings; the server checks the same ranges. */
 const TIMING_RANGES: Record<TimingKey, { min: number; max: number; integer: boolean }> = {
   speech_pad_ms: { min: 0, max: 2000, integer: true },
-  split_max_seconds: { min: 2, max: 30, integer: false },
-  split_max_chars: { min: 10, max: 120, integer: true },
+  split_max_seconds: { min: 4, max: 20, integer: false },
+  split_max_chars: { min: 20, max: 80, integer: true },
 }
 
 /** The error for a typed number, or null when it is acceptable (the server checks again). */
@@ -119,8 +119,8 @@ export function TranscribeOptionsFields({ options, config, onChange }: Props) {
       <p className="muted">Where lines start and end. Scored on test-set clips that have reference times.</p>
       <div className="bench-config-fields">
         {number('speech_pad_ms', 'Speech pad', 50, `${rangeHint(0, 2000, { unit: 'ms', default: defaults.speech_pad_ms })} Audio kept around each stretch of speech.`, 'ms')}
-        {number('split_max_seconds', 'Longest line', 1, `${rangeHint(2, 30, { unit: 's', default: defaults.split_max_seconds })} Longer lines are split.`, 's')}
-        {number('split_max_chars', 'Longest line, characters', 5, `${rangeHint(10, 120, { default: defaults.split_max_chars })} Longer lines are split.`)}
+        {number('split_max_seconds', 'Longest line', 1, `${rangeHint(4, 20, { unit: 's', default: defaults.split_max_seconds })} Longer lines are split. Starts at your Settings value.`, 's')}
+        {number('split_max_chars', 'Longest line, characters', 5, `${rangeHint(20, 80, { default: defaults.split_max_chars })} Longer lines are split.`)}
       </div>
       <div className="setting-list">
         {toggle('refine_timing', 'Refine line timing', 'Re-times each line with the Qwen3 forced aligner. Only the speech-detection Qwen3-ASR recogniser uses it.')}

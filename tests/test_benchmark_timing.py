@@ -83,10 +83,19 @@ class TestTimingOptions:
     def test_values_are_checked(self):
         assert opts.resolve_lab_options({"speech_pad_ms": 100, "refine_timing": True,
                                          "split_max_seconds": 6, "split_max_chars": 30})["split_max_seconds"] == 6.0
-        for bad in ({"speech_pad_ms": -1}, {"speech_pad_ms": "100"}, {"split_max_seconds": 1},
-                    {"split_max_chars": 500}, {"refine_timing": 1}, {"speech_pad_ms": True}):
+        for bad in ({"speech_pad_ms": -1}, {"speech_pad_ms": "100"}, {"split_max_seconds": 3},
+                    {"split_max_seconds": 21}, {"split_max_chars": 19}, {"split_max_chars": 81}, {"refine_timing": 1}, {"speech_pad_ms": True}):
             with pytest.raises(InvalidInputError):
                 opts.resolve_lab_options(bad)
+
+    def test_split_defaults_follow_settings_and_ranges_are_the_settings_ranges(self, monkeypatch):
+        from tests.saved_settings import patch_setting
+        patch_setting(monkeypatch, "split_max_seconds", 12.0)
+        patch_setting(monkeypatch, "split_max_cjk_chars", 55)
+        resolved = opts.resolve_lab_options(None)
+        assert (resolved["split_max_seconds"], resolved["split_max_chars"]) == (12.0, 55)
+        assert opts.LAB_TIMING_RANGES["split_max_seconds"] == (4.0, 20.0)
+        assert opts.LAB_TIMING_RANGES["split_max_chars"] == (20, 80)
 
     def test_a_title_is_unaffected(self):
         assert "speech_pad_ms" not in opts.check_transcribe_fields({"min_silence_ms": 500}, None)
@@ -178,6 +187,14 @@ class TestLabRunScoresTiming:
         (res,) = runs.get_run(sid)["results"]
         assert res["timing"]["lines"] >= 2 and res["timing"]["split"] is True
 
+    def test_a_timing_failure_keeps_the_transcript(self, isolated_db, segments, monkeypatch):
+        from services import benchmark_case_service as cases
+        monkeypatch.setattr(cases.asr_timing_service, "case_timing", lambda *a, **k: 1 / 0)
+        _timed_case()
+        (sid,) = _run([{"engine": "whisper", "model": "large-v3"}])
+        (res,) = runs.get_run(sid)["results"]
+        assert res["error"] is None and res["timing"] is None and res["score"] == 1.0
+
     def test_whisper_ignores_refine_timing_so_it_cannot_make_two_arms_differ(self, isolated_db, segments):
         _timed_case()
         with pytest.raises(InvalidInputError, match="twice"):
@@ -187,18 +204,21 @@ class TestLabRunScoresTiming:
 
 
 class TestTimingVerdict:
-    def _arena(self, isolated_db, specs):
-        """Runs that all scored the same single case, with the given (within, score, options)."""
+    def _arena(self, isolated_db, specs, errors=None, gpu=None):
+        """Runs that all scored the same single case, with the given (within, score, options);
+        `errors` and `gpu` give a run's error text or use_gpu by position."""
         case = _timed_case()
         ids = []
-        for within, score, options in specs:
+        for i, (within, score, options) in enumerate(specs):
             sid = db.create_benchmark_session({
                 "label": "", "stage": "transcription", "engine": "whisper", "model": "large-v3",
-                "context_settings": json.dumps({"transcribe_options": options}), "status": "done",
+                "context_settings": json.dumps({"transcribe_options": options,
+                                                "use_gpu": (gpu or {}).get(i, False)}), "status": "done",
                 "case_count": 1, "aggregate_score": score})
             err = 0.1 if within else 0.9
             db.save_benchmark_result(sid, {"id": case, "label": "x", "ref_version": 1}, {
                 "output_text": "a", "score": score, "metric": "cer", "passed": True,
+                "error": (errors or {}).get(i),
                 "timing": {"lines": 1, "missed": False, "split": False, "merged": False,
                            "start_error_s": err, "end_error_s": err, "silence": None}})
             ids.append(sid)
@@ -217,6 +237,23 @@ class TestTimingVerdict:
         arena = self._arena(isolated_db, [(False, 0.9, {}), (False, 0.9, {}), (True, 0.8, {"speech_pad_ms": 100})])
         verdict = arena["runs"][2]["timing_verdict"]
         assert verdict["state"] == "cer_worse" and "never traded" in verdict["text"]
+
+    def test_a_text_drop_inside_the_noise_is_still_not_accepted(self, isolated_db):
+        # The repeat differs by 0.02, so 0.01 is inside the noise, and still counts against the arm.
+        arena = self._arena(isolated_db, [(False, 0.90, {}), (False, 0.92, {}), (True, 0.89, {"speech_pad_ms": 100})])
+        verdict = arena["runs"][2]["timing_verdict"]
+        assert verdict["state"] == "cer_worse" and "within noise" in verdict["text"]
+
+    def test_an_arm_with_more_failed_cases_is_never_a_gain(self, isolated_db):
+        arena = self._arena(isolated_db, [(False, 0.9, {}), (False, 0.9, {}), (True, 0.9, {"speech_pad_ms": 100})],
+                            errors={2: "boom"})
+        assert arena["runs"][2]["timing_verdict"]["state"] == "cer_worse"
+
+    def test_a_repeat_must_also_share_the_gpu_setting(self, isolated_db):
+        arena = self._arena(isolated_db, [(False, 0.9, {}), (False, 0.9, {}), (True, 0.9, {"speech_pad_ms": 100})],
+                            gpu={1: True})
+        # Run 2 used the GPU, so it is not a repeat of run 1 and there is no noise measurement.
+        assert arena["runs"][2]["timing_verdict"]["state"] == "no_margin"
 
     def test_a_difference_inside_the_noise_is_no_gain(self, isolated_db):
         # The repeat of the default differs from it by the whole share, so nothing can beat that.

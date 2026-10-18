@@ -15,6 +15,7 @@ import segment_splitting
 import db
 import diagnostics
 import sensitivity_preset as presets
+from lib import settings_schema
 from core import SOURCE_LANGUAGES
 from ocr import HARDSUB_OCR_BACKEND_OPTIONS
 from services import (
@@ -22,6 +23,7 @@ from services import (
     diarization_service,
     ownership_service,
     settings_service,
+    timing_settings_service,
     transcribe_pipeline,
 )
 from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
@@ -149,9 +151,14 @@ LAB_OPTION_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "sensitivit
 LAB_MAX_INITIAL_PROMPT_CHARS = 1000
 # Timing settings only the Lab varies. A title has no saved column for them: the speech pad is
 # faster-whisper's own default, the refine switch is the app-wide Settings value, and the split
-# limits are the Settings-wide ones, so a title is unaffected by anything the Lab does here.
+# limits are the Settings rows (Settings > Timing and splitting), so a title is unaffected by
+# anything the Lab does here. The split ranges are those rows' own, so the Lab cannot report a
+# gain at a value no title can use.
 WHISPER_DEFAULT_SPEECH_PAD_MS = 400
-LAB_TIMING_RANGES = {"speech_pad_ms": (0, 2000), "split_max_seconds": (2.0, 30.0), "split_max_chars": (10, 120)}
+_SPLIT_ROWS = {"split_max_seconds": "split_max_seconds", "split_max_chars": "split_max_cjk_chars"}
+LAB_TIMING_RANGES = {
+    "speech_pad_ms": (0, 2000),
+    **{key: (settings_schema.BY_KEY[row].min, settings_schema.BY_KEY[row].max) for key, row in _SPLIT_ROWS.items()}}
 LAB_TIMING_FIELDS = (*LAB_TIMING_RANGES, "refine_timing")
 _LAB_NUMBER_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "hallucination_silence_sec")
 _LAB_FLAG_FIELDS = ("whisper_repeat_guard", "difficult_audio", "separate_vocals_first")
@@ -171,8 +178,8 @@ def lab_option_defaults() -> dict:
         "initial_prompt": "",
         "speech_pad_ms": WHISPER_DEFAULT_SPEECH_PAD_MS,
         "refine_timing": asr_options_service.get_vad_refine_timing(),
-        "split_max_seconds": segment_splitting.SPLIT_MAX_SECONDS,
-        "split_max_chars": segment_splitting.SPLIT_MAX_CJK_CHARS,
+        # What a title's run splits at today, Settings included.
+        **{key: timing_settings_service.value(row) for key, row in _SPLIT_ROWS.items()},
     }
 
 

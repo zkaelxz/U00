@@ -128,7 +128,8 @@ def spoken_lines(drama_id: int, drama: dict) -> list:
     """Every spoken, unflagged line of a title as a reference whose text is the line as it now
     reads, edited or not. For a title whose timing was fixed in Review without the text changing:
     its lines are references because the owner checked them, not because the text differs from
-    the raw transcript."""
+    the raw transcript. A line nobody reviewed still holds the recogniser's own output, so a
+    recogniser is then partly graded against its past self: use this for reviewed titles."""
     drama_lang = _drama_language(drama)
     out = []
     for row in db.load_lines(drama_id):

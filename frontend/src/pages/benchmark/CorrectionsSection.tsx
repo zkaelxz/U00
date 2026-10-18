@@ -123,7 +123,7 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
       {stats && <p data-testid="corrections-stats">{describeStats(stats)}</p>}
       {includeAll && (
         <p className="muted" data-testid="corrections-include-all-note">
-          Every spoken line is added, and its current text is the reference, not the raw transcript.
+          Every spoken line is added, and its current text is the reference, not the raw transcript. Use it for reviewed titles only.
         </p>
       )}
       <div className="actions">

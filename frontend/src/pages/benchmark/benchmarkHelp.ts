@@ -29,8 +29,9 @@ export const CORRECTIONS_HELP =
   'Lines you left alone are skipped unless you include all lines. Time the title in Review first: the clips also keep each line\'s start and end.'
 
 export const INCLUDE_ALL_HELP =
-  'Adds every spoken line of this title, edited or not. The line\'s current text counts as the reference, so use it only ' +
-  'for a title whose text you have checked, for example one whose timing you fixed in Review.'
+  'Adds every spoken line of this title, edited or not. The line\'s current text counts as the reference. A line nobody ' +
+  'reviewed still holds the recogniser\'s own output, so the test would partly grade it against its past self: use this ' +
+  'only for a title whose text you have reviewed, for example one whose timing you fixed in Review.'
 
 export type BenchSectionId = 'sets' | 'run' | 'reeval' | 'runs'
 
