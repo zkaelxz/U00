@@ -19,7 +19,10 @@ export async function openSettingsGroups(page: Page, tab: SettingsTabName) {
     await pickTab(page, tab, 'Settings')
     await page.locator('.settings-panel:not([hidden])').waitFor()
   }
-  await page.getByRole('button', { name: 'Expand all' }).click()
+  // On a phone the two buttons sit in a small menu.
+  const expandAll = page.getByRole('button', { name: 'Expand all' })
+  if (!(await expandAll.isVisible())) await page.getByText('Expand / collapse', { exact: true }).click()
+  await expandAll.click()
   // A card's help icon can land under the pointer, which opens its tooltip.
   await page.mouse.move(0, 0)
 }

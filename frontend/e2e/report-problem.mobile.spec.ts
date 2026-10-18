@@ -5,7 +5,7 @@ test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
-// "Report a problem" on a phone (390x844, touch): the header button, the
+// "Report a problem" on a phone (390x844, touch): the More menu button, the
 // dialog as a bottom sheet with 44px targets and no sideways scroll, and
 // Copy a report and Saved reports (Deleteâ€¦ beside Copy). Every /api request
 // is fulfilled or aborted here: /api/meta and the bug-report calls are
@@ -58,6 +58,7 @@ test('Report a problem on a phone: bottom sheet, 44px targets, no sideways scrol
     : route.abort())
 
   await page.goto('/#/library')
+  await page.getByRole('button', { name: 'More', exact: true }).tap()
   const open = page.getByRole('button', { name: 'Report a problem' })
   expect((await hitHeight(open))).toBeGreaterThanOrEqual(44)
   await noSideways(page)
@@ -92,6 +93,7 @@ test('Report a problem on a phone: Copy a report and Saved reports fit, Deleteâ€
       has_screenshot: false, has_server_log: true }] })
     : r.abort())
   await page.goto('/#/library')
+  await page.getByRole('button', { name: 'More', exact: true }).tap()
   await page.getByRole('button', { name: 'Report a problem' }).click()
   const dialog = page.getByRole('dialog', { name: 'Report a problem' })
   const card = dialog.getByRole('region', { name: 'Copy a report for a bug' })

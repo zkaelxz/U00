@@ -13,17 +13,15 @@ async function noSideways(page: Page) {
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
 }
 
-test('phone header: Report a problem is a 44px icon button on the title row', async ({ page }) => {
+test('phone header: Report a problem is a 44px button in the More menu, not on the title row', async ({ page }) => {
   await page.goto('/#/library')
-  const report = page.getByRole('button', { name: 'Report a problem' })
+  await expect(page.locator('.app-header').getByRole('button', { name: 'Report a problem' })).toBeHidden()
+  await page.getByRole('button', { name: 'More', exact: true }).tap()
+  const report = page.getByRole('dialog', { name: 'Main menu' }).getByRole('button', { name: 'Report a problem' })
   await expect(report).toBeVisible()
   const box = (await report.boundingBox())!
-  const title = (await page.locator('.app-brand, .rail-brand').boundingBox())!
-  expect(box.width).toBeGreaterThanOrEqual(44)
-  expect(box.width).toBeLessThan(60)
   expect(box.height).toBeGreaterThanOrEqual(44)
-  // Same row as the title; the 3 by 2 nav grid is gone, so the page starts right under it, and the bottom bar carries the navigation.
-  expect(box.y).toBeLessThan(title.y + title.height)
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('navigation', { name: 'Quick' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
   await noSideways(page)

@@ -124,6 +124,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       {drama && !isPopOutWindow() && <OpenInWindowButton />}
     </div>
   )
+  // The phone stepper drops the counts and shows only a marker, so the open stage's state is spelled out below it.
+  const activeState = active ? states[active] : undefined
+  const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <Breadcrumbs crumbs={routeCrumbs({ name: 'drama', id, stage }, { title, stage: active })} />
@@ -195,6 +198,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
         </a>
       )}
       </div>
+      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
       </div>
       {phone && active !== 'review' && actions}
       {drama ? (

@@ -164,3 +164,4 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 
 /* The dense back button below reaches 6px above its box for touch; the gap keeps that area off the crumb links. */
 .workspace > .crumbs { margin-bottom: var(--space-2); }
+.ws-stage-state { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
