@@ -323,6 +323,13 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     <Section title="Packages" defaultOpen openSignal={openSignal} storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
       <div ref={(el) => { openRef(el); panelRef.current = el }} data-testid="dependency-panel" className="diag-stack">
         {pc === 'remote' && <p className="muted">Installing is PC only.</p>}
+        {local && (
+          <p className="banner" role="note" data-testid="services-off-notice">
+            <strong>Running Baihe as a Windows service?</strong> Turn off both services, "Baihe Studio" and
+            "Baihe Studio remote access (Caddy)", then start Baihe from the Start menu before you install
+            packages. Installs are refused while the services are on.
+          </p>
+        )}
         {pending && <p className="muted" data-testid="pc-pending">{pending}</p>}
         {local && blocked && !running && <p className="muted" id={reasonId}>{blocked}</p>}
         <p className="muted" aria-live="polite" data-testid="install-running" id={runningId}>
