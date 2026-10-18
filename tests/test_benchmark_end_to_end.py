@@ -188,3 +188,31 @@ class TestRequestShape:
             "engine": "whisper", "model": "large-v3", "options": {"beam_size": 1}}
         with pytest.raises(ValueError):
             BenchmarkRunRequest(configs=[{"engine": "claude", "transcribe": {"engine": "whisper", "key": "x"}}])
+
+
+class TestEdges:
+    def test_a_cancel_after_recognition_makes_no_translation_call(self, isolated_db, monkeypatch):
+        from services import benchmark_end_to_end_service as e2e
+        audio_id, case_id = _clip()
+        case = db.get_benchmark_case(case_id)
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: True)
+        r = e2e.translate_recognised(EchoEngine(), lab.check_config("transcription", WHISPER), case, None, False, None, "j")
+        assert r["recognition_failed"] and r["cost_usd"] == 0.0 and EchoEngine.sources == []
+
+    def test_a_clip_that_vanished_is_that_cases_error_not_the_jobs(self, isolated_db, monkeypatch):
+        from services import benchmark_end_to_end_service as e2e
+        _, case_id = _clip()
+        case = db.get_benchmark_case(case_id)
+        monkeypatch.setattr(e2e, "audio_cases", lambda cases: ({}, cases))
+        r = e2e.translate_recognised(EchoEngine(), lab.check_config("transcription", WHISPER), case, None, False, None, "j")
+        assert r["error"] == "The clip audio is missing." and r["recognition_failed"]
+
+    def test_a_key_in_a_recogniser_error_is_not_stored(self, isolated_db, monkeypatch):
+        _clip()
+
+        def boom(*a, **k):
+            raise RuntimeError("401 for key sk-ant-abcdefghijklmnopqrstuvwxyz0123456789")
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", boom)
+        started = _run([{"engine": "claude", "transcribe": WHISPER}])
+        (result,) = db.list_benchmark_results(started["session_ids"][0])
+        assert "sk-ant-abcdefghijklmnop" not in result["error"]

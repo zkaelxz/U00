@@ -9,6 +9,7 @@ import json
 
 import background_jobs
 import db
+from translate_engines import redact_secrets
 from services import transcribe_options_service
 from services.benchmark_case_service import (LAB_BACKENDS, ignored_options, model_identity, require_backend_fits_cases,
                                              require_backend_ready, require_whisper_fits_cases,
@@ -60,16 +61,23 @@ def require_audio_for(arms: list, cases: list):
         require_recogniser_fits(arm, cases)
 
 
+def _not_heard(error: str, seconds, text: str = "") -> dict:
+    return {"output_text": "", "error": error, "cost_usd": 0.0, "usage": {}, "recognition_failed": True,
+            "duration_seconds": seconds or 0.0, "recognised_text": text}
+
+
 def translate_recognised(engine, arm: dict, case: dict, api_key, use_gpu, folder, job_id) -> dict:
     """One end-to-end case: the clip is recognised at the arm's settings and what was heard is translated;
     the caller scores it against the reference translation."""
-    clip = audio_cases([case])[0][case["id"]]
+    clip = audio_cases([case])[0].get(case["id"])
+    if clip is None:
+        return _not_heard("The clip audio is missing.", 0.0)
     heard = run_transcription(arm, clip, use_gpu, folder, lambda: background_jobs.is_cancel_requested(job_id))
     text = (heard.get("output_text") or "").strip()
     failure = heard.get("error") or (None if text else "Nothing was recognised in this clip.")
-    if failure:
-        return {"output_text": "", "error": failure, "cost_usd": 0.0, "usage": {}, "recognition_failed": True,
-                "duration_seconds": heard.get("duration_seconds") or 0.0, "recognised_text": text}
+    # A late cancel must not bill a translation call for a result the run drops.
+    if failure or background_jobs.is_cancel_requested(job_id):
+        return _not_heard(redact_secrets(failure or "Cancelled."), heard.get("duration_seconds"), text)
     r = run_translation(engine, dict(case, source_text=text), api_key)
     r["recognised_text"] = text
     r["duration_seconds"] = (r.get("duration_seconds") or 0.0) + (heard.get("duration_seconds") or 0.0)
