@@ -135,7 +135,7 @@ class TestIdentity:
         second = _run_at(monkeypatch, _at(3))
         assert _identity() == {"library_id": ident["library_id"], "sequence": 2,
                                "created_at": ident["created_at"],
-                               "written": [[1, first], [2, second]]}
+                               "written": [[1, first], [2, second]], "sources_keep": []}
         for name, seq in ((first, 1), (second, 2)):
             m = _manifest(os.path.join(_default_dir(), name))
             assert m["library_id"] == ident["library_id"] and m["sequence"] == seq

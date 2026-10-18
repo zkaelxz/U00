@@ -72,6 +72,13 @@ describe('the copies list', () => {
     expect(describeCopy({ ...COPY, kept_as: null }, UTC)).toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB')
   })
 
+  it('a copy without sources.db, and the copy kept for its sources.db, say so', () => {
+    expect(describeCopy({ ...COPY, sources_left_out: true }, UTC))
+      .toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB · no sources.db · daily')
+    expect(describeCopy({ ...COPY, kept_as: 'sources' }, UTC))
+      .toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB · kept for its sources.db')
+  })
+
   it('an unreadable copy says so; a bad date falls back to the name', () => {
     expect(describeCopy({ ...COPY, readable: false, kind: null, drama_count: null, kept_as: null }, UTC))
       .toBe("30 Sept 2026, 08:00 · can't be read")

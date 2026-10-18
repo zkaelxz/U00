@@ -73,7 +73,8 @@ export function describeCopy(c: SnapshotCopy, opts: DateOpts = {}): string {
   const tail = isManaged(c) ? [] : ['not managed']
   if (!c.readable) return [when, "can't be read", ...tail].join(' · ')
   const parts = [when, snapshotKindLabel(c.kind), formatBytes(c.size)]
-  if (c.kept_as) parts.push(c.kept_as)
+  if (c.sources_left_out) parts.push('no sources.db')
+  if (c.kept_as) parts.push(c.kept_as === 'sources' ? 'kept for its sources.db' : c.kept_as)
   return [...parts, ...tail].join(' · ')
 }
 

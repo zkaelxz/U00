@@ -261,7 +261,8 @@ class TestLocal:
         first = info["copies"][0]["name"]
         assert [c["name"] for c in info["copies"]] == [first]
         assert set(info["copies"][0]) == {"name", "created_at", "size", "kind", "drama_count",
-                                          "readable", "kept_as", "managed", "sequence"}
+                                          "readable", "kept_as", "managed", "sequence",
+                                          "sources_left_out"}
         assert info["default_copy"] == first and info["choose_copy"] is False
         assert "/" not in first and "\\" not in first
         settings = _clean(client.get(f"{BASE}/settings")).json()
@@ -314,7 +315,7 @@ class TestLocal:
         assert client.get(f"{BASE}/snapshot").json() == {
             "exists": False, "readable": None, "choose_copy": None, "default_copy": None,
             "created_at": None, "kind": None, "size": None,
-            "app_version": None, "drama_count": None, "copies": []}
+            "app_version": None, "drama_count": None, "sources_left_out": None, "copies": []}
         assert not os.path.exists(_snap_path())
 
     def test_restore_from_a_named_copy(self, client):
