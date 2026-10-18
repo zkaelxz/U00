@@ -1,6 +1,6 @@
 import { safeDetail } from '../../components/errorMessages'
-import { draftStorage, pickDraft, readDraft } from '../../hooks/useStageDraft'
-import type { TranscribeConfigUpdate } from '../../types/workspace'
+import { draftStorage, isRecord, pickDraft, readDraft } from '../../hooks/useStageDraft'
+import type { TranscribeConfig, TranscribeConfigUpdate, TranscribeRunStart } from '../../types/workspace'
 
 // Pure client-side checks for the Source/Transcribe stage. The server
 // re-validates everything; these only save a round trip and mirror
@@ -246,6 +246,76 @@ export const SOURCE_DRAFT_SHAPE = { from: 'file' }
 // The "From a URL" form's draft (stage "source.url"); Replace is never kept.
 export const URL_DRAFT_STAGE = 'source.url'
 export const URL_DRAFT_SHAPE = { url: '', audioOnly: false }
+
+// What the Transcribe form keeps with the title (language, speaker detection, names, prompt),
+// as the form holds it: speaker counts as text, blank = auto.
+export interface RunChoices {
+  language: string
+  runDiarize: boolean
+  speakers: string
+  minSpeakers: string
+  maxSpeakers: string
+  extraNames: string
+  override: string
+}
+const RUN_CHOICE_KEYS: (keyof RunChoices)[] = ['language', 'runDiarize', 'speakers', 'minSpeakers', 'maxSpeakers', 'extraNames', 'override']
+const countText = (n: number | null | undefined) => (n ? String(n) : '')
+
+/** The choices saved on the title; `fallbackLanguage` stands in for an older server that sends none. */
+export function runChoicesFromConfig(c: TranscribeConfig, fallbackLanguage: string): RunChoices {
+  const r = c.run_start
+  return {
+    language: c.source_language ?? fallbackLanguage,
+    runDiarize: r?.run_diarize ?? false,
+    speakers: countText(r?.expected_speakers),
+    minSpeakers: countText(r?.min_speakers),
+    maxSpeakers: countText(r?.max_speakers),
+    extraNames: r?.extra_names ?? '',
+    override: r?.initial_prompt ?? '',
+  }
+}
+
+/**
+ * The form's starting choices: what the title has saved, except a field this browser's draft holds
+ * an edit of. A draft value equal to the saved one it was written beside (`base`) is not an edit, so
+ * a change saved from another browser or the Queue shows here instead of the old draft. A draft with
+ * no base is older than that bookkeeping and counts as edited.
+ */
+export function mergeRunChoices(saved: RunChoices, draft: Partial<RunChoices>, base: unknown): RunChoices {
+  const out = { ...saved }
+  for (const key of RUN_CHOICE_KEYS) {
+    const value = draft[key]
+    if (value === undefined || (isRecord(base) && base[key] === value)) continue
+    Object.assign(out, { [key]: value })
+  }
+  return out
+}
+
+/** The config fields that save the form's choices with the title; blank speaker counts clear them. */
+export function runChoicesUpdate(v: RunChoices, script: string): Pick<TranscribeConfigUpdate, 'source_language' | 'chinese_script' | 'run_start'> {
+  // A count that does not parse is left out here: the run itself reports it before anything starts.
+  const hints = parseSpeakerHints(v.speakers, v.minSpeakers, v.maxSpeakers)
+  const counts = typeof hints === 'string' ? {} : hints
+  const run_start: TranscribeRunStart = {
+    run_diarize: v.runDiarize,
+    expected_speakers: counts.expected || null,
+    min_speakers: counts.min ?? null,
+    max_speakers: counts.max ?? null,
+    extra_names: v.extraNames.trim(),
+    initial_prompt: v.override.trim() ? v.override : '',
+  }
+  return { source_language: v.language, ...(v.language === 'zh' && script ? { chinese_script: script } : {}), run_start }
+}
+
+/** True when the form's choices differ from what the title has saved. */
+export function runChoicesUnsaved(v: RunChoices, script: string, c: TranscribeConfig, fallbackLanguage: string): boolean {
+  const saved = runChoicesFromConfig(c, fallbackLanguage)
+  const next = runChoicesUpdate(v, script)
+  const savedRun = runChoicesUpdate(saved, '').run_start
+  return next.source_language !== saved.language
+    || (!!next.chinese_script && next.chinese_script !== c.chinese_script)
+    || JSON.stringify(next.run_start) !== JSON.stringify(savedRun)
+}
 
 /** The names kept on the Transcribe stage, which other prompts (Compare transcription) start from. */
 export function transcribeExtraNames(dramaId: number): string {

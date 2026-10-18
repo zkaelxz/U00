@@ -40,6 +40,7 @@ def _transcribe_rows(drama: dict) -> list:
         _row("Voice detection", _words(config["sensitivity_preset"])),
         _row("Beam size", config["beam_size"]),
         _row("Separate vocals first", _on(config["separate_vocals_first"])),
+        _row("Speaker detection", _on(config["run_start"]["run_diarize"])),
         _row("Groq (paid)", _on(config["use_groq"])),
     ]
     if (drama.get("source_language") or "zh") == "zh":

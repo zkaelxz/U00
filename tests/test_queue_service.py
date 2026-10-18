@@ -39,6 +39,7 @@ class FakeJobs:
         self.lock = threading.Lock()
         self.any_started = threading.Event()
         self.gpu = False
+        self.transcribe_kwargs = []
         monkeypatch.setattr(transcribe_service, "start_transcribe_run", self._transcribe)
         monkeypatch.setattr(translate_run_service, "start_translate_run", self._translate)
         monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
@@ -63,6 +64,7 @@ class FakeJobs:
         return {"job_id": job_id}
 
     def _transcribe(self, drama_id, **kw):
+        self.transcribe_kwargs.append(kw)
         return self._start(f"transcribe_{drama_id}")
 
     def _translate(self, drama_id, **kw):
@@ -670,3 +672,14 @@ def test_bulk_add_body_refuses_an_oversized_id_or_too_many_titles():
     with pytest.raises(ValidationError):
         QueueAddBulk(drama_ids=list(range(1, q.MAX_ITEMS + 2)), step="export")
     assert QueueAddBulk(drama_ids=[1, 2], step="all").drama_ids == [1, 2]
+
+
+def test_a_queued_transcribe_repeats_the_run_choices_saved_on_the_title(jobs):
+    did = _drama()
+    transcribe_service.update_transcribe_config(
+        did, run_start={"run_diarize": True, "expected_speakers": 3, "extra_names": "白鹤"})
+    q.add_item(None, did, "transcribe", True, at_pc=True)
+    q.start(None)
+    q.tick()
+    assert jobs.transcribe_kwargs == [{"run_diarize": True, "expected_speakers": 3, "extra_names": "白鹤"}]
+    jobs.finish(f"transcribe_{did}")
