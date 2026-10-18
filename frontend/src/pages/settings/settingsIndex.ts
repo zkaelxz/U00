@@ -76,7 +76,7 @@ export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'defaults', 'spending', 'spend-history', 'past-costs',
   'notifications', 'auto-backup', 'save-folder', 'app-updates',
   'jellyfin', 'web-search', 'extension',
-  'performance', 'advanced', 'timing-splitting', 'transcription-experiments',
+  'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
 
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))

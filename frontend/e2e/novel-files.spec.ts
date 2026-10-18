@@ -131,7 +131,7 @@ test('remote viewers see the status but no upload or remove controls', async ({ 
   await gotoTranslate(page, 'novel')
   const panel = page.getByRole('region', { name: 'Novel reference (English translation)' })
   await expect(page.getByTestId('novel-file-status-reference')).toContainText('90 characters')
-  await expect(panel.getByText('Run this on the main PC.')).toBeVisible()
+  await expect(panel).not.toContainText('main PC')
   await expect(panel.getByLabel('Reference file', { exact: true })).toHaveCount(0)
   await expect(panel.getByRole('button', { name: /Remove/ })).toHaveCount(0)
 })

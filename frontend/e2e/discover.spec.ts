@@ -90,7 +90,7 @@ catalogueTest('add to Library, already-added 409, PC-only remove @catalogue', as
 catalogueTest('remote viewer: no remove button @catalogue', async ({ page }) => {
   await mockDiscover(page, { local: false })
   await page.goto('/#/discover')
-  await expect(page.getByTestId('catalog-list').getByText('Deleting is PC only.').first()).toBeVisible()
+  await expect(page.getByTestId('catalog-list').getByText('Deleting is PC only.')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Remove / })).toHaveCount(0)
 })
 
