@@ -93,16 +93,21 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     setattr_(diagnostics, "check_dependency",
              lambda name, *a, **k: True if name == "faster_whisper" else real_check(name, *a, **k))
     # AI buttons are disabled before the click when their engine has no key or SDK, and this
-    # machine has neither; specs that press them need hosted engines to read as usable.
-    # engine-gate.spec.ts fakes the missing cases through the run config.
-    from services import translate_service
-    real_list_engines = translate_service.list_engines
+    # machine has neither; specs that press them need the run config to list hosted engines as
+    # usable. Only the run config is changed: the engine picker route and the Lab keep the real,
+    # key-less answer their own specs pin. engine-gate.spec.ts fakes the missing cases itself.
+    from services import translate_run_service, translate_service
 
-    def usable_engines(*a, **k):
-        return [e if e["name"] == "ollama" else {**e, "key_configured": True, "package_installed": True}
-                for e in real_list_engines(*a, **k)]
+    class _UsableEngines:
+        def __getattr__(self, name):
+            return getattr(translate_service, name)
 
-    setattr_(translate_service, "list_engines", usable_engines)
+        @staticmethod
+        def list_engines(*a, **k):
+            return [e if e["name"] == "ollama" else {**e, "key_configured": True, "package_installed": True}
+                    for e in translate_service.list_engines(*a, **k)]
+
+    setattr_(translate_run_service, "translate_service", _UsableEngines())
     # Controls switch off for whatever is not installed (GET /api/setup/readiness); the machine
     # running the specs has almost nothing optional, so every spec starts from "all present" and
     # the readiness specs mock the route to show a missing piece.
