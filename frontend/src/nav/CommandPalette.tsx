@@ -6,10 +6,12 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 
+import { api } from '../api/client'
+import type { DramaSummary } from '../api/types'
 import { trapTabWithin, useModalDialog } from '../hooks/useModalDialog'
 import type { Route } from '../router'
 import type { NavContext } from './navItems'
-import { filterEntries, isPaletteShortcut, paletteEntries } from './palette'
+import { filterEntries, isPaletteShortcut, paletteEntries, titleEntries } from './palette'
 import './palette.css'
 
 const FOCUSABLE = 'input, button:not([disabled])'
@@ -96,7 +98,11 @@ function PaletteBody({ route, context, onClose }: { route: Route; context: NavCo
   const listId = useId()
   const optionId = (i: number) => `${listId}-${i}`
 
-  const entries = useMemo(() => paletteEntries(context, route), [context, route])
+  const titles = useTitleHits(query)
+  const entries = useMemo(
+    () => [...paletteEntries(context, route), ...titleEntries(titles, query)],
+    [context, route, titles, query],
+  )
   const results = useMemo(() => filterEntries(entries, query), [entries, query])
   const at = Math.min(active, Math.max(results.length - 1, 0))
 
@@ -185,4 +191,26 @@ function PaletteBody({ route, context, onClose }: { route: Route; context: NavCo
       </p>
     </div>
   )
+}
+
+// Waits for a pause in typing so the library list is asked once per word, not per key; a failed or
+// stale answer just leaves the titles out, the pages and settings still answer.
+function useTitleHits(query: string): DramaSummary[] {
+  const [hits, setHits] = useState<{ term: string; items: DramaSummary[] }>({ term: '', items: [] })
+  const term = query.trim()
+  useEffect(() => {
+    if (!term) return
+    let stale = false
+    const timer = window.setTimeout(() => {
+      api.listDramas({ search: term }).then(
+        (r) => !stale && setHits({ term, items: r.items }),
+        () => undefined,
+      )
+    }, 250)
+    return () => {
+      stale = true
+      window.clearTimeout(timer)
+    }
+  }, [term])
+  return term && hits.term === term ? hits.items : []
 }
