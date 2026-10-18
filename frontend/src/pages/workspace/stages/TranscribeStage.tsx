@@ -674,7 +674,6 @@ export default function TranscribeStage({
             <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
           </Field>
         )}
-        {haveTranscript && <p className="muted" role="note">Paste a transcript here to line it up with the audio instead of transcribing.</p>}
         {haveTranscript && !hasMedia && !file && (
           <p className="muted" role="note" data-testid="transcript-no-audio">
             The transcript is matched to the audio, and this title has none yet. If it is text to translate, not speech:{' '}
