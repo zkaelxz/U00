@@ -41,3 +41,9 @@ button.nav-drawer-close { min-width: 44px; min-height: 44px; padding: 0; font-si
 /* Menu button, brand, then the icon group pushed to the far end (the header's default space-between would centre the brand). */
 .app-header:has(> .menu-btn) { justify-content: flex-start; }
 .app-header:has(> .menu-btn) > .header-end { margin-left: auto; }
+
+/* Report a problem and Theme live here on a phone, so the header keeps Jobs, bell, search and account. */
+.nav-drawer-foot { display: grid; gap: var(--space-2); padding: var(--space-2); border-top: 1px solid var(--border); }
+.nav-drawer-foot > button { min-height: 44px; justify-content: flex-start; }
+.nav-drawer-theme { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.nav-drawer-theme .theme-menu-panel { position: absolute; right: 0; bottom: calc(100% + var(--space-1)); top: auto; }

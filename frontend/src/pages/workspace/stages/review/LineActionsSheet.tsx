@@ -11,12 +11,13 @@ import { Field } from '../../../../components/Field'
 import { buttonClass } from '../../../../components/uiClasses'
 import { languageLabel } from '../../../../labels'
 import { LINE_LANGUAGES, titleDefaultLabel, type LanguageScope } from './reviewDraft'
-import { type ToolMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
 import { lineNumber } from '../../../../lineNumber'
 import { retranscribeMenuState } from './retranscribeLogic'
 import { isSourceChanged } from '../sourceChanged'
+import { formatTime, type ToolMode } from './reviewLogic'
+import type { TimingSuggestion } from '../../../../types/timingCheck'
 
 export type SheetView = 'menu' | 'split' | 'merge' | 'add' | 'language'
 
@@ -55,6 +56,9 @@ interface Props {
   onWhy: () => void
   onTool: (mode: ToolMode) => void
   onDismissFlag: () => void
+  // The saved timing suggestion for this line, when the timing check found one.
+  timingSnap?: TimingSuggestion | null
+  onSnapToSpeech?: () => void
   onAddNote: () => void
   onSplit: (choice: SplitChoice) => void
   onMerge: (ids: number[]) => void
@@ -280,6 +284,14 @@ export function LineActionsSheet(p: Props) {
                   onDelete={p.onDelete}
                 />
               </li>
+              {p.timingSnap && p.onSnapToSpeech && (
+                <li>
+                  <button type="button" onClick={p.onSnapToSpeech}>
+                    Snap to speech
+                    <span className="sheet-reason">Set {formatTime(p.timingSnap.new_start)} – {formatTime(p.timingSnap.new_end)}; saves a history snapshot first</span>
+                  </button>
+                </li>
+              )}
               {line.flag && (
                 <li><button type="button" onClick={p.onDismissFlag}>{isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}</button></li>
               )}

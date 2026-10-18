@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// Phone (390x844, touch): the theme button sits in the header's title row,
+// Phone (390x844, touch): the theme button sits in the More menu,
 // is a 44px target, and its menu fits the screen with no sideways scroll.
 
 async function noSideways(page: Page) {
@@ -17,16 +17,14 @@ test.afterEach(async ({ page }) => {
   await page.evaluate(() => localStorage.removeItem('baihe.theme'))
 })
 
-test('phone header: theme button is 44px, on the title row, and picking sepia works', async ({ page }) => {
+test('phone menu: theme button is 44px and picking sepia works', async ({ page }) => {
   await page.goto('/#/library')
+  await page.getByRole('button', { name: 'More', exact: true }).tap()
   const btn = button(page)
   await expect(btn).toBeVisible()
   const box = (await btn.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
-  const title = (await page.locator('.app-brand, .rail-brand').boundingBox())!
-  expect(box.y).toBeLessThan(title.y + title.height)
-  expect(box.y + box.height).toBeGreaterThan(title.y)
   await noSideways(page)
 
   await btn.tap()
@@ -50,6 +48,7 @@ test('phone header: theme button is 44px, on the title row, and picking sepia wo
 
 test('phone: OLED black is true black, persists and does not scroll sideways', async ({ page }) => {
   await page.goto('/#/library')
+  await page.getByRole('button', { name: 'More', exact: true }).tap()
   await button(page).tap()
   await page.getByRole('menuitemradio', { name: 'OLED black', exact: true }).tap()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled')

@@ -10,6 +10,18 @@
 .settings-card { min-width: 0; scroll-margin-top: var(--space-4); }
 
 .settings-fold-controls { display: flex; justify-content: flex-end; gap: var(--space-2); }
+@media (max-width: 640px) {
+  .settings-fold-menu { justify-self: end; }
+  .settings-fold-menu > summary { min-height: 44px; display: inline-flex; align-items: center; padding-inline: var(--space-2); color: var(--muted); cursor: pointer; }
+  /* A fade at whichever end still has tabs to scroll to: the background scrolls with the row (local), the fades stay put (scroll). */
+  .settings-page .ui-tabs {
+    background:
+      linear-gradient(to right, var(--bg, var(--surface)), transparent) left / 24px 100% no-repeat local,
+      linear-gradient(to left, var(--bg, var(--surface)), transparent) right / 24px 100% no-repeat local,
+      linear-gradient(to right, var(--border), transparent) left / 24px 100% no-repeat scroll,
+      linear-gradient(to left, var(--border), transparent) right / 24px 100% no-repeat scroll;
+  }
+}
 
 /* One row per key or channel: name, status badge, action on the right; the
    form for that row opens underneath it. */

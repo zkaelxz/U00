@@ -14,5 +14,5 @@ test('the header stays in view on a long page with no sideways scroll', async ({
   expect(box.x, 'left gutter').toBeGreaterThanOrEqual(15)
   expect(box.x + box.width, 'right gutter').toBeLessThanOrEqual(390 - 15)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await expect(page.getByRole('button', { name: 'Report a problem' })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Quick search' })).toBeInViewport({ ratio: 1 })
 })

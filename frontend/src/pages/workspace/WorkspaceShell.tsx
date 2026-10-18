@@ -122,6 +122,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       {drama && !isPopOutWindow() && <OpenInWindowButton />}
     </div>
   )
+  // The phone stepper drops the counts and shows only a marker, so the open stage's state is spelled out below it.
+  const activeState = active ? states[active] : undefined
+  const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <div className="ws-strip" ref={stripRef}>
@@ -193,6 +196,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       )}
       </div>
       </div>
+      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
       {phone && active !== 'review' && actions}
       {drama ? (
         <ErrorBanner error={error} />

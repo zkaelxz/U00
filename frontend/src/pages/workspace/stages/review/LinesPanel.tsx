@@ -662,6 +662,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onWhy={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'explain'))}
           onTool={(mode) => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, mode))}
           onDismissFlag={() => closeSheetThen(() => sheetLine && actions.dismissFlag(sheetLine.id))}
+          timingSnap={sheetLine ? timingByLine.get(sheetLine.id) ?? null : null}
+          onSnapToSpeech={() => closeSheetThen(() => sheetLine && actions.snapToSpeech?.(sheetLine.id))}
           onAddNote={() =>
             closeSheetThen(() => {
               if (!sheetLine) return

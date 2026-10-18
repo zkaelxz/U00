@@ -5,6 +5,8 @@
  */
 import { useEffect } from 'react'
 
+import { ThemeMenu } from '../components/ThemeMenu'
+import { openReportDialog } from '../report/reportDialogStore'
 import { trapTabWithin, useModalDialog } from '../hooks/useModalDialog'
 import type { Route } from '../router'
 import { routeHref } from '../router'
@@ -72,6 +74,13 @@ export function NavDrawer({ route, context, open, onOpenChange }: { route: Route
               </button>
             </div>
             <NavGroups route={route} context={context} onNavigate={() => setOpen(false)} />
+            <div className="nav-drawer-foot">
+              <button type="button" onClick={() => { setOpen(false); openReportDialog() }}>Report a problem</button>
+              <div className="nav-drawer-theme">
+                <span>Theme</span>
+                <ThemeMenu />
+              </div>
+            </div>
           </div>
         )}
       </dialog>

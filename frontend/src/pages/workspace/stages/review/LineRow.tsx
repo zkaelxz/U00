@@ -182,10 +182,12 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
       )}
       {actions.checkTiming && (
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={jobRunning} onClick={() => actions.checkTiming?.()}
-                title={jobRunning ? JOB_RUNNING_MESSAGE : 'Compare every line’s times with the speech in the audio'}>
+                aria-describedby={jobRunning ? `timing-check-reason-${lineId}` : undefined}
+                title={jobRunning ? undefined : 'Compare every line’s times with the speech in the audio'}>
           Check timing
         </button>
       )}
+      {actions.checkTiming && jobRunning && <span className="muted review-reason" id={`timing-check-reason-${lineId}`}>{JOB_RUNNING_MESSAGE}</span>}
       <span className="muted">
         Re-transcribe with Whisper large-v3-turbo for word timings:{' '}
         <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source', tab: 'transcribe' })}>open Media → Transcribe</a>
@@ -205,6 +207,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
+  const reasonId = `review-reason-${line.id}`
   const langChip = lineLangChip(line.lang, sourceLanguage)
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -407,13 +410,14 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
           >
             Why this?
           </button>
-          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} aria-describedby={jobRunning ? reasonId : undefined} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
             Split…
           </button>
           <button
             type="button"
             className={buttonClass('ghost', 'sm')}
             disabled={jobRunning || limited}
+            aria-describedby={jobRunning || limited ? reasonId : undefined}
             onClick={() => actions.openStructure(line.id, 'merge')}
             title="Merge with next (M)"
           >
@@ -432,9 +436,9 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
             </button>
           )}
           {jobRunning ? (
-            <span className="muted review-reason">{JOB_RUNNING_MESSAGE}</span>
+            <span className="muted review-reason" id={reasonId}>{JOB_RUNNING_MESSAGE}</span>
           ) : (
-            limited && <span className="muted review-reason">Merge works in the All lines view.</span>
+            limited && <span className="muted review-reason" id={reasonId}>Merge works in the All lines view.</span>
           )}
         </div>
       )}

@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { CardFoldContext } from '../../components/cardFold'
 import { buttonClass } from '../../components/uiClasses'
 import { cardStartsOpen, settingsCardKey, tabOfCard, type SettingsTab } from './settingsIndex'
@@ -44,11 +45,21 @@ export function SettingsCard({ id, summary, children }: { id: string; summary?: 
 }
 
 export function FoldControls({ onExpand, onCollapse }: { onExpand: () => void; onCollapse: () => void }) {
-  return (
-    <div className="settings-fold-controls">
+  const phone = useMediaQuery('(max-width: 640px)')
+  const buttons = (
+    <>
       <button type="button" className={buttonClass('ghost', 'sm')} onClick={onExpand}>Expand all</button>
       <button type="button" className={buttonClass('ghost', 'sm')} onClick={onCollapse}>Collapse all</button>
-    </div>
+    </>
+  )
+  // On a phone the two buttons would be a row of their own above the first card, so they sit in a small menu.
+  return phone ? (
+    <details className="settings-fold-menu">
+      <summary>Expand / collapse</summary>
+      <div className="settings-fold-controls">{buttons}</div>
+    </details>
+  ) : (
+    <div className="settings-fold-controls">{buttons}</div>
   )
 }
 
