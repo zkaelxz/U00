@@ -207,10 +207,13 @@ def test_bad_item_settings_are_refused_before_anything_is_queued(isolated_db, st
     assert q.get_queue(None)["items"] == []
 
 
-def test_item_settings_must_fit_the_language(isolated_db, started):
+def test_item_settings_must_fit_the_language(isolated_db, started, monkeypatch):
     did = _drama(source_language="zh")
     with pytest.raises(InvalidInputError):
         q.add_item(None, did, "transcribe", True, at_pc=True, settings={"asr_backend_choice": "anime_whisper"})
+    from services import transcribe_options_service as opts
+    monkeypatch.setattr(opts, "_require_vad_packages", lambda: None)
+    monkeypatch.setattr(opts, "anime_whisper_package_problem", lambda: None)
     q.add_item(None, did, "transcribe", True, at_pc=True,
                settings={"asr_backend_choice": "anime_whisper", "source_language": "ja"})
 
@@ -234,7 +237,7 @@ def test_groq_on_an_item_needs_paid_permission_at_add_and_at_start(isolated_db, 
         q.add_item(None, did, "transcribe", False, at_pc=True, settings={"use_groq": True})
     q.add_item(None, did, "transcribe", True, at_pc=True, settings={"use_groq": True})
     # The adder lost the permission before the item's turn.
-    principal = {"user_id": 1, "permissions": ["jobs.start"]}
+    principal = {"user_id": 1, "permissions": ["jobs.start", "lines.edit"]}
     with pytest.raises(ForbiddenError):
         q._start_transcribe(principal, db.get_drama(did), {"use_groq": True})
     assert started == {}
@@ -243,7 +246,7 @@ def test_groq_on_an_item_needs_paid_permission_at_add_and_at_start(isolated_db, 
 def test_a_title_with_groq_saved_still_needs_permission_but_an_item_can_switch_it_off(isolated_db, started):
     from lib.errors import ForbiddenError
     did = _drama(use_groq=1)
-    principal = {"user_id": 1, "permissions": ["jobs.start"]}
+    principal = {"user_id": 1, "permissions": ["jobs.start", "lines.edit"]}
     with pytest.raises(ForbiddenError):
         q._start_transcribe(principal, db.get_drama(did), {})
     q._start_transcribe(principal, db.get_drama(did), {"use_groq": False})
@@ -268,3 +271,32 @@ def test_the_overlay_is_what_the_run_and_the_model_check_see(isolated_db):
                                               "separate_vocals_first": False})
     assert (merged["whisper_size"], merged["use_groq"], merged["separate_vocals_first"]) == ("medium", 1, 0)
     assert merged["beam_size"] == 5 and drama["whisper_size"] == "small"
+
+
+def test_settings_need_lines_edit_as_saving_them_on_the_title_does(isolated_db, started):
+    from lib.errors import ForbiddenError
+    did = _drama()
+    with pytest.raises(ForbiddenError):
+        q.add_item(None, did, "transcribe", True, at_pc=True, settings={"beam_size": 8}, holds_edit=False)
+    q.add_item(None, did, "transcribe", True, at_pc=True, holds_edit=False)
+    assert len(q.get_queue(None)["items"]) == 1
+    fields = _fields(q.step_settings(None, did, "transcribe", holds_paid=True, holds_edit=False))
+    assert all(f["locked"] for f in fields.values())
+    fields = _fields(q.step_settings(None, did, "transcribe", holds_paid=True, holds_edit=True))
+    assert not any(f["locked"] for f in fields.values())
+
+
+def test_an_item_with_settings_stops_if_the_adder_loses_lines_edit(isolated_db, started):
+    from lib.errors import ForbiddenError
+    did = _drama()
+    principal = {"user_id": 1, "permissions": ["jobs.start", "engines.paid"]}
+    with pytest.raises(ForbiddenError):
+        q._start_transcribe(principal, db.get_drama(did), {"beam_size": 8})
+    assert started == {}
+
+
+def test_a_combination_the_run_refuses_is_refused_when_added(isolated_db, started):
+    did = _drama(transcript_mode="have_transcript", alignment_method="qwen3_forced_align")
+    with pytest.raises(InvalidInputError, match="Qwen3 forced alignment needs a transcript"):
+        q.add_item(None, did, "transcribe", True, at_pc=True, settings={"transcript_mode": "whisper"})
+    assert q.get_queue(None)["items"] == []

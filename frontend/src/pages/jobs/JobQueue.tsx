@@ -340,9 +340,9 @@ function SettingControl({ field, value, onChange }: {
   }
   if (field.kind === 'number') {
     return (
-      <Field label={field.label} help={field.min !== null && field.max !== null ? `${field.min} to ${field.max}` : undefined}>
+      <Field label={field.label} help={field.locked ?? (field.min !== null && field.max !== null ? `${field.min} to ${field.max}` : undefined)}>
         <input
-          type="number" inputMode="numeric" step={1} min={field.min ?? undefined} max={field.max ?? undefined}
+          type="number" disabled={!!field.locked} inputMode="numeric" step={1} min={field.min ?? undefined} max={field.max ?? undefined}
           value={String(value)}
           onChange={(e) => { if (e.target.value !== '' && Number.isInteger(Number(e.target.value))) onChange(Number(e.target.value)) }}
         />

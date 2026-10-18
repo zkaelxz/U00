@@ -222,6 +222,12 @@ def check_run_overrides(drama: dict, overrides) -> dict:
                 asr_options_service.stored_asr_backend(drama), language)
             if problem:
                 raise InvalidInputError(problem)
+    if given:
+        # The combination the run will see, so a choice the run refuses is refused now, in its words.
+        merged = {**drama, **given}
+        _check_run_choices(
+            merged.get("transcript_mode") or "have_transcript", asr_options_service.stored_asr_backend(merged),
+            merged.get("alignment_method") or "whisper_diff", language)
     return given
 
 

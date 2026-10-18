@@ -358,7 +358,8 @@ def _translate_rows(drama: dict) -> list:
     ]
 
 
-def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False) -> dict:
+def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False,
+                  holds_edit: bool = True) -> dict:
     """Read-only: the settings a queued `step` would use for this title,
     resolved by the same functions the queue's own run calls."""
     if step not in STEPS:
@@ -373,7 +374,7 @@ def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False)
     else:
         rows = [_row("Format", "SRT"), _row("Language", "English"),
                 _row("Saved as", "The title's subtitle download")]
-    fields = _transcribe_fields(drama, holds_paid) if step == "transcribe" else []
+    fields = _transcribe_fields(drama, holds_paid, holds_edit) if step == "transcribe" else []
     return {"drama_id": drama_id, "step": step, "title": _title_name(drama), "rows": rows,
             "fields": fields}
 
@@ -381,7 +382,7 @@ def step_settings(principal, drama_id: int, step: str, holds_paid: bool = False)
 # --- changing items ----------------------------------------------------------
 
 def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool,
-             settings: Optional[dict] = None) -> dict:
+             settings: Optional[dict] = None, holds_edit: bool = True) -> dict:
     """Validates and appends one item. `settings` (Transcribe only) are this item's own
     changes to the title's saved options; the title is not changed. The title must exist and be the
     caller's; a Translate item on a paid engine needs `engines.paid`, as the
@@ -399,6 +400,9 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bo
     settings = transcribe_options_service.check_run_overrides(drama, settings)
     if settings and step != "transcribe":
         raise InvalidInputError("Only a Transcribe step has settings to change here.")
+    # Saving these same options on the title takes lines.edit; a queued item must not be a way around it.
+    if settings and not holds_edit:
+        raise ForbiddenError("Changing a step's settings needs permission to edit lines.")
     if settings.get("use_groq") and not holds_paid:
         raise ForbiddenError("Groq is a paid engine, which your account can't use.")
     if step == "transcribe":
@@ -587,6 +591,8 @@ def _check_translate_spend(drama_id: int, model=None, batch_size=None) -> None:
 def _start_transcribe(principal, drama: dict, settings: dict) -> str:
     # Checked on the title as this item will run it, at start: the adder's permission and the
     # title's own choices may both have changed since it was added.
+    if settings and not _holds(principal, "lines.edit"):
+        raise ForbiddenError("This item changes the step's settings, which needs permission to edit lines.")
     effective = transcribe_options_service.apply_run_overrides(drama, settings)
     if effective.get("use_groq") and not _holds(principal, "engines.paid"):
         raise ForbiddenError("This item transcribes with Groq, which needs paid-engine permission.")

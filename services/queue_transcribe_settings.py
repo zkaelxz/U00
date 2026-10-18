@@ -59,6 +59,7 @@ _FIELD_LABELS = {"asr_backend_choice": "Speech engine", "whisper_size": "Whisper
                  "beam_size": "Beam size", "separate_vocals_first": "Separate vocals first",
                  "use_groq": "Groq (paid)"}
 _PAID_ONLY = "Needs paid-engine permission."
+_NEEDS_EDIT = "Needs permission to edit lines."
 
 
 def _options(labels: dict, current) -> list:
@@ -82,7 +83,7 @@ def _option_labels(key: str, drama: dict) -> dict:
     return {p: _words(p) for p in sensitivity_preset.PRESETS}
 
 
-def _transcribe_fields(drama: dict, holds_paid: bool) -> list:
+def _transcribe_fields(drama: dict, holds_paid: bool, holds_edit: bool = True) -> list:
     """The Transcribe settings one queued item may change, each with the title's saved value
     to start from. What the run accepts is transcribe_options_service.check_run_overrides'."""
     config = transcribe_service.get_transcribe_config(drama["id"])
@@ -104,6 +105,8 @@ def _transcribe_fields(drama: dict, holds_paid: bool) -> list:
         else:
             field["kind"] = "select"
             field["options"] = _options(_option_labels(key, drama), values[key])
+        if not holds_edit:
+            field["locked"] = _NEEDS_EDIT
         fields.append(field)
     return fields
 
