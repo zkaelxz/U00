@@ -1705,6 +1705,32 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
                                             "speaker_merge_undos"}
 
 
+class TestRestoreBugReports:
+    def _drop_table(self):
+        with contextlib.closing(_conn()) as c:
+            c.execute("DROP TABLE bug_reports")
+            c.commit()
+
+    def test_single_title_restore_recreates_the_table_when_the_snapshot_has_it(self, isolated_db):
+        w = _seed_world()
+        _snap()
+        _delete_drama(w["a"])
+        self._drop_table()
+        _restore(w["a"])
+        with contextlib.closing(_conn()) as c:
+            assert c.execute("SELECT COUNT(*) FROM bug_reports WHERE drama_id = ?",
+                             (w["a"],)).fetchone()[0] == 1
+
+    def test_single_title_restore_creates_no_table_when_the_snapshot_lacks_it(self, isolated_db):
+        w = _seed_world()
+        self._drop_table()
+        _snap()
+        _delete_drama(w["a"])
+        _restore(w["a"])
+        with contextlib.closing(_conn()) as c:
+            assert "bug_reports" not in _tables(c)
+
+
 class TestRestoreRoundTrip:
     def test_full_round_trip_series_gone(self, isolated_db):
         w = _seed_world()

@@ -330,6 +330,7 @@ from db.schema import (  # noqa: E402,F401
     _create_bulk_job_tables, _create_core_indexes, _create_library_tables,
     _create_library_tool_tables, _create_line_annotation_tables,
     _create_metadata_research_tables, _create_reading_tables, _create_review_tables,
+    ensure_legacy_bug_reports,
     _create_series_tables)
 
 from db.schema_system import (  # noqa: E402,F401
