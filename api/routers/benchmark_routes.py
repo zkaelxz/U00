@@ -155,7 +155,7 @@ def get_corrections(request: Request, drama_id: int = Path(ge=1)):
              summary="PC only: add a title's corrected lines, with their audio, to a test set (dry_run counts only)")
 def post_add_corrections(body: BenchmarkCorrectionsAddRequest, request: Request,
                          drama_id: int = Path(ge=1)):
-    return reference_svc.add_title_lines(request.state.principal, drama_id, body.set_name, body.dry_run)
+    return reference_svc.add_title_lines(request.state.principal, drama_id, body.set_name, body.dry_run, body.include_all)
 
 
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,

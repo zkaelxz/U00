@@ -22,11 +22,14 @@ export function transcriptionSetNames(sets: BenchmarkSet[]): string[] {
 export const chosenSetName = (choice: string, typed: string) => (choice === NEW_SET ? typed.trim() : choice)
 
 /** Reasons the form can't be sent (empty = it can). */
-export function correctionProblems(dramaId: number | null, setName: string, stats: TitleCorrections | null): string[] {
+export function correctionProblems(
+  dramaId: number | null, setName: string, stats: TitleCorrections | null, includeAll = false,
+): string[] {
   const out: string[] = []
+  // Including all lines needs no original transcription and no corrections: the lines as they read are the references.
   if (dramaId == null) out.push('Pick a title.')
-  else if (stats && !stats.raw_available) out.push('This title has no original transcription to compare with.')
-  else if (stats && stats.lines_corrected === 0) out.push('No corrected lines yet. Edit a line\'s text in Review first.')
+  else if (!includeAll && stats && !stats.raw_available) out.push('This title has no original transcription to compare with.')
+  else if (!includeAll && stats && stats.lines_corrected === 0) out.push('No corrected lines yet. Edit a line\'s text in Review first.')
   if (!setName) out.push('Choose a set or give a new one a name.')
   return out
 }
@@ -41,10 +44,11 @@ export function describeStats(s: TitleCorrections): string {
 
 /** What a preview or an add did, in plain words. */
 export function describeAdd(r: AddCorrectionsResult): string {
+  const all = r.include_all ? ' Current text counts as the reference.' : ''
   const left = r.unedited_skipped ? ` ${plural(r.unedited_skipped, 'unedited line')} skipped.` : ''
   const long = r.unclippable_skipped ? ` ${plural(r.unclippable_skipped, 'line')} too short or long for a clip skipped.` : ''
   const more = r.remaining ? ` ${plural(r.remaining, 'line')} left: add again for the rest (at most 100 per add).` : ''
-  if (r.dry_run) return `This would add ${plural(r.case_count, 'clip')} to “${r.set_name}”.${more}${left}${long}`
+  if (r.dry_run) return `This would add ${plural(r.case_count, 'clip')} to “${r.set_name}”.${all}${more}${left}${long}`
   const had = r.skipped ? ` ${plural(r.skipped, 'line')} already in the set ${r.skipped === 1 ? 'was' : 'were'} skipped.` : ''
-  return `Added ${plural(r.added, 'clip')} to “${r.set_name}”.${had}${more}${left}${long}`
+  return `Added ${plural(r.added, 'clip')} to “${r.set_name}”.${all}${had}${more}${left}${long}`
 }

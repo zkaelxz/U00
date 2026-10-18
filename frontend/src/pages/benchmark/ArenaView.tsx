@@ -9,7 +9,7 @@ import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import {
   arenaRunNames, deltaTone, leftOutLine, formatCost, formatDelta, formatJudgeScore, formatLatency, formatScore, judgeRunLine, metricName, metricNote,
-  mixedMetricNote, mixedScorerNote, plainError,
+  mixedMetricNote, mixedScorerNote, plainError, timingLine, caseTimingLine,
   runConfigLabel, runExtraLabel, runStatusLabel, scriptCountsLine, runStatusTone, tierLabel, tierTone,
 } from './benchmarkForm'
 
@@ -121,6 +121,16 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                       {scriptCountsLine(r.script_counts)}
                     </span>
                   )}
+                  {timingLine(r.timing) && (
+                    <span className="muted num" data-testid="arena-timing">
+                      {timingLine(r.timing)}
+                    </span>
+                  )}
+                  {r.timing_verdict && r.timing_verdict.state !== 'untimed' && (
+                    <span className={r.timing_verdict.state === 'cer_worse' ? 'warn' : 'muted'} data-testid="arena-timing-verdict">
+                      {r.timing_verdict.text}
+                    </span>
+                  )}
                   {r.judge && (
                     <span className="muted num" data-testid="arena-judge">
                       {judgeRunLine(r.judge)}
@@ -197,6 +207,7 @@ function ResultCell({ res, name, showRun }: { res: BenchmarkResult | null; name:
               {scriptCountsLine(res.script_counts)}
             </span>
           )}
+          {res.timing && <span className="muted num" data-testid="result-timing">{caseTimingLine(res.timing)}</span>}
           {res.judge && <span className="muted num" data-testid="result-judge">Judge {formatJudgeScore(res.judge)}</span>}
         </>
       )}

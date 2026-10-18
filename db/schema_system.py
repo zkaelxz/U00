@@ -209,6 +209,7 @@ def _init_benchmark_lab_schema():
             output_text TEXT,
             score REAL,
             metric TEXT,             -- 'similarity', 'cer', 'wer'
+            timing TEXT,             -- JSON of asr_timing_service.case_timing; NULL without reference times
             scorer TEXT,             -- 'jiwer', 'builtin'; NULL on rows from before it was recorded
             passed INTEGER,
             duration_seconds REAL,
@@ -270,4 +271,6 @@ def _init_benchmark_lab_schema():
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN scorer TEXT")
         if "ref_version" not in result_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN ref_version INTEGER")
+        if "timing" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN timing TEXT")
         conn.commit()

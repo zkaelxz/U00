@@ -35,6 +35,44 @@ export interface BenchmarkTranscribeOptions {
   difficult_audio?: boolean
   separate_vocals_first?: boolean
   initial_prompt?: string
+  /** Timing settings only the Lab varies. */
+  speech_pad_ms?: number
+  refine_timing?: boolean
+  split_max_seconds?: number
+  split_max_chars?: number
+}
+
+/** A run's line timing over the cases that have reference times; only `cases` (0) when none do. */
+export interface BenchmarkTimingSummary {
+  cases: number
+  start_median_ms?: number | null
+  end_median_ms?: number | null
+  /** Share of timed cases whose start and end are both within 0.3 s of the reference. */
+  within?: number | null
+  merged?: number | null
+  split?: number | null
+  missed?: number | null
+  silence?: number | null
+}
+
+export interface BenchmarkCaseTiming {
+  lines: number
+  missed: boolean
+  split: boolean
+  merged: boolean
+  start_error_s: number | null
+  end_error_s: number | null
+  silence: number | null
+}
+
+/** Arena only: whether a run's timing beat the first run's by more than the measured noise without a worse text score. */
+export interface BenchmarkTimingVerdict {
+  state: 'baseline' | 'repeat' | 'untimed' | 'no_margin' | 'no_gain' | 'cer_worse' | 'gain'
+  text: string
+  margin_within: number | null
+  margin_score: number | null
+  gain?: number | null
+  score_change?: number | null
 }
 
 export interface BenchmarkBackendOption {
@@ -83,6 +121,8 @@ export interface BenchmarkCase {
   excluded: boolean
   /** Goes up by one each time the reference is edited. */
   ref_version: number
+  /** The case has a reference start and end, so a run scores its line timing. */
+  has_ref_times?: boolean
   created_at: string | null
 }
 
@@ -239,6 +279,8 @@ export interface BenchmarkRun {
   stored_aggregate_score?: number | null
   judge?: BenchmarkJudgeSummary | null
   script_counts?: ScriptCounts | null
+  timing?: BenchmarkTimingSummary
+  timing_verdict?: BenchmarkTimingVerdict | null
 }
 
 export interface BenchmarkResult {
@@ -256,6 +298,7 @@ export interface BenchmarkResult {
   judge?: BenchmarkJudgeScore | null
   script_counts?: ScriptCounts | null
   ref_version?: number
+  timing?: BenchmarkCaseTiming | null
 }
 
 interface BenchmarkRunDetail {
@@ -368,6 +411,7 @@ export interface AddCorrectionsResult {
   lines_corrected: number
   unedited_skipped: number
   unclippable_skipped: number
+  include_all?: boolean
   case_count: number
   /** Lines left for another add: one call adds at most 100. */
   remaining: number
@@ -379,8 +423,9 @@ export interface AddCorrectionsResult {
 export const getTitleCorrections = (dramaId: number, f?: Fetch) =>
   getJson<TitleCorrections>(`${BASE}/dramas/${dramaId}/corrections`, f)
 
-// Transcription cases from a title's corrected lines, each with its audio clipped. dry_run only counts. PC only.
-export const addTitleCorrections = (dramaId: number, body: { set_name: string; dry_run: boolean }, f?: Fetch) =>
+// Transcription cases from a title's corrected lines (every spoken line with include_all), each with its audio clipped.
+// dry_run only counts. PC only.
+export const addTitleCorrections = (dramaId: number, body: { set_name: string; dry_run: boolean; include_all?: boolean }, f?: Fetch) =>
   postJson<AddCorrectionsResult>(`${BASE}/dramas/${dramaId}/corrections/add`, body, pcOnlyFetch(f))
 
 // Spends nothing: what a run would cost and whether the monthly cap allows it.

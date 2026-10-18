@@ -100,8 +100,11 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            repeat_guard: bool = False, sensitivity_preset: str = "normal",
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float = None,
-                           log_prob_threshold: float = None):
+                           log_prob_threshold: float = None, speech_pad_ms: int = None):
     """
+    speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
+    leaves its own default (400 ms) in place.
+
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
     accuracy win for names.
@@ -189,6 +192,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "word_timestamps": whisper_models.supports_word_timestamps(model_size),
         **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
     }
+    if speech_pad_ms is not None:
+        kwargs["vad_parameters"]["speech_pad_ms"] = int(speech_pad_ms)
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()
     if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(

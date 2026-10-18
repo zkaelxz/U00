@@ -130,6 +130,7 @@ def _case_out(c: dict) -> dict:
         "title": c.get("title") or "", "tags": _tags(c.get("tags")),
         "scene_order": c.get("scene_order"), "excluded": bool(c.get("excluded")),
         "ref_version": c.get("ref_version") or 1,
+        "has_ref_times": c.get("ref_start") is not None and c.get("ref_end") is not None,
         "created_at": c.get("created_at"),
     }
 
@@ -435,7 +436,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
         for cfg in checked:
             if cfg["engine"] in LAB_BACKENDS:
                 require_backend_fits_cases(cfg["engine"], cases)
-                require_backend_ready(cfg["engine"], cases)
+                require_backend_ready(cfg["engine"], cases, cfg["options"]["refine_timing"])
             else:
                 require_whisper_fits_cases(stage, [cfg], cases)
     return checked, cases

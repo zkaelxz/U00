@@ -8,7 +8,7 @@ import { ApiError } from '../../api/client'
 import type {
   BenchmarkConfig, BenchmarkLeftOut, BenchmarkTranscribeOptions, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
   BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
-  ScriptCounts,
+  ScriptCounts, BenchmarkCaseTiming, BenchmarkTimingSummary,
 } from '../../api/benchmark'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
@@ -148,6 +148,28 @@ export function formatLatency(seconds: number | null | undefined): string {
 }
 
 /** "Traditional 3 / Simplified 0 / mixed 1 / neutral 2 lines · 41 Traditional, 0 Simplified chars"; '' when not a Chinese transcript. */
+/** A run's line timing in one line, or '' when no case had reference times. */
+export function timingLine(t: BenchmarkTimingSummary | undefined): string {
+  if (!t || !t.cases) return ''
+  const ms = (v: number | null | undefined) => (v == null ? 'n/a' : `${v} ms`)
+  const parts = [
+    `Timing on ${t.cases} ${t.cases === 1 ? 'line' : 'lines'}: start ${ms(t.start_median_ms)}, end ${ms(t.end_median_ms)} off (median)`,
+    `${Math.round((t.within ?? 0) * 100)}% within 0.3 s`,
+    `${t.merged ?? 0} merged`, `${t.split ?? 0} split`, `${t.missed ?? 0} missed`,
+  ]
+  if (t.silence != null) parts.push(`${t.silence} in silence`)
+  return parts.join(' · ')
+}
+
+/** One case's timing result, or '' without one. */
+export function caseTimingLine(t: BenchmarkCaseTiming | null | undefined): string {
+  if (!t) return ''
+  if (t.missed) return 'Timing: line missed'
+  const s = (v: number | null) => (v == null ? 'n/a' : `${Math.round(v * 1000)} ms`)
+  const flags = [t.merged ? 'merged' : '', t.split ? 'split' : ''].filter(Boolean)
+  return `Timing: start ${s(t.start_error_s)}, end ${s(t.end_error_s)} off${flags.length ? ` · ${flags.join(', ')}` : ''}`
+}
+
 export function scriptCountsLine(c: ScriptCounts | null | undefined): string {
   if (!c) return ''
   return (
@@ -261,6 +283,7 @@ export function cleanOptions(options: unknown): BenchmarkTranscribeOptions | und
 export const TRANSCRIBE_OPTION_KEYS = [
   'beam_size', 'min_silence_ms', 'vad_threshold', 'sensitivity_preset', 'hallucination_silence_sec',
   'whisper_repeat_guard', 'difficult_audio', 'separate_vocals_first', 'initial_prompt',
+  'speech_pad_ms', 'refine_timing', 'split_max_seconds', 'split_max_chars',
 ] as const
 
 /** An option as the form shows it: its changed value, else the app's default. */
