@@ -395,7 +395,7 @@ def backup_snapshot(dest: str):
 
 CORRUPT_MESSAGE = ("The sources database (sources.db in the library folder) failed its "
                    "integrity check, so followed series, site settings and import history "
-                   "may not load. Baihe left the file as it is: restore a backup, or move "
+                   "may not load. Baihe did not repair or move it: restore a backup, or move "
                    "sources.db out of the library folder to start with an empty one.")
 
 
