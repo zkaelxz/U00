@@ -20,7 +20,8 @@ services/benchmark_lab_service.py.
 - A run can be deleted (confirm=true) and a run or a comparison exported as CSV or JSON.
   A comparison scores only the cases every run scored on the same reference version.
 - The settings sweep tunes transcription on one set and language: its estimate is a read, starting or
-  resuming it and approving or rejecting its winner are PC only and need `confirm=true`.
+  resuming it and approving or rejecting its winner are PC only and need `confirm=true`. The
+  translation sweep (`/translate-sweep`) works the same way for one engine.
 - A translation run may ask for an LLM judge (`judge` on the run request and the
   estimate); the judge's summary and per-case scores ride on the run reads.
 """
@@ -34,7 +35,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
-from api.auth import local_only, require_permission
+from api.auth import local_only, require_engines_allowed, require_permission
 from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseCreate,
                                    BenchmarkCaseDelete, BenchmarkCaseList, BenchmarkDeleted,
                                    BenchmarkEstimate, BenchmarkImportRequest,
@@ -47,9 +48,12 @@ from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCas
                          BenchmarkCorrectionsAddRequest, BenchmarkCorrectionsAddResult,
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
+                         BenchmarkPairNext, BenchmarkPickRequest, BenchmarkPickSummary,
                          BenchmarkRunDelete, BenchmarkSetBuildRequest, BenchmarkSetBuildResult,
                          BenchmarkSweepDecisionRequest, BenchmarkSweepDecisions, BenchmarkSweepEstimate,
                          BenchmarkSweepRequest, BenchmarkSweepStarted, BenchmarkSweepState,
+                         BenchmarkTranslateSweepEstimate, BenchmarkTranslateSweepRequest,
+                         BenchmarkTranslateSweepStarted, BenchmarkTranslateSweepState,
                          error_responses)
 from lib.capped_request import read_capped_form
 from lib.errors import InvalidInputError
@@ -57,9 +61,11 @@ from services import benchmark_clip_service as clip_svc
 from services import benchmark_export_service as export_svc
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
+from services import benchmark_picks_service as picks_svc
 from services import benchmark_reference_service as reference_svc
 from services import benchmark_set_builder_service as builder_svc
 from services import benchmark_sweep_service as sweep_svc
+from services import benchmark_translate_sweep_service as tsweep_svc
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
@@ -80,13 +86,15 @@ def _judge(body: BenchmarkRunRequest):
 
 
 def _with_judge(runs: list, rows: list = None) -> None:
-    """Adds the judge summary to each run and, in Arena rows, its scores to
-    each cell (cell i belongs to run i)."""
+    """Adds the judge summary and the owner's picks to each run and, in Arena
+    rows, the scores and picks to each cell (cell i belongs to run i)."""
     judge_svc.annotate_runs(runs)
-    for row in rows or []:
-        for run, cell in zip(runs, row["results"]):
-            if cell is not None:
-                judge_svc.annotate_results(run, [cell])
+    picks_svc.annotate_runs(runs)
+    for i, run in enumerate(runs):
+        cells = [row["results"][i] for row in rows or [] if row["results"][i] is not None]
+        if cells:
+            judge_svc.annotate_results(run, cells)
+            picks_svc.annotate_results(run, cells)
 
 
 @router.get("/options", dependencies=_READ, response_model=BenchmarkOptions,
@@ -194,8 +202,9 @@ def get_runs(stage: Optional[str] = Query(default=None, max_length=20),
             responses=_ERRS, summary="One run with its per-case results")
 def get_run(run_id: int = Path(ge=1)):
     out = svc.get_run(run_id)
-    judge_svc.annotate_runs([out["run"]])
+    _with_judge([out["run"]])
     judge_svc.annotate_results(out["run"], out["results"])
+    picks_svc.annotate_results(out["run"], out["results"])
     return out
 
 
@@ -205,6 +214,24 @@ def get_arena(run_ids: List[int] = Query(min_length=2, max_length=4)):
     out = svc.arena(run_ids)
     _with_judge(out["runs"], out["rows"])
     return out
+
+
+@router.get("/ab/next", dependencies=_READ, response_model=BenchmarkPairNext, responses=_ERRS,
+            summary="Blind A/B: the next case two runs have no pick for, outputs unlabelled")
+def get_ab_next(run_a: int = Query(ge=1, le=picks_svc.MAX_ROW_ID), run_b: int = Query(ge=1, le=picks_svc.MAX_ROW_ID)):
+    return picks_svc.next_pair(run_a, run_b)
+
+
+@router.post("/ab/pick", dependencies=[local_only()], responses=_ERRS,
+             summary="PC only: record which output of a blind A/B pair reads better")
+def post_ab_pick(body: BenchmarkPickRequest):
+    return picks_svc.record_pick(body.ticket, body.choice)
+
+
+@router.get("/ab/summary", dependencies=_READ, response_model=BenchmarkPickSummary, responses=_ERRS,
+            summary="Blind A/B totals for two runs and how often the judge agreed with the owner")
+def get_ab_summary(run_a: int = Query(ge=1, le=picks_svc.MAX_ROW_ID), run_b: int = Query(ge=1, le=picks_svc.MAX_ROW_ID)):
+    return picks_svc.summary(run_a, run_b)
 
 
 # ---- the owner's clip set, case clean-up, run delete and export --------------------------------
@@ -295,7 +322,6 @@ def get_case_edits(case_id: int = Path(ge=1)):
 def delete_run(body: BenchmarkRunDelete, run_id: int = Path(ge=1)):
     require_confirm(body.confirm)
     out = svc.delete_run(run_id)
-    judge_svc.forget_run(run_id)
     return out
 
 
@@ -351,3 +377,41 @@ def post_sweep(body: BenchmarkSweepRequest):
 def post_sweep_decision(body: BenchmarkSweepDecisionRequest):
     require_confirm(body.confirm)
     return sweep_svc.decide(body.decision, body.reason)
+
+
+@router.get("/translate-sweep", dependencies=_READ, response_model=BenchmarkTranslateSweepState,
+            summary="The latest translation settings sweep, its recommendation and the decision on it")
+def get_translate_sweep():
+    return tsweep_svc.get_sweep()
+
+
+@router.get("/translate-sweep/decisions", dependencies=_READ, response_model=BenchmarkSweepDecisions,
+            summary="Earlier translation sweep decisions, newest first")
+def get_translate_sweep_decisions():
+    return tsweep_svc.list_decisions()
+
+
+@router.post("/translate-sweep/estimate", dependencies=_READ, response_model=BenchmarkTranslateSweepEstimate,
+             responses=error_responses(404, 409, 422, 503),
+             summary="What a translation sweep would run and what it would cost; spends nothing")
+def post_translate_sweep_estimate(request: Request, body: BenchmarkTranslateSweepRequest):
+    # A paid engine or an Ollama cloud tag is held to engines.paid even for an estimate, so the
+    # sweep's cost and model list are not a way around the rule the run itself applies.
+    require_engines_allowed(request, body.engine, model=body.model)
+    return tsweep_svc.estimate(body.set_name, body.language, body.engine, body.model, body.series_id)
+
+
+@router.post("/translate-sweep", dependencies=[local_only()], response_model=BenchmarkTranslateSweepStarted,
+             responses=error_responses(404, 409, 422, 503),
+             summary="PC only: start or resume a translation settings sweep of one golden set (confirm=true)")
+def post_translate_sweep(body: BenchmarkTranslateSweepRequest):
+    require_confirm(body.confirm)
+    return tsweep_svc.start(body.set_name, body.language, body.engine, body.model, body.series_id)
+
+
+@router.post("/translate-sweep/decision", dependencies=[local_only()], response_model=BenchmarkTranslateSweepState,
+             responses=_ERRS,
+             summary="PC only: approve (saved as a setting profile) or reject the translation sweep's winner (confirm=true)")
+def post_translate_sweep_decision(body: BenchmarkSweepDecisionRequest):
+    require_confirm(body.confirm)
+    return tsweep_svc.decide(body.decision, body.reason)

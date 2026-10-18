@@ -30,6 +30,7 @@ import time
 from collections import OrderedDict, deque
 
 import db
+from lib.device_label import device_label
 from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError, RateLimitedError, UnauthenticatedError)
 
@@ -486,30 +487,6 @@ def _expires_at(sess: dict) -> float:
 
 def _is_live(sess: dict, now: float) -> bool:
     return now < _expires_at(sess) and now - sess["last_seen_at"] < IDLE_TIMEOUT_SECONDS
-
-
-# (token, name), first match wins. Order matters: Edge, Opera and Samsung
-# Internet also say "Chrome/", Chrome and Firefox on iOS say "Safari/", and
-# an iPhone says "like Mac OS X".
-_BROWSERS = (("Edg", "Edge"), ("EdgiOS", "Edge"), ("EdgA", "Edge"), ("OPR", "Opera"),
-             ("SamsungBrowser", "Samsung Internet"), ("FxiOS", "Firefox"),
-             ("Firefox", "Firefox"), ("CriOS", "Chrome"), ("Chrome", "Chrome"),
-             ("Safari", "Safari"))
-_SYSTEMS = (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
-            ("CrOS", "ChromeOS"), ("Windows", "Windows"), ("Macintosh", "Mac"),
-            ("Linux", "Linux"))
-
-
-def device_label(user_agent) -> str:
-    """"Chrome on Android", "Safari on iPhone", "Browser on Windows",
-    "Firefox browser" or "Unknown device", built only from the fixed names
-    above, so no part of the raw user agent is ever stored or shown."""
-    ua = str(user_agent or "")[:512]
-    browser = next((name for token, name in _BROWSERS if f"{token}/" in ua), None)
-    system = next((name for token, name in _SYSTEMS if token in ua), None)
-    if system is None:
-        return f"{browser} browser" if browser else "Unknown device"
-    return f"{browser or 'Browser'} on {system}"
 
 
 def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float = None) -> dict:

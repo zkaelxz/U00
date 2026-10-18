@@ -54,6 +54,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/snapshot/delete` | local_only() |
 | `GET /api/backups/snapshot/dramas` | local_only() |
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
+| `GET /api/benchmark/ab/next` | admin.diagnostics |
+| `POST /api/benchmark/ab/pick` | local_only() |
+| `GET /api/benchmark/ab/summary` | admin.diagnostics |
 | `GET /api/benchmark/arena` | admin.diagnostics |
 | `GET /api/benchmark/arena/export` | admin.diagnostics |
 | `GET /api/benchmark/cases` | admin.diagnostics |
@@ -82,6 +85,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/benchmark/sweep/decision` | local_only() |
 | `GET /api/benchmark/sweep/decisions` | admin.diagnostics |
 | `POST /api/benchmark/sweep/estimate` | admin.diagnostics |
+| `GET /api/benchmark/translate-sweep` | admin.diagnostics |
+| `POST /api/benchmark/translate-sweep` | local_only() |
+| `POST /api/benchmark/translate-sweep/decision` | local_only() |
+| `GET /api/benchmark/translate-sweep/decisions` | admin.diagnostics |
+| `POST /api/benchmark/translate-sweep/estimate` | admin.diagnostics |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |
 | `POST /api/characters/dramas/{drama_id}/character` | lines.edit |
 | `GET /api/characters/dramas/{drama_id}/clone-engines` | library.read |

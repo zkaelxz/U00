@@ -22,14 +22,18 @@ class SnapshotCopy(BaseModel):
     kind: Optional[SnapshotKind] = None
     drama_count: Optional[int] = None
     readable: bool
-    kept_as: Optional[Literal["daily", "weekly"]] = Field(
+    kept_as: Optional[Literal["daily", "weekly", "sources"]] = Field(
         None, description="Which rotation slot keeps this copy (the 2 newest are daily, then "
-                          "the first copy of each of the 2 most recent older weeks).")
+                          "the first copy of each of the 2 most recent older weeks); "
+                          "\"sources\": kept because later copies left a damaged sources.db "
+                          "out, until the owner deletes it.")
     managed: bool = Field(True, description="Made by this library (or, in its own default "
                                             "folder, before copies were tagged). Only managed "
                                             "copies are rotated or deleted by 'delete all'.")
     sequence: Optional[int] = Field(None, description="This library's copy number; the highest "
                                                       "is the newest.")
+    sources_left_out: bool = Field(False, description="sources.db was damaged when this copy "
+                                                      "was made, so the copy has none.")
 
 
 class AutoBackupSettings(BaseModel):
@@ -41,6 +45,8 @@ class AutoBackupSettings(BaseModel):
     last_run_at: Optional[str] = None
     last_attempt_at: Optional[str] = None
     last_error: Optional[str] = None
+    last_note: Optional[str] = Field(None, description="A note on the last successful run (a "
+                                                       "damaged sources.db left out).")
     next_run_at: Optional[str] = None
     running: bool
     copies: List[SnapshotCopy] = Field(default_factory=list, description="Newest first.")
@@ -80,6 +86,9 @@ class SnapshotInfo(BaseModel):
     size: Optional[int] = None
     app_version: Optional[str] = None
     drama_count: Optional[int] = None
+    sources_left_out: Optional[bool] = Field(None, description="The default copy has no "
+                                                               "sources.db (it was damaged). A "
+                                                               "title restore doesn't need it.")
     copies: List[SnapshotCopy] = Field(default_factory=list, description="Newest first.")
 
 

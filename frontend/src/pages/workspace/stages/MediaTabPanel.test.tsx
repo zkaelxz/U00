@@ -5,7 +5,7 @@ import { MediaTabPanel } from './MediaTabPanel'
 
 describe('MediaTabPanel', () => {
   it('hides itself when another tab is selected but still renders its content', () => {
-    const html = renderToStaticMarkup(<MediaTabPanel id="tools" active="add"><input aria-label="Kept" /></MediaTabPanel>)
+    const html = renderToStaticMarkup(<MediaTabPanel id="tools" shownOn="transcribe" active="add"><input aria-label="Kept" /></MediaTabPanel>)
     expect(html).toContain('id="media-panel-tools"')
     expect(html).toContain('hidden=""')
     expect(html).toContain('aria-label="Kept"')

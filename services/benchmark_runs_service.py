@@ -101,8 +101,7 @@ def get_run(run_id: int) -> dict:
 
 
 def delete_run(run_id: int) -> dict:
-    """The run and, through ON DELETE CASCADE, its results. Its judge scores
-    are kept apart (app_settings) and removed by the caller."""
+    """The run and, through ON DELETE CASCADE, its results, judge scores and picks."""
     if not db.get_benchmark_session(run_id):
         raise NotFoundError("Benchmark run not found.")
     db.delete_benchmark_sessions([run_id])
@@ -211,7 +210,7 @@ def arena(run_ids: list) -> dict:
 
 def setup_key(session: dict) -> str:
     ctx = session_out(session)["context_settings"]
-    options = ctx["transcribe_options"] if "transcribe_options" in ctx else None
+    options = ctx.get("transcribe_options", ctx.get("translate_options"))
     gpu = ctx["use_gpu"] if "use_gpu" in ctx else None
     return json.dumps([session["engine"], session["model"], options, gpu], sort_keys=True)
 

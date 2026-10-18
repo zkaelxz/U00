@@ -78,7 +78,7 @@ interface Props {
   onSave: () => void
   onReset: () => void
   saved: boolean
-  // The refused-option sentence and the run/save error, shown beside Save options.
+  // The refused-option sentence and the run/save error; the Transcribe tab shows them once above, so it passes none.
   problem: string | null
   error: unknown
   onDismissError: () => void

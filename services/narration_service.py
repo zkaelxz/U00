@@ -51,11 +51,6 @@ TAG_ENGINES = ["claude", "deepseek", "gemini", "openai", "ollama"]
 MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
 
 
-def _require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
-
 def _read_novel(drama_id: int) -> str:
     # Not db.drama_dir: that creates the folder, and config is a read.
     path = os.path.join(db.DRAMAS_DIR, str(drama_id), dub_narration.NOVEL_SOURCE_FILENAME)
@@ -74,7 +69,7 @@ def _api_key(engine_name: str) -> Optional[str]:
 def get_narration_config(drama_id: int) -> dict:
     """Booleans/enums only: no keys, paths or novel text. Raises
     NotFoundError for an unknown drama."""
-    drama = _require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     status = background_jobs.get_status(f"narration_{drama_id}")
     return {
         "drama_id": drama_id,
@@ -99,7 +94,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     A re-run over the same text, engine, model and known characters
     resumes after the batches an interrupted run already tagged;
     fresh=True drops those and tags everything again."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     engine_name = engine_name or DEFAULT_ENGINE
     if engine_name not in TAG_ENGINES:
         raise InvalidInputError(f"Engine {engine_name!r} cannot tag speakers; "

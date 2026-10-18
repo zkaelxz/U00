@@ -12,7 +12,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import holds_paid_engines, is_at_pc, require_permission
+from api.auth import holds, holds_paid_engines, is_at_pc, require_permission
 from api.schemas import (QueueAddItem, QueueMove, QueuePolicy,
                          QueueScheduleSet, QueueState, QueueStepSettings, error_responses)
 from services import queue_service
@@ -33,14 +33,16 @@ def get_queue(request: Request):
             summary="The saved settings a queued step would use for a title (read-only)", responses=_ERRORS)
 def step_settings(request: Request, drama_id: int = Query(ge=1, lt=2**63),
                   step: Literal["transcribe", "translate", "export"] = Query()):
-    return queue_service.step_settings(request.state.principal, drama_id, step)
+    return queue_service.step_settings(request.state.principal, drama_id, step, holds_paid_engines(request),
+                                      holds(request, "lines.edit"))
 
 
 @router.post("/items", dependencies=[require_permission("jobs.start")], response_model=QueueState,
              summary="Add a title's step to the end of the queue", responses=_ERRORS)
 def add_item(body: QueueAddItem, request: Request):
     return queue_service.add_item(request.state.principal, body.drama_id, body.step,
-                                  holds_paid_engines(request), at_pc=is_at_pc(request))
+                                  holds_paid_engines(request), at_pc=is_at_pc(request),
+                                  settings=body.settings, holds_edit=holds(request, "lines.edit"))
 
 
 @router.post("/items/{item_id}/move", dependencies=[require_permission("jobs.start")],

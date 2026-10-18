@@ -21,9 +21,9 @@
 .jobs-table td.jobs-nowrap { white-space: nowrap; }
 /* Without a floor the long-word wrapping rules let the table squeeze a title to a few letters per line. */
 .jobs-table td.jobs-title { min-width: 8rem; overflow-wrap: break-word; }
-.jobs-name { max-width: 16rem; overflow-wrap: anywhere; }
-/* The kind label is a short fixed phrase; `anywhere` on the cell let a narrow column split it mid-word. The note under it still wraps. */
-.jobs-name strong { white-space: nowrap; }
+.jobs-name { min-width: 9rem; max-width: 16rem; overflow-wrap: anywhere; }
+/* `anywhere` on the cell shrinks its min-content to one letter, so the table squeezed this column and a nowrap label spilled into Title. `break-word` on the label keeps short names whole, wraps long ones at spaces, and only splits a single over-long word. */
+.jobs-name strong { overflow-wrap: break-word; }
 .jobs-note { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .jobs-outcome { font-size: var(--text-sm); }
 .jobs-progress { display: inline-flex; align-items: center; gap: var(--space-2); }
@@ -74,6 +74,8 @@
 .queue-controls > :is(.queue-row, .setting-list) + p { margin-top: calc(var(--space-1) - var(--space-3)); }
 .queue-add .field-item { flex: 1 1 12rem; min-width: 0; }
 .queue-add select { width: 100%; }
+.queue-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 14rem)); gap: var(--space-3) var(--space-4); align-items: start; }
+.queue-settings-edit { display: grid; gap: var(--space-3); margin: 0 0 var(--space-3); }
 .queue-settings { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); }
 .queue-setting { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr; gap: var(--space-3); min-width: 0; }
 .queue-setting dt { color: var(--muted); }

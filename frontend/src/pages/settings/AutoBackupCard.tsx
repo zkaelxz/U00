@@ -213,7 +213,7 @@ function AutoBackupControls() {
           >
             <Field
               label="Backup folder"
-              help="Empty uses the library's backups folder. Otherwise a full path to an existing folder outside the library."
+              help="Empty keeps automatic copies in backups\auto inside your library. Manual backups and exports are in backups\. Otherwise a full path to an existing folder outside the library."
               error={folderError}
             >
               <input
@@ -244,7 +244,10 @@ function AutoBackupControls() {
           )}
 
           <div className="backup-status" data-testid="auto-backup-status">
-            <p>{lastRun ? `Last backup: ${lastRun}.` : 'No backup has run yet.'}</p>
+            <p>
+              {lastRun ? `Last backup: ${lastRun}.` : 'No backup has run yet.'}
+              {lastRun && settings.last_note ? ` ${settings.last_note}` : ''}
+            </p>
             {next && <p>{next}</p>}
             {settings.last_error && (
               <p className="error">

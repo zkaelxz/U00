@@ -65,11 +65,6 @@ def _file_key(found):
     return real, st.st_size, st.st_mtime_ns
 
 
-def _require_drama(drama_id: int) -> dict:
-    drama = ownership_service.require_drama(drama_id)
-    return drama
-
-
 def file_blocks(drama_id: int, size: int) -> tuple:
     """(blocks, split): the file's pieces in order, each with its byte
     range, as the manifest gives them while it matches the file, else one
@@ -152,7 +147,7 @@ def _raw_file(drama_id: int):
 
 
 def list_chapters(drama_id: int, offset: int = 0, limit: int = DEFAULT_PAGE) -> dict:
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     if offset < 0 or not 1 <= limit <= MAX_PAGE:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {MAX_PAGE}.")
     raw = _raw_file(drama_id)
@@ -188,7 +183,7 @@ def read_chapter(drama_id: int, number: int, offset: int = 0,
                  limit: int = DEFAULT_SLICE_CHARS) -> dict:
     """`limit` characters of chapter `number` (1-based) from character
     `offset`; next_offset is None once the chapter's end was returned."""
-    _require_drama(drama_id)
+    ownership_service.require_drama(drama_id)
     if offset < 0 or not 1 <= limit <= MAX_SLICE_CHARS:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {MAX_SLICE_CHARS}.")
     raw = _raw_file(drama_id)
