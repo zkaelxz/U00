@@ -185,3 +185,47 @@ class TestRun:
         _case()
         (sid,) = _run([{"engine": "claude"}])["session_ids"]
         assert db.BENCHMARK_DIR not in str(svc.get_run(sid))
+
+
+class TestBounds:
+    def test_a_cancel_during_a_read_ends_the_run_without_waiting_or_retrying(self, reads, monkeypatch):
+        import threading
+        import time
+        _case()
+        calls = []
+        release = threading.Event()
+
+        def slow(engine, prompt, data, mime):
+            calls.append(1)
+            release.wait(8)
+            return REFERENCE, {}
+
+        monkeypatch.setattr(vision, "_dispatch", slow)
+        monkeypatch.setattr(translate_engines, "read_image_text", vision.read_image_text)
+        started = time.monotonic()
+        (sid,) = svc.start_run("ocr", [{"engine": "claude"}])["session_ids"]
+        time.sleep(0.5)
+        background_jobs.request_cancel(svc.JOB_ID)
+        try:
+            _wait()
+            assert time.monotonic() - started < 6 and len(calls) == 1
+            assert svc.get_run(sid)["run"]["status"] == "cancelled"
+        finally:
+            release.set()
+
+    def test_a_picture_over_the_size_limit_is_that_cases_error_and_never_fully_read(self, reads, monkeypatch):
+        from services import page_import_limits
+        _case()
+        monkeypatch.setattr(page_import_limits, "MAX_IMAGE_BYTES", 10)
+        (sid,) = _run([{"engine": "claude"}])["session_ids"]
+        run = svc.get_run(sid)
+        assert run["run"]["error_count"] == 1 and not reads
+        assert "size limit" in run["results"][0]["error"]
+
+    def test_a_stored_name_cannot_leave_the_case_folder(self, reads, tmp_path):
+        outside = tmp_path / "secret.png"
+        outside.write_bytes(_png())
+        db.create_benchmark_case("sneaky", "ocr", "hardsub", "zh", input_filename=f"../{outside.name}",
+                                 reference_text=REFERENCE)
+        (sid,) = _run([{"engine": "claude"}])["session_ids"]
+        assert svc.get_run(sid)["run"]["error_count"] == 1 and not reads

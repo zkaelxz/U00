@@ -7,10 +7,12 @@ picture. UI-free. The run loop, cap and result rows stay in benchmark_lab_servic
 import os
 import time
 
+import background_jobs
 import db
 import translate_engines
+from engine_backends import llm_tasks
 from engine_backends.vision import VISION_ENGINES
-from services import image_text_service, settings_service, translate_service
+from services import image_text_service, page_import_limits, settings_service, translate_service
 from services.benchmark_case_service import redact
 from services.service_errors import InvalidInputError, MissingKeyError
 
@@ -85,20 +87,25 @@ def estimate_cost(stage: str, cfg: dict, cases: list) -> float:
     return total
 
 
-def run_case(engine, cfg: dict, case: dict, api_key, budget) -> dict:
+def run_case(engine, cfg: dict, case: dict, api_key, budget, job_id: str) -> dict:
     """One vision read of a case's stored picture, as a result row. A failed read is this case's
-    error (redacted), never the job's; a read whose worst-case price passes `budget` is not sent."""
+    error (redacted), never the job's; a read whose worst-case price passes `budget` is not sent.
+    The read runs inside the job's cancel scope, so Cancel is seen mid-request and no retry follows it."""
     started = time.monotonic()
     result = {"output_text": "", "cost_usd": 0.0}
     try:
         if not case.get("input_filename"):
             raise InvalidInputError("This case has no input file.")
-        with open(os.path.join(db.BENCHMARK_DIR, case["input_filename"]), "rb") as fh:
-            content = fh.read()
+        path = os.path.join(db.BENCHMARK_DIR, os.path.basename(case["input_filename"]))
+        if os.path.getsize(path) > page_import_limits.MAX_IMAGE_BYTES:
+            raise InvalidInputError("This picture is over the size limit.")
+        with open(path, "rb") as fh:
+            content = fh.read(page_import_limits.MAX_IMAGE_BYTES + 1)
         use_free_tier = cfg["engine"] == "gemini" and bool(settings_service.get("gemini_free_tier"))
-        read = image_text_service.read_stored_image(
-            engine, cfg["engine"], cfg["model"], content, case.get("source_language") or "",
-            use_free_tier, budget)
+        with llm_tasks.bounded_llm_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id)):
+            read = image_text_service.read_stored_image(
+                engine, cfg["engine"], cfg["model"], content, case.get("source_language") or "",
+                use_free_tier, budget)
         if read.get("over_budget"):
             result["over_budget"] = True
         else:

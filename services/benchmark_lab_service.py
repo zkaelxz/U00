@@ -702,7 +702,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                     status = "cancelled"
                     break
             elif vision.is_vision_arm(stage, cfg):
-                r = vision.run_case(engine, cfg, case, api_key, None if cap is None else max(cap - spent, 0.0))
+                r = vision.run_case(engine, cfg, case, api_key, None if cap is None else max(cap - spent, 0.0), job_id)
                 spent += r["cost_usd"]
                 if background_jobs.is_cancel_requested(job_id):
                     status = "cancelled"
