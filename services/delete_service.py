@@ -28,6 +28,7 @@ No FastAPI import.
 import logging
 import os
 
+from lib import ids as lib_ids
 import db
 from services import drama_service, ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -35,7 +36,7 @@ from sources import chapter_manifest, pipeline
 
 log = logging.getLogger(__name__)
 
-MAX_ID = 2**31 - 1
+MAX_ID = lib_ids.MAX_ID
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.py
 _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
 _JOB_RUNNING = ("A job is running for this title. Wait for it to finish or cancel it "
@@ -43,9 +44,7 @@ _JOB_RUNNING = ("A job is running for this title. Wait for it to finish or cance
 
 
 def _check_id(value, what: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_ID:
-        raise InvalidInputError(f"A {what} id is a positive whole number.")
-    return value
+    return lib_ids.check_id(value, f"A {what} id is a positive whole number.")
 
 
 def _require_confirm(confirm, what: str):
