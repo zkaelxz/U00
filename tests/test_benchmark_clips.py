@@ -294,11 +294,16 @@ class TestDeleteRun:
     def test_results_and_judge_scores_go_with_the_run(self, isolated_db, monkeypatch):
         _import([_row("a.wav")])
         sid = _scored_run(monkeypatch, lambda c: "你好世界")
-        db.set_app_setting(judge._setting_key(sid), {"scores": {}})
+        other = _scored_run(monkeypatch, lambda c: "你好世界")
+        for run in (sid, other):
+            db.set_benchmark_judge(run, {"status": "done"}, {
+                r["case_id"]: {"overall": 1.0} for r in db.list_benchmark_results(run)})
         assert svc.delete_run(sid) == {"deleted": True, "id": sid}
-        judge.forget_run(sid)
+        kept = db.list_benchmark_results(other)
+        assert kept and all(json.loads(r["judge_scores"]) == {"overall": 1.0} for r in kept)
+        assert json.loads(db.get_benchmark_session(other)["judge_meta"]) == {"status": "done"}
         assert db.get_benchmark_session(sid) is None and db.list_benchmark_results(sid) == []
-        assert db.get_app_setting(judge._setting_key(sid)) is None
+        assert db.get_app_setting(f"benchmark_judge.{sid}") is None
         assert len(db.list_benchmark_cases("transcription")) == 1     # cases are untouched
 
     def test_unknown_run_and_running_job(self, isolated_db, monkeypatch):

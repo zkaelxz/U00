@@ -53,10 +53,6 @@ DYNAMIC_KEYS = {
         "per language: the default language pack",
     ("services/vdb_names_service.py", "_TITLE_KEY.format(drama_id)"):
         "title-scoped: whether one title uses the downloaded VTuber names",
-    ("services/benchmark_judge_service.py", "_setting_key(sid)"):
-        "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
-    ("services/benchmark_judge_service.py", "_setting_key(session_id)"):
-        "benchmark_judge.<session>: blind-judge pass state for one benchmark session",
     ("services/line_tools_service.py", "_shorten_pass_key(drama_id)"):
         "title-scoped: the auto-shorten pass for one drama",
     ("services/glossary_name_report_service.py", "_marks_setting(principal)"):

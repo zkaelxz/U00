@@ -20,10 +20,12 @@ source, the reference and every engine's output, and scores each output
   "benchmark_judge") so they count toward the monthly cap, and the pass stops
   at the cap. Each call's cost is split evenly over the outputs it scored, so a
   run's judge cost adds up to the real total. start_run's estimate includes it.
-- The results live in app_settings under benchmark_judge.<run id> (the
-  benchmark tables can't take new columns without growing the db package past
-  its size limit); a judge failure never fails the run it follows.
+- The scores sit on the run's own result rows (benchmark_results.judge_scores)
+  and the pass's settings, cost and status on the run (benchmark_sessions.judge_meta),
+  so deleting a run removes its judge scores with it; a judge failure never fails
+  the run it follows.
 """
+import json
 import random
 import time
 
@@ -40,7 +42,6 @@ from services.service_errors import (InvalidInputError, MissingKeyError,
                                      UnsupportedOperationError)
 
 DIMENSIONS = ("accuracy", "tone", "naturalness")
-SETTING_PREFIX = "benchmark_judge."
 USAGE_OPERATION = "benchmark_judge"
 JUDGE_MAX_TOKENS = 800
 # Past this the pass is cut off: each case takes seconds, so a pass that has
@@ -251,15 +252,6 @@ def _average(rows: list) -> dict:
             for k in (*DIMENSIONS, "overall")}
 
 
-def _setting_key(session_id: int) -> str:
-    return f"{SETTING_PREFIX}{session_id}"
-
-
-def forget_run(session_id: int) -> None:
-    """Drops a deleted run's judge scores (kept apart from its results)."""
-    db.delete_app_setting(_setting_key(session_id))
-
-
 def run_pass(job_id: str, plan: list, judge: dict) -> None:
     """Called by the benchmark job after every engine has finished. Never
     raises: a failed pass is recorded on the runs it covers."""
@@ -279,7 +271,8 @@ def run_pass(job_id: str, plan: list, judge: dict) -> None:
             s["summary"] = _average(list(s["scores"].values()))
             s["scored"] = len(s["scores"])
             s["status"] = "failed" if s["status"] == "running" else s["status"]
-            db.set_app_setting(_setting_key(sid), s)
+            meta = {k: v for k, v in s.items() if k != "scores"}
+            db.set_benchmark_judge(sid, meta, s["scores"])
 
 
 def _best_effort_key(judge: dict):
@@ -395,22 +388,25 @@ def _summary_out(s: dict) -> dict:
             "average": s.get("summary") or {}, "note": lab.redact(s.get("note"))}
 
 
-def _load(session_id):
-    s = db.get_app_setting(_setting_key(session_id))
-    return s if isinstance(s, dict) else None
+def _loads(raw):
+    try:
+        value = json.loads(raw) if raw else None
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def annotate_runs(runs: list) -> list:
     """Adds `judge` (the summary, or None) to each run dict."""
     for run in runs:
-        s = _load(run["id"])
-        run["judge"] = _summary_out(s) if s else None
+        meta = _loads((db.get_benchmark_session(run["id"]) or {}).get("judge_meta"))
+        run["judge"] = _summary_out(meta) if meta else None
     return runs
 
 
 def annotate_results(run: dict, results: list) -> None:
     """Adds `judge` (that case's scores, or None) to each result dict."""
-    s = _load(run["id"]) or {}
-    scores = s.get("scores") or {}
+    scores = {r["case_id"]: _loads(r.get("judge_scores"))
+              for r in db.list_benchmark_results(run["id"]) if r.get("case_id") is not None}
     for r in results or []:
-        r["judge"] = scores.get(str(r.get("case_id"))) if r else None
+        r["judge"] = scores.get(r.get("case_id")) if r else None
