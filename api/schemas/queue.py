@@ -8,7 +8,7 @@ from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueMove",
+__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueMove",
            "QueueScheduleSet", "QueuePolicy", "QueueSettingRow", "QueueSettingOption",
            "QueueSettingField", "QueueStepSettings"]
 
@@ -59,6 +59,10 @@ class QueueAddItem(BaseModel):
     step: _QueueStep
     # Transcribe only: this item's own changes to the title's saved settings.
     settings: Optional[Dict[str, Union[bool, int, str]]] = None
+
+
+class QueueAddAllSteps(BaseModel):
+    drama_id: int = Field(ge=1, lt=2**63)
 
 
 class QueueMove(BaseModel):
