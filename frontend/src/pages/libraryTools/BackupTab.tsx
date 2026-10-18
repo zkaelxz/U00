@@ -1,8 +1,9 @@
 import { BackupBlock, RestoreBlock, UserBackup } from '../libraryAdmin/AdminBlocks'
 import { SnapshotBlock } from '../libraryAdmin/SnapshotBlock'
+import { AutoBackupBlock } from './AutoBackupBlock'
 import { TabCard } from './TabCard'
 
-/** "Backup and restore", in the order people use them: back up, restore, then the automatic copies. PC only. */
+/** "Backup and restore", in the order people use them: back up, restore, then the automatic backups (schedule) and their copies. PC only. */
 export function BackupTab() {
   return (
     <>
@@ -12,6 +13,7 @@ export function BackupTab() {
         <UserBackup />
       </TabCard>
       <TabCard card="restore"><RestoreBlock /></TabCard>
+      <TabCard card="auto-backup"><AutoBackupBlock /></TabCard>
       <TabCard card="auto-copies"><SnapshotBlock /></TabCard>
     </>
   )

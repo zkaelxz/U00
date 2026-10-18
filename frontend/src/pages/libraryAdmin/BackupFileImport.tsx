@@ -1,5 +1,5 @@
 /*
- * Library tools > Automatic backup copies > "From a backup file…": import
+ * Library tools > Saved automatic copies > "From a backup file…": import
  * chosen dramas from a backup .zip (an automatic copy or a manual "Back up
  * library" zip) or a database backup into the library, as NEW dramas. Steps:
  * choose the file (listed by the server, nothing changes), tick dramas, read

@@ -1,10 +1,10 @@
 /*
- * Library tools > Backup > "Automatic backup copies":
+ * Library tools > Backup > "Saved automatic copies":
  * the rotating copies automatic backups keep (the newest one's
  * date, size, kind and drama count), restoring ONE drama from a chosen copy,
  * and deleting one copy or all of them. PC only (the Backup tab
  * shows the PC-only note away from the PC); nothing is fetched until
- * /api/meta has answered. The schedule itself lives in Settings.
+ * /api/meta has answered. The schedule is the Automatic backups card above it.
  *
  * Restore: choose the copy ("Restore from": the server's default copy, or
  * none when the newest can't be told for sure -- then the owner must pick),
@@ -32,7 +32,7 @@ import {
   type SnapshotDramaList, type SnapshotInfo,
 } from '../../types/backups'
 import {
-  CHOOSE_COPY_TEXT, ROTATION_NOTE, UNMANAGED_DELETE_WARNING, UNMANAGED_LABEL, UNMANAGED_RESTORE_WARNING,
+  CHOOSE_COPY_TEXT, UNMANAGED_DELETE_WARNING, UNMANAGED_LABEL, UNMANAGED_RESTORE_WARNING,
   chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot, filterSnapshotDramas, formatWhen,
   initialRestoreCopy, isManaged, restoreNotes, splitCopies,
 } from '../backupsFormat'
@@ -82,7 +82,7 @@ export function SnapshotBlock() {
     <div className="admin-block" data-testid="snapshot-block">
       <p data-testid="snapshot-info">{describeSnapshot(snapshot)}</p>
       <p className="muted">
-        {ROTATION_NOTE} Schedule them in <a href={routeHref({ name: 'settings' })}>Settings</a>.
+        Schedule them in the Automatic backups card above.
       </p>
       <ErrorBanner error={loadError} describe={SERVER} />
       {mode === 'idle' && (
