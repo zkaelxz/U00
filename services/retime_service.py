@@ -20,6 +20,7 @@ import forced_align
 from services import (compare_transcription_service as compare, jobs_service, settings_service,
                       timing_settings_service, transcribe_pipeline, transcribe_service,
                       retranscribe_line_service, qwen3_requirements_service)
+from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 
@@ -48,19 +49,15 @@ def start_retime(drama_id: int, line_ids: list) -> dict:
     ConflictError while a re-time run is active, or while a transcription,
     fix-flagged, re-segment, narration or compare run is running or queued."""
     drama = compare._drama_or_404(drama_id)
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    require_audio_pipeline(drama_id, drama)
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError("This title has no stored audio to re-time against.")
     picked = compare.select_lines(drama_id, {"kind": "line_ids", "line_ids": line_ids})
     qwen3_requirements_service.require_qwen3_packages(
         "The Qwen3 forced aligner", drama.get("source_language") or "zh")
-    for prefix in _BLOCKING_PREFIXES:
-        other = background_jobs.get_status(f"{prefix}{drama_id}")
-        if other and other.get("status") in ("running", "queued"):
-            raise ConflictError("Another job is changing this title's lines. "
-                                "Try again when it finishes.")
+    ensure_no_active_jobs(drama_id, _BLOCKING_PREFIXES,
+                          "Another job is changing this title's lines. Try again when it finishes.")
     job_id = retime_job_id(drama_id)
     started = job_launch.start_job(
         job_id, run_retime_job, job_id, drama_id, [ln.id for ln in picked], audio_path,

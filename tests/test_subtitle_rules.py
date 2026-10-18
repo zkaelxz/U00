@@ -320,3 +320,22 @@ def test_flagging_a_title_never_changes_stored_times(isolated_db):
     stored = isolated_db.load_lines(did)
     assert [(r["start"], r["end"]) for r in stored] == [(0.0, 3.0), (3.0, 6.0)]
     assert "speech is this fast" in stored[0]["flag_note"]
+
+
+def _reference_vtt_ts(seconds):
+    """The WebVTT timestamp formatter as it was written before it shared fmt_ts."""
+    ms = int(round(max(seconds, 0) * 1000))
+    h, ms = divmod(ms, 3600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+
+@pytest.mark.parametrize("seconds", [
+    0, 0.0, -1, -0.0004, 0.0004, 0.0005, 0.9994, 0.9995, 0.9996, 1.0005, 59.9995, 3599.9995,
+    3661.123, 99 * 3600 + 59 * 60 + 59.9995, 100 * 3600, 1000 * 3600 + 0.5,
+])
+def test_vtt_timestamps_match_srt_apart_from_the_separator(seconds):
+    from subtitle_formats import _vtt_ts
+    assert _vtt_ts(seconds) == _reference_vtt_ts(seconds)
+    assert _vtt_ts(seconds) == fmt_ts(seconds).replace(",", ".")
