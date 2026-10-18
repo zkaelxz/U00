@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { getAssStyleOptions, getReadiness } from '../../../api/export'
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { RetryBanner } from '../../../components/RetryBanner'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
 import { routeHref } from '../../../router'
 import { buttonClass } from '../../../components/uiClasses'
@@ -38,6 +39,7 @@ export default function ExportStage() {
   const { dramaId, drama } = useStage()
   const [readiness, setReadiness] = useState<ExportReadiness | null>(null)
   const [readinessError, setReadinessError] = useState<unknown>(null)
+  const [readinessTry, setReadinessTry] = useState(0)
   const [options, setOptions] = useState<AssStyleOptions | null>(null)
   const [optionsError, setOptionsError] = useState<unknown>(null)
   const [startError, setStartError] = useState<StartError | null>(null)
@@ -76,7 +78,7 @@ export default function ExportStage() {
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, readinessTry])
 
   useEffect(() => {
     let cancelled = false
@@ -141,7 +143,7 @@ export default function ExportStage() {
       <section className="panel" aria-label="Export">
         <h3>Export</h3>
         <p className="export-line"><Badge>{TITLE_KIND_LABEL[kind]}</Badge></p>
-        <ErrorBanner error={readinessError} />
+        <RetryBanner error={readinessError} what="the export checks" onRetry={() => { setReadinessError(null); setReadinessTry((n) => n + 1) }} />
         {!r && !readinessError && <div className="skeleton-block export-readiness-skeleton" aria-hidden="true" />}
         {r && (
           <>
@@ -151,7 +153,7 @@ export default function ExportStage() {
             </p>
             {(untranslated || review.length > 0 || r.overlap_count > 0) && (
               <ul className="export-warnings" data-testid="readiness-warnings">
-                {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have gaps.</li>}
+                {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have empty cues for them.</li>}
                 {r.overlap_count > 0 && (
                   <li className="muted">
                     {plural(r.overlap_count, 'cue')} overlap; both stay fully visible in ASS and VTT and are shortened in SRT.{' '}
