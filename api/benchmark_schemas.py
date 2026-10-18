@@ -260,6 +260,7 @@ class BenchmarkOptions(BaseModel):
     transcribe_options_ignored: Dict[str, List[str]]
     translate_choices: BenchmarkTranslateChoices
     ocr_backends: List[str]
+    vision_engines: List[str] = []
     pass_threshold: float
     chrf_pass_threshold: float
     max_configs: int

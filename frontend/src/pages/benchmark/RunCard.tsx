@@ -316,14 +316,38 @@ function ConfigRow({ stage, options, config, index, onChange }: {
     )
   }
   if (stage === 'ocr') {
+    const visionEngines = options.translation_engines.filter((e) => options.vision_engines.includes(e.name))
+    const vision = visionEngines.find((e) => e.name === config.engine)
     return (
-      <Field label={`OCR backend ${n}`}>
-        <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value })}>
-          {options.ocr_backends.map((b) => (
-            <option key={b} value={b}>{OCR_LABELS[b] ?? b}</option>
-          ))}
-        </select>
-      </Field>
+      <div className="bench-config-fields">
+        <Field label={`OCR backend ${n}`}>
+          <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value })}>
+            {options.ocr_backends.map((b) => (
+              <option key={b} value={b}>{OCR_LABELS[b] ?? b}</option>
+            ))}
+            {visionEngines.length > 0 && (
+              <optgroup label="Vision models">
+                {visionEngines.map((e) => (
+                  <option key={e.name} value={e.name}>{engineOptionLabel(e)}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </Field>
+        {vision?.models && (
+          <Field label={`Model ${n}`}>
+            <select
+              value={config.model ?? ''}
+              onChange={(e) => onChange(e.target.value ? { engine: config.engine, model: e.target.value } : { engine: config.engine })}
+            >
+              <option value="">Default</option>
+              {vision.models.map((m) => (
+                <option key={m} value={m}>{modelOptionLabel(vision, m)}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+      </div>
     )
   }
   const engine = options.translation_engines.find((e) => e.name === config.engine)
