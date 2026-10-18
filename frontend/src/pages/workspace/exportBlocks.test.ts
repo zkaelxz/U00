@@ -10,6 +10,7 @@ import {
   exportBlockOrder,
   exportBlockReason,
   exportBlockStorageKey,
+  jellyfinMediaReason,
   firstExportBlock,
   type ExportBlockId,
   type ExportInputs,
@@ -96,5 +97,17 @@ describe('exportBlockReason', () => {
       expect(r.length).toBeLessThan(70)
       expect(r).not.toContain('\n')
     }
+  })
+})
+
+describe('jellyfinMediaReason', () => {
+  it('needs nothing for subtitles only, or when everything is there or unknown', () => {
+    expect(jellyfinMediaReason('none', { ...ready, hasSourceVideo: false })).toBeNull()
+    expect(jellyfinMediaReason('source', ready)).toBeNull()
+    expect(jellyfinMediaReason('dubbed', unknown)).toBeNull()
+  })
+  it('names the missing video or dub', () => {
+    expect(jellyfinMediaReason('source', { ...ready, hasSourceVideo: false })).toBe(NO_SOURCE_VIDEO)
+    expect(jellyfinMediaReason('dubbed', { ...ready, hasDub: false })).toBe(NO_DUB)
   })
 })

@@ -142,6 +142,12 @@ describe('reader error copy', () => {
     expect(readerErrorText(e)).toEqual({ title: BUSY_TEXT, detail: null, retry: true })
   })
 
+  it('shows the dictionary download message from an application_error', () => {
+    const msg = 'The CC-CEDICT download failed; check the connection and try again.'
+    const e = new ApiError(500, { code: 'application_error', message: msg })
+    expect(readerErrorText(e).detail).toBe(msg)
+  })
+
   it('uses the paid copy for a 403 on a paid engine', () => {
     const e = new ApiError(403, { code: 'forbidden', message: 'Not allowed.' })
     expect(readerErrorText(e, { paidEngine: true }).title).toBe(PAID_TEXT)

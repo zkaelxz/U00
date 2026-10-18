@@ -16,11 +16,12 @@ import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { JellyfinConfig, JellyfinLanguage, JellyfinScanItem, JellyfinSendRequest } from '../../../types/jellyfin'
 import { itemLabel, jellyfinErrorMessage, readyToSend, sendResultText } from '../../settings/jellyfin'
+import { jellyfinMediaReason, type ExportInputs } from '../exportBlocks'
 import { useStage } from '../StageContext'
 
 type Target = 'item' | 'folder'
 
-export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) {
+export function ExportJellyfin({ field, inputs }: { field: 'en' | 'zh' | 'bilingual'; inputs: ExportInputs }) {
   const { dramaId, drama } = useStage()
   // The language the file is written in: the drama's own for the original text.
   const src = drama.source_language
@@ -94,7 +95,8 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
     )
   }
 
-  const canSend = readyToSend(cfg) && !busy && (target === 'folder' || !!itemId)
+  const mediaReason = target === 'folder' ? jellyfinMediaReason(media, inputs) : null
+  const canSend = readyToSend(cfg) && !busy && (target === 'folder' || !!itemId) && !mediaReason
 
   return (
     <div role="region" aria-label="Send to Jellyfin">
@@ -141,6 +143,7 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
               </select>
             </Field>
           )}
+          {mediaReason && <p className="muted" data-testid="jellyfin-media-reason">{mediaReason}</p>}
           <Field label="Replace existing files" help="Off: a file already in the library is never overwritten.">
             <Toggle checked={overwrite} onChange={setOverwrite} />
           </Field>

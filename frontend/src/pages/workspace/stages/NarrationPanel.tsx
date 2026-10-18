@@ -10,6 +10,8 @@ import { buttonClass } from '../../../components/uiClasses'
 import type { NarrationConfig } from '../../../types/dub'
 import './dub.css'
 import { AI_ENGINE_LABEL } from '../../../helpText'
+import { EngineGateNote } from './EngineGateNote'
+import { useEngineGate, useTitleEngines } from './useEngineGate'
 
 interface Props {
   dramaId: number
@@ -41,12 +43,19 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
     }
   }, [dramaId])
 
+  // The title's engine list knows the SDK and Ollama; this panel's own key flags are the ones its run checks.
+  const titleEngines = useTitleEngines(dramaId)
+  const ownEngines = cfg?.engines.map((o) => ({ name: o.key, label: o.key, free: false, models: null, key_configured: o.key_configured }))
+  const titleGate = useEngineGate(titleEngines.engines, engine)
+  const ownGate = useEngineGate(ownEngines, engine)
+  const gate = titleGate ?? ownGate
+
   if (!cfg) return error ? <ErrorBanner error={error} /> : null
   if (!cfg.is_narration) return null
 
   const needsConfirm = cfg.replaces_existing_lines
   const disabled =
-    busy || cfg.job_running || !cfg.has_novel_source || !engine || (needsConfirm && !confirmed)
+    busy || cfg.job_running || !cfg.has_novel_source || !engine || !!gate || (needsConfirm && !confirmed)
 
   const start = () =>
     narrationApi
@@ -84,6 +93,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
           <input value={model} onChange={(e) => setModel(e.target.value)} />
         </Field>
       </div>
+      <EngineGateNote gate={gate} />
       {needsConfirm && (
         <div className="dub-check">
           <Field label={`Replace the ${cfg.existing_line_count} existing lines`}>
