@@ -33,6 +33,8 @@ export interface NoteDraft {
   text: string
 }
 
+export const DISCARD_WARNING = 'Unsaved changes. Press Esc again to discard.'
+
 export interface EditState {
   lineId: number
   // The line as it was when editing began (or last saved): the compare-and-set
@@ -41,6 +43,8 @@ export interface EditState {
   draft: LineDraft
   details: boolean
   note: NoteDraft | null
+  // Set by the first Esc or Cancel on a dirty draft; the second one discards.
+  discardWarning?: boolean
 }
 
 export interface RowIssue {
@@ -321,7 +325,11 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
                 <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
                 <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
                 <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>
-                <span className="muted review-keys">Enter save &amp; next · Shift+Enter new line · Esc cancel</span>
+                {edit?.discardWarning ? (
+                  <span className="review-keys" role="status">{DISCARD_WARNING}</span>
+                ) : (
+                  <span className="muted review-keys">Enter save &amp; next · Shift+Enter new line · Esc cancel</span>
+                )}
               </div>
             )}
           </div>

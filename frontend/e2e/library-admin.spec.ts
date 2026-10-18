@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openFold } from './foldHelpers'
+import { CONFIRM_REVERT_MS } from '../src/components/confirmButtonState'
 
 // Library admin (selection bar, Backup and Storage tabs, PC-only deletes).
 // Real API for the bulk flow on two dramas this spec creates and deletes
@@ -229,7 +230,7 @@ test('preset delete is two-step: first press makes no call, second sends confirm
   await expect(presetsSummary(page)).toHaveCount(0)
 })
 
-test('an armed delete reverts after 5 s', async ({ page }) => {
+test('an armed delete reverts after the idle time', async ({ page }) => {
   await page.route('**/api/library/voice-bank', (r) => r.fulfill({ json: {
     items: [{ id: 3, name: 'Narrator', language: 'en', clone_engine: null, source_drama: null, clip_available: false }],
   } }))
@@ -237,7 +238,7 @@ test('an armed delete reverts after 5 s', async ({ page }) => {
   await openFold(page, 'Voice bank')
   await page.getByRole('button', { name: 'Delete Narrator' }).click()
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toHaveCount(0, { timeout: 7000 })
+  await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toHaveCount(0, { timeout: CONFIRM_REVERT_MS + 2000 })
   await expect(page.getByRole('button', { name: 'Delete Narrator' })).toBeVisible()
 })
 
