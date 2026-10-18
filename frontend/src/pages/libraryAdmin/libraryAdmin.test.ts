@@ -146,7 +146,8 @@ describe('SelectionBar', () => {
 
   it('list changes are one dropdown that rests on blank', () => {
     const out = bar('local', [d(1)])
-    expect(out).toContain('>Set status<')
+    expect(out).toContain('aria-label="Set status"')
+    expect(out).toContain('<option value="" selected="">Status…</option>')
     expect(out).toContain('<option value="" selected="">Lists…</option>')
     for (const l of ['>Lists…<', 'label="Add to list"', 'label="Remove from list"', '>Add to Favorite<', '>Remove from Favorite<']) expect(out).toContain(l)
   })

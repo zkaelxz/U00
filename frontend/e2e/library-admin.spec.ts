@@ -47,8 +47,7 @@ test.describe('selection bar (real API)', () => {
     // Clicking a checkbox does not open the drama's details.
     await expect(page.getByRole('dialog', { name: 'Admin E2E One' })).toHaveCount(0)
 
-    await bar.getByLabel('New status').selectOption('translated')
-    await bar.getByRole('button', { name: 'Set status' }).click()
+    await bar.getByRole('combobox', { name: 'Set status' }).selectOption('translated')
     await expect(page.getByTestId('bulk-result')).toContainText('Updated 2.')
     await expect(page.locator('tbody tr', { hasText: 'Admin E2E' }).filter({ hasText: 'translated' })).toHaveCount(2)
 

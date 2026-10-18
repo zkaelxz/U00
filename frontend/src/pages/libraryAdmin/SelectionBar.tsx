@@ -55,7 +55,6 @@ const PC_ONLY_ERR = { pcOnly: true, serverText: true } as const
 export function SelectionBar({
   selected, items, pc, phone, exporter, onClear, onDone, onChanged, onDeleted, onResult, result,
 }: Props) {
-  const [status, setStatus] = useState<LibraryStatus>('translated')
   const [busy, setBusy] = useState(false)
   // admin.library calls (status, lists): default error copy.
   const [adminError, setAdminError] = useState<unknown>(null)
@@ -159,12 +158,17 @@ export function SelectionBar({
     <div className="bar-actions">
       {canEdit && <>
       <div className="bar-group">
-        <select aria-label="New status" value={status} onChange={(e) => setStatus(e.target.value as LibraryStatus)}>
+        <select
+          aria-label="Set status"
+          value=""
+          disabled={busy || !n}
+          onChange={(e) => {
+            if (e.target.value) run(() => bulkSetStatus(ids, e.target.value as LibraryStatus), describeBulkResult)
+          }}
+        >
+          <option value="">Status…</option>
           {LIBRARY_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
         </select>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetStatus(ids, status), describeBulkResult)}>
-          Set status
-        </button>
       </div>
       <div className="bar-group">
         <select
