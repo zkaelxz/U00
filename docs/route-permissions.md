@@ -54,6 +54,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/snapshot/delete` | local_only() |
 | `GET /api/backups/snapshot/dramas` | local_only() |
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
+| `GET /api/benchmark/ab/next` | admin.diagnostics |
+| `POST /api/benchmark/ab/pick` | local_only() |
+| `GET /api/benchmark/ab/summary` | admin.diagnostics |
 | `GET /api/benchmark/arena` | admin.diagnostics |
 | `GET /api/benchmark/arena/export` | admin.diagnostics |
 | `GET /api/benchmark/cases` | admin.diagnostics |
@@ -398,6 +401,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/queue` | jobs.start |
 | `POST /api/queue/clear-finished` | jobs.start |
 | `POST /api/queue/items` | jobs.start |
+| `POST /api/queue/items/all-steps` | jobs.start |
 | `POST /api/queue/items/{item_id}/move` | jobs.start |
 | `POST /api/queue/items/{item_id}/remove` | jobs.start |
 | `POST /api/queue/items/{item_id}/retry` | jobs.start |
@@ -666,6 +670,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate/estimate` | engines.paid |
 | `DELETE /api/translate/history` | local_only() |
 | `GET /api/translate/history` | library.read |
+| `POST /api/translate/read-image` | local_only() |
+| `POST /api/translate/read-image/estimate` | local_only() |
 | `DELETE /api/vdb-names` | local_only() |
 | `GET /api/vdb-names` | library.read |
 | `GET /api/vdb-names/dramas/{drama_id}` | library.read |

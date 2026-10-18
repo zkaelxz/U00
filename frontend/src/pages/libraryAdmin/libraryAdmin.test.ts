@@ -144,9 +144,12 @@ describe('SelectionBar', () => {
     expect(out).toContain('id="export-needs"')
   })
 
-  it('relabelled list and status actions', () => {
+  it('list changes are one dropdown that rests on blank', () => {
     const out = bar('local', [d(1)])
-    for (const l of ['>Set status<', '>Add to list<', '>Remove from list<']) expect(out).toContain(l)
+    expect(out).toContain('aria-label="Set status"')
+    expect(out).toContain('<option value="" selected="">Status…</option>')
+    expect(out).toContain('<option value="" selected="">Lists…</option>')
+    for (const l of ['>Lists…<', 'label="Add to list"', 'label="Remove from list"', '>Add to Favorite<', '>Remove from Favorite<']) expect(out).toContain(l)
   })
 
   it('remote: hides the export job line and download link', () => {
@@ -181,13 +184,13 @@ describe('SelectionBar', () => {
 describe('BackupTab', () => {
   it('on the PC: Back up, then Restore, then Automatic copies, and no export', () => {
     const out = renderToStaticMarkup(createElement(BackupTab))
-    const at = ['>Back up</span>', '>Restore</span>', '>Automatic backup copies</span>'].map((t) => out.indexOf(t))
+    const at = ['>Back up</span>', '>Restore</span>', '>Saved automatic copies</span>'].map((t) => out.indexOf(t))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(out).not.toContain('Export all translated')
     for (const text of ['Backup and restore', 'Back up library', 'Database only',
       'Backup of just my stuff', 'Items owned at this PC', 'Back up just these items',
-      'Site sign-ins are never included.', 'accept=".zip"', 'Automatic backup copies']) {
+      'Site sign-ins are never included.', 'accept=".zip"', 'Saved automatic copies']) {
       expect(out).toContain(text)
     }
     expect(out).not.toContain('Backup &amp; storage')

@@ -88,6 +88,7 @@ USER_BACKUP_TABLES = {
     "benchmark_case_edits": ("empty", "belongs to benchmark_cases"),
     "benchmark_sessions": ("empty", "this PC's benchmark runs"),
     "benchmark_results": ("empty", "belongs to benchmark_sessions"),
+    "benchmark_picks": ("empty", "belongs to benchmark_sessions"),
     "model_candidates": ("empty", "this PC's model choices"),
     "model_decisions": ("empty", "this PC's model choices"),
 }

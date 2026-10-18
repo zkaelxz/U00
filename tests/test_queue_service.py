@@ -309,6 +309,41 @@ def test_validation_rejects_unknown_titles_bad_steps_and_a_full_queue(jobs):
     assert len(_items()) == q.MAX_ITEMS
 
 
+def test_all_steps_adds_three_ordered_items_each_waiting(jobs):
+    did = _drama(lines=(("你好", "Hello"),))
+    q.add_all_steps(None, did, True, at_pc=True)
+    assert [(i["step"], i["drama_id"], i["status"]) for i in _items()] == [
+        ("transcribe", did, "waiting"), ("translate", did, "waiting"), ("export", did, "waiting")]
+    assert q.get_queue(None)["state"] == "idle"
+
+
+def test_all_steps_adds_nothing_when_any_step_is_refused(jobs):
+    with pytest.raises(NotFoundError):
+        q.add_all_steps(None, 999999, True, at_pc=True)
+    paid = _drama(engine="claude")
+    with pytest.raises(ForbiddenError):
+        q.add_all_steps(None, paid, False, at_pc=True)
+    did = _drama()
+    for _ in range(q.MAX_ITEMS - 2):
+        q.add_item(None, did, "export", True, at_pc=True)
+    with pytest.raises(ConflictError):
+        q.add_all_steps(None, did, True, at_pc=True)
+    assert len(_items()) == q.MAX_ITEMS - 2
+
+
+def test_all_steps_stops_the_later_steps_after_a_failure_when_the_policy_says_so(jobs):
+    did = _drama()
+    q.set_policy(None, True)
+    q.add_all_steps(None, did, True, at_pc=True)
+    jobs.fail.add(f"transcribe_{did}")
+    q.start(None)
+    q.tick()
+    jobs.finish(f"transcribe_{did}")
+    q.tick()
+    assert _status() == [("transcribe", "failed"), ("translate", "waiting"), ("export", "waiting")]
+    assert jobs.started == [f"transcribe_{did}"]
+
+
 def test_members_queue_only_their_own_titles_and_see_only_those(jobs):
     owner = auth_service.add_user("a@example.com")
     other = auth_service.add_user("b@example.com")
@@ -596,7 +631,5 @@ def test_a_queued_transcribe_repeats_the_run_choices_saved_on_the_title(jobs):
     q.add_item(None, did, "transcribe", True, at_pc=True)
     q.start(None)
     q.tick()
-    assert jobs.transcribe_kwargs == [{
-        "run_diarize": True, "expected_speakers": 3, "min_speakers": None, "max_speakers": None,
-        "extra_names": "白鹤", "initial_prompt": ""}]
+    assert jobs.transcribe_kwargs == [{"run_diarize": True, "expected_speakers": 3, "extra_names": "白鹤"}]
     jobs.finish(f"transcribe_{did}")

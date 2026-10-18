@@ -1,6 +1,9 @@
 // Pure helpers for the Queue card on the Jobs page (JobQueue.tsx).
 import { humanize, type BadgeTone } from '../../components/labels'
-import type { QueueItem, QueueItemStatus, QueueSchedule, QueueSettingRow, QueueState, QueueStep } from '../../types/queue'
+import type {
+  QueueItem, QueueItemStatus, QueueSchedule, QueueSettingEdits, QueueSettingField, QueueSettingRow, QueueState,
+  QueueStep,
+} from '../../types/queue'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 
 export const STEP_LABELS: Record<QueueStep, string> = {
@@ -9,7 +12,13 @@ export const STEP_LABELS: Record<QueueStep, string> = {
   export: 'Export subtitles',
 }
 
-export const STEP_HELP: Record<QueueStep, string> = {
+// What the Step choice offers: one step, or the whole chain for the title.
+export type AddStep = QueueStep | 'all'
+
+export const ADD_STEP_LABELS: Record<AddStep, string> = { all: 'All steps', ...STEP_LABELS }
+
+export const STEP_HELP: Record<AddStep, string> = {
+  all: "Adds Transcribe, Translate and Export subtitles for the title, in that order, with its saved options. Nothing starts until you press Start queue.",
   transcribe: "Uses the title's saved Transcribe options. Replaces its current lines; the old ones stay in line History.",
   translate: "Uses the title's saved Translate options and engine.",
   export: 'Saves English subtitles (SRT) as the title\'s subtitle download.',
@@ -82,4 +91,13 @@ export function savedSettingValue(row: QueueSettingRow): string {
   if (!row.engine) return row.value
   const engine = humanize('engine', row.engine)
   return row.value ? `${engine}, ${row.value}` : engine
+}
+
+/** The edits that differ from the title's saved values: only these are sent, so the rest keep following the title. */
+export function changedEdits(fields: QueueSettingField[], edits: QueueSettingEdits): QueueSettingEdits | undefined {
+  const out: QueueSettingEdits = {}
+  for (const f of fields) {
+    if (f.key in edits && edits[f.key] !== f.value && !f.locked) out[f.key] = edits[f.key]
+  }
+  return Object.keys(out).length ? out : undefined
 }

@@ -688,6 +688,9 @@ class LibraryExportRequest(BaseModel):
     """drama_ids omitted: every translated/dubbed/exported drama."""
     model_config = ConfigDict(extra="forbid")
     drama_ids: Optional[LibraryDramaIds] = None
+    include_originals: StrictBool = Field(
+        default=False, description="Also zip every title's original audio, video, novel text and "
+        "page scans, not only those of titles pinned with \"Keep original files\".")
 
 
 class LibraryBackupRequest(BaseModel):

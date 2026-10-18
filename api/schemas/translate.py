@@ -18,6 +18,9 @@ __all__ = [
     "TranslateResponse",
     "TranslateEstimate",
     "ClearHistoryResult",
+    "ReadImageEstimateRequest",
+    "ReadImageEstimate",
+    "ReadImageResponse",
     "TranslateRunStylePreset",
     "TranslateRunWorkflowTier",
     "TranslateRunDefaults",
@@ -108,6 +111,30 @@ class TranslateEstimate(BaseModel):
     monthly_cap_usd: Optional[float] = None
     cap_left_usd: Optional[float] = None  # None: not capped, or no cap set
     fits_cap: bool
+
+
+class ReadImageEstimateRequest(BaseModel):
+    """The picture's size, not the picture: the price depends on nothing else."""
+    engine: str
+    model: Optional[str] = None
+    free_tier: Optional[bool] = None
+    width: int = Field(ge=1, le=100_000)
+    height: int = Field(ge=1, le=100_000)
+
+
+class ReadImageEstimate(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    estimated_usd: float
+    cap_applies: bool
+    monthly_cap_usd: Optional[float] = None
+    cap_left_usd: Optional[float] = None  # None: not capped, or no cap set
+    fits_cap: bool
+
+
+class ReadImageResponse(BaseModel):
+    text: str
+    message: Optional[str] = None  # set when no text was found
 
 
 class ClearHistoryResult(BaseModel):

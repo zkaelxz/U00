@@ -284,10 +284,10 @@ export default function TranscribeStage({
     el.focus()
   }, [fieldProblem])
 
-  // Every flaggable field lives on the Tools tab, so bring it forward for the focus below to land.
+  // Every flaggable field is in the Tools part of the Transcribe tab, so bring that tab forward for the focus below to land.
   const flag = (p: RunFieldProblem | null) => {
     setFieldProblem(p)
-    if (p) goTab('tools')
+    if (p) goTab('transcribe')
   }
   // A refused run or save: name the option when the server's sentence does, else show the banner.
   const startingRef = useRef(false)
@@ -581,7 +581,7 @@ export default function TranscribeStage({
       })
     : null
 
-  // Shown on the tab in front only: the hidden panel keeping the same text would answer a text search twice.
+  // Shown once, above both parts of the Transcribe tab (and not on other tabs): the hidden panel keeping the same text would answer a text search twice.
   const feedback = (
     <>
       {(fieldProblem || problem) && (
@@ -747,7 +747,7 @@ export default function TranscribeStage({
           <p className="muted source-summary" aria-hidden="true">&nbsp;</p>
         )}
       </MediaTabPanel>
-      <MediaTabPanel id="tools" active={tab}>
+      <MediaTabPanel id="tools" shownOn="transcribe" active={tab}>
         {cf && (
           <TranscribeAdvanced
             dramaId={dramaId}
@@ -791,8 +791,8 @@ export default function TranscribeStage({
             onSave={saveOptions}
             onReset={resetToDefaults}
             saved={saved}
-            problem={tab !== 'tools' ? null : fieldProblem ? FIX_HIGHLIGHTED : problem}
-            error={tab === 'tools' ? error : null}
+            problem={null}
+            error={null}
             onDismissError={() => setError(null)}
           />
         )}

@@ -79,6 +79,10 @@ export const exportableCount = (byStatus: Record<string, number> | undefined) =>
   EXPORTABLE.reduce((n, s) => n + (byStatus?.[s] ?? 0), 0)
 
 export const TRANSLATE_NEEDS = "Still needed: a selected title with status 'aligned'."
+// Originals can be many GB; the finished zip's size shows before the download link.
+export const ORIGINALS_LABEL = 'With originals'
+export const ORIGINALS_HELP = 'Also zip the original video, audio, novel text and page scans (large).'
+
 export const EXPORT_NEEDS =
   "Still needed: a selected title with status 'translated', 'dubbed' or 'exported'."
 

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
 import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
 import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, type SourcesTab } from './pages/sources/manageTabs'
-import { isMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
+import { asMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isTranslateTab, type TranslateTab } from './pages/workspace/translateTabs'
 import { isBenchmarkTab, type BenchmarkTab } from './pages/benchmark/benchmarkTabs'
 import { isSeriesTab, type SeriesTab } from './pages/series/seriesModel'
@@ -154,7 +154,7 @@ export function parseRoute(hash: string): Route {
       stage,
       ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
       ...(isReviewToolsTab(tools) ? { tools } : {}),
-      ...((stage === 'translate' ? isTranslateTab(tab) : isMediaTab(tab)) ? { tab: tab as MediaTab | TranslateTab } : {}),
+      ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
     }
   }
   return { name: 'library' }

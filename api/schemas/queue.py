@@ -1,14 +1,16 @@
 """api/schemas/queue.py -- /api/queue: the user-managed job queue on the Jobs
-page. Items carry a title, a step and a status only; no path, URL or option
-payload goes in or out (options come from the title's saved choices).
+page. Items carry a title, a step and a status, plus, for Transcribe, the few
+settings changed for that one item (a whitelist; no path or URL goes in or
+out). Everything else comes from the title's saved choices.
 """
 
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueMove",
-           "QueueScheduleSet", "QueuePolicy", "QueueSettingRow", "QueueStepSettings"]
+__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueMove",
+           "QueueScheduleSet", "QueuePolicy", "QueueSettingRow", "QueueSettingOption",
+           "QueueSettingField", "QueueStepSettings"]
 
 _QueueStep = Literal["transcribe", "translate", "export"]
 
@@ -24,6 +26,8 @@ class QueueItem(BaseModel):
     # Translate items: the engine the title will use, and whether it is paid.
     engine: Optional[str] = None
     paid: bool = False
+    # Transcribe items: what this item changes from the title's saved options.
+    changed_settings: List["QueueSettingRow"] = []
     # The caller may reorder, remove or retry it.
     mine: bool
     added_at: Optional[float] = None
@@ -53,6 +57,12 @@ class QueueState(BaseModel):
 class QueueAddItem(BaseModel):
     drama_id: int = Field(ge=1, lt=2**63)
     step: _QueueStep
+    # Transcribe only: this item's own changes to the title's saved settings.
+    settings: Optional[Dict[str, Union[bool, int, str]]] = None
+
+
+class QueueAddAllSteps(BaseModel):
+    drama_id: int = Field(ge=1, lt=2**63)
 
 
 class QueueMove(BaseModel):
@@ -75,8 +85,27 @@ class QueueSettingRow(BaseModel):
     engine: Optional[str] = None
 
 
+class QueueSettingOption(BaseModel):
+    value: str
+    label: str
+
+
+class QueueSettingField(BaseModel):
+    """One setting a queued item may change, starting at the title's saved value."""
+    key: str
+    label: str
+    kind: Literal["select", "number", "toggle"]
+    value: Union[bool, int, str]
+    options: List[QueueSettingOption] = []
+    min: Optional[int] = None
+    max: Optional[int] = None
+    # Why the caller can't change it (a paid option without permission).
+    locked: Optional[str] = None
+
+
 class QueueStepSettings(BaseModel):
     drama_id: int
     step: _QueueStep
     title: str
     rows: List[QueueSettingRow]
+    fields: List[QueueSettingField] = []
