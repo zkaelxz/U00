@@ -14,7 +14,7 @@ import {
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
 import {
-  EXPORT_NEEDS, ORIGINALS_LABEL, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
+  EXPORT_NEEDS, ORIGINALS_HELP, ORIGINALS_LABEL, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
   exportableIds, titleOf, translatableIds,
 } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
@@ -203,7 +203,7 @@ export function SelectionBar({
           </button>
         )}
         {local && (
-          <label className="muted">
+          <label className="muted" title={ORIGINALS_HELP}>
             <input type="checkbox" checked={withOriginals} onChange={(e) => setWithOriginals(e.target.checked)} />{' '}
             {ORIGINALS_LABEL}
           </label>

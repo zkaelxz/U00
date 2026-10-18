@@ -13,7 +13,7 @@ import {
   ADMIN_JOB_IDS, STORAGE_PRESETS, type LibraryStorageScan, type StoragePreset,
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
-import { ORIGINALS_LABEL, anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
+import { ORIGINALS_HELP, ORIGINALS_LABEL, anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
 
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -27,7 +27,7 @@ export function ExportBlock({ exportable, job }: { exportable: number; job: Admi
         <button type="button" disabled={!exportable || job.active} onClick={() => void job.start(() => startExport(undefined, undefined, withOriginals))}>
           Export all translated ({exportable})
         </button>
-        <label className="muted">
+        <label className="muted" title={ORIGINALS_HELP}>
           <input type="checkbox" checked={withOriginals} onChange={(e) => setWithOriginals(e.target.checked)} />{' '}
           {ORIGINALS_LABEL}
         </label>
