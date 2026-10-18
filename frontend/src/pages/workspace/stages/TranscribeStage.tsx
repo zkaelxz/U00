@@ -520,25 +520,38 @@ export default function TranscribeStage({
   const corrections = `${manualCount} speaker correction${manualCount === 1 ? '' : 's'}`
 
   // Rule 22: the reason's fix focuses the missing field.
-  // The Replace tick sits beside the file picker on Add media.
-  const showReplaceBox = () => {
-    goTab('add')
-    setTimeout(() => document.getElementById(replaceBoxId(dramaId))?.focus(), 50)
+  // The file picker and the Replace tick are on Add media: switch there and focus once that tab's panel has mounted.
+  const pendingFocus = useRef<'file' | 'replace' | null>(null)
+  const runPendingFocus = () => {
+    const which = pendingFocus.current
+    if (!which) return
+    pendingFocus.current = null
+    if (which === 'replace') {
+      document.getElementById(replaceBoxId(dramaId))?.focus()
+      return
+    }
+    const input = document.getElementById(mediaFileInputId(dramaId))
+    if (input) {
+      input.scrollIntoView({ block: 'center' })
+      input.focus()
+    } else {
+      // "From a URL" is showing: switch back to the file picker.
+      document.querySelector<HTMLInputElement>('[aria-label="Get audio or video"] input[type="radio"]')?.click()
+    }
   }
+  useEffect(() => {
+    if (tab === 'add') runPendingFocus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the tab changes
+  }, [tab])
+  const focusOnAddTab = (which: 'file' | 'replace') => {
+    pendingFocus.current = which
+    if (tab === 'add') runPendingFocus()
+    else goTab('add')
+  }
+  const showReplaceBox = () => focusOnAddTab('replace')
   const fixNeeded = () => {
     if (needed === 'the transcript text') return transcriptRef.current?.focus()
-    // The file picker is on Add media; give that tab a frame to show before focusing into it.
-    goTab('add')
-    setTimeout(() => {
-      const input = document.getElementById(mediaFileInputId(dramaId))
-      if (input) {
-        input.scrollIntoView({ block: 'center' })
-        input.focus()
-      } else {
-        // "From a URL" is showing: switch back to the file picker.
-        document.querySelector<HTMLInputElement>('[aria-label="Get audio or video"] input[type="radio"]')?.click()
-      }
-    }, 50)
+    focusOnAddTab('file')
   }
 
   const whisperChoices = cf ? whisperSizeChoices(language, cf.whisper_size, config?.whisper_exclusions, config?.selectable_whisper_sizes) : []
@@ -666,7 +679,7 @@ export default function TranscribeStage({
         {(switchedNotice ?? config?.whisper_size_notice) && (
           <p className="muted" role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
         )}
-        {whisperChoices.filter((o) => o.reason).map((o) => (
+        {whisperChoices.filter((o) => o.reason && o.size === cf?.whisper_size).map((o) => (
           <p key={o.size} className="muted" data-testid="whisper-exclusion-reason">{o.size}: {o.reason}</p>
         ))}
         {haveTranscript && (
@@ -684,7 +697,7 @@ export default function TranscribeStage({
         )}
         <div className="setting-list">
           <Field label="Detect speakers">
-            <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} title={speakersOff?.[0]?.reason} onChange={setRunDiarize} />
+            <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} aria-describedby={speakersOff && !runDiarize ? `needs-install-${speakersOff[0].id}` : undefined} onChange={setRunDiarize} />
           </Field>
         </div>
         {speakersOff && !runDiarize && speakersOff.map((n) => <NeedsInstall key={n.id} need={n} onInstalled={() => void refreshReadiness()} />)}

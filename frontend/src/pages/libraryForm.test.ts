@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_PROFILE, MEDIA_TYPES, NEW_SERIES, RENAME_MAX, buildCreateRequest, canConfirmDelete, chosenProfile, deleteNotice, groupHistory,
-  validateCreate, validateRename,
+  createProblemField, validateCreate, validateRename,
 } from './libraryForm'
 
 describe('validateRename', () => {
@@ -127,5 +127,13 @@ describe('the New title profile select', () => {
   it('never sends the unpicked marker as an id', () => {
     const form = { source_language: 'zh', title_en: 'A' }
     expect(buildCreateRequest(form, { series: '', newSeriesName: '', preset: DEFAULT_PROFILE }).preset_id).toBeUndefined()
+  })
+})
+
+describe('createProblemField', () => {
+  it('names the control for the first two problems and none for the rest', () => {
+    expect(createProblemField({ source_language: '', title_en: 'A' })).toBe('source_language')
+    expect(createProblemField({ source_language: 'zh', title_en: ' ' })).toBe('title_en')
+    expect(createProblemField({ source_language: 'zh', title_en: 'A', source_url: 'x' })).toBeNull()
   })
 })

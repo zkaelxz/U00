@@ -57,3 +57,23 @@ test('a title the API hides from this user reads as not found and no stage loads
   await expect(page.getByTestId('drama-title')).toHaveText('Title #77')
   await expect(page.getByRole('region', { name: 'Review' })).toHaveCount(0)
 })
+
+test('the five stage tabs are the same width and there is one way back', async ({ page }) => {
+  await page.goto('/#/drama/1/translate')
+  const tabs = page.getByRole('navigation', { name: 'Stages' }).getByRole('link')
+  await expect(tabs).toHaveCount(5)
+  const widths = await tabs.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width)))
+  expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Back to Library' })).toHaveCount(1)
+})
+
+test('Review with no lines hides the Check, Fix and Coverage tools until a link asks for them', async ({ page }) => {
+  await page.route('**/api/review/dramas/1/lines?*', (route) =>
+    route.fulfill({ json: { lines: [], page: 1, page_size: 40, total: 0, flagged_count: 0, untranslated_count: 0 } }))
+  await page.goto('/#/drama/1/review')
+  await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Checks and tools' })).toHaveCount(0)
+  await page.goto('/#/drama/1/review?tools=coverage')
+  await expect(page.getByRole('region', { name: 'Checks and tools' })).toBeVisible()
+})

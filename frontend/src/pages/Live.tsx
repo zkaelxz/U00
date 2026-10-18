@@ -393,7 +393,7 @@ export default function LivePage() {
                   {WHISPER_SIZES.map((w) => {
                     const size = liveWhisperSize(readiness, w, pc !== 'remote')
                     return (
-                      <option key={w} value={w} disabled={!!size.reason && w !== form.whisper_size} title={size.reason ?? undefined}>
+                      <option key={w} value={w} disabled={!!size.reason && w !== form.whisper_size}>
                         {w}{size.reason ? ' (not available)' : size.download ? ' (downloads first)' : ''}
                       </option>
                     )
@@ -413,6 +413,10 @@ export default function LivePage() {
                   onChange={(e) => setOpt('max_minutes', e.target.valueAsNumber)} />
               </Field>
             </div>
+            {WHISPER_SIZES.map((w) => {
+              const reason = liveWhisperSize(readiness, w, pc !== 'remote').reason
+              return reason ? <p key={w} className="muted" data-testid="live-whisper-reason">{w}: {reason}</p> : null
+            })}
             <label className="live-check">
               <input type="checkbox" checked={form.use_gpu && !gpuReason} disabled={active || !!gpuReason} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
               Use GPU for Whisper

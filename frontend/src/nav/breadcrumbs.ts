@@ -1,6 +1,5 @@
 import type { Route } from '../router'
 import { routeHref } from '../router'
-import { STAGE_LABELS, isStageId } from '../pages/workspace/stages'
 import { NAV_ITEMS } from './navItems'
 
 export interface Crumb {
@@ -12,8 +11,6 @@ export interface Crumb {
 export interface CrumbOptions {
   /** The title the page already loaded; a placeholder is used until it arrives. */
   title?: string | null
-  /** The stage the Workspace resolved for a URL that names none. */
-  stage?: string | null
 }
 
 const labelOf = (name: Route['name']): string => NAV_ITEMS.find((i) => i.target.name === name)?.label ?? name
@@ -29,12 +26,6 @@ export function routeCrumbs(route: Route, opts: CrumbOptions = {}): Crumb[] {
   switch (route.name) {
     case 'library-tools':
       return [library, { label: labelOf('library-tools') }]
-    case 'drama': {
-      const stage = opts.stage ?? route.stage
-      const title = { label: opts.title || `Title #${route.id}`, href: routeHref({ name: 'drama', id: route.id, stage: null }) }
-      if (stage === null || !isStageId(stage)) return [library, { label: title.label }]
-      return [library, title, { label: STAGE_LABELS[stage] }]
-    }
     case 'read':
     case 'comic':
       return [

@@ -560,7 +560,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         vad_threshold=vad_threshold,
                         on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
                             whisper_models.short_reason(exc)),
-                        progress_cb=_whisper_progress,
+                        progress_cb=_whisper_progress, on_notice=detector_notices.append,
                         fast_mode=whisper_fast_mode,
                         hallucination_silence_sec=hallucination_silence_sec,
                         repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset,

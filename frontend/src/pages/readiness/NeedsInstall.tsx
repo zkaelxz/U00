@@ -57,7 +57,7 @@ export function NeedsInstall({ need, onInstalled }: { need: Need; onInstalled?: 
   }
 
   return (
-    <div className="needs-install" data-testid={`needs-${need.id}`}>
+    <div className="needs-install" id={`needs-install-${need.id}`} data-testid={`needs-${need.id}`}>
       <p className={need.recommended ? 'muted' : 'warn'} role="note">
         {need.reason}{need.size ? ` (${need.size})` : ''}
       </p>

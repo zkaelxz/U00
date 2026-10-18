@@ -280,7 +280,7 @@ export function LibraryList({
       </select>
       <select aria-label="Quick filter" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
         {QUICK_FILTERS.map((q) => (
-          <option key={q} value={q}>{q ? tagLabel(q) : 'All lists'}</option>
+          <option key={q} value={q}>{q ? tagLabel(q) : 'All titles'}</option>
         ))}
       </select>
     </div>

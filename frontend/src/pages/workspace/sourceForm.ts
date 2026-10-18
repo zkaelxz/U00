@@ -44,7 +44,7 @@ function directExtension(url: string, extensions: string[]): boolean {
   return dot > 0 && extensions.includes(name.slice(dot).toLowerCase())
 }
 
-// The link target for "Change it in Settings"; the server's error text names the same place.
+// The target of the "Raise the upload limit" button.
 export const UPLOAD_LIMIT_SETTINGS_HREF = '#/settings?section=uploads'
 
 export function isUploadLimitProblem(message: string): boolean {

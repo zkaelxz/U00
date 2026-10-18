@@ -5,7 +5,7 @@ export type SettingsTabName =
   | 'Translation and keys'
   | 'Costs'
   | 'Notifications and backups'
-  | 'Sharing and devices'
+  | 'Account and display'
   | 'Integrations'
   | 'System'
 
@@ -13,13 +13,16 @@ export type SettingsTabName =
 // It also presses Expand all, so a spec can use any card of the tab however the tab starts; the starting
 // state and the remembered state are covered by settings-tabs.spec.ts.
 export async function openSettingsGroups(page: Page, tab: SettingsTabName) {
-  // Members see no tab row at all (they get the Sharing and devices cards only); the tabs (a picker on a phone) also wait for the settings call.
+  // Members see no tab row at all (they get the Account and display cards only); the tabs (a picker on a phone) also wait for the settings call.
   const bar = page.getByRole('tab', { name: tab, exact: true }).or(page.locator('.ui-tab-picker-btn'))
   if ((await bar.first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false))) {
     await pickTab(page, tab, 'Settings')
     await page.locator('.settings-panel:not([hidden])').waitFor()
   }
-  await page.getByRole('button', { name: 'Expand all' }).click()
+  // On a phone the two buttons sit in a small menu.
+  const expandAll = page.getByRole('button', { name: 'Expand all' })
+  if (!(await expandAll.isVisible())) await page.getByText('Expand / collapse', { exact: true }).click()
+  await expandAll.click()
   // A card's help icon can land under the pointer, which opens its tooltip.
   await page.mouse.move(0, 0)
 }

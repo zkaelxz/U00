@@ -79,6 +79,8 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   transition: color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
 }
 .stage-tabs a:hover { color: var(--text); }
+/* Equal widths: only Translate and Review reserve room for a count, so content-sized tabs came out uneven. */
+.stage-tabs a { flex: 1 1 0; justify-content: center; }
 .stage-tabs a[aria-current='page'] { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--weight-bold); }
 /* P16: progress marks. "current" is the drama's next step, not the open tab. */
 .stage-tabs a[data-state='done'] { color: var(--text); }
@@ -110,8 +112,6 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header .ws-lines { display: none; }
   .workspace-header .ws-more { min-width: 44px; padding-inline: 0; font-size: var(--text-xl); line-height: 1; }
   .sheet-body .ws-actions { flex-direction: column; align-items: stretch; margin: 0; }
-  /* The back arrow and the title say what the crumbs say, so the row goes. */
-  .workspace > .crumbs { display: none; }
   /* Margin, not padding: the strip's height is --bar-h, which the Review toolbar's scroll-collapse thresholds depend on. */
   .ws-strip { margin-bottom: var(--space-3); }
   /* Kept to their own width: stretched full width, Read outranked each stage's own primary action. */
@@ -162,6 +162,4 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 @media (max-width: 640px) {
   .workspace-header .btn.ws-back::after { content: none; }
 }
-
-/* The dense back button below reaches 6px above its box for touch; the gap keeps that area off the crumb links. */
-.workspace > .crumbs { margin-bottom: var(--space-2); }
+.ws-stage-state { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
