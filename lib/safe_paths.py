@@ -8,6 +8,9 @@ device name) whose real path is directly inside `folder`; anything else
 gives None. A restored or imported row can hold any string, so a stored
 name is never trusted to stay inside the folder on its own.
 
+`contained(root, path)` is the plain "does this real path stay inside that
+root" test for paths a service builds itself.
+
 The path is not checked for existence: callers keep their own
 exists/isfile tests and treat None as "no such file".
 """
@@ -31,3 +34,13 @@ def plain_file_in(folder: str, name) -> Optional[str]:
     if os.path.dirname(os.path.realpath(path)) != os.path.realpath(folder):
         return None
     return path
+
+
+def contained(root: str, path: str) -> bool:
+    """True when `path` resolves (symlinks followed) to `root` or something
+    below it."""
+    real_root = os.path.realpath(root)
+    try:
+        return os.path.commonpath([real_root, os.path.realpath(path)]) == real_root
+    except ValueError:  # different drives on Windows
+        return False
