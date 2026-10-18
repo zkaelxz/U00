@@ -584,3 +584,13 @@ def test_require_editable_reads_the_ownership_row_once(people, monkeypatch):
     with pytest.raises(InvalidInputError):
         own.require_editable(people["a"], "bogus", shared)
     assert reads == [("drama", theirs), ("drama", 999999)]
+
+
+def test_title_search_lists_only_what_the_viewer_may_see(people):
+    """The command palette's Titles group reads this list call with a search term."""
+    from services import library_service
+    shared = db.create_drama(title_zh="moon", title_en="Moon Shared", owner_user_id=people["a_id"], is_private=0)
+    private = db.create_drama(title_zh="moon", title_en="Moon Private", owner_user_id=people["a_id"], is_private=1)
+    ids = lambda principal: {d["id"] for d in library_service.list_library_dramas(search="moon", principal=principal)}
+    assert ids(people["b"]) == {shared}
+    assert ids(people["a"]) == {shared, private}
