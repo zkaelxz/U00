@@ -1,6 +1,7 @@
 """The warning when the audio's language differs from the title's."""
 import os
-import subprocess
+import asr_backend
+import audio_extract
 
 import pytest
 
@@ -95,15 +96,16 @@ class TestPipeline:
 
 
 def test_only_the_opening_of_a_long_file_is_decoded(monkeypatch):
-    seen = {}
+    cut = {}
 
-    def run(cmd, **kwargs):
-        seen.update(cmd=cmd, timeout=kwargs.get("timeout"))
-        return type("Done", (), {"stdout": b"\0" * 4 * 16000})()
-    monkeypatch.setattr(subprocess, "run", run)
-    audio = whisper_transcribe._decode_opening("two_hours.wav", whisper_transcribe.LANGUAGE_CHECK_WINDOW_S)
-    assert len(audio) == 16000
-    cmd = seen["cmd"]
-    assert cmd[cmd.index("-t") + 1] == str(whisper_transcribe.LANGUAGE_CHECK_WINDOW_S)
-    assert cmd.index("-t") < cmd.index("-i")
-    assert seen["timeout"]
+    def fake_slice(audio_path, start, end, out_path, **kwargs):
+        cut.update(path=audio_path, start=start, end=end, out=out_path)
+        return out_path
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", fake_slice)
+    monkeypatch.setattr(asr_backend, "load_audio_16k", lambda path: path)
+    # The decoder is handed the short clip, never the two-hour file.
+    clip = whisper_transcribe._decode_opening("two_hours.wav", whisper_transcribe.LANGUAGE_CHECK_WINDOW_S)
+    assert clip == cut["out"] != "two_hours.wav"
+    assert (cut["path"], cut["start"], cut["end"]) == (
+        "two_hours.wav", 0.0, whisper_transcribe.LANGUAGE_CHECK_WINDOW_S)
+    assert not os.path.exists(cut["out"])

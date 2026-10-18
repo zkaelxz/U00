@@ -98,16 +98,20 @@ CHECKED_LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean", "en
 
 
 def _decode_opening(audio_path, seconds):
-    """16 kHz mono float samples of the first `seconds` of the file. Decoding only the
-    opening keeps the check at a second or two however long the drama is."""
-    import subprocess
+    """16 kHz mono float samples of the first `seconds` of the file. Cutting the opening
+    first keeps the check at a second or two however long the drama is."""
+    import os
+    import tempfile
 
-    import numpy as np
-    import video_export
-    cmd = ["ffmpeg", "-v", "error", "-t", str(seconds), *video_export.local_input(),
-           "-i", audio_path, "-f", "f32le", "-ac", "1", "-ar", "16000", "-"]
-    out = subprocess.run(cmd, check=True, capture_output=True, timeout=60)
-    return np.frombuffer(out.stdout, dtype=np.float32)
+    import audio_extract
+    from asr_backend import load_audio_16k
+    fd, clip = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        audio_extract.extract_audio_slice(audio_path, 0.0, seconds, clip)
+        return load_audio_16k(clip)
+    finally:
+        os.unlink(clip)
 
 
 def language_mismatch_notice(model, audio_path, title_language):
