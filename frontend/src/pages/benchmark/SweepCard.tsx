@@ -67,7 +67,7 @@ export function SweepCard({ sets, pc, job, running, onStarted, onStop, onCompare
 
   const fresh = estimateFor === key
   const shown = fresh ? estimate : null
-  const problem = startProblem({ setName, estimate, estimateFresh: fresh, remote, running })
+  const problem = startProblem({ setName, estimate, estimateFresh: fresh, running })
   const sweeping = running && (ownRun || sweep?.status === 'running' || sweep?.status === 'queued')
 
   const runEstimate = async () => {
@@ -144,7 +144,7 @@ export function SweepCard({ sets, pc, job, running, onStarted, onStop, onCompare
                 {busy === 'start' ? 'Starting…' : startLabel(shown)}
               </button>
             )}
-            {problem && (
+            {!remote && problem && (
               <span className="muted" id="sweep-start-reason" data-testid="sweep-start-reason">
                 {problem}
               </span>
@@ -384,8 +384,7 @@ function DecideBlock({ sweep, remote, onDecided, wording }: {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  if (!can.reject) return null
-  if (remote) return <p className="muted">Approving or rejecting the winner is PC only.</p>
+  if (!can.reject || remote) return null
   const decide = async (decision: 'approve' | 'reject') => {
     setBusy(true)
     setError(null)

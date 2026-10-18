@@ -24,6 +24,15 @@ export const SWITCHES_FROM_BURNED_IN =
 // A direct link to an audio file is installed as audio only even with Audio only off
 // (services/url_media_service.py); the server reads the extension of the URL path.
 export function isDirectAudioUrl(url: string): boolean {
+  return directExtension(url, AUDIO_EXTENSIONS)
+}
+
+// A plain link to an audio or video file: downloaded without yt-dlp (url_media_service.direct_media_ext).
+export function isDirectMediaUrl(url: string): boolean {
+  return directExtension(url, UPLOAD_EXTENSIONS)
+}
+
+function directExtension(url: string, extensions: string[]): boolean {
   let path: string
   try {
     path = new URL(url.trim()).pathname
@@ -32,7 +41,7 @@ export function isDirectAudioUrl(url: string): boolean {
   }
   const name = path.slice(path.lastIndexOf('/') + 1)
   const dot = name.lastIndexOf('.')
-  return dot > 0 && AUDIO_EXTENSIONS.includes(name.slice(dot).toLowerCase())
+  return dot > 0 && extensions.includes(name.slice(dot).toLowerCase())
 }
 
 // The link target for "Change it in Settings"; the server's error text names the same place.

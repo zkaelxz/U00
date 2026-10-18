@@ -221,6 +221,25 @@ export function ytDlpNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
+/**
+ * Downloading from a link: ffmpeg always pulls the audio out; a video page (not a plain file link) goes
+ * through yt-dlp. Both block Download, since the server refuses before it queues.
+ */
+export function urlDownloadNeeds(r: SetupReadiness | null, directFileLink: boolean): Need[] {
+  const ytDlp = directFileLink ? null : ytDlpNeed(r)
+  const out: (Need | null)[] = [
+    ytDlp && { ...ytDlp, reason: "Downloading from a video page needs yt-dlp, which isn't installed. A direct link to an audio or video file works without it." },
+    ffmpegNeed(r),
+  ]
+  return out.filter((x): x is Need => !!x)
+}
+
+/** Sentence cards still build without FFmpeg, but every card then comes out without its audio clip. */
+export function cardAudioNeed(r: SetupReadiness | null): Need | null {
+  const ffmpeg = ffmpegNeed(r)
+  return ffmpeg && { ...ffmpeg, recommended: true, reason: "FFmpeg isn't installed, so sentence cards will have no audio clips." }
+}
+
 /** Some sites (YouTube) only download through yt-dlp when a JavaScript runtime is present. A suggestion, not a requirement. */
 export function jsRuntimeNeed(r: SetupReadiness | null): Need | null {
   if (!r || r.js_runtime) return null
