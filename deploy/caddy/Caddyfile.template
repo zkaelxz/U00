@@ -168,6 +168,7 @@
 		path /api/jobs/clear-finished /api/jobs/*/delete
 		path /api/language-packs/defaults/*
 		path /api/vdb-names/fetch
+		path /api/translate/read-image /api/translate/read-image/estimate
 	}
 	@pc_only_delete {
 		method DELETE

@@ -1,5 +1,7 @@
 import type {
   EngineList,
+  ReadImageEstimate,
+  ReadImageResult,
   TranslateDirection,
   TranslateEngine,
   TranslateEstimate,
@@ -7,7 +9,7 @@ import type {
   TranslateRequest,
   TranslateResult,
 } from '../types/translate'
-import { deleteJson, getJson, postJson } from './client'
+import { deleteJson, getJson, postJson, postMultipart } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
@@ -115,6 +117,20 @@ export const translateApi = {
     postJson<TranslateResult>('/api/translate', req, f),
   estimate: (req: TranslateRequest, f?: Fetch) =>
     postJson<TranslateEstimate>('/api/translate/estimate', req, f),
+  readImage: (
+    image: Blob,
+    opts: { engine: string; model?: string | null; language?: string },
+    f?: Fetch,
+  ) => {
+    const form = new FormData()
+    form.append('image', image, 'screenshot.png')
+    form.append('engine', opts.engine)
+    if (opts.model) form.append('model', opts.model)
+    if (opts.language) form.append('language', opts.language)
+    return postMultipart<ReadImageResult>('/api/translate/read-image', form, f)
+  },
+  readImageEstimate: (req: { engine: string; model?: string | null; width: number; height: number }, f?: Fetch) =>
+    postJson<ReadImageEstimate>('/api/translate/read-image/estimate', req, f),
   // PC only (local_only route); the server refuses without confirm=true.
   clearHistory: (f?: Fetch) =>
     deleteJson<{ cleared: boolean }>('/api/translate/history?confirm=true', pcOnlyFetch(f)),

@@ -16,6 +16,7 @@ translate_engines at call time.
   thinking.py           the "reply without thinking" switch (DeepSeek, Ollama)
   llm_tasks.py          call_llm_json and the single-prompt features (speaker
                         tagging, pacing, consistency, summaries, flagging)
+  vision.py             read the text in a picture (Quick translate's screenshot box)
   engine_registry.py    ENGINES, capability tags, notes, model overrides, get_engine
   fallback.py           the translate fallback chain
   standalone.py         standalone text translation

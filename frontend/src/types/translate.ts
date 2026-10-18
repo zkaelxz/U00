@@ -53,3 +53,20 @@ export interface TranslateEstimate {
 }
 
 export type TranslateDirection = 'to_english' | 'from_english'
+
+// POST /api/translate/read-image: the text written in a picture.
+export interface ReadImageResult {
+  text: string
+  // Present only when nothing was found.
+  message?: string | null
+}
+
+export interface ReadImageEstimate {
+  engine: string
+  model: string | null
+  estimated_usd: number
+  cap_applies: boolean
+  monthly_cap_usd: number | null
+  cap_left_usd: number | null
+  fits_cap: boolean
+}
