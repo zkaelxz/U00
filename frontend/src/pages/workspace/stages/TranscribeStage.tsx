@@ -664,7 +664,7 @@ export default function TranscribeStage({
         <div className="actions">
           <button
             type="button"
-            className={buttonClass('primary')}
+            className="primary"
             disabled={busy || starting || !cf || !!needed || notInstalled || otherBlockers.length > 0}
             aria-describedby={[showBeforeYouRun && (notInstalled ? 'transcribe-not-installed' : 'transcribe-before-you-run'), needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
             onClick={transcribe}
