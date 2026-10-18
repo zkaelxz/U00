@@ -209,7 +209,7 @@ def arena(run_ids: list) -> dict:
             "left_out": {"total": sum(why.values()), **why}}
 
 
-def _setup_key(session: dict) -> str:
+def setup_key(session: dict) -> str:
     ctx = session_out(session)["context_settings"]
     options = ctx["transcribe_options"] if "transcribe_options" in ctx else None
     gpu = ctx["use_gpu"] if "use_gpu" in ctx else None
@@ -227,7 +227,7 @@ def timing_verdicts(runs: list, summary: list) -> list:
     if not summary[0]["timing"].get("cases"):
         return [None] * len(summary)
     first = summary[0]
-    repeat = next((s for s, r in zip(summary[1:], runs[1:]) if _setup_key(r) == _setup_key(runs[0])), None)
+    repeat = next((s for s, r in zip(summary[1:], runs[1:]) if setup_key(r) == setup_key(runs[0])), None)
     margin_within = margin_score = None
     if repeat and repeat["timing"].get("cases") and None not in (first["aggregate_score"], repeat["aggregate_score"]):
         margin_within = abs(first["timing"]["within"] - repeat["timing"]["within"])

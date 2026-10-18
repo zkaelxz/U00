@@ -206,3 +206,18 @@
 .bench-transcribe-config { display: grid; gap: var(--space-2); min-width: 0; }
 .bench-real-settings { display: grid; gap: var(--space-3); min-width: 0; }
 .bench-real-settings > summary { cursor: pointer; }
+
+/* Settings sweep */
+.sweep .card-body { display: grid; gap: var(--space-4); min-width: 0; }
+.sweep p { margin: 0; }
+.sweep-intro { max-width: 72ch; }
+.sweep-block { display: grid; gap: var(--space-3); min-width: 0; }
+.sweep-block + .sweep-block { padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.sweep-block .field-row { margin-bottom: 0; }
+.sweep-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; overflow-wrap: anywhere; }
+.sweep-rec { display: grid; gap: var(--space-2); min-width: 0; }
+.sweep-left-out, .sweep-steps, .sweep-history ul { margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); display: grid; gap: 2px; }
+.sweep-left-out > li, .sweep-steps > li { overflow-wrap: anywhere; }
+.sweep-decide { display: grid; gap: var(--space-2); max-width: 40rem; }
+.sweep-tags { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.sweep-tags > li { display: grid; gap: 2px; padding: var(--space-2) 0; border-top: 1px solid var(--border); }

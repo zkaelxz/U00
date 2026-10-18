@@ -33,7 +33,7 @@ export const INCLUDE_ALL_HELP =
   'reviewed still holds the recogniser\'s own output, so the test would partly grade it against its past self: use this ' +
   'only for a title whose text you have reviewed, for example one whose timing you fixed in Review.'
 
-export type BenchSectionId = 'sets' | 'run' | 'reeval' | 'runs'
+export type BenchSectionId = 'sets' | 'run' | 'sweep' | 'reeval' | 'runs'
 
 type SectionCopy = {
   title: string
@@ -67,6 +67,18 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
       'Optional: pick a judge to also score accuracy, tone and naturalness.',
     ],
   },
+  sweep: {
+    title: 'Settings sweep',
+    purpose: 'Find the transcription settings that suit your own clips.',
+    steps: [
+      'Pick a golden set with audio clips and its language.',
+      'Press Estimate to see the passes, the held-out titles and the time.',
+      'Start runs the default twice, then each setting one at a time.',
+      'Stop any time. Start again later and finished passes are skipped.',
+      'A winner is checked on titles the sweep never tuned on.',
+      'Approve saves it as a setting profile. Nothing changes by itself.',
+    ],
+  },
   reeval: {
     title: 'Model re-evaluation',
     purpose: 'Check whether a newer model beats the one you use now.',
@@ -93,7 +105,7 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
   },
 }
 
-// Each section is the first card of its own tab, so it starts open.
-export const BENCH_DEFAULT_OPEN: Record<BenchSectionId, boolean> = { sets: true, run: true, reeval: true, runs: true }
+// Each section is the first card of its own tab (the sweep sits under Run a benchmark), so it starts open.
+export const BENCH_DEFAULT_OPEN: Record<BenchSectionId, boolean> = { sets: true, run: true, sweep: true, reeval: true, runs: true }
 
 export const NO_CASES_HINT = 'No cases match yet. Import a golden set above, or widen Tier and Golden set.'

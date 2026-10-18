@@ -516,32 +516,9 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     if stage == "transcription":
         require_separation_ready(checked, use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
-    case_filter = json.dumps({"tier": tier, "set_name": set_name,
-                              "case_ids": sorted(case_ids) if case_ids else None})
-    base_context = {"use_gpu": use_gpu} if stage != "translation" else {}
-    if stage == "transcription":
-        # Runs without this key were scored on punctuation and width.
-        base_context["text_normaliser"] = 2
-    if stage != "translation" and any(c.get("source_language") == "zh" for c in cases):
-        # Runs without this key were scored script-sensitively.
-        base_context["script_normaliser"] = script_normaliser(stage)
-    version = app_version()
-    session_ids = []
-    for cfg in checked:
-        context = {**base_context, "app_version": version, "model_identity": model_identity(stage, cfg)}
-        if stage == "transcription":
-            context["transcribe_options"] = cfg["options"]
-            # What the arm changed from the app's defaults: what tells two arms of one model apart in a list.
-            defaults = transcribe_options_service.lab_option_defaults()
-            context["transcribe_changes"] = {k: v for k, v in cfg["options"].items() if v != defaults[k]}
-            context["transcribe_options_ignored"] = ignored_options(cfg["engine"])
-        session_ids.append(db.create_benchmark_session({
-            "label": label, "stage": stage, "engine": cfg["engine"], "model": (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL
-                      else cfg["model"])
-            or (translate_engines.effective_default_model(cfg["engine"]) if stage == "translation" else None),
-            "prompt_version": prompt_version, "context_settings": json.dumps(context),
-            "case_filter": case_filter, "arena_group": arena_group, "status": "queued",
-            "case_count": len(cases)}))
+    case_filter = {"tier": tier, "set_name": set_name, "case_ids": sorted(case_ids) if case_ids else None}
+    session_ids = [create_session(stage, cfg, cases, use_gpu, label=label, prompt_version=prompt_version,
+                                  case_filter=case_filter, arena_group=arena_group) for cfg in checked]
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = job_launch.start_job(
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
@@ -556,6 +533,38 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         raise ConflictError("A benchmark run is already going.")
     return {"job_id": JOB_ID, "session_ids": session_ids, "arena_group": arena_group,
             "estimated_cost_usd": est["estimated_cost_usd"]}
+
+
+def run_context(stage: str, cfg: dict, cases: list, use_gpu) -> dict:
+    """What a run records about how it was set up and scored (benchmark_sessions.context_settings)."""
+    context = {"use_gpu": use_gpu} if stage != "translation" else {}
+    if stage == "transcription":
+        # Runs without this key were scored on punctuation and width.
+        context["text_normaliser"] = 2
+    if stage != "translation" and any(c.get("source_language") == "zh" for c in cases):
+        # Runs without this key were scored script-sensitively.
+        context["script_normaliser"] = script_normaliser(stage)
+    context.update(app_version=app_version(), model_identity=model_identity(stage, cfg))
+    if stage == "transcription":
+        context["transcribe_options"] = cfg["options"]
+        # What the arm changed from the app's defaults: what tells two arms of one model apart in a list.
+        defaults = transcribe_options_service.lab_option_defaults()
+        context["transcribe_changes"] = {k: v for k, v in cfg["options"].items() if v != defaults[k]}
+        context["transcribe_options_ignored"] = ignored_options(cfg["engine"])
+    return context
+
+
+def create_session(stage: str, cfg: dict, cases: list, use_gpu, label: str = "", prompt_version: str = "",
+                   case_filter: dict = None, arena_group: str = None, extra_context: dict = None) -> int:
+    """One queued benchmark_sessions row for one checked config over these cases."""
+    model = (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else cfg["model"]) \
+        or (translate_engines.effective_default_model(cfg["engine"]) if stage == "translation" else None)
+    return db.create_benchmark_session({
+        "label": label, "stage": stage, "engine": cfg["engine"], "model": model,
+        "prompt_version": prompt_version,
+        "context_settings": json.dumps({**run_context(stage, cfg, cases, use_gpu), **(extra_context or {})}),
+        "case_filter": json.dumps(case_filter or {}), "arena_group": arena_group, "status": "queued",
+        "case_count": len(cases)})
 
 
 def _now() -> str:
@@ -598,7 +607,10 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None, judge=None):
                                             note="The run stopped unexpectedly.")
 
 
-def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
+def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=None):
+    """progress(fraction, message), when given, takes this plan's progress instead of the job's
+    own bar, and the job's result is left to the caller (the sweep runs one plan per pass)."""
+    report = progress or (lambda frac, message: background_jobs.update_progress(job_id, frac, message))
     cases = {c["id"]: c for c in db.list_benchmark_cases(stage)}
     ordered = [cases[i] for i in case_ids if i in cases]
     total_steps = max(1, len(ordered) * len(plan))
@@ -649,8 +661,8 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
             if cap is not None and spent >= cap:
                 status, capped = "stopped_cap", True
                 break
-            background_jobs.update_progress(
-                job_id, step / total_steps,
+            report(
+                step / total_steps,
                 f"{cfg['engine']}{' ' + cfg['model'] if cfg.get('model') else ''}: "
                 f"{case.get('label') or case['id']}")
             if stage == "translation":
@@ -717,8 +729,9 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
             for sid, _cfg, _k in plan[plan.index((session_id, cfg, api_key)) + 1:]:
                 db.update_benchmark_session(sid, status="cancelled", finished_at=_now())
             break
-    background_jobs.set_result(job_id, {"session_ids": [p[0] for p in plan]})
-    background_jobs.update_progress(job_id, 1.0, "Benchmark finished.")
+    if progress is None:
+        background_jobs.set_result(job_id, {"session_ids": [p[0] for p in plan]})
+        background_jobs.update_progress(job_id, 1.0, "Benchmark finished.")
 
 
 # ---------------------------------------------------------------------------

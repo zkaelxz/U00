@@ -522,3 +522,167 @@ export function arenaExportUrl(runIds: number[], format: ExportFormat) {
   params.set('format', format)
   return apiUrl(`${BASE}/arena/export?${params}`)
 }
+
+// ---- the settings sweep (services/benchmark_sweep_service.py) ----
+
+export type SweepValue = boolean | number
+export type SweepLanguage = SourceLanguage
+
+export interface SweepRequest {
+  set_name: string
+  language: SweepLanguage
+  use_gpu?: boolean | null
+}
+
+export interface SweepModel {
+  engine: string
+  model: string | null
+  label: string
+  included: boolean
+  reason: string | null
+}
+
+export interface SweepKnob {
+  key: string
+  label: string
+  values: SweepValue[]
+  included: boolean
+  reason: string | null
+}
+
+export interface SweepEstimate {
+  set_name: string
+  language: SweepLanguage
+  use_gpu: boolean
+  tuning_cases: number
+  holdout_cases: number
+  tuning_titles: number
+  holdout_titles: number
+  audio_seconds: number
+  durations_guessed: boolean
+  small_set: boolean
+  min_set_cases: number
+  models: SweepModel[]
+  knobs: SweepKnob[]
+  not_swept: string[]
+  passes_done: number
+  passes_to_run: number
+  estimated_seconds: number
+  estimated_cost_usd: number
+  monthly_cap_usd: number
+  monthly_refusal: string | null
+}
+
+export interface SweepSetup {
+  engine: string
+  model: string | null
+  changes: Record<string, SweepValue>
+  label: string
+}
+
+export interface SweepStep {
+  step: string
+  value: SweepValue | string | null
+  half: 'tuning' | 'holdout'
+  setup: string
+  run_id: number | null
+  score: number | null
+  errors: number | null
+  kept: boolean | null
+}
+
+export interface SweepTag {
+  tag: string
+  cases: number
+  default_score: number | null
+  winner_score: number | null
+  delta: number | null
+  too_small: boolean
+}
+
+export interface SweepHoldout {
+  default_score: number | null
+  winner_score: number | null
+  delta: number | null
+  default_run_id: number
+  winner_run_id: number
+  default_errors: number
+  winner_errors: number
+}
+
+export type SweepState = 'keep_default' | 'adopt' | 'not_confirmed'
+
+export interface SweepRecommendation {
+  state: SweepState
+  text: string
+  noise: number | null
+  margin: number
+  margin_rule: string
+  default: SweepSetup
+  winner: SweepSetup
+  tuning: { default_score: number | null; winner_score: number | null }
+  holdout: SweepHoldout | null
+  tags: SweepTag[]
+  steps: SweepStep[]
+  case_counts: { tuning: number; holdout: number }
+  small_set: boolean
+}
+
+/** One title setting the approved profile writes when it is applied to a title. */
+export interface SweepApplies {
+  key: string
+  label: string
+  value: string
+}
+
+export interface SweepDecision {
+  decision: 'promoted' | 'rejected'
+  reason: string
+  decided_at: string | null
+  decided_by?: string | null
+  profile: { id: number; name: string } | null
+  applies?: SweepApplies[] | null
+}
+
+export type SweepStatus = 'queued' | 'running' | 'done' | 'cancelled' | 'failed' | 'interrupted'
+
+export interface Sweep {
+  id: string | null
+  set_name: string
+  language: SweepLanguage
+  use_gpu: boolean | null
+  status: SweepStatus
+  started_at: string | null
+  finished_at: string | null
+  note: string | null
+  passes_run: number
+  passes_reused: number
+  recommendation: SweepRecommendation | null
+  decision: SweepDecision | null
+  /** While the winner waits for a decision: what approving it would let a title get. */
+  applies?: SweepApplies[] | null
+  estimate: Record<string, number> | null
+}
+
+export interface SweepDecisionRow {
+  decision: string
+  reason: string
+  decided_at: string | null
+  language: string | null
+  setup: string
+}
+
+export const getSweep = (f?: Fetch) => getJson<{ sweep: Sweep | null }>(`${BASE}/sweep`, f)
+
+export const getSweepDecisions = (f?: Fetch) => getJson<{ decisions: SweepDecisionRow[] }>(`${BASE}/sweep/decisions`, f)
+
+// Spends nothing: the halves, what the sweep covers, the passes it can skip and a rough time.
+export const estimateSweep = (body: SweepRequest, f?: Fetch) => postJson<SweepEstimate>(`${BASE}/sweep/estimate`, body, f)
+
+// Starts or resumes the sweep as the "benchmark_lab" job (poll it with useJob). PC only.
+export const startSweep = (body: SweepRequest, f?: Fetch) =>
+  postJson<{ job_id: string; sweep: Sweep }>(`${BASE}/sweep`, { ...body, confirm: true }, pcOnlyFetch(f))
+
+// Approve saves the winner as a setting profile; both are recorded. PC only.
+export const decideSweep = (decision: 'approve' | 'reject', reason: string, f?: Fetch) =>
+  postJson<{ sweep: Sweep | null }>(`${BASE}/sweep/decision`, { decision, reason: reason || null, confirm: true }, pcOnlyFetch(f))
