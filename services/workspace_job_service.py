@@ -24,9 +24,9 @@ import translation_finish
 import emotion
 import core as core_module
 from services import (job_timing_service, language_pack_service, line_provenance_service,
-                      novel_files_service, ownership_service, run_settings_service,
+                      novel_files_service, ownership_service, profile_service, run_settings_service,
                       settings_service, timing_settings_service, vdb_names_service)
-from services.service_errors import ConflictError
+from services.service_errors import ConflictError, InvalidInputError
 
 
 def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):
@@ -246,7 +246,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                                   models: dict = None, monthly_cap: float = 0,
                                   expected_engines: dict = None, allow_paid_summary: bool = True,
                                   include_genre_notes: bool = None,
-                                  default_female_pronouns: bool = None, principal=None):
+                                  default_female_pronouns: bool = None, principal=None,
+                                  locale_is_explicit: bool = True):
     """Translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
@@ -278,6 +279,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     Settings, so only the engines the caller was authorized for run.
     include_genre_notes/default_female_pronouns: the Translate toggles,
     applied to every drama in the queue (defaults as the API).
+    Each title is translated with what its last run used (model, style, style note,
+    batch and context sizes, and the English variant unless locale_is_explicit:
+    the caller named one for the whole batch), else the defaults.
     """
     # Imported here: translate_run_service imports this module.
     from services import settings_service, translate_run_service
@@ -287,7 +291,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         ollama_base_url, allow_paid=allow_paid_summary)
     # The Settings default the single-title form starts from, so a title
     # translated in bulk matches one translated alone.
-    style_note = settings_service.get("default_style_note") or ""
+    default_style_note = settings_service.get("default_style_note") or ""
     if (summary_engine is not None and not monthly_cap
             and translation_finish._summary_engine_is_paid(summary_engine, summary_choice)):
         summary_engine = None  # a paid summary is paid work nobody watches: it needs a cap
@@ -351,9 +355,18 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                 results["skipped_cap"].append(did)
                 continue
 
+        # The engine is the title's own, so the model its last run chose is this engine's.
+        last = profile_service.title_run_defaults(drama, engine_choice, engine_choice)
+        model = models.get(engine_choice)
+        if model is None and "model" in last:
+            try:
+                translate_run_service._require_offered_model(engine_choice, last["model"])
+                model = last["model"]
+            except InvalidInputError:
+                pass    # no longer offered: the engine's default
         try:
             engine = translate_engines.get_engine(
-                engine_choice, api_key, models.get(engine_choice),
+                engine_choice, api_key, model,
                 free_tier=engine_choice == "gemini" and gemini_free_tier,
                 base_url=ollama_base_url if engine_choice == "ollama" else None)
         except Exception as e:
@@ -365,11 +378,14 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         # drama): same per-content-mode default the shared
         # translate-finishing helper uses.
         is_novel = drama.get("content_mode") == "novel_narration"
-        style_preset = "novel" if is_novel else "audio_drama"
+        style_preset = last.get("style_preset") or ("novel" if is_novel else "audio_drama")
+        style_note = last.get("style_note", default_style_note)
+        locale = default_locale if locale_is_explicit else last.get("locale", default_locale)
         glossary_terms, style_guidelines, _ = build_run_style_context(
             did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
             default_female_pronouns=default_female_pronouns, principal=principal)
         defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
+        defs = {k: last.get(k, v) for k, v in defs.items()}
         novel_reference = novel_files_service.read_reference_text(did, drama)
 
         # start_job returns False when someone else's translate_<id> run
@@ -379,7 +395,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             started = job_launch.start_job(
                 per_job_id, run_translate_job,
                 per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
-                default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,
+                locale, glossary_terms, style_guidelines, engine_choice, style_preset,
                 defs["context_window"], settings_service.get("ollama_num_ctx_override") or None,
                 cost_cap_usd=cost_cap,
                 context_window_ahead=defs["context_window_ahead"],
@@ -395,7 +411,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                 run_settings=run_settings_service.for_translate(
                     drama, include_genre_notes, default_female_pronouns, glossary_terms,
                     style_guidelines, style_note, engine=engine_choice,
-                    model=getattr(engine, "model", None), locale=default_locale,
+                    model=getattr(engine, "model", None), locale=locale,
                     style_preset=style_preset, force_retranslate=False, **defs))
         except ConflictError:
             # The title is being deleted or cleaned up right now: its skip,

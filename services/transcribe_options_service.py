@@ -8,6 +8,7 @@ Shared by transcribe_service (config and run start) and
 retranscribe_line_service, which resolve the same saved values.
 """
 import importlib.util
+import os
 from typing import Optional
 import core as core_module
 import whisper_models
@@ -45,6 +46,28 @@ _DEFAULT_TUNING = {
     "use_groq": False,
 }
 ASR_BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
+
+
+def rehear_row(drama: dict) -> dict:
+    """The title's row as hearing one line again sees it. A full run uses the
+    Sensitive preset for a Difficult audio title, so a line heard again must too
+    or it is cut by a different detector than the lines around it."""
+    return presets.difficult_audio_view(drama)
+
+
+def rehear_audio_path(drama: dict, audio_path: str) -> str:
+    """The audio a line is heard from again: the vocals a "Separate vocals first"
+    run left beside the audio (transcribe_pipeline's vocals.wav), else the audio
+    itself. A vocals file older than the audio is from media since replaced."""
+    if not drama.get("separate_vocals_first"):
+        return audio_path
+    vocals = os.path.join(os.path.dirname(audio_path), "vocals.wav")
+    try:
+        if os.path.getmtime(vocals) >= os.path.getmtime(audio_path):
+            return vocals
+    except OSError:
+        pass
+    return audio_path
 
 
 def stored_hallucination_silence_sec(drama) -> float:

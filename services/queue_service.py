@@ -37,7 +37,7 @@ from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
 from services import (auth_service, artifact_service, export_service, jobs_service,
-                      model_readiness_service, ownership_service, settings_service, transcribe_service,
+                      model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
                       translate_run_service, translate_thinking_service)
 
 QUEUE_KEY = "job_queue"
@@ -309,9 +309,11 @@ def _translate_rows(drama: dict) -> list:
     drama_id = drama["id"]
     args = _translate_run_args(drama)
     engine = args["engine"]
-    model = translate_engines.effective_default_model(engine)
+    # The queued run repeats the title's last run (start_translate_run reads the same values).
+    last = profile_service.title_run_defaults(drama, engine, engine)
+    model = last.get("model") or translate_engines.effective_default_model(engine)
     novel = drama.get("content_mode") == "novel_narration"
-    preset = translation_guide.STYLE_PRESETS["novel" if novel else "audio_drama"]
+    preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
     options = translate_run_service.get_translate_config_defaults(novel, engine, model)
     thinking = translate_thinking_service.effective(
         [engine], translate_thinking_service.get_title_choice(drama_id))
@@ -326,7 +328,7 @@ def _translate_rows(drama: dict) -> list:
         _row("Source language", _LANGUAGES.get(drama.get("source_language") or "zh", "Chinese")),
         _row("English variant", args["locale"]),
         _row("Style note", "Set" if args["style_note"] else "None"),
-        _row("Batch size", options["batch_size"]),
+        _row("Batch size", last.get("batch_size", options["batch_size"])),
         _row("Thinking", _on(thinking)),
         _row("Glossary", f"On, {terms} terms" if terms else "Off, no glossary terms yet"),
         _row("Language packs", ", ".join(packs) if packs else "Off"),
@@ -586,10 +588,11 @@ def _start_transcribe(principal, drama: dict) -> str:
 def _translate_run_args(drama: dict) -> dict:
     """What a queued translate run is started with beyond the title's own
     saved options; "Saved settings" on the Jobs page reads the same values."""
-    locale = settings_service.get("default_locale")
-    return {"engine": _translate_engine(drama),
-            "style_note": settings_service.get("default_style_note") or "",
-            "locale": locale if locale in settings_service.LOCALE_CHOICES else "en-US"}
+    default_locale = settings_service.get("default_locale")
+    locale, style_note = profile_service.locale_and_note(
+        drama, default_locale if default_locale in settings_service.LOCALE_CHOICES else "en-US",
+        settings_service.get("default_style_note") or "")
+    return {"engine": _translate_engine(drama), "style_note": style_note, "locale": locale}
 
 
 def _start_translate(principal, drama: dict) -> str:

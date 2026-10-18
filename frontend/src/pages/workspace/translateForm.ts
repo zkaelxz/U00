@@ -464,6 +464,7 @@ export function applyStartToForm(
     out.model = start.engine_model
   }
   if (typeof start.style_note === 'string' && start.style_note.length <= 4000) out.style_note = start.style_note
+  if (start.locale && c.locales.includes(start.locale)) out.locale = start.locale
   if (typeof start.batch_size === 'number') out.batch_size = clampInt(start.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX, out.batch_size)
   if (typeof start.context_window === 'number') out.context_window = clampInt(start.context_window, CONTEXT_MIN, CONTEXT_MAX, out.context_window)
   if (typeof start.context_window_ahead === 'number') {

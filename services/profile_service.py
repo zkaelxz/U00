@@ -28,7 +28,7 @@ import math
 import db
 import translate_engines
 import translation_guide
-from services import series_defaults_service
+from services import series_defaults_service, settings_service
 from services.service_errors import InvalidInputError
 
 # Settings the presets table already stores as columns; the rest of the series
@@ -123,7 +123,8 @@ def dump_options(options: dict):
 
 
 def translate_start(drama: dict) -> dict:
-    """The Translate form's starting values a profile left on this title."""
+    """The Translate form's starting values on this title: what a profile left, then
+    what the last run was started with (remember_run)."""
     try:
         raw = json.loads(drama.get("translate_start_json") or "{}")
     except ValueError:
@@ -144,7 +145,53 @@ def translate_start(drama: dict) -> dict:
             out[key] = value
         elif key == "engine_model" and isinstance(value, str) and 0 < len(value) <= 200:
             out[key] = value
+        elif key == "locale" and value in settings_service.LOCALE_CHOICES:
+            # Only a run writes it (remember_run): a profile never carries the English variant.
+            out[key] = value
     return out
+
+
+def title_run_defaults(drama: dict, engine_name: str, title_engine: str) -> dict:
+    """What a run of this title that was not handed a value starts with: the values
+    its last run (or an applied profile) left, so a re-run, a queued run and a
+    Library batch repeat that run instead of the Settings defaults. The model is
+    the title's engine's, so it applies only to a run on that engine."""
+    start = translate_start(drama)
+    out = {k: start[k] for k in ("style_preset", "style_note", "locale", "batch_size",
+                                 "context_window", "context_window_ahead") if k in start}
+    if engine_name == title_engine and "engine_model" in start:
+        out["model"] = start["engine_model"]
+    return out
+
+
+def locale_and_note(drama: dict, default_locale: str, default_style_note: str):
+    """(English variant, style note) for a run nobody is configuring: the title's last
+    run's, else the Settings defaults (the Queue, the Library batch, the stronger-engine redo)."""
+    start = translate_start(drama)
+    return (start.get("locale") or default_locale,
+            start["style_note"] if "style_note" in start else default_style_note)
+
+
+def remember_run(drama_id: int, drama: dict, *, on_title_engine: bool, model, style_preset,
+                 style_note, locale, batch_size, context_window, context_window_ahead) -> None:
+    """Keeps the values a run was started with as the title's Translate starting
+    values (translate_start_json), next to what a profile left there. A batch size
+    the run did not pick (None) clears the old one, so the engine's default
+    applies again. The spend modes (Reflect, bulk, cost cap, fallbacks) are not kept:
+    a later run must not repeat a paid mode nobody chose this time."""
+    start = translate_start(drama)
+    start.update(style_preset=style_preset, style_note=style_note, locale=locale,
+                 context_window=context_window, context_window_ahead=context_window_ahead)
+    if batch_size is None:
+        start.pop("batch_size", None)
+    else:
+        start["batch_size"] = batch_size
+    if on_title_engine:
+        if model is None:
+            start.pop("engine_model", None)
+        else:
+            start["engine_model"] = model
+    db.update_drama(drama_id, translate_start_json=dump_options(start))
 
 
 def plan(preset: dict, drama: dict) -> dict:
