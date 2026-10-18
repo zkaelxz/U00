@@ -90,6 +90,33 @@ def _accepts_transcribe_kwarg(model, name):
     return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
 
 
+# Only the opening is looked at: the check must cost a few seconds, and the
+# start of a title is where a wrong language shows.
+LANGUAGE_CHECK_WINDOW_S = 120
+LANGUAGE_CHECK_MIN_PROBABILITY = 0.80
+CHECKED_LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean", "en": "English"}
+
+
+def language_mismatch_notice(model, audio_path, title_language):
+    """One sentence when the opening speech is confidently another language than
+    the title's, else None. Never raises: a failed check must not fail the run."""
+    chosen = CHECKED_LANGUAGE_NAMES.get(title_language)
+    if chosen is None:
+        return None
+    try:
+        from asr_backend import load_audio_16k
+        sr = 16000
+        audio = load_audio_16k(audio_path)[:LANGUAGE_CHECK_WINDOW_S * sr]
+        # vad_filter makes the 30 s window start at the first speech, not at silence.
+        detected, probability, _all = model.detect_language(audio, vad_filter=True)
+    except Exception:
+        return None
+    heard = CHECKED_LANGUAGE_NAMES.get(detected)
+    if heard is None or detected == title_language or probability < LANGUAGE_CHECK_MIN_PROBABILITY:
+        return None
+    return f"The audio sounds like {heard}, but this title is set to {chosen}."
+
+
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str = None,
                            hf_token: str = None, initial_prompt: str = "",
@@ -100,7 +127,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            repeat_guard: bool = False, sensitivity_preset: str = "normal",
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float = None,
-                           log_prob_threshold: float = None):
+                           log_prob_threshold: float = None, on_notice=None):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -172,6 +199,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     which decodes several VAD chunks at once (roughly 4x faster on a GPU).
     Same settings, same output shape; uses more VRAM while it runs.
 
+    on_notice: called with one sentence when the opening speech is confidently another
+    language than `language` (see language_mismatch_notice); the run goes on unchanged.
+
     difficult_audio: relaxes Whisper's own skip rule (no_speech_threshold /
     log_prob_threshold, None = the preset's numbers) so low-confidence screamed or
     whispered speech is kept. Off, neither is passed and faster-whisper's defaults
@@ -182,6 +212,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                                     decode_kwargs)
     model = whisper_models.load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
+    if on_notice and (notice := language_mismatch_notice(model, audio_path, language)):
+        on_notice(notice)
     kwargs = {
         "language": language, "vad_filter": True, "beam_size": beam_size,
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
