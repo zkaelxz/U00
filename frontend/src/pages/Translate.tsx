@@ -25,6 +25,8 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useStoredState } from '../hooks/useStoredRun'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
+import { appendRead } from './readImage'
+import { TranslateReadImage } from './TranslateReadImage'
 import {
   HISTORY_LIMIT,
   HISTORY_PREVIEW,
@@ -69,6 +71,7 @@ export default function TranslatePage() {
   const [estimate, setEstimate] = useState<TranslateEstimate | null>(null)
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [readOpen, setReadOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [clearError, setClearError] = useState<unknown>(null)
   const pc = usePcOnly()
@@ -258,12 +261,32 @@ export default function TranslatePage() {
                 <label htmlFor="translate-text" className="translate-pane-title">
                   Text to translate <span className="muted">· {sourceLabel}</span>
                 </label>
-                <OpenFileField
-                  sourceName={sourceName}
-                  message={fileMessage}
-                  target={{ setText, setSourceName, setFileMessage }}
-                />
+                <div className="translate-head-tools">
+                  <button
+                    type="button"
+                    className={buttonClass('secondary', 'sm')}
+                    aria-expanded={readOpen}
+                    onClick={() => setReadOpen(!readOpen)}
+                  >
+                    Read from a screenshot…
+                  </button>
+                  <OpenFileField
+                    sourceName={sourceName}
+                    message={fileMessage}
+                    target={{ setText, setSourceName, setFileMessage }}
+                  />
+                </div>
               </div>
+              {readOpen && (
+                <TranslateReadImage
+                  engines={engines}
+                  pageEngine={engine}
+                  language={direction === 'to_english' ? pair.source_language : ''}
+                  allowed={canTranslate}
+                  onText={(read) => setText((current) => appendRead(current, read))}
+                  onClose={() => setReadOpen(false)}
+                />
+              )}
               <textarea
                 id="translate-text"
                 rows={8}

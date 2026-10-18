@@ -143,6 +143,7 @@ from engine_backends.llm_tasks import (  # noqa: F401
     smart_segment_lines,
     tag_speakers_by_id,
 )
+from engine_backends.vision import VISION_ENGINES, read_image_text  # noqa: F401
 from engine_backends.engine_registry import (  # noqa: F401
     CAP_CHEAP,
     CAP_GROUNDED_SEARCH,

@@ -438,6 +438,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `profile_service.py` (translation setting profiles: the options a profile may hold, checked with the series-defaults rules, and what applying one writes to a title)
 - `translate_run_service.py`
 - `translate_service.py`
+- `image_text_service.py` (Quick translate's "Read from a screenshot": checks and sizes one picture, prices it, applies the monthly cap and sends it to a vision engine)
 - `translate_thinking_service.py`
 - `translation_version_service.py`
 - `update_service.py`
@@ -640,6 +641,7 @@ Translation engines by provider; `translate_engines.py` is the front door that r
 - `pricing.py` (Model lists, per-million-token prices and cost estimation)
 - `prompts.py` (Prompt builders shared by the LLM engines)
 - `reflect_pass.py` (Reflect mode: three passes over one batch)
+- `vision.py` (one request that sends a picture to Claude, Gemini, OpenAI or Ollama and returns the text in it)
 - `reflect_prompts.py` (Prompts for Reflect mode's three passes)
 - `medium_prompts.py` (Per-medium prompt wording: subtitle, novel and stream kinds for the base prompt, Reflect and Improve)
 - `run_limits.py` (Limits that end a translate run early: failed batches in a row, rate-limit wait budget)
