@@ -79,7 +79,7 @@ export const isRunActive = (r: Pick<BenchmarkRun, 'status'>) => r.status === 'qu
 export function configLabel(stage: string | null | undefined, engine: string | null | undefined, model?: string | null): string {
   if (!engine) return '—'
   if (stage === 'transcription') return engine === 'whisper' ? `Whisper ${model || engine}` : (RECOGNISER_LABELS[engine] ?? `Whisper ${model || engine}`)
-  if (stage === 'ocr') return OCR_LABELS[engine] ?? humanizeValue(engine)
+  if (stage === 'ocr' && engine in OCR_LABELS) return OCR_LABELS[engine]
   const name = humanize('engine', engine)
   return model ? `${name} · ${model}` : name
 }
@@ -391,8 +391,11 @@ export function restoreConfigs(stage: BenchmarkStage, remembered: unknown, optio
       if (c.engine === 'whisper') return !!c.model && options.whisper_sizes.includes(c.model)
       return !c.model && options.transcription_backends.some((b) => b.name === c.engine)
     }
-    if (stage === 'ocr') return options.ocr_backends.includes(c.engine) && !c.model
     const e = options.translation_engines.find((x) => x.name === c.engine)
+    if (stage === 'ocr') {
+      if (options.vision_engines.includes(c.engine)) return !!e && (!c.model || (e.models ?? []).includes(c.model))
+      return options.ocr_backends.includes(c.engine) && !c.model
+    }
     return !!e && (!c.model || (e.models ?? []).includes(c.model))
   }
   const list = Array.isArray(remembered)
@@ -419,7 +422,7 @@ export function selectionProblems(sel: RunSelection, maxConfigs: number): string
 
 /** Translation engines picked (tested or judging) that have no key yet (the server refuses to start them). */
 export function enginesMissingKey(sel: RunSelection, engines: BenchmarkEngineOption[]): BenchmarkEngineOption[] {
-  if (sel.stage !== 'translation') return []
+  if (sel.stage === 'transcription') return []
   const picked = new Set(sel.configs.map((c) => c.engine))
   if (sel.judge) picked.add(sel.judge.engine)
   return engines.filter((e) => picked.has(e.name) && !e.key_configured)

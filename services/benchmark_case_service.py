@@ -20,6 +20,7 @@ import translate_engines
 import whisper_models
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
+from engine_backends.vision import VISION_ENGINES
 from lib import http
 from lib.errors import DependencyUnavailableError, InvalidInputError
 from services import (asr_options_service, asr_timing_service, difficult_audio_service as difficult,
@@ -342,7 +343,7 @@ def model_identity(stage: str, cfg: dict) -> dict:
         if model == benchmark.LOCAL_FOLDER_MODEL:
             return {"model": benchmark.LOCAL_FOLDER_LABEL}
         return {"model": model}
-    if stage == "ocr":
+    if stage == "ocr" and engine not in VISION_ENGINES:
         return {"model": engine}
     resolved = model or translate_engines.effective_default_model(engine)
     identity = {"model": resolved}

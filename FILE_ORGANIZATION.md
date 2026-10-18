@@ -265,6 +265,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `asr_timing_service.py` (where recognised lines sit against reference lines in time: matching, silence and per-case timing measures shared by the Lab and `tools/asr_bench.py`)
 - `benchmark_reference_service.py` (a title's corrected lines as Lab transcription references: raw-to-edited error rate, clipped-audio cases, the scorer auto-tune uses)
 - `benchmark_runs_service.py` (reading Lab runs back: results, the Arena on shared cases, deleting a run)
+- `benchmark_vision_service.py` (vision engines as Lab OCR arms: model check, worst-case estimate, one read of a case picture)
 - `benchmark_scoring_service.py` (the Benchmark Lab's scorers: chrF/similarity, CER and WER, pass thresholds)
 - `benchmark_script_service.py` (the Benchmark Lab's Traditional vs Simplified line and character counts for Chinese transcripts)
 - `benchmark_set_builder_service.py`

@@ -120,6 +120,8 @@ export interface BenchmarkOptions {
   transcribe_options_ignored: Record<string, string[]>
   translate_choices: BenchmarkTranslateChoices
   ocr_backends: string[]
+  /** Vision engines that can also read a picture in the OCR stage (paid ones need a key and count toward the cap). */
+  vision_engines: string[]
   pass_threshold: number
   chrf_pass_threshold: number
   max_configs: number
