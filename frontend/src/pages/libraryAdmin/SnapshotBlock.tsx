@@ -32,7 +32,7 @@ import {
   type SnapshotDramaList, type SnapshotInfo,
 } from '../../types/backups'
 import {
-  CHOOSE_COPY_TEXT, ROTATION_NOTE, UNMANAGED_DELETE_WARNING, UNMANAGED_LABEL, UNMANAGED_RESTORE_WARNING,
+  CHOOSE_COPY_TEXT, UNMANAGED_DELETE_WARNING, UNMANAGED_LABEL, UNMANAGED_RESTORE_WARNING,
   chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot, filterSnapshotDramas, formatWhen,
   initialRestoreCopy, isManaged, restoreNotes, splitCopies,
 } from '../backupsFormat'
@@ -82,7 +82,7 @@ export function SnapshotBlock() {
     <div className="admin-block" data-testid="snapshot-block">
       <p data-testid="snapshot-info">{describeSnapshot(snapshot)}</p>
       <p className="muted">
-        {ROTATION_NOTE} Schedule them in the Automatic backups card above.
+        Schedule them in the Automatic backups card above.
       </p>
       <ErrorBanner error={loadError} describe={SERVER} />
       {mode === 'idle' && (
