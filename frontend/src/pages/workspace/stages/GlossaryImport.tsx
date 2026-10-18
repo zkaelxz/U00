@@ -93,9 +93,7 @@ export function GlossaryImport({ hasTerms, onImported, openSignal = 0 }: { hasTe
           }}
         />
       </Field>
-      {remote ? (
-        <p className="muted">Choosing a file and replacing existing terms are PC only; existing terms are skipped.</p>
-      ) : (
+      {!remote && (
         <div className="setting-list">
           <Field label="Replace terms that are already in the glossary">
             <Toggle

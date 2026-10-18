@@ -47,7 +47,6 @@ const translateError = (e: unknown): string | null => {
 }
 
 // The household proxy refuses /api/library/admin/* (deploy/caddy) except bulk translate.
-const PC_ONLY_NOTE = 'Delete and export are PC only.'
 const NO_EDIT_NOTE = 'Changing status and lists is for the library admin.'
 // PC-only calls (delete, export): a 403 means "not at the main PC".
 const PC_ONLY_ERR = { pcOnly: true, serverText: true } as const
@@ -154,7 +153,6 @@ export function SelectionBar({
     show ? <p className="muted" id={id}>{text}</p> : null
   const translateReason = reason(canTranslate && !toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
   const exportReason = reason(local && !toExport.length && n > 0, 'export-needs', EXPORT_NEEDS)
-  const pcReason = reason(!local, 'pc-only-note', PC_ONLY_NOTE)
   const editReason = reason(!canEdit, 'no-edit-note', NO_EDIT_NOTE)
 
   const actions = (
@@ -217,7 +215,6 @@ export function SelectionBar({
             Delete…
           </button>
         )}
-        {phone && pcReason}
       </div>
     </div>
   )
@@ -226,7 +223,6 @@ export function SelectionBar({
     <>
       {!phone && translateReason}
       {!phone && exportReason}
-      {!phone && pcReason}
       {!phone && editReason}
       <AdminJobLine job={translate} busyText="Translating…" />
       {noKeyNote && (

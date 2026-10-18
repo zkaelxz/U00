@@ -59,20 +59,20 @@ export function VtuberNames() {
           (attribution to dd-center/vdb; shared copies would need the same licence).
         </p>
         <div className="lp-actions">
-          <button
-            type="button"
-            className={buttonClass('secondary')}
-            disabled={busy || remote}
-            aria-describedby={remote ? 'vdb-pc-reason' : undefined}
-            title="Downloads about 2.4 MB from vdb.vtbs.moe"
-            onClick={() => run(downloadVdbNames)}
-          >
-            {busy ? 'Working…' : status?.downloaded ? 'Download again' : 'Download VTuber names'}
-          </button>
+          {!remote && (
+            <button
+              type="button"
+              className={buttonClass('secondary')}
+              disabled={busy}
+              title="Downloads about 2.4 MB from vdb.vtbs.moe"
+              onClick={() => run(downloadVdbNames)}
+            >
+              {busy ? 'Working…' : status?.downloaded ? 'Download again' : 'Download VTuber names'}
+            </button>
+          )}
           {status?.downloaded && !remote && (
             <ConfirmButton name="VTuber names" busy={busy} onConfirm={() => run(deleteVdbNames)} />
           )}
-          {remote && <span className="muted" id="vdb-pc-reason">Downloading and deleting are PC only. Run this on the main PC.</span>}
         </div>
         {status?.downloaded && (
           <p className="muted" role="status">

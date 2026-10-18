@@ -5,7 +5,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import type {
   TitleRestructureInfo,
   TitleRestructureKind,
@@ -22,14 +22,15 @@ import './titleRestructure.css'
 export function TitleRestructurePanel() {
   const pc = usePcOnly()
   const [open, setOpen] = useState(false)
+  if (pc === 'remote') return null
   return (
     <section className="panel" aria-label="Merge or move chapters">
       <Section
         title="Merge or move chapters"
-        summary={pc === 'remote' ? PC_ONLY_SUMMARY : 'Move chapters to another title, or merge this title into one'}
+        summary="Move chapters to another title, or merge this title into one"
         onToggle={setOpen}
       >
-        {pc === 'remote' ? <p className="muted">{PC_ONLY_BODY}</p> : open && <RestructureBody />}
+        {open && <RestructureBody />}
       </Section>
     </section>
   )

@@ -11,7 +11,7 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { BenchSection } from './BenchSection'
 import { BuildSetSection } from './BuildSetSection'
@@ -183,7 +183,6 @@ function CasesPanel({ set, pc, onChanged, onClose }: { set: BenchmarkSet; pc: Pc
           ))}
         </ul>
       )}
-      {pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -239,13 +238,7 @@ function ImportSection({ options, pc, onDone }: { options: BenchmarkOptions; pc:
   const [error, setError] = useState<string | null>(null)
   const fmt: ImportFormat = format === 'tsv' ? 'tsv' : 'jsonl'
 
-  if (pc === 'remote') {
-    return (
-      <Section title="Import golden set" summary={PC_ONLY_SUMMARY} storageKey="benchmark.import" defaultOpen>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
   const missing = !setName.trim() ? 'Give the set a name.' : !text.trim() ? 'Paste the cases or open a file.' : null
 
   const openFile = async (file: File | undefined) => {
@@ -335,13 +328,7 @@ function AddCaseSection({ options, pc, onDone }: { options: BenchmarkOptions; pc
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  if (pc === 'remote') {
-    return (
-      <Section title="Add one case" summary={PC_ONLY_SUMMARY} storageKey="benchmark.addCase" defaultOpen>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
   const missing = !label.trim() ? 'Give the case a label.' : !source.trim() ? 'Enter the source text.' : null
 
   const submit = async () => {

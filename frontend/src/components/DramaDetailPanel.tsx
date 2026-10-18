@@ -22,13 +22,10 @@ interface Props {
   dramaId: number
   // When given, the panel offers a typed-confirmation delete.
   onDeleted?: (result: DramaDeleteResult) => void
-  // Shown where the delete button would be when onDeleted is omitted
-  // (e.g. "Deleting is PC only." for a remote viewer).
-  deleteNote?: string
 }
 
 // The body of the Library's drama details Sheet (the Sheet gives the title).
-export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
+export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
   const [drama, setDrama] = useState<DramaDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -108,7 +105,6 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
         <OpenFolderButton open={() => openDramaFolder(dramaId)} title="Show this title's files on the PC" />
       </div>
       <div className="drama-detail-danger">
-        {!onDeleted && deleteNote && <p className="muted">{deleteNote}</p>}
         {onDeleted && !confirming && (
           <button type="button" className={buttonClass('danger', 'sm')} onClick={() => setConfirming(true)}>
             Delete title…

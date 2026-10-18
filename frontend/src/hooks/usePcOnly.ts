@@ -4,12 +4,13 @@
  * in App.tsx); the first caller triggers one GET /api/meta.
  *
  *   const pc = usePcOnly()
- *   {pc === 'remote' ? <p className="muted">Deleting is PC only.</p> : <ConfirmButton ... />}
+ *   {pc !== 'remote' && <ConfirmButton ... />}
  *
  * Remote-mode rules:
- *   - a whole PC-only block keeps its Section title, summary "PC only", body
- *     "Run this on the main PC." (see PC_ONLY_SUMMARY / PC_ONLY_BODY);
- *   - per-row PC-only deletes are not rendered; show one muted line instead;
+ *   - PC-only blocks, tabs, controls and their explanatory notes are not
+ *     rendered at all (Settings leaves out PC_ONLY_CARDS, Library tools and
+ *     Sources drop their PC-only tabs); a page that would end up empty says so
+ *     in one line;
  *   - 'unknown' renders like 'local' (optimistic; the server enforces),
  *     except the Diagnostics/Settings admin blocks (packages, danger zone,
  *     extension) and Library tools' Storage and Data folder tabs (they read
@@ -23,9 +24,6 @@ import { getPcMetaFailed, getPcMode, loadPcMode, subscribePcMode, type PcMode } 
 
 export type { PcMode }
 
-export const PC_ONLY_SUMMARY = 'PC only'
-export const PC_ONLY_BODY = 'Run this on the main PC.'
-export const PC_ONLY_DELETE_NOTE = 'Deleting is PC only.'
 const PC_CHECKING = 'Checking whether this is the main PC…'
 const PC_UNCONFIRMED = "Couldn't confirm this is the main PC."
 

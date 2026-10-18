@@ -6,7 +6,7 @@ import {
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { workspaceHref } from '../../components/libraryView'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
+import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { jobSucceeded } from '../../types/jobs'
 import { AdminJobLine } from '../libraryAdmin/AdminJobLine'
 import { useAdminJob } from '../libraryAdmin/useAdminJob'
@@ -31,7 +31,7 @@ export function LinkCheckCard({ pc }: { pc: PcMode }) {
     getLinkScan().then((r) => setRows(r.titles), () => setRows(null))
   }, [pc, job.active, done])
 
-  if (pc !== 'local') return <p className="muted">{pending ?? PC_ONLY_BODY}</p>
+  if (pc !== 'local') return <p className="muted">{pending}</p>
   return (
     <div className="admin-block">
       <p className="muted">

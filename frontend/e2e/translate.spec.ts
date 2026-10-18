@@ -122,7 +122,7 @@ test('another device sees why it cannot clear history', async ({ page }) => {
     }] } }))
   await page.goto('/#/translate')
   await expect(page.getByTestId('translate-history')).toContainText('你好')
-  await expect(page.getByText('Clearing history is PC only.')).toBeVisible()
+  await expect(page.getByText('Clearing history is PC only.')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Clear history' })).toHaveCount(0)
 })
 

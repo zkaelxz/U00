@@ -197,9 +197,7 @@ export function LanguagePacks({ glossarySources, hasSeries, onAdded }: {
               </button>
             )}
             <span className="muted">
-              {saved ?? (pc === 'remote'
-                ? `The default for ${langName} titles is changed on the main PC.`
-                : 'Titles without their own choice follow it. Changing it is PC only.')}
+              {saved ?? (pc === 'remote' ? null : 'Titles without their own choice follow it.')}
             </span>
           </div>
         )}

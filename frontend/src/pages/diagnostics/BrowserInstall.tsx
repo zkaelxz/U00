@@ -91,7 +91,6 @@ export function BrowserInstall({ pc, jobsActive, busy, onStarted, onFinished, op
         </details>
       )}
       {error && <p className="error" role="alert">{error}</p>}
-      {pc === 'remote' && canOfferBrowser(status) && <p className="muted">Installing is PC only.</p>}
       {pending && canOfferBrowser(status) && <p className="muted">{pending}</p>}
       {local && canOfferBrowser(status) && (
         <div className="actions">

@@ -20,7 +20,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
+import { usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { engineNotesHelp, engineOptionLabel, modelOptionLabel } from '../../api/translate'
@@ -41,13 +41,6 @@ export function ExtensionSection() {
     return (
       <Card title={TITLE} aria-label={TITLE}>
         <p className="muted" data-testid="pc-pending">{pending}</p>
-      </Card>
-    )
-  }
-  if (pc === 'remote') {
-    return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
-        <p className="muted">{PC_ONLY_BODY}</p>
       </Card>
     )
   }

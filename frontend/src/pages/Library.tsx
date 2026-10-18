@@ -23,7 +23,7 @@ import { useLoad, type Loaded } from '../hooks/useLoad'
 import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { languageLabel, mediaTypeLabel } from '../labels'
 import { routeHref } from '../router'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
@@ -449,7 +449,6 @@ export default function LibraryPage() {
               setSelected(null)
               reload()
             }}
-            deleteNote={pc === 'remote' ? PC_ONLY_DELETE_NOTE : undefined}
           />
         )}
       </Sheet>

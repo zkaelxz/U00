@@ -19,7 +19,6 @@ import { Toggle } from '../../components/Toggle'
 import { safeDetail } from '../../components/errorMessages'
 import { buttonClass } from '../../components/uiClasses'
 import { useJob, useJobRun } from '../../hooks/useJob'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import {
   AUTO_BACKUP_JOB_ID, type AutoBackupSettings, type AutoBackupSettingsUpdate, type BackupFrequency,
   type SnapshotInfo,
@@ -36,14 +35,6 @@ const TITLE = 'Automatic backups'
 const SERVER = { pcOnly: true, serverText: true } as const
 
 export function AutoBackupCard() {
-  const pc = usePcOnly()
-  if (pc === 'remote') {
-    return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Card>
-    )
-  }
   return <AutoBackupControls />
 }
 

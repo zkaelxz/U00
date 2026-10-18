@@ -165,11 +165,11 @@ test.describe('Backup and Storage tabs (mocked)', () => {
     expect(cleanBody).toEqual({ preset: 'balanced', confirm: true, confirm_text: 'CLEAN' })
   })
 
-  test('remote meta: the backup tab says main PC with no buttons; bar has Translate but no Delete or Export', async ({ page }) => {
+  test('remote meta: the PC-only tabs are left out; bar has Translate but no Delete or Export', async ({ page }) => {
     await page.route('**/api/meta', (r) => r.fulfill({ json: {
       app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
     await openSection(page)
-    await expect(page.getByRole('tabpanel').getByText('Run this on the main PC.')).toBeVisible()
+    for (const name of ['Backup', 'Storage', 'Data folder']) await expect(page.getByRole('tab', { name })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Back up library|Scan|Export all/ })).toHaveCount(0)
     await page.goto('/#/library')
     // Grid view: Select turns the cards into checkboxes.
@@ -182,13 +182,12 @@ test.describe('Backup and Storage tabs (mocked)', () => {
     // Members may bulk translate from their own device; Signal is not aligned yet.
     await expect(bar.getByRole('button', { name: 'Translate 0' })).toBeDisabled()
     await expect(bar).toContainText("Still needed: a selected title with status 'aligned'.")
-    await expect(bar).toContainText('Delete and export are PC only.')
-    // The details sheet shows the note where its delete button would be.
+    await expect(bar).not.toContainText('PC only')
     await page.getByRole('button', { name: 'Done selecting' }).click()
     await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Details: Signal' }).click()
     const detail = page.getByRole('dialog', { name: 'Signal' })
-    await expect(detail).toContainText('Deleting is PC only.')
+    await expect(detail).not.toContainText('PC only')
     await expect(detail.getByRole('button', { name: 'Delete title…' })).toHaveCount(0)
   })
 })

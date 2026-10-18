@@ -33,7 +33,7 @@ import type { UrlPreview } from '../../types/sourcesImport'
 import type { PastedPreview } from '../../types/sourcesTools'
 import type { MediaStatus } from '../../types/workspace'
 import { JobPanel } from '../workspace/stages/JobPanel'
-import { URL_PC_ONLY, UrlDownload } from '../workspace/stages/UrlDownload'
+import { UrlDownload } from '../workspace/stages/UrlDownload'
 import { ComicUrlImport } from './ComicUrlImport'
 import { DramaPicker } from './DramaPicker'
 import { IdentifyMedia } from './IdentifyMedia'
@@ -278,7 +278,7 @@ function VideoImport({ url, html, identify }: { url: string; html: string | null
     }
   }, [dramaId])
 
-  if (remote) return <p className="muted">{URL_PC_ONLY}</p>
+  if (remote) return null
 
   const choose = (id: number | null) => {
     // The shown download belongs to the drama it was started for.

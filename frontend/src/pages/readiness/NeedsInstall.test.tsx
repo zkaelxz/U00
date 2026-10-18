@@ -66,10 +66,15 @@ describe('NeedsInstall', () => {
     }
   })
 
-  it('away from the main PC an admin is told where installing is done', () => {
+  it('away from the main PC an admin gets no install or settings buttons and no note', () => {
     state.pc = 'remote'
-    expect(html(need({ action: 'install_whisper' }))).toContain('Installing is done on the main PC.')
-    expect(html(need({ action: 'settings' }))).toContain('Add it on the main PC.')
+    for (const action of ['install_whisper', 'install_gpu_torch', 'diagnostics', 'settings'] as const) {
+      const out = html(need({ action }))
+      expect(out).not.toContain('Install…')
+      expect(out).not.toContain('Open Diagnostics')
+      expect(out).not.toContain('Add in Settings')
+      expect(out).not.toContain('main PC')
+    }
   })
 
   it('keeps Check again for a program Baihe cannot install, for anyone', () => {

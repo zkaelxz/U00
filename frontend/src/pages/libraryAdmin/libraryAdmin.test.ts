@@ -155,12 +155,12 @@ describe('SelectionBar', () => {
     expect(bar('remote', [d(2, 'translated')], false, exporter)).not.toContain('Download')
   })
 
-  it('remote: bulk Translate, but no Delete or Export, a muted note instead', () => {
+  it('remote: bulk Translate, but no Delete or Export and no note', () => {
     const out = bar('remote', [d(1, 'aligned')])
     expect(out).not.toContain('Delete…')
     expect(out).not.toContain('Export .zip')
     expect(out).toContain('Translate 1')
-    expect(out).toContain('Delete and export are PC only.')
+    expect(out).not.toContain('PC only')
   })
 
   it('without jobs.start: no bulk Translate and no reason for it', () => {
@@ -179,15 +179,8 @@ describe('SelectionBar', () => {
 })
 
 describe('BackupTab', () => {
-  it('remote: keeps the heading, says PC only, renders no buttons', () => {
-    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'remote' }))
-    expect(out).toContain('Backup and restore')
-    expect(out).toContain('Run this on the main PC.')
-    expect(out).not.toContain('<button')
-  })
-
   it('on the PC: Back up, then Restore, then Automatic copies, and no export', () => {
-    const out = renderToStaticMarkup(createElement(BackupTab, { pc: 'local' }))
+    const out = renderToStaticMarkup(createElement(BackupTab))
     const at = ['>Back up</span>', '>Restore</span>', '>Automatic backup copies</span>'].map((t) => out.indexOf(t))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)

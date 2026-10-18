@@ -9,7 +9,7 @@ import { describeError } from '../../../components/errorMessages'
 import { buttonClass } from '../../../components/uiClasses'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import {
   CLEAR_PRONOUNS,
   CUSTOM,
@@ -408,7 +408,6 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
           ))}
         </ul>
       )}
-      {pc === 'remote' && cast.length > 0 && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
       {cast.length > 0 && (
         <BulkPronouns
           seriesId={seriesId}

@@ -25,8 +25,6 @@ import {
 import { SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl } from '../sourceForm'
 import './urlDownload.css'
 
-export const URL_PC_ONLY = 'Downloading from a link is PC only for now.'
-
 type Props = {
   dramaId: number
   hasAudio: boolean
@@ -65,7 +63,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
   const [started, setStarted] = useState<{ id: string; key: number } | null>(null)
   const { job } = useJob(started?.id ?? null, { runKey: started?.key })
 
-  if (pc === 'remote') return <p className="muted">{URL_PC_ONLY}</p>
+  if (pc === 'remote') return null
 
   const url = fixedUrl ?? typed
   const audioThere = hasAudio || serverHasAudio

@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  CARDS, LIBRARY_TOOLS_TABS, cardStartsOpen, cardStorageKey, cardsOf, isLibraryToolsTab,
+  CARDS, LIBRARY_TOOLS_TABS, cardStartsOpen, cardStorageKey, cardsOf, isLibraryToolsTab, visibleLibraryToolsTabs,
   type LibraryToolsCard,
 } from './libraryToolsTabs'
 
 const ALL = Object.keys(CARDS) as LibraryToolsCard[]
 
 describe('Library tools tabs', () => {
+  it('leaves out Backup, Storage and Data folder away from the PC only', () => {
+    expect(visibleLibraryToolsTabs('remote').map((t) => t.label)).toEqual(['Organize', 'Activity'])
+    expect(visibleLibraryToolsTabs('local')).toEqual(LIBRARY_TOOLS_TABS)
+    expect(visibleLibraryToolsTabs('unknown')).toEqual(LIBRARY_TOOLS_TABS)
+  })
+
   it('lists the five tabs in order', () => {
     expect(LIBRARY_TOOLS_TABS.map((t) => t.label)).toEqual(['Organize', 'Activity', 'Backup', 'Storage', 'Data folder'])
   })

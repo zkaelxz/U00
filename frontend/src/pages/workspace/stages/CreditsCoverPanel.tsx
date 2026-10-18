@@ -116,9 +116,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
             ) : (
               <p className="muted">{drama.has_cover_art ? "The cover couldn't be shown." : 'No cover.'}</p>
             )}
-            {pc === 'remote' ? (
-              <p className="muted">Uploading a cover is PC only.</p>
-            ) : (
+            {pc === 'remote' ? null : (
               <div className="cover-upload">
                 <Field label="Cover image" help="PNG, JPEG or WebP, up to 10 MB. Location and camera details are removed.">
                   <input

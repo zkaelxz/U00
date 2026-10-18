@@ -4,19 +4,13 @@ import { getPorts } from '../../api/diagnostics'
 import { Badge } from '../../components/Badge'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import type { PortEntry } from '../../types/diagnostics'
 import { portsSummary, portStatus, portText } from './portsFormat'
 
 /** "Ports": the ports Baihe uses, whether each is in use, and how to change it. Read-only, PC only. */
 export function PortsSection({ pc, openSignal }: { pc: PcMode; openSignal?: number }) {
-  if (pc === 'remote') {
-    return (
-      <Section title="Ports" storageKey="diagnostics.ports" summary={PC_ONLY_SUMMARY} defaultOpen openSignal={openSignal}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
   return <PortsBody openSignal={openSignal} />
 }
 

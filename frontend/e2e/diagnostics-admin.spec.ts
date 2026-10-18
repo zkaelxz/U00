@@ -260,18 +260,15 @@ test('away from the PC: no install, reset or extension controls and no extension
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await expect(page.getByTestId('dependency-panel')).toContainText('Installing is PC only.')
+  await expect(page.getByTestId('dependency-panel')).not.toContainText('PC only')
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
-  await openSection(page, /^Reset library/)
-  await expect(page.locator('.danger-zone')).toContainText('Run this on the main PC.')
+  await expect(page.locator('.danger-zone')).toHaveCount(0)
 
   // Settings always reads /api/settings on mount, alongside any extension read, so its answer closes the window.
   const settingsRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/settings')
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Integrations')
-  const ext = page.getByRole('region', { name: 'Browser extension' })
-  await expect(ext.locator('.card-meta')).toHaveText('PC only')
-  await expect(ext).toContainText('Run this on the main PC.')
+  await expect(page.getByRole('tab', { name: 'Integrations' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Browser extension' })).toHaveCount(0)
   await settingsRead
   expect(extensionCalls).toEqual([])
   expect(unmocked).toEqual([])

@@ -10,7 +10,6 @@ import { clearSourcesCache, getSourcesSettings, listSources } from '../api/sourc
 import { Badge } from '../components/Badge'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../hooks/usePcOnly'
 import type { SourceHealth, SourcesSettings, SourceSummary } from '../types/sources'
 import { useDeveloperMode } from './assistant/developerMode'
 import { ActivityTab } from './sources/ActivityTab'
@@ -23,12 +22,6 @@ import { TimingTab } from './sources/TimingTab'
 import './sources/sources.css'
 
 export default function SourcesManagePanel({ area }: { area?: ManageTab }) {
-  const pc = usePcOnly()
-  if (pc !== 'remote') return <ManageBody area={area} />
-  return <p className="muted">{`${PC_ONLY_SUMMARY}. ${PC_ONLY_BODY}`}</p>
-}
-
-function ManageBody({ area }: { area?: ManageTab }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const developerMode = useDeveloperMode()
   const [sources, setSources] = useState<SourceSummary[] | null>(null)

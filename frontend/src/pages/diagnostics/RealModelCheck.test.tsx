@@ -31,9 +31,7 @@ describe('RealModelCheckResults', () => {
 })
 
 describe('RealModelCheck', () => {
-  it('says it is PC only from a remote tab, without a run button', () => {
-    const html = renderToStaticMarkup(<RealModelCheck pc="remote" jobsActive={false} />)
-    expect(html).toContain('Test my models')
-    expect(html).not.toContain('Run the test')
+  it('renders nothing from a remote tab', () => {
+    expect(renderToStaticMarkup(<RealModelCheck pc="remote" jobsActive={false} />)).toBe('')
   })
 })

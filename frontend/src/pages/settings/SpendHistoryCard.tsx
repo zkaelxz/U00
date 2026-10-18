@@ -10,19 +10,10 @@ import { Card } from '../../components/Card'
 import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 
 const TITLE = 'Spend history'
 
 export function SpendHistoryCard() {
-  const pc = usePcOnly()
-  if (pc === 'remote') {
-    return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Card>
-    )
-  }
   return <History />
 }
 

@@ -395,7 +395,7 @@ test('remote admin: Cancel on every job, no Delete, and Who and Mine show', asyn
   await chip(page, 'All').click()
   await expect(page.getByRole('button', { name: /^Delete/ })).toHaveCount(0)
   await expect(page.getByTestId('jobs-clear')).toHaveCount(0)
-  await expect(page.getByText('Deleting is PC only.')).toBeVisible()
+  await expect(page.getByText('Deleting is PC only.')).toHaveCount(0)
 
   await page.getByLabel('Mine').check()
   await expect(rows(page)).toHaveCount(4)

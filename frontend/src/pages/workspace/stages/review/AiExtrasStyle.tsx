@@ -124,8 +124,6 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
         )}
       </div>
       <EngineGateNote gate={gate} />
-      {globalLocked && <p className="muted">Learning or pausing the style for all projects is PC only.</p>}
-      {(profile || previous) && pc === 'remote' && <p className="muted">Resetting or restoring the learned style is PC only.</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <ErrorBanner error={resetError} describe={{ pcOnly: true }} onDismiss={() => setResetError(null)} />
     </Section>

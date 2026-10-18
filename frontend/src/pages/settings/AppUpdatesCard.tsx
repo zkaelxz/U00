@@ -20,7 +20,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
+import { usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
   APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
@@ -35,13 +35,6 @@ const POLL_MS = 1000
 export function AppUpdatesCard() {
   const pc = usePcOnly()
   const pending = usePcPendingNote(pc)
-  if (pc === 'remote') {
-    return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Card>
-    )
-  }
   if (pending) {
     return (
       <Card title={TITLE} aria-label={TITLE}>

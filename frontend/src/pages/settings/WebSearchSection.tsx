@@ -13,21 +13,12 @@ import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { WebSearchConfig } from '../../types/webSearch'
 import { webSearchErrorMessage, webSearchSummary } from '../sources/webSearchFormat'
 
 const TITLE = 'Web search'
 
 export function WebSearchSection() {
-  const pc = usePcOnly()
-  if (pc === 'remote') {
-    return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Card>
-    )
-  }
   return <WebSearchControls />
 }
 

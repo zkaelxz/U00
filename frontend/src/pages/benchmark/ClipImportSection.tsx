@@ -8,7 +8,7 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { plainError } from './benchmarkForm'
 import {
   MAX_CLIPS, addFiles, applyManifest, applyPaste, importBlocker, importSummary, notesFor, parseManifest, toPayload,
@@ -54,13 +54,7 @@ export function ClipImportSection({ options, pc, onDone }: Props) {
   }, [checkKey])
   const notes = checkKey === '[]' ? NO_NOTES : check
 
-  if (pc === 'remote') {
-    return (
-      <Section title="Your own clips" summary={PC_ONLY_SUMMARY} storageKey="benchmark.clips" defaultOpen>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
+  if (pc === 'remote') return null
 
   const update = (key: number, patch: Partial<ClipRow>) => setRows((cur) => cur.map((r) => (r.key === key ? { ...r, ...patch } : r)))
   const remove = (key: number) => setRows((cur) => cur.filter((r) => r.key !== key))

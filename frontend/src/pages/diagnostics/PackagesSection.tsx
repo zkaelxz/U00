@@ -322,7 +322,6 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   return (
     <Section title="Packages" defaultOpen openSignal={openSignal} storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
       <div ref={(el) => { openRef(el); panelRef.current = el }} data-testid="dependency-panel" className="diag-stack">
-        {pc === 'remote' && <p className="muted">Installing is PC only.</p>}
         {local && (
           <p className="banner" role="note" data-testid="services-off-notice">
             <strong>Running Baihe as a Windows service?</strong> Turn off both services, "Baihe Studio" and

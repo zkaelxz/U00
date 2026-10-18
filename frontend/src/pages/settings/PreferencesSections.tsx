@@ -22,7 +22,7 @@ import { Field } from '../../components/Field'
 import { humanize, humanizeValue } from '../../components/labels'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
+import { usePcOnly } from '../../hooks/usePcOnly'
 import type { EndpointName, SettingsOverview, SettingsSchemaRow } from '../../types/settings'
 import {
   capSummary,
@@ -181,7 +181,6 @@ export function KeepFreeMemory({ schema, settings, onSettings }: Props) {
 export const ADVANCED_TITLE = 'Offline, paths and limits'
 
 export function AdvancedCard(props: AdvancedProps) {
-  const remote = usePcOnly() === 'remote'
   const { schema, settings, onSettings, openSignal = 0, uploadsSignal = 0 } = props
   const p = settings.preferences
   const named = new Set([...ADVANCED_FOLDS.flatMap((f) => f.keys), ...KEEP_FREE_KEYS])
@@ -216,7 +215,7 @@ export function AdvancedCard(props: AdvancedProps) {
       {other.length > 0 && (
         <SchemaCard {...common} keys={other} title="Other" summary={`${other.length} setting${other.length === 1 ? '' : 's'}`} openSignal={openSignal} />
       )}
-      <EndpointsSection settings={settings} remote={remote} onSettings={onSettings} openSignal={openSignal} />
+      <EndpointsSection settings={settings} onSettings={onSettings} openSignal={openSignal} />
     </Card>
   )
 }
@@ -306,18 +305,9 @@ function uploadsEnv(settings: SettingsOverview) {
   }
 }
 
-function EndpointsSection({ settings, remote, onSettings, openSignal }: { settings: SettingsOverview; remote: boolean; onSettings: (s: SettingsOverview) => void; openSignal: number }) {
+function EndpointsSection({ settings, onSettings, openSignal }: { settings: SettingsOverview; onSettings: (s: SettingsOverview) => void; openSignal: number }) {
   const set = ENDPOINTS.filter((e) => settings.endpoints[e.name]).length
   const title = 'Server addresses'
-  if (remote) {
-    // Away from the PC the addresses aren't sent, but whether each is set is (engine_keys).
-    const configured = ENDPOINTS.filter((e) => settings.engine_keys[e.name]).length
-    return (
-      <Section title={title} openSignal={openSignal} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`}>
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
-    )
-  }
   return (
     <Section title={title} openSignal={openSignal} summary={`${set} of ${ENDPOINTS.length} set`}>
       <div style={grid}>

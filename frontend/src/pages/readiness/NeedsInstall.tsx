@@ -11,7 +11,6 @@ import type { Need } from './needs'
 import { useNeedInstall } from './useNeedInstall'
 
 export const ASK_OWNER = 'Ask the owner of the main PC to set this up.'
-const INSTALL_ON_PC = 'Installing is done on the main PC.'
 
 /** Where Diagnostics > Packages opens with the first missing package already picked. */
 export const packagesHref = (need: Pick<Need, 'packages'>) =>
@@ -37,7 +36,7 @@ export function NeedsInstall({ need, onInstalled }: { need: Need; onInstalled?: 
     // A separate program (Ollama) has no install here; its link below is for everyone.
     if (need.action === 'external') return null
     if (!admin) return <p className="muted" data-testid="needs-ask-owner">{ASK_OWNER}</p>
-    if (!atPc) return <p className="muted" data-testid="needs-on-pc">{need.action === 'settings' ? 'Add it on the main PC.' : INSTALL_ON_PC}</p>
+    if (!atPc) return null
     switch (need.action) {
       case 'install_whisper':
         return (

@@ -18,7 +18,7 @@ import { buttonClass } from '../components/uiClasses'
 import { useJobs, jobsRefusal, useNow } from '../hooks/useJobs'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../hooks/usePcOnly'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import {
@@ -248,7 +248,6 @@ export default function JobsPage() {
                   <span className="muted">Permanent: removes the finished jobs from the history. Running and queued jobs stay.</span>
                 </div>
               )}
-              {pc === 'remote' && finishedCount > 0 && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
             </>
           )}
         </>
