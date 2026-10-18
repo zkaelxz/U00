@@ -6,7 +6,7 @@ import { ConfirmButton } from '../components/ConfirmButton'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Section } from '../components/Section'
 import { buttonClass } from '../components/uiClasses'
-import { PC_ONLY_DELETE_NOTE, type PcMode } from '../hooks/usePcOnly'
+import type { PcMode } from '../hooks/usePcOnly'
 import type { BugReportListItem } from '../types/bugReports'
 import { useDetailsOpen } from '../pages/diagnostics/diagnosticsAdmin'
 
@@ -96,7 +96,6 @@ export function SavedReports({ pc }: { pc: PcMode }) {
             ))}
           </ul>
         )}
-        {pc === 'remote' && items && items.length > 0 && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
         <span className="muted" aria-live="polite">{note}</span>
         {shown && (
           <textarea ref={shownRef} className="report-text" readOnly rows={10} value={shown.markdown}

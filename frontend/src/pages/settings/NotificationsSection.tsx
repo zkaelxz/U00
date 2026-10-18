@@ -27,7 +27,6 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { NotificationChannel, NotificationStatus } from '../../types/notifications'
 import { SAVED_ON_PC_NOTE } from './preferences'
 import {
@@ -44,18 +43,8 @@ import {
 
 const TITLE = 'Notifications'
 
-// `notifyToggle` is the "notify me when a job finishes" switch, which belongs with the channels it
-// notifies through. It is not PC only, so it shows away from the PC too.
+// `notifyToggle` is the "notify me when a job finishes" switch, which belongs with the channels it notifies through.
 export function NotificationsSection({ notifyToggle }: { notifyToggle: ReactNode }) {
-  const pc = usePcOnly()
-  if (pc === 'remote') {
-    return (
-      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
-        {notifyToggle}
-        <p className="muted">{PC_ONLY_BODY}</p>
-      </Card>
-    )
-  }
   return <NotificationControls notifyToggle={notifyToggle} />
 }
 

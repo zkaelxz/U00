@@ -70,6 +70,15 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
   },
 ]
 
+// Cards whose every action is a PC-only call (the settings POSTs are local_only): away from the PC
+// the page leaves them out instead of showing a "Run this on the main PC." note.
+export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
+  'defaults', 'spending', 'spend-history', 'past-costs',
+  'notifications', 'auto-backup', 'save-folder', 'app-updates',
+  'jellyfin', 'web-search', 'extension',
+  'performance', 'advanced', 'timing-splitting', 'transcription-experiments',
+])
+
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))
 const OPEN_BY_DEFAULT = new Set(SETTINGS_TABS.map((t) => t.cards[0].id))
 

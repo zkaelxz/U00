@@ -16,6 +16,7 @@ import { PageShell } from '../components/PageShell'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { useSession } from '../hooks/useSession'
 import { useRoute } from '../router'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
@@ -41,7 +42,7 @@ import { TranscriptionExperimentsCard } from './settings/TranscriptionExperiment
 import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
-import { filterSettings, SETTINGS_INDEX, SETTINGS_TABS, tabFoldKeys, tabOfCard, type SettingsTab } from './settings/settingsIndex'
+import { filterSettings, PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS, tabFoldKeys, tabOfCard, type SettingsTab } from './settings/settingsIndex'
 import { FoldControls, FoldSignalsProvider, SettingsCard, SettingsSearch, VisibleCardsProvider, type FoldSignals } from './settings/SettingsSearch'
 import { Tabs } from '../components/Tabs'
 import { seedPageTabFolds } from '../components/sectionStorage'
@@ -184,13 +185,15 @@ export default function SettingsPage() {
 
   // A card that renders nothing for this person must not draw search hits to its tab.
   const ownKeyShown = showOllamaKey(useSession())
+  const remote = usePcOnly() === 'remote'
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
-    return ownKeyShown ? cards : new Set([...cards].filter((id) => id !== 'ollama-key'))
-  }, [loaded, ownKeyShown])
+    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && !(remote && PC_ONLY_CARDS.has(id))))
+  }, [loaded, ownKeyShown, remote])
+  const shown = (id: string) => available.has(id)
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])
-  const visibleTabs = SETTINGS_TABS.filter((t) => loaded || t.id === MEMBER_TAB)
+  const visibleTabs = SETTINGS_TABS.filter((t) => (loaded || t.id === MEMBER_TAB) && t.cards.some((c) => shown(c.id)))
   const stored = visibleTabs.some((t) => t.id === storedTab) ? storedTab : visibleTabs[0].id
   // A search shows its hits even when they are on another tab; the saved tab is left alone.
   const active = searching && match.counts[stored] === 0
@@ -262,25 +265,27 @@ export default function SettingsPage() {
                 onGeminiFreeTier={(next) => void toggle('gemini_free_tier', next)}
               />
             </SettingsCard>
-            <SettingsCard id="defaults"><DefaultsCard {...prefProps} /></SettingsCard>
+            {shown('defaults') && <SettingsCard id="defaults"><DefaultsCard {...prefProps} /></SettingsCard>}
             <SettingsCard id="language-packs"><LanguagePacksCard /></SettingsCard>
           </>
         ))}
         {settings && prefProps && panel('costs', (
           <>
-            <SettingsCard id="spending"><SpendingCard {...prefProps} /></SettingsCard>
-            <SettingsCard id="spend-history"><SpendHistoryCard /></SettingsCard>
-            <SettingsCard id="past-costs"><PastCostsCard /></SettingsCard>
+            {shown('spending') && <SettingsCard id="spending"><SpendingCard {...prefProps} /></SettingsCard>}
+            {shown('spend-history') && <SettingsCard id="spend-history"><SpendHistoryCard /></SettingsCard>}
+            {shown('past-costs') && <SettingsCard id="past-costs"><PastCostsCard /></SettingsCard>}
           </>
         ))}
         {settings && prefProps && panel('notifications', (
           <>
-            <SettingsCard id="notifications" summary={notifySummary}>
-              <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
-            </SettingsCard>
-            <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>
-            <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>
-            <SettingsCard id="app-updates"><AppUpdatesCard /></SettingsCard>
+            {shown('notifications') && (
+              <SettingsCard id="notifications" summary={notifySummary}>
+                <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+              </SettingsCard>
+            )}
+            {shown('auto-backup') && <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>}
+            {shown('save-folder') && <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>}
+            {shown('app-updates') && <SettingsCard id="app-updates"><AppUpdatesCard /></SettingsCard>}
           </>
         ))}
         {/* Outside the settings gate: every signed-in person has a share-new-items choice
@@ -297,40 +302,44 @@ export default function SettingsPage() {
         ))}
         {settings && prefProps && panel('integrations', (
           <>
-            <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>
-            <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>
-            <SettingsCard id="extension"><ExtensionSection /></SettingsCard>
+            {shown('jellyfin') && <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>}
+            {shown('web-search') && <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>}
+            {shown('extension') && <SettingsCard id="extension"><ExtensionSection /></SettingsCard>}
           </>
         ))}
         {settings && prefProps && panel('system', (
           <>
-            <SettingsCard id="performance" summary={jobsSummary}>
-              <Card title="Jobs and GPU" aria-label="Jobs and GPU">
-                <div className="setting-list">
-                  {toggleField('use_gpu')}
-                  {toggleField('gpu_limit_enabled')}
-                  <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
-                    <input
-                      type="number"
-                      min={1}
-                      max={GPU_MAX_PARALLEL_MAX}
-                      step={1}
-                      value={settings.gpu_max_parallel}
-                      disabled={!settings.gpu_limit_enabled}
-                      onChange={(e) => setGpuMaxParallel(e.target.valueAsNumber)}
-                    />
-                  </Field>
-                  {toggleField('unload_ollama_before_transcribe')}
-                  {toggleField('bulk_auto_resume')}
-                </div>
-                <KeepFreeMemory {...prefProps} />
-              </Card>
-            </SettingsCard>
-            <SettingsCard id="advanced">
-              <AdvancedCard {...prefProps} openSignal={advancedSignal} uploadsSignal={uploadsSignal} />
-            </SettingsCard>
-            <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>
-            <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>
+            {shown('performance') && (
+              <SettingsCard id="performance" summary={jobsSummary}>
+                <Card title="Jobs and GPU" aria-label="Jobs and GPU">
+                  <div className="setting-list">
+                    {toggleField('use_gpu')}
+                    {toggleField('gpu_limit_enabled')}
+                    <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
+                      <input
+                        type="number"
+                        min={1}
+                        max={GPU_MAX_PARALLEL_MAX}
+                        step={1}
+                        value={settings.gpu_max_parallel}
+                        disabled={!settings.gpu_limit_enabled}
+                        onChange={(e) => setGpuMaxParallel(e.target.valueAsNumber)}
+                      />
+                    </Field>
+                    {toggleField('unload_ollama_before_transcribe')}
+                    {toggleField('bulk_auto_resume')}
+                  </div>
+                  <KeepFreeMemory {...prefProps} />
+                </Card>
+              </SettingsCard>
+            )}
+            {shown('advanced') && (
+              <SettingsCard id="advanced">
+                <AdvancedCard {...prefProps} openSignal={advancedSignal} uploadsSignal={uploadsSignal} />
+              </SettingsCard>
+            )}
+            {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
+            {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
             <SettingsCard id="developer-mode"><DeveloperModeCard /></SettingsCard>
           </>
         ))}

@@ -10,6 +10,12 @@ export const LIBRARY_TOOLS_TABS: { id: LibraryToolsTab; label: string }[] = [
   { id: 'data', label: 'Data folder' },
 ]
 
+/** Backup, Storage and Data folder act on the PC's own disk, so away from the PC they are left out. */
+export const PC_ONLY_TABS: readonly LibraryToolsTab[] = ['backup', 'storage', 'data']
+
+export const visibleLibraryToolsTabs = (pc: 'local' | 'remote' | 'unknown') =>
+  pc === 'remote' ? LIBRARY_TOOLS_TABS.filter((t) => !PC_ONLY_TABS.includes(t.id)) : LIBRARY_TOOLS_TABS
+
 export const isLibraryToolsTab = (v: unknown): v is LibraryToolsTab => LIBRARY_TOOLS_TABS.some((t) => t.id === v)
 
 type CardInfo = { tab: LibraryToolsTab; title: string }

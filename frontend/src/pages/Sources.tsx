@@ -222,8 +222,11 @@ export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: Sour
       }
     : null
 
+  // Manage sources is PC only: away from the PC the tab, its link and its panel are left out.
+  const shownTab = remote && tab === 'manage' ? 'find' : tab
+  const tabs = SOURCES_TABS.filter((t) => !(remote && t.id === 'manage'))
   const panel = (id: SourcesTab, children: ReactNode, className?: string) => (
-    <div id={tabPanelId(PREFIX, id)} role="tabpanel" aria-labelledby={tabButtonId(PREFIX, id)} className={`sources-panel${className ? ` ${className}` : ''}`} hidden={tab !== id}>
+    <div id={tabPanelId(PREFIX, id)} role="tabpanel" aria-labelledby={tabButtonId(PREFIX, id)} className={`sources-panel${className ? ` ${className}` : ''}`} hidden={shownTab !== id}>
       {children}
     </div>
   )
@@ -237,8 +240,8 @@ export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: Sour
         <Tabs
           label="Sources"
           idPrefix={PREFIX}
-          tabs={SOURCES_TABS.map((t) => (t.id === 'new' && notifications.length > 0 ? { ...t, count: notifications.length } : t))}
-          active={tab}
+          tabs={tabs.map((t) => (t.id === 'new' && notifications.length > 0 ? { ...t, count: notifications.length } : t))}
+          active={shownTab}
           onSelect={selectTab}
         />
       )}
@@ -300,9 +303,11 @@ export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: Sour
             />
           )}
 
-          <p className="muted sources-manage-link">
-            Site settings, timing and network: <a href={sourcesHref('manage')}>Manage sources</a>
-          </p>
+          {!remote && (
+            <p className="muted sources-manage-link">
+              Site settings, timing and network: <a href={sourcesHref('manage')}>Manage sources</a>
+            </p>
+          )}
         </>
       ), 'sources-find-panel')}
 
@@ -331,7 +336,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area }: { tab?: Sour
         </>
       ))}
 
-      {manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}
+      {!remote && manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}
     </PageShell>
   )
 }

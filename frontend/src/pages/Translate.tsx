@@ -354,9 +354,7 @@ export default function TranslatePage() {
         meta={history.length > 0 ? historyCount(history.length, HISTORY_LIMIT) : undefined}
         actions={
           history.length > 0 &&
-          (pc === 'remote' ? (
-            <span className="muted">Clearing history is PC only.</span>
-          ) : (
+          pc !== 'remote' && (
             <ConfirmButton
               name="translation history"
               label="Clear history…"
@@ -365,7 +363,7 @@ export default function TranslatePage() {
               busy={clearing}
               onConfirm={clearHistory}
             />
-          ))
+          )
         }
       >
         <ErrorBanner error={clearError} describe={{ pcOnly: true }} onDismiss={() => setClearError(null)} />
