@@ -33,11 +33,10 @@ describe('sweepSets', () => {
 })
 
 describe('start', () => {
-  const base = { setName: 's', estimate: est(), estimateFresh: true, remote: false, running: false }
-  it('needs a fresh estimate, the PC and no run going', () => {
+  const base = { setName: 's', estimate: est(), estimateFresh: true, running: false }
+  it('needs a fresh estimate and no run going', () => {
     expect(startProblem(base)).toBeNull()
     expect(startProblem({ ...base, estimateFresh: false })).toBe('Estimate this sweep first.')
-    expect(startProblem({ ...base, remote: true })).toMatch(/main PC/)
     expect(startProblem({ ...base, running: true })).toMatch(/run is going/)
     expect(startProblem({ ...base, estimate: est({ passes_to_run: 0 }) })).toMatch(/already run/)
   })
