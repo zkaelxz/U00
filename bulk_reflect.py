@@ -7,7 +7,8 @@ import uuid
 from bulk_apply import (_log_generic_usage, _parse_strict, _save_applied_english, _save_flags,
                         _stale_line)
 from bulk_providers import make_provider
-from bulk_translate import _character_names, _copy_english_lines, _target_lines, request_key, zh_hash
+from bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
+                            request_key, zh_hash)
 from engine_backends.medium_prompts import kind_for
 import db
 import source_change
@@ -126,9 +127,7 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
     Returns its bulk_job_id -- the Bulk jobs panel shows this one first;
     stages "reflect" and "expressive" only exist once the prior stage's
     own results have actually come back (see apply_reflect_stage_results)."""
-    provider = provider or make_provider(engine_choice, engine)
-    if provider is None:
-        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
     targets = _copy_english_lines(drama_id, _target_lines(lines, force_retranslate))
     if not targets:
         raise ValueError("Nothing to translate -- every line already has a translation.")

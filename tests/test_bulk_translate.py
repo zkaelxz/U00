@@ -2384,3 +2384,23 @@ def test_finish_translation_run_requires_the_runs_own_line_ids(isolated_db):
     with pytest.raises(TypeError):
         translation_finish.finish_translation_run(did, isolated_db.load_line_objects(did), NS(model="m"),
                                   "claude", "", [], [])
+
+
+def test_engines_without_a_batch_api_get_the_exact_message():
+    import bulk_reflect
+    import bulk_translate
+
+    generic = "ollama has no batch API -- bulk mode needs Claude or Gemini."
+    for submit in (bulk_translate.submit_bulk_flag, bulk_translate.submit_bulk_consistency,
+                   bulk_translate.submit_bulk_emotion, bulk_translate.submit_bulk_translation_notes):
+        with pytest.raises(ValueError) as exc:
+            submit(1, [], None, "ollama")
+        assert str(exc.value) == generic
+    with pytest.raises(ValueError) as exc:
+        bulk_reflect.submit_reflect_pipeline(1, [], None, "ollama", {})
+    assert str(exc.value) == generic
+    with pytest.raises(ValueError) as exc:
+        bulk_translate.submit_bulk_translation(1, [], None, "ollama", {})
+    assert str(exc.value) == "ollama has no batch API -- use the off-peak schedule instead."
+    provider = object()
+    assert bulk_translate._require_batch_engine(provider, "claude") is provider
