@@ -442,9 +442,7 @@ def _unpack_binary(zip_path: str):
 # Q06: package install and GPU PyTorch setup
 # ---------------------------------------------------------------------------
 
-_READ_ONLY_HINT = ("Stop the service first: turn off both Baihe services (\"Baihe Studio\" and "
-                   "\"Baihe Studio remote access (Caddy)\"), then start Baihe from the Start menu "
-                   "to install packages.")
+_READ_ONLY_HINT = "Stop the service and start Baihe from the Start menu to install packages."
 
 
 def get_dependency_install() -> dict:
@@ -480,7 +478,7 @@ def _plan_busy() -> ConflictError:
 
 
 def _require_safe_plan(name: str, accept_risk: bool, accepted_risks, specs: list = None,
-                       kind: str = "package"):
+                       restart_hint: str = "Queue it for the next start instead."):
     """The client's own preview is advisory: a direct POST must meet the same
     clash, downgrade and in-use checks before pip touches the environment.
     accept_risk covers only the risks the owner was shown (accepted_risks): a
@@ -493,8 +491,7 @@ def _require_safe_plan(name: str, accept_risk: bool, accepted_risks, specs: list
         raise PlanNeedsConfirm(" ".join(unseen or plan["needs_confirm"])
                                + " Confirm again to go ahead anyway.")
     if plan["mode"] == "restart":
-        raise InstallNeedsRestart(((plan["note"] or "") + " " + _restart_hint(kind)).strip())
-    return install_plan.replaced_names(plan)
+        raise InstallNeedsRestart(((plan["note"] or "") + " " + restart_hint).strip())
 
 
 def start_dependency_install(name: str, confirm: bool = False, accept_risk: bool = False,
@@ -540,8 +537,9 @@ def start_dependency_upgrade(name: str, target: str = None, confirm: bool = Fals
     specs = packages_svc.upgrade_specs(name, target)
     _require_writable_site_packages()
     with _plan_slot():
-        watch = _require_safe_plan(name, accept_risk, accepted_risks, specs, "upgrade")
-        return _start_install_job("upgrade", name, f"Updating {name}", name, specs, watch)
+        _require_safe_plan(name, accept_risk, accepted_risks, specs=specs,
+                           restart_hint=_UPGRADE_RESTART_HINT)
+        return _start_install_job("upgrade", name, f"Updating {name}", name, specs)
 
 
 def start_cuda_runtime_install(confirm: bool = False) -> dict:
@@ -557,10 +555,9 @@ def _start_planned_install(kind: str, names: tuple, description: str, arg: str,
                            accept_risk: bool, accepted_risks) -> dict:
     _require_writable_site_packages()
     with _plan_slot():
-        watch = set()
         for name in names:
-            watch |= _require_safe_plan(name, accept_risk, accepted_risks)
-        return _start_install_job(kind, names[0], description, arg, watch=watch)
+            _require_safe_plan(name, accept_risk, accepted_risks)
+        return _start_install_job(kind, names[0], description, arg)
 
 
 @contextlib.contextmanager
@@ -585,26 +582,22 @@ def start_gpu_torch_setup(variant: str = None, confirm: bool = False) -> dict:
     the in-use part of the install plan applies."""
     variant = torch_svc.prepare_gpu_torch_setup(variant, confirm)
     _require_writable_site_packages()
-    loaded = install_plan.loaded_now(diagnostics_torch.TORCH_FAMILY)
-    if loaded:
-        raise InstallNeedsRestart(install_plan.in_use_note(loaded) + " " + _restart_hint("gpu_torch"))
-    return _start_install_job("gpu_torch", "torch", f"Setting up PyTorch ({variant})", variant,
-                              watch=diagnostics_torch.TORCH_FAMILY)
-
-
-def _restart_hint(kind: str) -> str:
-    return {"upgrade": _UPGRADE_RESTART_HINT,
-            "gpu_torch": "Restart Baihe and run the setup before anything uses PyTorch."}.get(
-        kind, "Queue it for the next start instead.")
+    if os.name == "nt":
+        loaded = [d for d in sorted(diagnostics_torch.TORCH_FAMILY) if install_plan.dist_in_use(d)]
+        if loaded:
+            raise InstallNeedsRestart(
+                "Baihe is using " + ", ".join(loaded) + " right now, and Windows can't replace "
+                "files in use. Restart Baihe and run the setup before anything uses PyTorch.")
+    return _start_install_job("gpu_torch", "torch", f"Setting up PyTorch ({variant})", variant)
 
 
 def _start_install_job(kind: str, package: str, description: str, arg: str,
-                       specs: list = None, watch=()) -> dict:
+                       specs: list = None) -> dict:
     # Started and labelled under one lock, as for the update test: the state
     # names a package only once its job really started.
     with _STATE_LOCK:
         if not job_launch.start_job(DEPENDENCY_JOB_ID, _dependency_job, kind, arg, specs,
-                                    sorted(watch), description=description):
+                                         description=description):
             raise admin_svc.AdminActionJobsRunning(
                 "An install or a library restore is already running; try again when it ends.")
         _DEPENDENCY.update(kind=kind, package=package, last=None)
@@ -643,7 +636,17 @@ def _store_dependency_result(result: dict, status: str):
 
 
 def _non_index_dists() -> set:
-    return pending_install.non_index_dists()
+    """Installed dists pip took from git, a link or a local wheel or folder:
+    pip writes direct_url.json only for those, and `name==version` from the
+    index would not bring them back."""
+    out = set()
+    for dist in importlib.metadata.distributions():
+        try:
+            if dist.read_text("direct_url.json") is not None:
+                out.add(diagnostics.canonical_dist(dist.metadata["Name"] or ""))
+        except Exception:     # noqa: BLE001 -- unreadable metadata just isn't skipped
+            continue
+    return out
 
 
 def _restore(before: dict, skip: set, cancel):
@@ -658,15 +661,14 @@ def _restore(before: dict, skip: set, cancel):
             and pending_install._NAME_RE.match(n) and pending_install._VERSION_RE.match(v)}
     failed = sorted(set(wanted) - set(safe) - set(skipped))
     stopped = False
-    end = time.monotonic() + pending_install.RESTORE_SECONDS
-    with pending_install.restore_commands(safe) as argvs:
-        for argv in argvs:
-            for event in proc_run.stream_tree(argv, max(1.0, end - time.monotonic()), cancel=cancel,
-                                              warn=job_process_kill._warn_via_jobs):
-                stopped = stopped or bool(event.get("cancelled"))
-            now = pending_install.snapshot()
-            if stopped:
-                break
+    if safe:
+        argv = pending_install._python() + [
+            "-m", "pip", "install", "--no-deps", "--no-cache-dir", "--disable-pip-version-check",
+            *[f"{n}=={v}" for n, v in sorted(safe.items())]]
+        for event in proc_run.stream_tree(argv, pending_install.RESTORE_SECONDS, cancel=cancel,
+                                          warn=job_process_kill._warn_via_jobs):
+            stopped = stopped or bool(event.get("cancelled"))
+        now = pending_install.snapshot()
     restored = sorted(n for n, v in safe.items() if now.get(n) == v)
     failed = sorted(failed + [n for n in safe if n not in restored])
     return restored, failed, skipped, stopped, sorted(set(now) - set(before)), left_out
@@ -676,8 +678,10 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
     """Reinstalls every package whose version pip changed or removed; the
     sentence says how that went (dist names only)."""
     background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.95, "Putting your earlier packages back...")
-    # After a cancelled pip, only a later Cancel stops the restore it asked for.
-    cancel = background_jobs.later_cancel_probe(DEPENDENCY_JOB_ID)
+    probe = admin_svc._cancel_probe(DEPENDENCY_JOB_ID)
+    # Cancel is sticky: after a cancelled pip the probe is already true, and
+    # honouring it would skip the very restore the Cancel asked for.
+    cancel = None if probe() else probe
     try:
         restored, failed, skipped, stopped, added, left_out = _restore(before, skip, cancel)
     except Exception:     # noqa: BLE001 -- the install's own outcome must still be stored
@@ -735,20 +739,13 @@ def _pip_failed(kind: str, result: dict) -> bool:
     return not result["ok"] and not (kind == "gpu_torch" and result.get("verify") is not None)
 
 
-def _dependency_job(kind: str, arg: str, specs: list = None, watch=()):
+def _dependency_job(kind: str, arg: str, specs: list = None):
     with _STATE_LOCK:
         package = _DEPENDENCY["package"]
     failure = {"package": package, "ok": False, "output_tail": [], "hint": None}
     restore_note = None
     try:
         with _job_hold(DEPENDENCY_JOB_ID):
-            # The plan's in-use answer predates the job: anything imported since
-            # would leave pip failing half-way on a held file.
-            loaded = install_plan.loaded_now(watch)
-            if loaded:
-                raise InstallNeedsRestart(install_plan.in_use_note(
-                    loaded, "Nothing was changed: Baihe started using {} after the preview")
-                    + " " + _restart_hint(kind))
             background_jobs.update_progress(DEPENDENCY_JOB_ID, 0.02, "Starting pip...")
             # Restored on failure or Cancel (still under the hold), so pip
             # stopping part-way never leaves the environment half-replaced.
