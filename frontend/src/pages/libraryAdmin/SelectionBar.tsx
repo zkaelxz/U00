@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { ApiError } from '../../api/client'
+import { addQueueBulk } from '../../api/queue'
 import { bulkDelete, bulkSetStatus, bulkSetTag, bulkTranslate, startExport } from '../../api/libraryAdmin'
 import type { DramaSummary } from '../../api/types'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -12,9 +13,10 @@ import { statusLabel, tagLabel } from '../../labels'
 import {
   ADMIN_JOB_IDS, LIBRARY_LIST_TAGS, LIBRARY_STATUSES, type LibraryListTag, type LibraryStatus,
 } from '../../types/libraryAdmin'
+import { ADD_STEP_LABELS, type AddStep } from '../jobs/queueModel'
 import { AdminJobLine } from './AdminJobLine'
 import {
-  EXPORT_NEEDS, ORIGINALS_HELP, ORIGINALS_LABEL, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
+  EXPORT_NEEDS, ORIGINALS_HELP, ORIGINALS_LABEL, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeQueueAdd, describeTranslateSkips,
   exportableIds, titleOf, translatableIds,
 } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
@@ -64,6 +66,9 @@ export function SelectionBar({
   const [skips, setSkips] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [withOriginals, setWithOriginals] = useState(false)
+  const [queueStep, setQueueStep] = useState<AddStep>('transcribe')
+  const [queueMsg, setQueueMsg] = useState<string | null>(null)
+  const [queueError, setQueueError] = useState<unknown>(null)
   const menuRef = useRef<HTMLDetailsElement>(null)
   const summaryRef = useRef<HTMLElement>(null)
   const translate = useAdminJob(ADMIN_JOB_IDS.translate)
@@ -115,6 +120,24 @@ export function SelectionBar({
       (e: unknown) => {
         setBusy(false)
         setAdminError(e)
+      },
+    )
+  }
+
+  // Adds only: the queue starts when the person presses Start queue on the Jobs page.
+  const addToQueue = () => {
+    closeMenu(false)
+    setBusy(true)
+    setQueueMsg(null)
+    setQueueError(null)
+    addQueueBulk(ids, queueStep).then(
+      (r) => {
+        setBusy(false)
+        setQueueMsg(describeQueueAdd(r, name))
+      },
+      (e: unknown) => {
+        setBusy(false)
+        setQueueError(e)
       },
     )
   }
@@ -191,6 +214,21 @@ export function SelectionBar({
       </div>
       </>}
       {phone && editReason}
+      {canTranslate && (
+        <div className="bar-group">
+          <select
+            aria-label="Queue step"
+            value={queueStep}
+            disabled={busy || !n}
+            onChange={(e) => setQueueStep(e.target.value as AddStep)}
+          >
+            {(['transcribe', 'translate', 'export', 'all'] as const).map((s) => (
+              <option key={s} value={s}>{ADD_STEP_LABELS[s]}</option>
+            ))}
+          </select>
+          <button type="button" disabled={busy || !n} onClick={addToQueue}>Add to queue</button>
+        </div>
+      )}
       <div className="bar-group">
         {canTranslate && (
           <button
@@ -247,6 +285,12 @@ export function SelectionBar({
       )}
       {translateMsg ? <p className="error" role="alert">{translateMsg}</p> : <ErrorBanner error={translate.startError} />}
       {skips && <p className="muted">{skips}</p>}
+      {queueMsg && (
+        <p role="status" data-testid="queue-add-result">
+          {queueMsg} <a href={routeHref({ name: 'jobs' })}>Queue</a>
+        </p>
+      )}
+      <ErrorBanner error={queueError} />
       {local && <AdminJobLine job={exporter} busyText="Exporting…" artifact="export" showLink={exporter.done} />}
       {local && <ErrorBanner error={exporter.startError} describe={PC_ONLY_ERR} />}
       {deleting && local && (
