@@ -152,7 +152,8 @@ def create_benchmark_clip_cases(rows: list) -> list:
     all or nothing) and returns the new case ids in order. Each row carries
     the benchmark_cases columns it sets."""
     cols = ("label", "stage", "content_type", "source_language", "input_filename", "source_text",
-            "reference_text", "tier", "set_name", "title", "tags", "scene_order", "clip_key")
+            "reference_text", "tier", "set_name", "title", "tags", "scene_order", "clip_key",
+            "origin_drama_id", "origin_line_id", "ref_start", "ref_end")
     now = datetime.datetime.utcnow().isoformat()
     ids = []
     with contextlib.closing(db.get_conn()) as conn:

@@ -261,7 +261,8 @@ def _init_benchmark_lab_schema():
                              ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER"),
                              ("title", "TEXT"), ("tags", "TEXT"), ("scene_order", "INTEGER"),
                              ("clip_key", "TEXT"), ("excluded", "INTEGER DEFAULT 0"),
-                             ("ref_version", "INTEGER DEFAULT 1")):
+                             ("ref_version", "INTEGER DEFAULT 1"),
+                             ("ref_start", "REAL"), ("ref_end", "REAL")):
             if col not in cols:
                 db._safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
         result_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_results)").fetchall()}
