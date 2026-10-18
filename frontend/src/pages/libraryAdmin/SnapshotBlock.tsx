@@ -1,5 +1,5 @@
 /*
- * Library tools > Backup > "Automatic backup copies":
+ * Library tools > Backup > "Saved automatic copies":
  * the rotating copies automatic backups keep (the newest one's
  * date, size, kind and drama count), restoring ONE drama from a chosen copy,
  * and deleting one copy or all of them. PC only (the Backup tab

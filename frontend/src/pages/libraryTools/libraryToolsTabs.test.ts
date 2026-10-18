@@ -27,7 +27,7 @@ describe('Library tools tabs', () => {
 
   it('maps the cards the owner named to their tabs', () => {
     expect(cardsOf('backup').map((c) => CARDS[c].title)).toEqual([
-      'Back up', 'Restore', 'Automatic backups', 'Automatic backup copies',
+      'Back up', 'Restore', 'Automatic backups', 'Saved automatic copies',
     ])
     expect(cardsOf('storage').map((c) => CARDS[c].title)).toEqual(['Cleanup', 'Unused voice clips', 'Trash', 'Temp files', 'Previous library'])
     expect(cardsOf('activity').map((c) => CARDS[c].title)).toEqual(['Cost by title', 'Reading history'])

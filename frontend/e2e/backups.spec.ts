@@ -21,7 +21,7 @@ async function openAuto(page: Page) {
 
 async function openAdmin(page: Page) {
   await page.goto('/#/library-tools?tab=backup')
-  await openFold(page, 'Automatic backup copies')
+  await openFold(page, 'Saved automatic copies')
   return page.getByTestId('snapshot-block')
 }
 

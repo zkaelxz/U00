@@ -31,7 +31,7 @@ export const CARDS = {
   backup: { tab: 'backup', title: 'Back up' },
   restore: { tab: 'backup', title: 'Restore' },
   'auto-backup': { tab: 'backup', title: 'Automatic backups' },
-  'auto-copies': { tab: 'backup', title: 'Automatic backup copies' },
+  'auto-copies': { tab: 'backup', title: 'Saved automatic copies' },
   cleanup: { tab: 'storage', title: 'Cleanup' },
   'unused-clips': { tab: 'storage', title: 'Unused voice clips' },
   trash: { tab: 'storage', title: 'Trash' },

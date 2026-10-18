@@ -46,7 +46,7 @@ test('Automatic backups card fits a phone with 44px targets', async ({ page }) =
 test('restore one title from the newest copy on a phone', async ({ page }) => {
   const state = await mockBackups(page)
   await page.goto('/#/library-tools?tab=backup')
-  await openFold(page, 'Automatic backup copies')
+  await openFold(page, 'Saved automatic copies')
   const block = page.getByTestId('snapshot-block')
   await expect(block.getByTestId('snapshot-info')).toContainText('Database only · 12.3 MB · 3 titles')
   await block.scrollIntoViewIfNeeded()
@@ -88,7 +88,7 @@ test('restore one title from the newest copy on a phone', async ({ page }) => {
 test('import from a backup file fits a phone with 44px targets', async ({ page }) => {
   await mockBackups(page)
   await page.goto('/#/library-tools?tab=backup')
-  await openFold(page, 'Automatic backup copies')
+  await openFold(page, 'Saved automatic copies')
   const block = page.getByTestId('snapshot-block')
   await block.scrollIntoViewIfNeeded()
   await block.getByRole('button', { name: 'From a backup file…' }).click()
