@@ -38,8 +38,9 @@ from services import backup_space_check as space
 from services import library_admin_service as las
 from services import library_backup_service as lbs
 from services.auto_backup_copies import (_MANAGED, _MAX_COPY_NAME_LEN, _NO_COPY, _NO_SNAPSHOT, _classify,
-                                         _identity, _identity_info, _list_copies, _pick_copy,
-                                         _prune, _record_copy, _snapshot_lock, snapshot_info)
+                                         _identity, _identity_info, _keep_last_sources_copy,
+                                         _list_copies, _pick_copy, _prune, _record_copy,
+                                         _snapshot_lock, snapshot_info)
 from services.auto_backup_files import (_fsync_file, _manifest_bytes, _move_copies,
                                         _place_copy, _verify_snapshot)
 from services.auto_backup_settings import (FREQUENCIES, SETTINGS_KEY, _check_folder, _get_state,
@@ -69,8 +70,8 @@ _UNMANAGED = ("That copy isn't managed by this library (another library's, one m
 
 _FAILED = "The backup could not be written; the existing copies were kept."
 # Shown with a copy written without sources.db (write_backup_zip's left_out).
-SOURCES_LEFT_OUT = ("sources.db was damaged and is not in this copy; older copies were kept, "
-                    "so the newest good one still has it.")
+SOURCES_LEFT_OUT = ("sources.db was damaged and is not in this copy; the newest copy that "
+                    "has it is kept until you delete it.")
 
 
 _CHECK_FAILED = "The automatic backup check failed, so no backup was started."
@@ -133,6 +134,7 @@ def settings_overview() -> dict:
             "last_run_at": state.get("last_success_at"),
             "last_attempt_at": state.get("last_attempt_at"),
             "last_error": state.get("last_error"),
+            "last_note": SOURCES_LEFT_OUT if state.get("last_sources_left_out") else None,
             "next_run_at": _iso(nxt) if nxt else None,
             "running": job_running(),
             "copies": snapshot_info()["copies"]}
@@ -174,8 +176,8 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
         left_out = []
         skipped = lbs.write_backup_zip(tmp, include_media=include_media,
-                                       manifest=lambda snap: _manifest_bytes(snap, include_media,
-                                                                             owner),
+                                       manifest=lambda snap: _manifest_bytes(
+                                           snap, include_media, owner, bool(left_out)),
                                        should_cancel=lambda: background_jobs.is_cancel_requested(
                                            job_id),
                                        left_out=left_out)
@@ -196,11 +198,11 @@ def _backup_job(job_id, include_media: bool, scheduled: bool = False):
                              {c["name"] for c in _list_copies(target)})
                 _fsync_dir(target)
                 if left_out:
-                    # The older copies may be the only ones holding a sound
-                    # sources.db, so this run deletes none of them.
+                    # Before any prune: if marking fails, nothing is deleted.
+                    _keep_last_sources_copy(target, os.path.basename(final))
                     log.warning("Automatic backup: sources.db is damaged and was left out of "
-                                "the copy; no old copies were deleted this time")
-                elif foreign_above:
+                                "the copy")
+                if foreign_above:
                     log.warning("Automatic backup: the backup folder has a copy with this "
                                 "library's id (%s) numbered above its own counter (another "
                                 "PC using a copy of this library, or a library.db restored "

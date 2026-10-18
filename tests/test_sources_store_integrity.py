@@ -137,13 +137,124 @@ class TestAutomaticBackup:
         with zipfile.ZipFile(good) as zf:
             assert "sources.db" in zf.namelist()
         assert _read(good) == good_bytes
-        # Older copies may be the only ones with a sound sources.db.
-        assert pruned == []
+        assert abc_._read_copy(new)[1]["sources_left_out"] is True
+        assert "sources_left_out" not in abc_._read_copy(good)[1]
+        assert abc_._identity_info()["sources_keep"] == [os.path.basename(good)]
+        assert len(pruned) == 1   # the rotation still runs; the marked copy is spared
         assert results[-1]["sources_left_out"] is True
         assert messages[-1].endswith(abs_.SOURCES_LEFT_OUT)
         state = abt_._get_state()
         assert state["last_error"] is None and state["last_sources_left_out"] is True
+        assert abs_.settings_overview()["last_note"] == abs_.SOURCES_LEFT_OUT
+        info = abc_.snapshot_info()
+        assert [(c["sources_left_out"], c["kept_as"]) for c in info["copies"]] == [
+            (True, "daily"), (False, "weekly")]
+        assert info["sources_left_out"] is True
         assert _read(store.db_path()) == damaged
+
+    def test_a_damaged_header_still_backs_up_library_db(self, isolated_db):
+        import zipfile
+        from services import auto_backup_copies as abc_
+        from services import auto_backup_service as abs_
+        from services import auto_backup_settings as abt_
+        isolated_db.create_drama(title_en="A")
+        store.set_setting("x", 1)
+        with open(store.db_path(), "r+b") as fh:
+            fh.write(b"\x00" * 100)    # the SQLite header: "file is not a database"
+        damaged = _read(store.db_path())
+        abs_._backup_job(abs_.JOB_ID, False)
+        [copy] = abc_._list_copies(abt_._target_dir(create=False))
+        with zipfile.ZipFile(copy["path"]) as zf:
+            assert "library.db" in zf.namelist() and "sources.db" not in zf.namelist()
+        assert abt_._get_state()["last_sources_left_out"] is True
+        assert _read(store.db_path()) == damaged
+
+    def test_a_busy_sources_db_still_fails_the_run(self, isolated_db, monkeypatch):
+        from services import auto_backup_copies as abc_
+        from services import auto_backup_service as abs_
+        from services import auto_backup_settings as abt_
+        isolated_db.create_drama(title_en="A")
+        store.set_setting("x", 1)
+
+        def busy(dest):
+            raise OSError("sources snapshot could not be prepared")
+        monkeypatch.setattr(store, "backup_snapshot", busy)
+        with pytest.raises(RuntimeError):
+            abs_._backup_job(abs_.JOB_ID, False)
+        assert abt_._get_state()["last_error"] == abs_._FAILED
+        assert abc_._list_copies(abt_._target_dir(create=False)) == []
+
+    def test_the_last_copy_with_sources_db_outlives_a_long_spell_and_the_fix(
+            self, isolated_db, monkeypatch):
+        import datetime
+        import zipfile
+        from services import auto_backup_copies as abc_
+        from services import auto_backup_files as abf_
+        from services import auto_backup_service as abs_
+        from services import auto_backup_settings as abt_
+
+        def run(day):
+            when = datetime.datetime(2026, 3, 1, 3, tzinfo=datetime.timezone.utc) \
+                + datetime.timedelta(days=day)
+            for mod in (abs_, abt_, abc_, abf_):
+                monkeypatch.setattr(mod, "_now", lambda: when)
+            abs_._backup_job(abs_.JOB_ID, False)
+            return f"baihe_snapshot-{when:%Y%m%d-%H%M%S}.zip"
+
+        def names():
+            return {c["name"] for c in abc_._list_copies(abt_._target_dir(create=False))}
+
+        isolated_db.create_drama(title_en="A")
+        store.set_setting("followed", "series")
+        run(0)
+        last_good = run(1)
+        _damage(store.db_path())
+        for day in range(2, 24):           # three weeks of damaged runs
+            run(day)
+        assert last_good in names() and len(names()) <= 5
+        # The owner moves the damaged file aside, as the warning says; the
+        # app starts a new, empty one and the runs see a sound sources.db.
+        os.replace(store.db_path(), store.db_path() + ".damaged")
+        store._initialised.clear()
+        store.set_setting("x", 1)
+        for day in range(24, 45):
+            run(day)
+        assert last_good in names() and len(names()) <= 5
+        kept = {c["name"]: c["kept_as"] for c in abc_.snapshot_info()["copies"]}
+        assert kept[last_good] == "sources"
+        with zipfile.ZipFile(os.path.join(abt_._target_dir(create=False), last_good)) as zf:
+            assert "sources.db" in zf.namelist()
+        # Deleting it by name is the owner's call; the mark goes with it.
+        abs_.delete_snapshot(confirm=True, confirm_text="DELETE", snapshot=last_good)
+        run(45)
+        assert last_good not in names()
+        assert abc_._identity_info()["sources_keep"] == []
+
+    def test_without_the_mark_a_long_spell_would_lose_it(self, isolated_db, monkeypatch):
+        """The rotation on its own: what the mark prevents."""
+        import datetime
+        from services import auto_backup_copies as abc_
+        from services import auto_backup_files as abf_
+        from services import auto_backup_service as abs_
+        from services import auto_backup_settings as abt_
+        monkeypatch.setattr(abs_, "_keep_last_sources_copy", lambda *a: None)
+
+        def run(day):
+            when = datetime.datetime(2026, 3, 1, 3, tzinfo=datetime.timezone.utc) \
+                + datetime.timedelta(days=day)
+            for mod in (abs_, abt_, abc_, abf_):
+                monkeypatch.setattr(mod, "_now", lambda: when)
+            abs_._backup_job(abs_.JOB_ID, False)
+            return f"baihe_snapshot-{when:%Y%m%d-%H%M%S}.zip"
+
+        isolated_db.create_drama(title_en="A")
+        store.set_setting("x", 1)
+        last_good = run(0)
+        _damage(store.db_path())
+        for day in range(1, 24):
+            run(day)
+        names = {c["name"] for c in abc_._list_copies(abt_._target_dir(create=False))}
+        assert last_good not in names
 
     def test_a_sound_sources_db_is_in_the_copy_and_rotation_runs(self, isolated_db, monkeypatch):
         import zipfile

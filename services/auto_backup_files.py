@@ -171,9 +171,11 @@ def _app_version() -> str:
         return "unknown"
 
 
-def _manifest_bytes(snap_path: str, include_media: bool, owner: tuple) -> bytes:
+def _manifest_bytes(snap_path: str, include_media: bool, owner: tuple,
+                    sources_left_out: bool = False) -> bytes:
     """owner = (library id, sequence) from _identity: what makes the copy
-    this library's (see _classify)."""
+    this library's (see _classify). sources_left_out: the copy has no
+    sources.db because it was damaged (see _keep_last_sources_copy)."""
     with contextlib.closing(sqlite3.connect(ro_uri(snap_path), uri=True)) as conn:
         rows = conn.execute("SELECT id, title_en, title_zh, media_type FROM dramas "
                             "ORDER BY id").fetchall()
@@ -185,6 +187,8 @@ def _manifest_bytes(snap_path: str, include_media: bool, owner: tuple) -> bytes:
                 "kind": "full" if include_media else "db-only",
                 "app_version": _app_version(), "database_size": os.path.getsize(snap_path),
                 "library_id": owner[0], "sequence": owner[1], "dramas": dramas}
+    if sources_left_out:
+        manifest["sources_left_out"] = True
     return json.dumps(manifest, ensure_ascii=False).encode("utf-8")
 
 

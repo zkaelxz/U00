@@ -80,7 +80,8 @@ log = logging.getLogger(__name__)
 
 # {"library_id": 32 hex, "sequence": last copy number, "created_at": ISO
 # time the id was made, "written": [[sequence, file name], ...] of this
-# library's copies still in the folder}. A whole-library restore keeps the
+# library's copies still in the folder, "sources_keep": [file name, ...]
+# (see _keep_last_sources_copy)}. A whole-library restore keeps the
 # current value (library_restore_service copies this key from the live
 # library).
 IDENTITY_KEY = "auto_backup.identity"
@@ -92,6 +93,10 @@ _LIBRARY_ID_RE = re.compile(r"[0-9a-f]{32}", re.ASCII)
 # A bound on the written list; a copy that falls off it only becomes
 # unmanaged (kept), never someone else's.
 _MAX_WRITTEN = 200
+
+
+# A bound on sources_keep: one name per spell of damaged sources.db runs.
+_MAX_SOURCES_KEEP = 20
 
 
 # The sequence decides which copy is newest, even when a clock correction
@@ -160,20 +165,24 @@ def _is_sequence(value) -> bool:
 
 def _normalise_identity(stored):
     """The stored identity with every field checked ({library_id, sequence,
-    created_at (str or None), written}), or None when it has no valid id."""
+    created_at (str or None), written, sources_keep}), or None when it has
+    no valid id."""
     if not (isinstance(stored, dict) and isinstance(stored.get("library_id"), str)
             and _LIBRARY_ID_RE.fullmatch(stored["library_id"])):
         return None
     seq = stored.get("sequence")
     created = stored.get("created_at")
     written = stored.get("written")
+    keep = stored.get("sources_keep")
     return {"library_id": stored["library_id"],
             "sequence": seq if _is_sequence(seq) else 0,
             "created_at": created if _parse(created) is not None else None,
             "written": [[w[0], w[1]] for w in written
                         if isinstance(w, list) and len(w) == 2 and _is_sequence(w[0])
                         and isinstance(w[1], str)][-_MAX_WRITTEN:]
-            if isinstance(written, list) else []}
+            if isinstance(written, list) else [],
+            "sources_keep": [k for k in keep if isinstance(k, str)][-_MAX_SOURCES_KEEP:]
+            if isinstance(keep, list) else []}
 
 
 def _change_identity(change=None) -> dict:
@@ -193,7 +202,7 @@ def _change_identity(change=None) -> dict:
                 stored = None
             ident = _normalise_identity(stored) or {
                 "library_id": uuid.uuid4().hex, "sequence": 0, "created_at": None,
-                "written": []}
+                "written": [], "sources_keep": []}
             if ident["created_at"] is None:
                 ident["created_at"] = _iso(_now())
             if change is not None:
@@ -240,7 +249,33 @@ def _record_copy(sequence: int, name: str, present: set):
         ident["written"] = [w for w in ident["written"]
                             if w[1] in present and w[1] != name][-(_MAX_WRITTEN - 1):]
         ident["written"].append([sequence, name])
+        ident["sources_keep"] = [k for k in ident["sources_keep"] if k in present]
     _change_identity(record)
+
+
+def _keep_last_sources_copy(folder: str, new_name: str):
+    """After copy `new_name` was written without sources.db (it was
+    damaged): marks the newest older managed copy that still has one, so
+    the rotation never deletes it (a copy whose manifest says
+    sources_left_out has none). Over a long spell of such runs, and after
+    the owner replaces the damaged file, that copy may be the only one
+    holding their followed series and import history; it stays until the
+    owner deletes it by name. The caller holds _snapshot_lock."""
+    entries = _classify(folder)
+    new = next((e for e in entries if e["name"] == new_name), None)
+    if new is None:
+        return
+    last = next((e for e in entries
+                 if e is not new and e["owner"] in _MANAGED and e["state"] == _OK
+                 and e["at"] <= new["at"] and not e["manifest"].get("sources_left_out")),
+                None)
+    if last is None:
+        return
+
+    def keep(ident):
+        if last["name"] not in ident["sources_keep"]:
+            ident["sources_keep"] = (ident["sources_keep"] + [last["name"]])[-_MAX_SOURCES_KEEP:]
+    _change_identity(keep)
 
 
 def _recorded(ident: dict, manifest, name: str) -> bool:
@@ -451,9 +486,10 @@ def _prune(folder: str, new_name: str) -> int:
     `new_name` in place (and recorded it); it is always kept and anchors
     the rule. Only managed copies in _rotation_pool are ever deleted: never
     another library's or a clone's, never one that can't be read or proves
-    no owner. Nothing is deleted unless the new copy reads back as this
-    library's."""
-    entries = _classify(folder)
+    no owner, never one kept for its sources.db (_keep_last_sources_copy).
+    Nothing is deleted unless the new copy reads back as this library's."""
+    ident = _identity_info()
+    entries = _classify(folder, ident)
     new = next((e for e in entries if e["name"] == new_name), None)
     if new is None or new["owner"] != _THIS:
         return 0
@@ -461,7 +497,7 @@ def _prune(folder: str, new_name: str) -> int:
     kept = _retention(pool)
     removed = 0
     for copy in pool:
-        if copy["name"] in kept:
+        if copy["name"] in kept or copy["name"] in ident["sources_keep"]:
             continue
         try:
             os.remove(copy["path"])     # removes a name, never follows a link
@@ -529,10 +565,12 @@ def snapshot_info() -> dict:
     be picked safely: {exists, readable: True, choose_copy: True,
     default_copy: None, copies}. copies lists every copy newest first (by
     name date) as {name, created_at, size, kind, drama_count, readable,
-    kept_as, managed, sequence}: names only, never paths. When copies exist
+    kept_as, managed, sequence, sources_left_out}: names only, never paths
+    (kept_as "sources": kept only for its sources.db). When copies exist
     but none can be read: {exists: True, readable: False, copies}."""
     with _snapshot_lock:
-        entries = _classify(_target_dir(create=False))
+        ident = _identity_info()
+        entries = _classify(_target_dir(create=False), ident)
     if not entries:
         return {"exists": False, "copies": []}
     # As the next run would see it: anchored on this library's newest copy.
@@ -547,8 +585,10 @@ def snapshot_info() -> dict:
                        "size": e["size"], "readable": manifest is not None,
                        "kind": manifest["kind"] if manifest else None,
                        "drama_count": len(manifest["dramas"]) if manifest else None,
-                       "kept_as": kept.get(e["name"]),
-                       "managed": e["owner"] in _MANAGED, "sequence": e["sequence"]})
+                       "kept_as": kept.get(e["name"]) or (
+                           "sources" if e["name"] in ident["sources_keep"] else None),
+                       "managed": e["owner"] in _MANAGED, "sequence": e["sequence"],
+                       "sources_left_out": bool(manifest and manifest.get("sources_left_out"))})
     pick, ambiguous = _default_pick(entries)
     if ambiguous:
         return {"exists": True, "readable": True, "choose_copy": True, "default_copy": None,
@@ -558,6 +598,7 @@ def snapshot_info() -> dict:
     entry = next(c for c in copies if c["name"] == pick["name"])
     return {"exists": True, "readable": True, "choose_copy": False,
             "default_copy": pick["name"], "created_at": entry["created_at"],
+            "sources_left_out": entry["sources_left_out"],
             "kind": entry["kind"], "size": entry["size"],
             "app_version": pick["manifest"].get("app_version") or "unknown",
             "drama_count": entry["drama_count"], "copies": copies}

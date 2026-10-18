@@ -189,6 +189,26 @@ _BACKUP_FILES_SHARE = 0.95
 _BACKUP_PROGRESS_INTERVAL = 0.25
 
 
+def _sources_snapshot(dest: str, left_out):
+    """src_store.backup_snapshot, except that with a `left_out` list a
+    damaged sources.db gives None (noted in the list) instead of a copy:
+    one the snapshot copied page for page, or one that made the snapshot
+    itself fail (a damaged header, a damaged settings page). Any other
+    failure, a busy file included, still raises."""
+    if left_out is None:
+        return src_store.backup_snapshot(dest)
+    try:
+        snap = src_store.backup_snapshot(dest)
+    except OSError:
+        if not sqlite_check.damaged(src_store.db_path()):
+            raise
+    else:
+        if snap is None or not sqlite_check.damaged(snap):
+            return snap   # None: there is no sources.db yet
+    left_out.append("sources.db")
+    return None
+
+
 def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                      progress=None, should_cancel=None, left_out=None):
     """Writes a backup zip to `dest`: sanitized library.db and sources.db snapshots and,
@@ -219,10 +239,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
         snap = os.path.join(snapdir, "library.db")
         check_cancel()
         _sanitized_snapshot(snap)
-        src_snap = src_store.backup_snapshot(os.path.join(snapdir, "sources.db"))
-        if src_snap and left_out is not None and sqlite_check.damaged(src_snap):
-            src_snap = None
-            left_out.append("sources.db")
+        src_snap = _sources_snapshot(os.path.join(snapdir, "sources.db"), left_out)
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             if include_media:
                 if progress is not None:
