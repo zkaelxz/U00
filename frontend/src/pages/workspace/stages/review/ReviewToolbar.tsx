@@ -84,7 +84,7 @@ function JumpInput({ value, max, label, describedBy, placeholder, className, onJ
       aria-describedby={describedBy}
       placeholder={placeholder}
       value={shown}
-      style={{ width: `${Math.max(String(max).length, 1) + 1.5}ch` }}
+      style={{ width: `${Math.max(String(max).length, 1) + 0.5}ch` }}
       onFocus={(e) => e.currentTarget.select()}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
