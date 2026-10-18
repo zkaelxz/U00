@@ -297,10 +297,12 @@ function SavedSettings({ dramaId, step, edits, onFields, onEdit, onReset }: Save
           <p className="muted">
             Starts at the title's saved settings. Changes here apply to this queued step only; the title keeps its own.
           </p>
-          {fieldList.map((f) => (
-            <SettingControl key={f.key} field={f} value={f.key in edits ? edits[f.key] : f.value}
-              onChange={(v) => onEdit(f.key, v === f.value ? undefined : v)} />
-          ))}
+          <div className="queue-settings-grid">
+            {fieldList.map((f) => (
+              <SettingControl key={f.key} field={f} value={f.key in edits ? edits[f.key] : f.value}
+                onChange={(v) => onEdit(f.key, v === f.value ? undefined : v)} />
+            ))}
+          </div>
           {changes > 0 && (
             <div className="queue-row">
               <span className="muted" role="status">{changes === 1 ? '1 change' : `${changes} changes`} for this step</span>
