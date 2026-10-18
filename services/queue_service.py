@@ -292,11 +292,26 @@ def _cap_left() -> str:
     return f"${max(cap - db.get_month_spend(since_reset=True), 0):.2f} of ${cap:.2f}"
 
 
-def _translate_cost(drama_id: int, engine: str) -> str:
+def _queued_model_and_batch(drama: dict, engine: str):
+    """(model, batch size) the queued run will use beyond the engine's defaults: the title's
+    last run's, the model only while it is still offered (start_translate_run falls back
+    to the default otherwise). None where the default applies."""
+    last = profile_service.title_run_defaults(drama, engine, engine)
+    model = last.get("model")
+    if model:
+        try:
+            translate_run_service._require_offered_model(engine, model)
+        except InvalidInputError:
+            model = None
+    return model, last.get("batch_size")
+
+
+def _translate_cost(drama_id: int, engine: str, model=None, batch_size=None) -> str:
     if engine in translate_engines.FREE_ENGINES:
         return "Free"
     try:
-        est = translate_run_service.estimate_translate_cost(drama_id)
+        est = translate_run_service.estimate_translate_cost(
+            drama_id, model=model, batch_size=batch_size)
     except ServiceError:
         return "No estimate yet; uses your API key and costs money"
     return f"About ${est['estimated_usd']:.2f}; uses your API key and costs money"
@@ -311,7 +326,8 @@ def _translate_rows(drama: dict) -> list:
     engine = args["engine"]
     # The queued run repeats the title's last run (start_translate_run reads the same values).
     last = profile_service.title_run_defaults(drama, engine, engine)
-    model = last.get("model") or translate_engines.effective_default_model(engine)
+    saved_model, saved_batch = _queued_model_and_batch(drama, engine)
+    model = saved_model or translate_engines.effective_default_model(engine)
     novel = drama.get("content_mode") == "novel_narration"
     preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
     options = translate_run_service.get_translate_config_defaults(novel, engine, model)
@@ -328,7 +344,7 @@ def _translate_rows(drama: dict) -> list:
         _row("Source language", _LANGUAGES.get(drama.get("source_language") or "zh", "Chinese")),
         _row("English variant", args["locale"]),
         _row("Style note", "Set" if args["style_note"] else "None"),
-        _row("Batch size", last.get("batch_size", options["batch_size"])),
+        _row("Batch size", saved_batch or options["batch_size"]),
         _row("Thinking", _on(thinking)),
         _row("Glossary", f"On, {terms} terms" if terms else "Off, no glossary terms yet"),
         _row("Language packs", ", ".join(packs) if packs else "Off"),
@@ -336,7 +352,7 @@ def _translate_rows(drama: dict) -> list:
         _row("Reply check", _on(guard)),
         # Only a bulk run waits for DeepSeek's off-peak hours; the queue starts a normal one.
         _row("Off-peak start", "Off: the queue runs it right away"),
-        _row("Cost", _translate_cost(drama_id, engine)),
+        _row("Cost", _translate_cost(drama_id, engine, saved_model, saved_batch)),
         _row("Monthly cap left", _cap_left()),
     ]
 
@@ -555,11 +571,12 @@ def _holds(principal, permission: str) -> bool:
     return principal is None or permission in principal.get("permissions", ())
 
 
-def _check_translate_spend(drama_id: int) -> None:
+def _check_translate_spend(drama_id: int, model=None, batch_size=None) -> None:
     """The unattended twin of the Translate stage's estimate: refuse before
     any paid call when this month's cap is used up or the estimate is above
     what is left of it. The run itself still enforces the cap as it goes."""
-    est = translate_run_service.estimate_translate_cost(drama_id)
+    est = translate_run_service.estimate_translate_cost(
+        drama_id, model=model, batch_size=batch_size)
     if not est["cap_applies"]:
         return
     # Like the scheduled model re-evaluation: unattended paid work needs a ceiling.
@@ -601,7 +618,7 @@ def _start_translate(principal, drama: dict) -> str:
     if args["engine"] not in translate_engines.FREE_ENGINES and not holds_paid:
         raise ForbiddenError("This title translates with a paid engine, which the account "
                              "that added it can't use.")
-    _check_translate_spend(drama["id"])
+    _check_translate_spend(drama["id"], *_queued_model_and_batch(drama, args["engine"]))
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama["id"], None, False,
         style_note=args["style_note"], locale=args["locale"],

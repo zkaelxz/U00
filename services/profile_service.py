@@ -159,8 +159,12 @@ def title_run_defaults(drama: dict, engine_name: str, title_engine: str) -> dict
     start = translate_start(drama)
     out = {k: start[k] for k in ("style_preset", "style_note", "locale", "batch_size",
                                  "context_window", "context_window_ahead") if k in start}
-    if engine_name == title_engine and "engine_model" in start:
-        out["model"] = start["engine_model"]
+    model = start.get("engine_model")
+    # A cloud tag is paid work the request's own gate only sees when the client sends it,
+    # so a run that was handed no model never picks one up here.
+    if (engine_name == title_engine and model
+            and not (engine_name == "ollama" and translate_engines.is_ollama_cloud_model(model))):
+        out["model"] = model
     return out
 
 
@@ -179,7 +183,8 @@ def remember_run(drama_id: int, drama: dict, *, on_title_engine: bool, model, st
     the run did not pick (None) clears the old one, so the engine's default
     applies again. The spend modes (Reflect, bulk, cost cap, fallbacks) are not kept:
     a later run must not repeat a paid mode nobody chose this time."""
-    start = translate_start(drama)
+    # Read again: a profile applied while the run started would be lost otherwise.
+    start = translate_start(db.get_drama(drama_id) or drama)
     start.update(style_preset=style_preset, style_note=style_note, locale=locale,
                  context_window=context_window, context_window_ahead=context_window_ahead)
     if batch_size is None:

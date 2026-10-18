@@ -58,12 +58,15 @@ def rehear_row(drama: dict) -> dict:
 def rehear_audio_path(drama: dict, audio_path: str) -> str:
     """The audio a line is heard from again: the vocals a "Separate vocals first"
     run left beside the audio (transcribe_pipeline's vocals.wav), else the audio
-    itself. A vocals file older than the audio is from media since replaced."""
+    itself. A vocals file older than the audio is from media since replaced; the
+    audio's creation/change time counts as well as its modified time, because a
+    copy that keeps the old modified time is still a new file."""
     if not drama.get("separate_vocals_first"):
         return audio_path
     vocals = os.path.join(os.path.dirname(audio_path), "vocals.wav")
     try:
-        if os.path.getmtime(vocals) >= os.path.getmtime(audio_path):
+        audio = os.stat(audio_path)
+        if os.path.getmtime(vocals) >= max(audio.st_mtime, audio.st_ctime):
             return vocals
     except OSError:
         pass

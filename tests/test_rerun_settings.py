@@ -238,3 +238,94 @@ def test_library_batch_with_a_chosen_variant_uses_it_for_every_title(isolated_db
     workspace_job_service.run_bulk_series_translate_job(
         "bulk", [did], {"fake": "k"}, default_locale="en-AU", locale_is_explicit=True)
     assert translate_job["args"][_LOCALE] == "en-AU"
+
+
+# ---- a remembered cloud tag is never picked up by a run that named no model ----
+
+CLOUD = "gpt-oss:120b-cloud"
+
+
+def _ollama_title_that_last_ran_on_cloud():
+    did = db.create_drama(title_zh="D", translation_engine="ollama")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+    profile_service.remember_run(
+        did, db.get_drama(did), on_title_engine=True, model=CLOUD, style_preset="audio_drama",
+        style_note="", locale="en-GB", batch_size=None, context_window=1, context_window_ahead=1)
+    return did
+
+
+def test_cloud_tag_stays_a_form_start_but_is_not_applied_by_the_server(isolated_db):
+    did = _ollama_title_that_last_ran_on_cloud()
+    drama = db.get_drama(did)
+    assert profile_service.translate_start(drama)["engine_model"] == CLOUD
+    assert "model" not in profile_service.title_run_defaults(drama, "ollama", "ollama")
+
+
+def test_run_without_a_model_does_not_use_the_remembered_cloud_tag(isolated_db, translate_job):
+    did = _ollama_title_that_last_ran_on_cloud()
+    translate_run_service.start_translate_run(did)
+    assert translate_job["args"][3].model != CLOUD
+    assert translate_job["args"][_LOCALE] == "en-GB"   # the rest is still repeated
+
+
+def test_library_batch_does_not_use_the_remembered_cloud_tag(isolated_db, translate_job):
+    did = _ollama_title_that_last_ran_on_cloud()
+    workspace_job_service.run_bulk_series_translate_job(
+        "bulk", [did], {}, locale_is_explicit=False)
+    assert translate_job["args"][3].model != CLOUD
+
+
+def test_queue_does_not_use_or_price_the_remembered_cloud_tag(isolated_db):
+    did = _ollama_title_that_last_ran_on_cloud()
+    assert queue_service._queued_model_and_batch(db.get_drama(did), "ollama") == (None, None)
+
+
+# ---- the queue prices the model and batch size it will run with ----
+
+def test_queue_cost_is_estimated_for_the_remembered_model_and_batch(isolated_db, monkeypatch):
+    did = _seeded()
+    profile_service.remember_run(
+        did, db.get_drama(did), on_title_engine=True, model="model-a", style_preset="audio_drama",
+        style_note="", locale="en-US", batch_size=9, context_window=1, context_window_ahead=1)
+    monkeypatch.setattr(translate_run_service, "_require_offered_model", lambda e, m: None)
+    seen = {}
+
+    def estimate(drama_id, **kw):
+        seen.update(kw)
+        raise queue_service.ServiceError("stop")
+    monkeypatch.setattr(translate_run_service, "estimate_translate_cost", estimate)
+    model, batch = queue_service._queued_model_and_batch(db.get_drama(did), "fake")
+    queue_service._translate_cost(did, "claude", model, batch)
+    assert seen == {"model": "model-a", "batch_size": 9}
+
+
+def test_queue_shows_the_default_when_the_remembered_model_is_gone(isolated_db):
+    did = _seeded()
+    profile_service.remember_run(
+        did, db.get_drama(did), on_title_engine=True, model="gone-model", style_preset="audio_drama",
+        style_note="", locale="en-US", batch_size=None, context_window=1, context_window_ahead=1)
+    assert queue_service._queued_model_and_batch(db.get_drama(did), "fake")[0] is None
+
+
+# ---- remembering does not undo a profile applied while the run started ----
+
+def test_a_profile_applied_during_the_start_is_kept(isolated_db):
+    did = _seeded()
+    stale = db.get_drama(did)
+    db.update_drama(did, translate_start_json='{"thinking": true}')
+    profile_service.remember_run(
+        did, stale, on_title_engine=True, model=None, style_preset="audio_drama",
+        style_note="", locale="en-US", batch_size=None, context_window=1, context_window_ahead=1)
+    assert profile_service.translate_start(db.get_drama(did))["thinking"] is True
+
+
+# ---- vocals from media since replaced ----
+
+def test_vocals_of_a_replaced_file_that_kept_its_old_modified_time_are_not_used(isolated_db, started):
+    did, audio, line_id = _title(isolated_db, separate_vocals_first=1)
+    vocals = _vocals_beside(audio)
+    old = os.path.getmtime(vocals) - 100
+    os.utime(vocals, (old, old))                      # the vocals pre-date the file now on disk
+    os.utime(audio, (old - 50, old - 50))             # a copy that kept an older modified time
+    _one_line(did, line_id)
+    assert started["args"][0] == audio
