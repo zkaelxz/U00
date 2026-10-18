@@ -4,7 +4,7 @@
 import { ApiError } from '../api/client'
 import { humanize } from '../components/labels'
 import { ENDPOINTS } from './settings/preferences'
-import { KEY_WRITES_REFUSED } from '../components/errorMessages'
+import { couldNotReachBaihe, keyWritesRefused } from '../components/errorMessages'
 
 // The engines the write endpoint accepts (services/settings_service.KEY_WRITE_ENGINES).
 // URL settings (ollama_url etc.) are not secrets and have no write endpoint.
@@ -31,8 +31,8 @@ export function keyRows(engineKeys: Record<string, boolean>): KeyRow[] {
 // Plain one-line messages; never the server's raw text and never the key.
 export function keyErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 403) return KEY_WRITES_REFUSED
-    if (err.status === 0) return 'Could not reach the Baihe API. Is it running?'
+    if (err.status === 403) return keyWritesRefused()
+    if (err.status === 0) return couldNotReachBaihe()
     if (err.status === 422 || err.status === 400)
       return 'That key was not accepted. Paste it again without spaces or quotes.'
   }

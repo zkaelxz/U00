@@ -2,7 +2,7 @@
 // stage's "Send to Jellyfin"). Unit-tested.
 import { ApiError } from '../../api/client'
 import type { JellyfinConfig, JellyfinScanItem, JellyfinScanReport, JellyfinSendResult } from '../../types/jellyfin'
-import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
+import { couldNotReachBaihe, keyWritesRefused } from '../../components/errorMessages'
 
 export function jellyfinSummary(c: JellyfinConfig): string {
   if (!c.enabled) return 'Off'
@@ -43,8 +43,8 @@ export function sendResultText(r: JellyfinSendResult): string {
 // path or the key), so a 409/422/503 message is safe to show.
 export function jellyfinErrorMessage(err: unknown, keyWrite = false): string {
   if (err instanceof ApiError) {
-    if (err.status === 403) return keyWrite ? KEY_WRITES_REFUSED : 'Jellyfin is PC only. Run this on the main PC.'
-    if (err.status === 0) return 'Could not reach the Baihe API. Is it running?'
+    if (err.status === 403) return keyWrite ? keyWritesRefused() : 'Jellyfin is PC only. Run this on the main PC.'
+    if (err.status === 0) return couldNotReachBaihe()
     if ([404, 409, 422, 503].includes(err.status) && err.message) return err.message
   }
   return 'That did not work. Try again.'

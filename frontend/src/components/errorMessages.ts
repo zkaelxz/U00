@@ -1,20 +1,38 @@
 import type { ApiError } from '../api/client'
+import { getPcMode } from '../api/pcOnly'
+import { getSession } from '../hooks/useSession'
 import { capFirst, engineLabel } from '../labels'
 
 // Plain-language text per stable API error code (api/error_handlers.py).
 // The server's own message is shown as extra detail only for codes where
 // it is written for people, and anything path- or key-like is dropped.
+// Who is reading the error decides whether "see Diagnostics" or "ask the PC owner" is useful.
+// Unknown (/me not answered, auth off) reads as an admin, as useHolds does: the server still refuses.
+export const ASK_PC_OWNER = 'Ask the person who runs Baihe on the PC.'
+
+function canOpenDiagnostics(): boolean {
+  const s = getSession()
+  return s.status !== 'ready' || !s.me.auth_enabled || s.me.permissions.includes('admin.diagnostics')
+}
+
+const DEPENDENCY_ADMIN = 'A tool or package this needs is not installed or not reachable. See Diagnostics.'
+const DEPENDENCY_MEMBER = `A tool or package this needs is not installed or not reachable. ${ASK_PC_OWNER}`
+
+export function couldNotReachBaihe(): string {
+  if (getPcMode() === 'remote' || !canOpenDiagnostics()) {
+    return `Could not reach Baihe. Check your connection, or ask the person who runs Baihe on the PC.`
+  }
+  return 'Could not reach Baihe. Make sure it is still running on this PC.'
+}
+
 const GENERIC: Record<string, string> = {
   validation_error: 'Some of the values entered are not valid. Check them and try again.',
   invalid_input: 'Some of the values entered are not valid. Check them and try again.',
   not_found: 'That item could not be found. It may have been deleted.',
   conflict: 'That cannot be done right now because something else is already using it.',
   unsupported_operation: 'This project type does not support that action.',
-  dependency_unavailable:
-    'A tool or package this needs is not installed or not reachable. See Diagnostics.',
   application_error: 'The action failed. Nothing was changed unless stated otherwise.',
   internal_error: 'Something went wrong inside Baihe. Details are in the app log.',
-  network_error: 'Could not reach the Baihe API. Is it running?',
   forbidden: 'Not allowed from this device or account.',
   model_not_downloaded: 'This model is not downloaded yet. Ask the owner of the main PC to download it first.',
   unauthenticated: 'Your session has ended. Sign in again.',
@@ -52,9 +70,18 @@ export function isForbidden(err: unknown): boolean {
   return e?.status === 403 || e?.code === 'forbidden'
 }
 
-// The one message for a refused key, token or address save (403).
-export const KEY_WRITES_REFUSED =
-  'Change this on the Baihe PC with key writes on. start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1.'
+// The message for a refused key, token or address save (403). The environment variable and .bat hint
+// is for people who can act on it; everyone else is sent to the person who runs Baihe.
+export function keyWritesRefused(): string {
+  const s = getSession()
+  const atPc = getPcMode() === 'local'
+  const holdsSettings = s.status === 'ready' && (!s.me.auth_enabled || s.me.permissions.includes('admin.settings'))
+  if (s.status === 'ready' && !holdsSettings && !atPc) return ASK_PC_OWNER
+  const base = 'Change this on the Baihe PC with key writes on.'
+  return atPc || holdsSettings
+    ? `${base} Details: start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1.`
+    : base
+}
 
 export interface DescribeOptions {
   // PC-only callers: a 403 reads PC_ONLY_FORBIDDEN instead of the generic text.
@@ -69,6 +96,7 @@ export interface DescribeOptions {
 
 // A package the server named in `details` (fixed text; no path or traceback): install it, don't add a key.
 export const MISSING_PACKAGE_TITLE = "A package this needs isn't installed. Install it in Diagnostics."
+const MISSING_PACKAGE_MEMBER = `A package this needs isn't installed. ${ASK_PC_OWNER}`
 
 const SERVER_TEXT_CODES = ['not_found', 'conflict', 'unsupported_operation', 'dependency_unavailable']
 
@@ -120,16 +148,19 @@ export function describeError(
       ? PC_ONLY_FORBIDDEN
       : (ollamaText ??
         (missingKey ? keyTitle : null) ??
-        (missingPackage ? MISSING_PACKAGE_TITLE : null) ??
+        (missingPackage ? (canOpenDiagnostics() ? MISSING_PACKAGE_TITLE : MISSING_PACKAGE_MEMBER) : null) ??
         refusalText ??
         serverTitle ??
         (isRead ? READ_GENERIC[code] : undefined) ??
+        (code === 'dependency_unavailable' ? (canOpenDiagnostics() ? DEPENDENCY_ADMIN : DEPENDENCY_MEMBER) : undefined) ??
+        (code === 'network_error' ? couldNotReachBaihe() : undefined) ??
         GENERIC[code] ??
         (isRead ? READ_GENERIC.application_error : GENERIC.application_error))
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
   const rawDetail = e?.message && showServer && !ollamaText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
-  const detail = rawDetail ? capFirst(rawDetail) : null
+  // The server's sentence may itself send the reader to Diagnostics, which a member cannot open.
+  const detail = rawDetail && (canOpenDiagnostics() || !/Diagnostics/.test(rawDetail)) ? capFirst(rawDetail) : null
   return { title, detail }
 }
 

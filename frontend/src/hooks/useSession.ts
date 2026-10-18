@@ -145,15 +145,16 @@ export function loadSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Pro
   return load
 }
 
-/** Ask /me again now, e.g. after signing in from another tab. */
-export function recheckSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Promise<void> {
+/** Ask /me again now, e.g. after signing in from another tab. Says what /me answered; 'failed' means it did not. */
+export function recheckSession(fetchMe: () => Promise<AuthMe> = () => apiMe()): Promise<'signed_in' | 'signed_out' | 'failed'> {
   return fetchMe().then(
     (me) => {
+      const out = me.auth_enabled && !me.signed_in
       // Still signed out: keep the overlay (and the drafts under it) rather than swap in Login.
-      if (sessionExpired(state) && me.auth_enabled && !me.signed_in) return
-      set({ status: 'ready', me })
+      if (!(out && sessionExpired(state))) set({ status: 'ready', me })
+      return out ? 'signed_out' : 'signed_in'
     },
-    () => undefined,
+    () => 'failed' as const,
   )
 }
 

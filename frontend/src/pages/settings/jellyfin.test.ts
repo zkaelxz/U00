@@ -5,7 +5,7 @@ import type { JellyfinConfig, JellyfinScanItem } from '../../types/jellyfin'
 import {
   itemLabel, jellyfinErrorMessage, jellyfinSummary, readyToSend, scanSummary, sendResultText,
 } from './jellyfin'
-import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
+import { keyWritesRefused } from '../../components/errorMessages'
 
 const cfg: JellyfinConfig = { enabled: true, server_url: 'http://x:8096', library_dir: 'D:\\M', key_configured: true }
 
@@ -32,7 +32,7 @@ describe('jellyfin helpers', () => {
     expect(sendResultText({ drama_id: 1, files: ['Show/S01E01.eng.srt'], refresh: 'done' }))
       .toBe('Saved Show/S01E01.eng.srt. Jellyfin is rescanning the library.')
     expect(sendResultText({ drama_id: 1, files: ['a'], refresh: 'failed' })).toMatch(/run a library scan/)
-    expect(jellyfinErrorMessage(new ApiError(403, { code: 'forbidden', message: 'x' }), true)).toBe(KEY_WRITES_REFUSED)
+    expect(jellyfinErrorMessage(new ApiError(403, { code: 'forbidden', message: 'x' }), true)).toBe(keyWritesRefused())
     expect(jellyfinErrorMessage(new ApiError(409, { code: 'conflict', message: 'a.srt already exists' }))).toBe('a.srt already exists')
     expect(jellyfinErrorMessage(new Error('boom'))).toBe('That did not work. Try again.')
   })

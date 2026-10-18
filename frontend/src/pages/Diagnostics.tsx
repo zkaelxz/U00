@@ -45,7 +45,10 @@ export default function DiagnosticsPage() {
   if (!useHolds('admin.diagnostics')) {
     return (
       <PageShell width="standard" title="Diagnostics" label="Diagnostics" className="diag-page">
-        <p className="muted" data-testid="diagnostics-not-allowed">Only an admin can see this page.</p>
+        <p className="muted" data-testid="diagnostics-not-allowed">
+          Only an admin can see this page. Ask the person who runs Baihe on the PC.{' '}
+          <a href={routeHref({ name: 'library' })}>Back to Library</a>
+        </p>
       </PageShell>
     )
   }

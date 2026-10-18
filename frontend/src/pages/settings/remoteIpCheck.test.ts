@@ -4,7 +4,7 @@ import { ApiError } from '../../api/client'
 import { clearIpCheck, getIpCheckStatus, setIpCheck, testIpCheck } from '../../api/diagnostics'
 import { getPcMode, resetPcModeForTests } from '../../api/pcOnly'
 import { draftProblem, ipCheckErrorMessage, testBadge } from './remoteIpCheck'
-import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
+import { keyWritesRefused } from '../../components/errorMessages'
 
 const SECRET = 'https://ip.example.net/?token=SECRET-DDNS-TOKEN'
 
@@ -35,7 +35,7 @@ describe('remote access: public-address check', () => {
 
   it('explains errors without echoing anything', () => {
     const refused = new ApiError(403, { code: 'forbidden', message: 'Not allowed from this connection.' })
-    expect(ipCheckErrorMessage(refused)).toBe(KEY_WRITES_REFUSED)
+    expect(ipCheckErrorMessage(refused)).toBe(keyWritesRefused())
     expect(ipCheckErrorMessage(refused, false)).toBe('This only works on the main PC.')
     expect(ipCheckErrorMessage(new ApiError(429, { code: 'rate_limited', message: 'x' }), false)).toMatch(/few seconds/)
     expect(ipCheckErrorMessage(new ApiError(422, { code: 'invalid_input', message: 'The address is too long.' })))

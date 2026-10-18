@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiError } from '../api/client'
-import { describeError, isForbidden, summarizeEngineFailure } from './errorMessages'
+import { resetPcModeForTests } from '../api/pcOnly'
+import { resetSessionForTests } from '../hooks/useSession'
+import {
+  ASK_PC_OWNER, couldNotReachBaihe, describeError, isForbidden, keyWritesRefused, summarizeEngineFailure,
+} from './errorMessages'
 
 
 describe('summarizeEngineFailure', () => {
@@ -146,7 +150,7 @@ describe('describeError shows the real reason', () => {
   })
 
   it('a network failure and a timeout read differently for reads and writes', () => {
-    expect(describeError(api(0, 'network_error', 'x', 'GET')).title).toMatch(/Could not reach the Baihe API/)
+    expect(describeError(api(0, 'network_error', 'x', 'GET')).title).toMatch(/Could not reach Baihe\. Make sure it is still running/)
     expect(describeError(api(0, 'timeout', 'x', 'POST')).title).toMatch(/may not have been saved/)
     expect(describeError(api(0, 'timeout', 'x', 'GET')).title).toMatch(/^Could not load.*too long/)
   })
@@ -155,5 +159,49 @@ describe('describeError shows the real reason', () => {
     expect(describeError(api(409, 'conflict', 'A translate job is already running.', 'POST'))).toMatchObject({
       detail: 'A translate job is already running.',
     })
+  })
+})
+
+describe('error text by who is reading', () => {
+  const me = (permissions: string[]) => ({
+    status: 'ready' as const,
+    me: { auth_enabled: true, signed_in: true, sign_in_configured: true, zone: null, user: null, permissions },
+  })
+  const missing = new ApiError(503, { code: 'dependency_unavailable', message: 'OmniVoice is not installed. Install it in Diagnostics.' }, 'POST')
+  afterEach(() => {
+    resetSessionForTests()
+    resetPcModeForTests()
+  })
+
+  it('an admin is sent to Diagnostics and sees the server detail', () => {
+    resetSessionForTests(me(['admin.diagnostics', 'admin.settings']))
+    expect(describeError(missing)).toEqual({
+      title: 'A tool or package this needs is not installed or not reachable. See Diagnostics.',
+      detail: 'OmniVoice is not installed. Install it in Diagnostics.',
+    })
+    expect(keyWritesRefused()).toContain('BAIHE_API_ALLOW_KEY_WRITES=1')
+  })
+
+  it('a member is told to ask the person who runs Baihe, with no Diagnostics pointer or env var', () => {
+    resetSessionForTests(me([]))
+    const { title, detail } = describeError(missing)
+    expect(title).toContain(ASK_PC_OWNER)
+    expect(title).not.toMatch(/Diagnostics/)
+    expect(detail).toBeNull()
+    expect(describeError(new ApiError(503, { code: 'dependency_unavailable', message: 'x', details: { reason: 'missing_package' } }, 'POST')).title).toContain(ASK_PC_OWNER)
+    expect(keyWritesRefused()).toBe(ASK_PC_OWNER)
+  })
+
+  it('away from the PC the unreachable text does not ask whether Baihe is running', () => {
+    resetPcModeForTests('remote')
+    expect(couldNotReachBaihe()).toMatch(/Check your connection/)
+    expect(couldNotReachBaihe()).not.toMatch(/API/)
+  })
+
+  it('a refusal by permission keeps its generic text for everyone', () => {
+    resetSessionForTests(me([]))
+    expect(describeError(new ApiError(403, { code: 'forbidden', message: 'admin.diagnostics' }, 'GET')).title).toBe(
+      'Not allowed from this device or account.',
+    )
   })
 })
