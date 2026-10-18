@@ -31,6 +31,10 @@ class SetupReadiness(BaseModel):
     soynlp: bool
     pytesseract: bool
     paddle_ocr: bool
+    manga_ocr: bool
+    plyer: bool
+    trafilatura: bool
+    playwright: bool
     transformers_ok: bool
     # Qwen3 ASR, speech detection and forced alignment all load through torch + transformers + soundfile.
     qwen3_asr: bool
@@ -38,6 +42,8 @@ class SetupReadiness(BaseModel):
     ffmpeg_libass: bool
     js_runtime: bool
     tesseract_program: bool
+    # Playwright's Chromium, a system Chrome/Edge or an explicit browser path would launch.
+    browser_found: bool
     # Live's Whisper sizes (whisper_models.LIVE_WHISPER_SIZES): the model is already on this PC.
     whisper_cached_tiny: bool
     whisper_cached_base: bool

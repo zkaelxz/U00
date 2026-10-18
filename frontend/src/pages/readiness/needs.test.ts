@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SetupReadiness } from '../../types/setup'
 import {
   ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  notifyNeed,
   scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
@@ -12,7 +13,8 @@ const FRESH: SetupReadiness = {
   demucs: false, pyannote: false, onnxruntime: false, openai: false, anthropic: false, yt_dlp: false, pypdf: false,
   genanki: false, ebooklib: false, cv2: false, jieba: false, sudachi: false, kiwi: false, nagisa: false, soynlp: false,
   pytesseract: false, paddle_ocr: false, transformers_ok: false, qwen3_asr: false, ffmpeg: true, ffmpeg_libass: true,
-  js_runtime: false, tesseract_program: false, gpu_found: true, torch_cuda: false, hf_token_configured: false,
+  js_runtime: false, tesseract_program: false, manga_ocr: false, plyer: false, trafilatura: false, playwright: false,
+  browser_found: false, gpu_found: true, torch_cuda: false, hf_token_configured: false,
   key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false,
   ollama_reachable: false, ollama_model_pulled: false,
   whisper_cached_tiny: false, whisper_cached_base: false, whisper_cached_small: false, whisper_cached_medium: false,
@@ -277,5 +279,19 @@ describe('gpuSettingNote', () => {
     expect(gpuSettingNote({ gpu_found: false } as SetupReadiness)?.reason).toContain('runs on the CPU')
     expect(gpuSettingNote({ gpu_found: true, torch_cuda: false, torch: true } as SetupReadiness)?.id).toBe('gpu_torch')
     expect(gpuSettingNote({ gpu_found: true, torch_cuda: true } as SetupReadiness)).toBeNull()
+  })
+})
+
+describe('notifyNeed', () => {
+  it('says nothing while readiness is unknown or plyer is present', () => {
+    expect(notifyNeed(null)).toBeNull()
+    expect(notifyNeed(READY)).toBeNull()
+  })
+
+  it('names plyer for the popup and says the channels do not need it', () => {
+    const n = notifyNeed(FRESH)!
+    expect(n.packages).toEqual(['plyer'])
+    expect(n.recommended).toBe(true)
+    expect(n.reason).toContain('Discord and ntfy')
   })
 })

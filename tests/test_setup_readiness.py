@@ -33,6 +33,7 @@ def bare_pc(monkeypatch):
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
     monkeypatch.setattr(diagnostics, "check_ffmpeg", lambda: {"found": False, "libass": None})
     monkeypatch.setattr(diagnostics, "check_js_runtime", lambda: {"found": False, "name": None})
+    monkeypatch.setattr(diagnostics, "check_browser", lambda: {"found": False, "name": None, "package": False})
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     monkeypatch.setattr(diagnostics_torch, "torch_family_versions",
                         lambda: {n: {"version": None, "build": None} for n in diagnostics_torch.TORCH_FAMILY})
@@ -92,6 +93,17 @@ def test_paddle_needs_both_packages(monkeypatch, bare_pc):
     svc.clear_cache()
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name in ("paddleocr", "paddle"))
     assert svc.get_readiness()["paddle_ocr"] is True
+
+
+def test_notify_extraction_and_browser_flags(monkeypatch, bare_pc):
+    present = {"manga_ocr", "plyer", "trafilatura", "playwright"}
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name in present)
+    monkeypatch.setattr(diagnostics, "check_browser", lambda: {"found": True, "name": "Chrome", "package": True})
+    body = svc.get_readiness()
+    assert all(body[f] is True for f in ("manga_ocr", "plyer", "trafilatura", "playwright", "browser_found"))
+    svc.clear_cache()
+    monkeypatch.setattr(diagnostics, "check_browser", lambda: (_ for _ in ()).throw(RuntimeError("probe broke")))
+    assert svc.get_readiness()["browser_found"] is False
 
 
 def test_ffmpeg_libass_is_not_assumed_when_ffmpeg_is_missing(monkeypatch, bare_pc):

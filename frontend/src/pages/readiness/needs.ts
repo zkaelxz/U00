@@ -438,3 +438,12 @@ export function audioToolNeed(r: SetupReadiness | null, needsFfmpeg: boolean): N
   }
   return needsFfmpeg ? ffmpegNeed(r) : null
 }
+
+/** The desktop popup when a job finishes goes through plyer; Discord and ntfy do not. */
+export function notifyNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.plyer) return null
+  return {
+    id: 'notify_plyer', label: 'Desktop notifications', action: 'diagnostics', packages: ['plyer'], recommended: true,
+    reason: "Desktop notifications need the plyer package, which isn't installed. The switch saves, but no popup shows until it is. Discord and ntfy don't need it.",
+  }
+}

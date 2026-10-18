@@ -20,6 +20,8 @@ import { humanize } from '../../components/labels'
 import { summarizeEngineFailure } from '../../components/errorMessages'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
+import { useReadiness } from '../../hooks/useReadiness'
+import { NeedsInstall } from '../readiness/NeedsInstall'
 import type { CapabilityRoute, EngineRouting } from '../../types/engineRouting'
 import type { EngineKeyResult, SettingsOverview } from '../../types/settings'
 import { SAVED_ON_PC_NOTE } from './preferences'
@@ -31,6 +33,7 @@ import {
   replaceEngine,
   selectValue,
   statusBadge,
+  taskEngineNeed,
   tagsText,
   testBlockedReason,
   testedText,
@@ -56,6 +59,7 @@ interface Props {
 
 export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTier, onGeminiFreeTier }: Props) {
   const remote = usePcOnly() === 'remote'
+  const { readiness } = useReadiness()
   const [routing, setRouting] = useState<EngineRouting | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
   const [error, setError] = useState<unknown>(null)
@@ -133,7 +137,9 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
         <>
           <h4 className="routing-heading">Tasks</h4>
           <ul className="status-list" aria-label="Tasks">
-            {routing.capabilities.map((cap) => (
+            {routing.capabilities.map((cap) => {
+              const need = taskEngineNeed(cap, rows, readiness)
+              return (
               <li key={cap.id} data-testid={`task-${cap.id}`}>
                 <Field label={cap.label} help={cap.help}>
                   <select
@@ -159,8 +165,10 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
                     )}
                   </div>
                 )}
+                {need && <NeedsInstall need={need} />}
               </li>
-            ))}
+              )
+            })}
           </ul>
         </>
       )}
