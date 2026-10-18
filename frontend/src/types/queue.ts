@@ -27,6 +27,12 @@ export interface QueueSchedule {
   missed: boolean
 }
 
+export interface QueueBulkAdded {
+  queue: QueueState
+  added: number[]
+  skipped: { drama_id: number; reason: string }[]
+}
+
 export interface QueueState {
   version: number
   state: QueueRunState

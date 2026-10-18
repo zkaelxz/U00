@@ -15,6 +15,8 @@ export interface QueueMock {
   fields: Record<string, unknown[]>
   // Body of every add-item call.
   addBodies: Record<string, unknown>[]
+  // Ids the bulk add refuses, with the reason it gives.
+  refuse: Record<number, string>
 }
 
 const SETTINGS_ROWS: Record<string, { label: string; value: string; engine?: string }[]> = {
@@ -60,6 +62,7 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
     settingsReads: [],
     fields: {},
     addBodies: [],
+    refuse: {},
   }
   let nextId = 100
   await page.route('**/api/translate-run/dramas/*/config', (route) => route.fulfill({
@@ -96,6 +99,17 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
         drama_id: id, title: TITLES[id], step,
         ...(step === 'translate' ? { engine: 'claude', paid: true } : {}),
       }))]
+    } else if (r.method() === 'POST' && path === '/api/queue/items/bulk') {
+      mock.addBodies.push(body)
+      const steps = body.step === 'all' ? (['transcribe', 'translate', 'export'] as const) : [body.step as string]
+      const added: number[] = []
+      const skipped: { drama_id: number; reason: string }[] = []
+      for (const id of body.drama_ids as number[]) {
+        if (mock.refuse[id]) { skipped.push({ drama_id: id, reason: mock.refuse[id] }); continue }
+        added.push(id)
+        s.items = [...s.items, ...steps.map((step) => queueItem(nextId++, { drama_id: id, title: TITLES[id] ?? `Title ${id}`, step }))]
+      }
+      return route.fulfill({ json: { queue: s, added, skipped } })
     } else if (path.endsWith('/move')) {
       const n = find()
       const m = body.direction === 'up' ? n - 1 : n + 1

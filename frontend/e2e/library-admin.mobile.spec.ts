@@ -47,6 +47,7 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
     expect(h, text).toBeGreaterThanOrEqual(48)
   }
   await expect(bar.getByRole('button', { name: 'Translate 1' })).toBeVisible()
+  await expect(bar.getByRole('button', { name: 'Add to queue' })).toBeVisible()
   await noSideways(page)
   const filled = await page.locator('button.primary, .btn-primary').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null).length)

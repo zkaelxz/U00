@@ -9,7 +9,7 @@ import type { AdminJob } from './useAdminJob'
 import { SelectionBar } from './SelectionBar'
 import {
   MAX_SELECTION, TRANSLATE_NEEDS, anyJobActive, describeBulkResult, describeClean, describeDeleteResult,
-  describeNoKeySkips, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
+  describeNoKeySkips, describeQueueAdd, describeScan, describeTranslateSkips, exportableCount, exportableIds, formatBytes, percent,
   pruneSelection, selectAllVisible, toggleId, translatableIds, allSelected, selectIds, visibleTitles,
 } from './libraryAdmin'
 
@@ -174,10 +174,34 @@ describe('SelectionBar', () => {
     }
   })
 
+  it('Queue step choice lists the four steps and Add to queue is disabled with nothing selected', () => {
+    const out = bar('local', [d(1)])
+    for (const l of ['>Transcribe<', '>Translate<', '>Export subtitles<', '>All steps<', '>Add to queue<']) expect(out).toContain(l)
+    expect(bar('local', [])).toMatch(/<button[^>]*disabled=""[^>]*>Add to queue<\/button>/)
+  })
+
+  it('without jobs.start: no Add to queue', () => {
+    holds.missing.add('jobs.start')
+    expect(bar('local', [d(1)])).not.toContain('Add to queue')
+  })
+
+  it('phone: Add to queue sits in the Actions menu', () => {
+    expect(bar('local', [d(1)], true)).toContain('>Add to queue<')
+  })
+
   it('phone: count, an Actions menu and Done', () => {
     const out = bar('local', [d(1)], true)
     expect(out).toContain('<summary>Actions</summary>')
     expect(out).toContain('>Done</button>')
+  })
+})
+
+describe('describeQueueAdd', () => {
+  const names = (id: number) => `Title ${id}`
+  it('counts what was added and names each skipped title with its reason', () => {
+    expect(describeQueueAdd({ added: [1, 2], skipped: [] }, names)).toBe('Added 2.')
+    expect(describeQueueAdd({ added: [1], skipped: [{ drama_id: 4, reason: 'Title not found.' }] }, names))
+      .toBe('Added 1, skipped 1: Title 4 (Title not found).')
   })
 })
 

@@ -1,4 +1,4 @@
-import type { QueueSettingEdits, QueueState, QueueStep, QueueStepSettings } from '../types/queue'
+import type { QueueBulkAdded, QueueSettingEdits, QueueState, QueueStep, QueueStepSettings } from '../types/queue'
 import { getJson, postJson } from './client'
 
 type Fetch = typeof fetch
@@ -12,6 +12,9 @@ export const addQueueItem = (dramaId: number, step: QueueStep, settings?: QueueS
 // Transcribe, Translate and Export for one title, added together in that order.
 export const addQueueAllSteps = (dramaId: number, f?: Fetch) =>
   postJson<QueueState>('/api/queue/items/all-steps', { drama_id: dramaId }, f)
+// One step (or 'all') for several titles in one request; a refused title is skipped with its reason.
+export const addQueueBulk = (dramaIds: number[], step: QueueStep | 'all', f?: Fetch) =>
+  postJson<QueueBulkAdded>('/api/queue/items/bulk', { drama_ids: dramaIds, step }, f)
 export const moveQueueItem = (id: number, direction: 'up' | 'down', f?: Fetch) =>
   postJson<QueueState>(`/api/queue/items/${id}/move`, { direction }, f)
 export const removeQueueItem = (id: number, f?: Fetch) =>
