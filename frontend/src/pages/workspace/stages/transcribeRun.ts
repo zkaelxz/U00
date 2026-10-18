@@ -88,3 +88,37 @@ export function runLine(i: RunLineInput): string {
   }
   return `This run will use: ${backend} · ${model} · ${gpuPart(i, ctranslate2)}`
 }
+
+export interface RunSettingsInput {
+  language: string
+  /** The script the form sets, or '' for the title's own. */
+  script: string
+  titleScript?: string
+  voiceDetection: string
+  beamSize: number
+  separateVocals: boolean
+  useGroq: boolean
+  runDiarize: boolean
+  speakers: string
+  extraNames: string
+  promptOverride: string
+}
+
+const LANGUAGE_WORDS: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
+
+/** The options that decide how long and how good the run is, in one line the person can check before a long run. */
+export function runSettingsLine(i: RunSettingsInput): string {
+  const language = LANGUAGE_WORDS[i.language] ?? i.language
+  const script = i.language === 'zh' ? ` (${(i.script || i.titleScript || 'simplified')} script)` : ''
+  const parts = [
+    `${language}${script}`,
+    `voice detection ${i.voiceDetection}`,
+    `beam ${i.beamSize}`,
+    `vocals first ${i.separateVocals ? 'on' : 'off'}`,
+    i.runDiarize ? `speakers on${i.speakers.trim() && i.speakers.trim() !== '0' ? `, ${i.speakers.trim()}` : ''}` : 'speakers off',
+  ]
+  if (i.promptOverride.trim()) parts.push('your own prompt')
+  else if (i.extraNames.trim()) parts.push('extra names added')
+  if (i.useGroq) parts.push('Groq cloud (paid)')
+  return parts.join(' · ')
+}

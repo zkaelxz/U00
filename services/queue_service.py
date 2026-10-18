@@ -372,7 +372,8 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
         raise ForbiddenError("Groq is a paid engine, which your account can't use.")
     if step == "transcribe":
         model_readiness_service.require_ready(
-            at_pc, model_readiness_service.for_transcribe, drama_id, overrides=settings)
+            at_pc, model_readiness_service.for_transcribe, drama_id, overrides=settings,
+            run_diarize=transcribe_options_service.run_start(drama)["run_diarize"])
     return settings
 
 
@@ -618,9 +619,11 @@ def _start_transcribe(principal, drama: dict, settings: dict) -> str:
     if (effective.get("transcript_mode") or "have_transcript") == "have_transcript":
         raise UnsupportedOperationError("This title transcribes from a transcript you paste, "
                                         "so it can't run from the queue.")
-    if not settings:
-        return transcribe_service.start_transcribe_run(drama["id"])["job_id"]
-    return transcribe_service.start_transcribe_run(drama["id"], overrides=settings)["job_id"]
+    # The form's saved run choices (speaker detection, names, prompt), as pressing Transcribe there sends them.
+    args = transcribe_options_service.run_start_args(drama)
+    if settings:
+        args["overrides"] = settings
+    return transcribe_service.start_transcribe_run(drama["id"], **args)["job_id"]
 
 
 def _translate_run_args(drama: dict) -> dict:
@@ -696,7 +699,8 @@ def _start_item(item: dict) -> Optional[str]:
             # Again at start: the title's model choice may have changed since it was added.
             model_readiness_service.require_ready(
                 item["at_pc"], model_readiness_service.for_transcribe, drama["id"],
-                overrides=item.get("settings") or None)
+                overrides=item.get("settings") or None,
+                run_diarize=transcribe_options_service.run_start(drama)["run_diarize"])
             return _start_transcribe(principal, drama, item.get("settings") or {})
         if item["step"] == "translate":
             return _start_translate(principal, drama)

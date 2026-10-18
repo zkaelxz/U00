@@ -10,6 +10,7 @@ import { api } from '../api/client'
 import { cancelJob, clearFinishedJobs, deleteJob, forceStopJob, getQueueSummary } from '../api/jobs'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
+import { useDeveloperMode } from './assistant/developerMode'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { PageShell } from '../components/PageShell'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -22,7 +23,7 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import {
-  CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
+  CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, cancelNeedsConfirm, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
   shownStatus, type JobQueueSummary, type JobRecord,
 } from '../types/jobs'
 import { formatDuration, isActive, isFinished, jobBaseName, jobTimeLeftText, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
@@ -49,7 +50,7 @@ const REFUSED_TEXT: Record<number, string> = {
 const fullTime = (sec: number) => new Date(sec * 1000).toLocaleString()
 
 export default function JobsPage() {
-  const { jobs, error, polling, reload } = useJobs()
+  const { jobs, error, reload } = useJobs()
   const session = useSession()
   const anyJob = cancelsAnyJob(session)
   const authOn = session.status === 'ready' && session.me.auth_enabled
@@ -146,10 +147,9 @@ export default function JobsPage() {
         <>
           {error != null && <ErrorBanner error={error} />}
           <ErrorBanner error={actionError} onDismiss={() => setActionError(null)} />
-          {(polling || (queue && queue.running + queue.waiting > 0)) && (
+          {queue && queue.running + queue.waiting > 0 && (
             <div className="jobs-status-lines">
-              {polling && <p className="muted" data-testid="jobs-polling">Updating every 10 seconds.</p>}
-              {queue && queue.running + queue.waiting > 0 && <p className="muted" data-testid="jobs-queue-line">{queueLine(queue)}</p>}
+              <p className="muted" data-testid="jobs-queue-line">{queueLine(queue)}</p>
             </div>
           )}
 
@@ -204,6 +204,15 @@ export default function JobsPage() {
                 )}
               </div>
 
+              {hasActiveFilters(filters) && matching.length > 0 && (
+                <p className="muted">
+                  Filters are on.{' '}
+                  <button type="button" className="link" onClick={() => setStored({ ...NO_FILTERS, status: filters.status })}>
+                    Clear filters
+                  </button>
+                </p>
+              )}
+
               {matching.length === 0 ? (
                 <p className="muted" data-testid="jobs-no-match">
                   No jobs match.{' '}
@@ -225,17 +234,10 @@ export default function JobsPage() {
                   </button>
                 </p>
               )}
-              {hasActiveFilters(filters) && matching.length > 0 && (
-                <p className="muted">
-                  Filters are on.{' '}
-                  <button type="button" className="link" onClick={() => setStored({ ...NO_FILTERS, status: filters.status })}>
-                    Clear filters
-                  </button>
-                </p>
-              )}
               {all.some((j) => isActive(j.status) && !cancellable(j)) && (
                 <p className="muted" data-testid="jobs-cancel-note">{CANCEL_RULE_NOTE}</p>
               )}
+              {pc === 'remote' && finishedCount > 0 && <p className="muted">Deleting jobs is only available on the PC.</p>}
               {pc !== 'remote' && finishedCount > 0 && (
                 <div className="actions" data-testid="jobs-clear">
                   <ConfirmButton
@@ -306,11 +308,13 @@ function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps;
   const links = jobLinks(job)
   return (
     <div className="jobs-actions">
-      {props.cancellable(job) && (
+      {props.cancellable(job) && (cancelNeedsConfirm(job) ? (
+        <ConfirmButton name={name} label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" size="sm" title={cancelHint(job.job_id)} onConfirm={() => props.onCancel(job.job_id)} />
+      ) : (
         <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${name}`} title={cancelHint(job.job_id)} onClick={() => props.onCancel(job.job_id)}>
           Cancel
         </button>
-      )}
+      ))}
       {props.forceStoppable(job) && (
         <>
           <ConfirmButton name={name} label="Force stop…" verb="force stop" confirmLabel="Confirm force stop" size="sm" onConfirm={() => props.onForceStop(job.job_id)} />
@@ -331,6 +335,7 @@ function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps;
 }
 
 function Details({ job, now }: { job: JobRecord; now: number }) {
+  const developerMode = useDeveloperMode()
   const detail = jobDetail(job)
   const outcome = isFinished(job.status) ? jobOutcomeText(job) : null
   const fields = Object.entries(job.result ?? {}).filter(([, v]) => ['string', 'number', 'boolean'].includes(typeof v))
@@ -346,7 +351,7 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
       </dl>
       {outcome && <p className={shownStatus(job) === 'error' ? 'error' : undefined}>{plainJobText(outcome)}</p>}
       {detail && <p className={job.status === 'error' ? 'error' : 'muted'}>{plainJobText(detail)}</p>}
-      {fields.length > 0 && (
+      {developerMode && fields.length > 0 && (
         <dl>
           {fields.map(([k, v]) => (<span key={k} className="jobs-field"><dt>{k.replace(/_/g, ' ')}</dt><dd>{String(v)}</dd></span>))}
         </dl>
@@ -354,6 +359,14 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
       <JobStagesPanel jobId={job.job_id} running={isActive(job.status)} step={detail ? plainJobText(detail) : null} result={job.result} />
       <RunSettings result={job.result} />
     </div>
+  )
+}
+
+function SortButton({ label, dir, onClick }: { label: string; dir: 'ascending' | 'descending' | undefined; onClick: () => void }) {
+  return (
+    <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClick}>
+      {label}{dir && <span aria-hidden="true"> {dir === 'ascending' ? '▲' : '▼'}</span>}
+    </button>
   )
 }
 
@@ -372,10 +385,10 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
           <th className="jobs-nowrap">Status</th>
           <th className="jobs-nowrap">Progress</th>
           <th className="jobs-nowrap" aria-sort={ariaSort('started')}>
-            <button type="button" className="link" onClick={() => onSort('started')}>Started</button>
+            <SortButton label="Started" dir={ariaSort('started')} onClick={() => onSort('started')} />
           </th>
           <th className="jobs-nowrap" aria-sort={ariaSort('duration')}>
-            <button type="button" className="link" onClick={() => onSort('duration')}>Duration</button>
+            <SortButton label="Duration" dir={ariaSort('duration')} onClick={() => onSort('duration')} />
           </th>
           {props.authOn && <th>Who</th>}
           <th>Actions</th>

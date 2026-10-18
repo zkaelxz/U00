@@ -50,7 +50,7 @@ test('with no lines, Export is disabled and links to Source (rule 22)', async ({
   await page.goto('/#/drama/1/export')
   await openExportBlock(page, 'Subtitle file')
   await expect(page.getByTestId('readiness')).toContainText('0 lines')
-  await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeDisabled()
   const blocker = page.getByTestId('export-blocker')
   await expect(blocker).toContainText('No lines to export yet.')
   await blocker.getByRole('link', { name: 'Go to Media' }).click()
@@ -69,14 +69,33 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
   await expect(page.getByTestId('readiness')).toContainText('3 lines')
 
   const srt = page.waitForResponse((r) => r.url().includes('/subtitle?') && r.status() === 200)
-  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await page.getByRole('button', { name: 'Download SRT', exact: true }).click()
   await srt
   await expect(page.getByTestId('export-empty')).toBeVisible()
 
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
-  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await page.getByRole('button', { name: 'Download ASS', exact: true }).click()
   await expect(page.getByTestId('export-text')).toContainText('[Script Info]')
   await expect(page.getByTestId('export-download')).toHaveAttribute('download', 'Grandmaster of Demonic Cultivation - subtitles (en).ass')
+})
+
+test('the button names the format', async ({ page }) => {
+  await withExportLines(page)
+  await page.route('**/api/export/dramas/1/subtitle?*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      headers: { 'content-disposition': 'attachment; filename="Show - subtitles (en).srt"' },
+      body: '1\n00:00:01,000 --> 00:00:02,000\nhi\n\n2\n00:00:03,000 --> 00:00:04,000\nyo\n',
+    }))
+  await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
+  await page.getByLabel('Format', { exact: true }).selectOption('vtt')
+  await expect(page.getByRole('button', { name: 'Download VTT', exact: true })).toBeEnabled()
+  await page.getByLabel('Format', { exact: true }).selectOption('srt')
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download SRT', exact: true }).click()
+  await download
 })
 
 test('bad ASS settings are explained before any request', async ({ page }) => {
@@ -86,7 +105,7 @@ test('bad ASS settings are explained before any request', async ({ page }) => {
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
   await page.getByText('ASS style', { exact: true }).click()
   await page.getByLabel(/^Text colour/).fill('red')
-  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await page.getByRole('button', { name: 'Download ASS', exact: true }).click()
   await expect(page.getByRole('alert').filter({ hasText: '#RRGGBB' })).toBeVisible()
 })
 
@@ -112,6 +131,19 @@ test('the ASS style shows at the top only when ASS is chosen', async ({ page }) 
   await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
 })
 
+test('Reset to defaults can be undone', async ({ page }) => {
+  await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
+  const format = page.getByLabel('Format', { exact: true })
+  await format.selectOption('ass')
+  await page.getByRole('button', { name: 'Reset to defaults' }).click()
+  await expect(format).toHaveValue('srt')
+  await expect(page.getByRole('status').filter({ hasText: 'Reset.' })).toBeVisible()
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(format).toHaveValue('ass')
+  await expect(page.getByRole('button', { name: 'Reset to defaults' })).toBeVisible()
+})
+
 test('a title that is not novel narration has EPUB disabled with its reason', async ({ page }) => {
   await page.goto('/#/drama/1/export')
   const epub = exportBlock(page, 'EPUB')
@@ -128,6 +160,7 @@ test('audiobook job can be cancelled', async ({ page }) => {
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
   await page.getByRole('button', { name: /^Cancel / }).click()
+  await page.getByRole('button', { name: 'Confirm cancel' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
@@ -232,7 +265,7 @@ async function exportAss(page: Page, noCopy: boolean) {
   // The style options arrive after the page paints; Export before then is refused.
   await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await page.getByRole('button', { name: 'Download ASS', exact: true }).click()
   await expect(page.getByTestId('export-text')).toContainText('[Script Info]')
 }
 
@@ -360,7 +393,7 @@ test('a double-clicked Export asks the server once, and a response for the old f
   await page.goto('/#/drama/1/export')
   await openExportBlock(page, 'Subtitle file')
   await expect(page.getByTestId('readiness')).toContainText('3 lines')
-  const button = page.getByRole('button', { name: 'Export', exact: true })
+  const button = page.getByRole('button', { name: 'Download SRT', exact: true })
   await button.dblclick()
   await expect(page.getByTestId('export-text')).toBeVisible()
   expect(urls).toHaveLength(1)
@@ -376,10 +409,10 @@ test('switching format while an export is in flight drops the old response', asy
   await page.goto('/#/drama/1/export')
   await openExportBlock(page, 'Subtitle file')
   await expect(page.getByTestId('readiness')).toContainText('3 lines')
-  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await page.getByRole('button', { name: 'Download SRT', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Exporting...' })).toBeDisabled()
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
-  await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Download ASS', exact: true })).toBeEnabled()
   await page.waitForTimeout(700)
   await expect(page.getByTestId('export-text')).toHaveCount(0)
 })

@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../api/jobs'
 import { Badge } from '../../../components/Badge'
+import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
+import { humanize } from '../../../components/labels'
 import { buttonClass } from '../../../components/uiClasses'
+import { useHolds } from '../../../hooks/useHolds'
+import { openReportDialog } from '../../../report/reportDialogStore'
 import { useJobs, useNow } from '../../../hooks/useJobs'
 import { useCancelsAnyJob } from '../../../hooks/useSession'
-import { capFirst } from '../../../labels'
 import type { ApiError } from '../../../api/client'
 import type { JobRecord } from '../../../types/jobs'
 import { relativeTime } from '../../jobs/jobsFilter'
@@ -15,7 +18,7 @@ import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample 
 import { formatElapsed } from './autotuneGlossary'
 import { stripStallNote, stuckText, watchStuck, type StuckInfo } from './jobStuck'
 import { lastRunCounts, lastRunFor } from './lastRun'
-import { TERMINAL_STATUSES, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
+import { TERMINAL_STATUSES, cancelNeedsConfirm, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
 import './jobPanel.css'
 
 export interface LastRunProps {
@@ -26,6 +29,18 @@ export interface LastRunProps {
   // The stage's start function for a record it can run again with its current
   // form, or null when it can't (a job another panel starts); no Retry then.
   retryFor?: (job: JobRecord) => (() => void) | null
+}
+
+// Where to look when the server gave no readable reason. Diagnostics is
+// admin-only, so a member is only offered the report.
+function FailureHelp() {
+  const canDiagnose = useHolds('admin.diagnostics')
+  return (
+    <>
+      <button type="button" className={buttonClass('ghost', 'sm')} onClick={openReportDialog}>Report a problem</button>
+      {canDiagnose && <>{' '}<a href="#/diagnostics">Open Diagnostics</a></>}
+    </>
+  )
 }
 
 interface Props {
@@ -140,7 +155,7 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
       {job ? (
         <>
           <p data-testid="job-status">
-            {capFirst(job.status)}
+            {humanize('status', job.status)}
             {message && job.status !== 'error' ? ` · ${message}` : ''}
           </p>
           {elapsed !== null && !/\(elapsed /.test(job.message) && (
@@ -158,7 +173,7 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
           )}
           {job.status === 'error' && job.error && (
             <p className="error" role="alert">
-              {safeDetail(job.error) ?? 'The job failed. Details are in the app log.'}
+              {safeDetail(job.error) ?? <>The job failed. <FailureHelp /></>}
             </p>
           )}
           {outcomeText && (
@@ -177,19 +192,19 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
                   {stuckText(stuck, job.job_id)} <a href="#/jobs">All jobs</a>
                 </p>
               )}
-              {canCancel && (
-                <button
-                  type="button"
-                  className={buttonClass('secondary', 'sm', 'job-panel-cancel')}
-                  aria-label={`Cancel ${jobName(job)}`}
-                  onClick={() => cancelJob(job.job_id).then(() => {
-                    setCancelError(null)
-                    onCancelled?.()
-                  }, setCancelError)}
-                >
-                  Cancel
-                </button>
-              )}
+              {canCancel && (() => {
+                const cancel = () => void cancelJob(job.job_id).then(() => {
+                  setCancelError(null)
+                  onCancelled?.()
+                }, setCancelError)
+                return cancelNeedsConfirm(job) ? (
+                  <ConfirmButton name={jobName(job)} label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" size="sm" onConfirm={cancel} />
+                ) : (
+                  <button type="button" className={buttonClass('secondary', 'sm', 'job-panel-cancel')} aria-label={`Cancel ${jobName(job)}`} onClick={cancel}>
+                    Cancel
+                  </button>
+                )
+              })()}
             </div>
           )}
           <ErrorBanner error={cancelError} onDismiss={() => setCancelError(null)} />
@@ -221,7 +236,7 @@ function LastRunCard({ dramaId, ids, retryFor }: LastRunProps) {
   const outcome = jobOutcomeText(job)
   // Server text goes through safeDetail, as the live panel does with job.error.
   const text = status === 'failed' && job.error
-    ? (safeDetail(job.error) ?? 'The job failed. Details are in the app log.')
+    ? (safeDetail(job.error) ?? <>The job failed. <FailureHelp /></>)
     : outcome
       ? (safeDetail(outcome) ?? jobOutcomeText({ outcome: job.outcome }))
       : stripStallNote(job.message)

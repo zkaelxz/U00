@@ -13,9 +13,11 @@ import { useEffect, useId, useState } from 'react'
 import { applySubtitle, previewSubtitle } from '../../../api/subtitleImport'
 import { startRetime } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { ButtonLink } from '../../../components/Button'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { usePcOnly } from '../../../hooks/usePcOnly'
+import { routeHref } from '../../../router'
 import type { SubtitleImportMode, SubtitleImportOptions, SubtitleImportPreview } from '../../../types/subtitleImport'
 import {
   checkSubtitleFile,
@@ -48,6 +50,7 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
   const [realign, setRealign] = useState(false)
   const [importing, setImporting] = useState(false)
   const [done, setDone] = useState<string | null>(null)
+  const [wroteLines, setWroteLines] = useState(false)
   const [error, setError] = useState<unknown>(null)
   // A new key empties the file input after an import, so it doesn't keep showing the old name.
   const [inputKey, setInputKey] = useState(0)
@@ -79,6 +82,7 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
 
   const pick = (f: File | null) => {
     setDone(null)
+    setWroteLines(false)
     setPreview(null)
     setError(null)
     setConfirmed(false)
@@ -101,6 +105,7 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
     if (!file || !canImport) return
     setImporting(true)
     setDone(null)
+    setWroteLines(false)
     applySubtitle(dramaId, file, opts, { replaceLines: confirmKind === 'replace' && confirmed, overwrite: confirmKind === 'overwrite' && confirmed }).then(
       (r) => {
         setImporting(false)
@@ -109,6 +114,7 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
         setInputKey((n) => n + 1)
         setPreview(null)
         setConfirmed(false)
+        setWroteLines(r.lines_written > 0)
         setDone(
           r.mode === 'source'
             ? `Imported ${r.lines_written} line${r.lines_written === 1 ? '' : 's'}. The previous text is saved to history.`
@@ -250,7 +256,12 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
         </button>
         {busy && <span className="muted">Wait for the running job to finish.</span>}
       </div>
-      {done && <p role="status">{done}</p>}
+      {done && (
+        <p role="status">
+          {done}{' '}
+          {wroteLines && <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Go to Review</ButtonLink>}
+        </p>
+      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
     </div>
   )
