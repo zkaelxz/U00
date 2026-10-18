@@ -45,10 +45,8 @@ export function startProblem(opts: {
   setName: string
   estimate: SweepEstimate | null
   estimateFresh: boolean
-  remote: boolean
   running: boolean
 }): string | null {
-  if (opts.remote) return 'A sweep starts on the main PC only.'
   if (opts.running) return 'A benchmark run is going. Wait for it to finish.'
   if (!opts.setName) return 'Pick a golden set with audio clips.'
   if (!opts.estimate || !opts.estimateFresh) return 'Estimate this sweep first.'
