@@ -406,7 +406,7 @@ def _migrate_auth_session_columns(conn):
         "SELECT id, user_agent_short, device_label FROM auth_sessions "
         "WHERE user_agent_short IS NOT NULL AND user_agent_short != ''").fetchall()
     if old_agents:
-        from services.auth_service import device_label
+        from lib.device_label import device_label
         conn.executemany(
             "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
             [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
