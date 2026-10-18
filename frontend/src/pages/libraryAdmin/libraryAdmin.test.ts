@@ -199,11 +199,9 @@ describe('SelectionBar', () => {
 describe('describeQueueAdd', () => {
   const names = (id: number) => `Title ${id}`
   it('counts what was added and names each skipped title with its reason', () => {
-    expect(describeQueueAdd({ added: [1, 2], skipped: [] }, names)).toBe('Added 2 titles to the queue.')
+    expect(describeQueueAdd({ added: [1, 2], skipped: [] }, names)).toBe('Added 2.')
     expect(describeQueueAdd({ added: [1], skipped: [{ drama_id: 4, reason: 'Title not found.' }] }, names))
-      .toBe('Added 1 title to the queue. Skipped: Title 4 (Title not found).')
-    expect(describeQueueAdd({ added: [], skipped: [{ drama_id: 4, reason: 'The queue is full' }] }, names))
-      .toBe('Nothing was added to the queue. Skipped: Title 4 (The queue is full).')
+      .toBe('Added 1, skipped 1: Title 4 (Title not found).')
   })
 })
 

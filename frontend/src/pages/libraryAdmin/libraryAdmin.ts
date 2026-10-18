@@ -133,11 +133,11 @@ export function describeTranslateSkips(skips: readonly LibraryBulkTranslateSkip[
   return `${skips.length} skipped: ${parts.join(', ')}`
 }
 
-/** "Added 2 titles to the queue. Skipped: Title (reason)." Nothing has started. */
+/** "Added 2, skipped 1: Title (reason)." */
 export function describeQueueAdd(r: Pick<QueueBulkAdded, 'added' | 'skipped'>, names: Names): string {
-  const added = r.added.length ? `Added ${r.added.length} title${r.added.length === 1 ? '' : 's'} to the queue.` : 'Nothing was added to the queue.'
-  if (!r.skipped.length) return added
-  return `${added} Skipped: ${skippedList(r.skipped.map((x) => ({ id: x.drama_id, why: x.reason.replace(/\.$/, '') })), names)}.`
+  if (!r.skipped.length) return `Added ${r.added.length}.`
+  const list = skippedList(r.skipped.map((x) => ({ id: x.drama_id, why: x.reason.replace(/\.$/, '') })), names)
+  return `Added ${r.added.length}, skipped ${r.skipped.length}: ${list}.`
 }
 
 /**

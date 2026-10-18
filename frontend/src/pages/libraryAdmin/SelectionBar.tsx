@@ -287,7 +287,7 @@ export function SelectionBar({
       {skips && <p className="muted">{skips}</p>}
       {queueMsg && (
         <p role="status" data-testid="queue-add-result">
-          {queueMsg} <a href={routeHref({ name: 'jobs' })}>Open the queue</a>
+          {queueMsg} <a href={routeHref({ name: 'jobs' })}>Queue</a>
         </p>
       )}
       <ErrorBanner error={queueError} />
