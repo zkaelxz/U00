@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { untilTestEnds } from './stageLineMocks'
 import { enableDeveloperMode, openAdvanced, openTranscribeOptions, transcribeCard } from './sourceHelpers'
 
 // Basic Transcribe: the everyday controls on the Transcribe tab, the Advanced options folds on Tools, and the seven
@@ -163,11 +164,11 @@ test('with Whisper and the CUDA runtime missing the run line says it runs on the
     transcript_mode: 'whisper', asr_backend_choice: 'whisper', use_groq: false, selectable_whisper_sizes: ['large-v3', 'large-v3-turbo'],
     gpu_runtime: { status: 'missing', reason: 'cublas64_12.dll is missing' },
   })
-  await page.route('**/api/settings', async (route) => {
+  await page.route('**/api/settings', (route) => untilTestEnds(async () => {
     const resp = await route.fetch()
     const body = await resp.json()
     return route.fulfill({ response: resp, json: { ...body, use_gpu: true } })
-  })
+  }))
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   await expect(transcribeCard(page).getByTestId('run-line')).toContainText('CUDA libraries missing, runs on CPU')
@@ -188,10 +189,10 @@ test('the notes above Transcribe are one closed "Before you run" line with the d
     selectable_whisper_sizes: ['large-v3', 'large-v3-turbo', 'medium'], whisper_exclusions: { medium: { ja: reason } },
     gpu_runtime: { status: 'missing', reason: 'cublas64_12.dll is missing' },
   })
-  await page.route('**/api/settings', async (route) => {
+  await page.route('**/api/settings', (route) => untilTestEnds(async () => {
     const resp = await route.fetch()
     return route.fulfill({ response: resp, json: { ...(await resp.json()), use_gpu: true } })
-  })
+  }))
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   const card = transcribeCard(page)
