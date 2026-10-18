@@ -8,6 +8,7 @@ Shared by transcribe_service (config and run start) and
 retranscribe_line_service, which resolve the same saved values.
 """
 import importlib.util
+import json
 import os
 from typing import Optional
 import background_jobs
@@ -167,6 +168,72 @@ def check_transcribe_fields(fields: dict, source_language) -> dict:
         if bf in fields and fields[bf] is not None:
             updates[bf] = 1 if fields[bf] else 0
     return updates
+
+
+_RUN_START_DEFAULTS = {"run_diarize": False, "expected_speakers": None, "min_speakers": None,
+                       "max_speakers": None, "extra_names": "", "initial_prompt": ""}
+
+
+def run_start(drama: dict) -> dict:
+    """The Transcribe form's run choices saved on this title, every key present. The form
+    starts from them and the Queue runs with them (a run from the form sends its own), so a
+    title behaves the same from every browser instead of from whatever one browser last held."""
+    try:
+        raw = json.loads(drama.get("transcribe_start_json") or "{}")
+    except ValueError:
+        raw = {}
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(_RUN_START_DEFAULTS)
+    for key, default in _RUN_START_DEFAULTS.items():
+        value = raw.get(key)
+        if isinstance(default, bool):
+            ok = isinstance(value, bool)
+        elif isinstance(default, str):
+            ok = isinstance(value, str)
+        else:
+            ok = isinstance(value, int) and not isinstance(value, bool)
+        if ok:
+            out[key] = value
+    # The column is copied as is from an imported backup, so what a run reads is bounded again here.
+    out["extra_names"] = out["extra_names"][:1000]
+    out["initial_prompt"] = out["initial_prompt"][:4000]
+    for key in ("expected_speakers", "min_speakers", "max_speakers"):
+        if out[key] is not None and not 0 <= out[key] <= 20:
+            out[key] = None
+    # The run refuses a bad combination (a range with an exact count, min above max), which would
+    # skip every queued Transcribe of the title, so a hand-edited or imported one reads as no counts.
+    try:
+        diarization_service.speaker_range(out["expected_speakers"], out["min_speakers"], out["max_speakers"])
+    except InvalidInputError:
+        out["expected_speakers"] = out["min_speakers"] = out["max_speakers"] = None
+    return out
+
+
+def run_start_args(drama: dict) -> dict:
+    """run_start as start_transcribe_run's keyword arguments: only what the title changed,
+    so a title with nothing saved starts exactly as a run handed no choices does."""
+    return {k: v for k, v in run_start(drama).items() if v != _RUN_START_DEFAULTS[k]}
+
+
+def check_run_start(raw: dict) -> str:
+    """The JSON to store for a run_start update, checked like the run request is. The
+    whole object replaces the old one, so a cleared speaker count really clears."""
+    values = {**_RUN_START_DEFAULTS, **{k: v for k, v in raw.items() if k in _RUN_START_DEFAULTS}}
+    if not isinstance(values["run_diarize"], bool):
+        raise InvalidInputError("run_diarize must be true or false.")
+    for key in ("extra_names", "initial_prompt"):
+        if not isinstance(values[key], str):
+            raise InvalidInputError(f"{key} must be text.")
+    if len(values["extra_names"]) > 1000:
+        raise InvalidInputError("extra_names must be at most 1000 characters.")
+    if len(values["initial_prompt"]) > 4000:
+        raise InvalidInputError("initial_prompt must be at most 4000 characters.")
+    counts = [values[k] for k in ("expected_speakers", "min_speakers", "max_speakers")]
+    for count in counts:
+        if count is not None and (isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= 20):
+            raise InvalidInputError("Speaker counts must be whole numbers from 0 to 20.")
+    diarization_service.speaker_range(*counts)
+    return json.dumps(values, sort_keys=True)
 
 
 # What one queued Transcribe item may change for its own run. The title's saved options are

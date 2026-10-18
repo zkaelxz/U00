@@ -27,6 +27,16 @@ export interface UploadAndTranscribeResult {
   job_id: string
 }
 
+// The Transcribe form's run choices saved on a title (the transcript text is never kept).
+export interface TranscribeRunStart {
+  run_diarize: boolean
+  expected_speakers: number | null
+  min_speakers: number | null
+  max_speakers: number | null
+  extra_names: string
+  initial_prompt: string
+}
+
 export interface TranscribeConfig {
   drama_id: number
   transcript_mode: string
@@ -85,6 +95,10 @@ export interface TranscribeConfig {
   hardsub_interval_sec: number
   // Whisper prompt from the series glossary and raw-novel excerpt; a run with an empty prompt uses it.
   auto_initial_prompt: string
+  // The language, Chinese script and run choices saved on the title; absent from an older server.
+  source_language?: string
+  chinese_script?: string
+  run_start?: TranscribeRunStart
 }
 
 // Every field optional: only what is sent is validated and written.
