@@ -50,6 +50,7 @@ export function registerGpuBannerCases(prefix: string) {
     const banner = page.getByTestId('gpu-banner')
     await expect(banner).toContainText('GPU PyTorch is installed')
     await expect(page.getByTestId('gpu-note')).toContainText('GPU: off')
+    await page.getByTestId('before-you-run').locator('summary').click()
     await banner.getByRole('button', { name: 'Turn on GPU' }).click()
     await expect(banner).toHaveCount(0)
     expect(saved).toEqual([{ use_gpu: true }])

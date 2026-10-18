@@ -6,7 +6,7 @@ test('on a phone the basic view fits and the controls are 44px tall', async ({ p
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   const card = transcribeCard(page)
-  for (const l of ['Source language', 'Whisper model']) {
+  for (const l of ['Source language', 'Accuracy and speed']) {
     const box = await card.getByLabel(l, { exact: true }).boundingBox()
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(43.5)
   }
