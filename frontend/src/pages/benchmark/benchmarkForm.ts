@@ -7,7 +7,7 @@
 import { ApiError } from '../../api/client'
 import type {
   BenchmarkConfig, BenchmarkLeftOut, BenchmarkTranscribeOptions, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions,
-  BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
+  BenchmarkRequestConfig, BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier,
   ScriptCounts, BenchmarkCaseTiming, BenchmarkTimingSummary,
 } from '../../api/benchmark'
 import { describeError, safeDetail } from '../../components/errorMessages'
@@ -16,6 +16,7 @@ import { readSectionOpen, type StorageLike } from '../../components/sectionStora
 import { engineGate, type EngineGate } from '../workspace/stages/engineReady'
 import type { JobRecord } from '../../types/jobs'
 import { BENCH_DEFAULT_OPEN, type BenchSectionId } from './benchmarkHelp'
+import { cleanTranslate, translateChangesLabel } from './translateOptions'
 
 export const STAGE_LABELS: Record<string, string> = {
   translation: 'Translation',
@@ -98,6 +99,8 @@ const CHANGE_LABELS: Record<string, (v: unknown) => string> = {
 
 /** "beam 1, min silence 600 ms" for the options a run changed from the app's defaults; '' for a default run. */
 export function runChangesLabel(r: { context_settings?: Record<string, unknown> }): string {
+  const translated = translateChangesLabel(r.context_settings?.translate_changes)
+  if (translated) return translated
   const changes = r.context_settings?.transcribe_changes
   if (!changes || typeof changes !== 'object') return ''
   return TRANSCRIBE_OPTION_KEYS.filter((k) => k in (changes as object))
@@ -265,7 +268,15 @@ function requestConfig(stage: BenchmarkStage, c: BenchmarkConfig): BenchmarkConf
   const out: BenchmarkConfig = c.model ? { engine: c.engine, model: c.model } : { engine: c.engine }
   const options = stage === 'transcription' ? cleanOptions(c.options) : undefined
   if (options) out.options = options
+  const translate = stage === 'translation' ? cleanTranslate(c.translate) : undefined
+  if (translate) out.translate = translate
   return out
+}
+
+/** A config as the server takes it: a translation arm's options go as `options`, even when none changed. */
+function wireConfig(stage: BenchmarkStage, c: BenchmarkConfig): BenchmarkRequestConfig {
+  const { translate, ...rest } = requestConfig(stage, c)
+  return translate ? { ...rest, options: translate } : rest
 }
 
 /** The options a person changed, in the order the form shows them; undefined when none was. */
@@ -309,7 +320,8 @@ export function withOption(
 
 /** A config's identity: two arms are the same only when engine, model and changed options all match. */
 export function configKey(c: BenchmarkConfig): string {
-  return `${c.engine}|${c.model ?? ''}|${JSON.stringify(cleanOptions(c.options) ?? null)}`
+  const translate = cleanTranslate(c.translate)
+  return `${c.engine}|${c.model ?? ''}|${JSON.stringify(cleanOptions(c.options) ?? null)}${translate ? `|${JSON.stringify(translate)}` : ''}`
 }
 
 /** The label of a transcription pick: a recogniser's own name, else the Whisper size. */
@@ -321,7 +333,7 @@ export function recogniserLabel(options: BenchmarkOptions, config: BenchmarkConf
 export function runRequestBody(sel: RunSelection): BenchmarkRunRequest {
   const body: BenchmarkRunRequest = {
     stage: sel.stage,
-    configs: sel.configs.map((c) => requestConfig(sel.stage, c)),
+    configs: sel.configs.map((c) => wireConfig(sel.stage, c)),
   }
   if (sel.tier) body.tier = sel.tier
   if (sel.setName) body.set_name = sel.setName

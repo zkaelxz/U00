@@ -44,6 +44,27 @@ export interface BenchmarkTranscribeOptions {
   split_max_chars?: number
 }
 
+/** A translation arm's options: the cases of a title run together, in order, the way a title is translated. A
+ * field left out takes what a title's Translate starts with (BenchmarkOptions.translate_choices). */
+export interface BenchmarkTranslateOptions {
+  batch_size?: number
+  context_window?: number
+  context_window_ahead?: number
+  reflect?: boolean
+  style_preset?: string
+  /** A series whose glossary, learned style and character hints the arm translates with. */
+  series_id?: number
+}
+
+export interface BenchmarkTranslateChoices {
+  style_presets: { key: string; label: string }[]
+  series: { id: number; name: string }[]
+  /** Everything but the batch size, which follows the engine and model (batch_size_defaults). */
+  defaults: { context_window: number; context_window_ahead: number; batch_size: number; reflect: boolean; style_preset: string }
+  /** {engine: {model or '' for the engine's default: lines per request}}. */
+  batch_size_defaults: Record<string, Record<string, number>>
+}
+
 /** A run's line timing over the cases that have reference times; only `cases` (0) when none do. */
 export interface BenchmarkTimingSummary {
   cases: number
@@ -97,6 +118,7 @@ export interface BenchmarkOptions {
   transcribe_defaults: Required<BenchmarkTranscribeOptions>
   /** Per recogniser ("whisper" included), the options it does not read. */
   transcribe_options_ignored: Record<string, string[]>
+  translate_choices: BenchmarkTranslateChoices
   ocr_backends: string[]
   pass_threshold: number
   chrf_pass_threshold: number
@@ -167,6 +189,16 @@ export interface BenchmarkConfig {
   model?: string
   /** Transcription only, and only the fields changed from the app's defaults. */
   options?: BenchmarkTranscribeOptions
+  /** Translation only: present (even empty) = translate a title's cases together; only the fields changed from
+   * a title's defaults. Sent as `options`. */
+  translate?: BenchmarkTranslateOptions
+}
+
+/** A config as the server takes it. */
+export interface BenchmarkRequestConfig {
+  engine: string
+  model?: string
+  options?: BenchmarkTranscribeOptions | BenchmarkTranslateOptions
 }
 
 /** The engine that scores a translation run's outputs. allow_same_model must be true to judge with a tested model. */
@@ -178,7 +210,7 @@ export interface BenchmarkJudgeConfig {
 
 export interface BenchmarkRunRequest {
   stage: BenchmarkStage
-  configs: BenchmarkConfig[]
+  configs: BenchmarkRequestConfig[]
   tier?: BenchmarkTier
   set_name?: string
   case_ids?: number[]
@@ -578,7 +610,7 @@ export interface SweepEstimate {
 export interface SweepSetup {
   engine: string
   model: string | null
-  changes: Record<string, SweepValue>
+  changes: Record<string, SweepValue | string>
   label: string
 }
 
@@ -688,3 +720,71 @@ export const startSweep = (body: SweepRequest, f?: Fetch) =>
 // Approve saves the winner as a setting profile; both are recorded. PC only.
 export const decideSweep = (decision: 'approve' | 'reject', reason: string, f?: Fetch) =>
   postJson<{ sweep: Sweep | null }>(`${BASE}/sweep/decision`, { decision, reason: reason || null, confirm: true }, pcOnlyFetch(f))
+
+// ---- the translation settings sweep (services/benchmark_translate_sweep_service.py) ----
+
+export interface TranslateSweepRequest {
+  set_name: string
+  language: SweepLanguage
+  engine: string
+  model?: string | null
+  series_id?: number | null
+}
+
+export interface TranslateSweepKnob {
+  key: string
+  label: string
+  values: (boolean | number | string)[]
+  included: boolean
+  reason: string | null
+}
+
+export interface TranslateSweepEstimate {
+  set_name: string
+  language: SweepLanguage
+  engine: string
+  model: string | null
+  series_id: number | null
+  tuning_cases: number
+  holdout_cases: number
+  tuning_titles: number
+  holdout_titles: number
+  small_set: boolean
+  min_set_cases: number
+  models: SweepModel[]
+  knobs: TranslateSweepKnob[]
+  not_swept: string[]
+  passes_done: number
+  passes_to_run: number
+  estimated_cost_usd: number
+  /** False for a free engine: the monthly cap doesn't apply. */
+  cap_applies: boolean
+  monthly_cap_usd: number
+  month_spend_usd: number
+  remaining_usd: number | null
+  monthly_refusal: string | null
+  estimate_above_cap: boolean
+}
+
+export interface TranslateSweep extends Sweep {
+  engine: string
+  model: string | null
+  series_id: number | null
+}
+
+export const getTranslateSweep = (f?: Fetch) => getJson<{ sweep: TranslateSweep | null }>(`${BASE}/translate-sweep`, f)
+
+export const getTranslateSweepDecisions = (f?: Fetch) =>
+  getJson<{ decisions: SweepDecisionRow[] }>(`${BASE}/translate-sweep/decisions`, f)
+
+// Spends nothing: the halves, what the sweep covers, the passes it can skip and what the paid ones would cost.
+export const estimateTranslateSweep = (body: TranslateSweepRequest, f?: Fetch) =>
+  postJson<TranslateSweepEstimate>(`${BASE}/translate-sweep/estimate`, body, f)
+
+// Starts or resumes the sweep as the "benchmark_lab" job (poll it with useJob). PC only.
+export const startTranslateSweep = (body: TranslateSweepRequest, f?: Fetch) =>
+  postJson<{ job_id: string; sweep: TranslateSweep }>(`${BASE}/translate-sweep`, { ...body, confirm: true }, pcOnlyFetch(f))
+
+// Approve saves the winner as a setting profile; both are recorded. PC only.
+export const decideTranslateSweep = (decision: 'approve' | 'reject', reason: string, f?: Fetch) =>
+  postJson<{ sweep: TranslateSweep | null }>(`${BASE}/translate-sweep/decision`, { decision, reason: reason || null, confirm: true }, pcOnlyFetch(f))

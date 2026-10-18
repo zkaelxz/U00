@@ -6,6 +6,7 @@ export const DEFAULT_OPEN: Record<string, boolean> = {
   'Golden sets': true,
   'Run a benchmark': true,
   'Settings sweep': true,
+  'Translation sweep': true,
   'Model re-evaluation': true,
   'Recent runs': true,
 }
@@ -29,7 +30,7 @@ export async function expectExpanded(page: Page, want: Record<string, boolean>):
 
 export async function openBench(page: Page): Promise<void> {
   await page.goto('/#/benchmark')
-  await expect(page.locator('.bench-section-toggle')).toHaveCount(5)
+  await expect(page.locator('.bench-section-toggle')).toHaveCount(6)
 }
 
 // The (i) next to a heading shows the numbered steps on click and hides them with Escape.

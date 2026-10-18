@@ -4,11 +4,11 @@ routes (api/routers/benchmark_routes.py). No key, path or file
 name field exists on any model.
 """
 
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
+from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeOptions, BenchmarkTranslateChoices, BenchmarkTranslateOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary
 from core import SOURCE_LANGUAGES
 
 Stage = Literal["translation", "transcription", "ocr"]
@@ -100,8 +100,9 @@ class BenchmarkRegressionResult(BaseModel):
 class BenchmarkConfig(_Strict):
     engine: str = Field(max_length=40)
     model: Optional[str] = Field(default=None, max_length=100)
-    # Transcription only: the per-title options this arm runs with.
-    options: Optional[BenchmarkTranscribeOptions] = None
+    # The per-title options this arm runs with: transcription's, or a translation arm's batch,
+    # context, Reflect and style settings (which make it translate cases as batches in order).
+    options: Optional[Union[BenchmarkTranscribeOptions, BenchmarkTranslateOptions]] = None
 
 
 class BenchmarkRunRequest(_Strict):
@@ -255,6 +256,7 @@ class BenchmarkOptions(BaseModel):
     transcribe_defaults: BenchmarkTranscribeOptions
     # Per recogniser, the options it does not read (shown disabled in the form).
     transcribe_options_ignored: Dict[str, List[str]]
+    translate_choices: BenchmarkTranslateChoices
     ocr_backends: List[str]
     pass_threshold: float
     chrf_pass_threshold: float
