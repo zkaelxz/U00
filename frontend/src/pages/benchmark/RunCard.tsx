@@ -10,6 +10,9 @@ import { buttonClass } from '../../components/uiClasses'
 import { TranscribeOptionsFields } from './TranscribeOptionsFields'
 import { TranslateOptionsFields } from './TranslateOptionsFields'
 import { usePersistedState } from '../../hooks/usePersistedState'
+import { useReadiness } from '../../hooks/useReadiness'
+import { NeedsInstall } from '../readiness/NeedsInstall'
+import { ocrBackendNeed } from '../readiness/needs'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
 import { EngineBlockNotes } from './EngineBlockNotes'
@@ -274,6 +277,8 @@ function ConfigRow({ stage, options, config, index, onChange }: {
   onChange: (next: BenchmarkConfig) => void
 }) {
   const n = index + 1
+  const { readiness } = useReadiness()
+  const ocrNeed = stage === 'ocr' ? ocrBackendNeed(readiness, config.engine) : null
   if (stage === 'transcription') {
     const whisperGroups = whisperChoiceGroups(options)
     const limitedPick = whisperGroups.limited.find((m) => m.size === config.model)
@@ -323,7 +328,7 @@ function ConfigRow({ stage, options, config, index, onChange }: {
         <Field label={`OCR backend ${n}`}>
           <select value={config.engine} onChange={(e) => onChange({ engine: e.target.value })}>
             {options.ocr_backends.map((b) => (
-              <option key={b} value={b}>{OCR_LABELS[b] ?? b}</option>
+              <option key={b} value={b}>{OCR_LABELS[b] ?? b}{ocrBackendNeed(readiness, b) ? ' (not installed)' : ''}</option>
             ))}
             {visionEngines.length > 0 && (
               <optgroup label="Vision models">
@@ -347,6 +352,7 @@ function ConfigRow({ stage, options, config, index, onChange }: {
             </select>
           </Field>
         )}
+        {ocrNeed && <NeedsInstall need={ocrNeed} />}
       </div>
     )
   }

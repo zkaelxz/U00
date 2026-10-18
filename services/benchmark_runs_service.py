@@ -47,7 +47,7 @@ def _result_out(r: dict, stage=None, language=None) -> dict:
             "passed": None if r.get("passed") is None else bool(r["passed"]),
             "duration_seconds": r.get("duration_seconds"), "cost_usd": r.get("cost_usd") or 0.0,
             "error": redact(r.get("error")), "ref_version": _version(r.get("ref_version")),
-            "timing": _loads(r.get("timing"))}
+            "timing": _loads(r.get("timing")), "recognised_text": r.get("recognised_text")}
 
 
 def _loads(raw):

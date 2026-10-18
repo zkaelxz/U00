@@ -12,7 +12,7 @@ import translate_engines
 from engine_backends.vision import VISION_ENGINES
 from services import image_text_service, settings_service, translate_service
 from services.benchmark_case_service import redact
-from services.service_errors import InvalidInputError
+from services.service_errors import InvalidInputError, MissingKeyError
 
 
 def checked_model(entry: dict, engine: str, model):
@@ -53,8 +53,31 @@ def _case_image_size(case: dict) -> tuple:
         return image_text_service.MAX_EDGE, image_text_service.MAX_EDGE
 
 
-def estimate_cost(cfg: dict, cases: list) -> float:
-    """Worst-case cost of reading every case's picture with a vision arm."""
+def paid_arm(stage: str, cfg: dict) -> bool:
+    """Arms that call a provider with a key: every translation arm and each vision arm."""
+    return stage == "translation" or is_vision_arm(stage, cfg)
+
+
+def resolve_keys(stage: str, configs: list) -> list:
+    """One API key per config (None for a local arm); a paid arm without a key refuses the run."""
+    keys = []
+    for cfg in configs:
+        key = translate_service.resolve_api_key(cfg["engine"]) if paid_arm(stage, cfg) else None
+        if key is None and paid_arm(stage, cfg):
+            raise MissingKeyError(cfg["engine"])
+        keys.append(key)
+    return keys
+
+
+def needs_gpu(stage: str, configs: list) -> bool:
+    """Whether a run may touch the GPU before Ollama is considered: any local recogniser does."""
+    return stage != "translation" and not all(is_vision_arm(stage, c) for c in configs)
+
+
+def estimate_cost(stage: str, cfg: dict, cases: list) -> float:
+    """Worst-case cost of reading every case's picture with a vision arm; 0 for any other arm."""
+    if not is_vision_arm(stage, cfg):
+        return 0.0
     total = 0.0
     for case in cases:
         width, height = _case_image_size(case)

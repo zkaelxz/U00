@@ -289,6 +289,8 @@ def _init_benchmark_lab_schema():
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN timing TEXT")
         if "judge_scores" not in result_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN judge_scores TEXT")
+        if "recognised_text" not in result_cols:
+            db._safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN recognised_text TEXT")
         session_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_sessions)").fetchall()}
         if "judge_meta" not in session_cols:
             db._safe_alter(conn, "ALTER TABLE benchmark_sessions ADD COLUMN judge_meta TEXT")
