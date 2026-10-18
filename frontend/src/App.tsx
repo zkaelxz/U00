@@ -64,6 +64,12 @@ function ApiStatus() {
   )
 }
 
+// The display name wins over the email: an address's first letter is rarely the person's.
+function accountInitial(user: AuthUser | null): string | null {
+  const first = (user?.display_name || user?.email || '').trim().charAt(0)
+  return /\p{L}|\p{N}/u.test(first) ? first.toLocaleUpperCase() : null
+}
+
 // Signed in with auth on: the account and "Sign out". Absent with auth off.
 // With /me unavailable the user is unknown, but Sign out stays reachable.
 function UserMenu({ user }: { user: AuthUser | null }) {
@@ -71,6 +77,7 @@ function UserMenu({ user }: { user: AuthUser | null }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
+  const initial = accountInitial(user)
 
   async function onSignOut() {
     setBusy(true)
@@ -85,8 +92,15 @@ function UserMenu({ user }: { user: AuthUser | null }) {
 
   return (
     <details className="user-menu" ref={ref}>
-      <summary aria-label={`Account: ${label}`}>
-        <span className="user-menu-email">{label}</span>
+      <summary aria-label={`Account: ${user?.display_name ?? label}`}>
+        <span className="user-menu-avatar" aria-hidden="true">
+          {initial ?? (
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+            </svg>
+          )}
+        </span>
       </summary>
       <div className="user-menu-panel">
         {user ? (

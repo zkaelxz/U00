@@ -13,7 +13,8 @@ The rule: auth off, the local owner and admins see everything. Changing
 what only an admin can see (the admin override) needs `admin_override` as
 well: `api.auth.listener_principal` clears it on the household (internet)
 listener, where an admin still sees everything but changes only what a
-member of their account could (items they own or that are shared), and
+member of their account could (items they own or that are shared, plus
+items made at the PC, which have no account owner), and
 flips no one else's private flag (user decision 2026-09-30: remote admin
 views, every admin write is PC-only). Otherwise a
 series is visible to its owner, or when it is not private. A drama is
@@ -85,6 +86,18 @@ def _is_owner(principal, row) -> bool:
     return uid is not None and row.get("owner_user_id") == uid
 
 
+def _owns(principal, owner_user_id, writing: bool) -> bool:
+    """An item made at the PC has no account owner, and only an admin sits
+    at the PC, so an admin away from the PC changes PC-made items as their
+    own work (owner decision 2026-10-18: otherwise a remote admin could not
+    start a job on a title they made at the PC). Other members' private
+    items stay PC-only for admins."""
+    if writing and owner_user_id is None:
+        return bool(principal.get("is_admin"))
+    uid = user_id(principal)
+    return uid is not None and owner_user_id == uid
+
+
 def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
     """Must agree with the `visible_to` SQL in db.list_dramas/list_series.
     `writing`: may the principal change it (the admin override needs
@@ -97,8 +110,11 @@ def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
                 and row.get("series_owner_user_id") == uid:
             return True
         if row.get("series_is_private"):
-            return False
-    return _is_owner(principal, row) or not row["is_private"]
+            # A PC-made private series lends no rights over a member's title
+            # in it: only the title's own (PC-made) ownership counts.
+            return (writing and row.get("series_owner_user_id") is None
+                    and _owns(principal, row.get("owner_user_id"), writing))
+    return _owns(principal, row.get("owner_user_id"), writing) or not row["is_private"]
 
 
 def _item_id(item_id) -> int:
