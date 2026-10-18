@@ -1,9 +1,9 @@
-import { useState, type ReactNode, type RefObject } from 'react'
+import { useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import type { LineFilter } from '../../../../types/review'
 import { gapChipLabel } from './gapModel'
-import { chipLabel } from './reviewLogic'
+import { chipLabel, parseJump } from './reviewLogic'
 
 interface FilterCounts {
   all: number | null
@@ -21,6 +21,9 @@ interface Props {
   gapCount: number
   onNextGap: () => void
   onPrevGap: () => void
+  // 1-based position of the gap last jumped to (null before the first jump) and the typed jump.
+  gapIndex: number | null
+  onGoGap: (n: number) => void
   // Lines flagged "Source text looks off"; the chip opens their list.
   suspectCount: number
   suspectOpen: boolean
@@ -46,15 +49,71 @@ interface Props {
 const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated']
 const FULL: Record<LineFilter, string> = { all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated' }
 
+// A number you can type into: Enter or leaving the box jumps (clamped to 1..max), Escape puts the old value back.
+function JumpInput({ value, max, label, describedBy, placeholder, className, onJump }: {
+  value: string
+  max: number
+  label: string
+  describedBy?: string
+  placeholder?: string
+  className: string
+  onJump: (n: number) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  // blur() inside the Escape handler runs onBlur with the stale draft; this stops it from jumping.
+  const cancelled = useRef(false)
+  const commit = () => {
+    if (cancelled.current) {
+      cancelled.current = false
+      return
+    }
+    if (draft === null) return
+    const n = parseJump(draft, max)
+    setDraft(null)
+    if (n !== null && String(n) !== value) onJump(n)
+  }
+  const shown = draft ?? value
+  return (
+    <input
+      className={className}
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      enterKeyHint="go"
+      aria-label={label}
+      aria-describedby={describedBy}
+      placeholder={placeholder}
+      value={shown}
+      style={{ width: `${Math.max(String(max).length, 1) + 0.5}ch` }}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          commit()
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          cancelled.current = draft !== null
+          setDraft(null)
+          e.currentTarget.blur()
+        }
+      }}
+    />
+  )
+}
+
 export function Pager({ page, pages, onPage, labelled }: { page: number; pages: number; onPage: (p: number) => void; labelled?: boolean }) {
+  const totalId = useId()
   return (
     <span className="review-pager" role="group" aria-label="Pages">
       <button type="button" aria-label="Previous page" title="Previous page ([)" disabled={page <= 1} onClick={() => onPage(page - 1)}>
         ‹
       </button>
       <span data-testid={labelled ? 'page-label' : undefined} className="review-page-label">
-        <span aria-hidden="true">{page}/{pages}</span>
-        <span className="sr-only">Page {page} of {pages}</span>
+        <JumpInput className="review-page-input" label="Page number" describedBy={totalId} value={String(page)} max={pages} onJump={onPage} />
+        <span aria-hidden="true">/{pages}</span>
+        <span id={totalId} className="sr-only">of {pages}. Type a number and press Enter to jump.</span>
       </span>
       <button type="button" aria-label="Next page" title="Next page (])" disabled={page >= pages} onClick={() => onPage(page + 1)}>
         ›
@@ -162,9 +221,11 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
         {p.gapCount > 0 && (
           <span className="review-gap-step" role="group" aria-label="Gaps: stretches with no line">
             <button type="button" className="review-gap-arrow" aria-label="Previous gap" title="Previous stretch with no line" onClick={p.onPrevGap}>‹</button>
-            <button type="button" className="review-chip review-gaps-chip" title="Jump to the next stretch with no line" onClick={p.onNextGap}>
-              {gapChipLabel(p.gapCount)}
-            </button>
+            <span className="review-gaps-chip" role="group" aria-label={gapChipLabel(p.gapIndex, p.gapCount)}>
+              <span>Gaps</span>
+              <JumpInput className="review-gap-input" label="Go to gap number" placeholder="#" value={p.gapIndex === null ? '' : String(p.gapIndex)} max={p.gapCount} onJump={p.onGoGap} />
+              <span aria-hidden="true">/{p.gapCount}</span>
+            </span>
             <button type="button" className="review-gap-arrow" aria-label="Next gap" title="Next stretch with no line" onClick={p.onNextGap}>›</button>
           </span>
         )}
