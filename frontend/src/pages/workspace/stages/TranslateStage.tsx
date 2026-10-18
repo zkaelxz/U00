@@ -456,7 +456,7 @@ function RunPanel({
       <div className="translate-go">
         <button
           type="button"
-          className="primary"
+          className={buttonClass('primary')}
           disabled={busy || starting || reviewing > 0 || blocker !== null || gate !== null}
           aria-describedby={blocker ? 'translate-blocker' : gate ? 'translate-gate' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}

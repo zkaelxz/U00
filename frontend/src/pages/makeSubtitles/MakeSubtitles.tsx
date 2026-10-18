@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
 import { ApiError, withSignal } from '../../api/client'
 import { getSubtitleText, markExported } from '../../api/export'
+import { getSettings } from '../../api/settings'
 import { cancelJob, probeJob } from '../../api/jobs'
 import { createDrama } from '../../api/library'
 import { translateApi } from '../../api/translate'
@@ -12,6 +13,8 @@ import { Card } from '../../components/Card'
 import { downloadText } from '../../components/downloadText'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { humanize } from '../../components/labels'
+import { RetryBanner } from '../../components/RetryBanner'
 import { Section } from '../../components/Section'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useLoad } from '../../hooks/useLoad'
@@ -64,7 +67,12 @@ export function MakeSubtitles() {
   const fileInput = useRef<HTMLInputElement>(null)
   const status = useRef<HTMLDivElement>(null)
 
-  const engines = useLoad(translateApi.engineList, 0)
+  const [enginesTry, setEnginesTry] = useState(0)
+  const engines = useLoad(translateApi.engineList, enginesTry)
+  // Only labels the variant option; a person who cannot read Settings just sees the generic wording.
+  const settings = useLoad(getSettings, 0)
+  const defaultLocale = settings.data?.preferences.default_locale
+  const [dragging, setDragging] = useState(false)
   const list = engines.data?.items ?? []
   const defaultEngine = list.find((e) => e.name === engines.data?.default_engine)?.name ?? list[0]?.name ?? ''
   const engine = pickedEngine ?? defaultEngine
@@ -173,6 +181,16 @@ export function MakeSubtitles() {
     } finally { if (uploadAbort.current === abort) uploadAbort.current = null }
   }
 
+  const dropFile = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    const dropped = e.dataTransfer.files[0]
+    if (!dropped) return
+    // Keep the native input in step so it shows the name and a later form reset clears it.
+    if (fileInput.current) fileInput.current.files = e.dataTransfer.files
+    setFile(dropped)
+  }
+
   const cancel = () => {
     if (jobId) cancelJob(jobId).then(() => setCancelError(null), setCancelError)
     else uploadAbort.current?.abort()
@@ -224,7 +242,8 @@ export function MakeSubtitles() {
           )}
           <div className="make-subtitles-fields">
             <Field label="Translator">
-              <select value={engine} onChange={(e) => setPickedEngine(e.target.value)}>
+              <select value={engine} disabled={!list.length} onChange={(e) => setPickedEngine(e.target.value)}>
+                {!list.length && <option value="">{engines.error ? 'Translators unavailable' : 'Loading translators...'}</option>}
                 {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
               </select>
             </Field>
@@ -233,13 +252,16 @@ export function MakeSubtitles() {
                 {LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
               </select>
             </Field>
-            <div className="make-subtitles-file">
+            <div className={`make-subtitles-file${dragging ? ' is-dragging' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={dropFile}>
               <Field label="Audio or video file">
                 <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
               </Field>
+              <p className="muted make-subtitles-adds">Or drop a file here.</p>
             </div>
           </div>
+          <RetryBanner error={engines.error} what="the translators" onRetry={() => setEnginesTry((n) => n + 1)} />
           {engine && (
             <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}
               onReady={(_ok, rows) => setBlockers(rows)}
@@ -252,8 +274,8 @@ export function MakeSubtitles() {
               </Field>
               <Field label="English variant">
                 <select value={variant} onChange={(e) => setVariant(e.target.value)}>
-                  <option value="">Settings default</option>
-                  {VARIANTS.map((v) => <option key={v} value={v}>{v}</option>)}
+                  <option value="">{defaultLocale ? `Default (${humanize('locale', defaultLocale)})` : 'Settings default'}</option>
+                  {VARIANTS.map((v) => <option key={v} value={v}>{humanize('locale', v)}</option>)}
                 </select>
               </Field>
             </div>
@@ -262,10 +284,11 @@ export function MakeSubtitles() {
             <button type="submit" className={buttonClass('primary')} disabled={!!blocker} aria-describedby="make-subtitles-blocker">
               Make subtitles
             </button>
+            <p className="muted make-subtitles-adds">This also adds a title to your Library.</p>
             {blocker && (
               <p className="stage-blocker" id="make-subtitles-blocker">
                 <span>{blocker}</span>
-                {!file && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => fileInput.current?.focus()}>Choose a file</button>}
+                {!file && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => fileInput.current?.click()}>Choose a file</button>}
               </p>
             )}
           </div>

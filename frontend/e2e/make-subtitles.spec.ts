@@ -137,3 +137,59 @@ test('a run saved at the upload step shows a note with a link to the title on re
   await expect(c.getByText('The last run stopped before the upload finished.')).toBeVisible()
   await expect(c.getByRole('link', { name: 'Open title' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}`)
 })
+
+test('Choose a file opens the file chooser', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  await page.goto('/#/make-subtitles')
+  const chooser = page.waitForEvent('filechooser')
+  await card(page).getByRole('button', { name: 'Choose a file' }).click()
+  await chooser
+})
+
+test('says up front that a title is added to the Library', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  await page.goto('/#/make-subtitles')
+  await expect(card(page).getByText('This also adds a title to your Library.')).toBeVisible()
+})
+
+test('the translator list says it is loading, then fills in', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  let release = () => {}
+  const gate = new Promise<void>((r) => { release = r })
+  await page.route('**/api/translate/engines', async (route) => {
+    await gate
+    await route.fulfill({ json: { items: [{ name: 'deepseek', label: 'DeepSeek.', free: false, models: null, key_configured: true }], default_engine: 'deepseek' } })
+  })
+  await page.goto('/#/make-subtitles')
+  const select = card(page).getByLabel('Translator')
+  await expect(select).toBeDisabled()
+  await expect(select.locator('option')).toHaveText(['Loading translators...'])
+  release()
+  await expect(select).toBeEnabled()
+  await expect(select.locator('option')).toHaveText(['DeepSeek'])
+})
+
+test('a failed translator list shows a banner with Retry', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  let calls = 0
+  await page.route('**/api/translate/engines', (route) => {
+    calls += 1
+    return calls === 1
+      ? route.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'boom' } } })
+      : route.fulfill({ json: { items: [{ name: 'deepseek', label: 'DeepSeek.', free: false, models: null, key_configured: true }], default_engine: 'deepseek' } })
+  })
+  await page.goto('/#/make-subtitles')
+  const c = card(page)
+  await expect(c.getByRole('alert').getByRole('button', { name: 'Retry' })).toBeVisible()
+  await c.getByRole('button', { name: 'Retry' }).click()
+  await expect(c.getByLabel('Translator')).toBeEnabled()
+  await expect(c.getByRole('alert')).toHaveCount(0)
+})
+
+test('the English variant options are spelled out', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  await page.goto('/#/make-subtitles')
+  const c = card(page)
+  await c.getByText('Options', { exact: true }).click()
+  await expect(c.getByLabel('English variant').locator('option')).toHaveText([/^(Default \(.+\)|Settings default)$/, 'English (US)', 'English (UK)', 'English (Australia)'])
+})
