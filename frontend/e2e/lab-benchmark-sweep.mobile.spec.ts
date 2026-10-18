@@ -22,3 +22,22 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/sweep-recommendation-${theme}-phone.png`, fullPage: true, style: '.app-header { visibility: hidden !important; }' })
   })
 }
+
+// The sweep's start and approve/reject routes are PC only (local_only on the server): away from the PC
+// the card keeps Estimate and the results, and leaves the PC-only controls and their notes out.
+test('Settings sweep on the remote view leaves out the PC-only controls and notes', async ({ page }) => {
+  await page.route('**/api/meta', (r) =>
+    r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
+  await mockLab(page, () => finished)
+  await page.goto('/#/benchmark?tab=run')
+  const card = page.getByRole('region', { name: 'Settings sweep' })
+  await expect(card.getByTestId('sweep-recommendation')).toContainText('Change recommended')
+  await expect(card.getByRole('button', { name: 'Estimate', exact: true })).toBeVisible()
+  await expect(card.getByRole('button', { name: /^(Start|Resume) sweep$/ })).toHaveCount(0)
+  await expect(card.getByTestId('sweep-start-reason')).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Approve the winner' })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: /^Reject/ })).toHaveCount(0)
+  await expect(card.getByLabel('Why?', { exact: true })).toHaveCount(0)
+  await expect(card).not.toContainText('PC only')
+  await expect(card).not.toContainText('main PC only')
+})
