@@ -4,11 +4,11 @@ settings changed for that one item (a whitelist; no path or URL goes in or
 out). Everything else comes from the title's saved choices.
 """
 
-from typing import Dict, List, Literal, Optional, Union
+from typing import Annotated, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueMove",
+__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove",
            "QueueScheduleSet", "QueuePolicy", "QueueSettingRow", "QueueSettingOption",
            "QueueSettingField", "QueueStepSettings"]
 
@@ -63,6 +63,22 @@ class QueueAddItem(BaseModel):
 
 class QueueAddAllSteps(BaseModel):
     drama_id: int = Field(ge=1, lt=2**63)
+
+
+class QueueAddBulk(BaseModel):
+    drama_ids: List[Annotated[int, Field(ge=1, lt=2**63)]] = Field(min_length=1, max_length=200)
+    step: Literal["transcribe", "translate", "export", "all"]
+
+
+class QueueBulkSkip(BaseModel):
+    drama_id: int
+    reason: str
+
+
+class QueueBulkAdded(BaseModel):
+    queue: "QueueState"
+    added: List[int]
+    skipped: List[QueueBulkSkip]
 
 
 class QueueMove(BaseModel):

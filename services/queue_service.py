@@ -39,6 +39,7 @@ from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFou
 from services import (auth_service, artifact_service, export_service, jobs_service,
                       model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
                       transcribe_options_service, translate_run_service, translate_thinking_service)
+from services.queue_translate_settings import _cap_left, _queued_model_and_batch, _translate_cost
 from services.queue_transcribe_settings import (_LANGUAGES, _changed_rows, _on, _row, _transcribe_fields,
                                                  _transcribe_rows, _words)
 
@@ -286,38 +287,6 @@ def get_queue(principal) -> dict:
 
 # --- saved settings of a step -------------------------------------------------
 
-def _cap_left() -> str:
-    cap = settings_service.get_monthly_cap_usd()
-    if cap <= 0:
-        return "No cap set"
-    return f"${max(cap - db.get_month_spend(since_reset=True), 0):.2f} of ${cap:.2f}"
-
-
-def _queued_model_and_batch(drama: dict, engine: str):
-    """(model, batch size) the queued run will use beyond the engine's defaults: the title's
-    last run's, the model only while it is still offered (start_translate_run falls back
-    to the default otherwise). None where the default applies."""
-    last = profile_service.title_run_defaults(drama, engine, engine)
-    model = last.get("model")
-    if model:
-        try:
-            translate_run_service._require_offered_model(engine, model)
-        except InvalidInputError:
-            model = None
-    return model, last.get("batch_size")
-
-
-def _translate_cost(drama_id: int, engine: str, model=None, batch_size=None) -> str:
-    if engine in translate_engines.FREE_ENGINES:
-        return "Free"
-    try:
-        est = translate_run_service.estimate_translate_cost(
-            drama_id, model=model, batch_size=batch_size)
-    except ServiceError:
-        return "No estimate yet; uses your API key and costs money"
-    return f"About ${est['estimated_usd']:.2f}; uses your API key and costs money"
-
-
 def _translate_rows(drama: dict) -> list:
     from engine_backends import engine_registry
     import translation_guide
@@ -443,14 +412,41 @@ def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bo
     return get_queue(principal)
 
 
-def add_all_steps(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) -> dict:
-    """Appends Transcribe, Translate and Export for one title, in that order, each
-    with the title's saved options. Every step passes the single-step checks first,
-    so a title the caller can't run all of adds nothing. Nothing starts here."""
-    for step in STEPS:
+def _add_steps(principal, drama_id: int, steps: tuple, holds_paid: bool, at_pc: bool) -> None:
+    """Every step passes the single-step checks first, so a title the caller can't run
+    all of adds nothing; then the steps go in, in order, with the title's saved options."""
+    for step in steps:
         _check_addable(principal, drama_id, step, holds_paid, at_pc, None, True)
-    _append_items(principal, drama_id, [(step, {}) for step in STEPS], at_pc)
+    _append_items(principal, drama_id, [(step, {}) for step in steps], at_pc)
+
+
+def add_all_steps(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) -> dict:
+    """Appends Transcribe, Translate and Export for one title, in that order. Nothing starts here."""
+    _add_steps(principal, drama_id, STEPS, holds_paid, at_pc)
     return get_queue(principal)
+
+
+def add_bulk(principal, drama_ids: list, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
+    """Adds `step` ("all" = the chain) for each title. A title failing the add checks is
+    skipped with its reason; the rest go in. Nothing starts."""
+    if step != "all" and step not in STEPS:
+        raise InvalidInputError("Step must be transcribe, translate, export or all.")
+    steps = STEPS if step == "all" else (step,)
+    added, skipped = [], []
+    full = None
+    for drama_id in dict.fromkeys(drama_ids):
+        if full:
+            skipped.append({"drama_id": drama_id, "reason": full})
+            continue
+        try:
+            _add_steps(principal, drama_id, steps, holds_paid, at_pc)
+            added.append(drama_id)
+        except ServiceError as e:
+            reason = _short(e.message)
+            # A full queue or member cap refuses every later title the same way.
+            full = reason if isinstance(e, ConflictError) else None
+            skipped.append({"drama_id": drama_id, "reason": reason})
+    return {"queue": get_queue(principal), "added": added, "skipped": skipped}
 
 
 def _mutate_item(principal, item_id: int, change) -> dict:

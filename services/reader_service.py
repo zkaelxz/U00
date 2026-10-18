@@ -567,7 +567,7 @@ def export_vocab_csv(drama_id: int) -> dict:
 
 
 def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = True) -> dict:
-    """{filename, media_type, content: bytes, audio_omitted, cards_capped}
+    """{filename, media_type, content: bytes, audio_omitted, cards_capped, clips_missing}
     -- an Anki deck. rich=True builds the sentence(+audio clip) cards from
     the queued words (at most MAX_RICH_CARDS), with an audio clip only when
     the drama has an original audio/video file AND include_audio (the
@@ -589,6 +589,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
         original = None
     deck = _title(drama, "Baihe Vocab")
     name = "vocab_sentence.apkg" if rich else "vocab.apkg"
+    report = {}
     with storage.job_workdir("vocab_export") as tmp:
         out_path = os.path.join(tmp, name)
         try:
@@ -597,7 +598,7 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
                     vocab, _lines(drama_id), deck + " (sentences)", out_path,
                     audio_path=original[1] if original else None,
                     clip_timeout=RICH_CLIP_TIMEOUT_SECONDS,
-                    audio_budget_seconds=RICH_AUDIO_BUDGET_SECONDS)
+                    audio_budget_seconds=RICH_AUDIO_BUDGET_SECONDS, report=report)
             else:
                 vocab_export.export_vocab_apkg(vocab, deck, out_path)
         except ImportError:
@@ -606,7 +607,8 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
         with open(out_path, "rb") as f:
             content = f.read()
     return {"filename": name, "media_type": "application/octet-stream", "content": content,
-            "audio_omitted": audio_omitted, "cards_capped": cards_capped}
+            "audio_omitted": audio_omitted, "cards_capped": cards_capped,
+            "clips_missing": bool(report.get("clips_missing"))}
 
 
 # ---------------------------------------------------------------------------
