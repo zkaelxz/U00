@@ -34,7 +34,7 @@ test('a tap folds a section, the choice survives a reload and the help opens on 
   await expect(benchTab(page, 'Run a benchmark')).toHaveAttribute('aria-selected', 'true')
   await expectExpanded(page, { 'Golden sets': false, 'Run a benchmark': true })
   await page.reload()
-  await expect(page.locator('.bench-section-toggle')).toHaveCount(4)
+  await expect(page.locator('.bench-section-toggle')).toHaveCount(5)
   // The last tab is remembered too.
   await expect(benchTab(page, 'Run a benchmark')).toHaveAttribute('aria-selected', 'true')
   await expectExpanded(page, { ...DEFAULT_OPEN, 'Golden sets': false })

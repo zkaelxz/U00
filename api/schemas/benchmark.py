@@ -35,6 +35,23 @@ __all__ = [
     "BenchmarkCaseEdits",
     "BenchmarkLeftOut",
     "BenchmarkRunDelete",
+    "BenchmarkSweepRequest",
+    "BenchmarkSweepDecisionRequest",
+    "BenchmarkSweepModel",
+    "BenchmarkSweepKnob",
+    "BenchmarkSweepEstimate",
+    "BenchmarkSweepSetup",
+    "BenchmarkSweepStep",
+    "BenchmarkSweepTag",
+    "BenchmarkSweepHoldout",
+    "BenchmarkSweepRecommendation",
+    "BenchmarkSweepProfile",
+    "BenchmarkSweepDecision",
+    "BenchmarkSweep",
+    "BenchmarkSweepState",
+    "BenchmarkSweepStarted",
+    "BenchmarkSweepDecisionRow",
+    "BenchmarkSweepDecisions",
 ]
 
 
@@ -266,3 +283,164 @@ class BenchmarkBackendOption(BaseModel):
     label: str
     # What it still needs on this PC; None when it can run.
     problem: Optional[str] = None
+
+
+# --- The settings sweep (services/benchmark_sweep_service.py) ---
+
+_SweepValue = Union[StrictBool, StrictInt, StrictFloat]
+
+
+class BenchmarkSweepRequest(BaseModel):
+    """One golden set and one language; use_gpu None takes Settings' value."""
+    model_config = ConfigDict(extra="forbid")
+    set_name: str = Field(min_length=1, max_length=60)
+    language: Literal["zh", "ja", "ko"]
+    use_gpu: Optional[bool] = None
+    confirm: bool = False
+
+
+class BenchmarkSweepDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["approve", "reject"]
+    reason: Optional[str] = Field(default=None, max_length=300)
+    confirm: bool = False
+
+
+class BenchmarkSweepModel(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    label: str
+    included: bool
+    reason: Optional[str] = None
+
+
+class BenchmarkSweepKnob(BaseModel):
+    key: str
+    label: str
+    values: List[_SweepValue]
+    included: bool
+    reason: Optional[str] = None
+
+
+class BenchmarkSweepEstimate(BaseModel):
+    set_name: str
+    language: str
+    use_gpu: bool
+    tuning_cases: int
+    holdout_cases: int
+    tuning_titles: int
+    holdout_titles: int
+    audio_seconds: float
+    durations_guessed: bool
+    small_set: bool
+    min_set_cases: int
+    models: List[BenchmarkSweepModel]
+    knobs: List[BenchmarkSweepKnob]
+    not_swept: List[str]
+    passes_done: int
+    passes_to_run: int
+    estimated_seconds: int
+    estimated_cost_usd: float
+    monthly_refusal: Optional[str] = None
+
+
+class BenchmarkSweepSetup(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    changes: Dict[str, _SweepValue] = {}
+    label: str
+
+
+class BenchmarkSweepStep(BaseModel):
+    step: str
+    value: Optional[Union[StrictBool, StrictInt, StrictFloat, str]] = None
+    half: Literal["tuning", "holdout"]
+    setup: str
+    run_id: Optional[int] = None
+    score: Optional[float] = None
+    errors: Optional[int] = None
+    kept: Optional[bool] = None
+
+
+class BenchmarkSweepTag(BaseModel):
+    tag: str
+    cases: int
+    default_score: Optional[float] = None
+    winner_score: Optional[float] = None
+    delta: Optional[float] = None
+    too_small: bool
+
+
+class BenchmarkSweepHoldout(BaseModel):
+    default_score: Optional[float] = None
+    winner_score: Optional[float] = None
+    delta: Optional[float] = None
+    default_run_id: int
+    winner_run_id: int
+    default_errors: int
+    winner_errors: int
+
+
+class BenchmarkSweepRecommendation(BaseModel):
+    state: Literal["keep_default", "adopt", "not_confirmed"]
+    text: str
+    noise: Optional[float] = None
+    margin: float
+    margin_rule: str
+    default: BenchmarkSweepSetup
+    winner: BenchmarkSweepSetup
+    tuning: Dict[str, Optional[float]]
+    holdout: Optional[BenchmarkSweepHoldout] = None
+    tags: List[BenchmarkSweepTag]
+    steps: List[BenchmarkSweepStep]
+    case_counts: Dict[str, int]
+    small_set: bool
+
+
+class BenchmarkSweepProfile(BaseModel):
+    id: int
+    name: str
+
+
+class BenchmarkSweepDecision(BaseModel):
+    decision: Literal["promoted", "rejected"]
+    reason: str = ""
+    decided_at: Optional[str] = None
+    profile: Optional[BenchmarkSweepProfile] = None
+
+
+class BenchmarkSweep(BaseModel):
+    id: Optional[str] = None
+    set_name: str
+    language: str
+    use_gpu: Optional[bool] = None
+    status: Literal["queued", "running", "done", "cancelled", "failed", "interrupted"]
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    note: Optional[str] = None
+    passes_run: int = 0
+    passes_reused: int = 0
+    recommendation: Optional[BenchmarkSweepRecommendation] = None
+    decision: Optional[BenchmarkSweepDecision] = None
+    estimate: Optional[Dict[str, int]] = None
+
+
+class BenchmarkSweepState(BaseModel):
+    sweep: Optional[BenchmarkSweep] = None
+
+
+class BenchmarkSweepStarted(BaseModel):
+    job_id: str
+    sweep: BenchmarkSweep
+
+
+class BenchmarkSweepDecisionRow(BaseModel):
+    decision: str
+    reason: str = ""
+    decided_at: Optional[str] = None
+    language: Optional[str] = None
+    setup: str
+
+
+class BenchmarkSweepDecisions(BaseModel):
+    decisions: List[BenchmarkSweepDecisionRow]
