@@ -14,7 +14,7 @@ import {
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
 import {
-  EXPORT_NEEDS, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
+  EXPORT_NEEDS, ORIGINALS_LABEL, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeTranslateSkips,
   exportableIds, titleOf, translatableIds,
 } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
@@ -65,6 +65,7 @@ export function SelectionBar({
   const [deleting, setDeleting] = useState(false)
   const [skips, setSkips] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [withOriginals, setWithOriginals] = useState(false)
   const menuRef = useRef<HTMLDetailsElement>(null)
   const summaryRef = useRef<HTMLElement>(null)
   const translate = useAdminJob(ADMIN_JOB_IDS.translate)
@@ -196,10 +197,16 @@ export function SelectionBar({
             type="button"
             disabled={!toExport.length || exporter.active}
             aria-describedby={!toExport.length ? 'export-needs' : undefined}
-            onClick={() => void exporter.start(() => startExport(toExport))}
+            onClick={() => void exporter.start(() => startExport(toExport, undefined, withOriginals))}
           >
             Export .zip ({toExport.length})
           </button>
+        )}
+        {local && (
+          <label className="muted">
+            <input type="checkbox" checked={withOriginals} onChange={(e) => setWithOriginals(e.target.checked)} />{' '}
+            {ORIGINALS_LABEL}
+          </label>
         )}
         {phone && exportReason}
         {local && (
