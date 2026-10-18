@@ -11,6 +11,7 @@ import { AuditLogSection } from './diagnostics/AuditLogSection'
 import { UsersSection } from './diagnostics/UsersSection'
 import { canViewUsers } from './diagnostics/adminUsers'
 import { RemoteAccessSection } from './settings/RemoteAccessSection'
+import { routeHref } from '../router'
 import './diagnostics/diagnostics.css'
 
 export default function AdminPage() {
@@ -26,7 +27,10 @@ export default function AdminPage() {
           <RemoteAccessSection />
         </div>
       ) : (
-        <p className="muted">Only an admin can see this page.</p>
+        <p className="muted">
+          Only an admin can see this page. Ask the person who runs Baihe on the PC.{' '}
+          <a href={routeHref({ name: 'library' })}>Back to Library</a>
+        </p>
       )}
     </PageShell>
   )
