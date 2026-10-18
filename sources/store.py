@@ -17,6 +17,7 @@ import threading
 import time
 
 import db
+from lib import sqlite_check
 from translate_engines import redact_for_storage, safe_url
 
 # Concrete starting defaults, plus the cache mode
@@ -390,6 +391,19 @@ def backup_snapshot(dest: str):
     except sqlite3.Error:
         raise OSError("sources snapshot could not be prepared") from None
     return dest
+
+
+CORRUPT_MESSAGE = ("The sources database (sources.db in the library folder) failed its "
+                   "integrity check, so followed series, site settings and import history "
+                   "may not load. Baihe left the file as it is: restore a backup, or move "
+                   "sources.db out of the library folder to start with an empty one.")
+
+
+def integrity_problem(path: str = None):
+    """CORRUPT_MESSAGE when the sources database is damaged, else None. A
+    damaged file is the owner's to restore or set aside, never repaired here."""
+    damaged = sqlite_check.damaged(path or db_path(), BUSY_TIMEOUT_SECONDS)
+    return CORRUPT_MESSAGE if damaged else None
 
 
 def connect() -> sqlite3.Connection:

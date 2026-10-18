@@ -3,7 +3,7 @@ services/auto_backup_copies.py -- the copies in the backup folder: who wrote
 each one (the library identity), which ones this library manages, the rotation
 that keeps a few, and picking one to restore from.
 
-- Copies are named baihe_snapshot-YYYYMMDD-HHMMSS.zip (UTC; library.db +
+- Copies are named baihe_snapshot-YYYYMMDD-HHMMSS.zip (UTC; library.db, sources.db +
   manifest.json, plus media when include_media); the single snapshot kept
   before rotation had the fixed legacy name and is still read.
 - Ownership: each library has a random id, made once and kept in

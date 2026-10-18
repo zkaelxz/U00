@@ -22,6 +22,7 @@ import zipfile
 
 import storage
 from db import fsync_dir as _fsync_dir
+from lib import sqlite_check
 from lib.link_new import link_new
 from services import library_backup_restore_service as lbr
 from services import library_restore_service as lrs
@@ -216,16 +217,31 @@ def extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None,
     return dest
 
 
+def _check_sources_db(zf: zipfile.ZipFile, dest_dir: str):
+    if zf.getinfo("sources.db").file_size > _MAX_MEMBER_BYTES:
+        raise InvalidInputError(_BAD_SNAPSHOT)
+    dest = os.path.join(dest_dir, "sources.db")
+    with zf.open("sources.db") as src, open(dest, "wb") as out:
+        shutil.copyfileobj(src, out, 1024 * 1024)
+    if sqlite_check.damaged(dest):
+        raise InvalidInputError(_BAD_SNAPSHOT)
+
+
 def _verify_snapshot(path: str):
     """Everything a finished snapshot must pass before it replaces the old
     one: the restore zip checks, a readable manifest, a sound library.db
-    whose dramas match the manifest."""
+    whose dramas match the manifest, and a sound sources.db when the copy
+    has one. The backup API copies a damaged sources.db page for page, and
+    a restore refuses such a copy, so without this check the rotation would
+    delete good copies in favour of ones that cannot be restored."""
     lbr.validate_backup_file(path, check_disk=False, check_limits=False)
     with zipfile.ZipFile(path) as zf, storage.job_workdir() as tmp:
         manifest = _read_manifest(zf)
         dest = extract_db(zf, tmp)
         with contextlib.closing(sqlite3.connect(ro_uri(dest), uri=True)) as conn:
             ids = [r[0] for r in conn.execute("SELECT id FROM dramas ORDER BY id")]
+        if "sources.db" in zf.namelist():
+            _check_sources_db(zf, tmp)
     if ids != [d.get("id") for d in manifest["dramas"]]:
         raise InvalidInputError(_BAD_SNAPSHOT)
 
