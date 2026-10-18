@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { MediaKind } from '../../../api/media'
 import { getMediaStatus } from '../../../api/workspace'
+import { useRoute } from '../../../router'
 import { useStage } from '../StageContext'
 import { AiExtrasBurnPreview } from './review/AiExtrasBurnPreview'
 import { AiExtrasCleanup } from './review/AiExtrasCleanup'
@@ -80,6 +81,9 @@ export default function ReviewStage() {
     [],
   )
   const [flaggedCount, setFlaggedCount] = useState<number | null>(null)
+  const route = useRoute()
+  // A ?tools= link or a running job still opens the panel: those need it with no lines.
+  const hideTools = lineCount === 0 && !jobRunning && !(route.name === 'drama' && route.id === dramaId && route.tools)
 
   // Play from the source video when there is one (its sound plays even while
   // the picture is folded away), else from the audio; no media, no player.
@@ -121,7 +125,7 @@ export default function ReviewStage() {
         jobRunning={jobRunning}
         render={(parts) => (
           <ReviewJobsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onGoTo={goToLine} flaggedCount={flaggedCount}
-            render={(jobs) => (
+            render={(jobs) => hideTools ? null : (
               <ReviewTools
                 dramaId={dramaId}
                 status={jobs.status}
