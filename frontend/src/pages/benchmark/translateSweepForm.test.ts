@@ -9,7 +9,7 @@ const est = {
   estimated_cost_usd: 1.5, cap_applies: true, remaining_usd: 10, monthly_refusal: null, estimate_above_cap: false,
   passes_done: 0, passes_to_run: 7,
 } as TranslateSweepEstimate
-const ready = { setName: 's', engine: 'claude', estimate: est, estimateFresh: true, remote: false, running: false }
+const ready = { setName: 's', engine: 'claude', estimate: est, estimateFresh: true, running: false }
 
 describe('translation sweep form', () => {
   it('lists translation sets that have references, once, sorted', () => {
@@ -37,7 +37,6 @@ describe('translation sweep form', () => {
 
   it('says why Start is off, in order', () => {
     expect(translateStartProblem(ready)).toBeNull()
-    expect(translateStartProblem({ ...ready, remote: true })).toMatch(/main PC/)
     expect(translateStartProblem({ ...ready, running: true })).toMatch(/benchmark run/)
     expect(translateStartProblem({ ...ready, setName: '' })).toMatch(/golden set/)
     expect(translateStartProblem({ ...ready, estimateFresh: false })).toMatch(/Estimate/)

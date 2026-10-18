@@ -78,7 +78,7 @@ export function TranslateSweepCard({ options, sets, pc, job, running, onStarted,
 
   const fresh = estimateFor === key
   const shown = fresh ? estimate : null
-  const problem = translateStartProblem({ setName, engine: engine?.name ?? '', estimate, estimateFresh: fresh, remote, running })
+  const problem = translateStartProblem({ setName, engine: engine?.name ?? '', estimate, estimateFresh: fresh, running })
   const sweeping = running && (ownRun || sweep?.status === 'running' || sweep?.status === 'queued')
   const request = { set_name: setName, language, engine: engine?.name ?? '', model: modelValue || null, series_id: seriesId }
 
@@ -184,7 +184,7 @@ export function TranslateSweepCard({ options, sets, pc, job, running, onStarted,
                 {busy === 'start' ? 'Starting…' : translateStartLabel(shown)}
               </button>
             )}
-            {problem && (
+            {!remote && problem && (
               <span className="muted" id="tsweep-start-reason" data-testid="tsweep-start-reason">
                 {problem}
               </span>

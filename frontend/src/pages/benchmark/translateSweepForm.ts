@@ -39,10 +39,8 @@ export function translateStartProblem(opts: {
   engine: string
   estimate: TranslateSweepEstimate | null
   estimateFresh: boolean
-  remote: boolean
   running: boolean
 }): string | null {
-  if (opts.remote) return 'A sweep starts on the main PC only.'
   if (opts.running) return 'A benchmark run is going. Wait for it to finish.'
   if (!opts.setName) return 'Pick a golden set with translation cases.'
   if (!opts.engine) return 'Pick a translation engine.'
