@@ -70,7 +70,7 @@ The 13 owner checks (`docs/session-harvest/triage-2026-10-10.md`, "Owner checks"
 
 ## 3. Restore a backup
 Close other work first: a restore is refused while any job runs. Restores are PC-only.
-**Automatic backups (Settings -> "Automatic backups")**
+**Automatic backups (Library tools -> "Backup" tab -> "Automatic backups"; Settings -> "Automatic backups" links there)**
 - Off until you turn on "Back up automatically". Defaults: daily, database only (text, translations, settings; small and fast). "Include media (audio, video, pages)" adds every file and can be large. "Back up now" adds a copy at once.
 - Each run adds a new dated copy (`baihe_snapshot-YYYYMMDD-HHMMSS.zip`, UTC) and then prunes. Kept: one copy per UTC day for the last 2 days, plus the oldest copy of each of the last 2 ISO weeks. A failed backup deletes nothing.
 - Each copy's manifest carries this library's id and a copy number, and the library remembers which copies it wrote. Pruning, "All copies" and a folder change touch only those (plus untagged copies dated before the id was made, in the default `backups/auto`). Another PC's copies in a shared folder (also a PC running a hand-copied library folder, which has the same id), untagged copies in a custom folder and unreadable files are listed under "Other or older copies (not managed)" and never pruned. If the folder has a copy with this library's id numbered above its own count (such a copied library, or a `library.db` put back by hand), that run deletes nothing and the log says so; copies it didn't write stay until you delete them by name.

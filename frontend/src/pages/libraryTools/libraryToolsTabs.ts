@@ -30,6 +30,7 @@ export const CARDS = {
   history: { tab: 'activity', title: 'Reading history' },
   backup: { tab: 'backup', title: 'Back up' },
   restore: { tab: 'backup', title: 'Restore' },
+  'auto-backup': { tab: 'backup', title: 'Automatic backups' },
   'auto-copies': { tab: 'backup', title: 'Automatic backup copies' },
   cleanup: { tab: 'storage', title: 'Cleanup' },
   'unused-clips': { tab: 'storage', title: 'Unused voice clips' },

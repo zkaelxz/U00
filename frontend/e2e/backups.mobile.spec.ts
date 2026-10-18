@@ -2,9 +2,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { mockBackups } from './backupsMocks'
 import { openFold } from './foldHelpers'
-import { openSettingsGroups } from './settingsNav'
 
-// Phone project (390x844, touch): the Settings "Automatic backups" Card and
+// Phone project (390x844, touch): the Library tools "Automatic backups" card and
 // restoring one drama from a backup copy in Library tools, on the stateful
 // mocks in backupsMocks.ts. BACKUP_SHOTS_DIR=<dir> also saves screenshots.
 
@@ -26,11 +25,11 @@ async function tallEnough(scope: Locator, selector: string) {
   for (const { h, text } of boxes) expect(h, text).toBeGreaterThanOrEqual(44)
 }
 
-test('Settings card fits a phone with 44px targets', async ({ page }) => {
+test('Automatic backups card fits a phone with 44px targets', async ({ page }) => {
   await mockBackups(page)
-  await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
-  const card = page.getByRole('region', { name: 'Automatic backups', exact: true })
+  await page.goto('/#/library-tools?tab=backup')
+  await openFold(page, 'Automatic backups')
+  const card = page.locator('.auto-backup')
   await expect(card.getByTestId('auto-backup-snapshot')).toContainText('Database only')
   await card.scrollIntoViewIfNeeded()
   await expect(card.getByRole('list', { name: 'Backup copies, newest first' }).getByRole('listitem')).toHaveCount(3)
@@ -38,7 +37,7 @@ test('Settings card fits a phone with 44px targets', async ({ page }) => {
   // The Toggle's hit area is its ::after (44px), not its box.
   await expect(card.getByRole('switch', { name: 'Back up automatically' })).toBeVisible()
   await noSideways(page)
-  if (SHOTS) await card.screenshot({ path: `${SHOTS}/settings-auto-backups-phone.png` })
+  if (SHOTS) await card.screenshot({ path: `${SHOTS}/library-auto-backups-phone.png` })
   await card.getByRole('button', { name: 'Back up now' }).click()
   await expect(card.getByText('Backup finished.')).toBeVisible()
   await noSideways(page)
