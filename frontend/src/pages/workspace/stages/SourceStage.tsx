@@ -4,6 +4,7 @@ import { updateDramaMetadata } from '../../../api/library'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
+import { ButtonLink } from '../../../components/Button'
 import { formatBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
@@ -85,7 +86,7 @@ export default function SourceStage() {
   }, [saveDraft, from])
   const fromUrl = from === 'url'
 
-  // The sub-tab: a link's ?tab= first, Library's "Create and auto-fill" (Fill in details is on Details), then the
+  // The sub-tab: a link's ?tab= first, Library's "Create and fill details with AI" (Fill in details is on Details), then the
   // one this title was last left on.
   const kindOfTitle = titleKind(drama.media_type, drama.content_mode)
   const linkedTab = () => {
@@ -298,7 +299,7 @@ export default function SourceStage() {
           {isUploadLimitProblem(fileProblem) && (
             <>
               {' '}
-              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; System &gt; Offline, paths and limits &gt; Uploads</a>.
+              <ButtonLink size="sm" href={UPLOAD_LIMIT_SETTINGS_HREF}>Raise the upload limit</ButtonLink>
             </>
           )}
         </p>

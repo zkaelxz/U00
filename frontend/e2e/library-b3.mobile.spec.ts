@@ -40,7 +40,7 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   await expectNoHorizontalOverflow(page)
 })
 
-test('New drama: Summary and Create and auto-fill fit a phone', async ({ page }) => {
+test('New drama: Summary and Create and fill details with AI fit a phone', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'New title' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
@@ -48,7 +48,7 @@ test('New drama: Summary and Create and auto-fill fit a phone', async ({ page })
   const summary = sheet.getByRole('textbox', { name: 'Summary' })
   await expect(summary).toBeVisible()
   expect((await hitHeight(summary))).toBeGreaterThanOrEqual(44)
-  const autofill = sheet.getByRole('button', { name: 'Create and auto-fill' })
+  const autofill = sheet.getByRole('button', { name: 'Create and fill details with AI' })
   expect((await hitHeight(autofill))).toBeGreaterThanOrEqual(44)
   await expectNoHorizontalOverflow(page)
 })

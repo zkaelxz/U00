@@ -109,6 +109,15 @@ test('skipped and interrupted items say why and offer Retry; a missed start asks
   expect(mock.calls).toEqual(['/items/2/retry', '/start', '/clear-finished'])
 })
 
+test('an empty queue has no Start button until a step is waiting', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await expect(card.getByTestId('queue-empty')).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Start queue now' })).toHaveCount(0)
+})
+
 test('a member sees no run controls', async ({ page }) => {
   await mockJobsApi(page, [], true)
   await mockQueueApi(page, [queueItem(1)], { can_control: false })

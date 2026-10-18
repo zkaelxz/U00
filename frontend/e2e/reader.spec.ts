@@ -338,12 +338,12 @@ test('no Edit in Translate link without the lines.edit permission', async ({ pag
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
 
-  test('a title that fails to load shows its number, not Loading', async ({ page }) => {
+  test('a title that fails to load says This title, not Loading', async ({ page }) => {
     await page.route('**/api/library/dramas/2', (route) =>
       route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } }))
     await page.goto('/#/read/2?page=1')
     await expect(page.getByRole('alert')).toBeVisible()
-    await expect(page.locator('.reader-title')).toHaveText('Title #2')
+    await expect(page.locator('.reader-title')).toHaveText('This title')
   })
 
   test('library cards have a 44px Read link, hidden in select mode', async ({ page }) => {

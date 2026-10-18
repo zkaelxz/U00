@@ -22,7 +22,8 @@ describe('dashboard numbers (parity L01)', () => {
   it('headline: titles and lines, with the remainder only while some are left', () => {
     expect(libraryHeadline({ total_dramas: 5, total_lines: 4210, translated_lines: 2875 })).toBe('5 titles · 2,875 of 4,210 lines · 1,335 left')
     expect(libraryHeadline({ total_dramas: 1, total_lines: 10, translated_lines: 10 })).toBe('1 title · 10 of 10 lines')
-    expect(libraryHeadline({ total_dramas: 0, total_lines: 0, translated_lines: 0 })).toBe('0 titles · 0 of 0 lines')
+    expect(libraryHeadline({ total_dramas: 0, total_lines: 0, translated_lines: 0 })).toBe('0 titles')
+    expect(libraryHeadline({ total_dramas: 3, total_lines: 0, translated_lines: 0 })).toBe('3 titles')
   })
   it('usage summary: cost, or nothing when unused or missing', () => {
     expect(usageSpent(usage)).toBe('$3.47 spent')

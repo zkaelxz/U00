@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 // and the page has no sideways scroll.
 test('settings switches have 44px touch targets on a phone', async ({ page }) => {
   await page.goto('/#/settings')
-  for (const tab of ['Translation and keys', 'Costs', 'Notifications and backups', 'Sharing and devices', 'Integrations', 'System'] as const) {
+  for (const tab of ['Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'System'] as const) {
     await openSettingsGroups(page, tab)
     if (tab === 'Integrations') await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible() // the seeded API leaves the bridge off or on; either way it is a switch
     const switches = page.locator('.settings-panel:not([hidden])').getByRole('switch')

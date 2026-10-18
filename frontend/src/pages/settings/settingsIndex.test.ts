@@ -34,7 +34,7 @@ describe('settings tabs', () => {
       'Translation and keys',
       'Costs',
       'Notifications and backups',
-      'Sharing and devices',
+      'Account and display',
       'Integrations',
       'System',
     ])
@@ -56,7 +56,7 @@ describe('settings tabs', () => {
     expect(cardStartsOpen('not-a-card')).toBe(false)
   })
 
-  it('keeps the six cards a member sees together on the Sharing and devices tab', () => {
+  it('keeps the six cards a member sees together on the Account and display tab', () => {
     expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
   })
 })

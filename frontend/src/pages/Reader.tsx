@@ -23,6 +23,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
+import { ButtonLink } from '../components/Button'
 import { routeHref } from '../router'
 import { resolveTheme, useThemePref } from '../theme'
 import type {
@@ -403,7 +404,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       {phone ? (
         <header className="reader-phone-head">
           <a href={routeHref({ name: 'library' })} className="reader-back" aria-label="Back to Library">‹</a>
-          <span className="reader-title">{title ?? (titleFailed ? `Title #${id}` : 'Loading…')}</span>
+          <span className="reader-title">{title ?? (titleFailed ? 'This title' : 'Loading…')}</span>
           <SourceLink href={sourceUrl} dramaId={id} />
           {aa}
         </header>
@@ -427,7 +428,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       {empty ? (
         <section className="panel">
           <p>No lines to read yet.</p>
-          <a href={workspaceHref}>Add lines on Media</a>
+          <ButtonLink href={workspaceHref}>Add lines on Media</ButtonLink>
         </section>
       ) : (
         <>

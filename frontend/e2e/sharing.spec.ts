@@ -79,7 +79,7 @@ async function mockSharing(page: Page, me: MeBody) {
 test('admin: share-new-items switch, every item with its owner, flips and a plain 409', async ({ page }) => {
   const { posts, unmocked } = await mockSharing(page, ADMIN_ME)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Sharing and devices')
+  await openSettingsGroups(page, 'Account and display')
   const card = page.getByRole('region', { name: 'Sharing' })
 
   const shareDefault = card.getByRole('switch', { name: 'New items I create are shared with the household' })
@@ -136,7 +136,7 @@ test('household member: only their own share-new-items switch, no item list, fit
     route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Sharing and devices')
+  await openSettingsGroups(page, 'Account and display')
   const card = page.getByRole('region', { name: 'Sharing' })
   await expect(card.getByRole('switch', { name: 'New items I create are shared with the household' })).toHaveAttribute(
     'aria-checked',
@@ -158,7 +158,7 @@ test('admin: with no titles or series the list offers the way to the Library', a
   await mockSharing(page, ADMIN_ME)
   await page.route('**/api/sharing/items*', (route) => route.fulfill({ json: { total: 0, offset: 0, limit: 100, items: [] } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Sharing and devices')
+  await openSettingsGroups(page, 'Account and display')
   const card = page.getByRole('region', { name: 'Sharing' })
   await expect(card.getByText('There are no titles or series yet.')).toBeVisible()
   await expect(card.getByRole('link', { name: 'Go to Library' })).toHaveAttribute('href', '#/library')
@@ -171,7 +171,7 @@ test('/me unavailable: no controls or item list, only a retry; Retry brings the 
     down ? route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad gateway</h1>' }) : route.fallback(),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Sharing and devices')
+  await openSettingsGroups(page, 'Account and display')
   const card = page.getByRole('region', { name: 'Sharing' })
   await expect(card.getByText("Couldn't check your account yet")).toBeVisible()
   await expect(card.getByRole('switch')).toHaveCount(0)

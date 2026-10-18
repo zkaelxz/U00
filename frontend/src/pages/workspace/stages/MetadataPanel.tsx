@@ -282,7 +282,7 @@ const FILL_MODES: [FillMode, string][] = [
  * media. Every mode stays mounted so a pending suggestion survives switching.
  */
 export function FillInPanel({ hasMedia, onNeedMedia }: { hasMedia: boolean; onNeedMedia?: () => void }) {
-  // Arriving from Library "Create and auto-fill" (?autofill=1) opens this fold
+  // Arriving from Library "Create and fill details with AI" (?autofill=1) opens this fold
   // on the page mode before the Section and the mode read their remembered state.
   const [arrived] = useState(() => {
     const want = wantsAutofill(window.location.hash)

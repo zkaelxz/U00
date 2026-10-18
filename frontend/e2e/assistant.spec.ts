@@ -22,7 +22,7 @@ test('nav link is hidden with Developer Mode off and appears once it is turned o
   await expect(navLink(page, 'Assistant')).toBeVisible()
   expect(s.calls.find((c) => c.method === 'POST')?.body).toEqual({ developer_mode: true })
   await navLink(page, 'Assistant').click()
-  await expect(page.getByRole('heading', { name: 'Maintenance assistant' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Assistant' })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
 

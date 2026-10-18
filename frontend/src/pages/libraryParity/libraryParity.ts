@@ -22,9 +22,10 @@ export function usageLine(u: LibraryUsage): string {
 }
 
 // Library header: "5 dramas · 2,875 of 4,210 lines · 1,335 left". "Translated"
-// is implied by the count and the left-over shows only while some remain.
+// is implied by the count; the line count and the left-over show only while there are lines to count.
 export function libraryHeadline(s: Pick<LibraryDashboard, 'total_dramas' | 'total_lines' | 'translated_lines'>): string {
-  const parts = [countDramas(s.total_dramas), `${s.translated_lines.toLocaleString()} of ${s.total_lines.toLocaleString()} lines`]
+  const parts = [countDramas(s.total_dramas)]
+  if (s.total_lines) parts.push(`${s.translated_lines.toLocaleString()} of ${s.total_lines.toLocaleString()} lines`)
   if (s.total_lines > s.translated_lines) parts.push(`${(s.total_lines - s.translated_lines).toLocaleString()} left`)
   return parts.join(' · ')
 }

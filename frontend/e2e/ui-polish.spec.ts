@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
+import { mockQueueApi, queueItem } from './queueMocks'
 import { pickTab } from './tabPicker'
 
 // Shared-CSS regressions the owner circled: segmented pills, tab bars, flush-left card bodies, selects stretched
@@ -148,6 +149,7 @@ test.describe('hover never repaints or reflows', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
   test('primary buttons are a flat fill that does not repaint or animate background on hover', async ({ page }) => {
+    await mockQueueApi(page, [queueItem(1)])
     await page.goto('/#/jobs')
     const start = page.getByRole('button', { name: 'Start queue now' })
     await expect(start).toBeVisible()

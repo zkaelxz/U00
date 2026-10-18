@@ -35,6 +35,7 @@ import {
 // Fast while something runs, so a finished item shows up without a reload.
 const ACTIVE_POLL_MS = 5000
 const IDLE_POLL_MS = 30000
+const SEARCHABLE_TITLES = 30
 
 type Props = { titles: ReadonlyMap<number, string> }
 
@@ -44,6 +45,7 @@ export function JobQueue({ titles }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [dramaId, setDramaId] = useState('')
+  const [titleFilter, setTitleFilter] = useState('')
   const [step, setStep] = useState<AddStep>('transcribe')
   const [costNote, setCostNote] = useState<string | null>(null)
   // This queued step's own changes to the title's saved settings; the title itself is never changed.
@@ -114,7 +116,12 @@ export function JobQueue({ titles }: Props) {
   const full = items.length >= queue.max_items
   const sched = scheduleText(queue.schedule)
   const done = finishedCount(items)
-  const titleOptions = [...titles.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  const sortedTitles = [...titles.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  const needle = titleFilter.trim().toLowerCase()
+  // The picked title stays listed so narrowing the filter never silently changes the selection.
+  const titleOptions = needle
+    ? sortedTitles.filter(([id, name]) => String(id) === dramaId || name.toLowerCase().includes(needle))
+    : sortedTitles
 
   const add = () => {
     const id = Number(dramaId)
@@ -131,7 +138,15 @@ export function JobQueue({ titles }: Props) {
 
   return (
     <Card title="Queue" meta={runStateText(queue)} className="queue-card" aria-label="Queue">
-      <p className="muted">Line up steps for your titles and let them run one at a time, now or once at a set time.</p>
+      <Section title="How the queue works">
+        <p className="muted">Line up steps for your titles and let them run one at a time, now or once at a set time.</p>
+        {queue.can_control && (
+          <>
+            <p className="muted">Start at: once, at this time on the PC's clock. If Baihe is off then, the start shows as missed and nothing runs on its own.</p>
+            <p className="muted">Stop the queue when an item fails: off, a failed item is marked and the next one starts. Skipped and cancelled items never stop the queue.</p>
+          </>
+        )}
+      </Section>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {queue.notice && <p className="queue-notice" role="status">{queue.notice}</p>}
 
@@ -169,6 +184,9 @@ export function JobQueue({ titles }: Props) {
         </ol>
       )}
 
+      {titles.size > SEARCHABLE_TITLES && (
+        <input type="search" aria-label="Filter titles" value={titleFilter} onChange={(e) => setTitleFilter(e.target.value)} />
+      )}
       <div className="queue-add" role="group" aria-label="Add to queue">
         <Field label="Title">
           <select value={dramaId} onChange={(e) => { setDramaId(e.target.value); setEdits({}) }}>
@@ -212,7 +230,7 @@ export function JobQueue({ titles }: Props) {
               <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => void act(pauseQueue)}>
                 Pause
               </button>
-            ) : (
+            ) : items.some((item) => item.status === 'waiting') && (
               <button type="button" className={buttonClass('primary')} disabled={busy} onClick={() => void act(startQueue)}>
                 Start queue now
               </button>
@@ -236,13 +254,11 @@ export function JobQueue({ titles }: Props) {
               </button>
             )}
           </div>
-          <p className="muted">Once, at this time on the PC's clock. If Baihe is off then, the start shows as missed and nothing runs on its own.</p>
           <div className="setting-list">
             <Field label="Stop the queue when an item fails">
               <Toggle checked={queue.stop_on_failure} disabled={busy} onChange={(on) => void act(() => setQueuePolicy(on))} />
             </Field>
           </div>
-          <p className="muted">Off: a failed item is marked and the next one starts. Skipped and cancelled items never stop the queue.</p>
         </div>
       ) : (
         <p className="muted">Only the PC owner can start, pause or schedule the queue.</p>
