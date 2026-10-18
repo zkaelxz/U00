@@ -33,7 +33,7 @@ export const INCLUDE_ALL_HELP =
   'reviewed still holds the recogniser\'s own output, so the test would partly grade it against its past self: use this ' +
   'only for a title whose text you have reviewed, for example one whose timing you fixed in Review.'
 
-export type BenchSectionId = 'sets' | 'run' | 'sweep' | 'reeval' | 'runs'
+export type BenchSectionId = 'sets' | 'run' | 'sweep' | 'tsweep' | 'reeval' | 'runs'
 
 type SectionCopy = {
   title: string
@@ -65,6 +65,7 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
       'Press Start. Progress shows here while it runs.',
       'Read the scores under Recent runs.',
       'Optional: pick a judge to also score accuracy, tone and naturalness.',
+      'Optional: Translate like a title runs a title\'s cases together, in order, with context.',
     ],
   },
   sweep: {
@@ -73,6 +74,19 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
     steps: [
       'Pick a golden set with audio clips and its language.',
       'Press Estimate to see the passes, the held-out titles and the time.',
+      'Start runs the default twice, then each setting one at a time.',
+      'Stop any time. Start again later and finished passes are skipped.',
+      'A winner is checked on titles the sweep never tuned on.',
+      'Approve saves it as a setting profile. Nothing changes by itself.',
+    ],
+  },
+  tsweep: {
+    title: 'Translation sweep',
+    purpose: 'Find the translation settings that suit your own cases.',
+    steps: [
+      'Pick a golden set with translated cases, its language and an engine.',
+      'Press Estimate to see the passes, the held-out titles and the cost.',
+      'A paid engine is held to the monthly cap, whatever the estimate said.',
       'Start runs the default twice, then each setting one at a time.',
       'Stop any time. Start again later and finished passes are skipped.',
       'A winner is checked on titles the sweep never tuned on.',
@@ -106,6 +120,6 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
 }
 
 // Each section is the first card of its own tab (the sweep sits under Run a benchmark), so it starts open.
-export const BENCH_DEFAULT_OPEN: Record<BenchSectionId, boolean> = { sets: true, run: true, sweep: true, reeval: true, runs: true }
+export const BENCH_DEFAULT_OPEN: Record<BenchSectionId, boolean> = { sets: true, run: true, sweep: true, tsweep: true, reeval: true, runs: true }
 
 export const NO_CASES_HINT = 'No cases match yet. Import a golden set above, or widen Tier and Golden set.'
