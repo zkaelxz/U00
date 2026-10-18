@@ -43,14 +43,6 @@ def test_get_page_scoped_to_drama(page):
     assert db.get_page(999999) is None
 
 
-def test_next_page_idx_uses_max_not_count(page):
-    db, did, pid = page
-    db.create_page(did, 7, "pages/page_0007.png", 10, 10)
-    assert db.next_page_idx(did) == 8
-    empty = db.create_drama(title_zh="空", title_en="Empty", source_language="zh")
-    assert db.next_page_idx(empty) == 0
-
-
 def test_update_page_whitelists_fields(page):
     db, did, pid = page
     db.update_page(pid, context_summary="ctx", run_notes="[]")
@@ -90,26 +82,6 @@ def test_update_bubble_fields_rejects_unknown_columns(page):
         db.update_bubble_fields(ids[0], {"page_id": 5})
     with pytest.raises(ValueError):
         db.update_bubble_fields(ids[0], {"translated_text": "x"}, expected={"id; DROP": 1})
-
-
-def test_insert_delete_reorder_keep_other_ids(page):
-    db, did, pid = page
-    a, b, c = _ids(db, pid)
-    new = db.insert_bubble(pid, _bubble(9), position=1)
-    assert _ids(db, pid) == [a, new, b, c]
-    assert [x["idx"] for x in db.load_bubbles(pid)] == [0, 1, 2, 3]
-    assert db.delete_bubble(pid, b)
-    assert _ids(db, pid) == [a, new, c]
-    assert not db.delete_bubble(pid, b)
-    assert db.reorder_bubbles(pid, [c, a, new])
-    assert _ids(db, pid) == [c, a, new]
-    assert not db.reorder_bubbles(pid, [c, a])            # missing id
-    assert not db.reorder_bubbles(pid, [c, a, new, 999])  # extra id
-    assert not db.reorder_bubbles(pid, [c, c, a])         # repeat
-    assert _ids(db, pid) == [c, a, new]
-    assert _rev(db, pid) == 3
-    appended = db.insert_bubble(pid, _bubble(10))
-    assert _ids(db, pid)[-1] == appended
 
 
 def test_replace_bubbles_if_unchanged(page):

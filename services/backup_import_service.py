@@ -40,6 +40,7 @@ import sqlite3
 import time
 import zipfile
 
+from lib import ids as lib_ids
 import db
 import storage
 from services import auto_backup_files as abf_
@@ -251,8 +252,7 @@ def _check_ids(drama_ids) -> list:
         raise InvalidInputError(f"At most {MAX_DRAMAS_PER_IMPORT} titles per import.")
     out = []
     for did in drama_ids:
-        if isinstance(did, bool) or not isinstance(did, int) or not 1 <= did <= 2 ** 31 - 1:
-            raise InvalidInputError("A title id is a positive whole number.")
+        lib_ids.check_id(did, "A title id is a positive whole number.")
         if did not in out:
             out.append(did)
     return out

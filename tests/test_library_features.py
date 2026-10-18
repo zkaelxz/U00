@@ -142,10 +142,6 @@ class TestProfiles:
     def test_get_unknown_profile_returns_none(self, isolated_db):
         assert isolated_db.get_profile(99999) is None
 
-    def test_rename(self, isolated_db):
-        pid = isolated_db.create_profile("Alex")
-        isolated_db.rename_profile(pid, "Alexandra")
-        assert isolated_db.get_profile(pid)["name"] == "Alexandra"
 
     def test_delete_a_second_profile(self, isolated_db):
         pid = isolated_db.create_profile("Alex")

@@ -8,6 +8,7 @@ verified to exist before every write or delete. Responses never carry a
 path or a key.
 """
 
+from lib import ids as lib_ids
 import db
 from core import SOURCE_LANGUAGES
 import known_sites
@@ -30,8 +31,7 @@ _TITLE_FIELDS = tuple(_TITLE_CAPS) + ("language", "media_type")
 
 
 def _check_id(value):
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > MAX_ID:
-        raise InvalidInputError("title id is out of range.")
+    lib_ids.check_id(value, "title id is out of range.")
 
 
 MAX_TAG_LEN = 40

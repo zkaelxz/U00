@@ -330,6 +330,7 @@ from db.schema import (  # noqa: E402,F401
     _create_bulk_job_tables, _create_core_indexes, _create_library_tables,
     _create_library_tool_tables, _create_line_annotation_tables,
     _create_metadata_research_tables, _create_reading_tables, _create_review_tables,
+    ensure_legacy_bug_reports,
     _create_series_tables)
 
 from db.schema_system import (  # noqa: E402,F401
@@ -439,7 +440,8 @@ from db.library_folder import (  # noqa: E402,F401
 
 from db.dramas import (  # noqa: E402,F401
     create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, get_drama,
-    get_library_stats, list_dramas, list_dramas_by_series, list_dramas_recently_active,
+    get_library_stats, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
+    list_dramas_recently_active,
     search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
     has_custom_tag, set_custom_tag)
 
@@ -466,6 +468,7 @@ from db.speakers import (  # noqa: F401
     live_speaker_merge_undo_clips,
     retire_speaker_merge_undos,
     upsert_series_character,
+    count_series_characters_by_series,
     rename_series_character,
     insert_series_character,
     update_series_character,
@@ -491,18 +494,13 @@ from db.comic_pages import (  # noqa: F401
     update_page,
     list_pages,
     get_page,
-    next_page_idx,
     move_pages,
     BUBBLE_EDIT_FIELDS,
     update_bubble_fields,
-    insert_bubble,
-    delete_bubble,
-    reorder_bubbles,
     replace_bubbles_if_unchanged,
     save_bubbles,
     load_bubbles,
     list_bubbles_for_drama,
-    update_bubble_text,
 )
 
 
@@ -525,7 +523,7 @@ from db.glossary import (  # noqa: E402,F401
     bump_translation_memory_use, create_series, get_or_create_series, get_series_id_by_name,
     insert_glossary_term_if_absent, list_series, list_translation_memory,
     record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
-    upsert_glossary_term, list_glossary_terms, list_glossary_dismissals,
+    upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
     delete_glossary_term)
 
@@ -546,7 +544,7 @@ from db.line_annotations import (  # noqa: E402,F401
 
 from db.reading import (  # noqa: E402,F401
     clear_reading_history, create_profile, delete_profile, get_personal_notes, get_profile,
-    get_progress, list_continue_reading, list_profiles, list_reading_history, rename_profile,
+    get_progress, list_continue_reading, list_profiles, list_reading_history,
     save_personal_notes, save_progress)
 
 
@@ -662,7 +660,6 @@ from db.benchmark import (  # noqa: F401
     delete_benchmark_case,
     save_benchmark_run,
     list_benchmark_runs,
-    latest_benchmark_run_per_case,
     create_benchmark_lab_case,
     update_benchmark_case_texts,
     list_benchmark_case_edits,

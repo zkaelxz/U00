@@ -471,6 +471,48 @@ class TestWholeLibraryRestore:
         assert _identity() is None
         assert abc_._identity()[0] != "b" * 32
 
+    def _has_bug_reports(self):
+        with contextlib.closing(db.get_conn()) as conn:
+            return conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'bug_reports'").fetchone() is not None
+
+    def _legacy_library(self):
+        did = db.create_drama(title_en="A")
+        with contextlib.closing(db.get_conn()) as conn:
+            db.ensure_legacy_bug_reports(conn)
+            conn.execute("INSERT INTO bug_reports (drama_id, label) VALUES (?, 'kept')", (did,))
+            conn.commit()
+
+    def _drop_bug_reports(self):
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("DROP TABLE bug_reports")
+            conn.commit()
+
+    def test_restore_keeps_the_bug_reports_table_and_rows_of_an_old_library(
+            self, isolated_db, tmp_path):
+        self._legacy_library()
+        backup = _library_zip(tmp_path)
+        self._drop_bug_reports()
+        lrs.restore_library_backup(backup, db.LIBRARY_DIR)
+        with contextlib.closing(db.get_conn()) as conn:
+            assert [r[0] for r in conn.execute("SELECT label FROM bug_reports")] == ["kept"]
+
+    def test_user_backup_restore_keeps_bug_reports_rows(self, isolated_db, tmp_path):
+        from services import library_user_backup_service as lub
+        self._legacy_library()
+        path = str(tmp_path / "user.zip")
+        lub.write_user_backup_zip(path, owner_id=None)
+        self._drop_bug_reports()
+        lrs.restore_library_backup(_read(path), db.LIBRARY_DIR)
+        with contextlib.closing(db.get_conn()) as conn:
+            assert [r[0] for r in conn.execute("SELECT label FROM bug_reports")] == ["kept"]
+
+    def test_restore_from_a_library_without_the_table_creates_none(self, isolated_db, tmp_path):
+        db.create_drama(title_en="A")
+        assert not self._has_bug_reports()
+        lrs.restore_library_backup(_library_zip(tmp_path), db.LIBRARY_DIR)
+        assert not self._has_bug_reports()
+
     def test_kept_key_is_the_identity_key(self):
         assert abc_.IDENTITY_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
 

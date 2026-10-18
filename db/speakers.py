@@ -458,6 +458,14 @@ def list_series_characters(series_id: int):
     return [dict(r) for r in rows]
 
 
+def count_series_characters_by_series() -> dict:
+    """{series_id: character count} for every series that has characters."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT series_id, COUNT(*) FROM series_characters GROUP BY series_id").fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
 def delete_series_character(series_character_id: int):
     """Only removes the series-level record. Any drama's `characters` row
     still pointing at it keeps its own character_name (already copied in

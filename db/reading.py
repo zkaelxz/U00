@@ -38,12 +38,6 @@ def get_profile(profile_id: int):
     return dict(row) if row else None
 
 
-def rename_profile(profile_id: int, new_name: str):
-    with contextlib.closing(db.get_conn()) as conn:
-        conn.execute("UPDATE profiles SET name = ? WHERE id = ?", (new_name, profile_id))
-        conn.commit()
-
-
 def delete_profile(profile_id: int):
     """Refuses to remove the last remaining profile -- the app always
     needs at least one to attach progress/history/notes to (and for

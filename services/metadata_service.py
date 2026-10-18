@@ -30,6 +30,7 @@ import os
 import socket  # noqa: F401  (tests patch metadata_service.socket.getaddrinfo)
 from typing import Optional
 
+from lib import ids as lib_ids
 import db
 import media_inspect
 import metadata_lookup
@@ -62,8 +63,7 @@ _BAD_URL = "url must be a valid http:// or https:// address."
 
 def require_drama(drama_id) -> dict:
     drama = None
-    if isinstance(drama_id, int) and not isinstance(drama_id, bool) \
-            and 0 < drama_id <= drama_service.MAX_ID:
+    if lib_ids.is_id(drama_id):
         drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError("No title with that id.")

@@ -69,23 +69,6 @@ def list_benchmark_runs(case_id: int):
     return [dict(r) for r in rows]
 
 
-def latest_benchmark_run_per_case(stage: str = None):
-    """The most recent run for every case (optionally scoped to one
-    stage) -- what a fresh "run everything" comparison is checked
-    against. Returns {case_id: run_dict}."""
-    with contextlib.closing(db.get_conn()) as conn:
-        if stage:
-            rows = conn.execute(
-                "SELECT r.* FROM benchmark_runs r JOIN benchmark_cases c ON r.case_id = c.id "
-                "WHERE c.stage = ? ORDER BY r.id", (stage,)).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM benchmark_runs ORDER BY id").fetchall()
-    latest = {}
-    for r in rows:
-        latest[r["case_id"]] = dict(r)  # later rows overwrite earlier ones -- id order
-    return latest
-
-
 # ---------------------------------------------------------------------------
 # Benchmark Lab -- golden-set cases and persistent per-run records.
 # services/benchmark_lab_service.py holds the logic; this is persistence.

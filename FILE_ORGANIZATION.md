@@ -225,6 +225,7 @@ Shared helpers with no domain knowledge; nothing here imports `services`, `api`,
 - `ort_telemetry.py` (`disable`: switches off ONNX Runtime's usage reporting in this process before a session is made; called by the Whisper loader and the ASMR voice detector)
 - `file_manager.py` (`open_folder`: opens a folder the server resolved in the PC's file manager, without a shell)
 - `file_lock.py` (`hold`: an exclusive cross-process lock on a file, for a model download two processes must not run at once)
+- `ids.py` (`check_id`, `is_id`: the 1..2**31-1 row-id check every service shares, with each caller's own error text)
 - `errors.py` (the `ServiceError` vocabulary services raise; `api/error_handlers.py` maps it to HTTP codes)
 - `url_guard.py` (`resolve_public`: the public-address check before any server-side fetch)
 - `release_signature.py` (the Ed25519 release signature format: the signed message, key and `.sig` texts, sign and verify; used by `services/update_service.py`, `services/app_update_service.py` and `tools/release_signing.py`)
