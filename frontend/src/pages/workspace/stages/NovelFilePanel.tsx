@@ -29,7 +29,7 @@ import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
-import { PC_ONLY_BODY, usePcOnly } from '../../../hooks/usePcOnly'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import type { NovelFileStatus } from '../../../types/novelFiles'
 import { useStage } from '../StageContext'
 import {
@@ -143,9 +143,7 @@ export function NovelFilePanel({ kind, busy = false, defaultOpen, onChanged }: P
     <div role="region" aria-label={copy.title}>
     <Section storageKey={`novelfile.${kind}`} defaultOpen={defaultOpen} title={copy.title} summary={novelFileSummary(status)}>
         <p className="muted" data-testid={`novel-file-status-${kind}`}>{novelFileStatusLine(status)}</p>
-        {pc === 'remote' ? (
-          <p className="muted">{PC_ONLY_BODY}</p>
-        ) : (
+        {pc === 'remote' ? null : (
           <>
             <div className="actions" role="radiogroup" aria-label={`${copy.title}: source`}>
               <label className="check">

@@ -17,7 +17,7 @@ import { Toggle } from '../../components/Toggle'
 import { safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_BODY, type PcMode } from '../../hooks/usePcOnly'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
@@ -295,9 +295,7 @@ function CandidatesBlock({ overview, options, remote, onChanged }: {
           ))}
         </ul>
       )}
-      {remote ? (
-        <p className="muted">Adding, rejecting and promoting candidates is PC only.</p>
-      ) : (
+      {!remote && (
         <AddCandidate options={options} openCount={openCandidates(list).length} onAdded={onChanged} />
       )}
       <MsgLine msg={msg} testId="reeval-candidate-status" />
@@ -737,9 +735,7 @@ function ScheduleSection({ overview, options, sets, remote, savedEstimate, onSav
       ) : savedEstimate?.error ? (
         <p className="muted" data-testid="reeval-schedule-estimate">No estimate for a scheduled run yet: {savedEstimate.error}</p>
       ) : null}
-      {remote ? (
-        <p className="muted">{PC_ONLY_BODY}</p>
-      ) : (
+      {remote ? null : (
         <div className="actions">
           <button type="button" className={buttonClass('secondary')} disabled={!dirty || busy} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save schedule'}

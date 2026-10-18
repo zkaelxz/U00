@@ -83,7 +83,7 @@ test('away from the PC only pasting is offered and nothing is replaced', async (
   })
   const glossary = await openGlossary(page)
   await glossary.getByText('Import or export').click()
-  await expect(glossary.getByText('Choosing a file and replacing existing terms are PC only')).toBeVisible()
+  await expect(glossary.getByText('Choosing a file and replacing existing terms are PC only')).toHaveCount(0)
   await expect(glossary.getByLabel('Glossary file')).toHaveCount(0)
   await expect(glossary.getByLabel('Replace terms that are already in the glossary')).toHaveCount(0)
   await glossary.getByLabel('Paste the glossary').fill('a,A\n师姐,Sis')

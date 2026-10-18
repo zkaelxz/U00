@@ -75,7 +75,7 @@ test('away from the PC: no Install Deno or Test first buttons', async ({ page })
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/diagnostics')
-  await expect(page.getByTestId('deno-install')).toContainText('Installing is PC only.')
+  await expect(page.getByTestId('deno-install')).not.toContainText('PC only')
   await expect(page.getByRole('button', { name: 'Install Deno' })).toHaveCount(0)
   await openSection(page, /^Packages/)
   await openSection(page, /^Installed packages/)

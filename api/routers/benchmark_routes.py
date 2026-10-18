@@ -19,6 +19,8 @@ services/benchmark_lab_service.py.
   reference edited in place (every change is logged and versions the reference).
 - A run can be deleted (confirm=true) and a run or a comparison exported as CSV or JSON.
   A comparison scores only the cases every run scored on the same reference version.
+- The settings sweep tunes transcription on one set and language: its estimate is a read, starting or
+  resuming it and approving or rejecting its winner are PC only and need `confirm=true`.
 - A translation run may ask for an LLM judge (`judge` on the run request and the
   estimate); the judge's summary and per-case scores ride on the run reads.
 """
@@ -46,6 +48,8 @@ from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCas
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
                          BenchmarkRunDelete, BenchmarkSetBuildRequest, BenchmarkSetBuildResult,
+                         BenchmarkSweepDecisionRequest, BenchmarkSweepDecisions, BenchmarkSweepEstimate,
+                         BenchmarkSweepRequest, BenchmarkSweepStarted, BenchmarkSweepState,
                          error_responses)
 from lib.capped_request import read_capped_form
 from lib.errors import InvalidInputError
@@ -55,6 +59,7 @@ from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
 from services import benchmark_reference_service as reference_svc
 from services import benchmark_set_builder_service as builder_svc
+from services import benchmark_sweep_service as sweep_svc
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
@@ -311,3 +316,38 @@ def get_run_export(run_id: int = Path(ge=1), format: str = Query(default="csv", 
 def get_arena_export(run_ids: List[int] = Query(min_length=2, max_length=4),
                      format: str = Query(default="csv", max_length=8)):
     return _download(export_svc.comparison_data(run_ids), format)
+
+
+@router.get("/sweep", dependencies=_READ, response_model=BenchmarkSweepState,
+            summary="The latest settings sweep, its recommendation and the decision on it")
+def get_sweep():
+    return sweep_svc.get_sweep()
+
+
+@router.get("/sweep/decisions", dependencies=_READ, response_model=BenchmarkSweepDecisions,
+            summary="Earlier settings sweep decisions, newest first")
+def get_sweep_decisions():
+    return sweep_svc.list_decisions()
+
+
+@router.post("/sweep/estimate", dependencies=_READ, response_model=BenchmarkSweepEstimate,
+             responses=error_responses(404, 409, 422, 503),
+             summary="What a settings sweep would run and roughly how long it takes; spends nothing")
+def post_sweep_estimate(body: BenchmarkSweepRequest):
+    return sweep_svc.estimate(body.set_name, body.language, body.use_gpu)
+
+
+@router.post("/sweep", dependencies=[local_only()], response_model=BenchmarkSweepStarted,
+             responses=error_responses(404, 409, 422, 503),
+             summary="PC only: start or resume a settings sweep of one golden set (confirm=true)")
+def post_sweep(body: BenchmarkSweepRequest):
+    require_confirm(body.confirm)
+    return sweep_svc.start(body.set_name, body.language, body.use_gpu)
+
+
+@router.post("/sweep/decision", dependencies=[local_only()], response_model=BenchmarkSweepState,
+             responses=_ERRS,
+             summary="PC only: approve (saved as a setting profile) or reject the sweep's winner (confirm=true)")
+def post_sweep_decision(body: BenchmarkSweepDecisionRequest):
+    require_confirm(body.confirm)
+    return sweep_svc.decide(body.decision, body.reason)

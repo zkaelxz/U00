@@ -67,7 +67,6 @@ export function DenoInstall({ pc, jobsActive, busy, onStarted, onFinished, openS
       )}
       {note && <p className="muted" data-testid="deno-note">{note}</p>}
       {error && <p className="error" role="alert">{error}</p>}
-      {pc === 'remote' && canOfferDeno(status) && <p className="muted">Installing is PC only.</p>}
       {pending && canOfferDeno(status) && <p className="muted">{pending}</p>}
       {local && canOfferDeno(status) && (
         <div className="actions">

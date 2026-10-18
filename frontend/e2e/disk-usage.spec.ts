@@ -328,13 +328,14 @@ test('a failed scan shows an error and Rescan recovers', async ({ page }) => {
   await expect(sec.locator('.du-list .du-name').first()).toHaveText('library')
 })
 
-test('away from the PC the disk tabs only say to use the main PC', async ({ page }) => {
+test('away from the PC the disk tabs are left out', async ({ page }) => {
   await page.route('**/api/meta', (r) => r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   let scans = 0
   await page.route('**/api/data-usage**', (r) => { scans += 1; return r.fulfill({ status: 403, json: {} }) })
-  for (const tab of ['Storage', 'Data folder']) {
-    await page.goto('/#/library-tools?tab=' + (tab === 'Storage' ? 'storage' : 'data'))
-    await expect(page.getByRole('tabpanel').getByText('Run this on the main PC.')).toBeVisible()
+  for (const tab of ['storage', 'data']) {
+    await page.goto('/#/library-tools?tab=' + tab)
+    await expect(page.getByRole('tab', { name: 'Organize' })).toBeVisible()
+    for (const name of ['Storage', 'Data folder']) await expect(page.getByRole('tab', { name })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Rescan|Clear/ })).toHaveCount(0)
   }
   expect(scans).toBe(0)

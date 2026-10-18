@@ -119,7 +119,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   expect(unmocked).toEqual([])
 })
 
-test('away from the PC the check says PC only and makes no calls', async ({ page }) => {
+test('away from the PC the check is left out and makes no calls', async ({ page }) => {
   const unmocked = await guard(page)
   const calls: string[] = []
   await page.route((u) => u.pathname.startsWith(IP_CHECK), (route) => {
@@ -132,11 +132,8 @@ test('away from the PC the check says PC only and makes no calls', async ({ page
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/admin')
-  const section = checkSection(page)
-  await expect(section.locator('.section-summary')).toHaveText('PC only')
-  await section.locator('summary').click()
-  await expect(section.getByText('Run this on the main PC.')).toBeVisible()
-  await expect(section.getByRole('textbox')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'People and access' })).toBeVisible()
+  await expect(checkSection(page)).toHaveCount(0)
   expect(calls).toEqual([])
   expect(unmocked).toEqual([])
 })

@@ -108,7 +108,7 @@ test('proxy card: closed the first time like every card after All sites, opening
   expect(s.unmocked).toEqual([])
 })
 
-test('another device: no Check now, no title link, settings PC only', async ({ page }) => {
+test('another device: no Check now, no title link, no Manage sources tab', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED, local: false })
   await mockAccess(page, s)
   await page.goto('/#/sources?tab=new')
@@ -116,8 +116,8 @@ test('another device: no Check now, no title link, settings PC only', async ({ p
   await expect(news.getByText('Heaven Book 1 · Beta Novels')).toBeVisible()
   await expect(news.getByRole('button', { name: 'Check now' })).toHaveCount(0)
   await expect(news.getByRole('combobox', { name: 'Auto-import into' })).toHaveCount(0)
-  await page.getByRole('tab', { name: 'Manage sources' }).click()
-  await expect(page.locator('.sources-manage-panel').getByText('PC only. Run this on the main PC.')).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Manage sources' })).toHaveCount(0)
+  await expect(page.locator('.sources-manage-panel')).toHaveCount(0)
   expect(s.calls.some((c) => c.path.includes('sources_chapter_check'))).toBe(false)
   expect(s.unmocked).toEqual([])
 })
