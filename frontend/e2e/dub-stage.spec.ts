@@ -60,6 +60,7 @@ test('shows config and null-safe pacing, then starts a dub with the right body a
   expect(bodies[0]).toEqual({ tts_engine: 'omnivoice', max_speedup: 1.5, max_slowdown: 0.85, keep_background: true })
 
   await page.getByRole('button', { name: /^Cancel / }).click()
+  await page.getByRole('button', { name: 'Confirm cancel' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 

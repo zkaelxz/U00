@@ -15,6 +15,7 @@ import {
 import { getTranslateConfig } from '../../api/translateStage'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
@@ -410,9 +411,7 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
             </button>
           )}
           {canRemove(item) && (
-            <button type="button" className={buttonClass('ghost')} aria-label={`Remove ${name}`} disabled={busy} onClick={onRemove}>
-              Remove
-            </button>
+            <ConfirmButton name={name} label="Remove…" verb="remove" confirmLabel="Confirm remove" busy={busy} onConfirm={onRemove} />
           )}
           {item.status === 'running' && <span className="muted">To stop it, cancel its job in the list below.</span>}
         </div>

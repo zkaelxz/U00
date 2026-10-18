@@ -131,6 +131,19 @@ test('the ASS style shows at the top only when ASS is chosen', async ({ page }) 
   await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
 })
 
+test('Reset to defaults can be undone', async ({ page }) => {
+  await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
+  const format = page.getByLabel('Format', { exact: true })
+  await format.selectOption('ass')
+  await page.getByRole('button', { name: 'Reset to defaults' }).click()
+  await expect(format).toHaveValue('srt')
+  await expect(page.getByRole('status').filter({ hasText: 'Reset.' })).toBeVisible()
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(format).toHaveValue('ass')
+  await expect(page.getByRole('button', { name: 'Reset to defaults' })).toBeVisible()
+})
+
 test('a title that is not novel narration has EPUB disabled with its reason', async ({ page }) => {
   await page.goto('/#/drama/1/export')
   const epub = exportBlock(page, 'EPUB')
@@ -147,6 +160,7 @@ test('audiobook job can be cancelled', async ({ page }) => {
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
   await page.getByRole('button', { name: /^Cancel / }).click()
+  await page.getByRole('button', { name: 'Confirm cancel' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 

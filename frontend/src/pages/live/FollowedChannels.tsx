@@ -29,6 +29,7 @@ import { Badge } from '../../components/Badge'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { buttonClass } from '../../components/uiClasses'
 import type { BadgeTone } from '../../components/labels'
 import type { LiveFollow, LiveFollowList, LiveFollowMode, LiveFollowOptions, LiveFollowUpdate } from '../../types/live'
@@ -251,10 +252,8 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
           onClick={onOptions}>
           {label('options', 'Use Live options', 'Saving…')}
         </button>
-        <button type="button" className={buttonClass('danger', 'sm')} disabled={!!busy}
-          title={waiting ?? 'Stop following this channel.'} onClick={onRemove}>
-          {label('remove', 'Remove', 'Removing…')}
-        </button>
+        <ConfirmButton name={name} label="Remove…" verb="remove" confirmLabel="Confirm remove" size="sm"
+          busy={busy === `remove:${f.id}`} disabled={!!busy} onConfirm={onRemove} />
       </div>
       {canAuto && f.mine && autoBlocked && (
         <p className="muted live-follow-note">Start Live automatically needs Check every hour on.</p>
