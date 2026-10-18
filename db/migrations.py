@@ -396,7 +396,7 @@ def _grant_lines_read_for_reader_page(conn):
 def _migrate_auth_session_columns(conn):
     session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
     if "device_label" not in session_cols:
-        # A coarse "Chrome on Android" label (auth_service.device_label),
+        # A coarse "Chrome on Android" label (lib.device_label),
         # the only device detail the signed-in-devices list shows.
         db._safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
     # Sessions from before the label kept the first 60 characters of the
