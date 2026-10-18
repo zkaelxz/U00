@@ -536,7 +536,7 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .selection-bar.wide button, .selection-bar.wide select { min-height: 32px; padding-block: 2px; }
 /* The global select's percentage min/max width made each group measure narrower than its contents, so a button dropped under its own select and the next group sat stranded mid-bar. A fixed select width lets a group wrap as a whole. */
 .selection-bar.wide .bar-group { flex-wrap: nowrap; }
-.selection-bar.wide .bar-group select { width: 7.5rem; min-width: 0; max-width: none; padding-inline: 0.4rem 1.2rem; }
+.selection-bar.wide .bar-group select { width: 8.5rem; min-width: 0; max-width: none; padding-inline: 0.4rem 1.2rem; }
 /* Why a button is off sits in the same row as the buttons, cut short with an ellipsis (the full text is the tooltip), so the bar stays one row tall. */
 .selection-bar.wide .bar-row, .selection-bar.wide .bar-actions { flex-wrap: nowrap; }
 .selection-bar.wide .bar-actions { flex: 0 1 auto; min-width: 0; }
