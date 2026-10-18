@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 import { expectRowInputsAligned } from './voiceDetectorLayout'
-import { expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds, selectMediaTab } from './mediaTabs'
+import { expectFitsScreens, expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds, selectMediaTab } from './mediaTabs'
 
 // The Media stage is one screen per sub-tab. Seeded titles: 1 audio drama, 2 novel, 3 video drama.
 
@@ -159,9 +159,7 @@ test('each sub-tab fits about one desktop screen and does not scroll sideways', 
     await gotoMedia(page, tab)
     await expect(mediaPanel(page, tab)).toBeVisible()
     await expectNoSidewaysScroll(page, tab)
-    const height = await page.evaluate(() => document.documentElement.scrollHeight)
-    // Transcribe holds Tools under it and Details holds Credits, so those two run longer.
-    expect(height, `${tab}: page height`).toBeLessThanOrEqual(800 * (tab === 'add' ? 1.25 : 2.1))
+    await expectFitsScreens(page, tab, tab === 'transcribe' ? ['transcribe', 'tools'] : tab === 'details' ? ['details', 'credits'] : [tab])
   }
 })
 
@@ -183,5 +181,5 @@ test('the old Tools and Credits links land on the merged tabs with their content
   await expect(mediaPanel(page, 'tools').getByRole('region', { name: 'Advanced options' })).toBeVisible()
   await page.goto('/#/drama/1/source?tab=credits')
   await expect(mediaTab(page, 'credits')).toHaveAttribute('aria-selected', 'true')
-  await expect(mediaPanel(page, 'credits').getByRole('region', { name: 'Credits' })).toBeVisible()
+  await expect(mediaPanel(page, 'credits').getByRole('region', { name: 'Credits', exact: true })).toBeVisible()
 })

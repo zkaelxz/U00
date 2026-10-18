@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { gotoMedia, mediaPanel, mediaTab, topCards, selectMediaTab } from './mediaTabs'
+import { expectFitsScreens, gotoMedia, mediaPanel, mediaTab, topCards, selectMediaTab } from './mediaTabs'
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 
 // The cards inside each Media sub-tab: the one-open-card fold rule, the Switches card, the prompt fold, and
@@ -287,10 +287,9 @@ test.describe('Details and Credits share one draft', () => {
     await expect(mediaPanel(page, 'details').getByRole('alert').filter({ hasText: /whole number/i })).toBeVisible()
   })
 
-  test('Details with Credits under it fits about one and a half desktop screens', async ({ page }) => {
+  test('Details and Credits, now one tab, each still fit about one desktop screen', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 })
     await gotoMedia(page, 'details')
-    const height = await page.evaluate(() => document.documentElement.scrollHeight)
-    expect(height, 'page height').toBeLessThanOrEqual(800 * 1.75)
+    await expectFitsScreens(page, 'details', ['details', 'credits'])
   })
 })

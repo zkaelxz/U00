@@ -39,6 +39,23 @@ export async function openAllFolds(scope: Locator) {
   }
 }
 
+/**
+ * Holds a sub-tab to about one desktop screen (1.25 x the 800px viewport). Transcribe and Details each hold two
+ * sections (with Tools and Credits under them), so the limit is applied per section: the page chrome plus that
+ * section's own height must stay within it, and the whole page within one limit per section. One section growing
+ * past the old limit still fails.
+ */
+export async function expectFitsScreens(page: Page, tab: MediaTabName, sections: MediaTabName[] = [tab], viewportHeight = 800) {
+  const limit = viewportHeight * 1.25
+  const { page: total, heights } = await page.evaluate((ids) => ({
+    page: document.documentElement.scrollHeight,
+    heights: ids.map((id) => document.getElementById(`media-panel-${id}`)?.getBoundingClientRect().height ?? 0),
+  }), sections)
+  const chrome = total - heights.reduce((a, b) => a + b, 0)
+  heights.forEach((h, i) => expect(chrome + h, `${sections[i]}: page chrome plus this section`).toBeLessThanOrEqual(limit))
+  expect(total, `${tab}: page height`).toBeLessThanOrEqual(limit * sections.length)
+}
+
 export async function expectNoSidewaysScroll(page: Page, what: string) {
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
