@@ -66,7 +66,7 @@ b1 is the route: same code plus the frame-header change, which is Kae's call (se
 Files for (a)+(c): `frontend/src/App.tsx` (embed flag hides `SideNav` and header), `frontend/src/router.ts`
 (strip `embed` from route parsing), `frontend/src/nav/documentTitle.ts`, a small `OpenInWindowButton` beside the
 title and Library entries, `frontend/src/router.test.ts`, one Playwright spec. For b1 add `api/auth.py`
-and `tests/test_api_security_headers*.py`.
+and `tests/test_api_household_listener.py` and `tests/test_caddyfile_template.py` (the Caddy template sets the same header).
 
 ## Decisions needed
 1. Is "two browser windows, with an Open in new window button" enough, or must both views sit in one window (b1)?
