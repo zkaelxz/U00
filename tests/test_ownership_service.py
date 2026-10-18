@@ -173,6 +173,23 @@ def test_remote_admin_changes_pc_made_items_as_their_own(people):
     pc_in_a_series = db.create_drama(title_zh="f", series_id=a_series)
     assert own.can_edit(remote, "series", pc_series)
     assert own.can_edit_drama(remote, in_pc_series)
+    # A member's title in a PC-made private series stays theirs: the
+    # series being PC-made gives the remote admin nothing over it.
+    members_in_pc_series = db.create_drama(title_zh="g", owner_user_id=people["a_id"])
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE dramas SET series_id = ? WHERE id = ?",
+                     (pc_series, members_in_pc_series))
+        conn.commit()
+    assert not own.can_edit_drama(remote, members_in_pc_series)
+    # Reads are unchanged: owning a title doesn't override a private series.
+    assert not own.can_see_drama(people["a"], members_in_pc_series)
+    with pytest.raises(ForbiddenError, match="only at the PC"):
+        own.require_editable(remote, "drama", members_in_pc_series)
+    # A member's title in the admin's own private series: unchanged.
+    admin_series = db.get_or_create_series("Adm", owner_user_id=remote["user_id"], is_private=1)
+    members_in_admin_series = db.create_drama(title_zh="h", series_id=admin_series,
+                                              owner_user_id=people["a_id"])
+    assert own.can_edit_drama(remote, members_in_admin_series)
     # Another member's private series governs a PC drama inside it.
     assert not own.can_edit_drama(remote, pc_in_a_series)
     assert not own.can_edit(remote, "series", a_series)

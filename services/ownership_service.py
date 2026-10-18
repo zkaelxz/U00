@@ -105,11 +105,15 @@ def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
     if _everything(principal, writing):
         return True
     if kind == "drama":
-        if row.get("series_id") is not None \
-                and _owns(principal, row.get("series_owner_user_id"), writing):
+        uid = user_id(principal)
+        if row.get("series_id") is not None and uid is not None \
+                and row.get("series_owner_user_id") == uid:
             return True
         if row.get("series_is_private"):
-            return False
+            # A PC-made private series lends no rights over a member's title
+            # in it: only the title's own (PC-made) ownership counts.
+            return (writing and row.get("series_owner_user_id") is None
+                    and _owns(principal, row.get("owner_user_id"), writing))
     return _owns(principal, row.get("owner_user_id"), writing) or not row["is_private"]
 
 
