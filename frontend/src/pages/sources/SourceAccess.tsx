@@ -17,6 +17,9 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
+import { useReadiness } from '../../hooks/useReadiness'
+import { NeedsInstall } from '../readiness/NeedsInstall'
+import { browserTierNeed } from '../readiness/needs'
 import type { SigninResult, SourceDetail, SourceTier, TierTestResult } from '../../types/sources'
 import { TIER_TESTS, tierLabel, tierTestLine } from './sourcesFormat'
 import { pageUrlProblem } from './sourcesSettings'
@@ -42,6 +45,8 @@ export function SourceAccess({ detail, onChanged, onSignin }: Props) {
   const tier = useSourcesJob<TierTestResult>(tierTestJobId(name))
   const signin = useSourcesJob<SigninResult>(detail.auth_supported ? signinJobId(name) : null)
   const noteId = useId()
+  const { readiness } = useReadiness()
+  const browserNeed = browserTierNeed(readiness)
 
   const problem = pageUrlProblem(url)
   const page = url.trim()
@@ -117,13 +122,14 @@ export function SourceAccess({ detail, onChanged, onSignin }: Props) {
             key={t}
             type="button"
             className={buttonClass('secondary', 'sm')}
-            disabled={needPage || testing || signingIn || (t === 'signed_in' && !hasLogin)}
+            disabled={needPage || testing || signingIn || (t === 'signed_in' && !hasLogin) || (t !== 'static' && !!browserNeed)}
             onClick={() => test(t)}
           >
             {testing && lastTier === t ? 'Testing…' : tierLabel(t)}
           </button>
         ))}
       </div>
+      {browserNeed && <NeedsInstall need={browserNeed} />}
       <p className="muted" id={noteId} aria-live="polite">
         {testing
           ? `Testing ${lastTier ? tierLabel(lastTier).toLowerCase() : ''}…`
@@ -149,7 +155,7 @@ export function SourceAccess({ detail, onChanged, onSignin }: Props) {
             <button
               type="button"
               className={buttonClass('secondary')}
-              disabled={signingIn || testing || (!!page && !!problem)}
+              disabled={signingIn || testing || (!!page && !!problem) || !!browserNeed}
               onClick={() => signin.start(() => openSignin(name, page))}
             >
               {signingIn ? 'Waiting for the window…' : 'Open sign-in window'}

@@ -104,6 +104,7 @@ export function VocabSection({ dramaId, vocab, onChanged }: {
     saveBlob(d.blob, d.filename)
     const n: string[] = ['Sentence cards downloaded.']
     if (d.audioOmitted) n.push('Audio left out (needs media playback permission).')
+    if (d.clipsMissing) n.push('Some cards have no audio clip: it could not be cut from the recording.')
     if (d.cardsCapped) n.push(`Only the first ${d.cardsCapped} cards were built.`)
     setNotes(n)
   })

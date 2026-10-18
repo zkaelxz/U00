@@ -620,3 +620,53 @@ def test_a_deferred_item_alone_keeps_the_queue_running(jobs):
     jobs.finish("direct_1")
     q.tick()
     assert _items()[0]["status"] == "running"
+
+
+def test_bulk_add_queues_each_title_and_skips_the_refused_with_a_reason(jobs):
+    a = _drama("A")
+    b = _drama("B")
+    paid = _drama("Paid", engine="claude")
+    out = q.add_bulk(None, [a, 999999, paid, b, a], "all", False, at_pc=True)
+    assert out["added"] == [a, b] and [s["drama_id"] for s in out["skipped"]] == [999999, paid]
+    assert all(s["reason"] for s in out["skipped"])
+    assert [(i["drama_id"], i["step"]) for i in _items()] == [
+        (d, s) for d in (a, b) for s in ("transcribe", "translate", "export")]
+    assert out["queue"]["state"] == "idle"
+
+
+def test_bulk_add_one_step_and_a_bad_step(jobs):
+    a = _drama("A")
+    q.add_bulk(None, [a], "export", True, at_pc=True)
+    assert [(i["drama_id"], i["step"]) for i in _items()] == [(a, "export")]
+    with pytest.raises(InvalidInputError):
+        q.add_bulk(None, [a], "dub", True, at_pc=True)
+
+
+def test_bulk_add_skips_the_titles_that_no_longer_fit_when_the_queue_fills(jobs):
+    did = _drama()
+    for _ in range(q.MAX_ITEMS - 2):
+        q.add_item(None, did, "export", True, at_pc=True)
+    a = _drama("A")
+    out = q.add_bulk(None, [a], "all", True, at_pc=True)
+    assert out["added"] == [] and len(out["skipped"]) == 1
+    assert len(_items()) == q.MAX_ITEMS - 2
+
+
+def test_bulk_add_stops_checking_after_the_queue_is_full(jobs):
+    did = _drama()
+    for _ in range(q.MAX_ITEMS - 2):
+        q.add_item(None, did, "export", True, at_pc=True)
+    a, b = _drama("A"), _drama("B")
+    out = q.add_bulk(None, [a, b], "all", True, at_pc=True)
+    assert out["added"] == [] and [s["drama_id"] for s in out["skipped"]] == [a, b]
+    assert out["skipped"][0]["reason"] == out["skipped"][1]["reason"]
+
+
+def test_bulk_add_body_refuses_an_oversized_id_or_too_many_titles():
+    from pydantic import ValidationError
+    from api.schemas import QueueAddBulk
+    with pytest.raises(ValidationError):
+        QueueAddBulk(drama_ids=[1, 2**63], step="export")
+    with pytest.raises(ValidationError):
+        QueueAddBulk(drama_ids=list(range(1, q.MAX_ITEMS + 2)), step="export")
+    assert QueueAddBulk(drama_ids=[1, 2], step="all").drama_ids == [1, 2]
