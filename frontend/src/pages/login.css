@@ -52,19 +52,23 @@ dialog.signin-overlay::backdrop { background: color-mix(in srgb, var(--bg) 85%, 
 .header-end { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 details.user-menu { position: relative; min-width: 0; }
 details.user-menu > summary {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 16rem;
-  padding: 4px 10px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 999px;
+  background: var(--accent-soft, var(--surface, transparent));
+  color: var(--text);
   font-size: var(--text-sm);
+  font-weight: 600;
   cursor: pointer;
   list-style: none;
 }
 details.user-menu > summary::-webkit-details-marker { display: none; }
-details.user-menu > summary::after { content: '▾'; color: var(--muted); }
+details.user-menu > summary:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
+.user-menu-avatar { display: grid; place-items: center; line-height: 1; }
 .user-menu-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-menu-panel {
   position: absolute;
@@ -89,7 +93,7 @@ details.user-menu > summary::after { content: '▾'; color: var(--muted); }
 .connecting { text-align: center; padding-top: clamp(var(--space-4), 12vh, 120px); }
 
 @media (pointer: coarse), (max-width: 640px) {
-  details.user-menu > summary { min-height: 44px; }
+  details.user-menu > summary { width: 44px; height: 44px; }
 }
 @media (max-width: 640px) {
   /* Basis 0: sits beside the title, takes the rest of the row, and the email truncates. */
@@ -102,8 +106,6 @@ details.user-menu > summary::after { content: '▾'; color: var(--muted); }
   .app-brand { flex: 0 0 auto; font-size: var(--text-md); white-space: nowrap; }
   /* Six 44px controls leave room for about 66px of title: "Studio" stays in the accessible name only. */
   .app-brand .title-rest { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  details.user-menu, details.user-menu > summary { min-width: 44px; }
-  details.user-menu > summary { max-width: 100%; }
 }
 @media (max-width: 399px) {
   .app-brand .rail-brand-mark { display: grid; }
