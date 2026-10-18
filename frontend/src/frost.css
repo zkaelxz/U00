@@ -22,10 +22,10 @@
     --glass: rgba(255, 255, 255, 0.07);
     --glass-edge: rgba(255, 255, 255, 0.14);
     --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
-    --btn: rgba(255, 255, 255, 0.1);
+    --btn: rgba(255, 255, 255, 0.07);
     --btn-edge: rgba(255, 255, 255, 0.22);
     --btn-shadow: none;
-    --active: rgba(142, 197, 255, 0.22);
+    --active: rgba(142, 197, 255, 0.18);
     --wash-1: #5a3a62;
     --wash-2: #1f4f78;
   }
@@ -34,10 +34,10 @@
   --glass: rgba(255, 255, 255, 0.07);
   --glass-edge: rgba(255, 255, 255, 0.14);
   --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
-  --btn: rgba(255, 255, 255, 0.1);
+  --btn: rgba(255, 255, 255, 0.07);
   --btn-edge: rgba(255, 255, 255, 0.22);
   --btn-shadow: none;
-  --active: rgba(142, 197, 255, 0.22);
+  --active: rgba(142, 197, 255, 0.18);
   --wash-1: #5a3a62;
   --wash-2: #1f4f78;
 }

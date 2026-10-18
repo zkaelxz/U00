@@ -9,7 +9,7 @@
   --err: var(--bad);
   --on-accent: #ffffff;
   --field-bg: #ffffff;
-  --field-edge: var(--border);
+  --field-edge: #7d889e;
   --focus: color-mix(in srgb, var(--accent) 35%, transparent);
   --bg: #f3f6fc;
   --surface: #ffffff;
@@ -100,6 +100,7 @@
     --accent: #8ec5ff;
     --on-accent: #08111f;
     --field-bg: #111729;
+    --field-edge: #6b7694;
     --surface: #161b2e;
     --surface-2: #1d2438;
     --text: #eef1fa;
@@ -131,6 +132,7 @@
   --accent: #8ec5ff;
   --on-accent: #08111f;
   --field-bg: #111729;
+  --field-edge: #6b7694;
   --surface: #161b2e;
   --surface-2: #1d2438;
   --text: #eef1fa;
@@ -165,6 +167,7 @@
   --surface: #0b0b0b;
   --surface-2: #141414;
   --field-bg: #0b0b0b;
+  --field-edge: #707070;
   --text: #ececec;
   --muted: #a0a0a0;
   --border: #262626;
@@ -189,7 +192,7 @@
   --shadow-pop: 0 2px 8px color-mix(in srgb, #3b3220 20%, transparent);
   color-scheme: light;
 }
-/* Field edges are UI components (3:1 against the field), unlike the hairline dividers. */
+/* Field edges are UI components (WCAG 1.4.11: 3:1 against the page and the field fill, pinned in themeContrast.test.ts), unlike the hairline dividers. */
 input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']):not(:focus),
 select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 
@@ -277,8 +280,8 @@ h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
 a { color: var(--accent-text); text-decoration-line: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); transition: text-decoration-color var(--dur-2) var(--ease); }
 /* A faint underline keeps inline links findable without the heavy default; hover and focus restore it. */
 a:hover { text-decoration-color: currentColor; }
-:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 4px var(--focus); }
-/* A transparent outline is drawn in a system colour under forced colours, so focus never disappears. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 4px var(--focus); }
+/* The solid accent outline carries the 3:1 focus contrast (the 35% halo alone reaches only 1.6 to 2.3); under forced colours it becomes a system colour so focus never disappears. */
 @media (forced-colors: active) {
   :focus-visible { outline: 2px solid CanvasText !important; }
 }
@@ -334,7 +337,7 @@ textarea {
   select { width: auto; min-width: min(100%, 12rem); }
 }
 textarea { min-height: 0; resize: vertical; font-size: var(--text-edit); line-height: var(--leading); }
-input:focus, select:focus, textarea:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 4px var(--focus); }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); box-shadow: 0 0 0 4px var(--focus); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 :disabled,
 button.primary:disabled,
@@ -876,7 +879,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 a.drama-card-title::after { content: ''; position: absolute; inset: 0; z-index: 0; }
 a.drama-card-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
-.drama-card:has(a.drama-card-title:focus-visible) { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
+.drama-card:has(a.drama-card-title:focus-visible) { outline: 2px solid var(--accent); box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
 .drama-card-orig, .drama-card-type { margin: 0; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drama-card-type { font-size: var(--text-sm); }
 .drama-card .pill-row { margin-top: var(--space-1); }
