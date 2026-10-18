@@ -71,6 +71,7 @@ test.describe('Settings summary card (mocked)', () => {
     await page.goto('/#/settings')
     await openSettingsGroups(page, 'Notifications and backups')
     const summary = page.getByRole('region', { name: 'Automatic backups', exact: true })
+    await expect(summary.locator('.card-meta')).toHaveText('Off')
     await expect(summary.getByRole('switch')).toHaveCount(0)
     await summary.getByRole('link', { name: 'Manage backups' }).click()
     await expect(page).toHaveURL(/#\/library-tools\?tab=backup/)
