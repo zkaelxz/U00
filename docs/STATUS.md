@@ -1,7 +1,7 @@
 # Status
 
 History lives in `git log`; this file is the current state only.
-Checked against `origin/baihe-subtitler` (through #1556, `b6a45ec`) on 2026-10-18; the code and the open PR list win over this file.
+Checked against `origin/baihe-subtitler` (through #1557, `0fa3d8b`) on 2026-10-18; the code and the open PR list win over this file.
 
 ## Where the app is
 
@@ -29,11 +29,11 @@ What works:
   - Safety: money stop rules for every paid loop (#1279, #1284, #1301), restore safety (#1275, #1291, #1296, #1311: owners matched by email, never by id), per-user job and stream caps (#1340), members cancel only their own jobs (#1337), model downloads refused away from the PC (#1281), an Ed25519 release signature for in-app updates (#1332), data-integrity batches (#1392, #1406, #1407), engine pickers, the Library bar and EPUB export say what is missing (#1408), install readiness messages and Recommended installs (#1341, #1322), the package Upgrade through the install plan (#1371).
   - Repo: the command-line interface was removed (#1345; there is no `cli.py`, and `python -m api` keeps its admin commands such as `grant-admin`); community files and an all-rights-reserved notice were added (#1409; `COPYRIGHT.md`, no open-source licence); the large-file splits are finished (below).
 
-- Added since #1411 (through #1556):
+- Added since #1411 (through #1557):
   - Accuracy: Benchmark Lab clip upload, reference editing and run export (A1, #1515), transcription at real settings with Qwen3-ASR and anime-whisper as Lab models (A2, #1523), line timing scores (A3, #1535), the settings sweep (A4, #1537), references from corrections with auto-tune by CER (A5, #1530), translation tested the way titles are translated (T1, #1541). Whisper, Qwen and OCR models download at a pinned, tested commit (#1521); Whisper line edges are padded 0.1 s before and 0.2 s after (#1442); Qwen3-ASR finishes on the CPU when the GPU runs out of memory (#1520).
   - Titles and translation: merge a title into another and move chapters between titles (#1440), translation setting profiles picked on New title and edited in Library tools (#1508), re-runs repeat what the title's last run used (#1543), per-medium prompts for novels and streams (#1490), an estimated time left on running jobs (#1438), opening a title's folder on the PC (#1469).
   - Remote and members: members can save their own Ollama key (#1525), bulk translate from their own device (#1484) and use Line AI Improve and Why this? with free engines (#1482); a remote admin can change titles made at the PC (#1534); main-PC-only tabs, cards and notes are hidden away from the PC (#1536, #1540); AI buttons, pickers and setup screens say what is missing before the click (#1526, #1539, #1544, #1553).
-  - Interface: Display settings for page width and text size (#1445), nav position and pill/rail switch (#1443, #1517), the Frost S2b/S4/S6 page passes, a round initial avatar for the account button (#1532), backup folder wording (#1551).
+  - Interface: the Media stage has three tabs, Add media, Transcribe (with the old Tools) and Details (with the old Credits) (#1557), Display settings for page width and text size (#1445), nav position and pill/rail switch (#1443, #1517), the Frost S2b/S4/S6 page passes, a round initial avatar for the account button (#1532), backup folder wording (#1551).
   - Updates and install: app-only updates swap to a signed app zip and roll back on failure, with the full installer still needed when the base layer changed (#1509, #1518); the release public key is committed (`installer/release_public_key.txt`, #1503); uninstall never follows links (#1529); an interrupted queued package install is put back (#1491).
   - Sources, comics and Live: the Comic reader lists a source's chapters and imports from the list (#1457), optional "Translate captions on the art" in Scanlate (#1473), the extension can create or reuse a title and series from the page (#1434), Live has a delayed player with a picture-size choice (#1448, #1459), and the yt-dlp download child goes through the guarded egress proxy (#1527).
   - Safety and data: job starts are refused while a title is being deleted or cleaned up (#1505), a restarted job keeps its run when an old one is deleted (#1493), Cancel stops a paid next Reflect stage (#1461), the first database use runs its migration under a lock (#1421), Referer is cut to the site name on cross-origin redirects (#1479), free disk space is checked before a member-started model download (#1478).
