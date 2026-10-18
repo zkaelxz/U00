@@ -693,14 +693,13 @@ export default function TranscribeStage({
         )}
         {cf && config && (
           <p className="muted" data-testid="run-settings">
+            {'Also: '}
             {runSettingsLine({
               language, script, titleScript: config.chinese_script, voiceDetection: cf.sensitivity_preset, beamSize: Number(cf.beam_size),
               separateVocals: cf.separate_vocals_first, useGroq: cf.use_groq, runDiarize, speakers, extraNames, promptOverride: override,
             })}
-            {'. '}
-            <span data-testid="run-settings-saved">
-              {runSettingsUnsaved ? 'Not saved to this title yet: pressing Transcribe or Save options saves them.' : 'Saved with this title.'}
-            </span>
+            {' · '}
+            <span data-testid="run-settings-saved">{runSettingsUnsaved ? 'not saved yet (Transcribe saves it)' : 'saved with this title'}</span>
           </p>
         )}
         <div className="actions">

@@ -29,15 +29,15 @@ test('language and speaker detection are saved with the title and survive a brow
   await card.getByLabel('Source language').selectOption('ja')
   await card.getByRole('switch', { name: 'Detect speakers' }).click()
   await expect(card.getByTestId('run-settings')).toContainText('Japanese')
-  await expect(card.getByTestId('run-settings')).toContainText('speaker detection on')
-  await expect(card.getByTestId('run-settings-saved')).toContainText('Not saved to this title yet')
+  await expect(card.getByTestId('run-settings')).toContainText('speakers on')
+  await expect(card.getByTestId('run-settings-saved')).toContainText('not saved yet')
 
   const advanced = await openAdvanced(page)
   await advanced.getByRole('button', { name: 'Save options' }).click()
   await expect.poll(() => saves.length).toBe(1)
   expect(saves[0]).toMatchObject({ source_language: 'ja', run_start: { run_diarize: true } })
   await selectMediaTab(page, 'transcribe')
-  await expect(card.getByTestId('run-settings-saved')).toContainText('Saved with this title')
+  await expect(card.getByTestId('run-settings-saved')).toContainText('saved with this title')
 
   // Another browser: nothing in local storage.
   await page.evaluate(() => window.localStorage.clear())
@@ -45,5 +45,5 @@ test('language and speaker detection are saved with the title and survive a brow
   await openTranscribeOptions(page)
   await expect(card.getByLabel('Source language')).toHaveValue('ja')
   await expect(card.getByRole('switch', { name: 'Detect speakers' })).toBeChecked()
-  await expect(card.getByTestId('run-settings-saved')).toContainText('Saved with this title')
+  await expect(card.getByTestId('run-settings-saved')).toContainText('saved with this title')
 })

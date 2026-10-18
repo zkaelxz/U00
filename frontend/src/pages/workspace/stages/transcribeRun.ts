@@ -113,12 +113,12 @@ export function runSettingsLine(i: RunSettingsInput): string {
   const parts = [
     `${language}${script}`,
     `voice detection ${i.voiceDetection}`,
-    `beam size ${i.beamSize}`,
-    `vocals separated first: ${i.separateVocals ? 'yes' : 'no'}`,
-    i.runDiarize ? `speaker detection on${i.speakers.trim() && i.speakers.trim() !== '0' ? `, ${i.speakers.trim()} speakers` : ''}` : 'speaker detection off',
+    `beam ${i.beamSize}`,
+    `vocals first ${i.separateVocals ? 'on' : 'off'}`,
+    i.runDiarize ? `speakers on${i.speakers.trim() && i.speakers.trim() !== '0' ? `, ${i.speakers.trim()}` : ''}` : 'speakers off',
   ]
   if (i.promptOverride.trim()) parts.push('your own prompt')
   else if (i.extraNames.trim()) parts.push('extra names added')
   if (i.useGroq) parts.push('Groq cloud (paid)')
-  return `Settings this run will use: ${parts.join(' · ')}`
+  return parts.join(' · ')
 }

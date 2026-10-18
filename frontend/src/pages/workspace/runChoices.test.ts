@@ -98,7 +98,7 @@ describe('runSettingsLine', () => {
 
   it('lists the choices that change a long run', () => {
     expect(runSettingsLine(base)).toBe(
-      'Settings this run will use: Japanese · voice detection normal · beam size 5 · vocals separated first: no · speaker detection off')
+      'Japanese · voice detection normal · beam 5 · vocals first off · speakers off')
   })
 
   it('names the script on Chinese, the speaker count and the extras', () => {
@@ -107,8 +107,8 @@ describe('runSettingsLine', () => {
       extraNames: '白鹤', useGroq: true,
     })
     expect(line).toContain('Chinese (traditional script)')
-    expect(line).toContain('vocals separated first: yes')
-    expect(line).toContain('speaker detection on, 3 speakers')
+    expect(line).toContain('vocals first on')
+    expect(line).toContain('speakers on, 3')
     expect(line).toContain('extra names added')
     expect(line).toContain('Groq cloud (paid)')
   })
