@@ -7,7 +7,9 @@ import { buttonClass } from '../../../../components/uiClasses'
 import type { LineAlternatives, LineGrammar, ReviewLine } from '../../../../types/review'
 import { LineAiPicker } from './LineAiPicker'
 import { toApiPick, useLineAiPick } from './lineAiPick'
-import { AI_STALE_MESSAGE, AI_UNAVAILABLE_MESSAGE, suggestionIsStale, type ToolMode } from './reviewLogic'
+import { aiUnavailableText } from '../engineReady'
+import { EngineGateNote } from '../EngineGateNote'
+import { AI_STALE_MESSAGE, suggestionIsStale, type ToolMode } from './reviewLogic'
 
 // Review parity R17-R18: the per-line study tools. "Alternatives" and
 // "Grammar" ask an AI engine (on the PC; no key in the browser) and write
@@ -39,6 +41,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   // Alternatives and Grammar need engines.paid only for a paid engine.
   const picker = useLineAiPick(dramaId)
   const pickRef = useRef(picker.pick)
+  const gated = picker.gate !== null
   // Declared before the request effect, so it holds the latest pick when that runs.
   useEffect(() => {
     pickRef.current = picker.pick
@@ -47,6 +50,12 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   // Asks once the engine list has answered; a later pick takes effect on "Ask again".
   useEffect(() => {
     if (!picker.ready) return
+    // The note under the picker says why; asking would only fail.
+    if (gated) {
+      setBusy(false)
+      return
+    }
+    setBusy(true)
     const ctl = new AbortController()
     const f = withSignal(ctl.signal)
     const fail = (e: unknown) => {
@@ -65,7 +74,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
       setResult(r)
     }, fail)
     return () => ctl.abort()
-  }, [dramaId, line.id, mode, attempt, picker.ready])
+  }, [dramaId, line.id, mode, attempt, picker.ready, gated])
 
   const retry = () => {
     setBusy(true)
@@ -84,6 +93,7 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   return (
     <div className="review-ai-panel" data-testid="line-tools-panel" aria-label={title} role="group">
       <LineAiPicker picker={picker} disabled={busy || using} />
+      <EngineGateNote gate={picker.gate} />
       {busy && <p className="muted">Working…</p>}
       {result?.kind === 'alternatives' && (
         <AlternativeList line={line} data={result.data} busy={using} onUse={use} />
@@ -91,18 +101,18 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
       {result?.kind === 'grammar' && <GrammarList data={result.data} />}
       {unavailable && (
         <p className="error" role="alert" data-testid="line-tools-unavailable">
-          {AI_UNAVAILABLE_MESSAGE} <a href="#/settings">Open Settings</a>
+          {aiUnavailableText(picker.gate)} <a href="#/settings">Open Settings</a>
         </p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <div className="review-actions">
         {(error !== null || unavailable) && !busy && (
-          <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-tools-retry" onClick={retry}>
+          <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-tools-retry" disabled={picker.gate !== null} onClick={retry}>
             Try again
           </button>
         )}
         {result && !busy && (
-          <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-tools-ask-again" onClick={retry}>
+          <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-tools-ask-again" disabled={picker.gate !== null} onClick={retry}>
             Ask again
           </button>
         )}

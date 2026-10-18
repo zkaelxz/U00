@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { engineGate } from './workspace/stages/engineReady'
+import { packagesHref } from './readiness/NeedsInstall'
 import { ApiError } from '../api/client'
 import { modelOptionLabel } from '../api/translate'
 import {
@@ -102,6 +104,9 @@ export default function TranslatePage() {
   const pair = languagePair(direction, other)
   const sourceLabel = humanize('language', pair.source_language)
   const noKey = selected !== undefined && !selected.key_configured
+  // The reason follows the cause: a stopped Ollama or a missing SDK is not a missing key. The engine list is
+  // probed for Ollama, so key_configured false there means it did not answer.
+  const offGate = noKey ? engineGate(engines, engine, selected.name === 'ollama' ? false : null) : null
 
   // Read-only price check, so a long file shows its cost before it is sent.
   const paidEngine = selected !== undefined && !selected.free
@@ -303,8 +308,18 @@ export default function TranslatePage() {
               )}
               {canTranslate && noKey && selected && (
                 <p id="translate-needs-key" className="translate-warning">
-                  Still needed: an API key for {engineShortName(selected)}.{' '}
-                  {canAddKey ? <a href="#/settings">Add it in Settings</a> : 'Ask the PC owner to add it.'}
+                  {offGate && offGate.id !== 'engine_key' ? (
+                    <>
+                      {offGate.reason}{' '}
+                      {offGate.id === 'engine_package' && <a href={packagesHref(offGate)}>Open Diagnostics</a>}
+                      {offGate.link && <a href={offGate.link.href} target="_blank" rel="noopener noreferrer">{offGate.link.label} ↗</a>}
+                    </>
+                  ) : (
+                    <>
+                      Still needed: an API key for {engineShortName(selected)}.{' '}
+                      {canAddKey ? <a href="#/settings">Add it in Settings</a> : 'Ask the PC owner to add it.'}
+                    </>
+                  )}
                 </p>
               )}
             </div>

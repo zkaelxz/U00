@@ -41,6 +41,7 @@ import {
   type EscalationPlan,
 } from './escalation'
 import { AI_ENGINE_LABEL } from '../../helpText'
+import { routeHref } from '../../router'
 
 type AddToBacklog = (kind: BacklogKind, text: string) => Promise<BacklogItem>
 
@@ -71,6 +72,9 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
   const [reportFor, setReportFor] = useState<number | null>(null)
   const nextId = useRef(Math.max(0, ...exchanges.map((x) => x.id)) + 1)
   const askAbort = useRef<AbortController | null>(null)
+  // Asking with an engine that has no key only fails after the click; the engine list says so first.
+  const askEngine = engine || settings.engine || settings.default_engine || 'ollama'
+  const noKey = settings.engine_keys?.[askEngine] === false
 
   // A model that never answers must not outlive the page.
   useEffect(() => () => askAbort.current?.abort(), [])
@@ -190,9 +194,14 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
           />
         </Field>
         <div className="assistant-actions">
-          <button type="submit" className={buttonClass('primary')} disabled={asking || !question.trim()}>
+          <button type="submit" className={buttonClass('primary')} disabled={asking || !question.trim() || noKey} aria-describedby={noKey ? 'assistant-no-key' : undefined}>
             {asking ? 'Asking…' : 'Ask'}
           </button>
+          {noKey && (
+            <span className="muted" id="assistant-no-key" data-testid="assistant-no-key">
+              {engineName(askEngine)} has no API key yet. <a href={routeHref({ name: 'settings' })}>Add one in Settings</a>, or pick another engine below.
+            </span>
+          )}
           {asking && (
             <button type="button" className={buttonClass('ghost')} onClick={cancelAsk}>
               Cancel
@@ -596,7 +605,7 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
             <option value="">{`Default (${defaultName})`}</option>
             {settings.engine_choices.map((c) => (
               <option key={c} value={c}>
-                {humanize('engine', c)}
+                {settings.engine_keys?.[c] === false ? `${humanize('engine', c)} (no key)` : humanize('engine', c)}
               </option>
             ))}
           </select>

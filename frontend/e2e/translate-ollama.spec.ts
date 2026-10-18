@@ -29,7 +29,7 @@ async function mockConfig(page: Page, state: { engine: string; reachable: boolea
   })
 }
 
-test('warns when Ollama is unreachable, keeps Translate enabled, and Check again clears it', async ({ page }) => {
+test('warns when Ollama is unreachable, keeps Translate off until it answers, and Check again clears it', async ({ page }) => {
   const state = { engine: 'ollama', reachable: false as boolean | null }
   await mockConfig(page, state)
   await page.goto('/#/drama/1/translate')
@@ -39,8 +39,8 @@ test('warns when Ollama is unreachable, keeps Translate enabled, and Check again
   await expect(warning).toContainText("Can't reach Ollama on this PC. Is it running? Start Ollama, then check again.")
   // The server never sends a URL, and the page never builds one.
   await expect(warning).not.toContainText(/https?:|localhost|127\.0\.0\.1|11434/)
-  // A warning, not a block: Translate stays pressable.
-  await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
+  // Translate is off while the engine it would call is down.
+  await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeDisabled()
 
   // An unsaved form edit survives the re-check.
   await run.getByText('More options', { exact: true }).click()
@@ -54,6 +54,7 @@ test('warns when Ollama is unreachable, keeps Translate enabled, and Check again
   state.reachable = true
   await warning.getByRole('button', { name: 'Check again' }).click()
   await expect(warning).toBeHidden()
+  await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
   await expect(run.getByLabel('Batch size', { exact: true })).toHaveValue('17')
 })
 

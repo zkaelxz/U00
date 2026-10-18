@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 
 import { getPresets } from '../../../api/library'
+import { engineOffReason } from '../../../api/translate'
 import { applyTranslatePreset, applyWorkflowTier } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { NOTHING_STARTS_HELP } from '../../../helpText'
 import type { LibraryPreset } from '../../../types/library'
+import type { TranslateEngine } from '../../../types/translate'
 import type {
   TranslatePresetApplied,
   TranslateRunConfig,
@@ -14,6 +16,7 @@ import type {
 } from '../../../types/translateStage'
 import { skippedNote } from '../translateForm'
 import { useStage } from '../StageContext'
+import { engineGate } from './engineReady'
 
 export interface StartOption {
   // "tier:<key>" or "preset:<id>": one select value tells the Apply button which call to make.
@@ -28,9 +31,15 @@ export interface StartGroups {
 export function startOptions(
   tiers: TranslateRunConfig['workflow_tiers'] | undefined,
   presets: LibraryPreset[] | null,
+  engines?: TranslateEngine[],
 ): StartGroups {
+  // A tier whose engine can't run yet says why in the list, as the engine pickers do ("Standard (no key)").
+  const offNote = (name: string) => {
+    const engine = engines?.find((e) => e.name === name)
+    return engine && engineGate(engines, name, null) ? ` (${engineOffReason(engine)})` : ''
+  }
   return {
-    tiers: (tiers ?? []).map((t) => ({ value: `tier:${t.key}`, label: t.label })),
+    tiers: (tiers ?? []).map((t) => ({ value: `tier:${t.key}`, label: `${t.label}${offNote(t.translation_engine)}` })),
     presets: (presets ?? []).map((p) => ({ value: `preset:${p.id}`, label: p.name })),
   }
 }
@@ -86,7 +95,7 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
       cancelled = true
     }
   }, [])
-  const groups = startOptions(config.workflow_tiers, presets)
+  const groups = startOptions(config.workflow_tiers, presets, config.engines)
   const apply = (value: string) => {
     setPending(true)
     applyStart(dramaId, value)

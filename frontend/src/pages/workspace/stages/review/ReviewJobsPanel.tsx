@@ -16,7 +16,9 @@ import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { useStage } from '../../StageContext'
 import { BulkBatchesPanel } from '../BulkBatchesPanel'
+import { EngineGateNote } from '../EngineGateNote'
 import { JobPanel } from '../JobPanel'
+import { useEngineGate } from '../useEngineGate'
 import { EngineModelFields } from './EngineModelFields'
 import { ReviewFindings } from './ReviewFindings'
 import {
@@ -207,6 +209,9 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
     return () => void start(kind, reviewStartBody(kind, checks, bulkOn, defaultEngine, bulkEngines), row?.what ?? '')
   }
   const engineNow = effectiveEngine(checks, defaultEngine)
+  // Checked before the click: a missing key, package or a stopped Ollama would only fail the job.
+  const checkGate = useEngineGate(engines, engineNow, undefined)
+  const fixGate = useEngineGate(engines, fix.engine || defaultEngine, undefined)
   const bulkOk = config !== null && reviewBulkAvailable(engineNow, bulkEngines)
   const bulkReason = config
     ? bulkBlocker(engineNow, bulkEngines)
@@ -243,7 +248,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
             <button
               type="button"
               className={buttonClass('secondary')}
-              disabled={busy}
+              disabled={busy || checkGate !== null}
               onClick={() => void start(kind, reviewStartBody(kind, checks, bulkOn, defaultEngine, bulkEngines), what)}
             >
               {label}
@@ -261,6 +266,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
           </div>
         ))}
       </div>
+      <EngineGateNote gate={checkGate} />
       {bulkReason && <p className="muted">{bulkReason}{engineNow === 'gemini' && <> <a href="#/settings">Open Settings</a></>}</p>}
       {anyBulk && (
         <p className="muted" data-testid="bulk-warning">
@@ -296,12 +302,13 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
       <legend>Fix flagged lines</legend>
       <p className="muted review-fix-hint">Redoes the source and English of every flagged line.</p>
       <div className="review-actions">
-        <button type="button" className={buttonClass('secondary')} disabled={busy || noFlagged || noEdit} onClick={startFix}>
+        <button type="button" className={buttonClass('secondary')} disabled={busy || noFlagged || noEdit || fixGate !== null} onClick={startFix}>
           Fix flagged lines
         </button>
         {noFlagged && <span className="muted">Still needed: a flagged line.</span>}
         {noEdit && <span className="muted">Needs permission to edit lines; ask an admin.</span>}
       </div>
+      <EngineGateNote gate={fixGate} />
       {problem && (
         <p className="error" role="alert">
           {problem}
