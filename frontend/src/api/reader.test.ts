@@ -94,17 +94,20 @@ describe('reader api', () => {
     const f = fakeFetch(200, new Blob(['deck']), calls, {
       'Content-Disposition': 'attachment; filename="drama_4_vocab_sentence.apkg"',
       'X-Audio-Omitted': 'true',
+      'X-Clips-Missing': 'true',
       'X-Cards-Capped': '300',
     })
     const d = await downloadRichDeck(4, f)
     expect(calls[0].url).toBe('/api/reader/dramas/4/vocab/export.apkg?rich=true')
     expect(d.filename).toBe('drama_4_vocab_sentence.apkg')
     expect(d.audioOmitted).toBe(true)
+    expect(d.clipsMissing).toBe(true)
     expect(d.cardsCapped).toBe(300)
     expect(await d.blob.text()).toBe('deck')
 
     const plain = await downloadRichDeck(4, fakeFetch(200, new Blob(['x']), []))
     expect(plain.audioOmitted).toBe(false)
+    expect(plain.clipsMissing).toBe(false)
     expect(plain.cardsCapped).toBeNull()
     expect(plain.filename).toBe('drama_4_vocab_sentence.apkg')
   })

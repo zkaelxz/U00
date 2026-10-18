@@ -746,7 +746,7 @@ def fake_sentence_deck(monkeypatch):
     seen = {}
 
     def fake(vocab, lines, deck, out_path, audio_path=None, clip_timeout=None,
-             audio_budget_seconds=None):
+             audio_budget_seconds=None, report=None):
         seen.update(cards=len(vocab), audio_path=audio_path, clip_timeout=clip_timeout,
                     budget=audio_budget_seconds)
         with open(out_path, "wb") as f:
@@ -849,3 +849,41 @@ def test_sentence_deck_passes_clip_timeout_and_respects_budget(tmp_path, monkeyp
     vocab_export.export_vocab_apkg_sentence(rows, lines, "D", str(tmp_path / "e.apkg"),
                                             audio_path=str(audio), audio_budget_seconds=0)
     assert seen == []   # budget spent: text-only cards
+
+
+def test_sentence_deck_reports_cards_that_lost_their_clip(tmp_path, monkeypatch):
+    pytest.importorskip("genanki")
+    import vocab_export
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"x")
+
+    def flaky_slice(a, s, e, out, **kw):
+        if e > 1.0:
+            raise RuntimeError("ffmpeg failed")
+        open(out, "wb").write(b"clip")
+    monkeypatch.setattr(vocab_export, "_extract_audio_slice", flaky_slice)
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="z", en="e"), Line(idx=1, start=1.0, end=2.0, zh="y", en="f"),
+             Line(idx=2, start=None, end=None, zh="x", en="g")]
+    rows = [{"id": i, "word": f"w{i}", "definitions": [], "first_seen_line_idx": i} for i in range(3)]
+    report = {}
+    vocab_export.export_vocab_apkg_sentence(rows, lines, "D", str(tmp_path / "d.apkg"),
+                                            audio_path=str(audio), report=report)
+    assert report == {"clips_missing": 1}  # the untimed line never had a clip to lose
+    report = {}
+    vocab_export.export_vocab_apkg_sentence(rows, lines, "D", str(tmp_path / "e.apkg"),
+                                            audio_path=str(audio), audio_budget_seconds=0, report=report)
+    assert report == {"clips_missing": 2}
+
+
+def test_rich_apkg_header_flags_missing_clips_without_a_count(client, isolated_db, monkeypatch):
+    import vocab_export
+    did = _rich_drama_with_audio()
+
+    def fake(vocab, lines, deck, out_path, audio_path=None, clip_timeout=None,
+             audio_budget_seconds=None, report=None):
+        report["clips_missing"] = 2
+        with open(out_path, "wb") as f:
+            f.write(b"PKfake")
+    monkeypatch.setattr(vocab_export, "export_vocab_apkg_sentence", fake)
+    r = client.get(f"{BASE}/{did}/vocab/export.apkg", params={"rich": True})
+    assert r.status_code == 200 and r.headers["x-clips-missing"] == "true"
