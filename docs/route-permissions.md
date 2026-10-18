@@ -82,6 +82,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/benchmark/sweep/decision` | local_only() |
 | `GET /api/benchmark/sweep/decisions` | admin.diagnostics |
 | `POST /api/benchmark/sweep/estimate` | admin.diagnostics |
+| `GET /api/benchmark/translate-sweep` | admin.diagnostics |
+| `POST /api/benchmark/translate-sweep` | local_only() |
+| `POST /api/benchmark/translate-sweep/decision` | local_only() |
+| `GET /api/benchmark/translate-sweep/decisions` | admin.diagnostics |
+| `POST /api/benchmark/translate-sweep/estimate` | admin.diagnostics |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |
 | `POST /api/characters/dramas/{drama_id}/character` | lines.edit |
 | `GET /api/characters/dramas/{drama_id}/clone-engines` | library.read |
