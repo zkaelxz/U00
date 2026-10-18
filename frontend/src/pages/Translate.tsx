@@ -262,14 +262,17 @@ export default function TranslatePage() {
                   Text to translate <span className="muted">· {sourceLabel}</span>
                 </label>
                 <div className="translate-head-tools">
-                  <button
-                    type="button"
-                    className={buttonClass('secondary', 'sm')}
-                    aria-expanded={readOpen}
-                    onClick={() => setReadOpen(!readOpen)}
-                  >
-                    Read from a screenshot…
-                  </button>
+                  {/* A picture upload is PC-only (docs/remote-access-decision.md); typed text still works anywhere. */}
+                  {pc !== 'remote' && (
+                    <button
+                      type="button"
+                      className={buttonClass('secondary', 'sm')}
+                      aria-expanded={readOpen}
+                      onClick={() => setReadOpen(!readOpen)}
+                    >
+                      Read from a screenshot…
+                    </button>
+                  )}
                   <OpenFileField
                     sourceName={sourceName}
                     message={fileMessage}
@@ -277,7 +280,7 @@ export default function TranslatePage() {
                   />
                 </div>
               </div>
-              {readOpen && (
+              {readOpen && pc !== 'remote' && (
                 <TranslateReadImage
                   engines={engines}
                   pageEngine={engine}

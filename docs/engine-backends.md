@@ -191,7 +191,7 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
 
 ### Pictures
 
-`engine_backends/vision.py` (`read_image_text`, re-exported by `translate_engines`) sends one picture and a fixed "copy the text, do not translate" prompt to Claude, Gemini, OpenAI or Ollama, each in its own image shape (Claude image block, Gemini `inlineData`, OpenAI `image_url` data URL, Ollama `images`), and returns the text plus the provider's token counts. DeepSeek is refused. `services/image_text_service.py` owns the limits, the price estimate and the cap check; the route is `POST /api/translate/read-image`.
+`engine_backends/vision.py` (`read_image_text`, re-exported by `translate_engines`) sends one picture and a fixed "copy the text, do not translate" prompt to Claude, Gemini, OpenAI or Ollama, each in its own image shape (Claude image block, Gemini `inlineData`, OpenAI `image_url` data URL, Ollama `images`), and returns the text plus the provider's token counts. DeepSeek is refused. OpenAI's request carries `max_completion_tokens` and a low `reasoning_effort`. A request logs its own usage from its worker thread (`on_done`), so a call the deadline abandons is still billed in the log. `services/image_text_service.py` owns the limits, the worst-case price estimate and the cap check; the route is `POST /api/translate/read-image` (PC only).
 
 ### Cost caps and bulk batches
 

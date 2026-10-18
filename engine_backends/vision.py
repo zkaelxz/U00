@@ -19,6 +19,9 @@ VISION_ENGINES = ("claude", "gemini", "openai", "ollama")
 
 # A subtitle or two; a longer reply means the model is describing the picture.
 MAX_REPLY_TOKENS = 600
+# OpenAI's reasoning tokens count inside max_completion_tokens, so a reasoning
+# model needs room beyond the visible reply or it answers with nothing.
+OPENAI_MAX_COMPLETION_TOKENS = 1500
 
 _LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 
@@ -36,16 +39,31 @@ def build_prompt(language: str = "") -> str:
     return _PROMPT.format(language=f"{name} " if name else "")
 
 
-def read_image_text(engine, image: bytes, mime: str, language: str = "") -> tuple:
+def read_image_text(engine, image: bytes, mime: str, language: str = "", on_done=None) -> tuple:
     """(text, {"input_tokens", "output_tokens"}) for the text in `image`.
     Raises RuntimeError for an engine that takes no images; provider errors
-    propagate for the caller to turn into a plain message."""
+    propagate for the caller to turn into a plain message.
+
+    on_done(usage) runs on the request's own thread when the provider call
+    ends, with zero counts when it failed. The deadline can abandon a request
+    that is still running and billed, so the caller logs from here rather than
+    after this function returns."""
     prompt = build_prompt(language)
     data = base64.b64encode(image).decode("ascii")
     name = getattr(engine, "name", type(engine).__name__)
     if name not in VISION_ENGINES:
         raise RuntimeError(f"{name} can't read pictures.")
-    return _bounded(lambda: _dispatch(engine, prompt, data, mime), engine)
+
+    def run():
+        usage = {}
+        try:
+            text, usage = _dispatch(engine, prompt, data, mime)
+            return text, usage
+        finally:
+            if on_done is not None:
+                on_done(usage)
+
+    return _bounded(run, engine)
 
 
 def _dispatch(engine, prompt: str, data: str, mime: str) -> tuple:
@@ -97,7 +115,8 @@ def _openai(engine, prompt, data, mime):
         [{"role": "user", "content": [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}]}],
-        usage_cb=lambda i, o, *_: counted.update(input_tokens=i, output_tokens=o)))
+        usage_cb=lambda i, o, *_: counted.update(input_tokens=i, output_tokens=o),
+        extra={"max_completion_tokens": OPENAI_MAX_COMPLETION_TOKENS, "reasoning_effort": "low"}))
     return str(text), {"input_tokens": counted.get("input_tokens", 0),
                        "output_tokens": counted.get("output_tokens", 0)}
 

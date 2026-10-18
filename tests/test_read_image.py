@@ -26,9 +26,14 @@ def _png(size=(40, 20), fmt="PNG") -> bytes:
     return out.getvalue()
 
 
+REMOTE = "https://baihe.example.com"
+
+
 @pytest.fixture
 def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    # X-Baihe-Local is required on a multipart local_only POST.
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})
 
 
 @pytest.fixture
@@ -36,9 +41,12 @@ def sent(monkeypatch):
     """Replaces the provider call; records what it was given."""
     calls = []
 
-    def fake(engine, image, mime, language=""):
+    def fake(engine, image, mime, language="", on_done=None):
         calls.append({"engine": engine, "image": image, "mime": mime, "language": language})
-        return "你好", {"input_tokens": 300, "output_tokens": 5}
+        usage = {"input_tokens": 300, "output_tokens": 5}
+        if on_done:
+            on_done(usage)
+        return "你好", usage
 
     monkeypatch.setattr(translate_engines, "read_image_text", fake)
     monkeypatch.setattr(image_text_service, "resolve_api_key", lambda name, env_path=None: "k")
@@ -48,7 +56,7 @@ def sent(monkeypatch):
 
 def _post(client, image=None, **fields):
     data = {"engine": "claude", **fields}
-    return client.post("/api/translate/read-image", data=data, headers={"X-Baihe-Local": "1"},
+    return client.post("/api/translate/read-image", data=data,
                        files={"image": ("shot.png", image if image is not None else _png(),
                                         "image/png")})
 
@@ -64,7 +72,8 @@ class TestRoute:
         assert db.get_month_spend() > 0
 
     def test_nothing_found_says_so(self, client, sent, monkeypatch):
-        monkeypatch.setattr(translate_engines, "read_image_text", lambda *a, **k: ("", {}))
+        monkeypatch.setattr(translate_engines, "read_image_text",
+                            lambda *a, **k: ("", {}))
         body = _post(client).json()
         assert body["text"] == "" and "No text was found" in body["message"]
 
@@ -83,7 +92,7 @@ class TestRoute:
         assert _post(client, image=_png(fmt="GIF")).status_code == 422 and not sent
 
     def test_a_missing_picture_is_refused(self, client, sent):
-        resp = client.post("/api/translate/read-image", data={"engine": "claude"}, headers={"X-Baihe-Local": "1"},
+        resp = client.post("/api/translate/read-image", data={"engine": "claude"},
                            files={"other": ("a.txt", b"x", "text/plain")})
         assert resp.status_code == 422
 
@@ -103,12 +112,28 @@ class TestRoute:
         assert _post(client, image=_png((2000, 2000))).status_code == 400 and not sent
 
     def test_a_failed_paid_request_is_still_logged(self, client, sent, monkeypatch):
-        def boom(*a, **k):
+        def boom(engine, image, mime, language="", on_done=None):
+            on_done({})
             raise RuntimeError("provider down")
 
         monkeypatch.setattr(translate_engines, "read_image_text", boom)
         assert _post(client).status_code >= 500
         assert db.get_usage_summary()["call_count"] == 1  # zero tokens, but not dropped
+
+
+class TestPcOnly:
+    def test_a_remote_device_is_refused_before_any_call(self, isolated_db, sent):
+        remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                            raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
+        assert _post(remote).status_code in (401, 403) and not sent
+        resp = remote.post("/api/translate/read-image/estimate",
+                           json={"engine": "claude", "width": 10, "height": 10})
+        assert resp.status_code in (401, 403)
+
+    def test_the_pc_owner_is_let_in_with_auth_on(self, isolated_db, sent):
+        app = create_app(ApiSettings(auth_mode="on"))
+        owner = TestClient(app, raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
+        assert _post(owner).status_code == 200
 
 
 class TestEstimate:
@@ -145,6 +170,68 @@ class TestPreparedPicture:
     def test_webp_is_sent_as_png(self):
         _data, mime, *_ = image_text_service._prepared(_png((300, 80), "WEBP"))
         assert mime == "image/png"
+
+
+class TestPrepared:
+    def test_a_flat_picture_over_the_pixel_cap_is_refused_without_decoding(self):
+        with pytest.raises(image_text_service.InvalidInputError, match="megapixel"):
+            image_text_service._prepared(_png((5001, 5001)))
+
+    def test_metadata_is_stripped(self):
+        out = io.BytesIO()
+        exif = Image.Exif()
+        exif[0x010E] = "secret description"
+        info = __import__("PIL.PngImagePlugin", fromlist=["PngInfo"]).PngInfo()
+        info.add_text("Comment", "gps=1,2")
+        Image.new("RGB", (300, 80), "white").save(out, "PNG", pnginfo=info, exif=exif)
+        data, _mime, *_ = image_text_service._prepared(out.getvalue())
+        assert b"gps=1,2" not in data and b"secret description" not in data
+        assert not Image.open(io.BytesIO(data)).info.get("Comment")
+
+    def test_a_png_too_big_for_a_provider_goes_as_jpeg(self, monkeypatch):
+        monkeypatch.setattr(image_text_service, "MAX_SENT_BYTES", 120_000)
+        noise = Image.effect_noise((600, 400), 80).convert("RGB")
+        out = io.BytesIO()
+        noise.save(out, "PNG")
+        data, mime, *_ = image_text_service._prepared(out.getvalue())
+        assert mime == "image/jpeg" and len(data) <= 120_000
+
+    def test_a_rotated_photo_is_turned_upright(self):
+        im = Image.new("RGB", (400, 100), "white")
+        exif = Image.Exif()
+        exif[0x0112] = 6   # rotate 90 clockwise to display
+        out = io.BytesIO()
+        im.save(out, "JPEG", exif=exif)
+        _data, _mime, w, h = image_text_service._prepared(out.getvalue())
+        assert (w, h) == (100, 400)
+
+
+class TestPriceAndLog:
+    def test_estimate_uses_the_worst_case_per_engine(self):
+        gemini = image_text_service._tokens("gemini", 2000, 2000)
+        claude = image_text_service._tokens("claude", 2000, 2000)
+        openai = image_text_service._tokens("openai", 2000, 2000)
+        assert gemini[0] > claude[0] > openai[0]
+        assert openai[1] == vision.OPENAI_MAX_COMPLETION_TOKENS and claude[1] == vision.MAX_REPLY_TOKENS
+
+    def test_an_abandoned_request_is_logged_at_its_estimate(self, isolated_db, sent, monkeypatch):
+        def hang(engine, image, mime, language="", on_done=None):
+            raise TimeoutError("slow")   # the deadline passed with the request still running
+
+        monkeypatch.setattr(translate_engines, "read_image_text", hang)
+        with pytest.raises(TimeoutError):
+            image_text_service.read_image(_png(), "claude")
+        assert db.get_month_spend() > 0
+
+    def test_a_request_that_logged_itself_is_not_logged_twice(self, isolated_db, sent, monkeypatch):
+        def fails(engine, image, mime, language="", on_done=None):
+            on_done({"input_tokens": 50, "output_tokens": 0})
+            raise RuntimeError("provider down")
+
+        monkeypatch.setattr(translate_engines, "read_image_text", fails)
+        with pytest.raises(RuntimeError):
+            image_text_service.read_image(_png(), "claude")
+        assert db.get_usage_summary()["call_count"] == 1
 
 
 class TestProviders:
@@ -186,13 +273,16 @@ class TestProviders:
         seen = {}
         engine = translate_engines.OpenAIEngine("k")
 
-        def chat(messages, usage_cb=None):
+        def chat(messages, usage_cb=None, extra=None):
             seen["messages"] = messages
+            seen["extra"] = extra
             usage_cb(9, 3)
             return "你好"
 
         monkeypatch.setattr(engine, "chat", chat)
         text, usage = vision.read_image_text(engine, self.IMAGE, "image/png")
+        assert seen["extra"] == {"max_completion_tokens": vision.OPENAI_MAX_COMPLETION_TOKENS,
+                                 "reasoning_effort": "low"}
         part = seen["messages"][0]["content"][1]
         assert text == "你好" and usage == {"input_tokens": 9, "output_tokens": 3}
         assert part["image_url"]["url"].startswith("data:image/png;base64,")
@@ -213,3 +303,21 @@ class TestProviders:
     def test_deepseek_is_refused(self):
         with pytest.raises(RuntimeError):
             vision.read_image_text(types.SimpleNamespace(name="deepseek"), self.IMAGE, "image/png")
+
+
+def test_on_done_reports_usage_and_zero_on_failure():
+    got = []
+    engine = types.SimpleNamespace(name="claude", model="m", client=types.SimpleNamespace(
+        messages=types.SimpleNamespace(create=lambda **kw: types.SimpleNamespace(
+            content=[types.SimpleNamespace(type="text", text="x")],
+            usage=types.SimpleNamespace(input_tokens=4, output_tokens=1)))))
+    vision.read_image_text(engine, b"x", "image/png", on_done=got.append)
+    assert got == [{"input_tokens": 4, "output_tokens": 1}]
+
+    def boom(**kw):
+        raise RuntimeError("down")
+
+    engine.client.messages.create = boom
+    with pytest.raises(RuntimeError):
+        vision.read_image_text(engine, b"x", "image/png", on_done=got.append)
+    assert got[-1] == {}

@@ -99,3 +99,12 @@ for (const [theme, size] of [['light', 'desktop'], ['dark', 'desktop'], ['sepia'
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/read-screenshot-${theme}-${size}.png`, fullPage: true })
   })
 }
+
+test('another device has no screenshot button, only typed text', async ({ page }) => {
+  await mock(page, [])
+  await page.route('**/api/meta', (r) =>
+    r.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }))
+  await page.goto('/#/translate')
+  await expect(page.getByLabel('Text to translate')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Read from a screenshot…' })).toHaveCount(0)
+})
