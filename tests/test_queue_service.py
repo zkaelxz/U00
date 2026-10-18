@@ -650,3 +650,23 @@ def test_bulk_add_skips_the_titles_that_no_longer_fit_when_the_queue_fills(jobs)
     out = q.add_bulk(None, [a], "all", True, at_pc=True)
     assert out["added"] == [] and len(out["skipped"]) == 1
     assert len(_items()) == q.MAX_ITEMS - 2
+
+
+def test_bulk_add_stops_checking_after_the_queue_is_full(jobs):
+    did = _drama()
+    for _ in range(q.MAX_ITEMS - 2):
+        q.add_item(None, did, "export", True, at_pc=True)
+    a, b = _drama("A"), _drama("B")
+    out = q.add_bulk(None, [a, b], "all", True, at_pc=True)
+    assert out["added"] == [] and [s["drama_id"] for s in out["skipped"]] == [a, b]
+    assert out["skipped"][0]["reason"] == out["skipped"][1]["reason"]
+
+
+def test_bulk_add_body_refuses_an_oversized_id_or_too_many_titles():
+    from pydantic import ValidationError
+    from api.schemas import QueueAddBulk
+    with pytest.raises(ValidationError):
+        QueueAddBulk(drama_ids=[1, 2**63], step="export")
+    with pytest.raises(ValidationError):
+        QueueAddBulk(drama_ids=list(range(1, q.MAX_ITEMS + 2)), step="export")
+    assert QueueAddBulk(drama_ids=[1, 2], step="all").drama_ids == [1, 2]

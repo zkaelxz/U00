@@ -432,12 +432,19 @@ def add_bulk(principal, drama_ids: list, step: str, holds_paid: bool, *, at_pc: 
         raise InvalidInputError("Step must be transcribe, translate, export or all.")
     steps = STEPS if step == "all" else (step,)
     added, skipped = [], []
+    full = None
     for drama_id in dict.fromkeys(drama_ids):
+        if full:
+            skipped.append({"drama_id": drama_id, "reason": full})
+            continue
         try:
             _add_steps(principal, drama_id, steps, holds_paid, at_pc)
             added.append(drama_id)
         except ServiceError as e:
-            skipped.append({"drama_id": drama_id, "reason": e.message})
+            reason = _short(e.message)
+            # A full queue or member cap refuses every later title the same way.
+            full = reason if isinstance(e, ConflictError) else None
+            skipped.append({"drama_id": drama_id, "reason": reason})
     return {"queue": get_queue(principal), "added": added, "skipped": skipped}
 
 
