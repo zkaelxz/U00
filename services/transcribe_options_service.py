@@ -9,6 +9,7 @@ retranscribe_line_service, which resolve the same saved values.
 """
 import importlib.util
 from typing import Optional
+import background_jobs
 import core as core_module
 import whisper_models
 import segment_splitting
@@ -28,7 +29,7 @@ from services import (
 )
 from services.qwen3_requirements_service import (MISSING_VAD_MESSAGE, require_qwen3_packages,
                                                  require_vad_backend_packages)
-from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from services.service_errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError, UnsupportedOperationError
 
 # The per-drama tuning values used when the drama has none stored.
 _DEFAULT_TUNING = {
@@ -289,6 +290,20 @@ def _require_vad_packages() -> None:
 _CHINESE_SCRIPTS = ("simplified", "traditional")
 
 
+def require_audio_pipeline(drama_id: int, drama: dict, detail: str = ".") -> None:
+    """Refuses a title whose content mode has no audio to work on (novel narration)."""
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline{detail}")
+
+
+def ensure_no_active_jobs(drama_id: int, prefixes, message: str) -> None:
+    """ConflictError(message) while a job named <prefix><drama_id> is running or queued."""
+    for prefix in prefixes:
+        other = background_jobs.get_status(f"{prefix}{drama_id}")
+        if other and other.get("status") in ("running", "queued"):
+            raise ConflictError(message)
+
+
 def _check_run_request(drama: dict, source_language, chinese_script, transcript_text,
                        expected_speakers, min_speakers, max_speakers, require_media=None):
     """The checks a transcription run's request must pass, shared by
@@ -302,10 +317,9 @@ def _check_run_request(drama: dict, source_language, chinese_script, transcript_
     audio or video file ahead of a missing transcript."""
     min_speakers, max_speakers = diarization_service.speaker_range(
         expected_speakers, min_speakers, max_speakers)
-    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
-        raise UnsupportedOperationError(
-            f"Drama {drama['id']} has no audio pipeline (content mode "
-            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
+    require_audio_pipeline(
+        drama["id"], drama, f" (content mode {drama.get('content_mode')!r}); "
+        "novel chunking isn't available via this API yet.")
     source_language = source_language or drama.get("source_language") or "zh"
     chinese_script = chinese_script or drama.get("chinese_script") or "simplified"
     if source_language not in SOURCE_LANGUAGES:

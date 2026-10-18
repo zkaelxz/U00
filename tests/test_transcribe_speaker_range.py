@@ -10,7 +10,7 @@ import pytest
 import background_jobs
 from jobs import job_launch, job_table
 from services import diarization_service, transcribe_pipeline, transcribe_service, transcribe_options_service
-from services.service_errors import InvalidInputError
+from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
 
 
 def _drama(isolated_db, **fields):
@@ -135,3 +135,18 @@ def test_the_start_and_the_pre_check_refuse_the_same_request_alike(isolated_db, 
         transcribe_options_service.validate_transcribe_options(did, **kw)
     assert type(started.value) is type(checked.value) and str(started.value) == str(checked.value)
     assert captured == {}
+
+
+def test_the_shared_audio_and_busy_checks_keep_their_messages(isolated_db):
+    background_jobs.clear_job("retime_7")
+    job_table._jobs["retime_7"] = {"status": "queued", "progress": 0.0, "message": ""}
+    try:
+        with pytest.raises(ConflictError, match="^busy now$"):
+            transcribe_options_service.ensure_no_active_jobs(7, ("transcribe_", "retime_"), "busy now")
+        transcribe_options_service.ensure_no_active_jobs(8, ("transcribe_", "retime_"), "busy now")
+    finally:
+        background_jobs.clear_job("retime_7")
+    with pytest.raises(UnsupportedOperationError, match=r"^Drama 7 has no audio pipeline\.$"):
+        transcribe_options_service.require_audio_pipeline(7, {"content_mode": "novel_narration"})
+    transcribe_options_service.require_audio_pipeline(7, {})
+    transcribe_options_service.require_audio_pipeline(7, {"content_mode": "streamer_vod"})
