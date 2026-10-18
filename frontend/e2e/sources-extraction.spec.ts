@@ -210,3 +210,22 @@ test('novel: the AI fallback names why the chosen engine cannot run and holds Im
   await card.getByRole('combobox', { name: 'AI engine' }).selectOption('gemini')
   await expect(card.getByTestId('engine-gate')).toHaveCount(0)
 })
+
+test('novel: the engine gate still shows when the key status answers after the engine names', async ({ page }) => {
+  const s = await mockSources(page)
+  const m = await mockImports(page, s, { previewBody: NOVEL_PREVIEW, urlImportBody: { kind: 'url_import', char_count: 1 } })
+  await mockExtraction(page, s, m, { review: novelReview() })
+  await page.route('**/api/translate/engines', async (r) => {
+    // Later than the AI engine names, as on a busy PC.
+    await new Promise((done) => setTimeout(done, 1500))
+    await r.fulfill({
+      json: { items: [{ name: 'claude', label: 'Claude', free: false, models: null, key_configured: false }] },
+    })
+  })
+  const card = await paste(page, 'https://novels.example/book/5')
+  await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Heaven Novel' })
+  await card.getByRole('switch', { name: 'Let AI help if the page is unclear' }).click()
+  await expect(card.getByRole('combobox', { name: 'AI engine' })).toHaveValue('claude')
+  await expect(card.getByTestId('engine-gate')).toContainText('Claude has no API key')
+  await expect(card.getByRole('button', { name: 'Import text' })).toBeDisabled()
+})
