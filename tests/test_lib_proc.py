@@ -287,6 +287,24 @@ def test_stop_if_same_keeps_a_matching_child_without_pidfd(child, monkeypatch):
 
 
 @linux_pidfd
+def test_identity_waits_for_the_command_line_of_a_child_still_in_exec(child, monkeypatch):
+    import builtins
+    import io
+    from lib import proc_kill
+    settled = proc_kill.process_identity(child.pid)
+    reads = []
+
+    def mid_exec_open(path, *a, **kw):
+        if str(path).endswith("/cmdline") and not reads:
+            reads.append(path)
+            return io.BytesIO(b"")
+        return builtins.open(path, *a, **kw)
+    monkeypatch.setattr(proc_kill, "open", mid_exec_open, raising=False)
+    assert proc_kill.process_identity(child.pid) == settled
+    assert reads
+
+
+@linux_pidfd
 def test_stop_if_same_keeps_a_child_it_may_not_signal(child, monkeypatch):
     from lib import proc_kill
     ident = proc_kill.process_identity(child.pid)
