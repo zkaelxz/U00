@@ -84,6 +84,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
     cur_by_id = {ln.id: ln for ln in current}
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
+    substitute_terms = tguide.build_hard_term_substituter(enforced)
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "missing": 0, "failed_requests": 0, "unknown_requests": 0}
 
@@ -125,7 +126,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
                 counts["kept_your_edit"] += 1
                 continue
             if enforced:
-                translation = tguide.apply_hard_term_substitutions(translation, enforced)
+                translation = substitute_terms(translation)
             ln.en = translation
             source_change.clear_for_new_english(ln)
             counts["applied"] += 1

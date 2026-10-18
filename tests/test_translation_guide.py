@@ -313,6 +313,19 @@ class TestHardTermSubstitution:
         assert once == "Shen Qingyi smiled. Shen Qingyi left."
         assert tg.apply_hard_term_substitutions(once, terms) == once
 
+    def test_substituter_built_once_matches_per_line_application(self):
+        terms = [
+            {"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi|Qingyi", "enforce_exact": True},
+            {"term_translation": "Lin Wan", "notes": "Lin|Wan Wan", "enforce_exact": True},
+            {"term_translation": "Yunyin Sect", "notes": "Cloud Sect", "enforce_exact": True},
+        ]
+        lines = ["Shen Qing Yi met Lin in Berlin.", "Qingyi and Wan Wan left.",
+                 "Shen Qingyi joined the cloud sect.", "", "Nothing to change."]
+        substitute = tg.build_hard_term_substituter(terms)
+        for text in lines:
+            assert substitute(text) == tg.apply_hard_term_substitutions(text, terms)
+        assert substitute(lines[0]) == "Shen Qingyi met Lin Wan in Berlin."
+
     def test_matches_whole_words_only(self):
         terms = [{"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
         result = tg.apply_hard_term_substitutions("In Berlin, Lin waved. LINE up.", terms)

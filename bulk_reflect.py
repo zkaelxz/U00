@@ -494,6 +494,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
     cur_by_id = {ln.id: ln for ln in current}
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
+    substitute_terms = tguide.build_hard_term_substituter(enforced)
     notes = []
     for lid, text in text_by_id.items():
         row = row_by_id[lid]
@@ -508,7 +509,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
         if not translation:
             continue
         if enforced:
-            translation = tguide.apply_hard_term_substitutions(translation, enforced)
+            translation = substitute_terms(translation)
         ln.en = translation
         source_change.clear_for_new_english(ln)
         counts["applied"] += 1
