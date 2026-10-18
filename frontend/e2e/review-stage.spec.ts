@@ -114,6 +114,8 @@ test('lists, filters, searches and edits a line against the real API', async ({ 
   await page.getByLabel('Search lines').fill('Thanks')
   await expect(rows(page)).toHaveCount(1)
   await expect(page.getByTestId('search-count')).toHaveText('1 match')
+  // The summary says the matched count while a search is active, not the whole title.
+  await expect(page.getByTestId('line-counts')).toContainText('1 matching · 1 flagged')
   await page.getByRole('button', { name: 'Clear search' }).click()
   await expect(rows(page)).toHaveCount(3)
   await page.getByLabel('Search lines').fill('nothing like this')
