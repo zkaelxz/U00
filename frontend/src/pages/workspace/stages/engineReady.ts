@@ -43,7 +43,7 @@ export function engineGate(
       link: { href: 'https://ollama.com/download', label: 'Get Ollama' },
     }
   }
-  if (!engine.key_configured) {
+  if (engine.key_configured === false) {
     return {
       id: 'engine_key', label: who, action: 'settings', packages: [],
       reason: `${who} has no API key yet, so this can't run.`,
