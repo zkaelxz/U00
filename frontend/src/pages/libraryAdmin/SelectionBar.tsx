@@ -56,7 +56,6 @@ export function SelectionBar({
   selected, items, pc, phone, exporter, onClear, onDone, onChanged, onDeleted, onResult, result,
 }: Props) {
   const [status, setStatus] = useState<LibraryStatus>('translated')
-  const [tag, setTag] = useState<LibraryListTag>('Favorite')
   const [busy, setBusy] = useState(false)
   // admin.library calls (status, lists): default error copy.
   const [adminError, setAdminError] = useState<unknown>(null)
@@ -168,15 +167,23 @@ export function SelectionBar({
         </button>
       </div>
       <div className="bar-group">
-        <select aria-label="List" value={tag} onChange={(e) => setTag(e.target.value as LibraryListTag)}>
-          {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={t}>{tagLabel(t)}</option>)}
+        <select
+          aria-label="Lists"
+          value=""
+          disabled={busy || !n}
+          onChange={(e) => {
+            const [action, t] = e.target.value.split(':')
+            if (t) run(() => bulkSetTag(ids, t as LibraryListTag, action === 'add'), describeBulkResult)
+          }}
+        >
+          <option value="">Lists…</option>
+          <optgroup label="Add to list">
+            {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={`add:${t}`}>Add to {tagLabel(t)}</option>)}
+          </optgroup>
+          <optgroup label="Remove from list">
+            {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={`remove:${t}`}>Remove from {tagLabel(t)}</option>)}
+          </optgroup>
         </select>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, true), describeBulkResult)}>
-          Add to list
-        </button>
-        <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, false), describeBulkResult)}>
-          Remove from list
-        </button>
       </div>
       </>}
       {phone && editReason}

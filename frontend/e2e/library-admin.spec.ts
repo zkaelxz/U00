@@ -52,6 +52,15 @@ test.describe('selection bar (real API)', () => {
     await expect(page.getByTestId('bulk-result')).toContainText('Updated 2.')
     await expect(page.locator('tbody tr', { hasText: 'Admin E2E' }).filter({ hasText: 'translated' })).toHaveCount(2)
 
+    // The Lists dropdown applies a pick at once and goes back to blank.
+    const lists = bar.getByRole('combobox', { name: 'Lists' })
+    await expect(lists).toHaveValue('')
+    await lists.selectOption('add:Favorite')
+    await expect(page.getByTestId('bulk-result')).toContainText('Updated 2.')
+    await expect(lists).toHaveValue('')
+    await lists.selectOption('remove:Favorite')
+    await expect(lists).toHaveValue('')
+
     await expect(bar.getByRole('button', { name: 'Translate 0' })).toBeDisabled()
     await expect(bar).toContainText("Still needed: a selected title with status 'aligned'.")
 

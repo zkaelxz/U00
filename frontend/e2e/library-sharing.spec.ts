@@ -61,8 +61,7 @@ test.describe('member without admin.library', () => {
     const bar = page.getByRole('region', { name: 'Selection' })
     await expect(bar.getByText('Changing status and lists is for the library admin.')).toBeVisible()
     await expect(bar.getByRole('button', { name: 'Set status' })).toHaveCount(0)
-    await expect(bar.getByRole('button', { name: 'Add to list' })).toHaveCount(0)
-    await expect(bar.getByRole('button', { name: 'Remove from list' })).toHaveCount(0)
+    await expect(bar.getByRole('combobox', { name: 'Lists' })).toHaveCount(0)
 
     await page.goto('/#/library-tools')
     await page.getByRole('group', { name: /Profiles/ }).or(page.locator('summary', { hasText: 'Profiles' })).first().click()
