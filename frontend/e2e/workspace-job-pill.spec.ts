@@ -49,6 +49,7 @@ test('popover shows the job and cancels it', async ({ page }) => {
   const region = page.getByRole('region', { name: 'Running on this title' })
   await expect(region.getByTestId('job-percent')).toHaveText('42%')
   await region.getByRole('button', { name: /^Cancel / }).click()
+  await region.getByRole('button', { name: 'Confirm cancel' }).click()
   await expect.poll(() => cancelled).toEqual(['translate_3'])
   await expect(page.getByTestId('job-pill')).toHaveText('Failed')
 })

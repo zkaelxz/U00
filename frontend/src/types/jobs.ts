@@ -196,6 +196,12 @@ export function cancellingText(jobId: string | null | undefined): string {
 
 export const isCancellingMessage = (message: string | null | undefined) => !!message && message.startsWith('Cancelling...')
 
+// A running transcription, or any job past 10%, is hours of GPU time or paid
+// calls: Cancel asks first. Queued and just-started jobs lose nothing.
+export function cancelNeedsConfirm(job: Pick<JobRecord, 'status' | 'kind' | 'progress'>): boolean {
+  return job.status === 'running' && (job.kind === 'transcribe' || (job.progress ?? 0) > 0.1)
+}
+
 // Force stop shares Cancel's permission, so it follows the same rule.
 export function offersForceStop(job: Pick<JobRecord, 'status' | 'can_force_stop' | 'owned_by_me'>, anyJob: boolean): boolean {
   return job.status === 'running' && job.can_force_stop === true && offersCancel(job, anyJob)

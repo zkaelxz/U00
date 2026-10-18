@@ -1,7 +1,7 @@
 // Pure helpers for ConfirmButton (kept out of the component file for fast refresh).
 
 // Idle time after which an armed button reverts to its first step.
-export const CONFIRM_REVERT_MS = 5000
+export const CONFIRM_REVERT_MS = 10_000
 
 // 'blocked': the button became busy or disabled; it always disarms, so a
 // later re-enable starts again from the first step.

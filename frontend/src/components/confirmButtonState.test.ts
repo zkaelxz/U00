@@ -31,7 +31,7 @@ describe('confirmStep', () => {
   it('labels and timing', () => {
     expect(confirmLabelFor('Preset A')).toBe('Confirm delete Preset A')
     expect(armedAnnouncement('Preset A')).toBe('Press again to delete Preset A')
-    expect(CONFIRM_REVERT_MS).toBe(5000)
+    expect(CONFIRM_REVERT_MS).toBe(10_000)
   })
 
   it('uses the verb in the label and the announcement', () => {

@@ -294,10 +294,15 @@ export function createLinesController(deps: LinesControllerDeps) {
     openEdit: (id, details) => void openEdit(id, details),
     setDraft: (patch: Partial<LineDraft>) => {
       const cur = st.current.edit
-      if (cur) setEditNow({ ...cur, draft: { ...cur.draft, ...patch } })
+      if (cur) setEditNow({ ...cur, draft: { ...cur.draft, ...patch }, discardWarning: false })
     },
     cancelEdit: () => {
       const cur = st.current.edit
+      // Esc used to drop typed text silently; the first press only warns.
+      if (cur && !cur.discardWarning && isDirty(cur.base, cur.draft)) {
+        setEditNow({ ...cur, discardWarning: true })
+        return
+      }
       setEditNow(null)
       setIssue((i) => (i?.problem ? null : i))
       if (cur) focusTo(cur.lineId)

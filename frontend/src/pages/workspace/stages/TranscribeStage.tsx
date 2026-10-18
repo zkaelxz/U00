@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 
+import { useResetUndo } from '../../../hooks/useResetUndo'
 import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
@@ -222,20 +223,35 @@ export default function TranscribeStage({
   }, [saveDraft, rawDraft, cf, config, defaultLanguage, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
 
   // Back to the drama's language and the saved options; the draft for this title is dropped.
+  const resetUndo = useResetUndo()
   const resetToDefaults = () => {
-    clearDraft()
-    setLanguage(defaultLanguage)
-    setScript('')
-    setTranscriptText('')
-    setRunDiarize(false)
-    setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
-    setMinSpeakers('')
-    setMaxSpeakers('')
-    setExtraNames('')
-    setOverride('')
-    setProblem(null)
-    setFieldProblem(null)
-    if (config) setCf(formFromConfig(config))
+    const prev = { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, cf }
+    resetUndo.reset(() => {
+      clearDraft()
+      setLanguage(defaultLanguage)
+      setScript('')
+      setTranscriptText('')
+      setRunDiarize(false)
+      setSpeakers(diar?.expected_speakers ? String(diar.expected_speakers) : '')
+      setMinSpeakers('')
+      setMaxSpeakers('')
+      setExtraNames('')
+      setOverride('')
+      setProblem(null)
+      setFieldProblem(null)
+      if (config) setCf(formFromConfig(config))
+    }, () => {
+      setLanguage(prev.language)
+      setScript(prev.script)
+      setTranscriptText(prev.transcriptText)
+      setRunDiarize(prev.runDiarize)
+      setSpeakers(prev.speakers)
+      setMinSpeakers(prev.minSpeakers)
+      setMaxSpeakers(prev.maxSpeakers)
+      setExtraNames(prev.extraNames)
+      setOverride(prev.override)
+      setCf(prev.cf)
+    })
   }
 
   useEffect(() => {
@@ -790,6 +806,8 @@ export default function TranscribeStage({
             duration={duration}
             onSave={saveOptions}
             onReset={resetToDefaults}
+            resetOffered={resetUndo.offered}
+            onUndoReset={resetUndo.undo}
             saved={saved}
             problem={null}
             error={null}

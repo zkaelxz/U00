@@ -295,6 +295,7 @@ test('starts a transcription with the right body, polls the job and cancels it',
   expect(run.bodies[0]).toMatchObject({ extra_names: 'names: Wei', expected_speakers: 2, run_diarize: false })
 
   await page.getByRole('button', { name: /^Cancel / }).click()
+  await page.getByRole('button', { name: 'Confirm cancel' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
   await expect(page.getByRole('button', { name: /^Cancel / })).toHaveCount(0)
 })

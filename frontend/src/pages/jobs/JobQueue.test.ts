@@ -57,3 +57,13 @@ describe('QueueRow', () => {
     expect(row({ mine: false, status: 'failed' })).not.toContain('<button')
   })
 })
+
+describe('Remove on a queued item', () => {
+  it('asks first: the first step is "Remove…", not an immediate remove', () => {
+    const html = renderToStaticMarkup(
+      createElement(QueueRow, { item: item({ status: 'waiting' }), first: true, last: true, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop }),
+    )
+    expect(html).toContain('Remove…')
+    expect(html).not.toContain('Confirm remove')
+  })
+})

@@ -1,10 +1,12 @@
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
+import { DISCARD_WARNING } from './LineRow'
 import type { ReviewLine } from '../../../../types/review'
 
 interface Props {
   active: ReviewLine
   editing: boolean
+  discardWarning?: boolean
   hasMedia: boolean
   onCancel: () => void
   onSave: () => void
@@ -15,11 +17,12 @@ interface Props {
 }
 
 // The phone action bar for the active line.
-export function PhoneEditBar({ active, editing, hasMedia, onCancel, onSave, onSaveAndNext, onPlay, onMove, onEdit }: Props) {
+export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCancel, onSave, onSaveAndNext, onPlay, onMove, onEdit }: Props) {
   return (
     <div className="review-editbar" role="toolbar" aria-label="Line actions">
       {editing ? (
         <>
+          {discardWarning && <span role="status">{DISCARD_WARNING}</span>}
           <button type="button" className={buttonClass('ghost')} onClick={onCancel}>Cancel</button>
           <button type="button" className={buttonClass('secondary')} onClick={onSave}>Save</button>
           <button type="button" className={buttonClass('primary')} onClick={onSaveAndNext}>Save &amp; next</button>

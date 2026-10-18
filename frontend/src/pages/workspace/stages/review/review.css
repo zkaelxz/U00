@@ -295,6 +295,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   }
   .review-editbar button { flex: 1 1 0; min-width: 0; min-height: var(--touch); padding-inline: var(--space-1); white-space: nowrap; }
   .review-editbar button.btn-primary { flex-grow: 1.7; }
+  .review-editbar > [role='status'] { flex: 2 1 0; min-width: 0; font-size: var(--text-sm); }
 }
 @media (pointer: coarse) {
   .review-chip span { min-height: var(--touch); }

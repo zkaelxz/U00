@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react'
 
+import { ResetButton } from '../../../components/ResetButton'
 import { asrBackendOptionsFor } from '../../../api/asrOptions'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
@@ -77,6 +78,8 @@ interface Props {
   duration: number | null
   onSave: () => void
   onReset: () => void
+  resetOffered: boolean
+  onUndoReset: () => void
   saved: boolean
   // The refused-option sentence and the run/save error; the Transcribe tab shows them once above, so it passes none.
   problem: string | null
@@ -341,7 +344,7 @@ export function TranscribeAdvanced(p: Props) {
       })}
       <div className="actions">
         <button type="button" className={buttonClass('secondary', 'sm')} onClick={p.onSave}>Save options</button>
-        <button type="button" className={buttonClass('ghost', 'sm')} onClick={p.onReset}>Reset to defaults</button>
+        <ResetButton offered={p.resetOffered} onReset={p.onReset} onUndo={p.onUndoReset} size="sm" />
         {p.saved && <span role="status" className="muted">Saved.</span>}
       </div>
       {p.problem && <p className="error" role="alert">{p.problem}</p>}

@@ -608,6 +608,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           <PhoneEditBar
             active={active}
             editing={editingActive}
+            discardWarning={editingActive && !!edit?.discardWarning}
             hasMedia={mediaKind !== null}
             onCancel={actions.cancelEdit}
             onSave={actions.save}

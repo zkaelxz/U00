@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react'
 
+import { useResetUndo } from '../../../hooks/useResetUndo'
+import { ResetButton } from '../../../components/ResetButton'
 import { ApiError } from '../../../api/client'
 import { updateDramaMetadata } from '../../../api/library'
 import {
@@ -308,11 +310,18 @@ function RunPanel({
     saveDraft(runOptionsDraft({ form: f, baseEngine: config.translation_engine, reviewFirst }, defaultBatchSize(config, f)))
   }, [saveDraft, f, config, reviewFirst])
   // Back to the title's saved engine and the Settings defaults; the draft for this title is dropped.
+  const resetUndo = useResetUndo()
   const resetToDefaults = () => {
-    clearDraft()
-    setF(base)
-    setReviewFirst(false)
-    setProblem(null)
+    const prev = { f, reviewFirst }
+    resetUndo.reset(() => {
+      clearDraft()
+      setF(base)
+      setReviewFirst(false)
+      setProblem(null)
+    }, () => {
+      setF(prev.f)
+      setReviewFirst(prev.reviewFirst)
+    })
   }
   // The two prompt toggles are saved for the title as soon as they change, so
   // every later run (retries, glossary re-translation, AI line actions, the
@@ -678,7 +687,7 @@ function RunPanel({
           </div>
           <SavePreset f={f} defaultEngine={config.translation_engine} />
           <div className="advanced-wide actions">
-            <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
+            <ResetButton offered={resetUndo.offered} onReset={resetToDefaults} onUndo={resetUndo.undo} />
           </div>
         </div>
       </Section>

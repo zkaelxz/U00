@@ -32,6 +32,7 @@ test('follow a channel, check it now and remove it', async ({ page }) => {
   await expect(row.getByRole('button', { name: 'Check now' })).toHaveAttribute('title', /once a minute/)
   await page.screenshot({ path: `${SCREENS}/follows-desktop.png`, fullPage: true })
   await row.getByRole('button', { name: 'Remove' }).click()
+  await row.getByRole('button', { name: 'Confirm remove' }).click()
   await expect(live.getByTestId('live-follow-row')).toHaveCount(0)
   expect(m.unmocked).toEqual([])
 })

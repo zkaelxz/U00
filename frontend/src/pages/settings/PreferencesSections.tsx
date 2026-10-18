@@ -399,9 +399,8 @@ function EndpointForm({ name, label, help, placeholder, current, configured, onR
         <button type="button" className={buttonClass('secondary')} disabled={busy || !draft.trim() || draft.trim() === current} onClick={save}>
           Save
         </button>
-        <button type="button" className={buttonClass('ghost')} disabled={busy || !configured} onClick={() => run(() => clearEndpointUrl(name), 'Cleared.')}>
-          Clear
-        </button>
+        <ConfirmButton name={label} label="Clear…" verb="clear" confirmLabel="Confirm clear" size="sm"
+          disabled={busy || !configured} onConfirm={() => run(() => clearEndpointUrl(name), 'Cleared.')} />
         <span className="muted" role="status">{note ?? clearNote ?? ''}</span>
       </div>
     </div>

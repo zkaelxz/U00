@@ -73,6 +73,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   expect('line_ids' in bodies[0]).toBe(false)
 
   await page.getByRole('button', { name: /^Cancel / }).click()
+  await page.getByRole('button', { name: 'Confirm cancel' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 

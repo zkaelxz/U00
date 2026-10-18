@@ -168,7 +168,10 @@ test('403: says the viewer cannot see jobs here', async ({ page }) => {
 test('Cancel stops a running job; a refused cancel shows the server message', async ({ page }) => {
   const log = await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/jobs')
+  // Past 10% progress, Cancel asks first; the queued Dub below is one click.
   await rows(page).first().getByRole('button', { name: 'Cancel Translate Signal' }).click()
+  expect(log.cancelled).toEqual([])
+  await rows(page).first().getByRole('button', { name: 'Confirm cancel' }).click()
   await expect.poll(() => log.cancelled).toEqual(['translate_3'])
   // The next read says cancelled, so the job leaves Active.
   await expect(rows(page)).toHaveCount(1)
@@ -366,11 +369,12 @@ test('a GET read before a job finished, landing after its "done" push, does not 
   }
 })
 
-test('the stream down: the page says it updates every 10 seconds', async ({ page }) => {
+test('the stream down: the list still loads and no polling line is shown', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.route('**/api/events?*', (route) => route.fulfill({ status: 429, json: { error: { code: 'x', message: 'no' } } }))
   await page.goto('/#/jobs')
-  await expect(page.getByTestId('jobs-polling')).toHaveText('Updating every 10 seconds.')
+  await expect(page.getByTestId('jobs-count')).toHaveText('2')
+  await expect(page.getByTestId('jobs-polling')).toHaveCount(0)
 })
 
 const me = (permissions: string[], user: Record<string, unknown>) => ({

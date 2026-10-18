@@ -57,7 +57,9 @@ test('an edit whose save fails on the way out of Review is offered back on retur
   await expect(page.getByRole('status').filter({ hasText: 'Your unsaved edit to #1 is back.' })).toBeVisible()
   const row = rows(page).nth(0)
   await expect(row.getByLabel('Translation')).toHaveValue('Hello, kept')
+  const saved = page.waitForResponse((r) => r.url().includes('/api/lines/dramas/3/lines/') && r.request().method() === 'POST')
   await row.getByLabel('Translation').press('Control+s')
+  await saved
   await row.getByLabel('Translation').press('Escape')
   await expect(row.getByTestId('line-en')).toContainText('Hello, kept')
 
@@ -118,4 +120,23 @@ test('Use this version waits while the open edit cannot be saved', async ({ page
   await expect(page.getByTestId('records-held')).toHaveText('Save or discard your edit to #1 first.')
   expect(activated).toBe(false)
   await expect(row.getByLabel('Translation')).toHaveValue('Hello, not saved')
+})
+
+test('Esc keeps a typed edit open with a warning; a second Esc discards it', async ({ page }) => {
+  await open(page)
+  const row = await typeInto(page, 0, 'Typed but not saved')
+  await row.getByLabel('Translation').press('Escape')
+  await expect(row.getByLabel('Translation')).toHaveValue('Typed but not saved')
+  await expect(row.getByText('Unsaved changes. Press Esc again to discard.')).toBeVisible()
+  await row.getByLabel('Translation').press('Escape')
+  await expect(row.getByLabel('Translation')).toHaveCount(0)
+  await expect(row.getByTestId('line-en')).toHaveText('Hello there')
+})
+
+test('Esc on an edit with nothing typed closes it at once', async ({ page }) => {
+  await open(page)
+  const row = rows(page).nth(0)
+  await row.getByTestId('line-en').click()
+  await row.getByLabel('Translation').press('Escape')
+  await expect(row.getByLabel('Translation')).toHaveCount(0)
 })

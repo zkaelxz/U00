@@ -15,6 +15,7 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { buttonClass } from '../../components/uiClasses'
 import type { JellyfinConfig, JellyfinLanguage, JellyfinScanReport } from '../../types/jellyfin'
 import { itemLabel, jellyfinErrorMessage, jellyfinSummary, scanSummary } from './jellyfin'
@@ -156,10 +157,8 @@ function JellyfinControls() {
                   Save key
                 </button>
                 {cfg.key_configured && (
-                  <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy}
-                    onClick={() => call(clearJellyfinKey(), load, true)}>
-                    Remove key
-                  </button>
+                  <ConfirmButton name="Jellyfin key" label="Remove key…" ariaLabel="Remove key" verb="remove" confirmLabel="Confirm remove" size="sm"
+                    disabled={busy} onConfirm={() => call(clearJellyfinKey(), load, true)} />
                 )}
               </div>
             </div>

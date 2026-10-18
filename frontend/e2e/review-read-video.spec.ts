@@ -36,6 +36,7 @@ test('reads the frame at a line start into that line, unsaved until saved', asyn
   await expect(panel.getByText("Put into the line's source text")).toBeVisible()
 
   await rows.nth(1).getByLabel('Source').press('Escape')
+  await rows.nth(1).getByLabel('Source').press('Escape')
   await expect(rows.nth(1)).not.toContainText('你真的以为我会放过你吗')
 })
 

@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
+import { useResetUndo } from '../../../hooks/useResetUndo'
+import { ResetButton } from '../../../components/ResetButton'
 import { getAssStyleOptions, getReadiness } from '../../../api/export'
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { RetryBanner } from '../../../components/RetryBanner'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
 import { routeHref } from '../../../router'
-import { buttonClass } from '../../../components/uiClasses'
 import { browserStorage, readPref, writePref } from '../../../hooks/usePersistedState'
 import { useReadiness } from '../../../hooks/useReadiness'
 import { useStageDraft } from '../../../hooks/useStageDraft'
@@ -63,10 +64,17 @@ export default function ExportStage() {
     saveDraft({ fmt, form })
     writePref(browserStorage(), LAST_CHOICE_PREF, { fmt, field: form.field })
   }, [saveDraft, fmt, form])
+  const resetUndo = useResetUndo()
   const resetToDefaults = () => {
-    clearDraft()
-    setFmt('srt')
-    setForm(emptyAssForm(options?.default_preset ?? ''))
+    const prev = { fmt, form }
+    resetUndo.reset(() => {
+      clearDraft()
+      setFmt('srt')
+      setForm(emptyAssForm(options?.default_preset ?? ''))
+    }, () => {
+      setFmt(prev.fmt)
+      setForm(prev.form)
+    })
   }
 
   useEffect(() => {
@@ -122,7 +130,7 @@ export default function ExportStage() {
         />
         {fmt === 'ass' && assStyle}
         <div className="actions">
-          <button type="button" className={buttonClass('ghost')} onClick={resetToDefaults}>Reset to defaults</button>
+          <ResetButton offered={resetUndo.offered} onReset={resetToDefaults} onUndo={resetUndo.undo} />
         </div>
       </ExportBlock>
     ),
